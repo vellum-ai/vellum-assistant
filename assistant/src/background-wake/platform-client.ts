@@ -1,6 +1,19 @@
 import { VellumPlatformClient } from "../platform/client.js";
 import type { BackgroundWakeIntent } from "./next-wake.js";
 
+/**
+ * Upper bound for a single background-wake platform request.
+ *
+ * Every call here is a lightweight control-plane request (publish/clear the
+ * wake intent, renew/complete a lease), so it must settle quickly. The bound
+ * exists because the publisher serializes refreshes behind a single in-flight
+ * promise: a request that hangs (half-open socket during a platform reconnect)
+ * would wedge that promise and silence every future refresh. The timeout
+ * guarantees each request rejects instead of hanging, so the publisher always
+ * makes forward progress.
+ */
+const PLATFORM_REQUEST_TIMEOUT_MS = 15_000;
+
 export type BackgroundWakeIntentClientResult = {
   status: "published" | "cleared" | "skipped";
   httpStatus?: number;
@@ -22,7 +35,9 @@ export async function publishBackgroundWakeIntent(
   intent: BackgroundWakeIntent,
 ): Promise<BackgroundWakeIntentClientResult> {
   const client = await VellumPlatformClient.create();
-  if (!client) return { status: "skipped", reason: "missing_platform_client" };
+  if (!client) {
+    return { status: "skipped", reason: "missing_platform_client" };
+  }
   if (!client.platformAssistantId) {
     return { status: "skipped", reason: "missing_platform_assistant_id" };
   }
@@ -38,6 +53,7 @@ export async function publishBackgroundWakeIntent(
       actual_next_due_at: toIsoString(intent.actualNextDueAt),
       source_payload: intent.sourcePayload,
     }),
+    signal: AbortSignal.timeout(PLATFORM_REQUEST_TIMEOUT_MS),
   });
 
   await throwIfNotOk(response, "publish background wake intent");
@@ -48,7 +64,9 @@ export async function clearBackgroundWakeIntent(
   intentSnapshot: BackgroundWakeIntentSnapshot = null,
 ): Promise<BackgroundWakeIntentClientResult> {
   const client = await VellumPlatformClient.create();
-  if (!client) return { status: "skipped", reason: "missing_platform_client" };
+  if (!client) {
+    return { status: "skipped", reason: "missing_platform_client" };
+  }
   if (!client.platformAssistantId) {
     return { status: "skipped", reason: "missing_platform_assistant_id" };
   }
@@ -63,6 +81,7 @@ export async function clearBackgroundWakeIntent(
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(PLATFORM_REQUEST_TIMEOUT_MS),
   });
 
   await throwIfNotOk(response, "clear background wake intent");
@@ -73,7 +92,9 @@ export async function renewBackgroundWakeLease(
   leaseId: string,
 ): Promise<BackgroundWakeLeaseClientResult> {
   const client = await VellumPlatformClient.create();
-  if (!client) return { status: "skipped", reason: "missing_platform_client" };
+  if (!client) {
+    return { status: "skipped", reason: "missing_platform_client" };
+  }
   if (!client.platformAssistantId) {
     return { status: "skipped", reason: "missing_platform_assistant_id" };
   }
@@ -84,6 +105,7 @@ export async function renewBackgroundWakeLease(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
+      signal: AbortSignal.timeout(PLATFORM_REQUEST_TIMEOUT_MS),
     },
   );
 
@@ -98,7 +120,9 @@ export async function completeBackgroundWakeLease(args: {
   nextIntent?: BackgroundWakeIntent | null;
 }): Promise<BackgroundWakeLeaseClientResult> {
   const client = await VellumPlatformClient.create();
-  if (!client) return { status: "skipped", reason: "missing_platform_client" };
+  if (!client) {
+    return { status: "skipped", reason: "missing_platform_client" };
+  }
   if (!client.platformAssistantId) {
     return { status: "skipped", reason: "missing_platform_assistant_id" };
   }
@@ -106,7 +130,9 @@ export async function completeBackgroundWakeLease(args: {
   const body: Record<string, unknown> = {
     status: args.status,
   };
-  if (args.error) body.error = args.error;
+  if (args.error) {
+    body.error = args.error;
+  }
   if ("nextIntent" in args) {
     body.next_intent = args.nextIntent
       ? {
@@ -126,6 +152,7 @@ export async function completeBackgroundWakeLease(args: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(PLATFORM_REQUEST_TIMEOUT_MS),
     },
   );
 
@@ -153,7 +180,9 @@ function toIsoString(timestampMs: number): string {
 }
 
 async function throwIfNotOk(response: Response, action: string): Promise<void> {
-  if (response.ok) return;
+  if (response.ok) {
+    return;
+  }
 
   let body = "";
   try {

@@ -30,7 +30,9 @@ const UNSUPPORTED_HTML = `<p>This app uses the retired single-file format and ca
 mock.module("../apps/app-store.js", () => ({
   resolveAppSource: (id: string) => {
     const app = apps.get(id);
-    if (!app) return null;
+    if (!app) {
+      return null;
+    }
     return {
       id,
       name: app.name,
@@ -72,7 +74,9 @@ import type { ResponseHeaderArgs } from "../runtime/routes/types.js";
 /** Find a route by operationId. */
 function getRoute(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route not found: ${operationId}`);
+  if (!route) {
+    throw new Error(`Route not found: ${operationId}`);
+  }
   return route;
 }
 
@@ -82,7 +86,9 @@ function getResponseHeaders(
   args: ResponseHeaderArgs,
 ): Record<string, string> {
   const route = getRoute(operationId);
-  if (!route.responseHeaders) return {};
+  if (!route.responseHeaders) {
+    return {};
+  }
   if (typeof route.responseHeaders === "function") {
     return route.responseHeaders(args);
   }
@@ -95,7 +101,9 @@ function parseCsp(header: string): Record<string, string> {
   for (const part of header.split(";")) {
     const trimmed = part.trim();
     const spaceIdx = trimmed.indexOf(" ");
-    if (spaceIdx === -1) continue;
+    if (spaceIdx === -1) {
+      continue;
+    }
     directives[trimmed.slice(0, spaceIdx)] = trimmed.slice(spaceIdx + 1);
   }
   return directives;

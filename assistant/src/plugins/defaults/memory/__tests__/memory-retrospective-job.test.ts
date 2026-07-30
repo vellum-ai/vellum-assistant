@@ -78,6 +78,7 @@ type ConversationStub = {
   inferenceProfileExpiresAt?: number | null;
   originChannel?: string | null;
   originInterface?: string | null;
+  lastMessageAt?: number | null;
 };
 let conversationOverrides: Record<string, ConversationStub> = {};
 
@@ -304,13 +305,23 @@ mock.module("../../../../persistence/jobs-store.js", () => ({
   },
 }));
 
-// proc-to-skills gate. Drives both `buildForkInstruction`'s skill-authoring
-// section and the wake's origin pin behavior. Default inactive (remember-only),
-// matching a stock install; tests flip it on to assert the authoring section.
-let mockProcToSkillsActive = false;
+// The v3-tier gate. Drives both `buildForkInstruction`'s skill-authoring
+// section (proc-to-skills) and the wake's origin pin behavior. Default inactive
+// (remember-only), matching a stock install; tests flip it on to assert the
+// authoring section.
+let mockV3TierActive = false;
 mock.module("../../../../config/memory-v3-gate.js", () => ({
-  isProcToSkillsActive: () => mockProcToSkillsActive,
-  isMemoryV3Live: () => mockProcToSkillsActive,
+  isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
+    config?.memory?.enabled !== false,
+  isV3TierActive: () => mockV3TierActive,
+  isMemoryV3Live: () => mockV3TierActive,
+  usesConceptPageMemory: (memory?: {
+    enabled?: boolean;
+    v2?: { enabled?: boolean };
+    v3?: { live?: boolean };
+  }) =>
+    memory?.enabled !== false &&
+    (memory?.v3?.live === true || memory?.v2?.enabled === true),
 }));
 
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
@@ -335,6 +346,8 @@ function makeConfig(
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
         matchConversationProfile: overrides.matchConversationProfile ?? false,
         promptPath: overrides.promptPath ?? null,
+        sweepIntervalMs: 8 * 60 * 60 * 1000,
+        sweepLookbackMs: 7 * 24 * 60 * 60 * 1000,
       },
     },
     ui: {
@@ -419,7 +432,7 @@ describe("memoryRetrospectiveJob", () => {
     loadedConversations = {};
     mockResolvedUserSlug = "alice";
     resolveUserSlugCalls = [];
-    mockProcToSkillsActive = false;
+    mockV3TierActive = false;
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -439,6 +452,34 @@ describe("memoryRetrospectiveJob", () => {
     // findMostRecentRetrospectiveFor.
     expect(forkCalls).toHaveLength(1);
     expect(forkCalls[0]!.conversationId).toBe("src-conv-1");
+  });
+
+  test("dormant source beyond the sweep lookback: completed as a no-op, both pointers untouched", async () => {
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      lastMessageAt: Date.now() - 8 * 24 * 60 * 60 * 1000,
+    };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("source_dormant");
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(0);
+    expect(wakeCalls).toHaveLength(0);
+    expect(forkCalls).toHaveLength(0);
+  });
+
+  test("recent source inside the sweep lookback runs normally", async () => {
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      lastMessageAt: Date.now() - 60_000,
+    };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
   });
 
   test("no-new-messages early return: neither field changes, no wake, no fork", async () => {
@@ -629,7 +670,7 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("wake allows memory saves + skill authoring and suppresses the internal wake surface", async () => {
-    mockProcToSkillsActive = true;
+    mockV3TierActive = true;
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(forkCalls).toHaveLength(1);
@@ -653,7 +694,7 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("wake is remember-only when proc-to-skills is inactive", async () => {
-    mockProcToSkillsActive = false;
+    mockV3TierActive = false;
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(wakeCalls).toHaveLength(1);
@@ -1799,7 +1840,7 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("proc-to-skills active: instruction carries the pre-check + dedup + companion-file directives", async () => {
-    mockProcToSkillsActive = true;
+    mockV3TierActive = true;
 
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
@@ -1823,6 +1864,12 @@ describe("memoryRetrospectiveJob", () => {
     // Companion-file capture of failure modes / gotchas / cached values.
     expect(instructionText).toContain("references/failure-modes.md");
     expect(instructionText).toContain("`files`");
+
+    // Reusable-scripts directive: verbatim executed code only, invocation
+    // anchored to the skill folder via {baseDir}.
+    expect(instructionText).toContain("`scripts/`");
+    expect(instructionText).toContain("code the trace does not prove ran");
+    expect(instructionText).toContain("{baseDir}/scripts/");
 
     // Category directive: pick the best-fitting canonical Skills-UI bucket.
     expect(instructionText).toContain("`category`");

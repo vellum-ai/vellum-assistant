@@ -28,7 +28,10 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { routes } from "@/utils/routes";
 
-import { AssistantStage, useAssistantStage } from "./components/assistant-stage";
+import {
+  AssistantStage,
+  useAssistantStage,
+} from "./components/assistant-stage";
 import { PersonalitySliderRow } from "./components/personality-slider-row";
 import { applyPersonalityUpdate } from "./identity-actions/apply-personality-update";
 import {
@@ -44,7 +47,8 @@ export function PersonalityPage() {
   const assistantId = useActiveAssistantId();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { components, traits, customImageUrl } = useAssistantAvatar(assistantId);
+  const { components, traits, customImageUrl } =
+    useAssistantAvatar(assistantId);
   const identityQuery = useAssistantIdentityDetails(assistantId);
   const slidersQuery = useQuery({
     queryKey: personalitySlidersQueryKey(assistantId),
@@ -80,7 +84,9 @@ export function PersonalityPage() {
         toast.success("Personality updated — come say hi!");
         void navigate(routes.identity);
       } else {
-        toast.error("The personality update didn't go through. Please try again.");
+        toast.error(
+          "The personality update didn't go through. Please try again.",
+        );
       }
     });
   };
@@ -147,7 +153,10 @@ function PersonalityBody({
         className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6"
         style={{ paddingBottom: bottomReserve }}
       >
-        <div className="w-full min-h-14 shrink-[4]" style={{ flexBasis: "12%" }} />
+        <div
+          className="w-full min-h-14 shrink-[4]"
+          style={{ flexBasis: "12%" }}
+        />
 
         <div className="flex shrink-0 flex-col items-center gap-2 text-center">
           <h1
@@ -156,10 +165,7 @@ function PersonalityBody({
           >
             Shape my personality
           </h1>
-          <p
-            className="max-w-md text-[15px]"
-            style={{ color: tone.fgMuted }}
-          >
+          <p className="max-w-md text-[15px]" style={{ color: tone.fgMuted }}>
             Slide the dials, then hit update — I&rsquo;ll rewrite myself to
             match.
           </p>
@@ -190,7 +196,7 @@ function PersonalityBody({
           type="button"
           onClick={onUpdate}
           disabled={applying}
-          className="flex h-11 w-[240px] shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition-transform duration-150 active:scale-[0.97] disabled:cursor-default disabled:opacity-80 disabled:active:scale-100"
+          className="flex min-h-11 min-w-[240px] max-w-full shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[10px] px-6 py-2 text-body-medium-default transition-transform duration-150 active:scale-[0.97] disabled:cursor-default disabled:opacity-80 disabled:active:scale-100"
           style={{
             backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
             color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
@@ -199,13 +205,15 @@ function PersonalityBody({
           {applying ? (
             <>
               <div
-                className="h-4 w-4 animate-spin rounded-full border-2 border-transparent"
+                className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-transparent"
                 style={{
                   borderTopColor: tone.isLight ? "#FFFFFF" : "#1A1A1A",
                   borderRightColor: tone.isLight ? "#FFFFFF" : "#1A1A1A",
                 }}
               />
-              {assistantName} is rewriting itself…
+              <span className="min-w-0 text-center">
+                {assistantName} is rewriting itself…
+              </span>
             </>
           ) : (
             <>

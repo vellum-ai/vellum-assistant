@@ -53,7 +53,9 @@ export function stableUsageSeriesGroupKey(
   groupBy: GroupByDimension,
   groupKey: string | null,
 ): string {
-  if (groupKey !== null) return `${VALUE_GROUP_PREFIX}${groupKey}`;
+  if (groupKey !== null) {
+    return `${VALUE_GROUP_PREFIX}${groupKey}`;
+  }
   return `${NULL_GROUP_PREFIX}${groupBy}`;
 }
 
@@ -94,7 +96,9 @@ export function bucketGroupedUsageEvents(
 
   for (const row of rows) {
     const [bucket] = bucketEvents([row], range, tz);
-    if (!bucket) continue;
+    if (!bucket) {
+      continue;
+    }
 
     let groupedBucket = buckets.get(bucket.bucketId);
     if (!groupedBucket) {

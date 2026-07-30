@@ -60,7 +60,8 @@ export function VoiceAvatar({
   size = DEFAULT_SIZE,
 }: VoiceAvatarProps) {
   const reduce = useReducedMotion();
-  const { components, traits, customImageUrl } = useAssistantAvatar(assistantId);
+  const { components, traits, customImageUrl } =
+    useAssistantAvatar(assistantId);
 
   const ampRef = useRef<HTMLDivElement | null>(null);
   // Keep the latest amplitude source without re-initializing the rAF loop.

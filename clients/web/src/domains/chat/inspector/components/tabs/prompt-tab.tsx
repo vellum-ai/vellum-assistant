@@ -257,7 +257,9 @@ function isToolResultKind(kind: string): boolean {
 
 function sectionTitle(section: LLMContextSection, index: number): string {
   const lbl = section.label?.trim();
-  if (lbl) return lbl;
+  if (lbl) {
+    return lbl;
+  }
   return `${humanKindLabel(section.kind)} ${index + 1}`;
 }
 
@@ -270,7 +272,9 @@ function humanKindLabel(kind: string): string {
 }
 
 function languageFormatLabel(language: string | null): string | null {
-  if (!language) return null;
+  if (!language) {
+    return null;
+  }
   switch (language.toLowerCase()) {
     case "json":
     case "application/json":

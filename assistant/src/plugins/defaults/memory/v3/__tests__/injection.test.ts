@@ -29,8 +29,8 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { InjectionBlock } from "../../../../types.js";
 import { unwrapMemoryBlock } from "../../memory-marker.js";
@@ -72,7 +72,9 @@ const observeTurnSpy = mock(
     turnIndex: number,
   ): Promise<OrchestrateResult | null> => {
     const value = turnResults.get(turnIndex) ?? null;
-    if (value instanceof Error) throw value;
+    if (value instanceof Error) {
+      throw value;
+    }
     return value;
   },
 );
@@ -96,9 +98,9 @@ let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
-  migrateAddMemoryV3EverInjected(db);
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
+  ensureMemoryV3EverInjectedSchema(memorySqlite);
   // The prune valve plans only against slugs whose card sections are
   // locatable in persisted `memoryV3InjectedBlock` rows
   // (`collectPersistedV3Cards`) — minimal `messages` shape it reads.
@@ -126,6 +128,10 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
         ),
   getMemorySqlite: () =>
     injectionMockActive ? memorySqlite : realDbConnection.getMemorySqlite(),
+  getMemoryDb: () =>
+    injectionMockActive
+      ? drizzle(memorySqlite, { schema })
+      : realDbConnection.getMemoryDb(),
 }));
 
 // The injector reads `memory.enabled` / `memory.v3.live` / `memory.v3.spotlight`
@@ -257,7 +263,9 @@ const GUARDIAN_TRUST = {
  *  (and the prune-valve schedule) now happens. */
 function commitCardsBlock(block: InjectionBlock | null): void {
   const commit = block?.meta?.[MEMORY_V3_COMMIT_META_KEY];
-  if (typeof commit === "function") (commit as () => void)();
+  if (typeof commit === "function") {
+    (commit as () => void)();
+  }
 }
 
 /** Produce the cards block WITHOUT committing — what assembly observes on a
@@ -626,6 +634,29 @@ describe("memoryV3SpotlightInjector — ephemeral section spotlight", () => {
     expect(block!.text).toContain("page-a.md § Alpha");
     expect(block!.text).not.toContain("page-b.md");
     expect(block!.text).not.toContain("page-c.md");
+  });
+
+  test("capability slugs never spotlight — their sections are full-help index slices", async () => {
+    liveEnabled = true;
+    const cliSection = section(
+      "cli-commands/schedules",
+      "CLI command: schedules",
+      "Full help:\n  --cron <expr>  the schedule to run on",
+    );
+    turnResults.set(
+      0,
+      result(
+        ["cli-commands/schedules", "page-a"],
+        [
+          ["cli-commands/schedules", cliSection],
+          ["page-a", sectionA],
+        ],
+      ),
+    );
+    const block = await produceSpotlight("conv-1", 0);
+    expect(block!.text).toContain("page-a.md § Alpha");
+    expect(block!.text).not.toContain("cli-commands/schedules");
+    expect(block!.text).not.toContain("Full help:");
   });
 
   test("carries the previous windowTurns turns' entries, ages older ones out, never accumulates", async () => {

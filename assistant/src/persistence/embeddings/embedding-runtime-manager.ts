@@ -283,8 +283,12 @@ export class EmbeddingRuntimeManager {
   /** Check if the embedding runtime is installed and up-to-date. */
   isReady(): boolean {
     const manifest = this.readManifest();
-    if (!manifest) return false;
-    if (manifest.runtimeVersion !== RUNTIME_VERSION) return false;
+    if (!manifest) {
+      return false;
+    }
+    if (manifest.runtimeVersion !== RUNTIME_VERSION) {
+      return false;
+    }
 
     // Verify both worker scripts exist and a bun binary is available
     return (
@@ -312,7 +316,9 @@ export class EmbeddingRuntimeManager {
   getBunPath(): string | undefined {
     // Check per-runtime bin/ directory for backwards compat
     const legacyBun = join(this.baseDir, "bin", "bun");
-    if (existsSync(legacyBun)) return legacyBun;
+    if (existsSync(legacyBun)) {
+      return legacyBun;
+    }
 
     return findBun();
   }
@@ -323,7 +329,9 @@ export class EmbeddingRuntimeManager {
    * PromiseGuard, and cross-process calls are serialized via a lock file.
    */
   async ensureInstalled(signal?: AbortSignal): Promise<void> {
-    if (this.isReady()) return;
+    if (this.isReady()) {
+      return;
+    }
 
     // Deduplicate concurrent in-process calls
     await installGuard.run(() => this.acquireLockAndInstall(signal));
@@ -337,7 +345,9 @@ export class EmbeddingRuntimeManager {
 
   private async acquireLockAndInstall(signal?: AbortSignal): Promise<void> {
     // Re-check after acquiring the in-process guard
-    if (this.isReady()) return;
+    if (this.isReady()) {
+      return;
+    }
 
     // Cross-process lock to prevent duplicate downloads
     const lockPath = join(this.baseDir, ".downloading");
@@ -430,7 +440,9 @@ export class EmbeddingRuntimeManager {
       // Ensure bun is available (downloads to shared location if needed)
       await ensureBun();
 
-      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
 
       log.info("npm packages downloaded, stripping non-platform binaries");
 
@@ -519,8 +531,9 @@ export class EmbeddingRuntimeManager {
 
       // Remove old install (preserving dotfiles like .gitignore, .downloading, temp dirs)
       for (const entry of readdirSync(this.baseDir)) {
-        if (entry.startsWith(".") || entry === tmpDir.split("/").pop())
+        if (entry.startsWith(".") || entry === tmpDir.split("/").pop()) {
           continue;
+        }
         rmSync(join(this.baseDir, entry), { recursive: true, force: true });
       }
 
@@ -556,14 +569,17 @@ export class EmbeddingRuntimeManager {
     } finally {
       // Clean up temp directory and any leftover preserve dirs
       rmSync(tmpDir, { recursive: true, force: true });
-      if (tmpModelCache)
+      if (tmpModelCache) {
         rmSync(tmpModelCache, { recursive: true, force: true });
+      }
     }
   }
 
   private readManifest(): VersionManifest | null {
     const manifestPath = join(this.baseDir, "version.json");
-    if (!existsSync(manifestPath)) return null;
+    if (!existsSync(manifestPath)) {
+      return null;
+    }
     try {
       return JSON.parse(readFileSync(manifestPath, "utf-8"));
     } catch {

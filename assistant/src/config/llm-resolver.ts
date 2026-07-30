@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import {
   getCatalogProviderForModel,
   isModelInCatalog,
@@ -10,8 +11,7 @@ import {
 } from "../providers/vellum-model-routing.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
 import {
-  getEffectiveProfile,
-  isDefaultProfileKey,
+  isMatrixProfileKey,
   resolveDefaultProfileForProvider,
 } from "./default-profile-catalog.js";
 import {
@@ -19,6 +19,7 @@ import {
   LLMConfigBase,
   type LLMSchema,
   type ProfileEntry,
+  routingIdentityModelIssue,
 } from "./schemas/llm.js";
 
 /**
@@ -55,7 +56,9 @@ import {
  * sits at the top of the chain for every call site.
  *
  * Profile names are resolved against the effective profile catalog
- * (code-defined defaults + workspace `llm.profiles`; see `getEffectiveProfile`).
+ * (code-defined defaults + workspace `llm.profiles`), with default profile
+ * keys resolved through `llm.defaultProvider`'s column of the intent ×
+ * provider matrix (see `resolveDefaultProfileForProvider`).
  * A "mix" profile is expanded to one of its arms by a seeded weighted pick (see
  * `resolveProfileFragment` and `opts.selectionSeed`), uniformly wherever a name
  * is dereferenced. Missing references silently fall through (no throw) so the
@@ -231,7 +234,7 @@ function providerAwareEntry(
     name,
     defaultProvider,
   );
-  if (!isDefaultProfileKey(name) || entry?.mix != null) {
+  if (!isMatrixProfileKey(name) || entry?.mix != null) {
     return entry;
   }
   if (
@@ -378,10 +381,16 @@ function resolveOverrideOrDefault(
   const applicableProvider =
     (winnerFragment.provider as string | undefined) ??
     CODE_DEFAULT_BASE.provider;
+  // A routing-identity winner serves any model its route can dispatch —
+  // identity + model is the complete shape, so no provider implication.
+  const winnerServesModel = (model: string): boolean =>
+    ROUTING_IDENTITY_PROVIDERS.has(applicableProvider)
+      ? routingIdentityModelIssue(applicableProvider, model) === null
+      : isModelInCatalog(applicableProvider, model);
   if (
     typeof tweak.model === "string" &&
     tweak.provider === undefined &&
-    !isModelInCatalog(applicableProvider, tweak.model)
+    !winnerServesModel(tweak.model)
   ) {
     const implied = getCatalogProviderForModel(tweak.model);
     if (implied !== undefined) {
@@ -402,9 +411,28 @@ function resolveOverrideOrDefault(
     }
   }
 
-  return finalize(
-    deepMerge(CODE_DEFAULT_BASE as unknown as Mergeable, winnerFragment, tweak),
+  const merged = deepMerge(
+    CODE_DEFAULT_BASE as unknown as Mergeable,
+    winnerFragment,
+    tweak,
   );
+  // A vellum winner's managed routing survives a concrete-provider tweak:
+  // call-site fragments carry no connection, so a tweak pinning e.g.
+  // anthropic over a managed default would otherwise resolve to a
+  // connection-less concrete provider — stranded on platform installs with
+  // no BYOK row. The tweak keeps every field it sets; the winner contributes
+  // its routing via the provider-agnostic managed connection, which serves
+  // any managed-routable upstream.
+  if (
+    winnerFragment.provider === "vellum" &&
+    typeof merged.provider === "string" &&
+    merged.provider !== "vellum" &&
+    merged.provider_connection == null &&
+    MANAGED_ROUTABLE_PROVIDERS.has(merged.provider)
+  ) {
+    merged.provider_connection = VELLUM_MANAGED_CONNECTION_NAME;
+  }
+  return finalize(merged);
 }
 
 /** The winner's config fields: metadata stripped, sampling and logitBias
@@ -487,8 +515,7 @@ function resolveProfileFragment(
   name: string | undefined,
   llm: z.infer<typeof LLMSchema>,
   opts: ResolveCallSiteOpts,
-  lookupEntry: (name: string) => ProfileEntry | undefined = (n) =>
-    getEffectiveProfile(llm.profiles, n),
+  lookupEntry: (name: string) => ProfileEntry | undefined,
 ): ProfileEntry | undefined {
   if (name == null) {
     return undefined;

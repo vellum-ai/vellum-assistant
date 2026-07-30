@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { hasSetConstructs } from "../../schedule/recurrence-engine.js";
 import {
   describeCronExpression,
@@ -6,6 +8,10 @@ import {
   getScheduleRuns,
   listSchedules,
 } from "../../schedule/schedule-store.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 function describeSchedule(job: {
@@ -13,7 +19,9 @@ function describeSchedule(job: {
   expression: string | null;
   cronExpression: string | null;
 }): string {
-  if (job.expression == null) return "One-time";
+  if (job.expression == null) {
+    return "One-time";
+  }
   if (job.syntax === "rrule") {
     const label = hasSetConstructs(job.expression) ? "[RRULE set] " : "";
     return `${label}${job.expression}`;
@@ -29,12 +37,26 @@ function describeAuthoredPurpose(job: { description: string }): string {
   return job.description || "(none)";
 }
 
+/**
+ * Model-input schema, `safeParse`d at the top of {@link executeScheduleList}.
+ * Same in-tool pattern and drift guard as {@link scheduleCreateInputSchema}
+ * in `create.ts` — see that schema's doc comment for the framework.
+ */
+export const scheduleListInputSchema = z.looseObject({
+  enabled_only: nullAsOmitted(z.boolean()),
+  job_id: nullAsOmitted(z.string()),
+});
+
 export async function executeScheduleList(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const jobId = input.job_id as string | undefined;
-  const enabledOnly = (input.enabled_only as boolean) ?? false;
+  const parsedInput = scheduleListInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("schedule_list", parsedInput.error);
+  }
+  const jobId = parsedInput.data.job_id;
+  const enabledOnly = parsedInput.data.enabled_only ?? false;
 
   // Detail mode for a specific job
   if (jobId) {

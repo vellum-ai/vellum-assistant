@@ -102,6 +102,7 @@ export type { LLMCallSite } from "../config/schemas/llm.js";
 export type {
   AgentLoopExitReason,
   ConversationDeletedContext,
+  ConversationsClearedContext,
   HookBroadcast,
   HookFunction,
   InitContext,
@@ -126,7 +127,7 @@ export { RiskLevel } from "./types.js";
 // Workspace-local plugins resolve these via the boot-time shim, which
 // re-binds each from the assistant's globalThis-parked namespace so they
 // share module identity with the assistant's own singletons.
-export type { AssistantEvent } from "../runtime/assistant-event.js";
+export type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 export type {
   AssistantEventCallback,
   AssistantEventFilter,
@@ -141,8 +142,20 @@ export type {
 // or mutate hub state are withheld — both would let a plugin drive privileged
 // host execution without the host proxies' approval gate.
 export type { PluginEventHub } from "./event-hub-facade.js";
+/**
+ * @deprecated Direct hub access is being replaced by narrower, purpose-built
+ * importable helpers so plugins don't hold the general publish/subscribe
+ * surface. To emit an event, prefer {@link publishEvent}; avoid new usage of
+ * the raw hub.
+ */
 export { pluginAssistantEventHub as assistantEventHub } from "./event-hub-facade.js";
 export { getModelProfiles } from "./model-profiles.js";
+// Purpose-built publish wrapper: emit a runtime event to the assistant's event
+// hub without holding the general hub handle. Route/hook authors surfacing a UI
+// invalidation (e.g. `sync_changed`) import this. Delegates to the same
+// capability-restricted facade, so host-proxy control events stay rejected.
+export type { AssistantEventPublishOptions } from "../runtime/assistant-event-publish-options.js";
+export { publishEvent } from "./publish-event.js";
 // Check whether a model or profile can process image input. Accepts a concrete
 // model id, a profile key, or a `ModelProfileInfo`; a bare string is resolved
 // as a model id first and then as a profile key. Profile resolution merges over
@@ -216,6 +229,10 @@ export {
   getAssistantName,
   resolveUserName,
 } from "../daemon/identity-helpers.js";
+// Absolute path to the active workspace directory. A plugin that reads or
+// writes files under the workspace (e.g. its own `plugins/<name>/data/`
+// directory) resolves them against this instead of hardcoding a base path.
+export { getWorkspaceDir } from "../util/platform.js";
 // Declarative help for the top-level `assistant` CLI commands that have adopted
 // the static-help split. Plugins (e.g. the memory capability indexer) read this
 // to embed CLI command capabilities without importing the CLI action graph.
@@ -285,6 +302,25 @@ export {
 export type { SynthesizeTextOptions } from "../tts/synthesize-text.js";
 export { synthesizeText, TtsSynthesisError } from "../tts/synthesize-text.js";
 export type { TtsSynthesisResult } from "../tts/types.js";
+// Streaming speech-to-text — open a live transcription session against the
+// assistant's globally configured STT provider stack. The plugin feeds audio
+// chunks via `sendAudio` and receives partial/final transcript events through
+// the `start(onEvent)` callback, closing with `stop`. `SttStreamServerEvent`
+// and its variants type the events handed to `onEvent`; `SttErrorCategory`
+// classifies `error` events; `SttProviderId` names the resolved session's
+// provider.
+export type {
+  StreamingTranscriber,
+  SttErrorCategory,
+  SttProviderId,
+  SttStreamServerClosedEvent,
+  SttStreamServerErrorEvent,
+  SttStreamServerEvent,
+  SttStreamServerFinalEvent,
+  SttStreamServerFinalizedEvent,
+  SttStreamServerPartialEvent,
+} from "../stt/types.js";
+export { openTranscriptionSession } from "./transcription-session.js";
 // Conversation agent-loop turn — run a full conversation turn (persist user
 // message, execute the agent loop with history/tools/compaction/injections,
 // return the assistant's full content-block response). Accepts ContentBlock[]
@@ -297,3 +333,18 @@ export type {
   RunConversationTurnResult,
 } from "./conversation-turn.js";
 export { runConversationTurn } from "./conversation-turn.js";
+// Live voice — drive a single client's real-time voice session (STT → agent
+// turn → TTS, with server-VAD turn-taking, pauses, and barge-in) over a
+// transport the plugin owns. The plugin brings only a `send` callback (e.g.
+// its own WebSocket route under `/x/plugins/<name>/`); `createLiveVoiceConnection`
+// resolves the daemon-wide session manager internally, so a plugin session
+// shares the same single-active-session lock as the built-in HTTP transport.
+// Feed inbound frames to `handleMessage` and call `release` when the transport
+// closes. `LiveVoiceServerFrame` types the frames handed to `send`.
+export type {
+  LiveVoiceConnection,
+  LiveVoiceFrameSender,
+} from "../live-voice/live-voice-connection.js";
+export { createLiveVoiceConnection } from "../live-voice/live-voice-connection.js";
+export type { LiveVoiceSessionCloseReason } from "../live-voice/live-voice-session-manager.js";
+export type { LiveVoiceServerFrame } from "../live-voice/protocol.js";

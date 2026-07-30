@@ -34,7 +34,9 @@ import { enqueueMemoryJob } from "../../../persistence/jobs-store.js";
 export async function getConversationById(
   id: string,
 ): Promise<Conversation | undefined> {
-  if (!getConversationRow(id)) return undefined;
+  if (!getConversationRow(id)) {
+    return undefined;
+  }
   // Hydrate via getOrCreateConversation when available (production path).
   // Falls back to the in-memory active map for unit tests where the
   // daemon hasn't wired hydration.
@@ -57,8 +59,12 @@ export function listConversationsByTitlePrefix(prefix: string) {
  * enqueuing vector cleanup. Returns `true` when a row was deleted.
  */
 export function deleteConversationById(id: string): boolean {
-  if (!getConversationRow(id)) return false;
-  destroyActiveConversation(id);
+  if (!getConversationRow(id)) {
+    return false;
+  }
+  // In-memory teardown only: `deleteConversationCrud` drops the durable
+  // subagent rows inside its own transaction.
+  destroyActiveConversation(id, { keepSubagentRecords: true });
   const deleted = deleteConversationCrud(id);
   for (const segId of deleted.segmentIds) {
     enqueueMemoryJob("delete_qdrant_vectors", {

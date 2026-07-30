@@ -6,6 +6,7 @@ import {
   MANAGED_CONNECTION_NAMES,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -113,7 +114,9 @@ export function seedInferenceProfiles(
     hatchSelectedManagedConnection === undefined
   ) {
     for (const name of DEFAULT_PROFILE_KEYS) {
-      if (readObject(profiles[name])) continue;
+      if (readObject(profiles[name])) {
+        continue;
+      }
       const label = MANAGED_PROFILE_TEMPLATES[name]?.label;
       profiles[name] = {
         source: "managed",
@@ -156,7 +159,9 @@ export function seedInferenceProfiles(
 
       const provider = hatchProvider as NonNullable<ProfileEntry["provider"]>;
       for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
-        if (preservedProfileNames.has(name)) continue;
+        if (preservedProfileNames.has(name)) {
+          continue;
+        }
         profiles[name] = materializeProfile(
           template,
           provider,
@@ -259,7 +264,9 @@ export function seedInferenceProfiles(
 
   // Tag any remaining profiles without a source as user-created.
   for (const [name, profile] of Object.entries(profiles)) {
-    if (MANAGED_PROFILE_NAMES.has(name)) continue;
+    if (MANAGED_PROFILE_NAMES.has(name)) {
+      continue;
+    }
     if (
       profile != null &&
       typeof profile === "object" &&
@@ -322,20 +329,28 @@ function pruneRemovedProfileReferences(
   profiles: Record<string, Record<string, unknown>>,
   removed: Set<string>,
 ): void {
-  if (removed.size === 0) return;
+  if (removed.size === 0) {
+    return;
+  }
 
   let cascading = true;
   while (cascading) {
     cascading = false;
     for (const [name, profile] of Object.entries(profiles)) {
-      if (removed.has(name)) continue;
-      if (!Array.isArray(profile.mix)) continue;
+      if (removed.has(name)) {
+        continue;
+      }
+      if (!Array.isArray(profile.mix)) {
+        continue;
+      }
       const arms = profile.mix as unknown[];
       const kept = arms.filter((arm) => {
         const armProfile = readObject(arm)?.profile;
         return typeof armProfile !== "string" || !removed.has(armProfile);
       });
-      if (kept.length === arms.length) continue;
+      if (kept.length === arms.length) {
+        continue;
+      }
       if (kept.length >= MIX_MIN_ARMS) {
         profile.mix = kept;
       } else {
@@ -401,7 +416,9 @@ function firstActiveProfile(
 ): string | undefined {
   for (const name of names) {
     const profile = readObject(profiles[name]);
-    if (profile && profile.status !== "disabled") return name;
+    if (profile && profile.status !== "disabled") {
+      return name;
+    }
   }
   return undefined;
 }
@@ -429,7 +446,9 @@ function getHatchSelectedManagedConnection(
   }
 
   const activeProfile = readString(llm.activeProfile);
-  if (!activeProfile) return undefined;
+  if (!activeProfile) {
+    return undefined;
+  }
 
   const activeProfileEntry = readObject(profiles[activeProfile]);
   if (
@@ -448,10 +467,11 @@ function getHatchSelectedManagedConnection(
       : undefined;
   }
 
-  const templateConnection =
-    MANAGED_PROFILE_TEMPLATES[activeProfile]?.connectionName;
-  return templateConnection && MANAGED_CONNECTION_NAMES.has(templateConnection)
-    ? templateConnection
+  // A default-profile name with no explicit connection selects the managed
+  // route: the vellum column IS the managed column, and its profiles route
+  // through the canonical vellum row.
+  return MANAGED_PROFILE_TEMPLATES[activeProfile]
+    ? VELLUM_MANAGED_CONNECTION_NAME
     : undefined;
 }
 

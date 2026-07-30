@@ -81,6 +81,30 @@ describe("getLockfileData", () => {
     }
   });
 
+  test("surfaces a tunnel-recorded ingressUrl to the renderer", () => {
+    // The exact read the "Pair a device" card relies on: `vellum tunnel` stamps
+    // ingressUrl onto the entry, and the host read must carry it through.
+    writeOnDisk({
+      activeAssistant: "asst_1",
+      assistants: [
+        {
+          assistantId: "asst_1",
+          cloud: "local",
+          runtimeUrl: "http://127.0.0.1:7777",
+          ingressUrl: "https://tunnel.example.ts.net",
+        },
+      ],
+    });
+
+    const result = getLockfileData([lockfilePath]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.assistants[0]?.ingressUrl).toBe(
+        "https://tunnel.example.ts.net",
+      );
+    }
+  });
+
   test("fails with status 500 on malformed JSON", () => {
     fs.writeFileSync(lockfilePath, "{ not json");
     const result = getLockfileData([lockfilePath]);

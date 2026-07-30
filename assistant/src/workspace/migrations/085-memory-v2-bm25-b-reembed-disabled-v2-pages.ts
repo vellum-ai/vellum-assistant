@@ -39,7 +39,9 @@ export const memoryV2Bm25BReembedDisabledV2PagesMigration: WorkspaceMigration =
 
     run(workspaceDir: string): void {
       const dbPath = join(workspaceDir, "data", "db", "assistant.db");
-      if (!existsSync(dbPath)) return;
+      if (!existsSync(dbPath)) {
+        return;
+      }
 
       let db: Database;
       try {
@@ -54,7 +56,9 @@ export const memoryV2Bm25BReembedDisabledV2PagesMigration: WorkspaceMigration =
             `SELECT name FROM sqlite_master WHERE type='table' AND name='memory_jobs'`,
           )
           .get();
-        if (!tableRow) return;
+        if (!tableRow) {
+          return;
+        }
 
         // If either gate fails, cancel any pending reembed job that 075 may
         // have enqueued in this same startup sweep. Leave 'running' jobs
@@ -75,7 +79,9 @@ export const memoryV2Bm25BReembedDisabledV2PagesMigration: WorkspaceMigration =
             `SELECT id FROM memory_jobs WHERE type='memory_v2_reembed' AND status IN ('pending','running') LIMIT 1`,
           )
           .get();
-        if (existing) return;
+        if (existing) {
+          return;
+        }
 
         const now = Date.now();
         db.query(
@@ -100,7 +106,9 @@ export const memoryV2Bm25BReembedDisabledV2PagesMigration: WorkspaceMigration =
  */
 function isMemoryV2Disabled(workspaceDir: string): boolean {
   const configPath = join(workspaceDir, "config.json");
-  if (!existsSync(configPath)) return false;
+  if (!existsSync(configPath)) {
+    return false;
+  }
   try {
     const raw = JSON.parse(readFileSync(configPath, "utf-8"));
     const memory = (raw as { memory?: { v2?: { enabled?: unknown } } })?.memory;

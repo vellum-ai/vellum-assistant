@@ -7,7 +7,7 @@
  * toggle but no Appearance/theme control.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 const applyThemePreferenceMock = mock((_theme: string) => {});
 const writeStoredThemePreferenceMock = mock((_theme: string) => {});
@@ -38,10 +38,16 @@ mock.module("@/runtime/platform-detection", () => ({
   isMacOSBrowser: () => true,
 }));
 
+const saveShowContextWindowIndicator = mock((_next: boolean) => {});
+
 mock.module("@/utils/composer-settings", () => ({
   cmdEnterToSend: {
     useValue: () => false,
     save: () => {},
+  },
+  showContextWindowIndicator: {
+    useValue: () => false,
+    save: saveShowContextWindowIndicator,
   },
 }));
 
@@ -73,5 +79,25 @@ describe("PreferencesModal", () => {
 
     expect(screen.queryByText("Appearance")).toBeNull();
     expect(screen.queryByLabelText("Theme")).toBeNull();
+  });
+
+  test("hosts the context window usage toggle, unchecked by default", () => {
+    render(<PreferencesModal open onClose={() => {}} />);
+
+    const toggle = screen.getByRole("switch", {
+      name: "Show context window usage",
+    });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+  });
+
+  test("persists an opt-in for the context window indicator", () => {
+    saveShowContextWindowIndicator.mockClear();
+    render(<PreferencesModal open onClose={() => {}} />);
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Show context window usage" }),
+    );
+
+    expect(saveShowContextWindowIndicator).toHaveBeenCalledWith(true);
   });
 });

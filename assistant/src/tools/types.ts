@@ -190,6 +190,23 @@ export interface ToolContext {
   /** True when an interactive client is connected (not just a no-op callback). */
   isInteractive?: boolean;
   /**
+   * Whether the current turn's channel can render dynamic UI surfaces
+   * (interactive cards, tappable option pickers, secure prompts). `false` on
+   * text-only channels (e.g. Telegram, SMS). UI-dependent tools read this to
+   * degrade to a text-formatted equivalent instead of emitting a surface the
+   * channel silently drops. `undefined` means unknown and is treated as
+   * supported (desktop/web/app clients).
+   */
+  supportsDynamicUi?: boolean;
+  /**
+   * Whether a parked `ask_question` on this turn's channel can be delivered as
+   * a guardian-request card with tappable answer options (via the notification
+   * pipeline's channel adapters). `ask_question` parks when this is true even
+   * without dynamic UI; otherwise channel turns degrade to the plain-text
+   * fallback. `undefined`/`false` means no card delivery is possible.
+   */
+  supportsGuardianQuestionCards?: boolean;
+  /**
    * When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules.
    * @legacy
    */
@@ -327,6 +344,14 @@ export interface ToolContext {
    * @legacy
    */
   requesterChatId?: string;
+  /**
+   * Channel-native id (`ts` for Slack) of the inbound message that started
+   * the current turn. Lets tool-grant escalations link approval cards to
+   * the exact triggering message.
+   */
+  sourceMessageId?: string;
+  /** Channel-native thread id of that message, when it arrived in a thread. */
+  sourceThreadId?: string;
   /**
    * Human-readable identifier for the requester (e.g., @username).
    * @legacy

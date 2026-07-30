@@ -48,6 +48,7 @@ import {
   NotFoundError,
   ServiceUnavailableError,
 } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("events-routes");
@@ -90,7 +91,9 @@ let eventLoopResetTimer: ReturnType<typeof setInterval> | null = null;
  * SSE handler.
  */
 function ensureEventLoopDelayMonitorStarted(): void {
-  if (eventLoopDelay !== null) return;
+  if (eventLoopDelay !== null) {
+    return;
+  }
   try {
     const histogram = monitorEventLoopDelay({
       resolution: EVENT_LOOP_DELAY_RESOLUTION_MS,
@@ -121,7 +124,9 @@ export interface EventLoopDelaySnapshot {
 }
 
 function nsToMs(ns: number): number | null {
-  if (!Number.isFinite(ns)) return null;
+  if (!Number.isFinite(ns)) {
+    return null;
+  }
   // Round to the nearest microsecond, then express in ms (3 decimal places).
   return Math.round(ns / 1e3) / 1e3;
 }
@@ -387,7 +392,9 @@ export function handleSubscribeAssistantEvents(
 
   const callback: AssistantEventCallback = (event) => {
     const controller = controllerRef;
-    if (!controller) return;
+    if (!controller) {
+      return;
+    }
     if (
       event.seq != null &&
       highWaterReplaySeq >= 0 &&
@@ -652,7 +659,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: EmitEventBodySchema,
     responseStatus: "204",
     handler: ({ body }) => {
-      const { kind } = EmitEventBodySchema.parse(body);
+      const { kind } = parseBody(EmitEventBodySchema, body);
       if (kind === "contacts_changed") {
         notifyContactsChanged();
       }

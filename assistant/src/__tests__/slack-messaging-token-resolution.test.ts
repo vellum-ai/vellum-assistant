@@ -167,6 +167,9 @@ describe("Slack messaging token resolution", () => {
         accessToken: "xoxp-oauth-token",
       } as unknown as OAuthConnection;
       resolveOAuthConnectionMock.mockImplementation(async () => oauthConn);
+      getConnectionByProviderMock.mockImplementation(() => ({
+        status: "active",
+      }));
 
       const result = await slackProvider.resolveConnection!();
       expect(result).toBe(oauthConn);
@@ -205,6 +208,9 @@ describe("Slack messaging token resolution", () => {
         accessToken: "xoxp-oauth-token",
       } as unknown as OAuthConnection;
       resolveOAuthConnectionMock.mockImplementation(async () => oauthConn);
+      getConnectionByProviderMock.mockImplementation(() => ({
+        status: "active",
+      }));
 
       const result = await getProviderConnection(slackProvider);
       expect(result).toBe(oauthConn);
@@ -225,8 +231,12 @@ describe("Slack messaging token resolution", () => {
       // Telegram has isConnected but no resolveConnection.
       // When isConnected returns true, getProviderConnection returns undefined
       getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-        if (key === "credential/telegram/bot_token") return "bot-token";
-        if (key === "credential/telegram/webhook_secret") return "secret";
+        if (key === "credential/telegram/bot_token") {
+          return "bot-token";
+        }
+        if (key === "credential/telegram/webhook_secret") {
+          return "secret";
+        }
         return null;
       });
       getConnectionByProviderMock.mockImplementation((provider: string) =>

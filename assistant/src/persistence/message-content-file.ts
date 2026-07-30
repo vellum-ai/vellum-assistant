@@ -199,10 +199,10 @@ function safeJson(value: unknown): string {
  * Repair a historical block that fails the current schema. Field-level
  * repair for the variants whose string fields consumers touch directly
  * (text, tool_result, web_search_tool_result); any other block that at
- * least carries a string `type` passes through untouched — persisted
- * kinds outside the provider union (e.g. `ui_surface`) are live data
- * whose renderers own their shape. Only type-less values are wrapped in
- * a text block carrying their serialized payload.
+ * least carries a string `type` passes through untouched — a persisted
+ * kind the union does not model yet is live data whose renderers own its
+ * shape. Only type-less values are wrapped in a text block carrying their
+ * serialized payload.
  */
 function coerceLegacyBlock(block: unknown): ContentBlock {
   if (typeof block === "object" && block !== null) {
@@ -281,21 +281,31 @@ export function resolveMessageContentBlocks(raw: unknown): ContentBlock[] {
     return [{ type: "text", text: parsed }];
   }
   if (Array.isArray(parsed)) {
-    const result = z.array(contentBlockSchema).safeParse(parsed);
-    if (result.success) {
-      return result.data;
-    }
-    // Historical rows may carry malformed or retired block shapes. Repair
-    // per block — valid blocks stay untouched — so the returned array
-    // always satisfies the schema. Only the rare invalid row pays this.
-    log.warn(
-      { issueCount: result.error.issues.length },
-      "Inline content array has invalid block shapes; repairing per block",
-    );
-    return parsed.map((block) => {
-      const one = contentBlockSchema.safeParse(block);
-      return one.success ? one.data : coerceLegacyBlock(block);
-    });
+    return resolveInlineBlockArray(parsed);
   }
   return [{ type: "text", text: raw }];
+}
+
+/**
+ * Resolve an already-parsed inline content array to schema-valid blocks.
+ * Valid arrays pass through untouched; historical rows with malformed or
+ * retired block shapes are repaired per block ({@link coerceLegacyBlock}),
+ * so the returned array always satisfies the ContentBlock schema. Exported
+ * for callers that have already parsed the stored JSON and must not pay a
+ * second parse.
+ */
+export function resolveInlineBlockArray(parsed: unknown[]): ContentBlock[] {
+  const result = z.array(contentBlockSchema).safeParse(parsed);
+  if (result.success) {
+    return result.data;
+  }
+  // Only the rare invalid row pays the per-block repair.
+  log.warn(
+    { issueCount: result.error.issues.length },
+    "Inline content array has invalid block shapes; repairing per block",
+  );
+  return parsed.map((block) => {
+    const one = contentBlockSchema.safeParse(block);
+    return one.success ? one.data : coerceLegacyBlock(block);
+  });
 }

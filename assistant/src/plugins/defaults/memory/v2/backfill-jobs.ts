@@ -2,21 +2,18 @@
 // Memory v2 — Backfill job handlers
 // ---------------------------------------------------------------------------
 //
-// Three operator-triggered backfills, all wired through the same job queue so
+// Two operator-triggered v2 backfills, wired through the same job queue so
 // they can be enqueued from the IPC route, the CLI, or recovery paths:
 //
 //   - `memory_v2_migrate`              — one-shot v1→v2 synthesis (PR 16).
-//   - `memory_v2_reembed`              — fan out an `embed_concept_page` job
-//     per concept-page slug.
 //   - `memory_v2_activation_recompute` — recompute persisted activation
 //     state for every conversation, no rendering. Used after consolidation
 //     replaces or deletes pages that other conversations still reference.
 //
 // Each handler is intentionally small — heavy lifting lives in the modules
-// they delegate to (`migration.ts`, `page-store.ts`, `embed-concept-page.ts`,
-// `activation.ts`, `activation-store.ts`). Keeping the wrappers thin means
-// the same code paths exercised by tests of those modules run unchanged when
-// a backfill kicks them off.
+// they delegate to (`migration.ts`, `activation.ts`, `activation-store.ts`).
+// Keeping the wrappers thin means the same code paths exercised by tests of
+// those modules run unchanged when a backfill kicks them off.
 
 import {
   getMessages,
@@ -25,24 +22,19 @@ import {
 } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getDb } from "../../../../persistence/db-connection.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
-import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
-import {
-  computeOwnActivation,
-  selectCandidates,
-  spreadActivation,
-} from "./activation.js";
+import { getEdgeIndex } from "../substrate/edge-index.js";
+import { spreadActivation } from "../substrate/spread.js";
+import { computeOwnActivation, selectCandidates } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
-import { getEdgeIndex } from "./edge-index.js";
 import {
   MigrationAlreadyAppliedError,
   runMemoryV2Migration,
 } from "./migration.js";
 import { loadNowText } from "./now-text.js";
-import { listPages } from "./page-store.js";
 
 const log = getLogger("memory-v2-backfill");
 
@@ -65,10 +57,20 @@ export async function memoryV2MigrateJob(
   const force =
     typeof job.payload.force === "boolean" ? job.payload.force : false;
 
+  // The v1 graph the migration reads now lives in the dedicated memory
+  // database, so gatherV1State reads it there. Defer (throw for retry) if that
+  // connection cannot be opened rather than migrating an empty graph.
+  const database = getMemoryDb();
+  if (!database) {
+    throw new Error(
+      "memory database unavailable — deferring memory v2 migration",
+    );
+  }
+
   try {
     const result = await runMemoryV2Migration({
       workspaceDir: getWorkspaceDir(),
-      database: getDb(),
+      database,
       force,
       config,
     });
@@ -89,45 +91,6 @@ export async function memoryV2MigrateJob(
     }
     throw err;
   }
-}
-
-// ---------------------------------------------------------------------------
-// memory_v2_reembed — fan out embed jobs for every concept page
-// ---------------------------------------------------------------------------
-
-/**
- * Job handler: enqueue an `embed_concept_page` job per concept-page slug.
- * Each enqueue coalesces with an already-pending job for the same slug, so
- * stacked reembed runs converge on at most one pending embed per page.
- *
- * Returns the number of pages fanned out (enqueue attempts, not necessarily
- * fresh rows). Callers (and tests) use the return value to assert progress
- * without inspecting the job table directly.
- *
- * Note on meta files: `essentials.md` / `threads.md` / `recent.md` /
- * `buffer.md` are direct-injected into the system prompt every turn via
- * `_autoinject.md`. They are NOT enqueued for embedding here — their slugs
- * (`__essentials__` etc.) contain underscores that the concept-page slug
- * validator rejects (`[a-z0-9][a-z0-9-]*`), and they live at `memory/<name>.md`
- * rather than `memory/concepts/<name>.md`, so path resolution would also miss.
- * Embedding them would be redundant with the direct injection regardless.
- */
-export async function memoryV2ReembedJob(
-  _job: MemoryJob,
-  _config: AssistantConfig,
-): Promise<number> {
-  const workspaceDir = getWorkspaceDir();
-  const slugs = await listPages(workspaceDir);
-
-  for (const slug of slugs) {
-    enqueueEmbedConceptPageJob({ slug });
-  }
-
-  log.info(
-    { conceptPages: slugs.length, total: slugs.length },
-    "Memory v2 reembed enqueued",
-  );
-  return slugs.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +124,6 @@ export async function memoryV2ActivationRecomputeJob(
   config: AssistantConfig,
 ): Promise<number> {
   const workspaceDir = getWorkspaceDir();
-  const database = getDb();
 
   // Activation maps still need to refresh for archived conversations — a
   // consolidated page can leave stale slugs above epsilon in their persisted
@@ -177,7 +139,7 @@ export async function memoryV2ActivationRecomputeJob(
 
   let updated = 0;
   for (const conv of conversations) {
-    const priorState = await hydrate(database, conv.id);
+    const priorState = await hydrate(conv.id);
     if (!priorState) {
       continue;
     } // Nothing to recompute when no row exists.
@@ -202,7 +164,7 @@ export async function memoryV2ActivationRecomputeJob(
     if (!nextState) {
       continue;
     }
-    await save(database, conv.id, nextState);
+    await save(conv.id, nextState);
     updated += 1;
   }
 

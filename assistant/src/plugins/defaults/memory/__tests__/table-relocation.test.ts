@@ -36,6 +36,27 @@ const { MEMORY_V3_SELECTIONS_RELOCATION } =
   await import("../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js");
 const { ACTIVATION_SESSIONS_RELOCATION } =
   await import("../../../../persistence/migrations/339-move-activation-sessions-to-memory-db.js");
+const { ACTIVATION_STATE_RELOCATION } =
+  await import("../../../../persistence/migrations/343-move-activation-state-to-memory-db.js");
+const { CONVERSATION_GRAPH_MEMORY_STATE_RELOCATION } =
+  await import("../../../../persistence/migrations/344-move-conversation-graph-memory-state-to-memory-db.js");
+const { MEMORY_V3_EVER_INJECTED_RELOCATION } =
+  await import("../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js");
+const { MEMORY_RETROSPECTIVE_STATE_RELOCATION } =
+  await import("../../../../persistence/migrations/346-move-memory-retrospective-state-to-memory-db.js");
+const {
+  MEMORY_GRAPH_NODES_RELOCATION,
+  MEMORY_GRAPH_EDGES_RELOCATION,
+  MEMORY_GRAPH_TRIGGERS_RELOCATION,
+  MEMORY_GRAPH_NODE_EDITS_RELOCATION,
+} =
+  await import("../../../../persistence/migrations/349-move-memory-graph-tables-to-memory-db.js");
+const { MEMORY_SEGMENTS_RELOCATION } =
+  await import("../../../../persistence/migrations/357-move-memory-segments-to-memory-db.js");
+const { MEMORY_EMBEDDINGS_RELOCATION } =
+  await import("../../../../persistence/migrations/358-move-memory-embeddings-to-memory-db.js");
+const { MEMORY_SUMMARIES_RELOCATION } =
+  await import("../../../../persistence/migrations/359-move-memory-summaries-to-memory-db.js");
 
 await initializeDb();
 
@@ -452,6 +473,607 @@ describe("memory_recall_logs drain", () => {
     expect(kept).toEqual([
       { id: "rec-1", message_id: "msg-1", query_context: null },
       { id: "rec-2", message_id: null, query_context: null },
+    ]);
+  });
+});
+
+describe("activation_state drain", () => {
+  test("copies every row (full copy) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    // Clean slate: empty live table, fresh populated staging table shaped like
+    // the post-241 source (no FK — the memory DB has no conversations table).
+    memory.exec(`DELETE FROM activation_state`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."activation_state__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."activation_state__relocating" (
+        conversation_id TEXT PRIMARY KEY,
+        message_id TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        ever_injected_json TEXT NOT NULL DEFAULT '[]',
+        current_turn INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."activation_state__relocating"
+         (conversation_id, message_id, state_json, ever_injected_json, current_turn, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    insert.run(
+      "conv-a",
+      "msg-a",
+      '{"alice":0.5}',
+      '[{"slug":"alice","turn":1}]',
+      3,
+      1_000,
+    );
+    insert.run("conv-b", "msg-b", "{}", "[]", 0, 2_000);
+
+    await drainStagedTable(sqlite, ACTIVATION_STATE_RELOCATION);
+
+    expect(existsInMain("activation_state__relocating")).toBe(false);
+
+    const kept = memory
+      .query(
+        `SELECT conversation_id, message_id, state_json, ever_injected_json,
+                current_turn, updated_at
+           FROM activation_state WHERE conversation_id IN ('conv-a', 'conv-b')
+           ORDER BY conversation_id`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        conversation_id: "conv-a",
+        message_id: "msg-a",
+        state_json: '{"alice":0.5}',
+        ever_injected_json: '[{"slug":"alice","turn":1}]',
+        current_turn: 3,
+        updated_at: 1_000,
+      },
+      {
+        conversation_id: "conv-b",
+        message_id: "msg-b",
+        state_json: "{}",
+        ever_injected_json: "[]",
+        current_turn: 0,
+        updated_at: 2_000,
+      },
+    ]);
+  });
+});
+
+describe("conversation_graph_memory_state drain", () => {
+  test("copies every row (full copy) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    memory.exec(`DELETE FROM conversation_graph_memory_state`);
+    sqlite.exec(
+      `DROP TABLE IF EXISTS main."conversation_graph_memory_state__relocating"`,
+    );
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."conversation_graph_memory_state__relocating" (
+        conversation_id TEXT PRIMARY KEY,
+        state_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."conversation_graph_memory_state__relocating"
+         (conversation_id, state_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?)`,
+    );
+    insert.run("conv-a", '{"turn":4}', 1_000, 1_500);
+    insert.run("conv-b", "{}", 2_000, 2_000);
+
+    await drainStagedTable(sqlite, CONVERSATION_GRAPH_MEMORY_STATE_RELOCATION);
+
+    expect(existsInMain("conversation_graph_memory_state__relocating")).toBe(
+      false,
+    );
+
+    const kept = memory
+      .query(
+        `SELECT conversation_id, state_json, created_at, updated_at
+           FROM conversation_graph_memory_state
+           WHERE conversation_id IN ('conv-a', 'conv-b')
+           ORDER BY conversation_id`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        conversation_id: "conv-a",
+        state_json: '{"turn":4}',
+        created_at: 1_000,
+        updated_at: 1_500,
+      },
+      {
+        conversation_id: "conv-b",
+        state_json: "{}",
+        created_at: 2_000,
+        updated_at: 2_000,
+      },
+    ]);
+  });
+});
+
+describe("memory_v3_ever_injected drain", () => {
+  test("copies every row of the composite-PK table, drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    // Clean slate: empty live table, fresh populated staging table.
+    memory.exec(`DELETE FROM memory_v3_ever_injected`);
+    sqlite.exec(
+      `DROP TABLE IF EXISTS main."memory_v3_ever_injected__relocating"`,
+    );
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_v3_ever_injected__relocating" (
+        conversation_id TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        injected_at INTEGER NOT NULL,
+        bytes INTEGER NOT NULL DEFAULT 0,
+        pruned_at INTEGER,
+        PRIMARY KEY (conversation_id, slug)
+      )
+    `);
+
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_v3_ever_injected__relocating"
+         (conversation_id, slug, injected_at, bytes, pruned_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    insert.run("conv-1", "topics/page-a", 1_000, 100, null);
+    insert.run("conv-1", "topics/page-b", 2_000, 250, 3_000);
+
+    await drainStagedTable(sqlite, MEMORY_V3_EVER_INJECTED_RELOCATION);
+
+    // Staging dropped; the full-copy spec preserved every row, pruned state
+    // included.
+    expect(existsInMain("memory_v3_ever_injected__relocating")).toBe(false);
+    const kept = memory
+      .query(
+        `SELECT conversation_id, slug, injected_at, bytes, pruned_at
+           FROM memory_v3_ever_injected WHERE conversation_id = 'conv-1'
+           ORDER BY slug`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        conversation_id: "conv-1",
+        slug: "topics/page-a",
+        injected_at: 1_000,
+        bytes: 100,
+        pruned_at: null,
+      },
+      {
+        conversation_id: "conv-1",
+        slug: "topics/page-b",
+        injected_at: 2_000,
+        bytes: 250,
+        pruned_at: 3_000,
+      },
+    ]);
+  });
+});
+
+describe("memory_retrospective_state drain", () => {
+  test("copies every row (full copy) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    memory.exec(`DELETE FROM memory_retrospective_state`);
+    sqlite.exec(
+      `DROP TABLE IF EXISTS main."memory_retrospective_state__relocating"`,
+    );
+    // Staging shaped like a post-281 source, including remembered_log.
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_retrospective_state__relocating" (
+        conversation_id TEXT PRIMARY KEY,
+        last_processed_message_id TEXT NOT NULL,
+        last_run_at INTEGER NOT NULL,
+        remembered_log TEXT
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_retrospective_state__relocating"
+         (conversation_id, last_processed_message_id, last_run_at, remembered_log)
+       VALUES (?, ?, ?, ?)`,
+    );
+    insert.run("conv-1", "m1", 1_000, '["saved one"]');
+    insert.run("conv-2", "", 2_000, null);
+
+    await drainStagedTable(sqlite, MEMORY_RETROSPECTIVE_STATE_RELOCATION);
+
+    expect(existsInMain("memory_retrospective_state__relocating")).toBe(false);
+    const kept = memory
+      .query(
+        `SELECT conversation_id, last_processed_message_id, last_run_at, remembered_log
+           FROM memory_retrospective_state
+           WHERE conversation_id IN ('conv-1', 'conv-2')
+           ORDER BY conversation_id`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        conversation_id: "conv-1",
+        last_processed_message_id: "m1",
+        last_run_at: 1_000,
+        remembered_log: '["saved one"]',
+      },
+      {
+        conversation_id: "conv-2",
+        last_processed_message_id: "",
+        last_run_at: 2_000,
+        remembered_log: null,
+      },
+    ]);
+  });
+
+  test("a pre-281 legacy source NULL-fills remembered_log", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    // Staging shaped like migration 245's original schema — no remembered_log.
+    memory.exec(`DELETE FROM memory_retrospective_state`);
+    sqlite.exec(
+      `DROP TABLE IF EXISTS main."memory_retrospective_state__relocating"`,
+    );
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_retrospective_state__relocating" (
+        conversation_id TEXT PRIMARY KEY,
+        last_processed_message_id TEXT NOT NULL,
+        last_run_at INTEGER NOT NULL
+      )
+    `);
+    sqlite
+      .prepare(
+        `INSERT INTO main."memory_retrospective_state__relocating"
+           (conversation_id, last_processed_message_id, last_run_at)
+         VALUES (?, ?, ?)`,
+      )
+      .run("conv-legacy", "m7", 5_000);
+
+    await drainStagedTable(sqlite, MEMORY_RETROSPECTIVE_STATE_RELOCATION);
+
+    expect(existsInMain("memory_retrospective_state__relocating")).toBe(false);
+    const row = memory
+      .query(
+        `SELECT last_processed_message_id, last_run_at, remembered_log
+           FROM memory_retrospective_state WHERE conversation_id = 'conv-legacy'`,
+      )
+      .get();
+    expect(row).toEqual({
+      last_processed_message_id: "m7",
+      last_run_at: 5_000,
+      remembered_log: null,
+    });
+  });
+});
+
+describe("memory graph cluster drain", () => {
+  test("drains nodes then children into memory, preserving the intra-cluster cascade", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    // Clean slate on the memory side (children before parents — FK order), then
+    // rebuild the four staging tables on main shaped like the post-205/206
+    // source. Staging tables carry no FK; the cascade lives on the memory side.
+    memory.exec(`DELETE FROM memory_graph_node_edits`);
+    memory.exec(`DELETE FROM memory_graph_triggers`);
+    memory.exec(`DELETE FROM memory_graph_edges`);
+    memory.exec(`DELETE FROM memory_graph_nodes`);
+    for (const t of [
+      "memory_graph_nodes",
+      "memory_graph_edges",
+      "memory_graph_triggers",
+      "memory_graph_node_edits",
+    ]) {
+      sqlite.exec(`DROP TABLE IF EXISTS main."${t}__relocating"`);
+    }
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_graph_nodes__relocating" (
+        id TEXT PRIMARY KEY, content TEXT NOT NULL, type TEXT NOT NULL,
+        created INTEGER NOT NULL, last_accessed INTEGER NOT NULL,
+        last_consolidated INTEGER NOT NULL, emotional_charge TEXT NOT NULL,
+        fidelity TEXT NOT NULL DEFAULT 'vivid', confidence REAL NOT NULL,
+        significance REAL NOT NULL, stability REAL NOT NULL DEFAULT 14,
+        reinforcement_count INTEGER NOT NULL DEFAULT 0,
+        last_reinforced INTEGER NOT NULL,
+        source_conversations TEXT NOT NULL DEFAULT '[]',
+        source_type TEXT NOT NULL DEFAULT 'inferred',
+        narrative_role TEXT, part_of_story TEXT,
+        scope_id TEXT NOT NULL DEFAULT 'default',
+        event_date INTEGER, image_refs TEXT
+      );
+      CREATE TABLE main."memory_graph_edges__relocating" (
+        id TEXT PRIMARY KEY, source_node_id TEXT NOT NULL,
+        target_node_id TEXT NOT NULL, relationship TEXT NOT NULL,
+        weight REAL NOT NULL DEFAULT 1.0, created INTEGER NOT NULL
+      );
+      CREATE TABLE main."memory_graph_triggers__relocating" (
+        id TEXT PRIMARY KEY, node_id TEXT NOT NULL, type TEXT NOT NULL,
+        schedule TEXT, condition TEXT, condition_embedding BLOB, threshold REAL,
+        event_date INTEGER, ramp_days INTEGER, follow_up_days INTEGER,
+        recurring INTEGER NOT NULL DEFAULT 0, consumed INTEGER NOT NULL DEFAULT 0,
+        cooldown_ms INTEGER, last_fired INTEGER
+      );
+      CREATE TABLE main."memory_graph_node_edits__relocating" (
+        id TEXT PRIMARY KEY, node_id TEXT NOT NULL,
+        previous_content TEXT NOT NULL, new_content TEXT NOT NULL,
+        source TEXT NOT NULL, conversation_id TEXT, created INTEGER NOT NULL
+      );
+    `);
+
+    const insertNode = sqlite.prepare(
+      `INSERT INTO main."memory_graph_nodes__relocating"
+         (id, content, type, created, last_accessed, last_consolidated,
+          emotional_charge, confidence, significance, last_reinforced, scope_id)
+       VALUES (?, ?, 'semantic', 0, 0, 0, '{}', 0.5, 0.5, 0, 'default')`,
+    );
+    insertNode.run("n1", "first");
+    insertNode.run("n2", "second");
+    sqlite
+      .prepare(
+        `INSERT INTO main."memory_graph_edges__relocating"
+           (id, source_node_id, target_node_id, relationship, weight, created)
+         VALUES (?, ?, ?, 'reminds-of', 1.0, 0)`,
+      )
+      .run("e1", "n1", "n2");
+    sqlite
+      .prepare(
+        `INSERT INTO main."memory_graph_triggers__relocating"
+           (id, node_id, type, recurring, consumed)
+         VALUES (?, ?, 'semantic', 0, 0)`,
+      )
+      .run("t1", "n1");
+    sqlite
+      .prepare(
+        `INSERT INTO main."memory_graph_node_edits__relocating"
+           (id, node_id, previous_content, new_content, source, created)
+         VALUES (?, ?, 'old', 'new', 'user', 0)`,
+      )
+      .run("ed1", "n1");
+
+    // Parent first, then children: draining edges/triggers/edits before nodes
+    // would fail FK enforcement on the memory connection (no node to point at).
+    await drainStagedTable(sqlite, MEMORY_GRAPH_NODES_RELOCATION);
+    await drainStagedTable(sqlite, MEMORY_GRAPH_EDGES_RELOCATION);
+    await drainStagedTable(sqlite, MEMORY_GRAPH_TRIGGERS_RELOCATION);
+    await drainStagedTable(sqlite, MEMORY_GRAPH_NODE_EDITS_RELOCATION);
+
+    for (const t of [
+      "memory_graph_nodes",
+      "memory_graph_edges",
+      "memory_graph_triggers",
+      "memory_graph_node_edits",
+    ]) {
+      expect(existsInMain(`${t}__relocating`)).toBe(false);
+    }
+
+    expect(
+      memory.query(`SELECT id FROM memory_graph_nodes ORDER BY id`).all(),
+    ).toEqual([{ id: "n1" }, { id: "n2" }]);
+    expect(memory.query(`SELECT id FROM memory_graph_edges`).all()).toEqual([
+      { id: "e1" },
+    ]);
+    expect(memory.query(`SELECT id FROM memory_graph_triggers`).all()).toEqual([
+      { id: "t1" },
+    ]);
+    expect(
+      memory.query(`SELECT id FROM memory_graph_node_edits`).all(),
+    ).toEqual([{ id: "ed1" }]);
+
+    // The intra-cluster ON DELETE CASCADE was recreated on the memory side and
+    // the memory connection enforces foreign keys: deleting n1 removes its edge,
+    // trigger, and edit, while the unrelated n2 survives.
+    memory.exec(`DELETE FROM memory_graph_nodes WHERE id = 'n1'`);
+    expect(
+      memory.query(`SELECT id FROM memory_graph_nodes ORDER BY id`).all(),
+    ).toEqual([{ id: "n2" }]);
+    expect(
+      memory
+        .query<
+          { c: number },
+          []
+        >(`SELECT COUNT(*) AS c FROM memory_graph_edges`)
+        .get(),
+    ).toEqual({ c: 0 });
+    expect(
+      memory
+        .query<
+          { c: number },
+          []
+        >(`SELECT COUNT(*) AS c FROM memory_graph_triggers`)
+        .get(),
+    ).toEqual({ c: 0 });
+    expect(
+      memory
+        .query<
+          { c: number },
+          []
+        >(`SELECT COUNT(*) AS c FROM memory_graph_node_edits`)
+        .get(),
+    ).toEqual({ c: 0 });
+  });
+});
+
+describe("memory_segments drain", () => {
+  test("copies every row (full copy, including the unmapped scope_id) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    memory.exec(`DELETE FROM memory_segments`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."memory_segments__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_segments__relocating" (
+        id TEXT PRIMARY KEY, message_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL, role TEXT NOT NULL,
+        segment_index INTEGER NOT NULL, text TEXT NOT NULL,
+        token_estimate INTEGER NOT NULL,
+        scope_id TEXT NOT NULL DEFAULT 'default', content_hash TEXT,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_segments__relocating"
+         (id, message_id, conversation_id, role, segment_index, text,
+          token_estimate, scope_id, content_hash, created_at, updated_at)
+       VALUES (?, ?, ?, 'user', ?, ?, 3, ?, ?, 0, 0)`,
+    );
+    insert.run("seg-1", "msg-1", "conv-1", 0, "first", "scope-a", "h1");
+    insert.run("seg-2", "msg-1", "conv-1", 1, "second", "default", null);
+
+    await drainStagedTable(sqlite, MEMORY_SEGMENTS_RELOCATION);
+
+    expect(existsInMain("memory_segments__relocating")).toBe(false);
+    const kept = memory
+      .query(
+        `SELECT id, message_id, conversation_id, segment_index, text, scope_id, content_hash
+           FROM memory_segments ORDER BY segment_index`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        id: "seg-1",
+        message_id: "msg-1",
+        conversation_id: "conv-1",
+        segment_index: 0,
+        text: "first",
+        scope_id: "scope-a",
+        content_hash: "h1",
+      },
+      {
+        id: "seg-2",
+        message_id: "msg-1",
+        conversation_id: "conv-1",
+        segment_index: 1,
+        text: "second",
+        scope_id: "default",
+        content_hash: null,
+      },
+    ]);
+  });
+});
+
+describe("memory_embeddings drain", () => {
+  test("copies every polymorphic row (full copy) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    memory.exec(`DELETE FROM memory_embeddings`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."memory_embeddings__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_embeddings__relocating" (
+        id TEXT PRIMARY KEY, target_type TEXT NOT NULL, target_id TEXT NOT NULL,
+        provider TEXT NOT NULL, model TEXT NOT NULL, dimensions INTEGER NOT NULL,
+        vector_json TEXT, vector_blob BLOB, content_hash TEXT,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        UNIQUE (target_type, target_id, provider, model)
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_embeddings__relocating"
+         (id, target_type, target_id, provider, model, dimensions,
+          vector_json, vector_blob, content_hash, created_at, updated_at)
+       VALUES (?, ?, ?, 'p', 'm', 3, ?, NULL, ?, 0, 0)`,
+    );
+    insert.run("emb-1", "segment", "seg-1", "[0.1,0.2,0.3]", "h1");
+    insert.run("emb-2", "summary", "sum-1", "[0.4,0.5,0.6]", null);
+
+    await drainStagedTable(sqlite, MEMORY_EMBEDDINGS_RELOCATION);
+
+    expect(existsInMain("memory_embeddings__relocating")).toBe(false);
+    const kept = memory
+      .query(
+        `SELECT id, target_type, target_id, provider, model, dimensions,
+                vector_json, content_hash
+           FROM memory_embeddings ORDER BY id`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        id: "emb-1",
+        target_type: "segment",
+        target_id: "seg-1",
+        provider: "p",
+        model: "m",
+        dimensions: 3,
+        vector_json: "[0.1,0.2,0.3]",
+        content_hash: "h1",
+      },
+      {
+        id: "emb-2",
+        target_type: "summary",
+        target_id: "sum-1",
+        provider: "p",
+        model: "m",
+        dimensions: 3,
+        vector_json: "[0.4,0.5,0.6]",
+        content_hash: null,
+      },
+    ]);
+  });
+});
+
+describe("memory_summaries drain", () => {
+  test("copies every row (full copy, including the unmapped scope_id) and drops staging", async () => {
+    const sqlite = getSqlite();
+    const memory = getMemorySqlite()!;
+
+    memory.exec(`DELETE FROM memory_summaries`);
+    sqlite.exec(`DROP TABLE IF EXISTS main."memory_summaries__relocating"`);
+    sqlite.exec(/*sql*/ `
+      CREATE TABLE main."memory_summaries__relocating" (
+        id TEXT PRIMARY KEY, scope TEXT NOT NULL, scope_key TEXT NOT NULL,
+        summary TEXT NOT NULL, token_estimate INTEGER NOT NULL,
+        start_at INTEGER NOT NULL, end_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        scope_id TEXT NOT NULL DEFAULT 'default',
+        UNIQUE (scope, scope_key)
+      )
+    `);
+    const insert = sqlite.prepare(
+      `INSERT INTO main."memory_summaries__relocating"
+         (id, scope, scope_key, summary, token_estimate, start_at, end_at,
+          created_at, updated_at, version, scope_id)
+       VALUES (?, 'conversation', ?, ?, 10, 0, 0, 0, ?, ?, ?)`,
+    );
+    insert.run("sum-1", "conv-1", "first summary", 100, 2, "scope-a");
+    insert.run("sum-2", "conv-2", "second summary", 200, 1, "default");
+
+    await drainStagedTable(sqlite, MEMORY_SUMMARIES_RELOCATION);
+
+    expect(existsInMain("memory_summaries__relocating")).toBe(false);
+    const kept = memory
+      .query(
+        `SELECT id, scope, scope_key, summary, updated_at, version, scope_id
+           FROM memory_summaries ORDER BY id`,
+      )
+      .all();
+    expect(kept).toEqual([
+      {
+        id: "sum-1",
+        scope: "conversation",
+        scope_key: "conv-1",
+        summary: "first summary",
+        updated_at: 100,
+        version: 2,
+        scope_id: "scope-a",
+      },
+      {
+        id: "sum-2",
+        scope: "conversation",
+        scope_key: "conv-2",
+        summary: "second summary",
+        updated_at: 200,
+        version: 1,
+        scope_id: "default",
+      },
     ]);
   });
 });

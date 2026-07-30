@@ -8,20 +8,20 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 import type { FeedItem } from "@vellumai/assistant-api";
 import {
-    BottomSheet,
-    Button,
-    Popover,
-    Tooltip,
-    Typography,
+  BottomSheet,
+  Button,
+  Popover,
+  Tooltip,
+  Typography,
 } from "@vellumai/design-library";
 
 import { HomeRecapRow } from "../home-recap-row";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
 import {
-    clearAllArgs,
-    getVisibleFeedItems,
-    markAllReadArgs,
-    sortFeedItems,
+  clearAllArgs,
+  getVisibleFeedItems,
+  markAllReadArgs,
+  sortFeedItems,
 } from "../utils";
 
 /**
@@ -171,7 +171,11 @@ export function NotificationsBell() {
         >
           Notifications
         </Typography>
-        <Button variant="ghost" size="compact" onClick={() => openActivityPage()}>
+        <Button
+          variant="ghost"
+          size="compact"
+          onClick={() => openActivityPage()}
+        >
           View all
         </Button>
       </div>

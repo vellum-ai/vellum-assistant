@@ -15,11 +15,24 @@
  * end-to-end.
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import type { Message, Provider, ProviderResponse } from "@vellumai/plugin-api";
 
-import type { PageIndexEntry } from "../../v2/page-index.js";
+import { runWithLatencySubSpans } from "../../../../../daemon/turn-latency-sub-spans.js";
+import {
+  MEMORY_CONTEXT_PHASE_KEY,
+  TurnLatencyTracker,
+} from "../../../../../daemon/turn-latency-tracker.js";
+import type { PageIndexEntry } from "../../substrate/page-index.js";
 import { renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
@@ -58,6 +71,12 @@ mock.module("../../../../../util/logger.js", () => ({
 const realDense = { ...(await import("../dense.js")) };
 let denseMockActive = false;
 let denseHits: Array<{ article: Slug; section: number; score?: number }> = [];
+// Per-query hit override for tests that need the full-message and span-chunk
+// dense calls to return DIFFERENT results; falls back to `denseHits`.
+let denseHitsByQuery = new Map<
+  string,
+  Array<{ article: Slug; section: number; score?: number }>
+>();
 let denseCalls: Array<{ query: string; k: number }> = [];
 mock.module("../dense.js", () => ({
   ...realDense,
@@ -66,7 +85,7 @@ mock.module("../dense.js", () => ({
       return realDense.denseLane(...args);
     }
     denseCalls.push({ query: args[1], k: args[2] });
-    return args[2] <= 0 ? [] : denseHits;
+    return args[2] <= 0 ? [] : (denseHitsByQuery.get(args[1]) ?? denseHits);
   },
   // Orchestrate now calls the SCORED variant; the mock must intercept it too
   // (else the `...realDense` spread resolves the real lane and hits Qdrant).
@@ -81,7 +100,10 @@ mock.module("../dense.js", () => ({
     denseCalls.push({ query: args[1], k: args[2] });
     return args[2] <= 0
       ? []
-      : denseHits.map((h) => ({ ...h, score: h.score ?? 1 }));
+      : (denseHitsByQuery.get(args[1]) ?? denseHits).map((h) => ({
+          ...h,
+          score: h.score ?? 1,
+        }));
   },
 }));
 
@@ -156,6 +178,7 @@ function makeEntries(): PageIndexEntry[] {
     edges: [],
     leaves: [],
     modifiedAt: 0,
+    freshAt: null,
   }));
 }
 
@@ -317,6 +340,7 @@ beforeEach(() => {
   watchdogMockActive = true;
   providerStub = null;
   denseHits = [];
+  denseHitsByQuery = new Map();
   denseCalls = [];
   recordedGateEvents = [];
   recordedSelectionEvents = [];
@@ -849,6 +873,7 @@ describe("orchestrate — edge-only injection", () => {
       edges: [],
       leaves: [],
       modifiedAt: 0,
+      freshAt: null,
     }));
     const sectionIndex = await buildSectionIndex(slugs, async (s) => pages[s]!);
     const needle = buildSectionNeedle(sectionIndex);
@@ -1502,6 +1527,85 @@ describe("orchestrate — injection gate", () => {
     ).toBeGreaterThan(0);
   });
 
+  test("the recall-safe fallback (omitted ids) records selector_kept_all: true", async () => {
+    const lanes = await buildLanes();
+    // The model omitting `ids` keeps the whole pool — indistinguishable from an
+    // explicit large selection by `selected_count` alone. This is the flag that
+    // separates "gave up judging" from "judged everything relevant".
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = {
+      name: "stub",
+      sendMessage: async () => toolUseResponse({}), // omitted ids → keep all
+    };
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        denseK: 100,
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedSelectionEvents).toHaveLength(1);
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      selector_ran: true,
+      selector_kept_all: true,
+    });
+  });
+
+  test("an explicit selection records selector_kept_all: false", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      selector_kept_all: false,
+    });
+  });
+
+  test("net_new_count counts only selections not already live in the conversation", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    // Selector picks topic-a and topic-b; topic-a is already resident, so only
+    // topic-b is a net-new injection this turn.
+    providerStub = selectProvider(["topic-a", "topic-b"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        denseK: 100,
+        activeSlugs: new Set<Slug>(["topic-a"]),
+        gateConfig: gateConfigOf(),
+      }),
+    );
+
+    expect(recordedSelectionEvents[0]!.detail).toMatchObject({
+      selected_count: 2,
+      net_new_count: 1,
+    });
+  });
+
+  test("net_new_count is omitted when activeSlugs is not threaded", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedSelectionEvents[0]!.detail).not.toHaveProperty(
+      "net_new_count",
+    );
+  });
+
   test("an empty pool is not a selector judgment", async () => {
     const lanes = await buildLanes();
     // `selectPool` returns [] before it ever reaches the provider when the pool
@@ -1591,5 +1695,241 @@ describe("orchestrate — injection gate", () => {
     await orchestrate(makeTurn(2, "apple"), depsOf(lanes));
 
     expect(recordedGateEvents).toEqual([]);
+  });
+});
+
+describe("latency sub-spans", () => {
+  test("orchestration inside a sub-span scope records v3_lanes / v3_expand / v3_selection", async () => {
+    // Each `Date.now()` call advances the clock 20ms so every measured span
+    // clears the recorder's floor without real waiting. Scoped to this test.
+    let clock = 0;
+    const nowSpy = spyOn(Date, "now").mockImplementation(() => (clock += 20));
+    try {
+      const lanes = await buildLanes();
+      denseHits = [{ article: "topic-b", section: 0 }];
+      providerStub = selectProvider(["topic-a"]);
+      const tracker = new TurnLatencyTracker();
+
+      await runWithLatencySubSpans(tracker, MEMORY_CONTEXT_PHASE_KEY, () =>
+        orchestrate(
+          makeTurn(1, "apple banana"),
+          depsOf(lanes, { denseK: 100 }),
+        ),
+      );
+
+      tracker.mark("turn_start");
+      tracker.mark("prompt_hook_start");
+      tracker.mark("prompt_hook_end");
+      const memory = tracker
+        .serializeSince(0)
+        .breakdown?.phases.find((p) => p.key === MEMORY_CONTEXT_PHASE_KEY);
+      expect(memory?.subPhases?.map((s) => s.key)).toEqual([
+        "v3_lanes",
+        "v3_expand",
+        "v3_selection",
+      ]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  test("a gate hard-skip records no v3_expand and no v3_selection", async () => {
+    let clock = 0;
+    const nowSpy = spyOn(Date, "now").mockImplementation(() => (clock += 20));
+    try {
+      const lanes = await buildLanes();
+      // Low dense score against a high threshold closes the gate; no bypass.
+      denseHits = [{ article: "topic-b", section: 0, score: 0.01 }];
+      providerStub = selectProvider(["topic-a"]);
+      const tracker = new TurnLatencyTracker();
+
+      await runWithLatencySubSpans(tracker, MEMORY_CONTEXT_PHASE_KEY, () =>
+        orchestrate(
+          makeTurn(1, "apple banana"),
+          depsOf(lanes, {
+            denseK: 100,
+            gateConfig: gateConfigOf({ enabled: true, bypassForCore: false }),
+          }),
+        ),
+      );
+
+      tracker.mark("turn_start");
+      tracker.mark("prompt_hook_start");
+      tracker.mark("prompt_hook_end");
+      const memory = tracker
+        .serializeSince(0)
+        .breakdown?.phases.find((p) => p.key === MEMORY_CONTEXT_PHASE_KEY);
+      expect(memory?.subPhases?.map((s) => s.key)).toEqual(["v3_lanes"]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Span-query pass: the dense lane re-run over the current message's clause
+// chunks as separate queries at `spanQueryK`, union-additive into the pool.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — span-query pass", () => {
+  const TWO_CHUNK_MESSAGE =
+    "apple appears in the first sentence here. elderberry shows up in the second sentence.";
+  const CHUNK_1 = "apple appears in the first sentence here.";
+  const CHUNK_2 = "elderberry shows up in the second sentence.";
+
+  test("spanQueryK omitted (default) runs no span dense calls", async () => {
+    const lanes = await buildLanes();
+
+    await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, selectorEnabled: false }),
+    );
+
+    expect(denseCalls).toEqual([{ query: TWO_CHUNK_MESSAGE, k: 100 }]);
+  });
+
+  test("span pass is inert when denseK=0", async () => {
+    const lanes = await buildLanes();
+
+    await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 0, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(denseCalls).toEqual([]);
+  });
+
+  test("single-chunk message skips the span pass", async () => {
+    const lanes = await buildLanes();
+
+    await orchestrate(
+      makeTurn(1, "apple in one single sentence."),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(denseCalls).toEqual([
+      { query: "apple in one single sentence.", k: 100 },
+    ]);
+  });
+
+  test("multi-chunk message adds span-lane candidates additively", async () => {
+    const lanes = await buildLanes();
+    // Full-message dense (and any chunk without an override) returns topic-b;
+    // chunk 1 re-surfaces topic-a (already a needle hit — attribution must
+    // stay "needle"); chunk 2 surfaces topic-d, which no other lane reaches
+    // ("grape" is not in the message, and the topic-a → topic-d curated edge
+    // must not re-surface an already-seen slug).
+    denseHits = [{ article: "topic-b", section: 0 }];
+    denseHitsByQuery.set(CHUNK_1, [{ article: "topic-a", section: 1 }]);
+    denseHitsByQuery.set(CHUNK_2, [{ article: "topic-d", section: 0 }]);
+
+    const result = await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(denseCalls).toEqual([
+      { query: TWO_CHUNK_MESSAGE, k: 100 },
+      { query: CHUNK_1, k: 7 },
+      { query: CHUNK_2, k: 7 },
+    ]);
+    const laneOf = new Map(
+      result.lanes.finder.map((c) => [c.slug, c.lane] as const),
+    );
+    // "apple"/"elderberry" needle hits keep their lanes; the full-message
+    // dense hit keeps "dense"; only the genuinely span-surfaced page tags
+    // "span".
+    expect(laneOf.get("topic-a")).toBe("needle");
+    expect(laneOf.get("topic-c")).toBe("needle");
+    expect(laneOf.get("topic-b")).toBe("dense");
+    expect(laneOf.get("topic-d")).toBe("span");
+    expect(result.lanes.finder.filter((c) => c.slug === "topic-a").length).toBe(
+      1,
+    );
+    // The span hit's matched section is recorded for injection/spotlight.
+    expect(result.matchedSections.get("topic-d")?.article).toBe("topic-d");
+    expect(result.matchedSections.get("topic-d")?.text).toContain(
+      "lead for topic d",
+    );
+    // Additive: the span-only page joins the passthrough selections alongside
+    // every other lane's candidates.
+    expect(new Set(result.selections.map((s) => s.slug))).toEqual(
+      new Set(["topic-a", "topic-b", "topic-c", "topic-d"]),
+    );
+  });
+
+  test("an article hit by several chunks records its highest-scoring section", async () => {
+    const lanes = await buildLanes();
+    // Both chunks surface topic-d; the EARLIER chunk's hit is the weaker one.
+    // Chunk order must not decide the recorded section — the strong match
+    // (ordinal 1, `## Notes`) wins over the lead (ordinal 0).
+    denseHits = [];
+    denseHitsByQuery.set(CHUNK_1, [
+      { article: "topic-d", section: 0, score: 0.2 },
+    ]);
+    denseHitsByQuery.set(CHUNK_2, [
+      { article: "topic-d", section: 1, score: 0.9 },
+    ]);
+
+    const result = await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(result.matchedSections.get("topic-d")?.ordinal).toBe(1);
+    expect(result.matchedSections.get("topic-d")?.text).toContain("grape");
+    expect(
+      result.lanes.finder.filter((c) => c.slug === "topic-d"),
+    ).toHaveLength(1);
+  });
+
+  test("a strictly stronger span cosine upgrades a dense-recorded section, keeping the lane", async () => {
+    const lanes = await buildLanes();
+    // Full-message dense records topic-b's lead (ordinal 0) at cosine 0.4;
+    // chunk 2 finds `## More` (ordinal 1) at 0.9 — same encoder and
+    // collection, strictly stronger, so the recorded section and finder
+    // descriptor upgrade while the lane attribution stays "dense".
+    denseHits = [{ article: "topic-b", section: 0, score: 0.4 }];
+    denseHitsByQuery.set(CHUNK_2, [
+      { article: "topic-b", section: 1, score: 0.9 },
+    ]);
+
+    const result = await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(result.matchedSections.get("topic-b")?.ordinal).toBe(1);
+    expect(result.matchedSections.get("topic-b")?.text).toContain(
+      "cherry date",
+    );
+    const entry = result.lanes.finder.find((c) => c.slug === "topic-b");
+    expect(entry?.lane).toBe("dense");
+    expect(entry?.descriptor).toContain("cherry date");
+  });
+
+  test("weaker span hits and needle-recorded sections are not overridden", async () => {
+    const lanes = await buildLanes();
+    // topic-b: span cosine 0.3 < full-message 0.4 — the lead stays recorded.
+    // topic-a: needle recorded the `## Details` match; span scores are not
+    // comparable to BM25, so the span hit must not touch it.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.4 }];
+    denseHitsByQuery.set(CHUNK_1, [
+      { article: "topic-a", section: 0, score: 0.99 },
+    ]);
+    denseHitsByQuery.set(CHUNK_2, [
+      { article: "topic-b", section: 1, score: 0.3 },
+    ]);
+
+    const result = await orchestrate(
+      makeTurn(1, TWO_CHUNK_MESSAGE),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
+    );
+
+    expect(result.matchedSections.get("topic-b")?.ordinal).toBe(0);
+    expect(result.matchedSections.get("topic-a")?.text).toContain("apple");
+    expect(result.lanes.finder.find((c) => c.slug === "topic-a")?.lane).toBe(
+      "needle",
+    );
   });
 });

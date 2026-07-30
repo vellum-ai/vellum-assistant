@@ -28,6 +28,10 @@ import {
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
 import { buildForChatSentinel } from "../../daemon/chat-credential-redaction.js";
+import {
+  isNonSecretPlatformField,
+  scrubStoredCredentialFromTranscripts,
+} from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -55,12 +59,15 @@ import {
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
+import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { recordForChatMint } from "../for-chat-mint-registry.js";
 import { recordRevealSuccess } from "../reveal-success-registry.js";
 import { InjectionTemplateSchema } from "./credential-prompt-routes.js";
 import { BadRequestError, InternalError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+const log = getLogger("credential-routes");
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -481,6 +488,32 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
     throw new InternalError(
       `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
     );
+  }
+
+  // The stored plaintext may already sit in recent transcripts: the user
+  // message that pasted it, the persisted tool_use input, the tool result
+  // echoing the command. This route is the scrub seam — not
+  // setSecureKeyAsync, which also fires on OAuth refresh rotations and MCP
+  // header writes whose values never transited a transcript. The scrub runs
+  // immediately after the secure-store write, BEFORE the metadata upsert and
+  // connection sync: those side effects can throw (oauth-store work), and a
+  // stored-but-unscrubbed secret must not depend on them succeeding. The
+  // credential IS stored at this point; the scrub is best-effort hygiene and
+  // must stay invisible to the caller.
+  if (!isNonSecretPlatformField(service, field)) {
+    try {
+      const scrubbed =
+        await scrubStoredCredentialFromTranscripts(normalizedValue);
+      log.info(
+        { service, field, ...scrubbed },
+        "Credential stored; scrubbed value from recent transcripts",
+      );
+    } catch (err) {
+      log.warn(
+        { err, service, field },
+        "Credential stored, but transcript scrub failed",
+      );
+    }
   }
 
   const metadata = upsertCredentialMetadata(service, field, {

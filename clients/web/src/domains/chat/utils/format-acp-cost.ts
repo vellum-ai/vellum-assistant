@@ -8,6 +8,8 @@ export function formatAcpCost(amount: number, currency: string): string {
     new Intl.NumberFormat(undefined, { style: "currency", currency }).format(
       value,
     );
-  if (amount > 0 && amount < 0.01) return `<${format(0.01)}`;
+  if (amount > 0 && amount < 0.01) {
+    return `<${format(0.01)}`;
+  }
   return format(amount);
 }

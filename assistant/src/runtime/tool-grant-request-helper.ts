@@ -21,7 +21,9 @@ import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
 } from "../notifications/guardian-delivery-recorder.js";
+import { buildVellumCardAffinity } from "../notifications/vellum-card-affinity.js";
 import { getLogger } from "../util/logger.js";
+import { resolveApprovalSourceReference } from "./approval-source-link.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
 import { resolveDecidableGuardianPrincipalId } from "./local-actor-identity.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
@@ -42,6 +44,10 @@ export interface ToolGrantRequestParams {
   toolName: string;
   inputDigest: string;
   questionText: string;
+  /** Channel-native id of the inbound message that triggered the escalation. */
+  sourceMessageId?: string;
+  /** Channel-native thread id of that message, when threaded. */
+  sourceThreadId?: string;
 }
 
 export type ToolGrantRequestResult =
@@ -73,6 +79,8 @@ export async function createOrReuseToolGrantRequest(
     toolName,
     inputDigest,
     questionText,
+    sourceMessageId,
+    sourceThreadId,
   } = params;
 
   if (!requesterExternalUserId) {
@@ -170,6 +178,9 @@ export async function createOrReuseToolGrantRequest(
     sourceChannel,
     sourceContextId: conversationId,
     requiresConversation: true,
+    // Pin the in-app (vellum) card to the conversation the escalated tool is
+    // running in, so the guardian decides it in context.
+    ...(buildVellumCardAffinity(conversationId) ?? {}),
     attentionHints: {
       requiresAction: true,
       urgency: "high",
@@ -186,6 +197,13 @@ export async function createOrReuseToolGrantRequest(
       requesterIdentifier: senderLabel,
       toolName,
       questionText,
+      // Reference to the channel message that triggered the escalation, so
+      // approval cards can link the guardian back to the source conversation.
+      ...resolveApprovalSourceReference(sourceChannel, conversationId, {
+        requesterChatId,
+        sourceMessageId,
+        sourceThreadId,
+      }),
     },
     dedupeKey: `tool-grant-request:${guardianRequest.id}`,
     // The broadcaster awaits the returned promise, so the delivery row is

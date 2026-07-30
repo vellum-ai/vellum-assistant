@@ -143,6 +143,36 @@ describe("assistant channels list", () => {
 
     fireEvent.click(adapterRow("Telegram"));
     expect(document.body.textContent).toContain("Who can message Vex");
+    // A connected credential channel shows no token field — parity with
+    // Slack's connected card. The credential form belongs to the connect flow.
+    expect(document.body.textContent).not.toContain("Bot Token");
+  });
+
+  test("connected credential channels show no credential form (Slack parity)", () => {
+    renderList({
+      channels: [
+        { key: "slack", status: "ready", address: "@vex" },
+        { key: "telegram", status: "ready", address: "@vex_bot" },
+        { key: "phone", status: "ready", address: "+15550100" },
+      ],
+      onSaveTelegramToken: async () => {},
+      onSaveTwilioCredentials: async () => {},
+      onDisconnect: () => {},
+    });
+
+    // Connected Telegram: connection header (chip + address + Disconnect), no
+    // Bot Token field.
+    fireEvent.click(adapterRow("Telegram"));
+    expect(document.body.textContent).toContain("Connected");
+    expect(document.body.textContent).toContain("@vex_bot");
+    expect(document.body.textContent).toContain("Disconnect");
+    expect(document.body.textContent).not.toContain("Bot Token");
+
+    // Connected Phone: same — no Twilio credential fields.
+    fireEvent.click(adapterRow("Phone"));
+    expect(document.body.textContent).toContain("Disconnect");
+    expect(document.body.textContent).not.toContain("Account SID");
+    expect(document.body.textContent).not.toContain("Auth Token");
   });
 
   test("selecting a disconnected adapter swaps the empty state for the manual form on request", () => {

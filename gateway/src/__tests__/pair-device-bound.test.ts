@@ -24,8 +24,12 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 
 const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
-const { actorTokenRecords, actorRefreshTokenRecords, contacts, contactChannels } =
-  await import("../db/schema.js");
+const {
+  actorTokenRecords,
+  actorRefreshTokenRecords,
+  contacts,
+  contactChannels,
+} = await import("../db/schema.js");
 const { handlePair, resetPairRateLimiterForTests } =
   await import("../http/routes/pair.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
@@ -114,6 +118,8 @@ describe("/v1/pair device-bound minting", () => {
       LOOPBACK_IP,
     );
     expect(res.status).toBe(200);
+    // Token-bearing responses must never be cached by intermediaries/browser.
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(typeof body.token).toBe("string");
@@ -200,6 +206,8 @@ describe("/v1/pair device-bound minting", () => {
   test("without a deviceId, returns the legacy stateless token and records nothing", async () => {
     const res = await handlePair(makePairRequest(), LOOPBACK_IP);
     expect(res.status).toBe(200);
+    // The stateless token response is also token-bearing → no-store.
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(typeof body.token).toBe("string");

@@ -17,10 +17,22 @@ import type { AssistantEntry } from "../lib/assistant-config.js";
 const testDir = mkdtempSync(join(tmpdir(), "retire-local-test-"));
 const originalLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
 
+// Snapshot the real modules before mocking so the module-scoped `afterAll`
+// below can restore them. Bun runs every test file in one process with a
+// shared loader, and `mock.restore()` does not undo `mock.module()`. Without
+// restoring, the `retire-archive.js` mock in particular leaks its hardcoded
+// `test-assistant.*` paths into sibling files (e.g. `recover.test.ts`), which
+// then fail to find their own archives.
+const realProcess = { ...(await import("../lib/process.js")) };
+const realNginxIngress = { ...(await import("../lib/nginx-ingress.js")) };
+const realRetireArchive = { ...(await import("../lib/retire-archive.js")) };
+
 const stopProcessByPidFileMock = mock(
   async (_pidFile: string, _label: string): Promise<boolean> => true,
 );
-const stopOrphanedDaemonProcessesMock = mock(async (): Promise<boolean> => false);
+const stopOrphanedDaemonProcessesMock = mock(
+  async (): Promise<boolean> => false,
+);
 const stopIngressNginxMock = mock(async (): Promise<boolean> => false);
 
 mock.module("../lib/process.js", () => ({
@@ -39,6 +51,14 @@ mock.module("../lib/retire-archive.js", () => ({
   getArchivePath: () => join(retiredStagingDir, "test-assistant.tar.gz"),
   getMetadataPath: () => join(retiredStagingDir, "test-assistant.meta.json"),
 }));
+
+// Restore the real modules once this file finishes so the mocks above do not
+// leak into other test files in the same `bun test` run.
+afterAll(() => {
+  mock.module("../lib/process.js", () => realProcess);
+  mock.module("../lib/nginx-ingress.js", () => realNginxIngress);
+  mock.module("../lib/retire-archive.js", () => realRetireArchive);
+});
 
 import { retireLocal } from "../lib/retire-local.js";
 

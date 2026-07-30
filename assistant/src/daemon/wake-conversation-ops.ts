@@ -13,6 +13,7 @@
  */
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   addMessage,
   getConversation,
@@ -27,7 +28,6 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
-import type { ServerMessage } from "./message-protocol.js";
 import type {
   SubagentToolGateMode,
   WakeToolContextPin,
@@ -37,7 +37,7 @@ const log = getLogger("wake-conversation-ops");
 
 /**
  * Translate a raw {@link AgentEvent} from the agent loop into the
- * corresponding {@link ServerMessage} wire frame. The normal user-turn
+ * corresponding {@link AssistantEvent} wire frame. The normal user-turn
  * path does this via the full state-aware handler in
  * `conversation-agent-loop-handlers.ts`; the wake path has no tool
  * accounting, title generation, or activity-state tracking to worry
@@ -48,7 +48,7 @@ const log = getLogger("wake-conversation-ops");
 function translateAgentEventToServerMessage(
   event: AgentEvent,
   conversationId: string,
-): ServerMessage | null {
+): AssistantEvent | null {
   switch (event.type) {
     case "text_delta":
       return {
@@ -176,7 +176,9 @@ export function emitWakeAgentEvent(
     event,
     conversation.conversationId,
   );
-  if (!frame) return;
+  if (!frame) {
+    return;
+  }
   broadcastMessage(frame);
 }
 
@@ -273,13 +275,29 @@ export async function persistWakeTailMessage(
  * for identification and skips indexing (the body may carry untrusted command
  * output). The `backgroundEventSource` stamp lets clients hide this row from the
  * rendered transcript — the user-facing wake card carries the status instead.
+ *
+ * `backgroundEventInteractive` records the permission mode the woken turn runs
+ * under, matching how the agent loop resolves an unset `isInteractive`
+ * (`!hasNoClient && !headlessLock`; see `runAgentLoopImpl`). A `clientless` wake
+ * pins `hasNoClient = true` for its dispatch, and that pin is applied after this
+ * row is persisted, so `clientless` is taken as a flag here rather than read
+ * back from the conversation post-pin. Most background events run interactive
+ * (scheduled runs, backgrounded-tool completions, and remote wakes on a
+ * client-connected conversation); clientless wakes (interrupted-turn recovery,
+ * local IPC wakes) and wakes on a client-less conversation — e.g. a schedule
+ * firing after a restart with no client attached — run non-interactive.
+ * Retrying the anchor reuses the recorded mode so the re-run reproduces the
+ * original turn's approval semantics.
  */
 export async function persistWakeTriggerMessage(
   conversation: Conversation,
   message: Message,
   source: string,
+  clientless: boolean,
   completion?: CompletedBackgroundTool,
 ): Promise<void> {
+  const backgroundEventInteractive =
+    !clientless && !conversation.hasNoClient && !conversation.headlessLock;
   const turnChannelCtx = conversation.getTurnChannelContext();
   const turnInterfaceCtx = conversation.getTurnInterfaceContext();
   const metadata: Record<string, unknown> = {
@@ -292,6 +310,7 @@ export async function persistWakeTriggerMessage(
       turnInterfaceCtx?.assistantMessageInterface ?? "web",
     kind: "background-event",
     backgroundEventSource: source,
+    backgroundEventInteractive,
     automated: true,
     ...(completion ? { backgroundToolCompletion: completion } : {}),
   };

@@ -38,7 +38,9 @@ export type CharacterComponents = CharacterComponentsResponse;
 export type CharacterTraits = NonNullable<AvatarStateResponse["traits"]>;
 
 export function isCharacterTraits(value: unknown): value is CharacterTraits {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   const obj = value as Record<string, unknown>;
   return (
     typeof obj.bodyShape === "string" &&
@@ -69,13 +71,17 @@ function isAvatarSource(value: unknown): value is AvatarSource {
 }
 
 function isAvatarImageMeta(value: unknown): value is AvatarImageMeta {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   const obj = value as Record<string, unknown>;
   return typeof obj.updatedAt === "string" && typeof obj.etag === "string";
 }
 
 export function isAvatarState(value: unknown): value is AvatarState {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   const obj = value as Record<string, unknown>;
   return (
     isAvatarKind(obj.kind) &&

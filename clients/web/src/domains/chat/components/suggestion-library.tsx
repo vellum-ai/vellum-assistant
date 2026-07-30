@@ -26,7 +26,10 @@ interface FeaturedRowProps {
   onSelect: (suggestion: ThreadSuggestion) => void;
 }
 
-export function SuggestionFeaturedRow({ featured, onSelect }: FeaturedRowProps) {
+export function SuggestionFeaturedRow({
+  featured,
+  onSelect,
+}: FeaturedRowProps) {
   return (
     <div data-slot="suggestion-featured-row" className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

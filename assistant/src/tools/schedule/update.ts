@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { resolveCapabilities } from "../../runtime/capabilities.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
@@ -17,6 +19,11 @@ import {
   getSchedule,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
+import { resolveGroupReference } from "../conversation-groups/group_shared.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script", "workflow"];
@@ -25,6 +32,45 @@ const VALID_ROUTING_INTENTS: RoutingIntent[] = [
   "multi_channel",
   "all_channels",
 ];
+
+/**
+ * Model-input schema, `safeParse`d at the top of {@link executeScheduleUpdate}.
+ * Same in-tool pattern and drift guard as {@link scheduleCreateInputSchema}
+ * in `create.ts` — see that schema's doc comment for the framework.
+ *
+ * Update-specific tolerance notes:
+ *
+ * - Presence semantics matter here (`input.x !== undefined` gates every
+ *   update), so fields are plain `.optional()` — no null-to-omitted
+ *   preprocessing that would silently turn an explicit update into a no-op.
+ * - `timezone` and `script` are nullable at runtime though advertised as
+ *   plain strings: `updateSchedule` persists null as "clear this field".
+ * - `timeout_ms` / `inference_profile` / `group` advertise null (it reverts
+ *   to the default); the executor's bespoke handling stays.
+ * - `mode`, `routing_intent`, `workflow_name`, and `workflow_args` are
+ *   deliberately UNDECLARED (loose passthrough): the first two keep bespoke
+ *   `VALID_*` errors; `workflow_name` has bespoke coercion semantics in the
+ *   resolution below; `workflow_args` accepts any JSON value.
+ */
+export const scheduleUpdateInputSchema = z.looseObject({
+  job_id: nullAsOmitted(z.string()),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  syntax: z.enum(["cron", "rrule"]).optional(),
+  expression: z.string().optional(),
+  timezone: z.string().nullable().optional(),
+  message: z.string().optional(),
+  script: z.string().nullable().optional(),
+  enabled: z.boolean().optional(),
+  routing_hints: z.looseObject({}).nullable().optional(),
+  quiet: z.boolean().optional(),
+  reuse_conversation: z.boolean().optional(),
+  max_retries: z.int().optional(),
+  retry_backoff_ms: z.int().optional(),
+  timeout_ms: z.int().nullable().optional(),
+  inference_profile: z.string().nullable().optional(),
+  group: z.string().nullable().optional(),
+});
 
 export async function executeScheduleUpdate(
   input: Record<string, unknown>,
@@ -37,19 +83,26 @@ export async function executeScheduleUpdate(
       isError: true,
     };
   }
-  const jobId = input.job_id as string;
-  if (!jobId || typeof jobId !== "string") {
+  const parsedInput = scheduleUpdateInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("schedule_update", parsedInput.error);
+  }
+  const parsed = parsedInput.data;
+
+  const jobId = parsed.job_id;
+  if (!jobId) {
     return { content: "Error: job_id is required", isError: true };
   }
 
-  // Prevent changing a one-shot to recurring or vice versa
-  if (input.expression !== undefined || input.fire_at !== undefined) {
+  // Prevent changing a one-shot to recurring or vice versa. (`fire_at` is
+  // not an advertised update field, so it stays a raw-input read.)
+  if (parsed.expression !== undefined || input.fire_at !== undefined) {
     const existing = getSchedule(jobId);
     if (!existing) {
       return { content: `Error: Schedule not found: ${jobId}`, isError: true };
     }
     const isExistingOneShot = existing.expression == null;
-    if (isExistingOneShot && input.expression !== undefined) {
+    if (isExistingOneShot && parsed.expression !== undefined) {
       return {
         content:
           "Error: Cannot change a one-shot schedule to recurring. Delete and recreate instead.",
@@ -66,10 +119,12 @@ export async function executeScheduleUpdate(
   }
 
   const updates: Record<string, unknown> = {};
-  if (input.name !== undefined) updates.name = input.name;
-  if (input.description !== undefined) {
-    const description = input.description as string;
-    if (typeof description !== "string" || description.trim().length === 0) {
+  if (parsed.name !== undefined) {
+    updates.name = parsed.name;
+  }
+  if (parsed.description !== undefined) {
+    const description = parsed.description;
+    if (description.trim().length === 0) {
       return {
         content: "Error: description must be a non-empty string when provided",
         isError: true,
@@ -77,10 +132,18 @@ export async function executeScheduleUpdate(
     }
     updates.description = description;
   }
-  if (input.timezone !== undefined) updates.timezone = input.timezone;
-  if (input.message !== undefined) updates.message = input.message;
-  if (input.script !== undefined) updates.script = input.script;
-  if (input.enabled !== undefined) updates.enabled = input.enabled;
+  if (parsed.timezone !== undefined) {
+    updates.timezone = parsed.timezone;
+  }
+  if (parsed.message !== undefined) {
+    updates.message = parsed.message;
+  }
+  if (parsed.script !== undefined) {
+    updates.script = parsed.script;
+  }
+  if (parsed.enabled !== undefined) {
+    updates.enabled = parsed.enabled;
+  }
 
   // Mode validation and pass-through
   if (input.mode !== undefined) {
@@ -118,81 +181,92 @@ export async function executeScheduleUpdate(
   }
 
   // Routing hints pass-through
-  if (input.routing_hints !== undefined) {
-    updates.routingHints = input.routing_hints;
+  if (parsed.routing_hints !== undefined) {
+    updates.routingHints = parsed.routing_hints;
   }
 
   // Quiet mode
-  if (input.quiet !== undefined) {
-    updates.quiet = input.quiet;
+  if (parsed.quiet !== undefined) {
+    updates.quiet = parsed.quiet;
   }
 
   // Conversation reuse
-  if (input.reuse_conversation !== undefined) {
-    updates.reuseConversation = input.reuse_conversation;
+  if (parsed.reuse_conversation !== undefined) {
+    updates.reuseConversation = parsed.reuse_conversation;
   }
 
   // Retry policy
-  if (input.max_retries !== undefined) {
-    updates.maxRetries = input.max_retries;
+  if (parsed.max_retries !== undefined) {
+    updates.maxRetries = parsed.max_retries;
   }
-  if (input.retry_backoff_ms !== undefined) {
-    updates.retryBackoffMs = input.retry_backoff_ms;
+  if (parsed.retry_backoff_ms !== undefined) {
+    updates.retryBackoffMs = parsed.retry_backoff_ms;
   }
 
   // Inference profile override (null clears it, reverting to the default
   // main-agent model selection)
-  if (input.inference_profile !== undefined) {
-    if (input.inference_profile === null) {
+  if (parsed.inference_profile !== undefined) {
+    if (parsed.inference_profile === null) {
       updates.inferenceProfile = null;
     } else {
-      const inferenceProfile = input.inference_profile;
-      if (typeof inferenceProfile !== "string") {
-        return {
-          content: "Error: inference_profile must be a string or null",
-          isError: true,
-        };
-      }
-      const profileError = validateScheduleInferenceProfile(inferenceProfile);
+      const profileError = validateScheduleInferenceProfile(
+        parsed.inference_profile,
+      );
       if (profileError) {
         return { content: `Error: ${profileError}`, isError: true };
       }
-      updates.inferenceProfile = inferenceProfile;
+      updates.inferenceProfile = parsed.inference_profile;
+    }
+  }
+
+  // Sidebar group for run conversations (null clears it, reverting to the
+  // default system:scheduled). Applies to conversations created by future
+  // runs; existing conversations stay where they are.
+  if (parsed.group !== undefined) {
+    if (parsed.group === null) {
+      updates.groupId = null;
+    } else {
+      const resolvedGroup = resolveGroupReference(parsed.group);
+      if ("error" in resolvedGroup) {
+        return { content: `Error: ${resolvedGroup.error}`, isError: true };
+      }
+      updates.groupId = resolvedGroup.group.id;
     }
   }
 
   // Script execution timeout override (null clears it, reverting to default)
-  if (input.timeout_ms !== undefined) {
-    if (input.timeout_ms === null) {
+  if (parsed.timeout_ms !== undefined) {
+    if (parsed.timeout_ms === null) {
       updates.timeoutMs = null;
     } else {
-      const timeoutMs = input.timeout_ms as number;
-      const timeoutError = validateScriptTimeoutMs(timeoutMs);
+      const timeoutError = validateScriptTimeoutMs(parsed.timeout_ms);
       if (timeoutError) {
         return { content: `Error: ${timeoutError}`, isError: true };
       }
-      updates.timeoutMs = timeoutMs;
+      updates.timeoutMs = parsed.timeout_ms;
     }
   }
 
   // Auto-detect syntax when expression changes without explicit syntax
-  if (input.expression !== undefined || input.syntax !== undefined) {
+  if (parsed.expression !== undefined || parsed.syntax !== undefined) {
     const resolved = normalizeScheduleSyntax({
-      syntax: input.syntax as "cron" | "rrule" | undefined,
-      expression: input.expression as string | undefined,
+      syntax: parsed.syntax,
+      expression: parsed.expression,
     });
     if (resolved) {
       updates.syntax = resolved.syntax;
       updates.expression = resolved.expression;
-    } else if (input.expression !== undefined) {
-      updates.expression = input.expression;
-      const detected = detectScheduleSyntax(input.expression as string);
-      if (detected) updates.syntax = detected;
+    } else if (parsed.expression !== undefined) {
+      updates.expression = parsed.expression;
+      const detected = detectScheduleSyntax(parsed.expression);
+      if (detected) {
+        updates.syntax = detected;
+      }
     }
     // When only syntax is provided (no expression), normalizeScheduleSyntax returns null
     // but we still need to persist the explicit syntax value.
-    if (input.syntax !== undefined && updates.syntax === undefined) {
-      updates.syntax = input.syntax;
+    if (parsed.syntax !== undefined && updates.syntax === undefined) {
+      updates.syntax = parsed.syntax;
     }
   }
 

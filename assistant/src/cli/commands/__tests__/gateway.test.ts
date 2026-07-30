@@ -47,7 +47,9 @@ mock.module("../../../ipc/cli-client.js", () => ({
   },
   exitFromIpcResult: (r: { error?: string }) => {
     process.exitCode = 1;
-    if (r.error) process.stderr.write(r.error);
+    if (r.error) {
+      process.stderr.write(r.error);
+    }
   },
 }));
 
@@ -99,7 +101,9 @@ async function runCommand(
     registerGatewayCommand(program);
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
   }

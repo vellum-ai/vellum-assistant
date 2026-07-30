@@ -117,6 +117,7 @@ const LIVE_VOICE_SERVER_FRAME_TYPES = [
   "tts_audio",
   "tts_done",
   "turn_cancelled",
+  "minimize_room",
   "metrics",
   "archived",
   "error",
@@ -214,6 +215,18 @@ export interface LiveVoiceTurnCancelledServerFrame extends LiveVoiceServerFrameB
   readonly turnId: string;
 }
 
+/**
+ * Assistant-requested room minimize: the just-completed turn asked (via the
+ * inline [-1] control marker) for the client to dismiss the full-screen
+ * voice room so the user can see the screen behind it. Sent only after the
+ * turn's TTS has fully drained, at most once per turn. Advisory — clients
+ * without a room (pop-outs, older clients) ignore it.
+ */
+export interface LiveVoiceMinimizeRoomServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "minimize_room";
+  readonly turnId: string;
+}
+
 export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "metrics";
   /**
@@ -234,6 +247,22 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
    */
   readonly roundTripMs?: number | null;
   readonly totalMs: number | null;
+  /**
+   * Semantic-endpointing "hold" decisions taken during the turn. Present only
+   * when the endpoint decider was consulted (with the
+   * feature off the field is absent, keeping frames unchanged).
+   */
+  readonly endpointHoldCount?: number;
+  /** Worst endpoint-decision latency observed during the turn. */
+  readonly endpointDecisionMaxLatencyMs?: number;
+  /** Which floor-holding ack actually spoke during the turn, if any. */
+  readonly ackSpoken?: "first_delta" | "tool_use";
+  /**
+   * Spoken progress narrations during the turn. Present only when at least
+   * one progress update spoke (otherwise the field is absent, keeping frames
+   * unchanged).
+   */
+  readonly progressUpdatesSpoken?: number;
 }
 
 export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {
@@ -275,6 +304,7 @@ export type LiveVoiceServerFrame =
   | LiveVoiceTtsAudioServerFrame
   | LiveVoiceTtsDoneServerFrame
   | LiveVoiceTurnCancelledServerFrame
+  | LiveVoiceMinimizeRoomServerFrame
   | LiveVoiceMetricsServerFrame
   | LiveVoiceArchivedServerFrame
   | LiveVoiceErrorServerFrame;

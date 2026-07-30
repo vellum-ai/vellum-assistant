@@ -195,6 +195,43 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     expect(committedRaw()).not.toBeNull();
   });
 
+  test("accepts routing identities on the replace path without deriving a connection", async () => {
+    const result = await replaceRoute.handler({
+      pathParams: { name: "my-custom" },
+      body: { provider: "vellum", model: "claude-opus-4-8" },
+    });
+    expect(result).toEqual({ ok: true });
+    const committed = committedRaw() as {
+      llm?: { profiles?: Record<string, Record<string, unknown>> };
+    } | null;
+    expect(committed?.llm?.profiles?.["my-custom"]).toMatchObject({
+      provider: "vellum",
+      model: "claude-opus-4-8",
+    });
+    expect(
+      committed?.llm?.profiles?.["my-custom"]?.provider_connection,
+    ).toBeUndefined();
+  });
+
+  test("rejects a routing identity with an unroutable model at the write choke point", async () => {
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "my-custom" },
+        body: { provider: "vellum", model: "not-a-real-model" },
+      }),
+    ).rejects.toThrow(/not served by the Vellum managed route/);
+    expect(committedRaw()).toBeNull();
+  });
+
+  test("rejects a routing identity in a raw call-site fragment without a model", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { callSites: { mainAgent: { provider: "chatgpt" } } } },
+      }),
+    ).rejects.toThrow(/requires an explicit model/);
+    expect(committedRaw()).toBeNull();
+  });
+
   // -------------------------------------------------------------------------
   // Null-as-clear sentinel: clients send `{ label: null }` or
   // `{ status: null }` to clear a managed profile's overrides back to the
@@ -1031,7 +1068,8 @@ describe("code-owned default profiles — wire view and write normalization", ()
     const response = (await getRoute.handler({})) as Record<string, any>;
     const wireBalanced = response.llm.profiles.balanced;
     expect(wireBalanced.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(wireBalanced.provider_connection).toBe("vellum");
+    expect(wireBalanced.provider).toBe("vellum");
+    expect(wireBalanced.provider_connection).toBeUndefined();
     expect(wireBalanced.status).toBe("disabled");
     expect(wireBalanced.invariant).toBe(true);
     // Absent defaults are materialized too — the catalog owns their content.
@@ -1159,6 +1197,59 @@ describe("code-owned default profiles — wire view and write normalization", ()
   });
 });
 
+describe("code-owned default profiles — BYO default provider wire view", () => {
+  // With llm.defaultProvider set, the wire view must show the column of the
+  // intent × provider matrix that actually dispatches — not the vellum
+  // column — and the write path must echo-strip against that same view or an
+  // honest GET → write round-trip is rejected.
+  test("GET materializes the default provider's column for default profiles", async () => {
+    seedRawConfig({
+      llm: { defaultProvider: { provider: "anthropic" }, profiles: {} },
+    });
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const wireBalanced = response.llm.profiles.balanced;
+    expect(wireBalanced.provider).toBe("anthropic");
+    expect(wireBalanced.model).toBe("claude-sonnet-4-6");
+    expect(wireBalanced.provider_connection).toBe("anthropic-personal");
+    expect(response.llm.profiles["quality-optimized"].provider).toBe(
+      "anthropic",
+    );
+  });
+
+  test("GET → PATCH round-trip of the BYO wire view is accepted and keeps disk stubs thin", async () => {
+    seedRawConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: { balanced: { source: "managed", status: "disabled" } },
+      },
+    });
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: response.llm.profiles } },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    expect(savedProfile("balanced")).toEqual({
+      source: "managed",
+      status: "disabled",
+    });
+    // Echoes of absent defaults reduce to a no-op managed stub.
+    expect(savedProfile("quality-optimized")).toEqual({ source: "managed" });
+  });
+
+  test("GET → SET llm round-trip of the BYO wire view is accepted", async () => {
+    seedRawConfig({
+      llm: { defaultProvider: { provider: "anthropic" }, profiles: {} },
+    });
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const result = await setRoute.handler({
+      body: { path: "llm", value: response.llm },
+    });
+    expect(result).toHaveProperty("ok");
+    expect(savedProfile("balanced")).toEqual({ source: "managed" });
+  });
+});
+
 describe("code-owned default profiles — leaf SET source stamping", () => {
   test("a leaf SET creating a managed entry stamps the managed marker", async () => {
     seedRawConfig({ llm: { profiles: {} } });
@@ -1258,5 +1349,32 @@ describe("code-owned default profiles — echoes over stale on-disk bodies", () 
       }),
     ).rejects.toThrow(BadRequestError);
     expectNothingCommitted();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /v1/config — legacy service-mode scrub
+// ---------------------------------------------------------------------------
+
+describe("PATCH /v1/config — provider-only services scrub legacy mode", () => {
+  test("a paired provider+mode write persists without the mode key", async () => {
+    // Web clients pair provider writes with `mode` so their saves stay valid
+    // on daemons whose schemas still carry it; the raw config must not
+    // resurrect the removed field on every save.
+    await patchRoute.handler({
+      body: {
+        services: {
+          "image-generation": { provider: "vellum", mode: "managed" },
+          "web-search": { provider: "vellum", mode: "managed" },
+        },
+      },
+    } as never);
+
+    const raw = committedRaw() as Record<
+      string,
+      Record<string, Record<string, unknown>>
+    >;
+    expect(raw.services["image-generation"]).toEqual({ provider: "vellum" });
+    expect(raw.services["web-search"]).toEqual({ provider: "vellum" });
   });
 });

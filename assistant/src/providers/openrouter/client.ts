@@ -45,7 +45,9 @@ const OPENROUTER_MODEL_EFFORT_CEILINGS = modelEffortCeilings("openrouter");
 export function extractOnlyList(config: unknown): string[] {
   const cfg = config as { openrouter?: { only?: unknown } } | undefined;
   const only = cfg?.openrouter?.only;
-  if (!Array.isArray(only)) return [];
+  if (!Array.isArray(only)) {
+    return [];
+  }
   return only.filter((x): x is string => typeof x === "string" && x.length > 0);
 }
 
@@ -80,9 +82,13 @@ function extractReasoningSummaryOverride(config: unknown): string | undefined {
 export function withOpenRouterBodyExtras(
   options?: SendMessageOptions,
 ): SendMessageOptions | undefined {
-  if (!options?.config) return options;
+  if (!options?.config) {
+    return options;
+  }
   const only = extractOnlyList(options.config);
-  if (only.length === 0) return options;
+  if (only.length === 0) {
+    return options;
+  }
   const { openrouter: _openrouter, ...rest } = options.config as Record<
     string,
     unknown
@@ -118,7 +124,6 @@ export class OpenRouterResponsesProvider extends OpenAIResponsesProvider {
 
 export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
   private readonly openRouterApiKey: string;
-  private readonly defaultModel: string;
   private readonly resolvedBaseURL: string;
   private readonly providerStreamTimeoutMs: number | undefined;
   private readonly useNativeWebSearch: boolean;
@@ -141,7 +146,6 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       backfillEmptyAssistantContent: true,
     });
     this.openRouterApiKey = apiKey;
-    this.defaultModel = model;
     this.resolvedBaseURL = baseURL;
     this.providerStreamTimeoutMs = options.streamTimeoutMs;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;

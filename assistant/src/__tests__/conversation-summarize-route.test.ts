@@ -183,6 +183,15 @@ function makeConversation(opts: { processing?: boolean } = {}) {
     summarizeUpToMessage,
     emitActivityState,
     drainQueue,
+    // Forwards to drainQueue so tests that spy the drain observe the route's
+    // queue kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     getMessages: () => messages,
   };
   return {

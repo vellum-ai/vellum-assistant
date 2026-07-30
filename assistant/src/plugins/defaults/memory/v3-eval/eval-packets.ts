@@ -36,8 +36,8 @@ import {
   messages,
 } from "../../../../persistence/schema/index.js";
 import { FRONTMATTER_REGEX, parseFrontmatterFields } from "../frontmatter.js";
-import { injectedConceptHeader } from "../v2/injected-block-slugs.js";
-import { slugFromConceptPath } from "../v2/page-store.js";
+import { injectedConceptHeader } from "../substrate/injected-block-slugs.js";
+import { slugFromConceptPath } from "../substrate/page-store.js";
 import { renderCard } from "../v3/card.js";
 import { buildSectionNeedle } from "../v3/section-needle.js";
 import { buildSectionIndex } from "../v3/sections.js";
@@ -394,6 +394,9 @@ export function mineTurns(
     .innerJoin(conversations, eq(messages.conversationId, conversations.id))
     .where(
       and(
+        // Imported conversations (source LIKE 'import:%') are deliberately
+        // excluded: they predate this assistant's own retrieval behavior and
+        // would skew packets toward foreign conversation styles.
         sql`COALESCE(${conversations.source}, 'user') = 'user'`,
         sql`${conversations.scheduleJobId} IS NULL`,
         ...(exclude.length > 0
@@ -424,6 +427,9 @@ function minePinnedTurns(db: DrizzleDb, pinnedTurnIds: string[]): MinedTurn[] {
     .where(
       and(
         inArray(messages.conversationId, conversationIds),
+        // Imported conversations (source LIKE 'import:%') are deliberately
+        // excluded: they predate this assistant's own retrieval behavior and
+        // would skew packets toward foreign conversation styles.
         sql`COALESCE(${conversations.source}, 'user') = 'user'`,
         sql`${conversations.scheduleJobId} IS NULL`,
       ),

@@ -37,7 +37,9 @@ export function getSlackConversationDisplay({
     conversation?.originChannel === "slack"
       ? conversation.channelBinding
       : undefined;
-  if (!channelBinding) return null;
+  if (!channelBinding) {
+    return null;
+  }
 
   const slackChannel = channelBinding.slackChannel;
   const channelId = slackChannel?.channelId ?? channelBinding.externalChatId;
@@ -48,7 +50,8 @@ export function getSlackConversationDisplay({
     messageChannel?.channelName,
   );
   const friendlyChannelName =
-    channelDisplayText && !isChannelIdFallback(channelDisplayText, channelBinding)
+    channelDisplayText &&
+    !isChannelIdFallback(channelDisplayText, channelBinding)
       ? channelDisplayText
       : undefined;
   const fallbackDisplayText =
@@ -59,10 +62,13 @@ export function getSlackConversationDisplay({
       friendlyChannelName,
     ) ?? channelDisplayText;
 
-  if (!fallbackDisplayText) return null;
+  if (!fallbackDisplayText) {
+    return null;
+  }
 
   const resolvedDisplayText =
-    resolvedChannelName && !isChannelIdFallback(resolvedChannelName, channelBinding)
+    resolvedChannelName &&
+    !isChannelIdFallback(resolvedChannelName, channelBinding)
       ? resolvedChannelName
       : undefined;
   const displayText = !isChannelIdFallback(fallbackDisplayText, channelBinding)
@@ -86,10 +92,17 @@ export function shouldResolveSlackConversationDisplayName(
 }
 
 export function formatSlackConversationDisplayLabel(
-  display: Pick<SlackConversationDisplay, "displayText" | "isDm" | "isFallback">,
+  display: Pick<
+    SlackConversationDisplay,
+    "displayText" | "isDm" | "isFallback"
+  >,
 ): string {
-  if (display.isDm || display.isFallback) return display.displayText;
-  if (display.displayText.startsWith("#")) return display.displayText;
+  if (display.isDm || display.isFallback) {
+    return display.displayText;
+  }
+  if (display.displayText.startsWith("#")) {
+    return display.displayText;
+  }
   return `#${display.displayText}`;
 }
 
@@ -99,13 +112,19 @@ function getSlackConversationLink(
   channelId: string | undefined,
 ): string | undefined {
   const threadLink = getExternalLinkUrl(channelBinding.slackThread?.link);
-  if (threadLink) return threadLink;
+  if (threadLink) {
+    return threadLink;
+  }
 
   const messageThreadLink = getExternalLinkUrl(messageChannel?.threadLink);
-  if (messageThreadLink) return messageThreadLink;
+  if (messageThreadLink) {
+    return messageThreadLink;
+  }
 
   const messageLink = getExternalLinkUrl(messageChannel?.messageLink);
-  if (messageLink) return messageLink;
+  if (messageLink) {
+    return messageLink;
+  }
 
   return getSlackChannelLink(channelBinding.slackChannel, undefined, channelId);
 }
@@ -125,7 +144,9 @@ function getSlackChannelLinkFromMessageLink(
   messageLink: ExternalSourceLink | undefined,
   channelId: string | undefined,
 ): string | undefined {
-  if (!messageLink || !channelId) return undefined;
+  if (!messageLink || !channelId) {
+    return undefined;
+  }
 
   if (messageLink.webUrl) {
     try {
@@ -142,7 +163,9 @@ function getSlackChannelLinkFromMessageLink(
     }
   }
 
-  if (!messageLink.appUrl) return undefined;
+  if (!messageLink.appUrl) {
+    return undefined;
+  }
   try {
     const url = new URL(messageLink.appUrl);
     if (url.protocol !== "slack:" || url.hostname !== "channel") {
@@ -165,11 +188,17 @@ function getSlackMessageChannel(
   messages: DisplayMessage[] | undefined,
   channelId: string | undefined,
 ) {
-  if (!messages || messages.length === 0) return undefined;
+  if (!messages || messages.length === 0) {
+    return undefined;
+  }
   for (let i = messages.length - 1; i >= 0; i--) {
     const slackMessage = messages[i]?.slackMessage;
-    if (!slackMessage) continue;
-    if (channelId && slackMessage.channelId !== channelId) continue;
+    if (!slackMessage) {
+      continue;
+    }
+    if (channelId && slackMessage.channelId !== channelId) {
+      continue;
+    }
     return slackMessage;
   }
   return undefined;
@@ -237,7 +266,9 @@ function getSlackDmDisplayText(
   messageChannel: SlackMessageChannel | undefined,
   friendlyChannelName: string | undefined,
 ): string | undefined {
-  if (!isSlackDmChannelId(channelId)) return undefined;
+  if (!isSlackDmChannelId(channelId)) {
+    return undefined;
+  }
   const participantName = getSlackDmParticipantName(
     channelBinding,
     messageChannel,

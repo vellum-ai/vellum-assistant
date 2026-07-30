@@ -25,7 +25,14 @@ afterAll(() => {
     /* best-effort cleanup */
   }
 
-  // Reset all module mocks so mock.module() calls in one test file
-  // don't leak into the next file in the same bun test run.
+  // Restore spies created via spyOn()/mock() at the end of the run.
+  //
+  // NOTE: this does NOT prevent inter-file leaks of `mock.module()`. This
+  // `afterAll` runs once, after ALL files complete (a preload's afterAll wraps
+  // the whole run, not each file), and `mock.restore()` does not undo
+  // `mock.module()` registrations anyway. A file that calls `mock.module()`
+  // must restore the real module itself in its own `afterAll` by re-registering
+  // the captured real exports (see e.g. teleport.test.ts / recover.test.ts),
+  // otherwise the mock leaks into whichever file Bun runs next.
   mock.restore();
 });

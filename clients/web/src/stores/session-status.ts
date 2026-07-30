@@ -44,7 +44,8 @@ export type PlatformSessionStatus = "unknown" | "absent" | "present";
  * isLoading: true)` state — "logged in but still loading" — unrepresentable,
  * the same illegal-state-elimination this store applies to `platformSession`.
  */
-export type SessionStatus = "initializing" | "authenticated" | "unauthenticated";
+export type SessionStatus =
+  "initializing" | "authenticated" | "unauthenticated";
 
 /**
  * Read predicates — the single place each session-state question is answered.
@@ -64,6 +65,18 @@ export const isSessionSettled = (status: SessionStatus): boolean =>
 export const hasLivePlatformSession = (
   status: PlatformSessionStatus,
 ): boolean => status === "present";
+
+/**
+ * The platform-session probe has settled — `platformSession` left the
+ * `"unknown"` window and is now a definite `"present"` / `"absent"`. Distinct
+ * from {@link isSessionSettled}: the local-gateway path flips `sessionStatus`
+ * to `"authenticated"` before `getSession()` resolves `platformSession`, so a
+ * consumer whose behavior turns on platform-session liveness must wait on this,
+ * not on the (earlier) `sessionStatus` settlement.
+ */
+export const isPlatformSessionSettled = (
+  status: PlatformSessionStatus,
+): boolean => status !== "unknown";
 
 /**
  * A platform session a live probe confirmed — `"present"` AND not a believed

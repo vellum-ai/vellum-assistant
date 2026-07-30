@@ -52,7 +52,9 @@ export async function writeHomeFeedItemForSignal(
 ): Promise<FeedItem | null> {
   const { mirror, sourceConversationId, sourceScheduleJobId } =
     resolveHomeFeedMirror(signal, fallbackConversationId);
-  if (!mirror) return null;
+  if (!mirror) {
+    return null;
+  }
 
   const renderedCopy =
     decision.renderedCopy.vellum ??
@@ -159,6 +161,7 @@ const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
   "guardian.question": "security",
   "guardian.channel_activation": "security",
   "ingress.access_request": "security",
+  "telegram.webhook_health_alert": "system",
 };
 
 function deriveCategory(signal: NotificationSignal): FeedItemCategory {
@@ -252,7 +255,9 @@ function firstSelectedRenderedCopy(
 ): RenderedChannelCopy | undefined {
   for (const channel of selectedChannels) {
     const copy = renderedCopy[channel];
-    if (copy && (copy.title?.trim() || copy.body?.trim())) return copy;
+    if (copy && (copy.title?.trim() || copy.body?.trim())) {
+      return copy;
+    }
   }
   return undefined;
 }
@@ -269,6 +274,9 @@ const NOTEWORTHY_EVENT_NAMES: ReadonlySet<string> = new Set([
   "guardian.channel_activation",
   "ingress.access_request",
   "credential.health_alert",
+  // A dark messaging channel is inbox-worthy: the guardian may be waiting on
+  // replies that are silently queueing at Telegram.
+  "telegram.webhook_health_alert",
 ]);
 
 function deriveNoteworthy(signal: NotificationSignal): boolean {
@@ -280,7 +288,11 @@ function deriveNoteworthy(signal: NotificationSignal): boolean {
   if (signal.sourceEventName === "activity.failed") {
     return signal.attentionHints.urgency === "critical";
   }
-  if (signal.sourceChannel === "assistant_tool") return true;
-  if (NOTEWORTHY_EVENT_NAMES.has(signal.sourceEventName)) return true;
+  if (signal.sourceChannel === "assistant_tool") {
+    return true;
+  }
+  if (NOTEWORTHY_EVENT_NAMES.has(signal.sourceEventName)) {
+    return true;
+  }
   return false;
 }

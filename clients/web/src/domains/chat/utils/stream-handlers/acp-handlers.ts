@@ -29,7 +29,9 @@ export function handleAcpSessionUpdate(event: AcpSessionUpdateEvent): void {
   const seq = event.seq;
   if (typeof seq === "number") {
     const hwm = store.highWaterMark.get(event.acpSessionId);
-    if (seq <= (hwm ?? -1)) return;
+    if (seq <= (hwm ?? -1)) {
+      return;
+    }
   }
 
   store.receiveEvent({
@@ -81,7 +83,9 @@ export function handleAcpSessionError(event: AcpSessionErrorEvent): void {
   // acp_session_error even though it persists the run as `cancelled`. Mirror
   // the daemon: a run already marked cancelled (by the Stop action) is not
   // regressed to `failed`.
-  if (store.byId[event.acpSessionId]?.status === "cancelled") return;
+  if (store.byId[event.acpSessionId]?.status === "cancelled") {
+    return;
+  }
   store.setTerminal({
     acpSessionId: event.acpSessionId,
     status: "failed",

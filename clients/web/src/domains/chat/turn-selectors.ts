@@ -5,7 +5,11 @@
  * previously scattered across the component tree.
  */
 
-import { type TurnPhase, isSending, isThinking } from "@/domains/chat/turn-store";
+import {
+  type TurnPhase,
+  isSending,
+  isThinking,
+} from "@/domains/chat/turn-store";
 
 // ---------------------------------------------------------------------------
 // UI context — values provided by the component that are NOT part of the
@@ -101,7 +105,9 @@ export function shouldShowThinkingIndicator(
     !ctx.hasPendingQuestion &&
     !ctx.hasPendingContactRequest &&
     !ctx.hasUncompletedVisibleSurface &&
-    (isThinking(phase) || restoredProcessing || !ctx.hasStreamingAssistantMessage) &&
+    (isThinking(phase) ||
+      restoredProcessing ||
+      !ctx.hasStreamingAssistantMessage) &&
     // Inline SingleActivity owns the loading state once reasoning is present.
     !ctx.hasStreamingAssistantThinking &&
     activeToolCallCount === 0
@@ -115,7 +121,10 @@ export function shouldShowThinkingIndicator(
  * When the assistant is waiting for the user to resolve a prompt (secret,
  * confirmation, question, contact request) or an interactive surface, it is
  * not busy — the prompt IS the UI, and neither a spinner nor a stop button
- * should be shown.
+ * should be shown. Not-busy is driven exclusively by an actually-pending
+ * prompt or surface: `phase` alone does not suppress busy, so a turn that
+ * keeps streaming after a prompt resolves stays busy even if the phase is
+ * momentarily stale at `awaiting_user_input`.
  *
  * External-channel conversations (Slack, Telegram, phone) can stream into an
  * already-open web tab without the web app ever calling `requestSend()`. In
@@ -127,16 +136,15 @@ export function shouldShowThinkingIndicator(
  * `hasPendingAssistantResponse` guard keeps the window right after a send
  * (before the first token) covered.
  */
-export function isAssistantBusy(
-  phase: TurnPhase,
-  ctx: UIContext,
-): boolean {
+export function isAssistantBusy(phase: TurnPhase, ctx: UIContext): boolean {
   if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
     return false;
   }
 
+  // Only an actually-pending prompt or interactive surface suppresses busy —
+  // the `phase` can lag at `awaiting_user_input` after a prompt resolves while
+  // the turn keeps streaming, so it must not gate this on its own.
   if (
-    phase === "awaiting_user_input" ||
     ctx.hasPendingSecret ||
     ctx.hasPendingConfirmation ||
     ctx.hasPendingQuestion ||

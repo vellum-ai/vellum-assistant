@@ -22,6 +22,7 @@ import {
   getDb,
   getLogsDb,
   getMemoryDb,
+  getMemorySqlite,
   getSqlite,
 } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -59,13 +60,15 @@ function resetTables(): void {
   db.delete(channelInboundEvents).run();
   db.delete(externalConversationBindings).run();
   db.delete(conversationAssistantAttentionState).run();
-  db.delete(activationState).run();
-  db.delete(conversationGraphMemoryState).run();
-  db.delete(memoryRetrospectiveState).run();
+  // activation_state, conversation_graph_memory_state, and
+  // memory_retrospective_state all live on the memory connection now.
+  getMemoryDb()!.delete(activationState).run();
+  getMemoryDb()!.delete(conversationGraphMemoryState).run();
+  getMemoryDb()!.delete(memoryRetrospectiveState).run();
   getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   getMemoryDb()!.delete(memoryJobs).run();
-  db.run("DELETE FROM memory_v3_ever_injected");
+  getMemorySqlite()!.exec("DELETE FROM memory_v3_ever_injected");
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
   db.run("DELETE FROM conversation_compaction_events");
@@ -372,8 +375,8 @@ describe("forkConversationForRetrospective — compacted source", () => {
     const snapshot = JSON.stringify({ inContext: ["node-a"], currentTurn: 7 });
     saveGraphMemoryState(source.id, snapshot);
     const everInjected = JSON.stringify([{ slug: "page-a", turn: 1 }]);
-    const db = getDb();
-    db.insert(activationState)
+    getMemoryDb()!
+      .insert(activationState)
       .values({
         conversationId: source.id,
         messageId: "source-turn-marker",
@@ -383,7 +386,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
         updatedAt: Date.now(),
       })
       .run();
-    getSqlite()
+    getMemorySqlite()!
       .query(
         `INSERT INTO memory_v3_ever_injected (conversation_id, slug, injected_at, bytes, pruned_at)
          VALUES (?, 'card-a', ?, 12, NULL)`,
@@ -401,13 +404,13 @@ describe("forkConversationForRetrospective — compacted source", () => {
     // The fork's rendered window equals the source's, so activation,
     // ever-injected, and graph state are carried as-is.
     expect(loadGraphMemoryState(fork.id)).toBe(snapshot);
-    const forkActivation = db
+    const forkActivation = getMemoryDb()!
       .select()
       .from(activationState)
       .where(eq(activationState.conversationId, fork.id))
       .get();
     expect(forkActivation?.everInjectedJson).toBe(everInjected);
-    const v3Rows = getSqlite()
+    const v3Rows = getMemorySqlite()!
       .query(
         "SELECT slug FROM memory_v3_ever_injected WHERE conversation_id = ?",
       )
@@ -455,7 +458,7 @@ describe("forkConversationForRetrospective — compacted source", () => {
 
     // Derived seeding sees only the copied tail's slug; the wholesale graph
     // carry is skipped for truncated forks.
-    const forkActivation = db
+    const forkActivation = getMemoryDb()!
       .select()
       .from(activationState)
       .where(eq(activationState.conversationId, fork.id))

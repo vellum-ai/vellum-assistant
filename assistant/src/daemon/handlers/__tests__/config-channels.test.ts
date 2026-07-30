@@ -20,8 +20,12 @@ let ipcCalls: Array<{ method: string; payload: unknown }> = [];
 
 mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async (input?: { channelTypes?: string[] }) => {
-    if (mockGuardians == null) return null;
-    if (!input?.channelTypes) return mockGuardians;
+    if (mockGuardians == null) {
+      return null;
+    }
+    if (!input?.channelTypes) {
+      return mockGuardians;
+    }
     return mockGuardians.filter((g) =>
       input.channelTypes!.includes(g.channelType),
     );
@@ -63,7 +67,9 @@ mock.module("../../../ipc/gateway-client.js", () => ({
       return { ok: true };
     }
     if (method === "contacts_get_rich") {
-      if (mockGwContactChannels == null) return { ok: true, contact: null };
+      if (mockGwContactChannels == null) {
+        return { ok: true, contact: null };
+      }
       return {
         ok: true,
         contact: {

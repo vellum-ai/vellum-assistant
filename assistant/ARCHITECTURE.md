@@ -374,10 +374,9 @@ External users who are not the guardian can gain access to the assistant through
 **Notification signals:** The flow emits signals at each lifecycle transition via `emitNotificationSignal()`:
 
 - `ingress.access_request` — unknown contact denied, guardian notified
-- `ingress.trusted_contact.guardian_decision` — guardian approved or denied
-- `ingress.trusted_contact.verification_sent` — code created and delivered
+- `ingress.trusted_contact.guardian_decision` — the guardian's verdict (the payload's `decision` field carries approved/denied; exactly one lifecycle signal fires per denial)
+- `ingress.trusted_contact.verification_sent` — code created and delivered (stands in for `guardian_decision` on approve so the pipeline doesn't announce approval before verification)
 - `ingress.trusted_contact.activated` — requester verified, contact active
-- `ingress.trusted_contact.denied` — guardian explicitly denied
 
 **HTTP API (for management):**
 
@@ -625,10 +624,10 @@ Real-time conversation chat message capture on macOS uses a WebSocket-based stre
 
 Two provider adapters are supported, each implementing the `StreamingTranscriber` interface from `src/stt/types.ts`:
 
-| Provider          | Adapter                                                     | Mode          | Mechanism                                                                                                                                                                                                                                             |
-| ----------------- | ----------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Deepgram**      | `src/providers/speech-to-text/deepgram-realtime.ts`         | `realtime-ws` | Opens a WebSocket to Deepgram's `/v1/listen` endpoint, forwards raw PCM audio, normalizes Deepgram's `is_final`/`speech_final` semantics into `partial`/`final` events. Uses model `nova-2`.                                                          |
-| **Google Gemini** | `src/providers/speech-to-text/google-gemini-live-stream.ts` | `realtime-ws` | Opens a bidirectional streaming session against Gemini's Live API (`ai.live.connect`), forwards PCM audio frames, and normalizes `serverContent.inputTranscription` events into `partial`/`final` events. Uses model `gemini-live-2.5-flash-preview`. |
+| Provider          | Adapter                                                     | Mode          | Mechanism                                                                                                                                                                                                                                                    |
+| ----------------- | ----------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Deepgram**      | `src/providers/speech-to-text/deepgram-realtime.ts`         | `realtime-ws` | Opens a WebSocket to Deepgram's `/v1/listen` endpoint, forwards raw PCM audio, normalizes Deepgram's `is_final`/`speech_final` semantics into `partial`/`final` events. Uses model `nova-2`.                                                                 |
+| **Google Gemini** | `src/providers/speech-to-text/google-gemini-live-stream.ts` | `realtime-ws` | Opens a bidirectional streaming session against Gemini's Live API (`ai.live.connect`), forwards PCM audio frames, and normalizes `serverContent.inputTranscription` events into `partial`/`final` events. Uses model `gemini-2.5-flash-native-audio-latest`. |
 
 **Provider-specific behavior differences:**
 
@@ -752,7 +751,7 @@ Conversation starters follow the same pattern via `GET /v1/conversation-starters
 
 The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is the canonical module for determining whether an assistant feature flag is enabled. It loads default values from the unified registry at `meta/feature-flags/feature-flag-registry.json` (bundled copy at `src/config/feature-flag-registry.json`) and resolves the effective state for each declared assistant-scope flag. Assistant feature flags are declaration-driven assistant-scoped booleans that can gate any assistant behavior; skill availability is one consumer.
 
-**Canonical key format:** Simple kebab-case (e.g., `contacts`, `voice-mode`).
+**Canonical key format:** Simple kebab-case (e.g., `contacts`, `browser`).
 
 **Resolution priority** (highest wins):
 
@@ -780,7 +779,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
-**Migration path:** The legacy `skills.<id>.enabled` and `feature_flags.<id>.enabled` key formats are no longer supported. All code must use simple kebab-case keys (e.g., `contacts`, `voice-mode`). Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
+**Migration path:** The legacy `skills.<id>.enabled` and `feature_flags.<id>.enabled` key formats are no longer supported. All code must use simple kebab-case keys (e.g., `contacts`, `browser`). Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
 
 **Key source files:**
 
@@ -821,14 +820,18 @@ graph LR
         SL["logs/session-*.json<br/>───────────────<br/>Per-session JSON log<br/>task, start/end times, result<br/>Per-turn: AX tree, screenshot,<br/>action, token usage"]
     end
 
+    subgraph "$VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db (SQLite + WAL)"
+        direction TB
+        SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
+        SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
+        EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
+    end
+
     subgraph "$VELLUM_WORKSPACE_DIR/data/db/assistant.db (SQLite + WAL)"
         direction TB
         CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>conversation_type: 'standard' | 'background' | 'scheduled'"]
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
         TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
-        SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
-        SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
-        EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
         REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled<br/>routing_intent: single_channel |<br/>multi_channel | all_channels<br/>routing_hints_json (free-form)"]
@@ -1411,12 +1414,15 @@ Editing any file in the root skill or any included child invalidates the transit
 
 #### Permission Gating (`skill_load_dynamic:*`)
 
-Skills containing inline command expansions use a separate permission candidate namespace (`skill_load_dynamic:*`) instead of the normal `skill_load:*` namespace. This prevents them from falling through to the permissive default `skill_load:*` allow rule. The permission checker emits candidates in specificity order:
+Inline-command skill loads are classified **High** risk — in the gateway skill risk classifier (`gateway/src/risk/skill-risk-classifier.ts`), with a defense-in-depth elevation in `check()` for the gateway-unreachable path. The standard auto-approve threshold then governs them like any other high-risk action: they run without a prompt only at **Full access** (`autoApproveUpTo: "high"`) and prompt at every level below it. There is no separate "always ask" override outside the threshold.
 
-1. `skill_load_dynamic:<skill-id>@<transitive-hash>` — version-pinned approval (most specific)
-2. `skill_load_dynamic:<skill-id>` — any-version approval
+These guarantees sit alongside the threshold:
 
-A default ask rule at priority 200 (`default:ask-skill_load_dynamic-global`) catches these candidates, ensuring the guardian is always prompted before inline commands execute. The user can create a pinned trust rule for a specific transitive hash to auto-approve known-good versions. Non-interactive sessions (no human present) deny dynamic skill loads rather than silently auto-approving.
+- **Escape hatch (guardian).** A user trust rule that covers the load re-classifies its risk inside the gateway (arriving as matchType `user_rule`), so a guardian's own load runs without prompting at any threshold. (A trust rule does not lift the sensitive-tool capability floor, so a non-guardian actor's covered dynamic load is still escalated to the guardian — like any other sensitive tool.) Approvals are offered in a separate candidate namespace so a pinned rule can auto-approve a known-good version rather than falling through to the permissive default `skill_load:*` allow rule:
+  1.  `skill_load_dynamic:<skill-id>@<transitive-hash>` — version-pinned (most specific)
+  2.  `skill_load_dynamic:<skill-id>` — any-version
+- **Guardian-only self-approval (sensitive-tool gate).** An uncovered dynamic load is routed through the sensitive-tool gate (`tools/tool-approval-handler.ts`: `isSensitiveTool` → `resolveSensitiveToolDecision`). A non-guardian actor is escalated to the guardian via the capability floor — which no threshold, including Full access, can lift — while the guardian self-approves (`proceed`) and the threshold then governs (allow at Full access, prompt below). `skill_load` is otherwise not a side-effect tool, so this makes the dynamic case participate in the same capability floor as host/side-effect tools.
+- **Non-interactive denial.** An uncovered dynamic load in a session with no interactive client is denied outright — regardless of threshold, including Full access — because embedded shell must never run unattended without a covering rule. Enforced in `tools/permission-checker.ts` (lane B) via `isDynamicSkillLoadInvocation`, independent of the threshold decision.
 
 ```mermaid
 graph TB
@@ -1429,11 +1435,17 @@ graph TB
     SOURCE -->|"No (extra)"| FAIL_SOURCE["Fail closed:<br/>source not eligible"]
     SOURCE -->|"Yes"| HASH["Compute transitive hash"]
     HASH --> DYN["skill_load_dynamic:id@hash<br/>candidate emitted"]
-    DYN --> PERM["PermissionChecker"]
-    PERM --> RULE{"Trust rule?"}
-    RULE -->|"Pinned allow"| RENDER["Execute + render"]
-    RULE -->|"No rule"| PROMPT["Prompt guardian"]
+    DYN --> PERM["PermissionChecker<br/>(classified High risk)"]
+    PERM --> RULE{"Covering trust rule?"}
+    RULE -->|"Allow"| RENDER["Execute + render"]
     RULE -->|"Deny"| DENY["Blocked"]
+    RULE -->|"None"| SENS{"Sensitive-tool gate<br/>(lane A): can self-approve?"}
+    SENS -->|"No (non-guardian)"| ESCALATE["Escalate to guardian<br/>(capability floor)"]
+    SENS -->|"Yes (guardian)"| INTERACTIVE{"Interactive client?"}
+    INTERACTIVE -->|"No"| DENY
+    INTERACTIVE -->|"Yes"| THRESH{"autoApproveUpTo"}
+    THRESH -->|"Full access"| RENDER
+    THRESH -->|"Below full"| PROMPT["Prompt guardian"]
 ```
 
 #### Sandbox-Only Execution
@@ -1484,16 +1496,16 @@ Every layer in the pipeline defaults to rejection rather than silent degradation
 
 #### Key Source Files
 
-| File                                                | Role                                                                             |
-| --------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `assistant/src/skills/inline-command-expansions.ts` | `parseInlineCommandExpansions()` — parser for `!`command`` tokens                |
-| `assistant/src/skills/inline-command-runner.ts`     | `runInlineCommand()` — sandbox-only command executor                             |
-| `assistant/src/skills/inline-command-render.ts`     | `renderInlineCommands()` — token replacement and XML wrapping                    |
-| `assistant/src/skills/transitive-version-hash.ts`   | `computeTransitiveSkillVersionHash()` — hash covering root + included children   |
-| `assistant/src/tools/skills/load.ts`                | `skill_load` execute path — feature flag check, source check, render integration |
-| `assistant/src/permissions/checker.ts`              | `skill_load_dynamic:*` candidate emission and allowlist options                  |
-| `assistant/src/permissions/defaults.ts`             | `default:ask-skill_load_dynamic-global` rule (priority 200)                      |
-| `meta/feature-flags/feature-flag-registry.json`     | `inline-skill-commands` flag definition                                          |
+| File                                                | Role                                                                               |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `assistant/src/skills/inline-command-expansions.ts` | `parseInlineCommandExpansions()` — parser for `!`command`` tokens                  |
+| `assistant/src/skills/inline-command-runner.ts`     | `runInlineCommand()` — sandbox-only command executor                               |
+| `assistant/src/skills/inline-command-render.ts`     | `renderInlineCommands()` — token replacement and XML wrapping                      |
+| `assistant/src/skills/transitive-version-hash.ts`   | `computeTransitiveSkillVersionHash()` — hash covering root + included children     |
+| `assistant/src/tools/skills/load.ts`                | `skill_load` execute path — feature flag check, source check, render integration   |
+| `assistant/src/permissions/checker.ts`              | `skill_load_dynamic:*` candidate emission, allowlist options, High-risk elevation  |
+| `assistant/src/tools/permission-checker.ts`         | Non-interactive denial of uncovered dynamic loads (`isDynamicSkillLoadInvocation`) |
+| `meta/feature-flags/feature-flag-registry.json`     | `inline-skill-commands` flag definition                                            |
 
 ### Key Source Files
 
@@ -1959,9 +1971,9 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | User preferences                         | UserDefaults                                           | plist                               | Foundation                         | Permanent                                               |
 | Session logs                             | `~/Library/.../logs/session-*.json`                    | JSON per session                    | Swift Codable                      | Unbounded                                               |
 | Conversations & messages                 | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                               |
-| Memory segments                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
+| Memory segments                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db`    | SQLite                              | Drizzle ORM                        | Permanent                                               |
 | Extracted facts                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, deduped                                      |
-| Embeddings                               | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | JSON float arrays                   | Drizzle ORM                        | Permanent                                               |
+| Embeddings                               | `$VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db`    | JSON float arrays                   | Drizzle ORM                        | Permanent                                               |
 | Async job queue                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Completed jobs persist                                  |
 | Attachments                              | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | Base64 in SQLite                    | Drizzle ORM                        | Permanent                                               |
 | Sandbox filesystem                       | `$VELLUM_WORKSPACE_DIR`                                | Real filesystem tree                | Node FS APIs                       | Persistent across sessions                              |
@@ -2051,10 +2063,10 @@ A parallel **client artifact** (`meta/tts-provider-catalog.json`) captures the s
 
 **Config schema (`services.tts`):** The canonical config block lives at `services.tts` in the assistant config. The set of valid provider IDs and provider-specific config objects is catalog-driven — the Zod schema reads from the catalog rather than maintaining a separate hardcoded enum. It contains:
 
-| Field                         | Type   | Default        | Description                                               |
-| ----------------------------- | ------ | -------------- | --------------------------------------------------------- |
+| Field                         | Type   | Default        | Description                                                                              |
+| ----------------------------- | ------ | -------------- | ---------------------------------------------------------------------------------------- |
 | `services.tts.provider`       | enum   | `"elevenlabs"` | Active TTS provider (must be a catalog-known provider ID); `"vellum"` = platform-managed |
-| `services.tts.providers.<id>` | object | _(defaults)_   | Provider-specific settings, one block per catalog entry   |
+| `services.tts.providers.<id>` | object | _(defaults)_   | Provider-specific settings, one block per catalog entry                                  |
 
 Provider-specific config is nested under `services.tts.providers.<id>`. All legacy top-level keys (`elevenlabs.*`, `fishAudio.*`) were removed by workspace migration 032 — only canonical `services.tts` paths are supported at runtime.
 

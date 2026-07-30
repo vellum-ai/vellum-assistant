@@ -117,7 +117,9 @@ const BLOCK_SIZE = 512;
 
 function padToBlock(data: Uint8Array): Uint8Array {
   const remainder = data.length % BLOCK_SIZE;
-  if (remainder === 0) return data;
+  if (remainder === 0) {
+    return data;
+  }
   const padded = new Uint8Array(data.length + (BLOCK_SIZE - remainder));
   padded.set(data);
   return padded;
@@ -886,7 +888,9 @@ describe("commitImport — workspace clearing", () => {
     writeFileSync(testConfigPath, JSON.stringify(EXISTING_CONFIG, null, 2));
     // Clean up skills/hooks dirs
     for (const dir of [skillsDir, hooksDir]) {
-      if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+      if (existsSync(dir)) {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
   });
 
@@ -907,7 +911,9 @@ describe("commitImport — workspace clearing", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     // New skill written
     expect(existsSync(join(skillsDir, "new-skill", "SKILL.md"))).toBe(true);
@@ -936,7 +942,9 @@ describe("commitImport — workspace clearing", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     // New skill written
     expect(existsSync(join(skillsDir, "new-skill", "SKILL.md"))).toBe(true);
@@ -963,7 +971,9 @@ describe("commitImport — workspace clearing", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     // Hook written to the external hooks dir, not workspace/hooks/
     expect(existsSync(join(externalHooksDir, "new-hook", "hook.sh"))).toBe(
@@ -1049,7 +1059,9 @@ describe("commitImport — config sanitization", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     // Read the written config from disk and verify sanitization
     const writtenConfig = JSON.parse(readFileSync(testConfigPath, "utf8"));
@@ -1093,7 +1105,9 @@ describe("commitImport — config sanitization", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     const writtenConfig = JSON.parse(readFileSync(testConfigPath, "utf8"));
 

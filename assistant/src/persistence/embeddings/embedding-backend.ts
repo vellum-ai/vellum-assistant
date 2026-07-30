@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { getOllamaBaseUrlEnv } from "../../config/env.js";
 import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
+import { isMemoryEnabled } from "../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { PLATFORM_PROVIDER_META } from "../../providers/platform-proxy/constants.js";
 import { resolveManagedProxyContext } from "../../providers/platform-proxy/context.js";
@@ -93,7 +94,9 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
   }
 
   private async getDelegate(): Promise<EmbeddingBackend> {
-    if (this.delegate) return this.delegate;
+    if (this.delegate) {
+      return this.delegate;
+    }
     if (!this.initPromise) {
       this.initPromise = (async () => {
         try {
@@ -118,7 +121,9 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
 /** Detect errors thrown by LocalEmbeddingBackend.initialize() so we can
  *  distinguish permanent init failures from transient embed-time errors. */
 function isInitializationError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
+  if (!(err instanceof Error)) {
+    return false;
+  }
   return err.message.includes("Local embedding backend unavailable");
 }
 
@@ -190,7 +195,9 @@ function putInVectorCache(
     vectorCache.size > 0
   ) {
     const oldest = vectorCache.keys().next().value;
-    if (oldest === undefined) break;
+    if (oldest === undefined) {
+      break;
+    }
     const oldVec = vectorCache.get(oldest)!;
     vectorCacheBytes -= estimateEntryBytes(oldest, oldVec);
     vectorCache.delete(oldest);
@@ -241,7 +248,9 @@ export function resetLocalEmbeddingFailureState(): void {
 export async function startEmbeddingRuntimeManager(): Promise<void> {
   try {
     const runtimeManager = new EmbeddingRuntimeManager();
-    if (runtimeManager.isReady()) return;
+    if (runtimeManager.isReady()) {
+      return;
+    }
     log.info("Downloading embedding runtime in background...");
     await runtimeManager.ensureInstalled();
     // Reset the sticky local-backend failure flag so auto mode retries local
@@ -271,7 +280,9 @@ function getCachedOrCreate<T extends EmbeddingBackend>(
 ): T {
   const key = cacheKey(provider, model, extras);
   const existing = backendCache.get(key);
-  if (existing) return existing as T;
+  if (existing) {
+    return existing as T;
+  }
   const instance = create();
   backendCache.set(key, instance);
   return instance;
@@ -342,7 +353,9 @@ async function tryGetManagedGeminiBackend(
 ): Promise<EmbeddingBackend | undefined> {
   const proxyCtx = await resolveManagedProxyContext();
   const meta = PLATFORM_PROVIDER_META["gemini"];
-  if (!proxyCtx.enabled || !meta?.managed || !meta.proxyPath) return undefined;
+  if (!proxyCtx.enabled || !meta?.managed || !meta.proxyPath) {
+    return undefined;
+  }
   const managedBaseUrl = `${proxyCtx.platformBaseUrl}${meta.proxyPath}`;
   return getCachedOrCreate(
     "gemini",
@@ -415,7 +428,9 @@ export async function selectEmbeddingBackend(
   for (const provider of order) {
     switch (provider) {
       case "local":
-        if (localBackendBroken) continue;
+        if (localBackendBroken) {
+          continue;
+        }
         return {
           backend: getCachedOrCreate(
             "local",
@@ -436,7 +451,9 @@ export async function selectEmbeddingBackend(
             "openai",
             config.memory.embeddings.openaiModel,
           );
-          if (cached) return { backend: cached, reason: null };
+          if (cached) {
+            return { backend: cached, reason: null };
+          }
           continue;
         }
         return {
@@ -467,7 +484,9 @@ export async function selectEmbeddingBackend(
               config.memory.embeddings.geminiModel,
               geminiCacheExtras(config),
             );
-          if (cached) return { backend: cached, reason: null };
+          if (cached) {
+            return { backend: cached, reason: null };
+          }
           continue;
         }
         return {
@@ -476,7 +495,9 @@ export async function selectEmbeddingBackend(
         };
       }
       case "ollama": {
-        if (!(await isOllamaConfigured(config))) continue;
+        if (!(await isOllamaConfigured(config))) {
+          continue;
+        }
         const ollamaKey = (await getProviderKeyAsync("ollama")) ?? undefined;
         return {
           backend: getCachedOrCreate(
@@ -507,7 +528,7 @@ export async function getMemoryBackendStatus(config: AssistantConfig): Promise<{
   model: string | null;
   reason: string | null;
 }> {
-  if (config.memory.enabled === false) {
+  if (!isMemoryEnabled(config)) {
     return {
       enabled: false,
       degraded: false,
@@ -569,10 +590,14 @@ export async function isEmbeddingDimensionAvailable(
   config: AssistantConfig,
 ): Promise<boolean> {
   const status = await getMemoryBackendStatus(config);
-  if (status.degraded || !status.provider) return false;
+  if (status.degraded || !status.provider) {
+    return false;
+  }
 
   const { backend } = await selectEmbeddingBackend(config);
-  if (!backend) return false;
+  if (!backend) {
+    return false;
+  }
 
   // Probe the exact backend chain `embedWithBackend` would try (primary +
   // auto-mode fallbacks + the managed→direct Gemini fallback) via the shared
@@ -582,7 +607,9 @@ export async function isEmbeddingDimensionAvailable(
   // provider:model, so each backend is probed at most once.
   const expected = config.memory.qdrant.vectorSize;
   for (const candidate of await assembleEmbeddingBackends(config, backend)) {
-    if ((await resolveBackendDimension(candidate)) === expected) return true;
+    if ((await resolveBackendDimension(candidate)) === expected) {
+      return true;
+    }
   }
   return false;
 }
@@ -602,24 +629,32 @@ export async function resolveBackendDimension(
 ): Promise<number | null> {
   const key = `${backend.provider}:${backend.model}`;
   const cached = backendDimCache.get(key);
-  if (cached != null) return cached;
+  if (cached != null) {
+    return cached;
+  }
 
   // Respect the embedding billing breaker: once a 402 opens it,
   // `embedWithBackend` fail-fasts, so probing here would only burn provider
   // requests that cannot succeed (failed probes are not cached, so every read
   // lane calling this would re-probe). Treat an open breaker as "unknown".
-  if (isEmbeddingBillingBreakerOpen()) return null;
+  if (isEmbeddingBillingBreakerOpen()) {
+    return null;
+  }
 
   try {
     const [vector] = await backend.embed([EMBEDDING_DIMENSION_PROBE_TEXT]);
     const dim = vector?.length;
-    if (dim == null) return null;
+    if (dim == null) {
+      return null;
+    }
     backendDimCache.set(key, dim);
     return dim;
   } catch (err) {
     // A 402 means billing is depleted — trip the breaker so sibling probes and
     // embeds stop hammering the provider, mirroring `embedWithBackend`.
-    if (extractHttpStatus(err) === 402) recordBillingBlock();
+    if (extractHttpStatus(err) === 402) {
+      recordBillingBlock();
+    }
     log.warn(
       { err, provider: backend.provider, model: backend.model },
       "Embedding-dimension availability probe failed; treating as degraded",
@@ -715,12 +750,16 @@ export async function embedWithBackend(
       input,
       vectorExtras,
     );
-    if (v && v.length === expectedDim) return v;
+    if (v && v.length === expectedDim) {
+      return v;
+    }
     return null;
   });
   const uncachedIndices: number[] = [];
   for (let i = 0; i < cached.length; i++) {
-    if (!cached[i]) uncachedIndices.push(i);
+    if (!cached[i]) {
+      uncachedIndices.push(i);
+    }
   }
   if (uncachedIndices.length === 0) {
     return {
@@ -834,7 +873,9 @@ async function selectFallbackBackends(
   const backends: EmbeddingBackend[] = [];
   const order: EmbeddingProviderName[] = ["openai", "gemini", "ollama"];
   for (const provider of order) {
-    if (provider === exclude) continue;
+    if (provider === exclude) {
+      continue;
+    }
     switch (provider) {
       case "openai": {
         const openaiKey = await getProviderKeyAsync("openai");
@@ -856,7 +897,9 @@ async function selectFallbackBackends(
             "openai",
             config.memory.embeddings.openaiModel,
           );
-          if (cached) backends.push(cached);
+          if (cached) {
+            backends.push(cached);
+          }
         }
         break;
       }
@@ -882,7 +925,9 @@ async function selectFallbackBackends(
                 config.memory.embeddings.geminiModel,
                 geminiCacheExtras(config),
               );
-            if (cached) backends.push(cached);
+            if (cached) {
+              backends.push(cached);
+            }
           }
         }
         break;
@@ -925,7 +970,9 @@ export async function selectedBackendSupportsMultimodal(
   config: AssistantConfig,
 ): Promise<boolean> {
   const { backend } = await selectEmbeddingBackend(config);
-  if (!backend) return false;
+  if (!backend) {
+    return false;
+  }
   return backend.provider === "gemini";
 }
 
@@ -985,7 +1032,9 @@ export function generateSparseEmbedding(text: string): SparseEmbedding {
 
   // L2-normalize the sparse vector so scores are comparable
   let norm = 0;
-  for (const v of values) norm += v * v;
+  for (const v of values) {
+    norm += v * v;
+  }
   norm = Math.sqrt(norm);
   if (norm > 0) {
     for (let i = 0; i < values.length; i++) {

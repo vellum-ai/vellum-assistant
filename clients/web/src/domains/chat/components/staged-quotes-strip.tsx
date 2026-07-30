@@ -62,7 +62,7 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
       <Card.Body padding="md" className="relative flex flex-col gap-2 pr-8">
         <Typography
           as="div"
-          variant="body-small-default"
+          variant="body-small-lighter"
           className={`${quoteBlockquoteClassName} mb-0`}
         >
           <span aria-hidden="true" className={quoteBlockquoteAccentClassName} />
@@ -149,9 +149,7 @@ export function StagedQuotesStrip() {
               key={quote.id}
               layout
               initial={
-                reduceMotion
-                  ? false
-                  : { opacity: 0, height: 0, scale: 0.98 }
+                reduceMotion ? false : { opacity: 0, height: 0, scale: 0.98 }
               }
               animate={{ opacity: 1, height: "auto", scale: 1 }}
               exit={

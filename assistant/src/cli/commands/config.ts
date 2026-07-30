@@ -30,8 +30,26 @@ function flattenConfig(
   return result;
 }
 
-/** Matches config paths like `services.image-generation.mode`, `services.web-search.mode`, etc. */
+/** Matches config paths like `services.google-oauth.mode` (mode-based services). */
 const SERVICE_MODE_PATH_RE = /^services\.[^.]+\.mode$/;
+
+/**
+ * Services configured by provider alone: their schemas strip a raw `mode`
+ * write, so the CLI rejects it with the provider-based replacement instead
+ * of printing success on a no-op.
+ */
+const REMOVED_MODE_PATHS: Record<string, string> = {
+  "services.web-search.mode":
+    "services.web-search.mode does not exist; web search is configured by provider alone. For managed search run `config set services.web-search.provider vellum`.",
+  "services.image-generation.mode":
+    "services.image-generation.mode does not exist; image generation is configured by provider alone. For managed image generation run `config set services.image-generation.provider vellum`.",
+};
+
+/** Provider paths whose "vellum" value requires a platform connection. */
+const VELLUM_PROVIDER_PATHS = new Set([
+  "services.web-search.provider",
+  "services.image-generation.provider",
+]);
 
 /**
  * Fetch the full raw config from the assistant via IPC.
@@ -66,32 +84,60 @@ export function registerConfigCommand(program: Command): void {
             // keep as string
           }
 
-          // Require platform connection when setting a service mode to "managed"
-          if (SERVICE_MODE_PATH_RE.test(key) && parsed === "managed") {
+          // Web-search has no mode field: the schema strips it, so a write
+          // here would print success while changing nothing. Reject it with
+          // the provider-based replacement instead.
+          const removedModePath = REMOVED_MODE_PATHS[key];
+          if (removedModePath) {
+            const { writeOutput } = await import("../output.js");
+            writeOutput(cmd, { ok: false, error: removedModePath });
+            process.exitCode = 1;
+            return;
+          }
+
+          // Managed services authenticate via the platform connection:
+          // mode "managed" for mode-based services, provider "vellum" for
+          // web search.
+          const requiresPlatform =
+            (SERVICE_MODE_PATH_RE.test(key) && parsed === "managed") ||
+            (VELLUM_PROVIDER_PATHS.has(key) && parsed === "vellum");
+          if (requiresPlatform) {
             const { requirePlatformConnection } =
               await import("./oauth/shared.js");
             const connected = await requirePlatformConnection(cmd);
-            if (!connected) return;
+            if (!connected) {
+              return;
+            }
           }
 
           // Direct-replacement set semantics (preserves null, replaces objects).
           // See conversation-query-routes.ts:handleSetConfig for why this is a
           // separate route from config_patch.
-          const result = await cliIpcCall("config_set", {
-            body: { path: key, value: parsed },
-          });
+          const result = await cliIpcCall<{ ok: boolean; warning?: string }>(
+            "config_set",
+            { body: { path: key, value: parsed } },
+          );
           if (!result.ok) {
             exitFromIpcResult(result, cmd);
             return;
           }
           log.info(`Set ${key} = ${JSON.stringify(parsed)}`);
+          // A write the daemon accepted but that another namespace overrides
+          // is reported alongside the success, so a no-op set never reads as
+          // an effective one.
+          const warning = result.result?.warning;
+          if (warning) {
+            log.warn(`Warning: ${warning}`);
+          }
         },
       );
 
       subcommand(config, "get").action(
         async (key: string, _opts: unknown, cmd: Command) => {
           const raw = await fetchRawConfig(cmd);
-          if (!raw) return;
+          if (!raw) {
+            return;
+          }
           const value = getNestedValue(raw, key);
           if (value === undefined) {
             log.info(`(not set)`);
@@ -101,6 +147,15 @@ export function registerConfigCommand(program: Command): void {
                 ? JSON.stringify(value, null, 2)
                 : String(value),
             );
+          }
+          // A `memory.v2` substrate tunable whose `memory.substrate` twin is
+          // set has a second reader — print which key the runtime consults so
+          // the value above cannot be mistaken for the effective one.
+          const { describeShadowedConfigGet, findSubstrateShadowing } =
+            await import("../../config/substrate-twin-shadowing.js");
+          const shadowing = findSubstrateShadowing(raw, key);
+          if (shadowing) {
+            log.warn(describeShadowedConfigGet(shadowing, key));
           }
         },
       );
@@ -122,7 +177,9 @@ export function registerConfigCommand(program: Command): void {
       subcommand(config, "list").action(
         async (opts: { search?: string }, cmd: Command) => {
           const raw = await fetchRawConfig(cmd);
-          if (!raw) return;
+          if (!raw) {
+            return;
+          }
           if (Object.keys(raw).length === 0) {
             log.info("No configuration set");
             return;

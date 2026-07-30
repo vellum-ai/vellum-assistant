@@ -1,18 +1,18 @@
 import { Loader2 } from "lucide-react";
 import {
-    type ReactNode,
-    useCallback,
-    useEffect,
-    useRef,
-    useState,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
 } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
 import {
-    type Assistant,
-    getAssistant,
-    getAssistantHealthz,
+  type Assistant,
+  getAssistant,
+  getAssistantHealthz,
 } from "@/assistant/api";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { CapacityBar } from "@/domains/settings/components/capacity-bar";
@@ -100,18 +100,26 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
       setHealthzLoading(true);
       try {
         const result = await getAssistantHealthz(assistantId);
-        if (requestId !== healthzRequestIdRef.current) return null;
+        if (requestId !== healthzRequestIdRef.current) {
+          return null;
+        }
         if (result.ok) {
           setHealthz(result.data);
           return result.data;
         }
         // While polling through a resize restart, keep the last-known values
         // rather than blanking the card on a transient non-200.
-        if (!opts?.keepStaleOnError) setHealthz(null);
+        if (!opts?.keepStaleOnError) {
+          setHealthz(null);
+        }
         return null;
       } catch (error) {
-        if (requestId !== healthzRequestIdRef.current) return null;
-        if (!opts?.keepStaleOnError) setHealthz(null);
+        if (requestId !== healthzRequestIdRef.current) {
+          return null;
+        }
+        if (!opts?.keepStaleOnError) {
+          setHealthz(null);
+        }
         // Transient unreachability during a resize restart is expected — don't
         // report it while polling.
         if (!isTransientNetworkError(error) && !opts?.keepStaleOnError) {
@@ -120,7 +128,9 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
         }
         return null;
       } finally {
-        if (requestId === healthzRequestIdRef.current) setHealthzLoading(false);
+        if (requestId === healthzRequestIdRef.current) {
+          setHealthzLoading(false);
+        }
       }
     },
     [assistantId],
@@ -167,18 +177,28 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
           await new Promise((resolve) =>
             setTimeout(resolve, HEALTHZ_POLL_INTERVAL_MS),
           );
-          if (pollId !== pollIdRef.current) return;
+          if (pollId !== pollIdRef.current) {
+            return;
+          }
           const data = await fetchHealthz({ keepStaleOnError: true });
-          if (pollId !== pollIdRef.current) return;
-          if (!data) continue;
+          if (pollId !== pollIdRef.current) {
+            return;
+          }
+          if (!data) {
+            continue;
+          }
           if (reference == null) {
             reference = data;
             continue;
           }
-          if (allocationChanged(data, reference)) return;
+          if (allocationChanged(data, reference)) {
+            return;
+          }
         }
       } finally {
-        if (pollId === pollIdRef.current) setHealthzPolling(false);
+        if (pollId === pollIdRef.current) {
+          setHealthzPolling(false);
+        }
       }
     },
     [fetchHealthz, refetchAssistant],

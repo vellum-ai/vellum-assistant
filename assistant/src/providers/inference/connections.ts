@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { providerConnections } from "../../persistence/schema/inference.js";
+import { normalizeCredentialRef } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
 import { clearConnectionProviderCache } from "../registry.js";
 import {
@@ -29,8 +30,27 @@ const log = getLogger("providers/inference/connections");
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Parse an auth value (stored JSON or caller input), normalizing any
+ * credential reference to the vault-key form. Normalizing on read as well as
+ * write heals rows that were stored with the secrets-API wire name (e.g.
+ * `openrouter:api_key`) without a migration.
+ */
+function parseAuth(raw: unknown): Auth | null {
+  const parsed = AuthSchema.safeParse(raw);
+  if (!parsed.success) {
+    return null;
+  }
+  const auth = parsed.data;
+  return "credential" in auth
+    ? { ...auth, credential: normalizeCredentialRef(auth.credential) }
+    : auth;
+}
+
 function parseModelsColumn(raw: string | null): ConnectionModel[] | null {
-  if (raw === null || raw === "") return null;
+  if (raw === null || raw === "") {
+    return null;
+  }
   try {
     const parsed = z.array(ConnectionModelSchema).safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : null;
@@ -56,14 +76,18 @@ export function listConnections(
     : db.select().from(providerConnections).all();
 
   return rows.flatMap((row) => {
-    const auth = AuthSchema.safeParse(JSON.parse(row.auth));
-    if (!auth.success) return [];
+    const auth = parseAuth(JSON.parse(row.auth));
+    if (!auth) {
+      return [];
+    }
     const provider = ConnectionProviderSchema.safeParse(row.provider);
-    if (!provider.success) return [];
+    if (!provider.success) {
+      return [];
+    }
     return [
       {
         ...row,
-        auth: auth.data,
+        auth,
         provider: provider.data,
         label: row.label ?? null,
         baseUrl: row.baseUrl ?? null,
@@ -84,14 +108,20 @@ export function getConnection(
     .where(eq(providerConnections.name, name))
     .get();
 
-  if (!row) return null;
-  const auth = AuthSchema.safeParse(JSON.parse(row.auth));
-  if (!auth.success) return null;
+  if (!row) {
+    return null;
+  }
+  const auth = parseAuth(JSON.parse(row.auth));
+  if (!auth) {
+    return null;
+  }
   const provider = ConnectionProviderSchema.safeParse(row.provider);
-  if (!provider.success) return null;
+  if (!provider.success) {
+    return null;
+  }
   return {
     ...row,
-    auth: auth.data,
+    auth,
     provider: provider.data,
     label: row.label ?? null,
     baseUrl: row.baseUrl ?? null,
@@ -152,8 +182,8 @@ export function createConnection(
   // Safe cast: VALID_CONNECTION_PROVIDERS.includes() guards above.
   const provider = input.provider as ConnectionProvider;
 
-  const authResult = AuthSchema.safeParse(input.auth);
-  if (!authResult.success) {
+  const auth = parseAuth(input.auth);
+  if (!auth) {
     return { ok: false, error: { code: "invalid_auth" } };
   }
 
@@ -171,7 +201,9 @@ export function createConnection(
   const models = input.models ?? null;
 
   if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
-    if (!baseUrl) return { ok: false, error: { code: "base_url_required" } };
+    if (!baseUrl) {
+      return { ok: false, error: { code: "base_url_required" } };
+    }
     if (!models || models.length === 0) {
       return { ok: false, error: { code: "models_required" } };
     }
@@ -182,7 +214,7 @@ export function createConnection(
     .values({
       name: input.name,
       provider,
-      auth: JSON.stringify(authResult.data),
+      auth: JSON.stringify(auth),
       label,
       baseUrl,
       models: models === null ? null : JSON.stringify(models),
@@ -200,7 +232,7 @@ export function createConnection(
     connection: {
       name: input.name,
       provider,
-      auth: authResult.data,
+      auth,
       label,
       baseUrl,
       models,
@@ -223,8 +255,8 @@ export function updateConnection(
     return { ok: false, error: { code: "not_found" } };
   }
 
-  const authResult = AuthSchema.safeParse(input.auth);
-  if (!authResult.success) {
+  const auth = parseAuth(input.auth);
+  if (!auth) {
     return { ok: false, error: { code: "invalid_auth" } };
   }
 
@@ -234,8 +266,9 @@ export function updateConnection(
     input.models !== undefined ? input.models : existing.models;
 
   if (PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(existing.provider)) {
-    if (!nextBaseUrl)
+    if (!nextBaseUrl) {
       return { ok: false, error: { code: "base_url_required" } };
+    }
     if (!nextModels || nextModels.length === 0) {
       return { ok: false, error: { code: "models_required" } };
     }
@@ -248,12 +281,17 @@ export function updateConnection(
     label?: string | null;
     baseUrl?: string | null;
     models?: string | null;
-  } = { auth: JSON.stringify(authResult.data), updatedAt: now };
-  if (input.label !== undefined) setClause.label = input.label;
-  if (input.baseUrl !== undefined) setClause.baseUrl = input.baseUrl;
-  if (input.models !== undefined)
+  } = { auth: JSON.stringify(auth), updatedAt: now };
+  if (input.label !== undefined) {
+    setClause.label = input.label;
+  }
+  if (input.baseUrl !== undefined) {
+    setClause.baseUrl = input.baseUrl;
+  }
+  if (input.models !== undefined) {
     setClause.models =
       input.models === null ? null : JSON.stringify(input.models);
+  }
 
   db.update(providerConnections)
     .set(setClause)
@@ -267,7 +305,7 @@ export function updateConnection(
     ok: true,
     connection: {
       ...existing,
-      auth: authResult.data,
+      auth,
       label: input.label !== undefined ? input.label : existing.label,
       baseUrl: nextBaseUrl,
       models: nextModels,

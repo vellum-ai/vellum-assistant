@@ -1,9 +1,6 @@
 import type { UsageCallSiteMetadataMap } from "./call-site-metadata";
 import type { UsageProfileMetadataMap } from "@/utils/profile-metadata";
-import type {
-  UsageGroupBreakdown,
-  UsageGroupBy,
-} from "./usage-types";
+import type { UsageGroupBreakdown, UsageGroupBy } from "./usage-types";
 
 export interface UsageGroupLabelMetadata {
   callSites?: UsageCallSiteMetadataMap;

@@ -23,7 +23,10 @@ export function GoogleCalendarLogo({
     >
       <path fill="#FFF" d="M37 11H11v26h26z" />
       <path fill="#1E88E5" d="M37 11h-3.5L24 18l9.5 7H37z" />
-      <path fill="#FBC02D" d="M11 11v3.5L18 24l-7 9.5V37h3.5L24 30l9.5 7H37v-3.5L30 24l7-9.5V11h-3.5L24 18z" />
+      <path
+        fill="#FBC02D"
+        d="M11 11v3.5L18 24l-7 9.5V37h3.5L24 30l9.5 7H37v-3.5L30 24l7-9.5V11h-3.5L24 18z"
+      />
       <path fill="#4CAF50" d="M37 37V11l-13 9.75z" />
       <path
         fill="#1565C0"

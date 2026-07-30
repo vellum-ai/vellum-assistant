@@ -53,14 +53,42 @@ mock.module("@/lib/local-mode", () => ({
   syncPlatformAssistantsToLockfile: async () => {},
 }));
 
+// Auth store — mocked so the interceptor's `useAuthStore.getState()` reads a
+// controllable `sessionStatus` + `refreshSession` without pulling in the real
+// store's heavy dependency graph. `subscribe` is a no-op the (unrelated)
+// organization-store binds but never calls in these tests.
+type MockSessionStatus = "initializing" | "authenticated" | "unauthenticated";
+
+const mockAuthState: {
+  sessionStatus: MockSessionStatus;
+  refreshSession: () => Promise<boolean>;
+} = {
+  sessionStatus: "authenticated",
+  refreshSession: async () => true,
+};
+
+mock.module("@/stores/auth-store", () => ({
+  useAuthStore: {
+    getState: () => mockAuthState,
+    subscribe: () => () => {},
+  },
+}));
+
+const hardNavigateMock = mock((_url: string) => {});
+mock.module("@/lib/auth/hard-navigate", () => ({
+  hardNavigate: hardNavigateMock,
+}));
+
 import {
   authorizeRemoteGatewayRequest,
   daemonErrorInterceptor,
   daemonRequestInterceptor,
   localGatewayAuthRecoveryInterceptor,
+  platformAuthRecoveryInterceptor,
   platformFeaturesGate,
   requestInterceptor,
   resetGw401RecoveryFlag,
+  resetPlatformAuthRecoveryFlag,
   rewriteForSelfHostedIngress,
 } from "@/lib/api-interceptors";
 import { ApiError } from "@/utils/api-errors";
@@ -80,7 +108,10 @@ function clearCsrfCookie(): void {
   document.cookie = "csrftoken=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
 }
 
-async function intercept(method: string, url = "https://example.test/v1/probe") {
+async function intercept(
+  method: string,
+  url = "https://example.test/v1/probe",
+) {
   const request = new Request(url, { method });
   const result = await requestInterceptor(request);
   return result.headers;
@@ -142,7 +173,9 @@ describe("api-interceptors / requestInterceptor", () => {
   });
 
   test("returns a new Request, leaving the input headers untouched", async () => {
-    const input = new Request("https://example.test/v1/probe", { method: "POST" });
+    const input = new Request("https://example.test/v1/probe", {
+      method: "POST",
+    });
     expect(input.headers.get("X-Vellum-Client-Id")).toBeNull();
 
     const output = await requestInterceptor(input);
@@ -251,7 +284,9 @@ describe("api-interceptors / self-hosted rewriting", () => {
 
   test("rewrites the URL origin to the configured ingress", async () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}?limit=50`);
+    const input = new Request(
+      `https://platform.test${RUNTIME_PROXIED_PATH}?limit=50`,
+    );
     const output = await requestInterceptor(input);
     const outUrl = new URL(output.url);
     expect(outUrl.origin).toBe(INGRESS);
@@ -494,7 +529,11 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
 
   test("rewrites daemon paths that are NOT in the platform allowlist", async () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    for (const path of [DAEMON_SKILLS_PATH, DAEMON_PLUGINS_PATH, DAEMON_MEMORY_PATH]) {
+    for (const path of [
+      DAEMON_SKILLS_PATH,
+      DAEMON_PLUGINS_PATH,
+      DAEMON_MEMORY_PATH,
+    ]) {
       const input = new Request(`https://platform.test${path}`);
       const output = await daemonRequestInterceptor(input);
       const outUrl = new URL(output.url);
@@ -715,10 +754,9 @@ describe("api-interceptors / remote gateway direct requests", () => {
       url: window.location.origin,
       token: ACTOR_TOKEN,
     });
-    const input = new Request(
-      `${window.location.origin}/v1/feature-flags`,
-      { headers: { "Vellum-Organization-Id": TEST_ORG_ID } },
-    );
+    const input = new Request(`${window.location.origin}/v1/feature-flags`, {
+      headers: { "Vellum-Organization-Id": TEST_ORG_ID },
+    });
 
     const output = await daemonRequestInterceptor(input);
 
@@ -767,9 +805,7 @@ describe("api-interceptors / remote gateway direct requests", () => {
       url: `${window.location.origin}/assistant-123`,
       token: ACTOR_TOKEN,
     });
-    const input = new Request(
-      `${window.location.origin}/v1/feature-flags`,
-    );
+    const input = new Request(`${window.location.origin}/v1/feature-flags`);
 
     expect(authorizeRemoteGatewayRequest(input)).toBeNull();
   });
@@ -879,13 +915,23 @@ describe("api-interceptors / daemonErrorInterceptor", () => {
   test("passes through existing ApiError instances unchanged", () => {
     const existing = new ApiError(401, "Unauthorized");
     const response = new Response(null, { status: 401 });
-    const result = daemonErrorInterceptor(existing, response, undefined, throwing);
+    const result = daemonErrorInterceptor(
+      existing,
+      response,
+      undefined,
+      throwing,
+    );
     expect(result).toBe(existing);
   });
 
   test("passes through errors with no response (network failures)", () => {
     const networkError = new TypeError("fetch failed");
-    const result = daemonErrorInterceptor(networkError, undefined, undefined, throwing);
+    const result = daemonErrorInterceptor(
+      networkError,
+      undefined,
+      undefined,
+      throwing,
+    );
     expect(result).toBe(networkError);
   });
 
@@ -902,13 +948,24 @@ describe("api-interceptors / daemonErrorInterceptor", () => {
     const result = daemonErrorInterceptor(body, response, undefined, throwing);
     expect(result).toBeInstanceOf(ApiError);
     expect((result as ApiError).status).toBe(400);
-    expect((result as ApiError).message).toBe("Organization-Id header is required");
+    expect((result as ApiError).message).toBe(
+      "Organization-Id header is required",
+    );
   });
 
   test("preserves raw error body when throwOnError is false", () => {
-    const body = { accepted: false, error: "secret_blocked", message: "Missing API key" };
+    const body = {
+      accepted: false,
+      error: "secret_blocked",
+      message: "Missing API key",
+    };
     const response = new Response(null, { status: 422 });
-    const result = daemonErrorInterceptor(body, response, undefined, nonThrowing);
+    const result = daemonErrorInterceptor(
+      body,
+      response,
+      undefined,
+      nonThrowing,
+    );
     expect(result).toBe(body);
     expect(result).not.toBeInstanceOf(ApiError);
   });
@@ -971,7 +1028,10 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   }
 
   function gatewayResponse(status: number): Response {
-    return makeResponse(status, GATEWAY_URL + "/v1/assistants/123/conversations");
+    return makeResponse(
+      status,
+      GATEWAY_URL + "/v1/assistants/123/conversations",
+    );
   }
 
   let originalReload: typeof window.location.reload;
@@ -1221,10 +1281,13 @@ describe("api-interceptors / local-mode body buffering", () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
     const blobSpy = spyOn(Request.prototype, "blob");
     try {
-      const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`, {
-        method: "POST",
-        body: "upload-payload",
-      });
+      const input = new Request(
+        `https://platform.test${RUNTIME_PROXIED_PATH}`,
+        {
+          method: "POST",
+          body: "upload-payload",
+        },
+      );
       await daemonRequestInterceptor(input);
       expect(blobSpy).toHaveBeenCalled();
     } finally {
@@ -1254,5 +1317,139 @@ describe("api-interceptors / local-mode body buffering", () => {
     } finally {
       blobSpy.mockRestore();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Platform session mid-use expiry recovery interceptor
+// ---------------------------------------------------------------------------
+//
+// When a cookie-authenticated request comes back 401/403/410 while the app
+// still believes it is signed in, the interceptor re-verifies the session via
+// `refreshSession` and, when it is truly gone, hard-navigates to login.
+// Self-hosted / remote-gateway bearer 401s are left to
+// `localGatewayAuthRecoveryInterceptor`.
+
+describe("api-interceptors / platformAuthRecoveryInterceptor", () => {
+  const PLATFORM_URL = "https://platform.test/v1/assistants/123/messages";
+  const LOGIN_PREFIX = "/account/login?returnTo=";
+
+  function makeResponse(status: number, url: string): Response {
+    const response = new Response(null, { status });
+    Object.defineProperty(response, "url", { value: url });
+    return response;
+  }
+
+  // The interceptor kicks off recovery fire-and-forget; flush the microtask
+  // queue so the async `refreshSession` + redirect settle before asserting.
+  const flush = (): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, 0));
+
+  beforeEach(() => {
+    resetPlatformAuthRecoveryFlag();
+    setSelfHostedConnection(null);
+    mockAuthState.sessionStatus = "authenticated";
+    mockAuthState.refreshSession = mock(async () => true);
+    hardNavigateMock.mockClear();
+  });
+
+  afterEach(() => {
+    resetPlatformAuthRecoveryFlag();
+    setSelfHostedConnection(null);
+  });
+
+  test("401 while authenticated re-verifies; a dead session redirects to login", async () => {
+    const refreshSession = mock(async () => {
+      mockAuthState.sessionStatus = "unauthenticated";
+      return false;
+    });
+    mockAuthState.refreshSession = refreshSession;
+
+    const response = makeResponse(401, PLATFORM_URL);
+    expect(platformAuthRecoveryInterceptor(response)).toBe(response);
+    await flush();
+
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(hardNavigateMock).toHaveBeenCalledTimes(1);
+    expect(hardNavigateMock.mock.calls[0][0].startsWith(LOGIN_PREFIX)).toBe(
+      true,
+    );
+  });
+
+  test("403 that leaves the session live does not redirect and reopens the latch", async () => {
+    const refreshSession = mock(async () => true); // session stays authenticated
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(hardNavigateMock).not.toHaveBeenCalled();
+
+    // Latch reopened → a later genuine rejection triggers another re-probe.
+    platformAuthRecoveryInterceptor(makeResponse(403, PLATFORM_URL));
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(2);
+  });
+
+  test("non-rejection statuses (200, 502) are no-ops", async () => {
+    const refreshSession = mock(async () => true);
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(200, PLATFORM_URL));
+    platformAuthRecoveryInterceptor(makeResponse(502, PLATFORM_URL));
+    await flush();
+
+    expect(refreshSession).not.toHaveBeenCalled();
+    expect(hardNavigateMock).not.toHaveBeenCalled();
+  });
+
+  test("does nothing when the app is not authenticated at entry", async () => {
+    const refreshSession = mock(async () => false);
+    mockAuthState.refreshSession = refreshSession;
+
+    for (const status of ["initializing", "unauthenticated"] as const) {
+      mockAuthState.sessionStatus = status;
+      platformAuthRecoveryInterceptor(makeResponse(401, PLATFORM_URL));
+    }
+    await flush();
+
+    expect(refreshSession).not.toHaveBeenCalled();
+    expect(hardNavigateMock).not.toHaveBeenCalled();
+  });
+
+  test("ignores a self-hosted gateway 401 — deferred to the gateway handler", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const refreshSession = mock(async () => false);
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(
+      makeResponse(401, `${INGRESS}/v1/assistants/123/messages`),
+    );
+    await flush();
+
+    expect(refreshSession).not.toHaveBeenCalled();
+    expect(hardNavigateMock).not.toHaveBeenCalled();
+  });
+
+  test("a second rejection while recovery is in-flight is a no-op (one refreshSession)", async () => {
+    let resolveRefresh: (value: boolean) => void = () => {};
+    const refreshSession = mock(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    mockAuthState.refreshSession = refreshSession;
+
+    platformAuthRecoveryInterceptor(makeResponse(401, PLATFORM_URL));
+    platformAuthRecoveryInterceptor(makeResponse(401, PLATFORM_URL));
+
+    // Latch set synchronously on the first hit → the second short-circuits.
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+
+    resolveRefresh(true);
+    await flush();
+    expect(refreshSession).toHaveBeenCalledTimes(1);
   });
 });

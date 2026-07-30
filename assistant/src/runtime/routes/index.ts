@@ -8,12 +8,13 @@
  * into this shared array.
  */
 
-import { ROUTES as MEMORY_EVAL_ROUTES } from "../../plugins/defaults/memory/routes/memory-eval-routes.js";
-import { ROUTES as MEMORY_GRAPH_ROUTES } from "../../plugins/defaults/memory/routes/memory-graph-routes.js";
-import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/routes/memory-item-routes.js";
-import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/routes/memory-v2-routes.js";
-import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/routes/memory-v3-routes.js";
-import { ROUTES as MEMORY_WORKER_ROUTES } from "../../plugins/defaults/memory/routes/memory-worker-routes.js";
+import { ROUTES as MEMORY_EVAL_ROUTES } from "../../plugins/defaults/memory/src/memory-eval-routes.js";
+import { ROUTES as MEMORY_GRAPH_ROUTES } from "../../plugins/defaults/memory/src/memory-graph-routes.js";
+import { ROUTES as MEMORY_INGEST_ROUTES } from "../../plugins/defaults/memory/src/memory-ingest-routes.js";
+import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/src/memory-item-routes.js";
+import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/src/memory-v2-routes.js";
+import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/src/memory-v3-routes.js";
+import { ROUTES as MEMORY_WORKER_ROUTES } from "../../plugins/defaults/memory/src/memory-worker-routes.js";
 import { ROUTES as ACP_CLAUDE_AUTH_ROUTES } from "./acp-claude-auth-routes.js";
 import { ROUTES as ACP_ROUTES } from "./acp-routes.js";
 import { ROUTES as APP_MANAGEMENT_ROUTES } from "./app-management-routes.js";
@@ -101,6 +102,8 @@ import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
 import { ROUTES as INTERNAL_OAUTH_ROUTES } from "./internal-oauth-routes.js";
 import { ROUTES as INTERNAL_TELEMETRY_ROUTES } from "./internal-telemetry-routes.js";
 import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
+import { ROUTES as LIFECYCLE_ROUTES } from "./lifecycle-routes.js";
+import { ROUTES as LIVE_VOICE_ROUTES } from "./live-voice-routes.js";
 import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
@@ -125,6 +128,7 @@ import { ROUTES as QUESTION_ROUTES } from "./question-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
 import { ROUTES as RETROSPECTIVE_ROUTES } from "./retrospective-routes.js";
+import { ROUTES as ROUTE_HOST_WORKER_ROUTES } from "./route-host-worker-routes.js";
 import { ROUTES as SANITY_ROUTES } from "./sanity-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
 import { ROUTES as SCHEDULE_WORKER_ROUTES } from "./schedule-worker-routes.js";
@@ -239,10 +243,13 @@ export const ROUTES: RouteDefinition[] = [
   ...MCP_AUTH_ROUTES,
   ...OAUTH_CONNECT_ROUTES,
   ...INTERNAL_TWILIO_ROUTES,
+  ...LIFECYCLE_ROUTES,
+  ...LIVE_VOICE_ROUTES,
   ...LOG_EXPORT_ROUTES,
   ...LLM_CALL_SITES_ROUTES,
   ...MEMORY_EVAL_ROUTES,
   ...MEMORY_GRAPH_ROUTES,
+  ...MEMORY_INGEST_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,
   ...MEMORY_V3_ROUTES,
@@ -269,6 +276,7 @@ export const ROUTES: RouteDefinition[] = [
   ...RETROSPECTIVE_ROUTES,
   ...SCHEDULE_ROUTES,
   ...SCHEDULE_WORKER_ROUTES,
+  ...ROUTE_HOST_WORKER_ROUTES,
   ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,

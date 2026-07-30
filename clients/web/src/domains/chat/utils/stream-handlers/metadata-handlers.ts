@@ -13,7 +13,9 @@ export function handleUsageUpdate(
 ): void {
   const tokens = event.contextWindowTokens;
   const maxTokens = event.contextWindowMaxTokens;
-  if (typeof tokens !== "number" || !Number.isFinite(tokens)) return;
+  if (typeof tokens !== "number" || !Number.isFinite(tokens)) {
+    return;
+  }
 
   const resolvedMax =
     typeof maxTokens === "number" && Number.isFinite(maxTokens) && maxTokens > 0

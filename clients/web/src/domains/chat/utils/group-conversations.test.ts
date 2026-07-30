@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
-import { groupConversations } from "@/domains/chat/utils/group-conversations";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
+import {
+  buildMoveToGroupTargets,
+  groupConversations,
+} from "@/domains/chat/utils/group-conversations";
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {
@@ -39,11 +44,7 @@ describe("groupConversations · bucket routing", () => {
       makeConversation({ conversationId: "b", isPinned: true }),
       makeConversation({ conversationId: "c", isPinned: true }),
     ]);
-    expect(result.pinned.map((c) => c.conversationId)).toEqual([
-      "a",
-      "b",
-      "c",
-    ]);
+    expect(result.pinned.map((c) => c.conversationId)).toEqual(["a", "b", "c"]);
     expect(result.recents).toEqual([]);
     expect(result.scheduled).toEqual([]);
     expect(result.background).toEqual([]);
@@ -153,9 +154,9 @@ describe("groupConversations · bucket routing", () => {
       "pinned-slack",
     ]);
     expect(
-      result.customGroups.find((g) => g.id === "grp-work")?.conversations.map(
-        (c) => c.conversationId,
-      ),
+      result.customGroups
+        .find((g) => g.id === "grp-work")
+        ?.conversations.map((c) => c.conversationId),
     ).toEqual(["custom-slack"]);
   });
 
@@ -359,14 +360,14 @@ describe("groupConversations · custom group routing", () => {
 
     expect(result.customGroups).toHaveLength(2);
     expect(
-      result.customGroups.find((g) => g.id === "grp-work")?.conversations.map(
-        (c) => c.conversationId,
-      ),
+      result.customGroups
+        .find((g) => g.id === "grp-work")
+        ?.conversations.map((c) => c.conversationId),
     ).toEqual(["w1"]);
     expect(
-      result.customGroups.find((g) => g.id === "grp-fun")?.conversations.map(
-        (c) => c.conversationId,
-      ),
+      result.customGroups
+        .find((g) => g.id === "grp-fun")
+        ?.conversations.map((c) => c.conversationId),
     ).toEqual(["f1"]);
     expect(result.recents.map((c) => c.conversationId)).toEqual(["r1"]);
   });
@@ -466,11 +467,7 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
         lastMessageAt: 1704067200000,
       }),
     ]);
-    expect(result.pinned.map((c) => c.conversationId)).toEqual([
-      "a",
-      "b",
-      "c",
-    ]);
+    expect(result.pinned.map((c) => c.conversationId)).toEqual(["a", "b", "c"]);
   });
 
   test("pinned conversations without displayOrder fall back to createdAt desc, ignoring activity", () => {
@@ -766,5 +763,51 @@ describe("groupConversations · surfaced promotion to recents", () => {
       "pinned-1",
     ]);
     expect(result.recents.map((c) => c.conversationId)).toEqual(["regular"]);
+  });
+});
+
+describe("buildMoveToGroupTargets", () => {
+  const research = makeGroup({ id: "g_research", name: "Research" });
+  const ideas = makeGroup({ id: "g_ideas", name: "Ideas" });
+  const systemAll = makeGroup({
+    id: "system:all",
+    name: "Recents",
+    isSystemGroup: true,
+  });
+
+  test("returns every custom group when the conversation is ungrouped", () => {
+    const targets = buildMoveToGroupTargets(
+      makeConversation({ conversationId: "c1" }),
+      [research, ideas],
+    );
+    expect(targets).toEqual([
+      { id: "g_research", name: "Research" },
+      { id: "g_ideas", name: "Ideas" },
+    ]);
+  });
+
+  test("excludes the conversation's current custom group", () => {
+    const targets = buildMoveToGroupTargets(
+      makeConversation({ conversationId: "c1", groupId: "g_research" }),
+      [research, ideas],
+    );
+    expect(targets).toEqual([{ id: "g_ideas", name: "Ideas" }]);
+  });
+
+  test("never includes system groups (only custom folders are targets)", () => {
+    const targets = buildMoveToGroupTargets(
+      makeConversation({ conversationId: "c1" }),
+      [systemAll, research],
+    );
+    expect(targets).toEqual([{ id: "g_research", name: "Research" }]);
+  });
+
+  test("returns an empty list when there are no custom groups", () => {
+    expect(
+      buildMoveToGroupTargets(makeConversation({ conversationId: "c1" }), []),
+    ).toEqual([]);
+    expect(
+      buildMoveToGroupTargets(makeConversation({ conversationId: "c1" })),
+    ).toEqual([]);
   });
 });

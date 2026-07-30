@@ -125,7 +125,9 @@ function turnWithRounds(
     } else {
       messages.push(toolUseTurn(id, "bash", { command: `cmd-${r}` }));
     }
-    if (r < rounds) messages.push(toolResultTurn(id));
+    if (r < rounds) {
+      messages.push(toolResultTurn(id));
+    }
   }
   return { messages, currentToolUseId: `tool-${rounds}` };
 }

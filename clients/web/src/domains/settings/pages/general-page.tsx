@@ -20,10 +20,12 @@ import {
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
+import { PairDeviceCard } from "@/domains/settings/pair-device/pair-device-card";
 import { PreferencesModal } from "@/domains/settings/components/preferences-modal";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
 import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
+import { ShowTipsRow } from "@/domains/settings/components/show-tips-row";
 import { TimezoneSection } from "@/domains/settings/components/timezone-section";
 import { UpdateWindowModal } from "@/domains/settings/components/update-window-modal";
 import { TwoFactorSection } from "@/domains/settings/security/two-factor-section";
@@ -44,7 +46,6 @@ import { isElectron } from "@/runtime/is-electron";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsAuthenticated } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
 
 export function GeneralPage() {
@@ -126,12 +127,6 @@ export function GeneralPage() {
   // Mirrors DeleteAccountSection's internal platformHostedOnly gate — it
   // returns null when gated, so the card must not render an empty shell.
   const showDeleteAccount = infraGate !== "gated";
-  // The Preferences modal only has content on Electron (shortcuts, Launch at
-  // Login) or with a fine pointer (the composer send toggle), so its Customize
-  // button and modal are hidden on touch/non-Electron surfaces where the modal
-  // would be empty. The card itself always renders — it hosts the theme picker,
-  // which applies on every platform.
-  const showPreferences = isElectron() || !isPointerCoarse();
 
   return (
     <div className="space-y-4">
@@ -146,9 +141,7 @@ export function GeneralPage() {
             void navigate(`${routes.workspace}?sort=size`)
           }
           onUpgradeStorage={
-            infraGate === "full"
-              ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`)
-              : null
+            infraGate === "full" ? () => void navigate(routes.plans) : null
           }
         />
       )}
@@ -279,28 +272,27 @@ export function GeneralPage() {
         title="Preferences"
         subtitle="Customize how Vellum looks and behaves on this device."
         accessory={
-          showPreferences ? (
-            <Button
-              variant="outlined"
-              onClick={() => setPreferencesOpen(true)}
-            >
-              Customize
-            </Button>
-          ) : undefined
+          <Button variant="outlined" onClick={() => setPreferencesOpen(true)}>
+            Customize
+          </Button>
         }
       >
-        <ThemePicker />
+        <div className="flex flex-col gap-5">
+          <ThemePicker />
+          <ShowTipsRow />
+        </div>
       </DetailCard>
-      {showPreferences && (
-        <PreferencesModal
-          open={preferencesOpen}
-          onClose={() => setPreferencesOpen(false)}
-        />
-      )}
+
+      <PreferencesModal
+        open={preferencesOpen}
+        onClose={() => setPreferencesOpen(false)}
+      />
 
       {teleportEnabled && isElectron() && <TeleportCard />}
 
       <IOSAppCard />
+
+      <PairDeviceCard />
 
       {infraGate === "full" && platformAssistant && settingsSleepPolicy && (
         <DetailCard

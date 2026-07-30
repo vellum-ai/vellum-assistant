@@ -8,6 +8,7 @@ import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROMPT_CACHE_BREAKPOINT_MODEL_IDS } from "../model-catalog.js";
+import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
@@ -79,7 +80,9 @@ const VALID_VERBOSITIES = new Set<string>(["low", "medium", "high"]);
 export function mapNeutralToolChoiceForResponses(
   toolChoice: unknown,
 ): string | { type: "function"; name: string } | undefined {
-  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  if (toolChoice == null || typeof toolChoice !== "object") {
+    return undefined;
+  }
   const tc = toolChoice as { type?: unknown; name?: unknown };
   switch (tc.type) {
     case "auto":
@@ -239,6 +242,7 @@ export class OpenAIResponsesProvider implements Provider {
 
     try {
       const effectiveModel = modelOverride ?? this.model;
+      recordProviderRequestDiagnostics({ model_id: effectiveModel });
       const input = this.toResponsesInput(messages);
 
       const params: Record<string, unknown> = {
@@ -254,6 +258,18 @@ export class OpenAIResponsesProvider implements Provider {
         );
       }
 
+      // A per-conversation prompt-cache key gives OpenAI's cache router a
+      // stable affinity key so a conversation's requests land on the same
+      // cache shard. Every model on the direct API receives it — both
+      // breakpoint-capable models (which additionally opt into explicit mode
+      // below) and implicit-mode models, which carry no explicit breakpoints
+      // yet still gain prefix-cache routing affinity from a stable key. The
+      // Codex subscription endpoint rejects extra params, so it is skipped
+      // there.
+      if (!this.codexSubscription && promptCacheKey) {
+        params.prompt_cache_key = promptCacheKey;
+      }
+
       // Explicit prompt-cache mode (GPT-5.6+ semantics, direct API only).
       // Explicit mode disables the implicit latest-message breakpoint — under
       // implicit mode a volatile latest user message (mutableLatestUserMessage)
@@ -264,15 +280,12 @@ export class OpenAIResponsesProvider implements Provider {
       // breakpoints neither uses the cache nor incurs cache-write charges,
       // which is exactly the opt-out `disableCache` wants (omitting the param
       // would re-enable implicit mode). The Codex subscription endpoint
-      // rejects extra params, so cache params are skipped entirely there.
+      // rejects extra params, so these params are skipped entirely there.
       if (
         !this.codexSubscription &&
         PROMPT_CACHE_BREAKPOINT_MODEL_IDS.has(effectiveModel)
       ) {
         params.prompt_cache_options = { mode: "explicit" };
-        if (promptCacheKey) {
-          params.prompt_cache_key = promptCacheKey;
-        }
         if (!disableCache) {
           this.applyPromptCacheBreakpoints(input, {
             mutableLatestUserMessage,
@@ -499,7 +512,9 @@ export class OpenAIResponsesProvider implements Provider {
                 if (callId) {
                   const entry = toolCallMap.get(callId);
                   if (entry) {
-                    if (event.name) entry.name = event.name;
+                    if (event.name) {
+                      entry.name = event.name;
+                    }
                     entry.args = event.arguments;
                     toolProgress.emitInputJsonDelta(
                       entry.callId,
@@ -679,18 +694,30 @@ export class OpenAIResponsesProvider implements Provider {
           rawBody?: string;
           reason?: ProviderErrorReason;
         } = {};
-        if (retryAfterMs !== undefined)
+        if (retryAfterMs !== undefined) {
           errorOptions.retryAfterMs = retryAfterMs;
-        if (abortReason) errorOptions.abortReason = abortReason;
-        if (normalized.apiErrorCode)
+        }
+        if (abortReason) {
+          errorOptions.abortReason = abortReason;
+        }
+        if (normalized.apiErrorCode) {
           errorOptions.apiErrorCode = normalized.apiErrorCode;
-        if (normalized.apiErrorType)
+        }
+        if (normalized.apiErrorType) {
           errorOptions.apiErrorType = normalized.apiErrorType;
-        if (normalized.apiErrorParam)
+        }
+        if (normalized.apiErrorParam) {
           errorOptions.apiErrorParam = normalized.apiErrorParam;
-        if (normalized.requestId) errorOptions.requestId = normalized.requestId;
-        if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
-        if (normalized.reason) errorOptions.reason = normalized.reason;
+        }
+        if (normalized.requestId) {
+          errorOptions.requestId = normalized.requestId;
+        }
+        if (normalized.rawBody) {
+          errorOptions.rawBody = normalized.rawBody;
+        }
+        if (normalized.reason) {
+          errorOptions.reason = normalized.reason;
+        }
         throw new ProviderError(
           formattedMessage,
           this.name,
@@ -934,7 +961,9 @@ export class OpenAIResponsesProvider implements Provider {
           textContent = textContent + "\n" + extraText.join("\n");
         }
         for (const cb of tr.contentBlocks) {
-          if (cb.type === "image") toolResultImages.push(cb);
+          if (cb.type === "image") {
+            toolResultImages.push(cb);
+          }
         }
       }
       result.push({

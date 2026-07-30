@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, lte, notInArray, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
+import { isMemoryEnabled as isMemoryEnabledForConfig } from "../config/memory-v3-gate.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { type DrizzleDb, getMemoryDb } from "./db-connection.js";
@@ -13,6 +14,7 @@ import {
   isQdrantBreakerOpen,
   shouldAllowQdrantProbe,
 } from "./embeddings/qdrant-circuit-breaker.js";
+import { isLifecycleQuiesced } from "./lifecycle-quiesce.js";
 import { rawMemoryAll, rawMemoryChanges } from "./raw-query.js";
 import { memoryJobs } from "./schema/index.js";
 
@@ -55,6 +57,8 @@ export type MemoryJobType =
   | "graph_trigger_embed"
   | "graph_bootstrap"
   | "embed_concept_page"
+  // FROZEN: `memory_v2_*` job type values are persisted in job rows — never
+  // rename them.
   | "memory_v2_sweep"
   | "memory_v2_consolidate"
   | "memory_v2_migrate"
@@ -68,11 +72,12 @@ export type MemoryJobType =
   | "delete_message_lexical"
   | "backfill_lexical_index"
   | "skill_card_insert"
+  | "memory_retrospective"
+  | "memory_retrospective_sweep"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
   | "memory_v3_consolidate"
   | "memory_v3_index_maintenance"
   | "memory_v3_edge_learning"
-  | "memory_retrospective"
   | "conversation_analyze";
 
 export const EMBED_JOB_TYPES: MemoryJobType[] = [
@@ -121,12 +126,16 @@ export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
 export const MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS = {
   automatic: "automatic",
   manual: "manual",
+  /** Enqueued by the create-memory route right after a user-authored
+   * remember, so the fact files into concept pages promptly. */
+  remember: "remember",
 } as const;
 
-/** Returns `false` only when `config.memory.enabled` is explicitly `false`; defaults to `true` on missing config or load errors. */
+/** Config-singleton wrapper over the canonical gate predicate in
+ * `config/memory-v3-gate.ts`; defaults to `true` on config load errors. */
 export function isMemoryEnabled(): boolean {
   try {
-    return getConfig().memory?.enabled !== false;
+    return isMemoryEnabledForConfig(getConfig());
   } catch {
     return true;
   }
@@ -371,6 +380,33 @@ function mergeSkillCardEntries(
 }
 
 /**
+ * Source-conversation ids of every PENDING `memory_retrospective` job. The
+ * retrospective sweep skips these up front: a pending row already covers the
+ * source's unprocessed span, and a coalescing upsert against it must not
+ * consume the sweep's per-pass enqueue cap. Deliberately excludes `running`
+ * rows — a running job's fork and cursor are pre-run snapshots, so messages
+ * arriving mid-run need a follow-up row behind it, and the sweep must be able
+ * to create that follow-up. Mirrors `upsertMemoryRetrospectiveJob`'s
+ * pending-only coalescing.
+ */
+export function listPendingMemoryRetrospectiveSourceConversationIds(): string[] {
+  return memoryDb()
+    .select({
+      conversationId: sql<string>`json_extract(${memoryJobs.payload}, '$.conversationId')`,
+    })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "memory_retrospective"),
+        eq(memoryJobs.status, "pending"),
+      ),
+    )
+    .all()
+    .map((row) => row.conversationId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
+/**
  * Check whether a pending or running job of the given type already exists.
  * Used to prevent duplicate enqueues for long-running maintenance jobs.
  */
@@ -447,6 +483,36 @@ export function upsertEmbedConceptPageJob(payload: { slug: string }): string {
     return existing.id;
   }
   return enqueueMemoryJob("embed_concept_page", { slug: payload.slug });
+}
+
+/**
+ * Enqueue an `embed_graph_node` job, coalescing with an existing pending row
+ * for the same node id. The payload carries only the node id — the handler
+ * reads the node's content at execution time — so a pending row is exactly
+ * equivalent to a fresh enqueue and a duplicate would only redo identical
+ * embedding work and Qdrant upserts. A running row never matches: it may have
+ * embedded a pre-write snapshot of the node, so the new enqueue must survive
+ * it. Same synchronous check-then-insert rationale as
+ * {@link upsertEmbedConceptPageJob}. Returns the id of the pending row,
+ * existing or newly inserted.
+ */
+export function upsertEmbedGraphNodeJob(payload: { nodeId: string }): string {
+  const db = memoryDb();
+  const existing = db
+    .select({ id: memoryJobs.id })
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "embed_graph_node"),
+        eq(memoryJobs.status, "pending"),
+        sql`json_extract(${memoryJobs.payload}, '$.nodeId') = ${payload.nodeId}`,
+      ),
+    )
+    .get();
+  if (existing) {
+    return existing.id;
+  }
+  return enqueueMemoryJob("embed_graph_node", { nodeId: payload.nodeId });
 }
 
 export function enqueuePruneOldLlmRequestLogsJob(retentionMs?: number): string {
@@ -611,6 +677,13 @@ export function claimMemoryJobs(
   restrictToTypes?: readonly MemoryJobType[],
 ): MemoryJob[] {
   if (limits.slowLlm <= 0 && limits.fast <= 0 && limits.embed <= 0) {
+    return [];
+  }
+
+  // Drain gate: while a quiesce lease is active, claim nothing so in-flight
+  // jobs finish and the queue drains to a stop. Enqueues are unaffected;
+  // claims resume when the lease expires. Fail-open via the lease read.
+  if (isLifecycleQuiesced()) {
     return [];
   }
 
@@ -862,6 +935,26 @@ export function resetRunningJobsToPending(): number {
     .where(eq(memoryJobs.status, "running"))
     .run();
   return rawMemoryChanges();
+}
+
+/** Currently-running memory jobs, oldest first — the drain-status view. */
+export function listRunningMemoryJobs(): Array<{
+  id: string;
+  type: string;
+  startedAt: number | null;
+}> {
+  const db = memoryDb();
+  return db
+    .select({
+      id: memoryJobs.id,
+      type: memoryJobs.type,
+      startedAt: memoryJobs.startedAt,
+    })
+    .from(memoryJobs)
+    .where(eq(memoryJobs.status, "running"))
+    .orderBy(asc(memoryJobs.startedAt))
+    .limit(20)
+    .all();
 }
 
 /**

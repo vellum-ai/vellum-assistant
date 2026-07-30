@@ -1,4 +1,17 @@
-import { ChevronLeft, ChevronRight, Loader2, Lock, Send, Shield } from "lucide-react";
+import {
+  type FormField,
+  type FormPage,
+  type FormSurfaceData,
+  FormSurfaceDataSchema,
+} from "@vellumai/assistant-api";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Lock,
+  Send,
+  Shield,
+} from "lucide-react";
 import { type FormEvent, useCallback, useMemo, useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
@@ -13,44 +26,13 @@ import { cn } from "@/utils/misc";
 // Types
 // ---------------------------------------------------------------------------
 
-interface FormFieldOption {
-  label: string;
-  value: string;
-}
-
-interface FormField {
-  id: string;
-  type: "text" | "textarea" | "select" | "toggle" | "number" | "password";
-  label: string;
-  placeholder?: string;
-  required?: boolean;
-  defaultValue?: string | number | boolean;
-  options?: FormFieldOption[];
-}
-
-export interface FormPage {
-  id: string;
-  title: string;
-  description?: string;
-  fields?: FormField[];
-}
-
-interface FormSurfaceData {
-  description?: string;
-  fields?: FormField[];
-  submitLabel?: string;
-  pages?: FormPage[];
-  pageLabels?: {
-    next?: string;
-    back?: string;
-    submit?: string;
-  };
-  progressStyle?: "bar" | "tabs";
-}
-
 interface FormSurfaceProps {
   surface: Surface;
-  onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void;
+  onAction: (
+    surfaceId: string,
+    actionId: string,
+    data?: Record<string, unknown>,
+  ) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +76,8 @@ function renderField(
           />
           <p className="mt-1 flex items-center gap-1 text-body-small-default text-[var(--content-faint)]">
             <Lock className="h-3 w-3" />
-            This value will be sent securely and will not be stored in your browser.
+            This value will be sent securely and will not be stored in your
+            browser.
           </p>
         </div>
       );
@@ -139,7 +122,13 @@ function renderField(
       return (
         <input
           type="number"
-          value={typeof value === "number" ? value : typeof value === "string" ? value : ""}
+          value={
+            typeof value === "number"
+              ? value
+              : typeof value === "string"
+                ? value
+                : ""
+          }
           onChange={(e) => {
             const num = e.target.value === "" ? "" : Number(e.target.value);
             onChange(field.id, num);
@@ -167,23 +156,33 @@ function renderField(
 // ---------------------------------------------------------------------------
 
 export function FormSurface({ surface, onAction }: FormSurfaceProps) {
-  const formData = surface.data as unknown as FormSurfaceData;
+  // The wire keeps surface `data` opaque; narrow it with the canonical schema
+  // (tolerant, so a real payload never fails to parse) rather than an
+  // unchecked cast or a re-declared local interface.
+  const formData = useMemo<FormSurfaceData>(() => {
+    const parsed = FormSurfaceDataSchema.safeParse(surface.data);
+    return parsed.success ? parsed.data : { fields: [] };
+  }, [surface.data]);
   const isMultiPage = formData.pages && formData.pages.length > 0;
   const allPages: FormPage[] = useMemo(
     () =>
       isMultiPage
         ? formData.pages!
-        : [{ id: "default", title: "", fields: formData.fields ?? [] }],
+        : [{ id: "default", title: "", fields: formData.fields }],
     [isMultiPage, formData.pages, formData.fields],
   );
   const totalPages = allPages.length;
 
   const [currentPage, setCurrentPage] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [validationErrors, setValidationErrors] = useState<
+    Record<string, string>
+  >({});
 
   // Build initial values from defaultValues
-  const [values, setValues] = useState<Record<string, string | number | boolean>>(() => {
+  const [values, setValues] = useState<
+    Record<string, string | number | boolean>
+  >(() => {
     const initial: Record<string, string | number | boolean> = {};
     for (const page of allPages) {
       for (const field of page.fields ?? []) {
@@ -201,20 +200,27 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
     return initial;
   });
 
-  const handleChange = useCallback((id: string, value: string | number | boolean) => {
-    setValues((prev) => ({ ...prev, [id]: value }));
-    setValidationErrors((prev) => {
-      if (!prev[id]) return prev;
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-  }, []);
+  const handleChange = useCallback(
+    (id: string, value: string | number | boolean) => {
+      setValues((prev) => ({ ...prev, [id]: value }));
+      setValidationErrors((prev) => {
+        if (!prev[id]) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    },
+    [],
+  );
 
   const validatePage = useCallback(
     (pageIndex: number): boolean => {
       const page = allPages[pageIndex];
-      if (!page) return true;
+      if (!page) {
+        return true;
+      }
       const errors: Record<string, string> = {};
       for (const field of page.fields ?? []) {
         if (field.required) {
@@ -231,7 +237,9 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
   );
 
   const handleNext = useCallback(() => {
-    if (!validatePage(currentPage)) return;
+    if (!validatePage(currentPage)) {
+      return;
+    }
     setCurrentPage((prev) => Math.min(prev + 1, totalPages - 1));
   }, [currentPage, totalPages, validatePage]);
 
@@ -242,7 +250,9 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
 
   const handleNavigate = useCallback(
     (pageIndex: number) => {
-      if (pageIndex >= currentPage) return;
+      if (pageIndex >= currentPage) {
+        return;
+      }
       setValidationErrors({});
       setCurrentPage(pageIndex);
     },
@@ -252,10 +262,16 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
   const handleSubmit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
-      if (!validatePage(currentPage)) return;
+      if (!validatePage(currentPage)) {
+        return;
+      }
       setIsSubmitting(true);
       try {
-        await onAction(surface.surfaceId, "submit", values as Record<string, unknown>);
+        await onAction(
+          surface.surfaceId,
+          "submit",
+          values as Record<string, unknown>,
+        );
       } catch {
         setIsSubmitting(false);
       }
@@ -264,7 +280,9 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
   );
 
   const currentPageData = allPages[currentPage];
-  if (!currentPageData) return null;
+  if (!currentPageData) {
+    return null;
+  }
   const isLastPage = currentPage === totalPages - 1;
   const hasPasswordFields = allPages.some((page) =>
     (page.fields ?? []).some((field) => field.type === "password"),
@@ -307,9 +325,14 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
         </h3>
       )}
 
-      {(currentPageData.description || (!isMultiPage && formData.description)) && (
+      {(currentPageData.description ||
+        (!isMultiPage && formData.description)) && (
         <ChatMarkdownMessage
-          content={(isMultiPage ? currentPageData.description : formData.description) ?? ""}
+          content={
+            (isMultiPage
+              ? currentPageData.description
+              : formData.description) ?? ""
+          }
           className="mb-3 text-body-medium-lighter text-[var(--content-quiet)]"
         />
       )}
@@ -320,10 +343,17 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
             <label className="mb-1 block text-body-medium-default text-[var(--content-strong)]">
               {field.label}
               {field.required && (
-                <span className="ml-0.5 text-[var(--system-negative-strong)]">*</span>
+                <span className="ml-0.5 text-[var(--system-negative-strong)]">
+                  *
+                </span>
               )}
             </label>
-            {renderField(field, values[field.id] ?? "", handleChange, validationErrors)}
+            {renderField(
+              field,
+              values[field.id] ?? "",
+              handleChange,
+              validationErrors,
+            )}
             {validationErrors[field.id] && (
               <p className="mt-1 text-body-small-default text-[var(--system-negative-strong)]">
                 {validationErrors[field.id]}
@@ -362,9 +392,13 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
                 type="submit"
                 disabled={isSubmitting}
                 leftIcon={
-                  isSubmitting ? <Loader2 className="animate-spin" />
-                    : hasPasswordFields ? <Shield />
-                    : <Send />
+                  isSubmitting ? (
+                    <Loader2 className="animate-spin" />
+                  ) : hasPasswordFields ? (
+                    <Shield />
+                  ) : (
+                    <Send />
+                  )
                 }
               >
                 {submitLabel}

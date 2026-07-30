@@ -2,6 +2,7 @@ import { and, asc, eq, gt, lt, lte, or, sql } from "drizzle-orm";
 
 import { findConversation } from "../daemon/conversation-registry.js";
 import { getDb } from "../persistence/db-connection.js";
+import { realUserTurnContentFilter } from "../persistence/real-user-turn-filter.js";
 import { messages, toolInvocations } from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
 import type {
@@ -12,21 +13,6 @@ import type {
 } from "./types.js";
 
 const log = getLogger("turn-trace-store");
-
-/**
- * SQL fragment that excludes tool-result rows persisted with role="user".
- * Duplicated from `turn-events-store.ts` on purpose: a turn boundary in the
- * trace must use exactly the same notion of "real user turn" the eligibility
- * predicate / `turn_index` count use, so the trace window can never disagree
- * with the `turn` event it rides on. `<alias>` is interpolated as the SQL
- * identifier for the table whose `content` column is filtered.
- */
-function realUserTurnContentFilter(alias: string): ReturnType<typeof sql> {
-  return sql.raw(
-    `${alias}.content NOT LIKE '%"type":"tool\\_result"%' ESCAPE '\\' ` +
-      `AND ${alias}.content NOT LIKE '%"type":"web\\_search\\_tool\\_result"%' ESCAPE '\\'`,
-  );
-}
 
 /**
  * Identifies the user message a trace is being assembled for. Mirrors the

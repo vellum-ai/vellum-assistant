@@ -55,10 +55,16 @@ export function estimateBase64Bytes(
 export function estimateBase64Bytes(
   arg: string | { data?: unknown; sizeBytes?: unknown } | null | undefined,
 ): number {
-  if (arg == null) return 0;
+  if (arg == null) {
+    return 0;
+  }
   if (typeof arg !== "string") {
-    if (typeof arg.sizeBytes === "number") return arg.sizeBytes;
-    if (typeof arg.data === "string") return estimateBase64Bytes(arg.data);
+    if (typeof arg.sizeBytes === "number") {
+      return arg.sizeBytes;
+    }
+    if (typeof arg.data === "string") {
+      return estimateBase64Bytes(arg.data);
+    }
     return 0;
   }
   const trimmed = arg.replace(/\s/g, "");
@@ -81,8 +87,12 @@ import {
 export { inferMimeType, resolveAttachmentFilename };
 
 export function classifyKind(mimeType: string): "image" | "video" | "document" {
-  if (mimeType.startsWith("image/")) return "image";
-  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("image/")) {
+    return "image";
+  }
+  if (mimeType.startsWith("video/")) {
+    return "video";
+  }
   return "document";
 }
 
@@ -734,8 +744,12 @@ export async function resolveDirectives(
       d.source === "sandbox"
         ? resolveSandboxDirective(d, workingDir)
         : await resolveHostDirective(d, approveHostRead);
-    if (result.draft) drafts.push(result.draft);
-    if (result.warning) warnings.push(result.warning);
+    if (result.draft) {
+      drafts.push(result.draft);
+    }
+    if (result.warning) {
+      warnings.push(result.warning);
+    }
   }
 
   return { drafts, warnings };
@@ -765,7 +779,9 @@ interface FileBlock {
  * content block. Falls back to "tool-output" for unknown tools.
  */
 function toolNameToFilePrefix(toolName?: string): string {
-  if (!toolName) return "tool-output";
+  if (!toolName) {
+    return "tool-output";
+  }
   // Convert snake_case / camelCase tool names to kebab-case labels
   return toolName
     .replace(/([a-z])([A-Z])/g, "$1-$2")
@@ -845,13 +861,17 @@ export function cleanAssistantContent(content: readonly unknown[]): {
       // Anthropic provider to preserve role alternation in outbound requests
       // and must never be persisted or rendered to users.
       const b = block as Record<string, unknown>;
-      if (b.type !== "text") return true;
+      if (b.type !== "text") {
+        return true;
+      }
       const text = b.text;
       return typeof text !== "string" || !isPlaceholderSentinelText(text);
     })
     .map((block) => {
       const b = block as Record<string, unknown>;
-      if (b.type !== "text") return block;
+      if (b.type !== "text") {
+        return block;
+      }
       const text = b.text as string;
 
       // Extract vellum:// markdown links (non-destructive — links stay in text)
@@ -897,15 +917,20 @@ export function deduplicateDrafts(
     const key = `${d.filename}:${hash}`;
 
     // Exact duplicate (same filename + same content): always skip.
-    if (seenKeys.has(key)) return false;
+    if (seenKeys.has(key)) {
+      return false;
+    }
 
     // Tool-block draft whose content was already attached via a directive:
     // drop the tool-block copy so the directive's user-chosen name wins.
-    if (d.sourceType === "tool_block" && seenDirectiveHashes.has(hash))
+    if (d.sourceType === "tool_block" && seenDirectiveHashes.has(hash)) {
       return false;
+    }
 
     seenKeys.add(key);
-    if (d.sourceType !== "tool_block") seenDirectiveHashes.add(hash);
+    if (d.sourceType !== "tool_block") {
+      seenDirectiveHashes.add(hash);
+    }
     return true;
   });
 }
@@ -915,7 +940,11 @@ export function deduplicateDrafts(
 // ---------------------------------------------------------------------------
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

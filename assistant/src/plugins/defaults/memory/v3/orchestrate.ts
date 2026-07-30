@@ -9,7 +9,11 @@
  *          PREVIOUS message as separate queries at a smaller budget
  *          (`replyQueryK` per lane), surfacing the threads the assistant is
  *          actively developing that the user's message references without
- *          naming — and
+ *          naming —
+ *        - the span-query pass — the dense lane re-run over the current
+ *          message's clause chunks as separate queries at a small per-chunk
+ *          budget (`spanQueryK`), rescuing motifs a long multi-topic message's
+ *          single query vector averages away — and
  *        - link-graph edge expansion (`edgeExpand`) over the top
  *          user-message needle+dense article seeds, and
  *        - learned-edge expansion (`edgeExpand` over the co-selection NPMI
@@ -55,8 +59,13 @@
  */
 
 import type { AssistantConfig } from "../../../../config/schema.js";
+import {
+  recordLatencySubSpan,
+  timeLatencySubSpan,
+} from "../../../../daemon/turn-latency-sub-spans.js";
 import { recordWatchdogEvent } from "../../../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../logging.js";
+import type { DenseHitScored } from "./dense.js";
 import { denseLaneScored } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
@@ -70,6 +79,7 @@ import type {
 } from "./pool-select.js";
 import { selectAllPoolCandidates, selectPool } from "./pool-select.js";
 import type { SectionNeedle } from "./section-needle.js";
+import { spanChunksOf } from "./span-query.js";
 import type {
   FinderLane,
   MemoryRoutingTurn,
@@ -191,6 +201,12 @@ export interface OrchestrateDeps {
    *  over `turn.previousAssistantMessage` as separate queries). `0` or
    *  omitted disables the pass (canonical value: `memory.v3.replyQueryK`). */
   replyQueryK?: number;
+  /** Per-chunk article budget for the span-query pass (dense re-run over the
+   *  current message's clause chunks as separate queries). `0` or omitted
+   *  disables the pass; it is also inert when the dense lane is disabled or
+   *  the message yields fewer than two chunks (canonical value:
+   *  `memory.v3.spanQueryK`). */
+  spanQueryK?: number;
   /** Number of top needle+dense seeds expanded. When omitted, the edge lane's
    *  own default applies (canonical value: `memory.v3.edge.seedCount`). */
   edgeSeeds?: number;
@@ -216,9 +232,9 @@ export interface OrchestrateDeps {
   /** Whether to run the selector LLM. False passes all pooled candidates
    *  straight through as selections, preserving pool-order slug dedup. */
   selectorEnabled?: boolean;
-  /** Per-turn injection gate config (`memory.v3.gate` tuning + the flag-derived
-   *  `enabled`, assembled in observeTurn). Omitted/disabled → the gate never
-   *  runs and every turn proceeds to selectPool as before. */
+  /** Per-turn injection gate config (the `memory.v3.gate` tuning, threaded
+   *  through by observeTurn). Omitted/disabled → the gate never runs and every
+   *  turn proceeds to selectPool as before. */
   gateConfig?: V3GateConfig;
   /** Real concept-page count at lane build — the same corpus-size signal
    *  `resolveV3Tuning` switches the lean/full profile on. Reported with each
@@ -226,6 +242,13 @@ export interface OrchestrateDeps {
    *  `MEMORY_V3_FULL_PROFILE_MIN_PAGES`; omitted drops the field from the
    *  telemetry detail (the gate itself never reads it). */
   realConceptPageCount?: number;
+  /** Slugs already live in this conversation (prior turns' injected cards). Used
+   *  ONLY to compute the `net_new_count` telemetry field — selections minus this
+   *  set are what the injector actually renders. Read-only and side-effect-free:
+   *  selection never consults it, and omitting it just drops the field. The
+   *  injector reads the same store, so the two agree for a turn that has not yet
+   *  committed. */
+  activeSlugs?: ReadonlySet<Slug>;
 }
 
 /** A finder-lane candidate: the slug, the descriptor that justified it, and
@@ -321,11 +344,24 @@ export async function orchestrate(
   // Run the selector over a pool, or pass its candidates straight through when
   // the selector LLM is disabled (`selectorEnabled: false`, the new-user
   // profile). Shared by the normal step-3 selection and the gate's
-  // bypass-to-stable path so the two cannot diverge.
-  const runSelection = async (pool: SelectorPool): Promise<SelectedPage[]> =>
-    deps.selectorEnabled === false
-      ? selectAllPoolCandidates(pool)
-      : selectPool(pool, turn, deps.selectorPrompt);
+  // bypass-to-stable path so the two cannot diverge. `keptAll` marks the
+  // selector's recall-safe fallback ONLY — the disabled passthrough is not a
+  // selector judgment, so it reports `false` (its turns are excluded from any
+  // relevance read by `selector_ran` anyway).
+  const runSelection = (
+    pool: SelectorPool,
+  ): Promise<{ selections: SelectedPage[]; keptAll: boolean }> =>
+    timeLatencySubSpan("v3_selection", "Memory selection", async () => {
+      if (deps.selectorEnabled === false) {
+        return { selections: selectAllPoolCandidates(pool), keptAll: false };
+      }
+      const { pages, keptAll } = await selectPool(
+        pool,
+        turn,
+        deps.selectorPrompt,
+      );
+      return { selections: pages, keptAll };
+    });
 
   // Step 1: needle (sync BM25) and the enabled dense lane (async embed +
   // Qdrant) run in parallel. Both return distinct articles each tagged with
@@ -335,23 +371,49 @@ export async function orchestrate(
   // a vector that matches neither) at its own, smaller budget; it runs in the
   // same parallel batch.
   // `denseK = 0` disables dense retrieval for the whole turn, including the
-  // reply-query dense pass.
+  // reply-query and span-query dense passes.
   const replyK = deps.replyQueryK ?? 0;
   const replyQuery =
     replyK > 0 ? (turn.previousAssistantMessage ?? "").trim() : "";
   const denseEnabled = denseK > 0;
-  const [needled, densed, replyNeedled, replyDensed] = await Promise.all([
-    Promise.resolve(deps.needle.queryScored(turn.currentMessage, needleK)),
-    denseEnabled
-      ? denseLaneScored(deps.denseConfig, turn.currentMessage, denseK)
-      : Promise.resolve([]),
-    Promise.resolve(
-      replyQuery.length > 0 ? deps.needle.queryScored(replyQuery, replyK) : [],
-    ),
-    replyQuery.length > 0 && denseEnabled
-      ? denseLaneScored(deps.denseConfig, replyQuery, replyK)
-      : Promise.resolve([]),
-  ]);
+  // The span-query pass re-runs the dense lane over the current message's
+  // clause chunks as SEPARATE queries (a single embedding of a multi-topic
+  // message averages its intents into a vector that matches none of them —
+  // the within-message form of the averaging the reply pass avoids across
+  // speakers). A single-chunk message would just duplicate the full-message
+  // dense query, so the pass needs at least two chunks to run.
+  const spanK = deps.spanQueryK ?? 0;
+  const spanChunks =
+    spanK > 0 && denseEnabled ? spanChunksOf(turn.currentMessage) : [];
+  const spanQueries = spanChunks.length >= 2 ? spanChunks : [];
+  const [needled, densed, replyNeedled, replyDensed, spanDensed] =
+    await timeLatencySubSpan("v3_lanes", "Memory search", () =>
+      Promise.all([
+        Promise.resolve(deps.needle.queryScored(turn.currentMessage, needleK)),
+        denseEnabled
+          ? denseLaneScored(deps.denseConfig, turn.currentMessage, denseK)
+          : Promise.resolve([]),
+        Promise.resolve(
+          replyQuery.length > 0
+            ? deps.needle.queryScored(replyQuery, replyK)
+            : [],
+        ),
+        replyQuery.length > 0 && denseEnabled
+          ? denseLaneScored(deps.denseConfig, replyQuery, replyK)
+          : Promise.resolve([]),
+        Promise.all(
+          spanQueries.map((chunk) =>
+            denseLaneScored(deps.denseConfig, chunk, spanK),
+          ),
+        ),
+      ]),
+    );
+  // Everything from here to the step-3 selection — finder assembly, the
+  // entity lane, the injection gate, edge + learned-edge expansion, pool
+  // assembly — is synchronous in-memory work, measured as one `v3_expand`
+  // region rather than wrapped calls. Gate-closed early returns skip the
+  // record on purpose: the expansion work didn't happen on those turns.
+  const expandStartedAt = Date.now();
 
   // Dense hits restricted to pages still in the live section index. A deleted
   // page's points can linger in Qdrant; the candidate pool already drops those
@@ -382,7 +444,9 @@ export async function orchestrate(
     if (section && !matchedSections.has(slug)) {
       matchedSections.set(slug, section);
     }
-    if (finderSeen.has(slug)) return;
+    if (finderSeen.has(slug)) {
+      return;
+    }
     finderSeen.add(slug);
     finder.push({
       slug,
@@ -400,18 +464,29 @@ export async function orchestrate(
   // Step 1b: dense hits — `section` is the matched ORDINAL; resolve it to the
   // concrete `Section` via the section index. Falls back to undefined (blank
   // descriptor) if the ordinal is not in the in-memory index.
+  //
+  // `denseOwnedSection` tracks the articles whose recorded matched section
+  // came from THIS loop (needle records first and wins ties), along with the
+  // hit's cosine score — the span pass upgrades those sections when a clause
+  // query finds a strictly stronger match under the same metric.
+  const denseOwnedSection = new Map<Slug, number>();
   for (const hit of densed) {
     // A deleted page's points can linger in Qdrant; keep only live-index
     // articles. The section index is rebuilt from `getPageIndex` at `initLanes`,
     // so `byArticle` holds exactly the live pages (synthetic capability slugs
     // included) — only truly-deleted pages are dropped here.
-    if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
-    addFinder(
+    if (!deps.sectionIndex.byArticle.has(hit.article)) {
+      continue;
+    }
+    const section = sectionByOrdinal(
+      deps.sectionIndex,
       hit.article,
-      sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
-      undefined,
-      "dense",
+      hit.section,
     );
+    if (section && !matchedSections.has(hit.article)) {
+      denseOwnedSection.set(hit.article, hit.score);
+    }
+    addFinder(hit.article, section, undefined, "dense");
   }
 
   // Step 1b': reply-query hits — candidates the user-message lanes already
@@ -423,7 +498,9 @@ export async function orchestrate(
     addFinder(hit.article, sections[hit.section], undefined, "reply");
   }
   for (const hit of replyDensed) {
-    if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
+    if (!deps.sectionIndex.byArticle.has(hit.article)) {
+      continue;
+    }
     addFinder(
       hit.article,
       sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
@@ -432,7 +509,53 @@ export async function orchestrate(
     );
   }
 
-  // Step 1b'': entity lane — sections whose `## ` heading NAMES a distinctive
+  // Step 1b'': span-query hits — union-additive at the pass's own small
+  // budget. Candidates the primary or reply lanes already surfaced keep their
+  // attribution (`addFinder`'s first-lane-wins dedupe); only genuinely
+  // span-surfaced articles tag `"span"`. Like the reply pass, span hits are
+  // excluded from the injection gate (which scores current-message needle +
+  // dense only) and from the edge-expansion seeds.
+  //
+  // An article can be surfaced by SEVERAL chunks; dedupe by best cosine score
+  // before `addFinder`, since chunk order would otherwise decide which section
+  // gets recorded — letting an earlier chunk's weak match mask the strong
+  // buried-clause match the pass exists to recover.
+  const bestSpanHits = new Map<Slug, DenseHitScored>();
+  for (const hit of spanDensed.flat()) {
+    const prev = bestSpanHits.get(hit.article);
+    if (!prev || hit.score > prev.score) {
+      bestSpanHits.set(hit.article, hit);
+    }
+  }
+  // For an article a primary lane already surfaced, upgrade its matched
+  // section/descriptor ONLY when the existing section was recorded by the
+  // full-message dense hit and the span's cosine is strictly higher — same
+  // encoder, same collection, so the comparison is evidence, not judgment.
+  // Needle- and reply-recorded sections stay (BM25 and cosine scores are not
+  // comparable, and the reply pass's own convention is first-wins); lane
+  // attribution never changes here.
+  for (const hit of bestSpanHits.values()) {
+    if (!deps.sectionIndex.byArticle.has(hit.article)) {
+      continue;
+    }
+    const section = sectionByOrdinal(
+      deps.sectionIndex,
+      hit.article,
+      hit.section,
+    );
+    const denseScore = denseOwnedSection.get(hit.article);
+    if (section && denseScore !== undefined && hit.score > denseScore) {
+      matchedSections.set(hit.article, section);
+      const existing = finder.find((c) => c.slug === hit.article);
+      if (existing) {
+        existing.descriptor = section.text;
+      }
+      continue;
+    }
+    addFinder(hit.article, section, undefined, "span");
+  }
+
+  // Step 1b''': entity lane — sections whose `## ` heading NAMES a distinctive
   // entity the message mentions. Additive BM25 buries a single named entity
   // under a long, multi-topic message's bulk theme; this keys on the heading
   // vocabulary so the page the user named surfaces regardless of the bulk
@@ -458,14 +581,16 @@ export async function orchestrate(
       if (section) {
         matchedSections.set(hit.article, section);
         const existing = finder.find((c) => c.slug === hit.article);
-        if (existing) existing.descriptor = section.text;
+        if (existing) {
+          existing.descriptor = section.text;
+        }
       }
       addFinder(hit.article, section, undefined, "entity");
     }
   }
 
-  // Step 1b''': opt-in injection gate. With the CURRENT-message finder lanes in
-  // hand (needle + dense — NOT reply/entity/edge, which only add recall), decide
+  // Step 1b'''': opt-in injection gate. With the CURRENT-message finder lanes in
+  // hand (needle + dense — NOT reply/span/entity/edge, which only add recall), decide
   // whether retrieval is confident enough to spend the selectPool LLM call this
   // turn. Default-off via `?.enabled`; pass-open on any throw (a gate bug must
   // never drop a turn's memory). A closed gate either hard-skips selection
@@ -526,17 +651,35 @@ export async function orchestrate(
   // The last is why `poolSize` decides this rather than each call site: an empty
   // pool is not a judgment that nothing was relevant, and no caller has to
   // remember that.
+  // `selector_kept_all` and `net_new_count` separate what the selector JUDGED
+  // from what actually reaches the turn, which `selected_count` alone conflates:
+  //   - kept_all: the recall-safe fallback fired (model omitted `ids`), so every
+  //     candidate was kept without a real judgment. Distinguishes "kept the whole
+  //     pool because it gave up" from "explicitly selected a large set", which
+  //     otherwise look identical and inflate the same way.
+  //   - net_new: selections not already live in the conversation — the injector
+  //     renders only these (prior turns' cards ride history), so it is the real
+  //     incremental injection, where `selected_count` re-counts the whole
+  //     standing set every turn. Omitted when the caller did not supply
+  //     `activeSlugs` (tests, shadow-less paths).
   const recordSelection = (
     selections: SelectedPage[],
     poolSize: number,
+    keptAll: boolean,
   ): void => {
     const detail: Record<string, unknown> = {
       gate_reason: gateOutcome?.reason ?? null,
       gate_pass: gateOutcome?.pass ?? null,
       selector_ran: deps.selectorEnabled !== false && poolSize > 0,
+      selector_kept_all: keptAll,
       selected_count: selections.length,
       pool_size: poolSize,
     };
+    if (deps.activeSlugs !== undefined) {
+      detail.net_new_count = selections.filter(
+        (s) => !deps.activeSlugs!.has(s.slug),
+      ).length;
+    }
     if (deps.realConceptPageCount !== undefined) {
       detail.real_concept_page_count = deps.realConceptPageCount;
     }
@@ -614,17 +757,17 @@ export async function orchestrate(
             // `denseK > 0` (the dense-gated gate only runs with dense hits; the
             // new-user profile sets `denseK: 0`, so the gate never runs for it).
             const stableOnly = buildStable();
-            const bypassed = await runSelection({
+            const { selections: bypassed, keptAll } = await runSelection({
               stable: stableOnly,
               finder: [],
             });
-            recordSelection(bypassed, stableOnly.length);
+            recordSelection(bypassed, stableOnly.length, keptAll);
             return closed(bypassed);
           }
           // Hard skip: the selector is never consulted, so this is a zero
           // selection BY CONSTRUCTION, not a judgment that nothing was relevant.
           // `selector_ran: false` keeps it out of any relevance rate.
-          recordSelection([], 0);
+          recordSelection([], 0, false);
           return closed([]);
         }
       }
@@ -717,8 +860,13 @@ export async function orchestrate(
   // contract. `selectorPrompt` is the (optionally overridden) instruction
   // scaffold; `undefined` falls through to the bundled default.
   const pool = { stable, finder: finderTail };
-  const selections = await runSelection(pool);
-  recordSelection(selections, stable.length + finderTail.length);
+  recordLatencySubSpan(
+    "v3_expand",
+    "Gate & edge expansion",
+    Date.now() - expandStartedAt,
+  );
+  const { selections, keptAll } = await runSelection(pool);
+  recordSelection(selections, stable.length + finderTail.length, keptAll);
 
   return {
     selections,
@@ -740,10 +888,14 @@ export function sectionByOrdinal(
   ordinal: number,
 ): Section | undefined {
   const indices = index.byArticle.get(article);
-  if (!indices) return undefined;
+  if (!indices) {
+    return undefined;
+  }
   for (const i of indices) {
     const section = index.sections[i];
-    if (section && section.ordinal === ordinal) return section;
+    if (section && section.ordinal === ordinal) {
+      return section;
+    }
   }
   return undefined;
 }

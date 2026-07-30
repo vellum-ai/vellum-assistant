@@ -16,7 +16,11 @@
  * stay accepted, so card has no guard here.
  */
 
-import { FileUploadSurfaceDataSchema } from "../../api/surfaces.js";
+import {
+  coerceSurfaceDataRecord,
+  FileUploadSurfaceDataSchema,
+  normalizeCopyBlockShowData,
+} from "../../api/surfaces.js";
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object"
@@ -62,9 +66,15 @@ interface SurfaceShapeDoc {
    * Returns a description of what keeps the payload from rendering as intended
    * — missing load-bearing content, or keys that would be silently dropped —
    * or null when the payload is fine. Absent for types the daemon normalizes
-   * leniently (card) or that have bespoke handling (dynamic_page).
+   * leniently (card) or that have bespoke handling (dynamic_page). Guards for
+   * types whose daemon normalizer recovers top-level input fields also receive
+   * the full tool `input`, so the guard accepts exactly what the normalizer
+   * accepts.
    */
-  missingContent?: (data: Record<string, unknown>) => string | null;
+  missingContent?: (
+    data: Record<string, unknown>,
+    input: Record<string, unknown>,
+  ) => string | null;
 }
 
 /** templateData shape of a task_progress card (shared with channel variants). */
@@ -85,8 +95,8 @@ export const SURFACE_SHAPE_DOCS: Record<string, SurfaceShapeDoc> = {
     purpose: "copyable text with a visible copy button",
     shape:
       "{ text, label?, language? } — shows copyable text with a visible copy button; use for prompts, commands, paths, or snippets the user should copy",
-    missingContent: (data) =>
-      isNonEmptyString(data.text)
+    missingContent: (data, input) =>
+      isNonEmptyString(normalizeCopyBlockShowData(input, data).text)
         ? null
         : "`data.text` must be a non-empty string",
   },
@@ -258,7 +268,12 @@ export function uiShowTeachingError(
   if (!doc.missingContent) {
     return null;
   }
-  const missing = doc.missingContent(asRecord(input.data) ?? {});
+  // Coerce rather than asRecord: a JSON-string-encoded `data` payload carries
+  // real content, and rejecting it here reports a populated surface as empty.
+  const missing = doc.missingContent(
+    coerceSurfaceDataRecord(input.data),
+    input,
+  );
   if (missing === null) {
     return null;
   }

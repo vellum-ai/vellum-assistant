@@ -15,7 +15,7 @@ import {
   resolveAppDir,
 } from "../apps/app-store.js";
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
-import { getEffectiveProfile } from "../config/default-profile-catalog.js";
+import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
@@ -74,15 +74,14 @@ import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
+import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
+import type { SurfaceShowPair } from "./conversation-surfaces.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
-import type {
-  DynamicPageSurfaceData,
-  SurfaceData,
-  SurfaceType,
-} from "./message-protocol.js";
+import type {} from "./message-protocol.js";
 import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { timeLatencySubSpan } from "./turn-latency-sub-spans.js";
 
 // The compaction strip lives in the compaction layer (`context/`) so the agent
 // loop can own it; re-exported here for this module's existing consumers.
@@ -99,6 +98,13 @@ export interface ChannelCapabilities {
   dashboardCapable: boolean;
   /** Whether the channel supports dynamic UI surfaces (ui_show / ui_update). */
   supportsDynamicUi: boolean;
+  /**
+   * Whether the channel's adapter can render inline tappable options — approval
+   * buttons and (next) question option pickers. Distinct from `supportsDynamicUi`:
+   * a text-only channel can render inline buttons without dynamic UI. Optional;
+   * absent is treated as `false`.
+   */
+  supportsInlineOptions?: boolean;
   /** Whether the channel supports voice/microphone input. */
   supportsVoiceInput: boolean;
   /** The client OS/interface identifier (e.g. "macos", "ios", "web"). */
@@ -225,7 +231,11 @@ export function resolveTurnModelProfileLabel(
   if (modelProfileNoticeKey == null) {
     return null;
   }
-  const profileEntry = getEffectiveProfile(llm.profiles, modelProfileNoticeKey);
+  const profileEntry = resolveDefaultProfileForProvider(
+    llm.profiles,
+    modelProfileNoticeKey,
+    llm.defaultProvider ?? null,
+  );
   const resolved = resolveCallSiteConfig(callSite, llm, {
     overrideProfile: modelProfileNoticeKey,
     selectionSeed,
@@ -284,6 +294,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: supportsDesktopUi,
         supportsDynamicUi: supportsDesktopUi || iface === "web",
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: supportsDesktopUi,
         clientOS: iface ?? undefined,
         chatType: resolvedChatType,
@@ -298,6 +309,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: false,
         supportsDynamicUi: false,
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: false,
         chatType: resolvedChatType,
       };
@@ -306,6 +318,7 @@ export function resolveChannelCapabilities(
         channel,
         dashboardCapable: false,
         supportsDynamicUi: false,
+        supportsInlineOptions: channelSupportsInlineOptions(channel),
         supportsVoiceInput: false,
         chatType: resolvedChatType,
       };
@@ -362,10 +375,7 @@ interface ActiveSurfaceContext {
 export function buildActiveSurfaceContext(params: {
   currentActiveSurfaceId: string | undefined;
   currentPage: string | undefined;
-  surfaceState: ReadonlyMap<
-    string,
-    { surfaceType: SurfaceType; data: SurfaceData }
-  >;
+  surfaceState: ReadonlyMap<string, SurfaceShowPair>;
 }): ActiveSurfaceContext | null {
   const { currentActiveSurfaceId, currentPage, surfaceState } = params;
   if (!currentActiveSurfaceId) {
@@ -377,7 +387,7 @@ export function buildActiveSurfaceContext(params: {
     return null;
   }
 
-  const data = stored.data as DynamicPageSurfaceData;
+  const data = stored.data;
   const activeSurface: ActiveSurfaceContext = {
     surfaceId: currentActiveSurfaceId,
     html: data.html,
@@ -979,6 +989,11 @@ function placeholderForBlockType(type: ContentBlock["type"]): string | null {
     case "tool_result":
     case "web_search_tool_result":
       return "[tool result]";
+    // Surfaces normally ride with a `_surfaceFallback` text sibling that
+    // supplies the line, so this label is reached only by legacy rows that
+    // carry a bare card — better than rendering an empty transcript line.
+    case "ui_surface":
+      return "[card]";
     case "thinking":
     case "redacted_thinking":
     case "text":
@@ -1753,9 +1768,22 @@ export interface RuntimeInjectionResult {
 }
 
 /**
+ * Injectors whose interior records its own latency sub-spans (the `v3_*`
+ * spans in the memory-v3 orchestration) — timing the injector wrapper too
+ * would double-count the same wall clock. Sub-spans must stay
+ * non-overlapping so the inspector's "Other" remainder is honest. The
+ * names are pinned by `injector-registry-order-guard.test.ts`.
+ */
+const SELF_INSTRUMENTED_INJECTORS = new Set([
+  "memory-v3-shadow",
+  "memory-v3-spotlight",
+]);
+
+/**
  * Run every {@link Injector} in the chain ({@link getRegisteredInjectors},
  * already sorted by ascending `order`) and return every non-null block it
- * produced.
+ * produced, timing each non-self-instrumented injector as a latency
+ * sub-span.
  *
  * `runMessages` is the turn's working message array, forwarded to each
  * injector so producers that need the current prompt contents read it from a
@@ -1774,7 +1802,13 @@ async function collectInjectorBlocks(
 ): Promise<InjectionBlock[]> {
   const out: InjectionBlock[] = [];
   for (const injector of getRegisteredInjectors()) {
-    const block = await injector.produce(ctx, runMessages);
+    const block = SELF_INSTRUMENTED_INJECTORS.has(injector.name)
+      ? await injector.produce(ctx, runMessages)
+      : await timeLatencySubSpan(
+          `injector:${injector.name}`,
+          `Injector: ${injector.name}`,
+          () => injector.produce(ctx, runMessages),
+        );
     if (block) {
       out.push(block);
     }

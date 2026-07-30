@@ -62,7 +62,9 @@ export interface SessionReplayNetworkConfig {
 function scrubHeaders(
   headers: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
-  if (!headers) return headers;
+  if (!headers) {
+    return headers;
+  }
   let changed = false;
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(headers)) {
@@ -88,7 +90,9 @@ function scrubBody(body: unknown): unknown {
  * or cannot be parsed.
  */
 function sanitizeReplayUrl(url: string): string {
-  if (!url.includes("?") && !url.includes("#")) return url;
+  if (!url.includes("?") && !url.includes("#")) {
+    return url;
+  }
   try {
     const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(url);
     const isProtocolRelative = !hasScheme && url.startsWith("//");
@@ -99,8 +103,12 @@ function sanitizeReplayUrl(url: string): string {
     }
     // A parametric fragment (OAuth implicit flow: #access_token=…) is redacted
     // wholesale rather than parsed.
-    if (parsed.hash.includes("=")) parsed.hash = `#${REDACTED}`;
-    if (hasScheme) return parsed.toString();
+    if (parsed.hash.includes("=")) {
+      parsed.hash = `#${REDACTED}`;
+    }
+    if (hasScheme) {
+      return parsed.toString();
+    }
     if (isProtocolRelative) {
       return `//${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
     }

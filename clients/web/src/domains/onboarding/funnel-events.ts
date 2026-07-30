@@ -1,5 +1,6 @@
 import { isAnalyticsEnabled } from "@/domains/onboarding/prefs";
 import { postTelemetryEvents } from "@/lib/telemetry/ingest";
+import type { FirstRunScope } from "@/domains/onboarding/first-run-scope";
 import type { ResearchStep } from "@/domains/onboarding/research-onboarding-persistence";
 
 export const ONBOARDING_FUNNEL_VERSION = "onboarding_v3_2026_05";
@@ -97,6 +98,20 @@ export const RESEARCH_ONBOARDING_CHECKIN_STEP = {
 } as const satisfies OnboardingFunnelStepDescriptor;
 
 /**
+ * The first-run scope option click. Like the check-in event above, it rides
+ * RESEARCH_ONBOARDING_FUNNEL_VERSION but fires after the flow ends — from the
+ * chat surface-action path when the user clicks one of the work / personal /
+ * both options the "Let's chat" greeting renders (see `first-run-scope.ts`) —
+ * so it lives outside RESEARCH_ONBOARDING_FUNNEL_STEPS and takes the next free
+ * index. The chosen scope rides `screen`, the same dimension-in-`screen`
+ * pattern the tips and tour funnels use.
+ */
+export const FIRST_MESSAGE_SCOPE_STEP = {
+  stepName: "first_message_scope_selected",
+  stepIndex: 13,
+} as const satisfies OnboardingFunnelStepDescriptor;
+
+/**
  * How the user left a step: `completed` (clicked the primary Continue/action) vs
  * `skipped` (clicked Skip). Lets analytics tell a deliberate completion apart
  * from a skip on steps that offer both. The pre-chat funnel omits this (it never
@@ -104,12 +119,27 @@ export const RESEARCH_ONBOARDING_CHECKIN_STEP = {
  */
 export type OnboardingFunnelStepOutcome = "completed" | "skipped";
 
+/**
+ * A/B arm stamped on the event. The ingest stores `ab_variant` as an open
+ * CharField; the `OnboardingFunnelVariant` union documents the pre-chat arms
+ * while `(string & {})` admits other funnels' arms (e.g. tips flag variants).
+ */
+export type OnboardingFunnelAbVariant = OnboardingFunnelVariant | (string & {});
+
 export interface OnboardingFunnelStepCompletedOptions {
   userId?: string | null;
+  /** A/B arm stamped as `ab_variant`; defaults to control. The tips funnel
+   * passes its flag arm here. */
+  variant?: OnboardingFunnelAbVariant;
   /** Funnel this step belongs to; defaults to the pre-chat funnel version. */
   funnelVersion?: string;
   /** Completed vs skipped; omitted when the funnel doesn't distinguish. */
   outcome?: OnboardingFunnelStepOutcome;
+  /**
+   * Emitted `screen` when it differs from the step name — e.g. the tips
+   * funnel puts the tip id in `screen` and the action in `step_name`.
+   */
+  screen?: string;
 }
 
 export interface OnboardingFunnelEvent {
@@ -123,20 +153,24 @@ export interface OnboardingFunnelEvent {
   completed_at: string;
   user_id: string | null;
   funnel_version: string;
-  ab_variant: OnboardingFunnelVariant;
+  ab_variant: OnboardingFunnelAbVariant;
   /** Completed vs skipped; absent when the funnel doesn't distinguish. */
   outcome?: OnboardingFunnelStepOutcome;
 }
 
 export function getOnboardingFunnelSessionId(): string {
-  if (typeof window === "undefined") return crypto.randomUUID();
+  if (typeof window === "undefined") {
+    return crypto.randomUUID();
+  }
   let existing = "";
   try {
     existing = sessionStorage.getItem(SESSION_STORAGE_KEY) ?? "";
   } catch {
     existing = "";
   }
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   const next = crypto.randomUUID();
   try {
     sessionStorage.setItem(SESSION_STORAGE_KEY, next);
@@ -155,14 +189,14 @@ export function buildOnboardingFunnelEvent(
     type: "onboarding",
     daemon_event_id: crypto.randomUUID(),
     recorded_at: now,
-    screen: screen.stepName,
+    screen: options.screen ?? screen.stepName,
     session_id: getOnboardingFunnelSessionId(),
     step_name: screen.stepName,
     step_index: screen.stepIndex,
     completed_at: new Date(now).toISOString(),
     user_id: options.userId ?? null,
     funnel_version: options.funnelVersion ?? ONBOARDING_FUNNEL_VERSION,
-    ab_variant: ONBOARDING_FUNNEL_VARIANTS.control,
+    ab_variant: options.variant ?? ONBOARDING_FUNNEL_VARIANTS.control,
     // Omitted (→ stripped before send) unless the caller distinguishes the two.
     outcome: options.outcome,
   };
@@ -172,8 +206,12 @@ export function emitOnboardingFunnelStepCompleted(
   screen: OnboardingFunnelStepDescriptor,
   options: OnboardingFunnelStepCompletedOptions = {},
 ): void {
-  if (typeof window === "undefined") return;
-  if (!isAnalyticsEnabled()) return;
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (!isAnalyticsEnabled()) {
+    return;
+  }
 
   postTelemetryEvents([buildOnboardingFunnelEvent(screen, options)]);
 }
@@ -220,8 +258,31 @@ export function emitResearchOnboardingCheckinCalendarOpened(
   });
 }
 
+/**
+ * Emit the first-run scope option click. The chosen scope rides the event's
+ * `screen` field — the same dimension-in-`screen` pattern the tips and tour
+ * funnels use — so analysts read the scope from `screen`, not `step_name`.
+ * Stamped with the research funnel version and `control` variant like the
+ * in-flow steps, so click-through rate is derivable against their completion
+ * rows in the same funnel. `userId` keys the row to the clicking user; when
+ * unavailable the event still emits with `user_id: null`.
+ */
+export function emitFirstMessageScopeSelected(
+  scope: FirstRunScope,
+  options: { userId?: string | null } = {},
+): void {
+  emitOnboardingFunnelStepCompleted(FIRST_MESSAGE_SCOPE_STEP, {
+    userId: options.userId,
+    funnelVersion: RESEARCH_ONBOARDING_FUNNEL_VERSION,
+    screen: scope,
+    outcome: "completed",
+  });
+}
+
 export function __resetOnboardingFunnelEventsForTests(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined") {
+    return;
+  }
   try {
     sessionStorage.removeItem(SESSION_STORAGE_KEY);
   } catch {

@@ -8,24 +8,42 @@ let mockBraveSecureKey: string | undefined;
 let mockPerplexitySecureKey: string | undefined;
 let mockTavilySecureKey: string | undefined;
 let mockFirecrawlSecureKey: string | undefined;
+let mockKeenableSecureKey: string | undefined;
 let mockManagedSearchProxyResult: any;
+let mockManagedSearchAvailable = true;
 let mockManagedSearchProxyCalls: Array<{
   provider: string;
   request: Record<string, unknown>;
   signal?: AbortSignal;
 }> = [];
 
-/** Seed the web-search service mode + provider into the workspace config. */
-function seedWebSearch(mode: string, provider: string): void {
-  setConfig("services", { "web-search": { mode, provider } });
+/**
+ * Seed the web-search service into the workspace config. Pass `undefined`
+ * for mode to write a post-migration-132 config carrying only `provider`.
+ */
+function seedWebSearch(mode: string | undefined, provider: string): void {
+  setConfig("services", {
+    "web-search": mode === undefined ? { provider } : { mode, provider },
+  });
 }
 
 mock.module("../../../security/secure-keys.js", () => ({
   getProviderKeyAsync: async (provider: string) => {
-    if (provider === "brave") return mockBraveSecureKey;
-    if (provider === "perplexity") return mockPerplexitySecureKey;
-    if (provider === "tavily") return mockTavilySecureKey;
-    if (provider === "firecrawl") return mockFirecrawlSecureKey;
+    if (provider === "brave") {
+      return mockBraveSecureKey;
+    }
+    if (provider === "perplexity") {
+      return mockPerplexitySecureKey;
+    }
+    if (provider === "tavily") {
+      return mockTavilySecureKey;
+    }
+    if (provider === "firecrawl") {
+      return mockFirecrawlSecureKey;
+    }
+    if (provider === "keenable") {
+      return mockKeenableSecureKey;
+    }
     return undefined;
   },
 }));
@@ -52,6 +70,7 @@ mock.module("../managed-search-proxy.js", () => ({
     mockManagedSearchProxyCalls.push({ provider, request, signal });
     return mockManagedSearchProxyResult;
   },
+  managedSearchAvailable: async () => mockManagedSearchAvailable,
 }));
 
 // Import after the mocks above so the module under test sees them.
@@ -67,7 +86,9 @@ describe("web_search tool", () => {
     mockPerplexitySecureKey = undefined;
     mockTavilySecureKey = undefined;
     mockFirecrawlSecureKey = undefined;
+    mockKeenableSecureKey = undefined;
     mockManagedSearchProxyCalls = [];
+    mockManagedSearchAvailable = true;
     mockManagedSearchProxyResult = {
       ok: true,
       status: 200,
@@ -106,6 +127,96 @@ describe("web_search tool", () => {
     const result = await execute({ query: "test" });
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No web search API key configured");
+  });
+
+  // ---- Provider vellum (managed, provider is the only axis) ---------------
+
+  test("provider vellum with no mode routes to the platform proxy", async () => {
+    seedWebSearch(undefined, "vellum");
+
+    const result = await execute({ query: "vellum managed query" });
+
+    expect(result.isError).toBe(false);
+    expect(mockManagedSearchProxyCalls).toHaveLength(1);
+    expect(mockManagedSearchProxyCalls[0].provider).toBe("brave");
+  });
+
+  test("provider vellum routes managed even under a stale your-own mode", async () => {
+    // The provider choice wins over a leftover legacy mode key.
+    seedWebSearch("your-own", "vellum");
+
+    const result = await execute({ query: "stale mode query" });
+
+    expect(result.isError).toBe(false);
+    expect(mockManagedSearchProxyCalls).toHaveLength(1);
+  });
+
+  test("provider vellum surfaces a 402 hard error and never falls back to BYOK keys", async () => {
+    // Billing rule: an explicit vellum choice must never silently reroute to
+    // a user's paid third-party key (and vice versa).
+    seedWebSearch(undefined, "vellum");
+    mockPerplexitySecureKey = "pplx-should-not-be-used";
+    mockManagedSearchProxyResult = {
+      ok: false,
+      kind: "platform-error",
+      status: 402,
+      headers: { "content-type": "application/json" },
+      body: { detail: "Insufficient balance" },
+      message: "Managed search proxy returned status 402: Insufficient balance",
+    };
+    let byokFetchCalls = 0;
+    globalThis.fetch = (async () => {
+      byokFetchCalls += 1;
+      return new Response("{}", { status: 200 });
+    }) as any;
+
+    const result = await execute({ query: "billing query" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("account balance");
+    expect(result.content).toContain("different web search provider");
+    expect(byokFetchCalls).toBe(0);
+  });
+
+  // ---- Provider Native fallback order (keys first, proxy last) ------------
+
+  test("provider native with a BYOK key uses the key, not the proxy", async () => {
+    seedWebSearch(undefined, "inference-provider-native");
+    mockPerplexitySecureKey = "pplx-test-key";
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "BYOK answer" } }],
+          citations: ["https://example.com"],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as any;
+
+    const result = await execute({ query: "native fallback query" });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("BYOK answer");
+    expect(mockManagedSearchProxyCalls).toHaveLength(0);
+  });
+
+  test("provider native with no keys falls back to the platform proxy", async () => {
+    seedWebSearch(undefined, "inference-provider-native");
+
+    const result = await execute({ query: "no key native query" });
+
+    expect(result.isError).toBe(false);
+    expect(mockManagedSearchProxyCalls).toHaveLength(1);
+  });
+
+  test("provider native with no keys and no platform reports the no-key error", async () => {
+    seedWebSearch(undefined, "inference-provider-native");
+    mockManagedSearchAvailable = false;
+
+    const result = await execute({ query: "offline native query" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No web search API key configured");
+    expect(mockManagedSearchProxyCalls).toHaveLength(0);
   });
 
   // ---- Perplexity provider ------------------------------------------------
@@ -376,8 +487,8 @@ describe("web_search tool", () => {
 
   // ---- Managed Brave provider -------------------------------------------
 
-  test("managed mode uses Brave proxy without BYOK provider keys", async () => {
-    seedWebSearch("managed", "inference-provider-native");
+  test("provider vellum uses Brave proxy without BYOK provider keys", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: true,
       status: 200,
@@ -450,7 +561,7 @@ describe("web_search tool", () => {
 
     const directResult = await execute({ query: "same query" });
 
-    seedWebSearch("managed", "brave");
+    seedWebSearch(undefined, "vellum");
     mockBraveSecureKey = undefined;
     mockManagedSearchProxyResult = {
       ok: true,
@@ -468,8 +579,8 @@ describe("web_search tool", () => {
     );
   });
 
-  test("managed mode passes abort signal to the platform proxy", async () => {
-    seedWebSearch("managed", "perplexity");
+  test("provider vellum passes abort signal to the platform proxy", async () => {
+    seedWebSearch(undefined, "vellum");
     const controller = new AbortController();
 
     await execute({ query: "abortable query" }, { signal: controller.signal });
@@ -478,8 +589,8 @@ describe("web_search tool", () => {
     expect(mockManagedSearchProxyCalls[0].signal).toBe(controller.signal);
   });
 
-  test("managed mode maps insufficient balance to a managed usage error", async () => {
-    seedWebSearch("managed", "perplexity");
+  test("provider vellum maps insufficient balance to a managed usage error", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: false,
       kind: "platform-error",
@@ -494,11 +605,11 @@ describe("web_search tool", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Managed web search");
     expect(result.content).toContain("account balance");
-    expect(result.content).toContain("Your Own mode");
+    expect(result.content).toContain("different web search provider");
   });
 
-  test("managed mode maps proxied provider errors to a tool error", async () => {
-    seedWebSearch("managed", "perplexity");
+  test("provider vellum maps proxied provider errors to a tool error", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: true,
       status: 400,
@@ -514,8 +625,8 @@ describe("web_search tool", () => {
     );
   });
 
-  test("managed mode returns a clear error when platform context is unavailable", async () => {
-    seedWebSearch("managed", "perplexity");
+  test("provider vellum returns a clear error when platform context is unavailable", async () => {
+    seedWebSearch(undefined, "vellum");
     mockManagedSearchProxyResult = {
       ok: false,
       kind: "unavailable",
@@ -668,6 +779,100 @@ describe("web_search tool", () => {
     // Post-retry rate limits surface the friendly recoverable copy (ATL-727).
     expect(result.content).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
     expect(callCount).toBe(4);
+  });
+
+  // ---- Keenable provider (keyless by default) -----------------------------
+
+  test("executes Keenable search keyless (no key configured)", async () => {
+    seedWebSearch("your-own", "keenable");
+    // No key set — keyless must still run instead of erroring on a missing key.
+    let capturedUrl = "";
+    let capturedHeaders: any = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              title: "Keenable Result 1",
+              url: "https://example.com/keenable-1",
+              description: "First Keenable result",
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "what is RAG" });
+    expect(result.isError).toBe(false);
+    expect(capturedUrl).toContain("api.keenable.ai/v1/search/public");
+    expect(capturedHeaders.get("x-api-key")).toBeNull();
+    expect(capturedHeaders.get("x-keenable-title")).toBe("Vellum Assistant");
+    expect(result.content).toContain("Keenable Result 1");
+    expect(result.content).toContain("https://example.com/keenable-1");
+  });
+
+  test("Keenable uses the authenticated endpoint when a key is set", async () => {
+    seedWebSearch("your-own", "keenable");
+    mockKeenableSecureKey = "keen_test";
+    let capturedUrl = "";
+    let capturedBody: any = null;
+    let capturedHeaders: any = null;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedBody = JSON.parse(init?.body as string);
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    await execute({ query: "test query", count: 3, freshness: "pm" });
+    expect(capturedUrl).toContain("api.keenable.ai/v1/search");
+    expect(capturedUrl).not.toContain("/search/public");
+    expect(capturedHeaders.get("x-api-key")).toBe("keen_test");
+    expect(capturedBody.query).toBe("test query");
+    expect(capturedBody.mode).toBe("pro");
+    expect(typeof capturedBody.published_after).toBe("string");
+  });
+
+  test("Keenable trims results to the requested count", async () => {
+    seedWebSearch("your-own", "keenable");
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          results: [
+            { title: "A", url: "https://a.com", description: "a" },
+            { title: "B", url: "https://b.com", description: "b" },
+            { title: "C", url: "https://c.com", description: "c" },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as any;
+
+    const result = await execute({ query: "test", count: 2 });
+    expect(result.content).toContain("A");
+    expect(result.content).toContain("B");
+    expect(result.content).not.toContain("https://c.com");
+  });
+
+  test.each([401, 403])("Keenable handles %d auth error", async (status) => {
+    seedWebSearch("your-own", "keenable");
+    mockKeenableSecureKey = "bad-key";
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({ message: "unauthorized" }), {
+        status,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+
+    const result = await execute({ query: "test" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Invalid or expired Keenable API key");
   });
 
   // ---- Firecrawl provider -------------------------------------------------

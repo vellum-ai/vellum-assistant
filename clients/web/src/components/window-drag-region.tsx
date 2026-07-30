@@ -40,9 +40,15 @@ export function WindowDragRegion() {
   // flag only on initial load. This component mounts outside the router, so
   // it reads `window.location` directly rather than `useLocation`.
   const [isPopout] = useState(() => isPopoutWindow(window.location.search));
-  if (!isElectron()) return null;
-  if (isPopout) return null;
-  if (inlineTitleBarActive) return null;
+  if (!isElectron()) {
+    return null;
+  }
+  if (isPopout) {
+    return null;
+  }
+  if (inlineTitleBarActive) {
+    return null;
+  }
 
   return (
     <div

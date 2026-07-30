@@ -156,7 +156,9 @@ export function startDictationStream(
   });
 
   const teardown = (): void => {
-    if (closed) return;
+    if (closed) {
+      return;
+    }
     closed = true;
     live = false;
     capture.shutdown();
@@ -173,7 +175,9 @@ export function startDictationStream(
   };
 
   ws.addEventListener("open", () => {
-    if (closed) return;
+    if (closed) {
+      return;
+    }
     void capture.start().then((result) => {
       // Mic denied / device busy: no partials, batch capture unaffected.
       if (!result.ok) {
@@ -184,7 +188,9 @@ export function startDictationStream(
   });
 
   ws.addEventListener("message", (event) => {
-    if (closed || typeof event.data !== "string") return;
+    if (closed || typeof event.data !== "string") {
+      return;
+    }
 
     let parsed: unknown;
     try {
@@ -192,7 +198,9 @@ export function startDictationStream(
     } catch {
       return;
     }
-    if (!parsed || typeof parsed !== "object") return;
+    if (!parsed || typeof parsed !== "object") {
+      return;
+    }
 
     const message = parsed as { type?: string; text?: string };
     switch (message.type) {

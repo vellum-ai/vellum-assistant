@@ -10,6 +10,7 @@ import { Typography } from "@vellumai/design-library";
 import { SubagentAvatarRow } from "@/domains/chat/components/subagent-inline-progress-card/subagent-avatar-row";
 import { SUBAGENT_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/subagent";
 import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 export interface SubagentSpawnGroupProps {
   subagentIds: string[];
@@ -26,7 +27,18 @@ export function SubagentSpawnGroup({
   const [expanded, setExpanded] = useState(false);
   const reduce = useReducedMotion();
 
-  if (subagentIds.length === 0) return null;
+  // Expanding is the first moment the user asks to see this group's timelines,
+  // so fetch each member's detail now, bounded to the handful in this group,
+  // not the whole conversation on load. Settled cards with no events show a
+  // loading state until this lands, then their real steps (see `detailSettled`).
+  const handleExpand = () => {
+    setExpanded(true);
+    useSubagentStore.getState().fetchGroupDetail(subagentIds);
+  };
+
+  if (subagentIds.length === 0) {
+    return null;
+  }
 
   const transition = reduce
     ? { duration: 0 }
@@ -44,7 +56,7 @@ export function SubagentSpawnGroup({
         >
           <SubagentAvatarRow
             subagentIds={subagentIds}
-            onExpand={() => setExpanded(true)}
+            onExpand={handleExpand}
           />
         </motion.div>
       ) : (

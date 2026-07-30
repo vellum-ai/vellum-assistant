@@ -10,8 +10,8 @@ import { Minimatch } from "minimatch";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { ConfirmationStateChanged } from "../daemon/message-types/messages.js";
+import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import type { ConfirmationDetails } from "../runtime/pending-interactions.js";
 
@@ -188,7 +188,7 @@ function makeProvider() {
 }
 
 function makeConversation(
-  sendToClient?: (msg: ServerMessage) => void,
+  sendToClient?: (msg: AssistantEvent) => void,
   conversationId = CONV_ID,
 ): Conversation {
   return new Conversation(
@@ -257,7 +257,7 @@ beforeEach(() => {
 
 describe("approval cascading", () => {
   test("allow (one-time) does NOT cascade", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversationObj = makeConversation(
       (msg) => emitted.push(msg),
       CONV_ID,
@@ -282,8 +282,8 @@ describe("approval cascading", () => {
     const confirmMsgs = emitted.filter(
       (m) =>
         m.type === "confirmation_state_changed" &&
-        (m as unknown as ConfirmationStateChanged).state === "approved",
-    ) as unknown as ConfirmationStateChanged[];
+        (m as unknown as ConfirmationStateChangedEvent).state === "approved",
+    ) as unknown as ConfirmationStateChangedEvent[];
 
     // Only the primary should be resolved
     expect(confirmMsgs).toHaveLength(1);
@@ -291,7 +291,7 @@ describe("approval cascading", () => {
   });
 
   test("deny (one-time) does NOT cascade", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversationObj = makeConversation(
       (msg) => emitted.push(msg),
       CONV_ID,
@@ -316,8 +316,8 @@ describe("approval cascading", () => {
     const confirmMsgs = emitted.filter(
       (m) =>
         m.type === "confirmation_state_changed" &&
-        (m as unknown as ConfirmationStateChanged).state === "denied",
-    ) as unknown as ConfirmationStateChanged[];
+        (m as unknown as ConfirmationStateChangedEvent).state === "denied",
+    ) as unknown as ConfirmationStateChangedEvent[];
 
     // Only the primary should be denied
     expect(confirmMsgs).toHaveLength(1);
@@ -325,7 +325,7 @@ describe("approval cascading", () => {
   });
 
   test("already-resolved request handled gracefully", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversationObj = makeConversation(
       (msg) => emitted.push(msg),
       CONV_ID,
@@ -364,8 +364,8 @@ describe("approval cascading", () => {
     const confirmMsgs = emitted.filter(
       (m) =>
         m.type === "confirmation_state_changed" &&
-        (m as unknown as ConfirmationStateChanged).state === "approved",
-    ) as unknown as ConfirmationStateChanged[];
+        (m as unknown as ConfirmationStateChangedEvent).state === "approved",
+    ) as unknown as ConfirmationStateChangedEvent[];
 
     expect(confirmMsgs).toHaveLength(1);
     expect(confirmMsgs[0].requestId).toBe("req-primary");

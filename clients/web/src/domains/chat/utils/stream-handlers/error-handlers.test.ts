@@ -40,6 +40,28 @@ describe("handleConversationErrorEvent", () => {
     expect(ctx.setError).toHaveBeenCalled();
   });
 
+  it("keeps the stream alive for a daily-limit billing error (banner only)", () => {
+    const ctx = makeCtx();
+    handleConversationErrorEvent(
+      {
+        type: "conversation_error",
+        conversationId: "conv-1",
+        code: "PROVIDER_BILLING",
+        errorCategory: "daily_limit_reached",
+        userMessage: "Daily credit limit reached",
+        retryable: false,
+      },
+      ctx,
+    );
+    expect(ctx.setError).toHaveBeenCalledWith({
+      message: "Daily credit limit reached",
+      code: "PROVIDER_BILLING",
+      errorCategory: "daily_limit_reached",
+    });
+    // Billing banner errors are surfaced inline without tearing down the stream.
+    expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
+  });
+
   it("prefers event.conversationId over streamContext when both differ", () => {
     // Mirror of the same guarantee in `handleMessageComplete` and
     // `handleGenerationCancelled`: a stream teardown that races the

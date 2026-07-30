@@ -47,7 +47,19 @@ export interface ProcessGuardianDecisionParams {
 }
 
 export type ProcessGuardianDecisionResult =
-  | { ok: true; applied: true; requestId: string; replyText?: string }
+  | {
+      ok: true;
+      applied: true;
+      requestId: string;
+      replyText?: string;
+      /**
+       * The action to present on the resolved card — the resolved outcome, not
+       * necessarily the raw button (an access-request `reject` resolves to the
+       * `leave_unverified` park). Lets a client completing the card
+       * optimistically render the correct tone.
+       */
+      decidedAction?: string;
+    }
   | {
       ok: true;
       applied: false;
@@ -136,6 +148,7 @@ export async function processGuardianDecision(
       applied: true,
       requestId: decisionResult.requestId,
       replyText: decisionResult.resolverReplyText,
+      decidedAction: decisionResult.decidedAction,
     };
   }
 

@@ -6,9 +6,10 @@
  *
  * 1. Emit skill_load_dynamic:<id>@<hash> / skill_load_dynamic:<id> candidates
  *    instead of skill_load:<id>@<hash> / skill_load:<id>.
- * 2. Prompt by default: a threshold-based allow is downgraded to a prompt
- *    unless a user trust rule covers the load (gateway classification
- *    matchType "user_rule" — the rule re-classifies the risk).
+ * 2. Classify the load as High risk so the auto-approve threshold governs it
+ *    like any other high-risk action: it prompts below Full access and runs at
+ *    Full access — unless a user trust rule covers it (gateway matchType
+ *    "user_rule" lowers the risk, restoring the escape hatch).
  * 3. Continue matching the existing skill_load:* flow for non-dynamic skills.
  */
 
@@ -111,18 +112,40 @@ describe("inline-command skill_load permissions", () => {
 
   // ── Default behavior ─────────────────────────────────────────────────
 
-  describe("default behavior", () => {
-    test("an uncovered dynamic skill prompts even when the threshold covers its risk", async () => {
+  describe("threshold-governed prompting", () => {
+    test("an uncovered dynamic skill prompts below Full access", async () => {
       ensureSkillsDir();
       writeDynamicSkill("dynamic-prompt", "Dynamic Prompt Skill");
 
+      // interactive threshold "low" (beforeEach) is below the High risk of an
+      // inline-command load, so it prompts.
       const result = await check(
         "skill_load",
         { skill: "dynamic-prompt" },
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("Inline-command skill load");
+      expect(result.reason).toContain("above auto-approve threshold");
+    });
+
+    test("an uncovered dynamic skill runs at Full access (high threshold)", async () => {
+      ensureSkillsDir();
+      writeDynamicSkill("dynamic-full", "Dynamic Full Access Skill");
+      mockIpcResponse("get_global_thresholds", {
+        interactive: "high",
+        autonomous: "high",
+        headless: "high",
+      });
+      _clearGlobalCacheForTesting();
+
+      // Full access auto-approves High-risk actions — inline-command skill
+      // loads included. No special-case override forces a prompt.
+      const result = await check(
+        "skill_load",
+        { skill: "dynamic-full" },
+        "/tmp",
+      );
+      expect(result.decision).toBe("allow");
     });
 
     test("a dynamic skill covered by a user trust rule is allowed", async () => {

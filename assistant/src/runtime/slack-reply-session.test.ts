@@ -28,7 +28,7 @@ mock.module("./gateway-client.js", () => ({
   },
 }));
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "../messaging/providers/slack/api.js";
 import {
   createSlackReplySession,
@@ -39,34 +39,34 @@ const CHANNEL = "D-STREAM";
 const THREAD_TS = "1700000000.000001";
 const CALLBACK_URL = `https://example.test/deliver/slack?channel=${CHANNEL}&threadTs=${THREAD_TS}`;
 
-const textDelta = (text: string): ServerMessage =>
+const textDelta = (text: string): AssistantEvent =>
   ({
     type: "assistant_text_delta",
     text,
     conversationId: "conv-stream",
-  }) as ServerMessage;
+  }) as AssistantEvent;
 
-const toolUseStart = (toolUseId: string): ServerMessage =>
+const toolUseStart = (toolUseId: string): AssistantEvent =>
   ({
     type: "tool_use_start",
     toolName: "web_search",
     input: { query: "example" },
     conversationId: "conv-stream",
     toolUseId,
-  }) as ServerMessage;
+  }) as AssistantEvent;
 
-const messageComplete = (messageId: string): ServerMessage =>
+const messageComplete = (messageId: string): AssistantEvent =>
   ({
     type: "message_complete",
     conversationId: "conv-stream",
     messageId,
-  }) as ServerMessage;
+  }) as AssistantEvent;
 
 const taskProgressShow = (
   surfaceId: string,
   steps: Array<{ label: string; status: string; detail?: string }>,
   templateTitle?: string,
-): ServerMessage =>
+): AssistantEvent =>
   ({
     type: "ui_surface_show",
     conversationId: "conv-stream",
@@ -80,18 +80,18 @@ const taskProgressShow = (
         steps,
       },
     },
-  }) as ServerMessage;
+  }) as AssistantEvent;
 
 const taskProgressUpdate = (
   surfaceId: string,
   steps: Array<{ label: string; status: string }>,
-): ServerMessage =>
+): AssistantEvent =>
   ({
     type: "ui_surface_update",
     conversationId: "conv-stream",
     surfaceId,
     data: { templateData: { steps } },
-  }) as ServerMessage;
+  }) as AssistantEvent;
 
 const tick = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -351,7 +351,9 @@ describe("createSlackReplySession", () => {
   test("falls back when stopStream throws after streaming text", async () => {
     deliverImpl = async (_url, payload) => {
       const op = payload.slackStream as { action: string };
-      if (op.action === "stop") throw new Error("stop failed");
+      if (op.action === "stop") {
+        throw new Error("stop failed");
+      }
       return { ok: true, ts: "stream-ts-1" };
     };
     const session = createSlackReplySession({
@@ -368,6 +370,38 @@ describe("createSlackReplySession", () => {
     expect(slackStreamOps().map((op) => op.action)).toEqual(["start", "stop"]);
     // The final stop never landed, so the durable path must re-post the reply.
     expect(reconciliation).toEqual({ mode: "fallback" });
+  });
+
+  test("keeps streaming when the onStreamOpen breadcrumb write throws", async () => {
+    // The stream opened on Slack's side, so a throwing `onStreamOpen` (e.g. a
+    // transient breadcrumb write error) must not knock the session into
+    // fallback — that would repost the already-visible streamed reply.
+    const onStreamOpenCalls: string[] = [];
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      onStreamOpen: (streamTs) => {
+        onStreamOpenCalls.push(streamTs);
+        throw new Error("transient SQLite write error");
+      },
+    })!;
+    expect(session).toBeDefined();
+
+    session.observeEvent(textDelta("The complete answer."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    const reconciliation = await session.finish();
+
+    // The callback fired with the opened stream's ts, and its throw left the
+    // session streaming: the stop still lands and finalize reconciles in place.
+    expect(onStreamOpenCalls).toEqual(["stream-ts-1"]);
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start", "stop"]);
+    expect(reconciliation).toEqual({
+      mode: "streamed",
+      messageTs: "stream-ts-1",
+      deliveredSegmentCount: 1,
+    });
   });
 
   test("appends task-only progress that advances without new body text", async () => {

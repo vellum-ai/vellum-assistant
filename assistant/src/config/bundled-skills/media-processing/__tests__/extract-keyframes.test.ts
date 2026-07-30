@@ -16,7 +16,9 @@ mock.module("../services/preprocess.js", () => ({
     options: Record<string, unknown>,
   ) => {
     lastPreprocessOptions = options;
-    if (mockPreprocessError) throw mockPreprocessError;
+    if (mockPreprocessError) {
+      throw mockPreprocessError;
+    }
     return mockManifest;
   },
 }));

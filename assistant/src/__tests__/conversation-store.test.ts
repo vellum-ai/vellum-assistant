@@ -461,6 +461,10 @@ describe("attachment orphan cleanup", () => {
   });
 });
 
+// clearAll fires the `conversations-cleared` hook; the memory plugin's hook is
+// what wipes the relocated per-conversation tables. That cascade is covered
+// directly in the memory plugin's `conversation-memory-purge.test.ts`.
+
 describe("conversation metadata defaults", () => {
   beforeEach(() => {
     const db = getDb();

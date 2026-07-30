@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { Database } from "bun:sqlite";
@@ -239,14 +239,37 @@ function openDedicatedDb(
 }
 
 /**
+ * Options shared by the dedicated-DB accessors (`getLogsDb`,
+ * `getTelemetryDb`).
+ */
+export interface DedicatedDbAccessOptions {
+  /**
+   * Whether to create the file when it does not exist yet. Defaults to
+   * `true` (open-or-create), which the migration runner and the write path
+   * rely on. Callers that only read or clean up — a conversation delete, or
+   * the memory worker's startup orphan sweep, which run as a separate process
+   * that can race the daemon's async migrations — pass `false` so a
+   * not-yet-created file yields `null` ("nothing there") instead of an empty,
+   * table-less file that then throws `no such table` on every query.
+   */
+  createIfMissing?: boolean;
+}
+
+/**
  * The append-only logs database (`assistant-logs.db`), opened lazily as its
  * own connection. Houses `llm_request_logs`. Returns `null` if the file
- * cannot be opened (logged; the daemon stays up).
+ * cannot be opened (logged; the daemon stays up), or — when
+ * `createIfMissing` is `false` — if the file does not exist yet.
  */
-export function getLogsDb(): DrizzleDb | null {
+export function getLogsDb(
+  options?: DedicatedDbAccessOptions,
+): DrizzleDb | null {
   const existing = getStoredDb<DrizzleDb>("logs");
   if (existing) {
     return existing;
+  }
+  if (options?.createIfMissing === false && !existsSync(getLogsDbPath())) {
+    return null;
   }
   return openDedicatedDb("logs", getLogsDbPath());
 }
@@ -281,12 +304,18 @@ export function getMemorySqlite(): Database | null {
  * connection. Houses the `telemetry_events` outbox (wire payloads recorded at
  * emit time, deleted on successful flush) and `flush_checkpoints` (watermark
  * cursors for the main-DB-backed telemetry sources).
- * Returns `null` if the file cannot be opened (logged; the daemon stays up).
+ * Returns `null` if the file cannot be opened (logged; the daemon stays up),
+ * or — when `createIfMissing` is `false` — if the file does not exist yet.
  */
-export function getTelemetryDb(): DrizzleDb | null {
+export function getTelemetryDb(
+  options?: DedicatedDbAccessOptions,
+): DrizzleDb | null {
   const existing = getStoredDb<DrizzleDb>("telemetry");
   if (existing) {
     return existing;
+  }
+  if (options?.createIfMissing === false && !existsSync(getTelemetryDbPath())) {
+    return null;
   }
   return openDedicatedDb("telemetry", getTelemetryDbPath());
 }

@@ -326,7 +326,8 @@ export async function rollback(): Promise<void> {
     }
 
     // Recover the assistant host port from the entry, fall back to default.
-    const assistantPort = entry.containerInfo?.assistantPort ?? ASSISTANT_INTERNAL_PORT;
+    const assistantPort =
+      entry.containerInfo?.assistantPort ?? ASSISTANT_INTERNAL_PORT;
 
     // Notify connected clients that a rollback is about to begin (best-effort)
     console.log("📢 Notifying connected clients...");

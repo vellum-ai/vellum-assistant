@@ -10,13 +10,7 @@
  * LatestTurnRow follows at the end of the DOM (visual bottom).
  */
 
-import {
-  afterEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { act, useEffect } from "react";
 import { cleanup, render } from "@testing-library/react";
 
@@ -39,17 +33,23 @@ mock.module("@/components/assistant/surfaces", () => ({
 
 // `MessageHoverActions` uses `navigator.clipboard` in a handler; replace
 // with a minimal stub so the server render is deterministic.
-mock.module("@/domains/chat/components/message-hover-actions/message-hover-actions", () => ({
-  MessageHoverActions: () => <div data-testid="hover-actions" />,
-}));
+mock.module(
+  "@/domains/chat/components/message-hover-actions/message-hover-actions",
+  () => ({
+    MessageHoverActions: () => <div data-testid="hover-actions" />,
+  }),
+);
 
 mock.module("@/domains/chat/components/tool-call-chip/tool-call-chip", () => ({
   ToolCallChip: () => <div data-testid="tool-call" />,
 }));
 
-mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
-  MessageAttachments: () => <div data-testid="attachments" />,
-}));
+mock.module(
+  "@/domains/chat/components/chat-attachments/message-attachments",
+  () => ({
+    MessageAttachments: () => <div data-testid="attachments" />,
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Subjects under test — imported AFTER mocks are registered.
@@ -86,12 +86,7 @@ const noop = () => {};
 describe("Transcript", () => {
   test("with empty items, renders zero rows", () => {
     const html = renderToStaticMarkup(
-      <Transcript
-        items={[]}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={[]} conversationId={null} onSurfaceAction={noop} />,
     );
     // No message content → no rendered rows.
     expect(html).not.toContain('data-latest-turn="true"');
@@ -100,12 +95,7 @@ describe("Transcript", () => {
 
   test("scroll container has flex-col class (chronological order)", () => {
     const html = renderToStaticMarkup(
-      <Transcript
-        items={[]}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={[]} conversationId={null} onSurfaceAction={noop} />,
     );
     expect(html).toContain("flex-col");
     expect(html).not.toContain("flex-col-reverse");
@@ -122,12 +112,7 @@ describe("Transcript", () => {
     // partitionLatestTurn -> historyItems: [a1, u1, a2] (3), anchor: u2,
     //                       responseItems: [a3].
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     // All history message content appears in the rendered output.
@@ -150,12 +135,7 @@ describe("Transcript", () => {
       assistantMessage("a2", "also assistant"),
     ];
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     expect(html).not.toContain('data-latest-turn="true"');
@@ -172,12 +152,7 @@ describe("Transcript", () => {
     ];
     // partition: history=[a1], anchor=u1, response=[a2]
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     // In flex-col DOM order: history items come first (visual top),
@@ -195,9 +170,7 @@ describe("Transcript avatar slot", () => {
   test("renderAvatar with no anchor (assistant-only history) still mounts the avatar at the bottom", () => {
     // No user message → no anchor. Avatar must still appear so the
     // bottom-of-conversation slot is conversation-agnostic.
-    const items: TranscriptItem[] = [
-      assistantMessage("a1", "only assistant"),
-    ];
+    const items: TranscriptItem[] = [assistantMessage("a1", "only assistant")];
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
@@ -252,12 +225,7 @@ describe("Transcript avatar slot", () => {
       assistantMessage("a1", "reply"),
     ];
     const html = renderToStaticMarkup(
-      <Transcript
-        items={items}
-        conversationId={null}
-        onSurfaceAction={noop}
-
-      />,
+      <Transcript items={items} conversationId={null} onSurfaceAction={noop} />,
     );
 
     expect(html).not.toContain('data-latest-assistant-avatar="true"');
@@ -311,9 +279,7 @@ describe("Transcript avatar slot", () => {
   });
 
   test("renderAvatar with anchor: latest-edge wrapper applies min-height (viewport pinning preserved)", () => {
-    const items: TranscriptItem[] = [
-      userMessage("u1", "ANCHOR_MARKER"),
-    ];
+    const items: TranscriptItem[] = [userMessage("u1", "ANCHOR_MARKER")];
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
@@ -366,9 +332,7 @@ describe("Transcript avatar slot", () => {
   });
 
   test("no anchor: no flex-1 spacer rendered (avatar sits inline under history)", () => {
-    const items: TranscriptItem[] = [
-      assistantMessage("a1", "history one"),
-    ];
+    const items: TranscriptItem[] = [assistantMessage("a1", "history one")];
     const html = renderToStaticMarkup(
       <Transcript
         items={items}
@@ -394,7 +358,6 @@ describe("Transcript avatar slot", () => {
         items={items}
         conversationId="conv-1"
         onSurfaceAction={noop}
-
       />,
     );
 
@@ -466,7 +429,7 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
           items={withAnchor}
           conversationId="conv-1"
           onSurfaceAction={noop}
-  
+
           renderAvatar={renderAvatar}
         />,
       );
@@ -486,7 +449,7 @@ describe("Transcript no-anchor → anchor transition preserves avatar DOM identi
           items={historyOnly}
           conversationId="conv-1"
           onSurfaceAction={noop}
-  
+
           renderAvatar={renderAvatar}
         />,
       );

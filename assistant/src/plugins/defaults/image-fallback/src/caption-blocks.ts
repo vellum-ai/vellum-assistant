@@ -54,7 +54,9 @@ import { captionImage } from "./vision-caption.js";
 export function needsImageFallback(modelProfileKey: string): boolean {
   const profiles = getModelProfiles();
   const profile = profiles.find((p) => p.key === modelProfileKey);
-  if (profile == null) return !doesSupportVision(modelProfileKey);
+  if (profile == null) {
+    return !doesSupportVision(modelProfileKey);
+  }
   return !doesSupportVision(profile);
 }
 
@@ -82,7 +84,9 @@ export async function captionImageBlocks(
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
-    if (block.type !== "image") continue;
+    if (block.type !== "image") {
+      continue;
+    }
 
     imageCount++;
     const image = block as ImageContent;

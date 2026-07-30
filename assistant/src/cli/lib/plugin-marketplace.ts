@@ -173,7 +173,9 @@ export class MarketplaceFetchError extends Error {
     super(message);
     this.name = "MarketplaceFetchError";
     this.transient = opts?.transient ?? false;
-    if (opts?.status !== undefined) this.status = opts.status;
+    if (opts?.status !== undefined) {
+      this.status = opts.status;
+    }
   }
 }
 
@@ -184,7 +186,9 @@ export class MarketplaceFetchError extends Error {
  * without it is a genuine authorization failure and stays hard.
  */
 function isTransientUpstreamStatus(res: Response): boolean {
-  if (res.status === 429 || res.status >= 500) return true;
+  if (res.status === 429 || res.status >= 500) {
+    return true;
+  }
   if (res.status === 403) {
     return res.headers.get("x-ratelimit-remaining") === "0";
   }
@@ -217,7 +221,9 @@ export async function fetchMarketplaceEntries(
     },
   });
 
-  if (res.status === 404) return [];
+  if (res.status === 404) {
+    return [];
+  }
   if (!res.ok) {
     throw new MarketplaceFetchError(
       `Marketplace manifest fetch failed for ${MARKETPLACE_FILE_PATH} @ ${ref}: HTTP ${res.status}`,
@@ -253,7 +259,9 @@ export function resolveMarketplaceSource(
   entries: readonly MarketplaceEntry[],
 ): ResolvedPluginSource | null {
   const entry = entries.find((e) => e.name === name);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   const [owner, repo] = entry.source.repo.split("/", 2) as [string, string];
   return {
     owner,

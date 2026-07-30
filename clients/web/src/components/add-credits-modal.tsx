@@ -1,22 +1,30 @@
-
-import { AlertCircle, CreditCard, Loader2 } from "lucide-react";
+import { AlertCircle, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-    organizationsBillingSummaryRetrieveOptions,
-    organizationsBillingTopUpsCheckoutSessionCreateMutation,
+  organizationsBillingSummaryRetrieveOptions,
+  organizationsBillingTopUpsCheckoutSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
+import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 const DEFAULT_TOP_UP_AMOUNTS: [string, ...string[]] = [
-  "10.00", "20.00", "30.00", "40.00", "50.00",
-  "60.00", "70.00", "80.00", "90.00", "100.00",
+  "10.00",
+  "20.00",
+  "30.00",
+  "40.00",
+  "50.00",
+  "60.00",
+  "70.00",
+  "80.00",
+  "90.00",
+  "100.00",
 ];
 
 function formatCredits(value: string): string {
@@ -62,16 +70,15 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
     organizationsBillingSummaryRetrieveOptions(),
   );
 
-  const topUpAmounts =
-    summary?.allowed_top_up_amounts?.length
-      ? summary.allowed_top_up_amounts
-      : DEFAULT_TOP_UP_AMOUNTS;
+  const topUpAmounts = summary?.allowed_top_up_amounts?.length
+    ? summary.allowed_top_up_amounts
+    : DEFAULT_TOP_UP_AMOUNTS;
 
   const [selectedAmount, setSelectedAmount] = useState<string | null>(null);
   const amount =
     selectedAmount && topUpAmounts.includes(selectedAmount)
       ? selectedAmount
-      : topUpAmounts[0] ?? DEFAULT_TOP_UP_AMOUNTS[0];
+      : (topUpAmounts[0] ?? DEFAULT_TOP_UP_AMOUNTS[0]);
 
   const checkoutMutation = useMutation(
     organizationsBillingTopUpsCheckoutSessionCreateMutation(),
@@ -117,10 +124,9 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
     <Modal.Root open={open} onOpenChange={onOpenChange}>
       <Modal.Content size="sm">
         <Modal.Header>
-          <Modal.Title icon={CreditCard}>Add Credits</Modal.Title>
+          <Modal.Title>Add Credits</Modal.Title>
           <Modal.Description>
-            Purchase credits to continue using the assistant. You&apos;ll be
-            redirected to Stripe to complete the payment.
+            You&apos;ll be redirected to Stripe to complete the payment.
           </Modal.Description>
         </Modal.Header>
 
@@ -158,12 +164,15 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
             )}
 
             <Link
-              to="/assistant/settings/billing"
-              className="text-body-small-default text-[var(--content-tertiary)] underline hover:text-[var(--content-secondary)]"
+              to={routes.settings.usageBillingConfigureTopUps}
+              className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
               onClick={() => onOpenChange(false)}
             >
-              Configure Automatic Top-Ups →
+              Configure Automatic Top-Ups
+              <ChevronRight className="size-4" />
             </Link>
+
+            <div className="h-px w-full bg-[var(--border-subtle)]" />
           </div>
         </Modal.Body>
 
@@ -181,7 +190,7 @@ export function AddCreditsModal({ open, onOpenChange }: AddCreditsModalProps) {
             onClick={handleAddFunds}
             disabled={checkoutMutation.isPending || isLoading || !summary}
           >
-            Add credits
+            Continue
           </Button>
         </Modal.Footer>
       </Modal.Content>

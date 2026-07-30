@@ -97,6 +97,20 @@ describe("text-segment cleaning", () => {
 });
 
 describe("mapRuntimeToDisplayMessage", () => {
+  test("preserves queued-message state from history", () => {
+    const display = mapRuntimeToDisplayMessage(
+      makeMessage({
+        id: "request-1",
+        role: "user",
+        queueStatus: "queued",
+        queuePosition: 2,
+      }),
+    );
+
+    expect(display.queueStatus).toBe("queued");
+    expect(display.queuePosition).toBe(2);
+  });
+
   test("produces clean segments end-to-end for interleaved file attachments", () => {
     const m = makeMessage({
       id: "msg-2",

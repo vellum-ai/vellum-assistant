@@ -141,6 +141,33 @@ export interface BusEventMap {
    */
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
+  /**
+   * Stripe Checkout finished for a checkout the Electron shell started
+   * in the system browser. The platform bounces the browser to
+   * `<scheme>://billing/checkout-complete`; the billing domain consumes
+   * this to land the user back on billing (and open the post-checkout
+   * Pro onboarding wizard on success).
+   */
+  "deeplink.billingCheckoutComplete":
+    | { status: "success"; sessionId: string }
+    | { status: "cancel"; sessionId: null };
+  /**
+   * The user asked to talk, from outside the SPA:
+   * `<scheme>://voice?mode=new|resume&prompt=…`. The single native→SPA
+   * voice command channel — Siri / the Action Button (App Intents), the
+   * Dynamic Island Live Activity's tap-to-return `widgetURL`, and
+   * manual test links all publish through it.
+   *
+   * `useGlobalDeepLinkConsumer` navigates and hands the request to the
+   * live-voice starter, parking it when the layout-scoped session
+   * controller has not mounted yet (cold launch).
+   *
+   * `prompt` is what the user already said before the app was up (Siri's
+   * "Ask …" intent). It is `null` unless the link carried usable text —
+   * `parseStartVoiceDeepLink` bounds and sanitizes it, so subscribers get
+   * either trustworthy text or nothing.
+   */
+  "deeplink.startVoice": { mode: "new" | "resume"; prompt: string | null };
   "deeplink.unknown": { url: string };
   /**
    * Connectivity state change from the Electron host. Main fuses
@@ -187,9 +214,13 @@ export function subscribe<K extends BusEventName>(
   set.add(handler as AnyHandler);
   return () => {
     const current = handlers.get(event);
-    if (!current) return;
+    if (!current) {
+      return;
+    }
     current.delete(handler as AnyHandler);
-    if (current.size === 0) handlers.delete(event);
+    if (current.size === 0) {
+      handlers.delete(event);
+    }
   };
 }
 
@@ -199,7 +230,9 @@ export function publish<K extends BusEventName>(
   payload: BusEventPayload<K>,
 ): void {
   const set = handlers.get(event);
-  if (!set || set.size === 0) return;
+  if (!set || set.size === 0) {
+    return;
+  }
   // Snapshot before iterating so handlers that unsubscribe (or
   // resubscribe) during dispatch don't mutate the in-flight set.
   for (const handler of Array.from(set)) {

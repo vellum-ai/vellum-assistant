@@ -43,11 +43,13 @@ async function handleRollbackMigrations({ body = {} }: RouteHandlerArgs) {
     | undefined;
 
   if (rollbackToRegistryCeiling === true) {
-    if (effectiveDbVersion === undefined)
+    if (effectiveDbVersion === undefined) {
       effectiveDbVersion = getMaxRollbackVersion(migrationSteps);
-    if (effectiveWorkspaceMigrationId === undefined)
+    }
+    if (effectiveWorkspaceMigrationId === undefined) {
       effectiveWorkspaceMigrationId =
         getLastWorkspaceMigrationId(WORKSPACE_MIGRATIONS) ?? undefined;
+    }
   }
 
   if (

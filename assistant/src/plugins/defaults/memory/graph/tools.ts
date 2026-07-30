@@ -66,19 +66,19 @@ const REMEMBER_CONTENT_DESCRIPTION =
   "The fact(s) to remember. Pass a single string for one fact, or an array of strings to record several independent facts in one call. When a turn surfaces multiple unrelated facts, pass them all as an array in one call rather than calling `remember` once per fact. Write naturally — a preference, a detail, a commitment, a plan. No need to categorize.";
 
 /**
- * Appended to the `content` description only under the wiki memory model
- * (memory v2/v3), where the v2/v3 consolidation prompts treat `[[slug]]`
- * hints as read-first candidates when filing buffer entries. v1/PKB
- * workspaces have no wiki pages for the hints to reference, and the pkb
- * filing job has no instruction to interpret or strip the markup, so it
- * would persist as literal buffer text there.
+ * Appended to the `content` description only under the concept-page memory
+ * model, where the consolidation prompts treat `[[slug]]` hints as
+ * read-first candidates when filing buffer entries. v1/PKB workspaces have
+ * no wiki pages for the hints to reference, and the pkb filing job has no
+ * instruction to interpret or strip the markup, so it would persist as
+ * literal buffer text there.
  */
 export const REMEMBER_PAGE_HINT_GUIDANCE =
   "When a fact relates to memory pages already in your context, reference the most specific ones inline as [[slug]] wikilinks — consolidation reads hinted pages first when filing the fact, which matters most for corrections (the hint names the page carrying the outdated fact). Hint only pages you have actually seen, and prefer specific pages over broad hubs.";
 
 /**
- * Build the `remember` input schema. `pageHints` reflects the wiki-memory
- * (`memory.v2.enabled`) state and appends
+ * Build the `remember` input schema. `pageHints` reflects whether
+ * concept-page memory is active and appends
  * {@link REMEMBER_PAGE_HINT_GUIDANCE} to the `content` description. It is a
  * thunk re-resolved on every read of that description: the registry's
  * finalized tool shares the returned schema object by reference, so a
@@ -114,12 +114,11 @@ export function buildRememberInputSchema(options: {
 
 /**
  * Save a fact to the assistant's knowledge base. The fact is appended to
- * `buffer.md` (immediately available in the next conversation) and the daily
- * archive (permanent date-indexed record). When `memory.v2.enabled` is true,
- * writes go under `memory/`; otherwise they go under `pkb/`. Consolidation
- * of the buffer into longer-form storage runs as a separate periodic job in
- * both modes. This base definition carries the mode-neutral schema; the
- * registered tool appends the page-hint guidance on wiki-memory installs via
+ * `memory/buffer.md` (immediately available in the next conversation) and the
+ * daily archive (permanent date-indexed record). Consolidation of the buffer
+ * into concept pages runs as a separate periodic job. This base definition
+ * carries the mode-neutral schema; the registered tool appends the page-hint
+ * guidance on concept-page-memory installs via
  * {@link buildRememberInputSchema}.
  */
 export const graphRememberDefinition = {

@@ -15,6 +15,15 @@ import { startCes } from "../local.js";
 // Mocks
 // ---------------------------------------------------------------------------
 
+// Snapshot the real modules before any `mock.module()` call so we can
+// re-register them in a module-scoped `afterAll` below. Bun runs every test
+// file in one process with a shared loader; without restoring, these mocks
+// leak into sibling files (e.g. `step-runner.test.ts`, whose real `spawn`
+// then returns this file's fake child with no `stdin` and a no-op `on`).
+const realChildProcess = { ...(await import("node:child_process")) };
+const realXdgLog = { ...(await import("../xdg-log.js")) };
+const realProcess = { ...(await import("../process.js")) };
+
 // Capture spawn calls so we can assert on cmd/env.
 let lastSpawnCall: {
   cmd: string[];
@@ -54,6 +63,15 @@ mock.module("../process.js", () => ({
   isProcessAlive: mock(() => false),
   stopProcessGracefully: mock(async () => {}),
 }));
+
+// Restore the real modules once this file finishes so the mocks above do not
+// leak into other test files in the same `bun test` run. `mock.restore()` does
+// not undo `mock.module()`, so we re-register the captured real exports.
+afterAll(() => {
+  mock.module("node:child_process", () => realChildProcess);
+  mock.module("../xdg-log.js", () => realXdgLog);
+  mock.module("../process.js", () => realProcess);
+});
 
 // ---------------------------------------------------------------------------
 // Tests

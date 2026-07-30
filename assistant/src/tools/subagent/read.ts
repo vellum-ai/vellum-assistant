@@ -1,17 +1,32 @@
 import { getMessages } from "../../persistence/conversation-crud.js";
 import { extractTextFromStoredMessageContent } from "../../persistence/message-content.js";
-import { getSubagentManager, TERMINAL_STATUSES } from "../../subagent/index.js";
+import { TERMINAL_STATUSES } from "../../subagent/index.js";
+import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
-import { resolveSubagentId } from "./resolve.js";
+import {
+  resolveSubagentId,
+  resolveSubagentState,
+  subagentRefInputSchema,
+} from "./resolve.js";
+
+// `last_n` is deliberately UNDECLARED (loose passthrough): the executor's
+// typeof-guarded read below ignores it when malformed — including non-integer
+// numbers the advertised `integer` type wouldn't admit.
+export const subagentReadInputSchema = subagentRefInputSchema;
 
 export async function executeSubagentRead(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const subagentId = resolveSubagentId(input, context);
-  if (!subagentId && input.label) {
+  const parsedInput = subagentReadInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("subagent_read", parsedInput.error);
+  }
+  const parsed = parsedInput.data;
+  const subagentId = resolveSubagentId(parsed, context);
+  if (!subagentId && parsed.label) {
     return {
-      content: `No subagent found with label "${input.label as string}".`,
+      content: `No subagent found with label "${parsed.label}".`,
       isError: true,
     };
   }
@@ -22,8 +37,7 @@ export async function executeSubagentRead(
     };
   }
 
-  const manager = getSubagentManager();
-  const state = manager.getState(subagentId);
+  const state = resolveSubagentState(subagentId);
   if (!state) {
     return {
       content: `No subagent found with ID "${subagentId}".`,

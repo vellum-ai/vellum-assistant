@@ -1,15 +1,5 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-
-// Drive flag values via a module stub (never setState — SSR renders read
-// the store through `use.*` selector hooks).
-mock.module("@/stores/client-feature-flag-store", () => {
-  const store = () => null;
-  store.use = {
-    bookmarks: () => false,
-  };
-  return { useClientFeatureFlagStore: store };
-});
 
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -23,7 +13,9 @@ describe("MessageHoverActions", () => {
       timestamp: Date.UTC(2026, 0, 2, 12, 34),
       ...textBody(""),
     };
-    const html = renderToStaticMarkup(<MessageHoverActions message={message} />);
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
 
     expect(html).toContain("title=");
     expect(html).toContain("select-none");
@@ -64,8 +56,38 @@ describe("MessageHoverActions", () => {
       timestamp: Date.UTC(2026, 0, 2, 12, 34),
       ...textBody("hello"),
     };
-    const html = renderToStaticMarkup(<MessageHoverActions message={message} />);
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
 
     expect(html).not.toContain('title="Summarize up to here"');
+  });
+
+  test("renders retry action when the callback is provided", () => {
+    const message: DisplayMessage = {
+      id: "m5",
+      role: "assistant",
+      timestamp: Date.UTC(2026, 0, 2, 12, 34),
+      ...textBody("hello"),
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} onRetry={() => {}} />,
+    );
+
+    expect(html).toContain('title="Retry"');
+  });
+
+  test("omits retry action when the callback is absent", () => {
+    const message: DisplayMessage = {
+      id: "m6",
+      role: "assistant",
+      timestamp: Date.UTC(2026, 0, 2, 12, 34),
+      ...textBody("hello"),
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
+
+    expect(html).not.toContain('title="Retry"');
   });
 });

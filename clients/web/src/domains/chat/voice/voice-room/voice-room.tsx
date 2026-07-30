@@ -19,29 +19,31 @@
  *
  * The room is a full-app takeover on every platform — `fixed inset-0`, modal,
  * covering the header and sidebar, with safe-area padding for notched iOS
- * shells. A voice session IS the room: there is no minimize and no way to
- * leave it while the session runs — ending the session (the ✕ control) is the
- * only way out.
+ * shells. It is not exit-only: minimizing (the − control or Escape) dismisses
+ * the room while the session keeps running — the composer's voice bar / the
+ * title-bar pill become the session surfaces — and ending the session (the ✕
+ * control) tears the whole call down.
  *
  * Visibility is a pure function of {@link useIsVoiceRoomVisible} — active
- * session, owned by the on-screen composer, main window. Any session end
- * (user exit, `failed`, conversation timeout, stop from elsewhere) flips that
- * predicate false and unmounts the room; a `failed` session surfaces through
- * the existing composer Notice / pill failure chip, never a dead room.
+ * session, owned by the on-screen composer, main window, not minimized. Any
+ * session end (user exit, `failed`, conversation timeout, stop from
+ * elsewhere) flips that predicate false and unmounts the room; a `failed`
+ * session surfaces through the existing composer Notice / pill failure chip,
+ * never a dead room.
  *
  * Sessions are hands-free (server-VAD): the user just speaks, so there is no
  * push-to-talk control. Bottom-center carries the session controls in the
  * call-app idiom: a mic mute toggle (always) and, while the assistant speaks
  * hands-free, a turn-scoped ■ stop. Exit is first-class: the persistent
- * ✕ control (always rendered, even while the avatar/assistant data is loading
- * or failed) and Escape both end the session — the room is modal with no
- * lesser dismissal, so the platform "leave" key maps to the only exit there
- * is. The key handler attaches only while the room is mounted.
+ * ✕ control ends the session, always rendered even while the avatar/assistant
+ * data is loading or failed. Escape maps to the lesser dismissal — it
+ * minimizes the room, same as the − control, leaving the call live. The key
+ * handler attaches only while the room is mounted.
  */
 
-import { useEffect, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { Mic, MicOff, Square, X } from "lucide-react";
+import { Mic, MicOff, Minus, Square, X } from "lucide-react";
 
 import { Tooltip, cn } from "@vellumai/design-library";
 
@@ -49,7 +51,8 @@ import {
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   getLiveVoiceOutputAmplitude,
-  liveVoiceStateLabel,
+  liveVoiceSurfaceLabel,
+  minimizeVoiceRoom,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
   useLiveVoiceStore,
@@ -63,8 +66,14 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import { useActiveConnectSurface } from "./use-active-connect-surface";
-
 import { resolveWaveAccentHex } from "./wave-accent";
+
+import {
+  SAFE_AREA_BOTTOM,
+  SAFE_AREA_LEFT,
+  SAFE_AREA_RIGHT,
+  SAFE_AREA_TOP,
+} from "./voice-room-layout";
 
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
@@ -82,29 +91,6 @@ import {
 import { useIsVoiceRoomVisible } from "./use-is-voice-room-visible";
 
 const AVATAR_SIZE = 220;
-/**
- * State caption anchor for the void look — just below the centered avatar's
- * bottom edge (half its size from center, plus a gap), the void-look counterpart
- * to the color look's caption below the eyes. Sits above the assistant
- * transcript's `50% + 15vmin + 2.5rem` clearance on any typical viewport, and it
- * only shows when that transcript is off (see below), so the two never collide.
- */
-const VOID_CAPTION_TOP = `calc(50% + ${AVATAR_SIZE / 2}px + 1.75rem)`;
-
-/**
- * Safe-area insets (see `docs/CAPACITOR.md`): the `var()` is set by
- * `capacitor-plugin-safe-area` on Capacitor iOS, `env()` covers standard
- * browsers with `viewport-fit=cover`, and `0px` covers desktop / non-notch
- * devices — so these are inert everywhere except a notched iOS shell.
- */
-const SAFE_AREA_TOP =
-  "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))";
-const SAFE_AREA_BOTTOM =
-  "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))";
-const SAFE_AREA_LEFT =
-  "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))";
-const SAFE_AREA_RIGHT =
-  "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))";
 
 /**
  * Shared treatment for the room's top icon controls, toned to the active look
@@ -112,7 +98,7 @@ const SAFE_AREA_RIGHT =
  * tone-derived over an avatar color).
  */
 const ROOM_CONTROL_CLASS =
-  "flex size-10 items-center justify-center rounded-full text-[var(--room-fg-muted)] transition hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
+  "flex size-12 items-center justify-center rounded-full text-[var(--room-fg-muted)] transition hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--room-fg-muted)]";
 
 /** Bottom-row circular session controls (mute / ■ stop), same toning. */
 const SESSION_CONTROL_CLASS =
@@ -141,7 +127,7 @@ function VoiceRoomOverlay() {
   // `speaking` stays set across a mid-turn tool run; gate `responding` on audio
   // actually flowing so the room reads `thinking` while the tool works.
   const assistantAudioActive = useLiveVoiceStore.use.assistantAudioActive();
-  const assistantId = useLiveVoiceStore.use.assistantId();
+  const liveAssistantId = useLiveVoiceStore.use.assistantId();
   const muted = useLiveVoiceStore.use.muted();
   // Turn-scoped ■ stop is hands-free-only (a manual session's interrupt ends
   // the whole session); room sessions are hands-free except on the
@@ -149,17 +135,29 @@ function VoiceRoomOverlay() {
   const handsFree = useLiveVoiceStore.use.handsFree();
   // Viewport point the entrance grows from (the tapped voice button); null →
   // the color look falls back to its screen-center origin.
-  const entryOrigin = useLiveVoiceStore.use.entryOrigin();
+  const liveEntryOrigin = useLiveVoiceStore.use.entryOrigin();
   const reduce = useReducedMotion();
+
+  // The room is one session, so freeze the avatar identity and the entry origin
+  // at mount. Ending the session calls the store `reset()` (assistantId /
+  // entryOrigin → null) while the room is still mounted for its exit animation;
+  // reading the live values there would flip the look to the "V" fallback
+  // mid-close and drop the shrink-to-origin target. The captured values hold for
+  // the room's whole lifetime (both are session-constant).
+  const [assistantId] = useState(liveAssistantId);
+  const [entryOrigin] = useState(liveEntryOrigin);
 
   const visual = toVoiceAvatarVisual(state, reconnecting, assistantAudioActive);
   // The label + sr-only announcement must follow the same audio-aware mapping as
   // the visual: a silent mid-turn `speaking` (ack spoken, tool now running)
   // reads as "Thinking…", not "Speaking…", so screen-reader users aren't told
-  // the assistant is talking while it's actually silent (JARVIS-1279).
-  const labelState =
-    state === "speaking" && !assistantAudioActive ? "thinking" : state;
-  const stateLabel = liveVoiceStateLabel(labelState, reconnecting);
+  // the assistant is talking while it's actually silent (JARVIS-1279). Shared
+  // with the iOS Live Activity mirror, which shows this exact string.
+  const stateLabel = liveVoiceSurfaceLabel(
+    state,
+    reconnecting,
+    assistantAudioActive,
+  );
 
   // The state caption (e.g. "Listening…") shows only while the assistant
   // transcript is hidden; the captions toggle itself lives in the room's
@@ -177,12 +175,13 @@ function VoiceRoomOverlay() {
   // Resolve the assistant's look: color-with-eyes for character avatars, the
   // ambient void otherwise. The accent var is still published for the
   // fallback look's listening waves (null for custom-image / "none" /
-  // still-loading avatars, where the waves keep their aurora fallback).
+  // still-loading avatars, where the waves keep their aurora fallback) — the
+  // same derivation the iOS Live Activity mirrors, so island and room agree.
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
   const look = resolveVoiceRoomLook(components, traits, customImageUrl);
   const tone = look ? toneForBg(look.bgHex) : null;
-  const accentHex = resolveWaveAccentHex(components, traits);
+  const accentHex = resolveWaveAccentHex(components, traits, customImageUrl);
 
   // Control-chrome colors for the active look, consumed by the shared control
   // classes. The fallbacks are the void look's white-on-dark values.
@@ -191,18 +190,21 @@ function VoiceRoomOverlay() {
     "--room-fg-muted": tone?.fgMuted ?? "rgba(255,255,255,0.7)",
     "--room-wash": tone?.wash ?? "rgba(255,255,255,0.1)",
     "--room-border": tone?.wash ?? "rgba(255,255,255,0.15)",
+    "--room-bubble-bg": tone?.bubbleBg ?? "rgba(255,255,255,0.16)",
+    "--room-bubble-fg": tone?.bubbleFg ?? "#FFFFFF",
   } as CSSProperties;
 
-  // Global Escape, live only while the room is mounted: ends the session,
-  // same as the ✕ — the room is modal with no lesser dismissal, so the
-  // platform "leave" key maps to the only exit there is. It fires even when
-  // the composer textarea (or any other focused element) still holds focus as
-  // the room opens, so it is intentionally not guarded by the event target.
+  // Global Escape, live only while the room is mounted: minimizes the room,
+  // same as the − control — the platform "leave the overlay" key dismisses
+  // the surface without hanging up the call (✕ is the end-session control).
+  // It fires even when the composer textarea (or any other focused element)
+  // still holds focus as the room opens, so it is intentionally not guarded
+  // by the event target.
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        endLiveVoiceSession();
+        minimizeVoiceRoom();
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -233,6 +235,10 @@ function VoiceRoomOverlay() {
       }}
       initial={reduce ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
+      // On close the chrome and rectangular backgrounds fade, while the avatar
+      // shape itself shrinks back toward the entry origin — the color look's
+      // body + eyes and the void look's centered avatar each own that exit — so
+      // the room collapses into the avatar, not a shrinking rectangle.
       exit={{ opacity: 0 }}
       transition={{ duration: reduce ? 0 : 0.4 }}
     >
@@ -250,10 +256,10 @@ function VoiceRoomOverlay() {
           visual={visual}
           getAmplitude={getLiveVoiceInputAmplitude}
           getResponseAmplitude={getLiveVoiceOutputAmplitude}
-          // Only the *assistant* transcript occupies the space below the eyes
-          // (the user transcript floats above), so the state caption stands down
-          // for that pref alone — enabling only user captions must not blank the
-          // lower zone the caption fills.
+          // While assistant captions are on, the transcript's lower zone already
+          // narrates the turn from the caption's own baseline, so the caption
+          // stands down rather than doubling it. The user-only caption pref
+          // leaves it up (a user pill alone doesn't name the assistant's state).
           showStateCaption={!showAssistantTranscript}
           entryOrigin={entryOrigin}
         />
@@ -277,19 +283,20 @@ function VoiceRoomOverlay() {
           {visual === "responding" ? (
             <VoiceRespondingRings getAmplitude={getLiveVoiceOutputAmplitude} />
           ) : null}
-          {/* Same state caption + gating as the color look (stands down only for
-              the assistant-transcript pref), anchored below the centered avatar
-              instead of the eyes. */}
+          {/* Same state caption + gating as the color look (stands down while
+              the assistant transcript is on), in the same shared lower zone —
+              both looks name the beat from one baseline. */}
           {!showAssistantTranscript ? (
-            <VoiceStateCaption visual={visual} top={VOID_CAPTION_TOP} />
+            <VoiceStateCaption visual={visual} />
           ) : null}
         </>
       )}
 
-      {/* Optional muted echo of the live transcript, floating above (user) and
-          below (assistant) the centered avatar. Pref-gated (the captions
-          control above) and absolutely positioned, so it never shifts the
-          avatar and stays absent by default. */}
+      {/* Optional live transcript, rendered into the room's two text zones —
+          the user's speech above the eyes, the assistant's below. Pref-gated
+          (the captions control above) and absolutely positioned in the margins
+          the centerpiece leaves free, so it never shifts the centered avatar
+          and stays absent by default. */}
       <VoiceAmbientTranscript />
 
       {/* Backwards-compat fallback card for assistants that can still raise
@@ -319,9 +326,9 @@ function VoiceRoomOverlay() {
         ) : null}
       </AnimatePresence>
 
-      {/* Room controls — captions toggle and the persistent exit. Rendered
-          above all room chrome; ✕ is never gated behind avatar readiness, so
-          ending works even mid-load / on failure. */}
+      {/* Room controls — captions toggle, minimize, and the persistent exit.
+          Rendered above all room chrome; ✕ is never gated behind avatar
+          readiness, so ending works even mid-load / on failure. */}
       <div
         // Absolute position is relative to the padding box, so the overlay's
         // safe-area padding does not shift this — inset it from the notch /
@@ -332,8 +339,21 @@ function VoiceRoomOverlay() {
         }}
         className="absolute z-10 flex items-center gap-1"
       >
-        <VoiceRoomSettingsMenu triggerClassName={ROOM_CONTROL_CLASS} />
-        <Tooltip content="End voice session (Esc)">
+        <VoiceRoomSettingsMenu
+          triggerClassName={ROOM_CONTROL_CLASS}
+          assistantId={assistantId}
+        />
+        <Tooltip content="Minimize — session keeps going">
+          <button
+            type="button"
+            onClick={minimizeVoiceRoom}
+            aria-label="Minimize voice room"
+            className={ROOM_CONTROL_CLASS}
+          >
+            <Minus className="size-5" />
+          </button>
+        </Tooltip>
+        <Tooltip content="End voice session">
           <button
             type="button"
             onClick={endLiveVoiceSession}
@@ -354,6 +374,18 @@ function VoiceRoomOverlay() {
           className="relative z-0"
           initial={reduce ? false : { scale: 0.8, y: 24, opacity: 0 }}
           animate={{ scale: 1, y: 0, opacity: 1 }}
+          // Exit is the inverse of the entry spring: the centered avatar settles
+          // back down and shrinks away rather than fading in place.
+          exit={
+            reduce
+              ? { opacity: 0 }
+              : {
+                  scale: 0.8,
+                  y: 24,
+                  opacity: 0,
+                  transition: { duration: 0.32, ease: "easeIn" },
+                }
+          }
           transition={reduce ? { duration: 0 } : AVATAR_ENTER_SPRING}
         >
           <VoiceAvatar

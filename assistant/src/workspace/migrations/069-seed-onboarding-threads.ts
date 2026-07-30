@@ -20,11 +20,17 @@ export const seedOnboardingThreadsMigration: WorkspaceMigration = {
     // bullets injected into static memory context on upgrade. When invoked
     // without a context (e.g. from older callers), default to the safe path
     // and skip — the runner always supplies one in production.
-    if (!ctx?.isNewWorkspace) return;
+    if (!ctx?.isNewWorkspace) {
+      return;
+    }
     const filePath = join(workspaceDir, "memory", "threads.md");
-    if (!existsSync(filePath)) return;
+    if (!existsSync(filePath)) {
+      return;
+    }
     const current = readFileSync(filePath, "utf-8");
-    if (current.trim().length > 0) return;
+    if (current.trim().length > 0) {
+      return;
+    }
     writeFileSync(filePath, ONBOARDING_THREADS, "utf-8");
   },
 

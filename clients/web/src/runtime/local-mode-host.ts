@@ -130,7 +130,9 @@ const LOCAL_HOST_UNAVAILABLE_ERROR =
   "The local assistant host isn't available here.";
 
 function readInjectedConfig(): { mode?: string } | undefined {
-  if (typeof window === "undefined") return undefined;
+  if (typeof window === "undefined") {
+    return undefined;
+  }
   return (window as unknown as { __VELLUM_CONFIG__?: { mode?: string } })
     .__VELLUM_CONFIG__;
 }
@@ -147,10 +149,16 @@ function readInjectedConfig(): { mode?: string } | undefined {
  * (`window.__VELLUM_CONFIG__`), excluding remote-gateway mode.
  */
 export function isLocalModeHostAvailable(): boolean {
-  if (isElectron()) return true;
+  if (isElectron()) {
+    return true;
+  }
   const config = readInjectedConfig();
-  if (!config) return false;
-  if (config.mode === "remote-gateway") return false;
+  if (!config) {
+    return false;
+  }
+  if (config.mode === "remote-gateway") {
+    return false;
+  }
   return true;
 }
 
@@ -217,7 +225,9 @@ export async function loadLockfileHost(): Promise<Lockfile> {
   }
 
   const res = await fetch("/assistant/__local/lockfile");
-  if (!res.ok) throw new Error(`lockfile fetch failed: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(`lockfile fetch failed: ${res.status}`);
+  }
   return res.json() as Promise<Lockfile>;
 }
 
@@ -430,7 +440,9 @@ export async function fetchGuardianTokenHost(
 ): Promise<string> {
   if (isElectron()) {
     const result = await window.vellum!.localMode.guardianToken(assistantId);
-    if (!result.ok) throw new GuardianTokenError(result.status, result.error);
+    if (!result.ok) {
+      throw new GuardianTokenError(result.status, result.error);
+    }
     return result.accessToken;
   }
 
@@ -469,7 +481,9 @@ export async function registerLocalPlatformSession(
  * Clear the loopback platform session token on logout. Best-effort.
  */
 export async function clearLocalPlatformSession(): Promise<void> {
-  if (!isLocalModeHostAvailable()) return;
+  if (!isLocalModeHostAvailable()) {
+    return;
+  }
   try {
     await fetch("/assistant/__local/platform-session", { method: "DELETE" });
   } catch {

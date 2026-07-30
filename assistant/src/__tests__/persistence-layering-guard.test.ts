@@ -65,7 +65,7 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
  *
  * `steps.ts` is the ordered list of every migration step; it imports each
  * migration's forward/down function from the domain that owns it (memory's
- * `graph/bootstrap`, apps' `app-store`, …). Migrations are append-only and
+ * `v1/graph/bootstrap`, apps' `app-store`, …). Migrations are append-only and
  * checkpointed by stable function name, so they live in their owning feature by
  * design and are merely *referenced* here by the registry — this is the
  * registry's job, not a layering violation to ratchet to zero. Validated by the
@@ -73,7 +73,7 @@ const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
  * entry here.
  */
 const MIGRATION_REGISTRY_MEMORY_IMPORTS: Record<string, ReadonlySet<string>> = {
-  "assistant/src/persistence/steps.ts": new Set(["graph/bootstrap"]),
+  "assistant/src/persistence/steps.ts": new Set(["v1/graph/bootstrap"]),
 };
 
 /** Match `from "x"`, `import "x"`, `import("x")`, and `mock.module("x", …)`. */

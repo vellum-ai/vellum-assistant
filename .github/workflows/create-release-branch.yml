@@ -2,11 +2,11 @@ name: Create Release Branch
 
 on:
   schedule:
-    # Release at 8:52am ET every Tuesday and Friday. Two entries cover EDT
+    # Release at 7:52am ET every Tuesday and Friday. Two entries cover EDT
     # (UTC-4) and EST (UTC-5); schedule-guard picks the one matching today's
     # offset and drops the other.
-    - cron: "52 12 * * 2,5"  # EDT: 8:52am ET
-    - cron: "52 13 * * 2,5"  # EST: 8:52am ET
+    - cron: "52 11 * * 2,5"  # EDT: 7:52am ET
+    - cron: "52 12 * * 2,5"  # EST: 7:52am ET
   workflow_dispatch:
     inputs:
       bump:
@@ -40,15 +40,15 @@ jobs:
             echo "should-run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Two cron entries fire (12:52 and 13:52 UTC) to cover EDT/EST. Run
+          # Two cron entries fire (11:52 and 12:52 UTC) to cover EDT/EST. Run
           # only the entry matching today's Eastern offset so the release fires
           # once. Keying off the triggering cron (not the wall-clock hour at job
           # start) stays correct even when GitHub delays the scheduled run.
           OFFSET=$(TZ=America/New_York date +%z)
           if [ "$OFFSET" = "-0400" ]; then
-            EXPECTED="52 12 * * 2,5"  # EDT: 8:52am ET = 12:52 UTC
+            EXPECTED="52 11 * * 2,5"  # EDT: 7:52am ET = 11:52 UTC
           else
-            EXPECTED="52 13 * * 2,5"  # EST: 8:52am ET = 13:52 UTC
+            EXPECTED="52 12 * * 2,5"  # EST: 7:52am ET = 12:52 UTC
           fi
           if [ "${{ github.event.schedule }}" != "$EXPECTED" ]; then
             echo "should-run=false" >> "$GITHUB_OUTPUT"
@@ -65,6 +65,7 @@ jobs:
       version: ${{ steps.compute.outputs.version }}
       base-ref: ${{ steps.compute.outputs.base-ref }}
       skip-ci: ${{ steps.compute.outputs.skip-ci }}
+      bump: ${{ steps.compute.outputs.bump }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -72,8 +73,30 @@ jobs:
 
       - name: Compute version from bump type
         id: compute
+        env:
+          NEXT_RELEASE_BUMP: ${{ vars.NEXT_RELEASE_BUMP }}
         run: |
-          BUMP="${{ inputs.bump || 'patch' }}"
+          # Scheduled cuts take their bump type from the NEXT_RELEASE_BUMP
+          # repository variable (Settings → Secrets and variables → Actions →
+          # Variables, or `gh variable set NEXT_RELEASE_BUMP --body minor`).
+          # The variable is one-shot: the create-release-branch job resets it
+          # to patch after a successful scheduled cut, so setting it to minor
+          # or major upgrades exactly one scheduled tick. Unset or "patch"
+          # means the usual patch release. Manual dispatches use the bump
+          # input and never read or reset the variable.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BUMP="${{ inputs.bump }}"
+          else
+            BUMP="${NEXT_RELEASE_BUMP:-patch}"
+            case "$BUMP" in
+              patch|minor|major) ;;
+              *)
+                echo "::error::NEXT_RELEASE_BUMP repository variable is '$BUMP' — scheduled cuts accept patch, minor, or major (hotfix is dispatch-only)."
+                exit 1
+                ;;
+            esac
+          fi
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
 
           LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
           if [ -z "$LATEST_TAG" ]; then
@@ -130,7 +153,7 @@ jobs:
               - type: section
                 text:
                   type: mrkdwn
-                  text: "*Workflow:* Create Release Branch\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ inputs.bump || 'patch' }}`\n*Triggered by:* ${{ github.event_name == 'schedule' && 'Scheduled' || github.actor }}"
+                  text: "*Workflow:* Create Release Branch\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ needs.compute-version.outputs.bump || inputs.bump || 'unknown' }}`\n*Triggered by:* ${{ github.event_name == 'schedule' && 'Scheduled' || github.actor }}"
               - type: actions
                 elements:
                   - type: button
@@ -216,7 +239,7 @@ jobs:
               - type: section
                 text:
                   type: mrkdwn
-                  text: "*Workflow:* Create Release Branch\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ inputs.bump || 'patch' }}`\n*Triggered by:* ${{ github.event_name == 'schedule' && 'Scheduled' || github.actor }}"
+                  text: "*Workflow:* Create Release Branch\n*Version:* `${{ needs.compute-version.outputs.version }}`\n*Bump:* `${{ needs.compute-version.outputs.bump }}`\n*Triggered by:* ${{ github.event_name == 'schedule' && 'Scheduled' || github.actor }}"
               - type: actions
                 elements:
                   - type: button
@@ -348,3 +371,20 @@ jobs:
             git commit -m "$COMMIT_MSG"
           fi
           git push --no-verify origin "$BRANCH"
+
+      # NEXT_RELEASE_BUMP is one-shot: a scheduled cut that consumed a
+      # minor/major value resets it to patch so the next tick reverts to the
+      # normal cadence. Requires the automation GitHub App to have the
+      # "Variables" repository permission (read & write). A failure here is
+      # loud on purpose — a stale minor/major value would silently upgrade
+      # every following scheduled release.
+      - name: Reset NEXT_RELEASE_BUMP to patch
+        if: ${{ github.event_name == 'schedule' && needs.compute-version.outputs.bump != 'patch' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh api --method PATCH \
+            "repos/${{ github.repository }}/actions/variables/NEXT_RELEASE_BUMP" \
+            -f name=NEXT_RELEASE_BUMP \
+            -f value=patch
+          echo "Consumed NEXT_RELEASE_BUMP=${{ needs.compute-version.outputs.bump }}; reset to patch."

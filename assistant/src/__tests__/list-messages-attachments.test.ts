@@ -172,7 +172,7 @@ describe("handleListMessages attachments", () => {
       "user",
       JSON.stringify([{ type: "text", text: "here are files" }]),
     );
-    const imgStored = uploadAttachment("photo.jpg", "image/jpeg", IMAGE_BASE64);
+    const imgStored = uploadAttachment("photo.png", "image/png", IMAGE_BASE64);
     const docStored = uploadAttachment(
       "doc.pdf",
       "application/pdf",
@@ -187,7 +187,7 @@ describe("handleListMessages attachments", () => {
     const attachments = body.messages[0].attachments!;
     expect(attachments).toHaveLength(2);
 
-    const imgAtt = attachments.find((a) => a.mimeType === "image/jpeg");
+    const imgAtt = attachments.find((a) => a.mimeType === "image/png");
     const docAtt = attachments.find((a) => a.mimeType === "application/pdf");
     expect(imgAtt!.data).toBe(IMAGE_BASE64);
     expect(docAtt!.data).toBeUndefined();

@@ -5,10 +5,7 @@
  */
 
 export type BackgroundTaskStatus =
-  | "running"
-  | "completed"
-  | "failed"
-  | "cancelled";
+  "running" | "completed" | "failed" | "cancelled";
 
 /** Whether the task is in an active (non-terminal) state. */
 export function isActiveBackgroundTaskStatus(
@@ -18,7 +15,9 @@ export function isActiveBackgroundTaskStatus(
 }
 
 /** Map a BackgroundTaskStatus to a semantic color token. */
-export function backgroundTaskStatusColor(status: BackgroundTaskStatus): string {
+export function backgroundTaskStatusColor(
+  status: BackgroundTaskStatus,
+): string {
   switch (status) {
     case "completed":
       return "var(--system-positive-strong)";
@@ -51,7 +50,9 @@ export function backgroundTaskTitle(status: BackgroundTaskStatus): string {
 }
 
 /** Human-readable label for the status badge. */
-export function backgroundTaskStatusLabel(status: BackgroundTaskStatus): string {
+export function backgroundTaskStatusLabel(
+  status: BackgroundTaskStatus,
+): string {
   switch (status) {
     case "running":
       return "Running";

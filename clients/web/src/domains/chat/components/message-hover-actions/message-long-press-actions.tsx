@@ -13,10 +13,11 @@ import { useCallback, useMemo, useState } from "react";
 import type { MessageHoverActionsProps } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import {
-  useBookmarksEnabled,
   useBookmarkToggle,
+  useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { BottomSheet, PanelItem } from "@vellumai/design-library";
 
 type MessageLongPressActionsProps = MessageHoverActionsProps & {
@@ -45,12 +46,7 @@ export function MessageLongPressActions({
   open,
   onOpenChange,
 }: MessageLongPressActionsProps) {
-  const bookmarksEnabled = useBookmarksEnabled();
-  const canBookmark =
-    bookmarksEnabled &&
-    Boolean(conversationId) &&
-    Boolean(message.id) &&
-    !message.isOptimistic;
+  const canBookmark = useCanBookmark(message, conversationId);
 
   const content = useMemo(() => messagePlainText(message), [message]);
 
@@ -60,11 +56,12 @@ export function MessageLongPressActions({
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(content).then(() => {
-      setShowCopied(true);
-      setTimeout(() => setShowCopied(false), 1500);
-    }).catch(() => {
-      // Clipboard write denied — silently ignore
+    copyToClipboard(content, {
+      errorMessage: "Couldn't copy the message.",
+      onCopied: () => {
+        setShowCopied(true);
+        setTimeout(() => setShowCopied(false), 1500);
+      },
     });
   }, [content]);
 

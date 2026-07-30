@@ -78,11 +78,7 @@ export function TerminalToolbar({
             variant="danger"
             size="compact"
             leftIcon={
-              isConnecting ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <Unplug />
-              )
+              isConnecting ? <Loader2 className="animate-spin" /> : <Unplug />
             }
             onClick={onDisconnect}
             disabled={isConnecting}

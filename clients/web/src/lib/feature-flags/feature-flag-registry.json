@@ -2,12 +2,30 @@
   "version": 1,
   "flags": [
     {
+      "id": "in-chat-onboarding-tour",
+      "scope": "client",
+      "key": "in-chat-onboarding-tour",
+      "label": "In-Chat Onboarding Tour",
+      "description": "Multivariate experiment for the eyes-led in-chat onboarding tour. control = straight to chat after research onboarding (current behavior); tour = the extended tour auto-plays on first workspace entry. Desktop-only: phone-width viewports and the native shell get neither the tour nor its telemetry (not even the exposure event), so the funnel measures desktop sessions exclusively. Targeted via LaunchDarkly (70% tour / 30% control).",
+      "defaultEnabled": "control",
+      "values": ["control", "tour"]
+    },
+    {
       "id": "user-hosted-enabled",
       "scope": "client",
       "key": "user-hosted-enabled",
       "label": "User Hosted Enabled",
       "description": "Enable user-hosted onboarding flow",
       "defaultEnabled": false
+    },
+    {
+      "id": "proactive-tips",
+      "scope": "client",
+      "key": "proactive-tips",
+      "label": "Proactive Tips",
+      "description": "Gates the dismissible proactive tip card in the web sidebar. String-valued so future A/B arms can be added as new values.",
+      "defaultEnabled": "off",
+      "values": ["off", "on"]
     },
     {
       "id": "experiment-activation-flow-2026-06-03",
@@ -17,6 +35,15 @@
       "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; personal-page = new sign-up-page variant (front-end only). Targeted via LaunchDarkly.",
       "defaultEnabled": "control",
       "values": ["control", "variant-a", "personal-page"]
+    },
+    {
+      "id": "experiment-billing-cta-2026-07-23",
+      "scope": "client",
+      "key": "experiment-billing-cta-2026-07-23",
+      "label": "Experiment: Billing CTA 2026-07-23",
+      "description": "Credit paywall CTA experiment. control = single Add Credits CTA for everyone (opens Add Credits modal). upgrade-cta = FREE users (plan_id base) get a single Upgrade CTA (View Plans takeover) instead; PAID users still get Add Credits.",
+      "defaultEnabled": "control",
+      "values": ["control", "upgrade-cta"]
     },
     {
       "id": "local-docker-enabled",
@@ -83,35 +110,19 @@
       "defaultEnabled": false
     },
     {
+      "id": "collapse-assistant-intermediates",
+      "scope": "client",
+      "key": "collapse-assistant-intermediates",
+      "label": "Collapse Assistant Intermediates",
+      "description": "Collapse completed intermediary assistant activity behind Earlier activity while keeping the final response visible",
+      "defaultEnabled": false
+    },
+    {
       "id": "backward-releases",
       "scope": "assistant",
       "key": "backward-releases",
       "label": "Backward Releases",
       "description": "Show older versions in the version picker, allowing rollback to previous releases",
-      "defaultEnabled": false
-    },
-    {
-      "id": "voice-mode",
-      "scope": "assistant",
-      "key": "voice-mode",
-      "label": "Voice Mode",
-      "description": "Show the live voice conversation button in the composer",
-      "defaultEnabled": false
-    },
-    {
-      "id": "voice-triage-escalate",
-      "scope": "assistant",
-      "key": "voice-triage-escalate",
-      "label": "Voice Triage & Escalate",
-      "description": "Front phone-call turns with a fast model that answers simple turns and escalates tricky ones to the quality model, cutting perceived latency",
-      "defaultEnabled": false
-    },
-    {
-      "id": "voice-duplex-handoff",
-      "scope": "assistant",
-      "key": "voice-duplex-handoff",
-      "label": "Voice Duplex Handoff",
-      "description": "When a user barges in during live voice, keep the interrupted turn running as a background subagent instead of discarding it (true-duplex handoff)",
       "defaultEnabled": false
     },
     {
@@ -136,14 +147,6 @@
       "key": "apple-container",
       "label": "Apple Container",
       "description": "Enable assistant sandboxing via Apple Containers on macOS 26+, providing a lightweight native sandbox without third-party dependencies",
-      "defaultEnabled": false
-    },
-    {
-      "id": "bookmarks",
-      "scope": "client",
-      "key": "bookmarks",
-      "label": "Message Bookmarks",
-      "description": "Show the bookmark icon on messages and enable the Bookmarks tab in Settings",
       "defaultEnabled": false
     },
     {
@@ -283,22 +286,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "memory-v3-injection-gate",
-      "scope": "assistant",
-      "key": "memory-v3-injection-gate",
-      "label": "Memory v3 injection gate",
-      "description": "Per-turn injection gate for memory v3: after the BM25F needle + dense cosine finder lanes run, skip the selectPool LLM call (inject nothing) when finder-lane scores fall below the configured thresholds (memory.v3.gate). Default on (flipped remotely July 2026); this registry value is the fallback when no platform snapshot is available.",
-      "defaultEnabled": true
-    },
-    {
-      "id": "memory-concept-graph",
-      "scope": "assistant",
-      "key": "memory-concept-graph",
-      "label": "Memory concept graph",
-      "description": "Gates the Obsidian-style memory concept graph on its own Memory tab (/assistant/memory) and the backend-agnostic /memory-graph + /memory-graph-node routes that feed it. When off, the Memory tab is hidden; the identity page keeps the skills constellation. Only produces a graph on memory-v3 backends. Default off.",
-      "defaultEnabled": false
-    },
-    {
       "id": "self-intro-greeting",
       "scope": "both",
       "key": "self-intro-greeting",
@@ -347,27 +334,27 @@
       "defaultEnabled": false
     },
     {
-      "id": "credentials-settings",
-      "scope": "assistant",
-      "key": "credentials-settings",
-      "label": "Credentials settings page",
-      "description": "Show the Credentials page in web settings for listing, adding, and deleting stored credentials.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "credential-requests",
-      "scope": "assistant",
-      "key": "credential-requests",
-      "label": "One-time credential request links",
-      "description": "Enable one-time credential-request links: the generate-link action in settings, the public credential entry page, and assistant-initiated links on channels without secure input.",
-      "defaultEnabled": false
-    },
-    {
       "id": "chat-credential-reveal",
       "scope": "assistant",
       "key": "chat-credential-reveal",
       "label": "Chat Credential Reveal",
       "description": "Persist chat secret redactions as sentinel markers instead of the legacy HTML marker, enriched with the vault identity when the value byte-matches a credential revealed this turn. Also gates the `credentials reveal --for-chat` channel and the live-stream swap that replaces an echoed reveal plaintext with its sentinel before emission. Redaction itself is NOT gated: a route-proven reveal plaintext stays out of persisted rows in both modes. Client chip rendering is gated on daemon version, not on this flag.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "composer-secret-guard",
+      "scope": "assistant",
+      "key": "composer-secret-guard",
+      "label": "Composer Secret Guard",
+      "description": "Detect API keys/secrets typed into the chat composer and offer secure credential storage before send",
+      "defaultEnabled": false
+    },
+    {
+      "id": "marketing-pricing-takeover",
+      "scope": "client",
+      "key": "marketing-pricing-takeover",
+      "label": "Marketing Pricing Takeover",
+      "description": "Gates the marketing pricing takeover page (www.vellum.ai/pricing) and the `/assistant/checkout?package=<slug>` deep link its package CTAs target. One flag covers both halves of the funnel so they can never be enabled independently and strand a CTA. When off, the checkout deep link redirects to the in-app plans takeover.",
       "defaultEnabled": false
     }
   ]

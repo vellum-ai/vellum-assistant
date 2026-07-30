@@ -4,9 +4,9 @@ import { Navigate, useNavigate } from "react-router";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
-    useActiveAssistantIsPlatformHosted,
-    useActiveAssistantLifecycleIsLoading,
-    usePlatformGate,
+  useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -26,12 +26,10 @@ import { Typography } from "@vellumai/design-library/components/typography";
  */
 export function UpgradeCancelPage() {
   // Defense in depth: this page is only reachable from a Stripe Checkout
-  // session that started on the billing page (itself gated). But deep-link
-  // or bookmark navigation can still land a self-hosted user here, where
-  // the auto-redirect to `routes.settings.billing` would chain through
-  // *that* page's `<Navigate />` back to general — together with a stray
-  // "upgrade canceled" toast for an upgrade the user never started. Cleaner
-  // to short-circuit at this page too.
+  // session that started on the Billing tab (itself gated). But deep-link
+  // or bookmark navigation can still land a self-hosted user here, together
+  // with a stray "upgrade canceled" toast for an upgrade the user never
+  // started. Cleaner to short-circuit at this page too.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   // Strict hosting predicate for the side effect below. `platformGate ===
   // "full"` is the *Render*-tier predicate — it's intentionally permissive
@@ -57,11 +55,13 @@ export function UpgradeCancelPage() {
     // resolves, either `isPlatformHosted` flips true (run the effect) or
     // `platformGate` flips to `"gated"` (body's `<Navigate />` takes
     // over, this effect never runs).
-    if (!isPlatformHosted) return;
+    if (!isPlatformHosted) {
+      return;
+    }
     toast.info("Upgrade canceled. No changes to your plan.", {
       id: "pro-upgrade-cancel",
     });
-    navigate(routes.settings.billing, { replace: true });
+    navigate(routes.settings.usageBilling, { replace: true });
   }, [navigate, isPlatformHosted]);
 
   if (platformGate === "gated") {
@@ -92,7 +92,7 @@ export function UpgradeCancelPage() {
           <Button
             variant="primary"
             onClick={() =>
-              navigate(routes.settings.billing, { replace: true })
+              navigate(routes.settings.usageBilling, { replace: true })
             }
           >
             Return to billing
@@ -108,11 +108,7 @@ export function UpgradeCancelPage() {
         <Typography as="h1" variant="title-large">
           Upgrade canceled
         </Typography>
-        <Typography
-          as="p"
-          variant="body-medium-default"
-          className="mt-2"
-        >
+        <Typography as="p" variant="body-medium-default" className="mt-2">
           Returning you to billing settings…
         </Typography>
       </Card>

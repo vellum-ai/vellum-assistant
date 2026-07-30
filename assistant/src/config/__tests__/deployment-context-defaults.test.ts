@@ -32,7 +32,9 @@ function ensureTestDir(): void {
     join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
 
@@ -132,7 +134,9 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
   test("first launch (no config.json) persists managed service modes but not the platform embedding provider", () => {
     // No config.json on disk: this is the first-launch SEED path that writes a
     // default config so the file exists for users to edit.
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     process.env.IS_PLATFORM = "true";
 
     const config = loadConfig();
@@ -153,13 +157,25 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     >;
     expect(embeddingsRaw.provider).toBeUndefined();
 
-    // Managed service modes ARE persisted on first launch (existing behavior).
+    // Managed service modes ARE persisted on first launch, but web-search is
+    // exempt: `provider` is its only axis, and a context-filled `mode` would
+    // override BYOK configs on every load. The persisted value is the schema
+    // default rather than an injected "managed".
     const servicesRaw = (raw.services ?? {}) as Record<string, unknown>;
     const webSearchRaw = (servicesRaw["web-search"] ?? {}) as Record<
       string,
       unknown
     >;
-    expect(webSearchRaw.mode).toBe("managed");
+    expect(webSearchRaw.mode).not.toBe("managed");
+
+    // image-generation's managed axis is its provider: the seeded value is
+    // the platform fill "vellum", never an injected managed mode.
+    const imageGenRaw = (servicesRaw["image-generation"] ?? {}) as Record<
+      string,
+      unknown
+    >;
+    expect(imageGenRaw.provider).toBe("vellum");
+    expect(imageGenRaw.mode).not.toBe("managed");
 
     // Regression guard: on the NEXT load (config.json now exists with the
     // provider leaf absent), the platform default re-applies in memory rather
@@ -206,7 +222,9 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
   });
 
   test("first launch seeds memory.v3 with only `live` — tuning knobs resolve from the schema, not disk", () => {
-    if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH, { force: true });
+    if (existsSync(CONFIG_PATH)) {
+      rmSync(CONFIG_PATH, { force: true });
+    }
     delete process.env.IS_PLATFORM;
 
     const config = loadConfig();

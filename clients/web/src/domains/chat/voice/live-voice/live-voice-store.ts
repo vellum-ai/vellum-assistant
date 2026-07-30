@@ -24,6 +24,7 @@
 import { create } from "zustand";
 
 import type { LiveVoiceMetricsServerFrame } from "@/domains/chat/voice/live-voice/protocol";
+import type { LiveVoicePlaybackProgress } from "@/domains/chat/voice/live-voice/tts-playback";
 import { createSelectors } from "@/utils/create-selectors";
 
 // ---------------------------------------------------------------------------
@@ -90,6 +91,31 @@ export function liveVoiceStateLabel(
     return "Reconnecting…";
   }
   return LIVE_VOICE_STATE_LABELS[state];
+}
+
+/**
+ * The label a *surface* shows for a session — {@link liveVoiceStateLabel} plus
+ * the audio-aware `speaking` remap.
+ *
+ * `speaking` stays set across a mid-turn tool run: the assistant spoke an ack,
+ * then went silent while a tool runs. Announcing "Speaking…" while nothing is
+ * audible is wrong for the room's caption, wrong for its screen-reader
+ * announcement, and wrong for the Dynamic Island (JARVIS-1279). Every surface
+ * that renders session activity calls this — the voice room and the iOS Live
+ * Activity mirror — so the island always reads exactly what the room reads.
+ *
+ * {@link liveVoiceStateLabel} stays the lower layer for callers that have no
+ * audio signal to consult.
+ */
+export function liveVoiceSurfaceLabel(
+  state: LiveVoiceSessionState,
+  reconnecting: boolean,
+  assistantAudioActive: boolean,
+): string {
+  return liveVoiceStateLabel(
+    state === "speaking" && !assistantAudioActive ? "thinking" : state,
+    reconnecting,
+  );
 }
 
 /**
@@ -162,16 +188,18 @@ export interface LiveVoiceEntryOrigin {
 }
 
 /**
- * Starts a live-voice session for `assistantId`, attaching `conversationId`
- * when non-null. Registered into the store by the persistently mounted
- * session-controller hook (see `use-live-voice-session-controller.ts`) so any
- * surface — e.g. the composer's entry-point mic — can start a session without
- * owning the controller hook instance.
+ * Mount-scoped entry points for starting live voice. The composer prewarms
+ * playback synchronously from the user's gesture, before its async readiness
+ * preflight, then either starts with that player or cancels the reservation.
  */
-export type LiveVoiceSessionStarter = (
-  assistantId: string,
-  conversationId: string | null,
-) => void;
+export interface LiveVoiceSessionStarter {
+  /** Unlock playback while the initiating user gesture is still active. */
+  prewarm(): void;
+  /** Release playback reserved by a preflight that will not start a session. */
+  cancelPrewarm(): void;
+  /** Start a session, consuming the prewarmed player when one exists. */
+  start(assistantId: string, conversationId: string | null): void;
+}
 
 export interface LiveVoiceState {
   /** Current phase of the session lifecycle. */
@@ -241,6 +269,15 @@ export interface LiveVoiceState {
    */
   handsFree: boolean;
   /**
+   * Whether the user (or the assistant, via the `minimize_room` frame) has
+   * dismissed the full-screen voice room for this session while keeping the
+   * session live. While true, the owning composer's voice bar (on the owning
+   * thread) and the title-bar session pill (elsewhere) are the session
+   * surfaces. Session-scoped: cleared by `reset()` so a new session always
+   * opens in the room.
+   */
+  roomMinimized: boolean;
+  /**
    * Viewport-space center of the control the user tapped to start the session
    * (the composer's voice button). The color room grows its entrance from here
    * — "the avatar on the screen" the user acted on — instead of a fixed
@@ -268,6 +305,16 @@ export interface LiveVoiceState {
    * so a non-`speaking` read costs nothing and it clears on session reset.
    */
   outputAmplitudeProvider: (() => number) | null;
+  /**
+   * Provider for the current response's TTS playback progress (played/total
+   * seconds of scheduled audio), registered by the controller from the active
+   * session's {@link LiveVoiceAudioPlayer}. `null` when there is no session.
+   * Read via {@link getLiveVoicePlaybackProgress} — the voice-room transcript's
+   * spoken-word cursor polls it per animation frame. A registered provider
+   * (like `outputAmplitudeProvider`) so a non-speaking read costs nothing and
+   * it clears on session reset.
+   */
+  playbackProgressProvider: (() => LiveVoicePlaybackProgress | null) | null;
   /** Human-readable error message when `state === "failed"`, `null` otherwise. */
   error: string | null;
 }
@@ -313,6 +360,8 @@ export interface LiveVoiceActions {
   setMuted: (muted: boolean) => void;
   /** Record whether the active session runs hands-free (server-VAD). */
   setHandsFree: (handsFree: boolean) => void;
+  /** Record whether the voice room is dismissed for the active session. */
+  setRoomMinimized: (roomMinimized: boolean) => void;
   /** Record the entry origin (the tapped control's center) for the entrance. */
   setEntryOrigin: (origin: LiveVoiceEntryOrigin | null) => void;
   /**
@@ -322,6 +371,10 @@ export interface LiveVoiceActions {
   setLastTurnLatency: (lastTurnLatency: LiveVoiceTurnLatency) => void;
   /** Register (or clear) the active player's output-amplitude provider. */
   setOutputAmplitudeProvider: (provider: (() => number) | null) => void;
+  /** Register (or clear) the active player's playback-progress provider. */
+  setPlaybackProgressProvider: (
+    provider: (() => LiveVoicePlaybackProgress | null) | null,
+  ) => void;
   /** Transition to `failed` with a message. */
   fail: (message: string) => void;
   /**
@@ -339,8 +392,25 @@ export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
 // Predicates
 // ---------------------------------------------------------------------------
 
-/** Whether `state` is a live session phase (anything but idle/failed). */
-export function isLiveVoiceSessionActive(state: LiveVoiceSessionState): boolean {
+/**
+ * The phases of a session that is actually running — everything
+ * {@link isLiveVoiceSessionActive} admits. Surfaces that only exist for a
+ * running session (the iOS Live Activity's phase) derive their own union from
+ * this rather than restating it, so the two cannot drift.
+ */
+export type ActiveLiveVoiceSessionState = Exclude<
+  LiveVoiceSessionState,
+  "idle" | "failed"
+>;
+
+/**
+ * Whether `state` is a live session phase (anything but idle/failed). Narrows,
+ * so callers that only handle a running session — e.g. mapping the phase onto
+ * a surface's own narrower union — get that for free.
+ */
+export function isLiveVoiceSessionActive(
+  state: LiveVoiceSessionState,
+): state is ActiveLiveVoiceSessionState {
   return state !== "idle" && state !== "failed";
 }
 
@@ -418,9 +488,11 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   inputAmplitude: 0,
   muted: false,
   handsFree: false,
+  roomMinimized: false,
   entryOrigin: null,
   lastTurnLatency: null,
   outputAmplitudeProvider: null,
+  playbackProgressProvider: null,
   error: null,
 };
 
@@ -449,19 +521,74 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   appendAssistantTranscript: (delta) =>
     set((s) => ({ assistantTranscript: s.assistantTranscript + delta })),
   clearAssistantTranscript: () => set({ assistantTranscript: "" }),
-  clearUserTranscripts: () => set({ partialTranscript: "", finalTranscript: "" }),
+  clearUserTranscripts: () =>
+    set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
   setMuted: (muted) => set({ muted }),
   setHandsFree: (handsFree) => set({ handsFree }),
+  setRoomMinimized: (roomMinimized) => set({ roomMinimized }),
   setEntryOrigin: (entryOrigin) => set({ entryOrigin }),
   setLastTurnLatency: (lastTurnLatency) => set({ lastTurnLatency }),
   setOutputAmplitudeProvider: (outputAmplitudeProvider) =>
     set({ outputAmplitudeProvider }),
+  setPlaybackProgressProvider: (playbackProgressProvider) =>
+    set({ playbackProgressProvider }),
   fail: (message) => set({ state: "failed", error: message }),
   reset: () => set({ ...INITIAL_SESSION_STATE }),
 }));
 
 export const useLiveVoiceStore = createSelectors(useLiveVoiceStoreBase);
+
+/**
+ * Subscribe to the *settled* session state: the store as it stands once the
+ * current synchronous burst of `set()` calls has finished.
+ *
+ * `useLiveVoiceStore.subscribe` fires synchronously on every single `set()`,
+ * and a session transition is rarely one `set()`. Starting a session runs
+ * `reset()` (→ `idle`) immediately followed by `setState("connecting")`, then
+ * re-applies `reconnecting`, the session context, the carried-over `muted`, and
+ * the controls — so a raw subscriber sees an `idle` that never existed as a
+ * state of the world, plus four intermediate frames of a half-built session.
+ *
+ * React consumers never notice: they read through selectors and React batches
+ * the burst into one render. Consumers that drive *the world* do, and for them
+ * that phantom `idle` is destructive rather than cosmetic — on every hands-free
+ * reconnect (a dropped velay socket, JARVIS-1255/1256) it tears down and
+ * immediately re-creates the `AVAudioSession`, possibly while backgrounded or
+ * locked, and ends and restarts the Live Activity so the island visibly
+ * disappears and comes back.
+ *
+ * So: coalesce the burst into one microtask and hand the listener a fresh
+ * `getState()`. A superseded state never reaches it, and a transition costs one
+ * callback instead of five — which also keeps the mirror inside ActivityKit's
+ * update budget. A microtask rather than a timer, so nothing observable is
+ * deferred past the transition itself.
+ */
+export function subscribeSettledLiveVoiceState(
+  listener: (session: LiveVoiceState) => void,
+): () => void {
+  let scheduled = false;
+  let disposed = false;
+  const unsubscribe = useLiveVoiceStore.subscribe(() => {
+    if (scheduled) {
+      return;
+    }
+    scheduled = true;
+    queueMicrotask(() => {
+      scheduled = false;
+      // Unsubscribed inside the burst — a controller unmounting mid-transition.
+      // Its own teardown is authoritative; this must not fire after it.
+      if (disposed) {
+        return;
+      }
+      listener(useLiveVoiceStore.getState());
+    });
+  });
+  return () => {
+    disposed = true;
+    unsubscribe();
+  };
+}
 
 /**
  * Stable amplitude poll function for waveform canvases: sampled ~30 Hz inside
@@ -486,6 +613,20 @@ export function getLiveVoiceOutputAmplitude(): number {
 }
 
 /**
+ * Playback progress (played/total seconds) of the current response's TTS
+ * audio, read from the active player via the controller-registered provider.
+ * Returns `null` when no session is active or nothing has been scheduled for
+ * the current response. Polled per animation frame by the voice-room
+ * transcript's spoken-word cursor, so it is module-level (stable identity)
+ * and reads through `getState()` — subscribing would re-render the poller on
+ * every register/clear (see STATE_MANAGEMENT.md, as with
+ * {@link getLiveVoiceOutputAmplitude}).
+ */
+export function getLiveVoicePlaybackProgress(): LiveVoicePlaybackProgress | null {
+  return useLiveVoiceStore.getState().playbackProgressProvider?.() ?? null;
+}
+
+/**
  * End the active live-voice session through the store-registered
  * {@link LiveVoiceSessionControls}. No-op when no session (or no controls)
  * exists. Module-level so every surface with an "end session" affordance (the
@@ -496,6 +637,32 @@ export function getLiveVoiceOutputAmplitude(): number {
  */
 export function endLiveVoiceSession(): void {
   useLiveVoiceStore.getState().controls?.stop();
+}
+
+/**
+ * Dismiss the full-screen voice room while keeping the session live — the
+ * owning composer's voice bar and the title-bar pill become the session
+ * surfaces. No-op when no session is active, so it is safe to call at any
+ * time (e.g. from a server-driven `minimize_room` frame). See
+ * {@link endLiveVoiceSession} for why this is module-level.
+ */
+export function minimizeVoiceRoom(): void {
+  const { state, setRoomMinimized } = useLiveVoiceStore.getState();
+  if (isLiveVoiceSessionActive(state)) {
+    setRoomMinimized(true);
+  }
+}
+
+/**
+ * Bring the full-screen voice room back for the active session. No-op when no
+ * session is active. See {@link endLiveVoiceSession} for why this is
+ * module-level.
+ */
+export function restoreVoiceRoom(): void {
+  const { state, setRoomMinimized } = useLiveVoiceStore.getState();
+  if (isLiveVoiceSessionActive(state)) {
+    setRoomMinimized(false);
+  }
 }
 
 /**

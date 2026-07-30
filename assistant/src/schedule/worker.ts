@@ -11,14 +11,19 @@
  * user-facing traffic, and keep running during a main-thread freeze in the
  * daemon.
  */
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
 import { resetDb } from "../persistence/db-connection.js";
+import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
 import { initializeTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { getScheduleWorkerPidPath } from "../util/platform.js";
+import {
+  cleanupWorkerPidFile,
+  startWorkerPidFileGuard,
+} from "../util/worker-process.js";
 import { runDueSchedulesOnce } from "./scheduler.js";
 
 const log = getLogger("schedule-worker-process");
@@ -26,18 +31,9 @@ const log = getLogger("schedule-worker-process");
 /** Same cadence as the daemon scheduler's tick. */
 const TICK_INTERVAL_MS = 15_000;
 
-function cleanupPidFile(): void {
-  const pidPath = getScheduleWorkerPidPath();
-  try {
-    if (existsSync(pidPath)) {
-      unlinkSync(pidPath);
-    }
-  } catch {
-    // best-effort
-  }
-}
-
 async function main(): Promise<void> {
+  // Only the daemon stamps SSE seqs and writes the shared reservation file.
+  disableStreamSeqStamping();
   // Load config up front so a broken config fails the spawn (before the PID
   // file is written) instead of surfacing on the first tick.
   getConfig();
@@ -71,6 +67,35 @@ async function main(): Promise<void> {
 
   let stopped = false;
   let tickRunning = false;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let disposePidGuard: (() => void) | null = null;
+  const shutdown = (signal: string) => {
+    log.info({ signal }, "Schedule worker process shutting down");
+    stopped = true;
+    if (timer != null) {
+      clearInterval(timer);
+    }
+    disposePidGuard?.();
+    cleanupWorkerPidFile(pidPath);
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+
+  // Arm the identity guard before the first tick. Its on-arm check runs
+  // synchronously, so a worker superseded during startup runs shutdown() —
+  // which calls process.exit — here, before it can execute any schedule work.
+  disposePidGuard = startWorkerPidFileGuard(pidPath, {
+    onEvicted: (reason) => {
+      log.warn(
+        { reason },
+        "Evicted — the PID file no longer names this worker",
+      );
+      shutdown("pid-file-eviction");
+    },
+  });
+
   const tick = async () => {
     if (stopped || tickRunning) {
       return;
@@ -91,21 +116,10 @@ async function main(): Promise<void> {
 
   // Deliberately ref'd (unlike the daemon scheduler's timer): this interval
   // is what keeps the standalone process alive between ticks.
-  const timer = setInterval(() => {
+  timer = setInterval(() => {
     void tick();
   }, TICK_INTERVAL_MS);
   void tick();
-
-  const shutdown = (signal: string) => {
-    log.info({ signal }, "Schedule worker process shutting down");
-    stopped = true;
-    clearInterval(timer);
-    cleanupPidFile();
-    process.exit(0);
-  };
-
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
 
   process.on("SIGUSR1", () => {
     log.info("Received SIGUSR1 — refreshing database connections");
@@ -119,26 +133,28 @@ async function main(): Promise<void> {
   // but this gives us structured logging and graceful shutdown.
   process.on("uncaughtException", (err) => {
     log.error({ err }, "Uncaught exception in schedule worker process");
-    cleanupPidFile();
+    cleanupWorkerPidFile(getScheduleWorkerPidPath());
     process.exit(1);
   });
 
   process.on("unhandledRejection", (reason) => {
     log.error({ reason }, "Unhandled rejection in schedule worker process");
-    cleanupPidFile();
+    cleanupWorkerPidFile(getScheduleWorkerPidPath());
     process.exit(1);
   });
 
   // Clean up if the process exits unexpectedly through any other path.
   process.on("exit", () => {
     stopped = true;
-    clearInterval(timer);
-    cleanupPidFile();
+    if (timer != null) {
+      clearInterval(timer);
+    }
+    cleanupWorkerPidFile(getScheduleWorkerPidPath());
   });
 }
 
 void main().catch((err) => {
   log.error({ err }, "Schedule worker process failed to start");
-  cleanupPidFile();
+  cleanupWorkerPidFile(getScheduleWorkerPidPath());
   process.exit(1);
 });

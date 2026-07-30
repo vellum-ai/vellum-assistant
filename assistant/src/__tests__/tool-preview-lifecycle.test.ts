@@ -6,6 +6,7 @@
  * - handleToolUsePreviewStart emits activity state with "tool_running" phase
  * - handleInputJsonDelta includes toolUseId in emitted tool_input_delta
  * - handleToolResult includes toolUseId in emitted tool_result
+ * - handleToolResult resolves toolName from the tool_use correlation map
  * - Event ordering: tool_use_preview_start → input_json_delta → tool_use
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -47,9 +48,13 @@ mock.module("../persistence/conversation-crud.js", () => ({
   provenanceFromTrustContext: () => ({}),
   reserveMessage: reserveMessageMock,
   recordConversationPersistedSeq: (id: string, seq: number) => {
-    if (!Number.isFinite(seq) || seq <= 0) return;
+    if (!Number.isFinite(seq) || seq <= 0) {
+      return;
+    }
     const prev = persistedSeqByConversation.get(id);
-    if (prev == null || prev < seq) persistedSeqByConversation.set(id, seq);
+    if (prev == null || prev < seq) {
+      persistedSeqByConversation.set(id, seq);
+    }
   },
   getConversationPersistedSeq: (id: string) =>
     persistedSeqByConversation.get(id) ?? null,
@@ -68,15 +73,13 @@ mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   backfillMemoryRecallLogMessageId: () => {},
 }));
 
-mock.module(
-  "../plugins/defaults/memory/memory-v2-activation-log-store.js",
-  () => ({
-    backfillMemoryV2ActivationMessageId: () => {},
-  }),
-);
+mock.module("../plugins/defaults/memory/v2/activation-log-store.js", () => ({
+  backfillMemoryV2ActivationMessageId: () => {},
+}));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -90,9 +93,7 @@ import {
   handleToolUse,
   handleToolUsePreviewStart,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getConversationPersistedSeq } from "../persistence/conversation-crud.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
 import {
   _resetStreamStateForTesting,
   getCurrentSeq,
@@ -104,7 +105,7 @@ import {
 function createMockDeps(
   overrides: Partial<EventHandlerDeps> = {},
 ): EventHandlerDeps {
-  const emittedEvents: ServerMessage[] = [];
+  const emittedEvents: AssistantEvent[] = [];
   const emittedActivityStates: Array<{
     phase: string;
     reason: string;
@@ -134,7 +135,7 @@ function createMockDeps(
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (msg: ServerMessage) => {
+    onEvent: (msg: AssistantEvent) => {
       emittedEvents.push(msg);
     },
     reqId: "test-req-id",
@@ -157,7 +158,7 @@ function createMockDeps(
 
 /** Collect events by wrapping onEvent. */
 function createEventCollector(): {
-  events: ServerMessage[];
+  events: AssistantEvent[];
   activityStates: Array<{
     phase: string;
     reason: string;
@@ -165,14 +166,14 @@ function createEventCollector(): {
     requestId?: string;
     statusText?: string;
   }>;
-  onEvent: (msg: ServerMessage) => void;
+  onEvent: (msg: AssistantEvent) => void;
   emitActivityState: (
     phase: string,
     reason: string,
     options?: { anchor?: string; requestId?: string; statusText?: string },
   ) => void;
 } {
-  const events: ServerMessage[] = [];
+  const events: AssistantEvent[] = [];
   const activityStates: Array<{
     phase: string;
     reason: string;
@@ -183,7 +184,7 @@ function createEventCollector(): {
   return {
     events,
     activityStates,
-    onEvent: (msg: ServerMessage) => events.push(msg),
+    onEvent: (msg: AssistantEvent) => events.push(msg),
     emitActivityState: (phase, reason, options) =>
       activityStates.push({
         phase,
@@ -391,9 +392,9 @@ describe("tool preview lifecycle", () => {
       const collector = createEventCollector();
       const conversationId = "test-session-id";
       const deps = createMockDeps({
-        onEvent: (msg: ServerMessage) => {
+        onEvent: (msg: AssistantEvent) => {
           collector.events.push(msg);
-          stampAndBuffer(msg as unknown as AssistantEvent);
+          stampAndBuffer(msg as unknown as AssistantEventEnvelope);
         },
         ctx: {
           ...createMockDeps().ctx,
@@ -407,12 +408,12 @@ describe("tool preview lifecycle", () => {
         type: "assistant_text_delta",
         text: "hello",
         conversationId,
-      } as unknown as AssistantEvent);
+      } as unknown as AssistantEventEnvelope);
       stampAndBuffer({
         type: "assistant_text_delta",
         text: " world",
         conversationId,
-      } as unknown as AssistantEvent);
+      } as unknown as AssistantEventEnvelope);
 
       // WHEN a tool_use is handled (its block is already durable)
       handleToolUse(state, deps, {
@@ -429,7 +430,7 @@ describe("tool preview lifecycle", () => {
       expect(toolUseStart).toBeDefined();
       expect(getConversationPersistedSeq(conversationId)).toBe(getCurrentSeq());
       expect(getConversationPersistedSeq(conversationId)).toBe(
-        (toolUseStart as unknown as AssistantEvent).seq ?? null,
+        (toolUseStart as unknown as AssistantEventEnvelope).seq ?? null,
       );
     });
   });
@@ -445,12 +446,12 @@ describe("tool preview lifecycle", () => {
     /** onEvent that stamps conversation-scoped events like the runtime hub. */
     function makeStampingDeps(
       overrides: Partial<EventHandlerDeps["ctx"]> = {},
-    ): { deps: EventHandlerDeps; events: ServerMessage[] } {
-      const events: ServerMessage[] = [];
+    ): { deps: EventHandlerDeps; events: AssistantEvent[] } {
+      const events: AssistantEvent[] = [];
       const deps = createMockDeps({
-        onEvent: (msg: ServerMessage) => {
+        onEvent: (msg: AssistantEvent) => {
           events.push(msg);
-          stampAndBuffer(msg as unknown as AssistantEvent);
+          stampAndBuffer(msg as unknown as AssistantEventEnvelope);
         },
         ctx: {
           ...createMockDeps().ctx,
@@ -479,7 +480,7 @@ describe("tool preview lifecycle", () => {
         thinking: "Let me reason about this.",
       } as Extract<AgentEvent, { type: "thinking_delta" }>);
 
-      // THEN it is mirrored into the running view and the persisted seq field
+      // THEN it is mirrored into the running view and the streamed seq field
       // tracks the emitted delta
       const thinkingDelta = events.find(
         (e) => e.type === "assistant_thinking_delta",
@@ -492,8 +493,8 @@ describe("tool preview lifecycle", () => {
           signature: "",
         },
       ]);
-      expect(state.lastPersistedContentSeq).toBe(
-        (thinkingDelta as unknown as AssistantEvent).seq ?? undefined,
+      expect(state.lastStreamedContentSeq).toBe(
+        (thinkingDelta as unknown as AssistantEventEnvelope).seq ?? undefined,
       );
     });
 
@@ -530,7 +531,7 @@ describe("tool preview lifecycle", () => {
       expect(thinkingDelta).toBeDefined();
       expect(getConversationPersistedSeq(conversationId)).toBe(getCurrentSeq());
       expect(getConversationPersistedSeq(conversationId)).toBe(
-        (thinkingDelta as unknown as AssistantEvent).seq ?? null,
+        (thinkingDelta as unknown as AssistantEventEnvelope).seq ?? null,
       );
     });
 
@@ -561,7 +562,7 @@ describe("tool preview lifecycle", () => {
       expect(toolResult).toBeDefined();
       expect(getConversationPersistedSeq(conversationId)).toBe(getCurrentSeq());
       expect(getConversationPersistedSeq(conversationId)).toBe(
-        (toolResult as unknown as AssistantEvent).seq ?? null,
+        (toolResult as unknown as AssistantEventEnvelope).seq ?? null,
       );
     });
 
@@ -588,11 +589,11 @@ describe("tool preview lifecycle", () => {
         },
       } as Extract<AgentEvent, { type: "message_complete" }>);
 
-      // THEN no thinking_delta was emitted and the persisted seq stays unset
+      // THEN no thinking_delta was emitted and the streamed seq stays unset
       expect(
         events.find((e) => e.type === "assistant_thinking_delta"),
       ).toBeUndefined();
-      expect(state.lastPersistedContentSeq).toBeUndefined();
+      expect(state.lastStreamedContentSeq).toBeUndefined();
       expect(getConversationPersistedSeq(conversationId)).toBeNull();
     });
   });
@@ -610,13 +611,13 @@ describe("tool preview lifecycle", () => {
     /** onEvent that stamps conversation-scoped events like the runtime hub. */
     function makeStampingDeps(): {
       deps: EventHandlerDeps;
-      events: ServerMessage[];
+      events: AssistantEvent[];
     } {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const deps = createMockDeps({
-        onEvent: (msg: ServerMessage) => {
+        onEvent: (msg: AssistantEvent) => {
           events.push(msg);
-          stampAndBuffer(msg as unknown as AssistantEvent);
+          stampAndBuffer(msg as unknown as AssistantEventEnvelope);
         },
         ctx: {
           ...createMockDeps().ctx,
@@ -795,6 +796,110 @@ describe("tool preview lifecycle", () => {
       expect(state.pendingToolResults.size).toBe(0);
       expect(state.pendingToolResultRowReservation).toBeUndefined();
       expect(state.persistedToolUseIds.has("toolu_a")).toBe(true);
+    });
+  });
+
+  describe("tool_result toolName resolution", () => {
+    /** Deps wired to a fresh collector. */
+    function makeCollectingDeps(): {
+      deps: EventHandlerDeps;
+      events: AssistantEvent[];
+    } {
+      const collector = createEventCollector();
+      const deps = createMockDeps({
+        onEvent: collector.onEvent,
+        ctx: {
+          ...createMockDeps().ctx,
+          emitActivityState: collector.emitActivityState,
+        } as unknown as EventHandlerDeps["ctx"],
+      });
+      return { deps, events: collector.events };
+    }
+
+    function emittedToolResult(
+      events: AssistantEvent[],
+    ): Record<string, unknown> {
+      const toolResult = events.find((e) => e.type === "tool_result");
+      expect(toolResult).toBeDefined();
+      return toolResult as unknown as Record<string, unknown>;
+    }
+
+    test("a result following its tool_use carries the resolved tool name", async () => {
+      // GIVEN a tool whose tool_use event was observed
+      const { deps, events } = makeCollectingDeps();
+      handleToolUse(state, deps, {
+        type: "tool_use",
+        id: "toolu_named",
+        name: "web_search",
+        input: { query: "weather" },
+      });
+
+      // WHEN its result arrives
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_named",
+        content: "sunny",
+        isError: false,
+      });
+
+      // THEN the emitted event carries the name from the correlation map
+      expect(emittedToolResult(events).toolName).toBe("web_search");
+    });
+
+    test("a result for a never-observed toolUseId carries an empty toolName", async () => {
+      // GIVEN no tool_use event was ever observed for the id
+      const { deps, events } = makeCollectingDeps();
+
+      // WHEN a result arrives anyway
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_unobserved",
+        content: "orphan",
+        isError: false,
+      });
+
+      // THEN the emitted event falls back to the empty name
+      expect(emittedToolResult(events).toolName).toBe("");
+    });
+
+    test("a cancelled synthesis resolves the name when its tool_use was observed", async () => {
+      // GIVEN a tool whose tool_use event was observed
+      const { deps, events } = makeCollectingDeps();
+      handleToolUse(state, deps, {
+        type: "tool_use",
+        id: "toolu_cancelled",
+        name: "bash",
+        input: { command: "sleep 60" },
+      });
+
+      // WHEN a synthesized cancellation result arrives (the tool never ran)
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_cancelled",
+        content: "cancelled by user",
+        isError: true,
+        cancelled: true,
+      });
+
+      // THEN the cancellation-path emit still resolves the real name
+      expect(emittedToolResult(events).toolName).toBe("bash");
+    });
+
+    test("a cancelled synthesis for a never-observed toolUseId carries an empty toolName", async () => {
+      // GIVEN no tool_use event was ever observed for the id
+      const { deps, events } = makeCollectingDeps();
+
+      // WHEN a synthesized cancellation result arrives
+      await handleToolResult(state, deps, {
+        type: "tool_result",
+        toolUseId: "toolu_cancelled_unobserved",
+        content: "cancelled by user",
+        isError: true,
+        cancelled: true,
+      });
+
+      // THEN the emitted event falls back to the empty name
+      expect(emittedToolResult(events).toolName).toBe("");
     });
   });
 

@@ -48,19 +48,27 @@ export function reorderByDrop<T>(
   targetId: string,
   edge: DropEdge,
 ): T[] | null {
-  if (sourceId === targetId) return null;
+  if (sourceId === targetId) {
+    return null;
+  }
   const source = items.find((item) => getId(item) === sourceId);
-  if (!source) return null;
+  if (!source) {
+    return null;
+  }
   const without = items.filter((item) => getId(item) !== sourceId);
   const targetIndex = without.findIndex((item) => getId(item) === targetId);
-  if (targetIndex === -1) return null;
+  if (targetIndex === -1) {
+    return null;
+  }
   const insertAt = edge === "before" ? targetIndex : targetIndex + 1;
   const next = [
     ...without.slice(0, insertAt),
     source,
     ...without.slice(insertAt),
   ];
-  if (next.every((item, i) => item === items[i])) return null;
+  if (next.every((item, i) => item === items[i])) {
+    return null;
+  }
   return next;
 }
 
@@ -120,12 +128,16 @@ export function useDragReorder<T>({
         // Defer the style flip past dragstart — re-rendering the dragged
         // node inside the dragstart dispatch cancels the drag in Chromium.
         window.setTimeout(() => {
-          if (activeDragRef.current?.itemId === itemId) setDraggingId(itemId);
+          if (activeDragRef.current?.itemId === itemId) {
+            setDraggingId(itemId);
+          }
         }, 0);
       },
       onDragOver: (event) => {
         const drag = activeDragRef.current;
-        if (!drag || drag.section !== section) return;
+        if (!drag || drag.section !== section) {
+          return;
+        }
         // preventDefault marks this row as a valid drop target.
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
@@ -144,13 +156,16 @@ export function useDragReorder<T>({
       },
       onDragLeave: (event) => {
         // dragleave also fires when entering a child element of the row.
-        if (event.currentTarget.contains(event.relatedTarget as Node | null))
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
           return;
+        }
         setDropIndicator((prev) => (prev?.itemId === itemId ? null : prev));
       },
       onDrop: (event) => {
         const drag = activeDragRef.current;
-        if (!drag || drag.section !== section) return;
+        if (!drag || drag.section !== section) {
+          return;
+        }
         event.preventDefault();
         const next = reorderByDrop(
           items,
@@ -160,7 +175,9 @@ export function useDragReorder<T>({
           edgeFromPointer(event),
         );
         clearDrag();
-        if (next) onReorder(section, next);
+        if (next) {
+          onReorder(section, next);
+        }
       },
       onDragEnd: clearDrag,
     };

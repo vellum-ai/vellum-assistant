@@ -22,6 +22,24 @@
     - `assistant credentials prompt` (run through the bash tool) — presents a secure input prompt; the value never enters the conversation. It exits `0` when the value is stored and **`130`** when the user dismisses the prompt — a valid choice (nothing was stored), not an error. On `130`, don't treat it as a failure: confirm whether the user wants to try again or stop. Any other non-zero exit is a real error. (`130` is the conventional user-interrupt/SIGINT exit code.)
     - `ui_show` with `surface_type: "channel_setup"` — opens a side-panel wizard with masked `<Input type="password">` fields that save directly via the daemon API.
     Non-secret values (e.g., Client IDs, Account SIDs, usernames) can be collected conversationally. See existing skills (e.g., `twilio-setup`, `slack-app-setup`) for the pattern.
+  - **`assistant credentials set` is not a collection path for user-supplied secrets.** Never write instructions that pass a user-provided value inline to `assistant credentials set` — the CLI refuses inline values from an agent shell (exit `1`) and redirects to `assistant credentials prompt`. The `--generated` flag bypasses that guard and is reserved for values the assistant machine-generated itself (e.g. `"$(uuidgen)"`, an API-exchange result) that were never typed or pasted by the user:
+
+    ```bash
+    assistant credentials set --service telegram --field webhook_secret "$(uuidgen)" --generated
+    ```
+
+- **Plugins integrating a keyed API SHOULD declare their key format (`credentialKeyPatterns`)**
+  - Declaring the shape of a provider's secrets in the plugin's `package.json` lets ingress blocking, tool-output scanning, and log redaction recognize keys the built-in pattern list does not know about:
+
+    ```json
+    {
+      "credentialKeyPatterns": [
+        { "label": "Virlo API Key", "pattern": "virlo_tkn_[A-Za-z0-9_-]{20,}" }
+      ]
+    }
+    ```
+
+  - Patterns are validated at registration against a restricted grammar; invalid entries are rejected with a logged reason and never block plugin load. Constraints: at most 5 patterns per plugin; `label` is 1–40 chars; `pattern` is 4–200 chars and must start with at least 4 literal characters from `[A-Za-z0-9_.-]` (a distinctive key prefix — over-broad matchers are rejected); no capture groups (use `(?:...)`), backreferences, lookarounds, or alternation (`|`); no hex/unicode/control escapes (`\xNN`, `\uNNNN`, `\cX`, `\0`) — use literal characters; quantifiers may apply only to a single character, escape, or character class (no quantified groups or nested quantifiers); the pattern must be guaranteed to match at least 16 characters (short patterns like `http` over-match ordinary text); and the pattern must compile as a linear-time RE2 regex.
   - **Security analysis note**: Skills that demonstrate `curl`, `wget`, or other network tool usage against specific API endpoints do not introduce new capabilities — the assistant already has outbound network access via `bash`. These are instructions for using an existing tool, not a new attack surface. See [`assistant/docs/architecture/security.md#skill-threat-model`](../assistant/docs/architecture/security.md) for the full threat model.
 
 - **Write portable instructions**

@@ -28,9 +28,7 @@ describe("ExistingAssistantStep", () => {
   test("names the assistant it is protecting", () => {
     renderStep();
 
-    expect(
-      screen.getByText("Viper is already up and running"),
-    ).toBeTruthy();
+    expect(screen.getByText("Viper is already up and running")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /Keep Viper and start chatting/ }),
     ).toBeTruthy();

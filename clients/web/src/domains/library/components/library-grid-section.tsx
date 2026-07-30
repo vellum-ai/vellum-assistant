@@ -31,7 +31,9 @@ export function LibraryGridSection({
   onDeploy,
   onAnimationEnd,
 }: LibraryGridSectionProps) {
-  if (apps.length === 0) return null;
+  if (apps.length === 0) {
+    return null;
+  }
 
   return (
     <section>

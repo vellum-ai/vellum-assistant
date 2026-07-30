@@ -20,9 +20,13 @@ mock.module("../util/retry.js", () => {
 
   function parseRetryAfterMs(value: string): number | undefined {
     const seconds = Number(value);
-    if (!isNaN(seconds)) return seconds * 1000;
+    if (!isNaN(seconds)) {
+      return seconds * 1000;
+    }
     const dateMs = Date.parse(value);
-    if (!isNaN(dateMs)) return Math.max(0, dateMs - Date.now());
+    if (!isNaN(dateMs)) {
+      return Math.max(0, dateMs - Date.now());
+    }
     return undefined;
   }
 
@@ -34,7 +38,9 @@ mock.module("../util/retry.js", () => {
     const retryAfter = response.headers.get("retry-after");
     if (retryAfter) {
       const parsed = parseRetryAfterMs(retryAfter);
-      if (parsed !== undefined) return parsed;
+      if (parsed !== undefined) {
+        return parsed;
+      }
     }
     const effectiveBase = attempt === 0 ? baseDelayMs * 2 : baseDelayMs;
     return Math.max(baseDelayMs, computeRetryDelay(attempt, effectiveBase));
@@ -50,7 +56,9 @@ mock.module("../util/retry.js", () => {
   ];
 
   function isRetryableNetworkError(error: unknown): boolean {
-    if (!(error instanceof Error)) return false;
+    if (!(error instanceof Error)) {
+      return false;
+    }
     const retryableCodes = new Set([
       "ECONNRESET",
       "ECONNREFUSED",
@@ -58,10 +66,14 @@ mock.module("../util/retry.js", () => {
       "EPIPE",
     ]);
     const code = (error as NodeJS.ErrnoException).code;
-    if (code && retryableCodes.has(code)) return true;
+    if (code && retryableCodes.has(code)) {
+      return true;
+    }
     if (error.cause instanceof Error) {
       const causeCode = (error.cause as NodeJS.ErrnoException).code;
-      if (causeCode && retryableCodes.has(causeCode)) return true;
+      if (causeCode && retryableCodes.has(causeCode)) {
+        return true;
+      }
     }
     if (RETRYABLE_NETWORK_MESSAGE_PATTERNS.some((p) => p.test(error.message))) {
       return true;
@@ -77,14 +89,18 @@ mock.module("../util/retry.js", () => {
   }
 
   function extractRetryAfterMs(headers: unknown): number | undefined {
-    if (!headers) return undefined;
+    if (!headers) {
+      return undefined;
+    }
     let raw: string | null | undefined;
     if (typeof (headers as { get?: unknown }).get === "function") {
       raw = (headers as { get(k: string): string | null }).get("retry-after");
     } else if (typeof headers === "object") {
       raw = (headers as Record<string, string>)["retry-after"];
     }
-    if (typeof raw === "string") return parseRetryAfterMs(raw);
+    if (typeof raw === "string") {
+      return parseRetryAfterMs(raw);
+    }
     return undefined;
   }
 
@@ -146,7 +162,9 @@ function makeFlaky(
     calls: 0,
     async sendMessage(): Promise<ProviderResponse> {
       p.calls++;
-      if (p.calls <= failCount) throw error;
+      if (p.calls <= failCount) {
+        throw error;
+      }
       return successResponse();
     },
   };
@@ -719,6 +737,84 @@ describe("RetryProvider — streaming corruption retries", () => {
       "Unexpected event order",
     );
     expect(inner.calls).toBe(DEFAULT_MAX_RETRIES + 1);
+  });
+
+  /** Provider that fails N times then succeeds, recording each call's messages. */
+  function makeCapturingFlaky(
+    failCount: number,
+    error: Error,
+  ): Provider & { calls: number; seen: Message[][] } {
+    const p = {
+      name: "capturing",
+      calls: 0,
+      seen: [] as Message[][],
+      async sendMessage(messages: Message[]): Promise<ProviderResponse> {
+        p.calls++;
+        p.seen.push(messages);
+        if (p.calls <= failCount) {
+          throw error;
+        }
+        return successResponse();
+      },
+    };
+    return p;
+  }
+
+  const PARSE_ERROR = new ProviderError(
+    "Anthropic request failed: Unable to parse tool parameter JSON from " +
+      "model. Please retry your request or adjust your prompt. Error: " +
+      "SyntaxError: JSON Parse error: Expected ']'. JSON: {\"content\": [Jul",
+    "anthropic",
+  );
+
+  test("tool-JSON parse retries append a corrective note to the latest user message", async () => {
+    const inner = makeCapturingFlaky(1, PARSE_ERROR);
+    const provider = new RetryProvider(inner);
+
+    await provider.sendMessage(MESSAGES);
+
+    expect(inner.calls).toBe(2);
+    // First attempt sends the caller's messages untouched.
+    expect(inner.seen[0]).toBe(MESSAGES);
+    // Retry appends exactly one trailing text block to the last user message.
+    const retried = inner.seen[1]!;
+    const lastMessage = retried[retried.length - 1]!;
+    expect(lastMessage.role).toBe("user");
+    expect(lastMessage.content).toHaveLength(2);
+    const hint = lastMessage.content[1] as { type: string; text: string };
+    expect(hint.type).toBe("text");
+    expect(hint.text).toContain("strict JSON");
+    // The caller's array is never mutated.
+    expect(MESSAGES[MESSAGES.length - 1]!.content).toHaveLength(1);
+  });
+
+  test("the corrective note is applied once across repeated parse failures", async () => {
+    const inner = makeCapturingFlaky(3, PARSE_ERROR);
+    const provider = new RetryProvider(inner);
+
+    await provider.sendMessage(MESSAGES);
+
+    expect(inner.calls).toBe(4);
+    for (const attempt of inner.seen.slice(1)) {
+      const lastMessage = attempt[attempt.length - 1]!;
+      expect(lastMessage.content).toHaveLength(2);
+    }
+  });
+
+  test("other stream-corruption retries resend the messages untouched", async () => {
+    const inner = makeCapturingFlaky(
+      1,
+      new ProviderError(
+        "Anthropic request failed: request ended without sending any chunks",
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    await provider.sendMessage(MESSAGES);
+
+    expect(inner.calls).toBe(2);
+    expect(inner.seen[1]).toBe(MESSAGES);
   });
 
   test("does not retry non-stream ProviderError without status code", async () => {

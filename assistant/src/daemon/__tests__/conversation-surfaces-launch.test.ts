@@ -126,8 +126,7 @@ const { createSurfaceMutex, handleSurfaceAction } =
 type SurfaceConversationContext =
   import("../conversation-surfaces.js").SurfaceConversationContext;
 type TrustContext = import("../trust-context-types.js").TrustContext;
-type ServerMessage = import("../message-protocol.js").ServerMessage;
-type SurfaceData = import("../message-protocol.js").SurfaceData;
+type AssistantEvent = import("../../api/index.js").AssistantEvent;
 type SurfaceType = import("../message-protocol.js").SurfaceType;
 
 // ── Harness reset helper ───────────────────────────────────────────
@@ -146,7 +145,7 @@ function resetProcessHarness(): void {
 // ── Surface-context harness ────────────────────────────────────────
 
 interface HarnessContext extends SurfaceConversationContext {
-  sent: ServerMessage[];
+  sent: AssistantEvent[];
   enqueueCalls: Array<{ content: string }>;
   processCalls: Array<{ content: string }>;
 }
@@ -154,7 +153,7 @@ interface HarnessContext extends SurfaceConversationContext {
 function makeContext(
   overrides?: Partial<SurfaceConversationContext>,
 ): HarnessContext {
-  const sent: ServerMessage[] = [];
+  const sent: AssistantEvent[] = [];
   const enqueueCalls: Array<{ content: string }> = [];
   const processCalls: Array<{ content: string }> = [];
 
@@ -166,10 +165,7 @@ function makeContext(
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -206,7 +202,7 @@ function registerCardSurface(
 ): void {
   ctx.surfaceState.set(surfaceId, {
     surfaceType: "card",
-    data: { title: "Launch" } as unknown as SurfaceData,
+    data: { title: "Launch" },
   });
 }
 

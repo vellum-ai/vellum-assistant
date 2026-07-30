@@ -7,15 +7,19 @@
 
 import { z } from "zod";
 
-import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
+import { getEffectiveProfilesForProvider } from "../../config/default-profile-catalog.js";
+import type { ResolutionFallbackReason } from "../../config/llm-resolver.js";
+import { selectWinningProfile } from "../../config/llm-resolver.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import {
   extractAllText,
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import type { ProviderRequestDiagnostics } from "../../providers/request-diagnostics.js";
+import { runWithProviderRequestDiagnostics } from "../../providers/request-diagnostics.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError } from "./errors.js";
+import { BadRequestError, UpstreamProviderError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -33,9 +37,15 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
   const profile = body.profile as string | undefined;
   const maxTokens = body.maxTokens as number | undefined;
 
+  const selectionSeed = crypto.randomUUID();
+
   // Validate --profile against the configured profile catalog.
   if (profile !== undefined) {
-    const profiles = getEffectiveProfiles(getConfigReadOnly().llm?.profiles);
+    const { llm } = getConfigReadOnly();
+    const profiles = getEffectiveProfilesForProvider(
+      llm?.profiles,
+      llm?.defaultProvider ?? null,
+    );
     if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
       const available = Object.keys(profiles).sort();
       const hint =
@@ -46,26 +56,67 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
         `Profile "${profile}" is not defined in llm.profiles.${hint}`,
       );
     }
+    // Existence is weaker than usability: the resolver additionally requires
+    // the entry to be enabled and to carry its own provider + model, and
+    // silently falls through to this call site's default (`cost-optimized`)
+    // when it does not. Ask the resolver itself so the check cannot drift from
+    // dispatch, and report the reason it gives rather than answering from a
+    // different — managed, billed — model than the caller named.
+    let reason: ResolutionFallbackReason | undefined;
+    const winner = selectWinningProfile("inference", getConfigReadOnly().llm, {
+      overrideProfile: profile,
+      selectionSeed,
+      onResolutionFallback: (info) => {
+        if (info.requested === profile) {
+          reason = info.reason;
+        }
+      },
+    });
+    if (winner.profileName !== profile) {
+      const target = winner.entry
+        ? `${winner.entry.provider}/${winner.entry.model}`
+        : "the code default";
+      throw new BadRequestError(
+        `Profile "${profile}" is ${reason ?? "unusable"} — the request would silently run on ` +
+          `${winner.profileName ?? "the call-site default"} (${target}) instead. ` +
+          `Fix the profile or omit it.`,
+      );
+    }
   }
 
-  const provider = await getConfiguredProvider("inference", {
-    overrideProfile: profile,
+  // Diagnostics are collected around the send, not inside it, so the failure
+  // path carries the same evidence as the success path: a probe of a broken
+  // profile must report the URL that was actually requested and the verbatim
+  // upstream body, rather than only the message the SDK managed to extract.
+  // Provider resolution runs inside the same scope because that is where the
+  // connection backing the request is chosen.
+  const attempt = await runWithProviderRequestDiagnostics(async () => {
+    const provider = await getConfiguredProvider("inference", {
+      overrideProfile: profile,
+      selectionSeed,
+    });
+    if (!provider) {
+      throw new BadRequestError(
+        "No LLM provider is configured. Connect a provider (assistant credentials) or set llm.defaultProvider to choose one.",
+      );
+    }
+    return provider.sendMessage([userMessage(message)], {
+      systemPrompt,
+      config: {
+        callSite: "inference",
+        max_tokens: maxTokens,
+        model,
+        overrideProfile: profile,
+        selectionSeed,
+      },
+    });
   });
-  if (!provider) {
-    throw new BadRequestError(
-      "No LLM provider is configured. Connect a provider (assistant credentials) or set llm.defaultProvider to choose one.",
-    );
+
+  if (!attempt.ok) {
+    throw upstreamFailure(attempt.error, attempt.diagnostics);
   }
 
-  const response = await provider.sendMessage([userMessage(message)], {
-    systemPrompt,
-    config: {
-      callSite: "inference",
-      max_tokens: maxTokens,
-      model,
-    },
-  });
-
+  const response = attempt.value;
   const text = extractAllText(response);
 
   return {
@@ -83,10 +134,49 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
     // call sites resolve to for the requested profile — not a config re-read.
     // A caller comparing against a different profile should not assume a match.
     // Omitted when the provider does not surface an endpoint.
-    ...(response.resolvedEndpoint !== undefined
-      ? { evidence: { resolved_endpoint: response.resolvedEndpoint } }
-      : {}),
+    ...evidencePayload(response.resolvedEndpoint, attempt.diagnostics),
   };
+}
+
+/**
+ * Merge the endpoint the provider adapter reports with the per-request
+ * diagnostics observed on the wire, omitting the key entirely when nothing was
+ * observed so consumers can distinguish "no evidence" from "empty evidence".
+ */
+function evidencePayload(
+  resolvedEndpoint: string | undefined,
+  diagnostics: ProviderRequestDiagnostics,
+): { evidence?: Record<string, unknown> } {
+  const evidence = {
+    ...(resolvedEndpoint !== undefined
+      ? { resolved_endpoint: resolvedEndpoint }
+      : {}),
+    ...diagnostics,
+  };
+  return Object.keys(evidence).length > 0 ? { evidence } : {};
+}
+
+/**
+ * Wrap a failed send so the evidence survives the error path. `RouteError`
+ * details are mirrored into the HTTP error envelope and the IPC response, so
+ * the CLI (and Doctor through it) sees the same fields a successful probe
+ * returns.
+ */
+function upstreamFailure(
+  error: unknown,
+  diagnostics: ProviderRequestDiagnostics,
+): Error {
+  if (error instanceof BadRequestError) {
+    return error;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new UpstreamProviderError(message, {
+    error_class: error instanceof Error ? error.name : "UnknownError",
+    ...(error instanceof Error && error.stack
+      ? { error_stack_head: error.stack.split("\n").slice(0, 5).join("\n") }
+      : {}),
+    evidence: evidencePayload(undefined, diagnostics).evidence ?? {},
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +214,15 @@ export const ROUTES: RouteDefinition[] = [
       evidence: z
         .object({
           resolved_endpoint: z.string().optional(),
+          resolved_url: z.string().optional(),
+          model_id: z.string().optional(),
+          connection_name: z.string().optional(),
+          http_status: z.number().optional(),
+          upstream_error_body: z.string().optional(),
+          upstream_error_body_state: z
+            .enum(["captured", "empty", "truncated", "unavailable"])
+            .optional(),
+          upstream_error_body_bytes: z.number().optional(),
         })
         .optional(),
     }),

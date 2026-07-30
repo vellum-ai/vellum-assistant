@@ -14,14 +14,7 @@
  * does not touch.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
@@ -45,9 +38,7 @@ const queryClient = new QueryClient();
 function Wrapper({ children }: { children: ReactNode }) {
   return (
     <MemoryRouter>
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </MemoryRouter>
   );
 }
@@ -146,5 +137,47 @@ describe("useSendMessage — enabledPlugins send wiring", () => {
     expect(
       useConversationStore.getState().pendingDraftPlugins.has(DRAFT_ID),
     ).toBe(false);
+  });
+});
+
+describe("useSendMessage — bypassSecretCheck send wiring", () => {
+  test("forwards the explicit Send-anyway override on that send's POST only", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Assistant", MIN_VERSION);
+    const props = baseProps();
+    const { result } = renderHook(() => useSendMessage(props), {
+      wrapper: Wrapper,
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("user-approved send", [], {
+        bypassSecretCheck: true,
+      });
+    });
+    expect((capturedBody as Record<string, unknown>).bypassSecretCheck).toBe(
+      true,
+    );
+
+    // The override is strictly per-send: the next message from the same
+    // hook instance goes out without it.
+    capturedBody = null;
+    await act(async () => {
+      await result.current.sendMessage("ordinary follow-up");
+    });
+    // Reassigning the capture to null above narrows its static type, so
+    // widen through unknown for the post-send assertion.
+    const followupBody = capturedBody as unknown as Record<
+      string,
+      unknown
+    > | null;
+    expect(followupBody).not.toBeNull();
+    expect(followupBody?.bypassSecretCheck).toBeUndefined();
+  });
+
+  test("an ordinary send never sets bypassSecretCheck", async () => {
+    await send(MIN_VERSION);
+
+    expect(
+      (capturedBody as Record<string, unknown>).bypassSecretCheck,
+    ).toBeUndefined();
   });
 });

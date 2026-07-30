@@ -214,11 +214,7 @@ function MetadataChip({ label }: { label: string }): ReactNode {
 }
 
 type PresentationKind =
-  | "assistantText"
-  | "reasoning"
-  | "toolCall"
-  | "result"
-  | "other";
+  "assistantText" | "reasoning" | "toolCall" | "result" | "other";
 
 interface ResponseSectionModel {
   id: number;
@@ -247,10 +243,18 @@ const RESULT_KINDS = new Set(["tool_result", "function_response"]);
 
 function toPresentationKind(kind: string): PresentationKind {
   const k = kind.toLowerCase();
-  if (TOOL_CALL_KINDS.has(k)) return "toolCall";
-  if (RESULT_KINDS.has(k)) return "result";
-  if (k === "reasoning") return "reasoning";
-  if (TEXT_KINDS.has(k)) return "assistantText";
+  if (TOOL_CALL_KINDS.has(k)) {
+    return "toolCall";
+  }
+  if (RESULT_KINDS.has(k)) {
+    return "result";
+  }
+  if (k === "reasoning") {
+    return "reasoning";
+  }
+  if (TEXT_KINDS.has(k)) {
+    return "assistantText";
+  }
   return "other";
 }
 
@@ -275,7 +279,9 @@ function kindDisplayLabel(
 }
 
 function sectionBodyText(section: LLMContextSection): string | null {
-  if (section.text != null) return section.text;
+  if (section.text != null) {
+    return section.text;
+  }
   if (section.data != null) {
     try {
       return JSON.stringify(section.data, null, 2);
@@ -312,7 +318,9 @@ function deriveStopReason(summary?: LLMCallSummary | null): string | null {
 }
 
 function isToolCallingStop(stopReason: string | null): boolean {
-  if (!stopReason) return false;
+  if (!stopReason) {
+    return false;
+  }
   return ["tool_calls", "tool_use", "function_call", "function_calls"].includes(
     stopReason.toLowerCase().trim(),
   );
@@ -328,12 +336,19 @@ function deriveModeLabel(
   if (isToolCallingStop(summary?.stopReason ?? null)) {
     return "Tool-calling response";
   }
-  if (!sections.length) return null;
-  if (sections.some((s) => s.kind === "toolCall"))
+  if (!sections.length) {
+    return null;
+  }
+  if (sections.some((s) => s.kind === "toolCall")) {
     return "Tool-calling response";
+  }
   const hasText = sections.some((s) => s.kind === "assistantText");
   const hasResult = sections.some((s) => s.kind === "result");
-  if (hasText && !hasResult) return "Text-only response";
-  if (hasResult && !hasText) return "Result-only response";
+  if (hasText && !hasResult) {
+    return "Text-only response";
+  }
+  if (hasResult && !hasText) {
+    return "Result-only response";
+  }
   return null;
 }

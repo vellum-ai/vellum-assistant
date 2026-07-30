@@ -41,7 +41,6 @@ import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 import { useAssistantChannels } from "@/hooks/use-assistant-channels";
-import { useChannelProvenance } from "@/domains/contacts/hooks/use-channel-provenance";
 import { useInviteLinkDialog } from "@/hooks/use-invite-link-dialog";
 import { useAccountLink } from "@/domains/contacts/hooks/use-account-link";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -150,8 +149,6 @@ export function ContactsPage({
     onStartSetupConversation,
   });
 
-  const channelProvenance = useChannelProvenance(assistantId);
-
   const availabilityQuery = useQuery({
     ...channelsAvailableGetOptions({
       path: { assistant_id: assistantId },
@@ -188,12 +185,16 @@ export function ContactsPage({
     [contactsData],
   );
   const selectedContact = useMemo<ContactPayload | null>(() => {
-    if (selection.kind !== "contact") return null;
+    if (selection.kind !== "contact") {
+      return null;
+    }
     return contactsData?.find((c) => c.id === selection.contactId) ?? null;
   }, [contactsData, selection]);
 
   const mergeCandidates = useMemo<ContactPayload[]>(() => {
-    if (!contactsData || !selectedContact) return [];
+    if (!contactsData || !selectedContact) {
+      return [];
+    }
     return contactsData.filter(
       (c) => c.id !== selectedContact.id && c.role !== "guardian",
     );
@@ -202,8 +203,12 @@ export function ContactsPage({
 
   const guardianAutoSelectedRef = useRef(!!setupChannel);
   useEffect(() => {
-    if (guardianAutoSelectedRef.current) return;
-    if (!guardian) return;
+    if (guardianAutoSelectedRef.current) {
+      return;
+    }
+    if (!guardian) {
+      return;
+    }
     guardianAutoSelectedRef.current = true;
     setSelection({ kind: "contact", contactId: guardian.id });
   }, [guardian]);
@@ -322,7 +327,9 @@ export function ContactsPage({
   }, [mergeMutation]);
 
   const handleCloseMerge = useCallback(() => {
-    if (mergeMutation.isPending) return;
+    if (mergeMutation.isPending) {
+      return;
+    }
     setMergeDialogOpen(false);
     mergeMutation.reset();
   }, [mergeMutation]);
@@ -342,7 +349,9 @@ export function ContactsPage({
   );
 
   const handleAddContact = useCallback(() => {
-    if (createMutation.isPending) return;
+    if (createMutation.isPending) {
+      return;
+    }
     createMutation.mutate();
   }, [createMutation]);
 
@@ -385,11 +394,15 @@ export function ContactsPage({
 
   const handleVerifyChannel = useCallback(
     (type: string) => {
-      if (!selectedContact) return;
+      if (!selectedContact) {
+        return;
+      }
       const channel = selectedContact.channels.find(
         (ch) => ch.type === type && ch.status !== "revoked",
       );
-      if (!channel) return;
+      if (!channel) {
+        return;
+      }
       verifyChannelMutation.mutate({ channelId: channel.id });
     },
     [selectedContact, verifyChannelMutation],
@@ -436,7 +449,9 @@ export function ContactsPage({
     : null;
 
   const optimisticContact = useMemo<ContactPayload | null>(() => {
-    if (!selectedContact) return null;
+    if (!selectedContact) {
+      return null;
+    }
     if (
       updateMutation.isPending &&
       updateMutation.variables?.contactId === selectedContact.id
@@ -555,7 +570,6 @@ export function ContactsPage({
               canMerge={canMerge}
               availableChannels={availableChannels}
               a2aEnabled={a2aChannel}
-              channelProvenance={channelProvenance}
               onSave={(patch) => {
                 updateMutation.mutate({
                   contactId: optimisticContact.id,

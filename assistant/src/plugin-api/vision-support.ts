@@ -8,6 +8,9 @@
  * - a concrete model id (e.g. the provider-reported model that just ran), and
  * - a profile — either a {@link ModelProfileInfo} or a bare profile key —
  *   resolved through `llm.profiles` to an effective `(provider, model)`.
+ *   Default profile keys resolve through `llm.defaultProvider`'s column of the
+ *   intent × provider matrix, so the judged model is the one that actually
+ *   runs on a BYO install.
  *
  * A bare string is tried as a model id first and then as a profile key, so the
  * two callers share one function. Resolution returns `false` when nothing
@@ -16,8 +19,9 @@
  * over silently shipping a raw image to a provider that may reject it.
  */
 
-import { getEffectiveProfile } from "../config/default-profile-catalog.js";
+import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import {
   getCatalogProviderForModel,
   PROVIDER_CATALOG,
@@ -67,7 +71,12 @@ function modelVision(model: string): boolean | undefined {
  */
 function profileVision(profileKey: string): boolean | undefined {
   const { llm } = getConfig();
-  const entry = getEffectiveProfile(llm.profiles, profileKey);
+  const defaultProvider = llm.defaultProvider ?? null;
+  const entry = resolveDefaultProfileForProvider(
+    llm.profiles,
+    profileKey,
+    defaultProvider,
+  );
   if (entry == null) {
     return undefined;
   }
@@ -75,7 +84,11 @@ function profileVision(profileKey: string): boolean | undefined {
   if (entry.mix != null) {
     let sawUnknown = false;
     for (const arm of entry.mix) {
-      const armEntry = getEffectiveProfile(llm.profiles, arm.profile);
+      const armEntry = resolveDefaultProfileForProvider(
+        llm.profiles,
+        arm.profile,
+        defaultProvider,
+      );
       const armVision =
         armEntry == null ? undefined : resolveEntryVision(armEntry);
       if (armVision === true) {
@@ -102,7 +115,12 @@ function resolveEntryVision(entry: {
   provider?: string;
   model?: string;
 }): boolean | undefined {
-  const provider = entry.provider;
+  // Routing identities ("vellum"/"chatgpt") are not catalog providers; the
+  // model's catalog owner is the capability source for them.
+  const provider =
+    entry.provider != null && ROUTING_IDENTITY_PROVIDERS.has(entry.provider)
+      ? undefined
+      : entry.provider;
   const model = entry.model;
 
   // Infer provider from model when missing (mirrors the resolver's catalog

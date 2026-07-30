@@ -114,9 +114,15 @@ function categoryFromErrorCode(
 function categoryFromStatusCode(
   statusCode: number,
 ): WebSearchFailureCategory | undefined {
-  if (statusCode === 429) return "rate_limited";
-  if (statusCode === 401 || statusCode === 403) return "config";
-  if (statusCode >= 500) return "backend_unavailable";
+  if (statusCode === 429) {
+    return "rate_limited";
+  }
+  if (statusCode === 401 || statusCode === 403) {
+    return "config";
+  }
+  if (statusCode >= 500) {
+    return "backend_unavailable";
+  }
   return undefined;
 }
 
@@ -126,8 +132,12 @@ function categoryFromStatusCode(
  * timeouts without an explicit user-abort reason) are treated as backend
  * failures.
  */
-function categoryFromError(error: unknown): WebSearchFailureCategory | undefined {
-  if (error == null) return undefined;
+function categoryFromError(
+  error: unknown,
+): WebSearchFailureCategory | undefined {
+  if (error == null) {
+    return undefined;
+  }
 
   // A user-initiated abort (Stop/Esc, preemption, dispose) is not a failure.
   // The tagged `AbortReason` may surface directly (`AbortSignal.throwIfAborted`
@@ -148,13 +158,16 @@ function categoryFromError(error: unknown): WebSearchFailureCategory | undefined
 
   // Retryable transport failures (ECONNRESET/ECONNREFUSED/ETIMEDOUT, socket
   // hang-ups, including one level of `cause` chain) are backend failures.
-  if (isRetryableNetworkError(error)) return "backend_unavailable";
+  if (isRetryableNetworkError(error)) {
+    return "backend_unavailable";
+  }
 
-  const name = typeof (error as { name?: unknown }).name === "string"
-    ? (error as { name: string }).name
-    : "";
-  const haystack = `${name} ${(error as { message?: unknown }).message ?? ""}`
-    .toLowerCase();
+  const name =
+    typeof (error as { name?: unknown }).name === "string"
+      ? (error as { name: string }).name
+      : "";
+  const haystack =
+    `${name} ${(error as { message?: unknown }).message ?? ""}`.toLowerCase();
 
   // web_search-only: treat aborts/timeouts/DNS/fetch failures (the cases
   // `isRetryableNetworkError` doesn't cover) as backend failures.
@@ -175,7 +188,9 @@ function categoryFromError(error: unknown): WebSearchFailureCategory | undefined
 /** Build the internal-only raw detail string (never embedded in userMessage). */
 function buildRawDetail(input: WebSearchFailureInput): string {
   const parts: string[] = [];
-  if (input.errorCode) parts.push(`errorCode=${input.errorCode}`);
+  if (input.errorCode) {
+    parts.push(`errorCode=${input.errorCode}`);
+  }
   if (typeof input.statusCode === "number") {
     parts.push(`statusCode=${input.statusCode}`);
   }
@@ -183,7 +198,9 @@ function buildRawDetail(input: WebSearchFailureInput): string {
     const err = input.error as { message?: unknown };
     const msg =
       typeof err.message === "string" ? err.message : String(input.error);
-    if (msg) parts.push(msg);
+    if (msg) {
+      parts.push(msg);
+    }
   }
   return truncateForLog(parts.join(" "), 500);
 }

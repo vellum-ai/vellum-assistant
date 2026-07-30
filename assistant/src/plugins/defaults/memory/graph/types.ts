@@ -118,10 +118,13 @@ export interface MemoryNode {
  * and consolidation — organic procedural nodes participate normally.
  */
 export function isCapabilityNode(node: MemoryNode): boolean {
-  if (node.type !== "procedural") return false;
+  if (node.type !== "procedural") {
+    return false;
+  }
   // Old seeding systems: content starts with "skill:{id}\n" or "cli:{name}\n"
-  if (node.content.startsWith("skill:") || node.content.startsWith("cli:"))
+  if (node.content.startsWith("skill:") || node.content.startsWith("cli:")) {
     return true;
+  }
   // New seeding system (capability-seed.ts): content matches
   // 'The "{name}" skill ({id}) is available.' or
   // 'The "assistant {name}" CLI command is available.'
@@ -132,6 +135,63 @@ export function isCapabilityNode(node: MemoryNode): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Stable source keys the capability seeder writes to `sourceConversations[0]`
+ * (see `capability-seed.ts`). Capability nodes aren't tied to a real
+ * conversation, so this slot doubles as the node's kind + identity key:
+ * `capability:skill:<skillId>` / `capability:cli:<commandName>`.
+ */
+export const CAPABILITY_SKILL_SOURCE_PREFIX = "capability:skill:";
+export const CAPABILITY_CLI_SOURCE_PREFIX = "capability:cli:";
+
+/** The two auto-seeded capability flavors. */
+export type CapabilityKind = "skill" | "cli";
+
+/**
+ * Classify a capability node as a skill or CLI command, or `null` if it is not
+ * an auto-seeded capability at all (organic procedural memories included).
+ *
+ * The stable source key is authoritative — every node the current seeder
+ * writes carries one. Content-shape detection is a fallback for nodes that
+ * predate the source key, mirroring the same shapes `isCapabilityNode` and
+ * `extractCapabilityId` recognize.
+ */
+export function capabilityKind(node: MemoryNode): CapabilityKind | null {
+  if (node.type !== "procedural") {
+    return null;
+  }
+
+  const source = node.sourceConversations[0];
+  if (source?.startsWith(CAPABILITY_SKILL_SOURCE_PREFIX)) {
+    return "skill";
+  }
+  if (source?.startsWith(CAPABILITY_CLI_SOURCE_PREFIX)) {
+    return "cli";
+  }
+
+  // Fallback: classify by seeded content shape when the source key is absent.
+  if (node.content.startsWith("cli:")) {
+    return "cli";
+  }
+  if (node.content.startsWith("skill:")) {
+    return "skill";
+  }
+  if (
+    node.content.startsWith('The "assistant ') &&
+    node.content.includes(" CLI command")
+  ) {
+    return "cli";
+  }
+  if (
+    node.content.startsWith('The "') &&
+    node.content.includes(" skill (") &&
+    node.content.includes(" is available.")
+  ) {
+    return "skill";
+  }
+  return null;
 }
 
 /** Relationship type between two memory nodes. */

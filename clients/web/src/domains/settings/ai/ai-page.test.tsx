@@ -5,7 +5,7 @@
  * admin `EntitlementOverride` that grants managed email to a Base org is
  * honored in-product. We verify both directions:
  *
- *  - Base org WITHOUT the entitlement → "Upgrade to Pro" notice, form gated.
+ *  - Base org WITHOUT the entitlement → "Upgrade" notice, form gated.
  *  - Base org WITH the entitlement (override) → domain/address form renders,
  *    proving the gate reads the entitlement and not the plan.
  *
@@ -20,8 +20,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
 import {
-    assistantsListQueryKey,
-    organizationsBillingSubscriptionRetrieveQueryKey,
+  assistantsListQueryKey,
+  organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 
@@ -48,7 +48,19 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => ASSISTANT_ID,
 }));
 
-const { EmailServiceCard } = await import("@/domains/settings/ai/email-service-card");
+// Platform-id resolution is effect-driven and never settles under
+// renderToStaticMarkup; resolve it synchronously so the managed form
+// (and the entitlement gate under test) renders.
+mock.module("@/hooks/use-platform-assistant-id", () => ({
+  usePlatformAssistantId: () => ({
+    platformAssistantId: ASSISTANT_ID,
+    isLoading: false,
+    error: null,
+  }),
+}));
+
+const { EmailServiceCard } =
+  await import("@/domains/settings/ai/email-service-card");
 
 const ASSISTANT_HANDLE = "my-assistant";
 
@@ -71,10 +83,9 @@ function renderCard(subscription: SubscriptionResponse): string {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  client.setQueryData(
-    assistantsListQueryKey(),
-    { results: [{ id: ASSISTANT_ID, handle: ASSISTANT_HANDLE }] },
-  );
+  client.setQueryData(assistantsListQueryKey(), {
+    results: [{ id: ASSISTANT_ID, handle: ASSISTANT_HANDLE }],
+  });
   client.setQueryData(
     organizationsBillingSubscriptionRetrieveQueryKey(),
     subscription,
@@ -91,8 +102,11 @@ function renderCard(subscription: SubscriptionResponse): string {
 describe("EmailServiceCard managed-email gate", () => {
   test("Base org without the managed_email entitlement sees the upgrade notice", () => {
     const html = renderCard(makeSubscription(false, "base"));
-    expect(html).toContain("Upgrade to Pro");
-    expect(html).toContain("Get a dedicated email address for your assistant");
+    expect(html).toContain("Upgrade");
+    expect(html).toContain("Give your assistant its own email address");
+    expect(html).toContain(
+      "Upgrade to a plan that includes an email address for your assistant. No provider setup required.",
+    );
     // The domain registration form must NOT render when gated.
     expect(html).not.toContain("Register");
   });
@@ -100,8 +114,7 @@ describe("EmailServiceCard managed-email gate", () => {
   test("Base org WITH the managed_email entitlement sees the form, not the notice", () => {
     // plan_id stays "base" — only the entitlement (admin override) is true.
     const html = renderCard(makeSubscription(true, "base"));
-    expect(html).not.toContain("Upgrade to Pro");
-    expect(html).not.toContain("Get a dedicated email address for your assistant");
+    expect(html).not.toContain("Give your assistant its own email address");
     // The domain registration form renders for entitled orgs.
     expect(html).toContain("Subdomain");
     expect(html).toContain("Register");
@@ -121,8 +134,7 @@ describe("EmailServiceCard managed-email gate", () => {
       cancel_at: null,
     } as unknown as SubscriptionResponse;
     const html = renderCard(subscriptionWithoutEntitlements);
-    expect(html).not.toContain("Upgrade to Pro");
-    expect(html).not.toContain("Get a dedicated email address for your assistant");
+    expect(html).not.toContain("Give your assistant its own email address");
     // The domain registration form renders (fail-open).
     expect(html).toContain("Subdomain");
     expect(html).toContain("Register");

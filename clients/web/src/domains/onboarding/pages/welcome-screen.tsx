@@ -11,7 +11,9 @@ export function WelcomeScreen() {
   const { loading, error, login, cancel } = useOnboardingLogin();
 
   const handleContinueWithoutAccount = () => {
-    if (loading) cancel();
+    if (loading) {
+      cancel();
+    }
     if (hasAssistants()) {
       void navigate(routes.selectAssistant);
     } else {

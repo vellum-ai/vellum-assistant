@@ -3,7 +3,7 @@ import { ExternalLink } from "lucide-react";
 import { Button } from "@vellumai/design-library";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { getChannelLabel } from "@/utils/channel-presentation";
+import { getOpenInChannelLabel } from "@/utils/channel-presentation";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 
 export interface ChannelSourceLinkPillProps {
@@ -25,7 +25,7 @@ export function ChannelSourceLinkPill({
   channelId,
 }: ChannelSourceLinkPillProps) {
   const isMobile = useIsMobile();
-  const label = `Open in ${getChannelLabel(channelId)}`;
+  const label = getOpenInChannelLabel(channelId);
   const icon =
     channelId === "slack" ? (
       <img

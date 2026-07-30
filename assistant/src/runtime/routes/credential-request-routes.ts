@@ -25,7 +25,6 @@ type GatewayMintResult =
   | { ok: false; error: string };
 
 const MINT_ERROR_MESSAGES: Record<string, string> = {
-  flag_disabled: "One-time credential links are not enabled",
   no_public_base_url:
     "No public ingress URL is configured — set ingress.publicBaseUrl first",
   rate_limited: "Too many credential links created — try again in a minute",

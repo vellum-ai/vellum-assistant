@@ -15,7 +15,7 @@ import { McpPage } from "@/domains/settings/mcp/mcp-page";
 import { assistantsOauthConnectionsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { oauthProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
-import { useManagedOAuthPlatformAssistantId } from "@/hooks/use-managed-oauth-platform-assistant-id";
+import { usePlatformAssistantId } from "@/hooks/use-platform-assistant-id";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
@@ -57,14 +57,13 @@ function IntegrationsPanelInner() {
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
 
   const [bannerDismissed, setBannerDismissed] = useState(true);
-  const [selectedProviderKey, setSelectedProviderKey] =
-    useState<string | null>(null);
+  const [selectedProviderKey, setSelectedProviderKey] = useState<string | null>(
+    null,
+  );
 
   // Hydrate banner dismissal from localStorage on mount.
   useEffect(() => {
-    setBannerDismissed(
-      getLocalSetting(BANNER_STORAGE_KEY, "false") === "true",
-    );
+    setBannerDismissed(getLocalSetting(BANNER_STORAGE_KEY, "false") === "true");
   }, []);
 
   const dismissBanner = () => {
@@ -93,10 +92,8 @@ function IntegrationsPanelInner() {
     };
   }, []);
 
-  const {
-    platformAssistantId,
-    isLoading: platformAssistantIdLoading,
-  } = useManagedOAuthPlatformAssistantId(assistant?.id, platformGate === "full");
+  const { platformAssistantId, isLoading: platformAssistantIdLoading } =
+    usePlatformAssistantId(assistant?.id, platformGate === "full");
 
   const {
     data: providers,
@@ -142,8 +139,7 @@ function IntegrationsPanelInner() {
         state_invalid: "Authorization state was invalid. Please try again.",
         state_expired: "Authorization expired. Please try again.",
         exchange_failed: "Failed to complete authorization. Please try again.",
-        identity_failed:
-          "Failed to verify account identity. Please try again.",
+        identity_failed: "Failed to verify account identity. Please try again.",
       };
       toast.error(
         messages[code] ??
@@ -164,11 +160,15 @@ function IntegrationsPanelInner() {
   const filteredProviders = useMemo(() => {
     const needle = searchText.trim().toLowerCase();
     let list = managedProviders.filter((provider) => {
-      if (provider.provider_key === "slack") return false;
+      if (provider.provider_key === "slack") {
+        return false;
+      }
       if (!needle) {
         return true;
       }
-      const name = (provider.display_name ?? provider.provider_key).toLowerCase();
+      const name = (
+        provider.display_name ?? provider.provider_key
+      ).toLowerCase();
       const description = (provider.description ?? "").toLowerCase();
       return name.includes(needle) || description.includes(needle);
     });
@@ -237,9 +237,9 @@ function IntegrationsPanelInner() {
   const selectedProvider = useMemo(
     () =>
       selectedProviderKey
-        ? managedProviders.find(
+        ? (managedProviders.find(
             (p) => p.provider_key === selectedProviderKey,
-          ) ?? null
+          ) ?? null)
         : null,
     [managedProviders, selectedProviderKey],
   );
@@ -343,9 +343,7 @@ function IntegrationsPanelInner() {
                 key={provider.provider_key}
                 platformAssistantId={platformAssistantId ?? assistant.id}
                 providerKey={provider.provider_key}
-                displayName={
-                  provider.display_name ?? provider.provider_key
-                }
+                displayName={provider.display_name ?? provider.provider_key}
                 description={provider.description}
                 logoUrl={provider.logo_url}
                 connection={connectionForProvider(

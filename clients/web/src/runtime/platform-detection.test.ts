@@ -13,6 +13,7 @@
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, renderHook } from "@testing-library/react";
 
 let electron = false;
 let nativePlatform = false;
@@ -28,7 +29,8 @@ mock.module("@capacitor/core", () => ({
   Capacitor: { getPlatform: () => nativeOsPlatform },
 }));
 
-const { detectClientOs } = await import("@/runtime/platform-detection");
+const { detectClientOs, useIsNativeIOS } =
+  await import("@/runtime/platform-detection");
 
 const ORIGINAL_UA = navigator.userAgent;
 const IPHONE_UA =
@@ -46,6 +48,7 @@ function setUserAgent(ua: string): void {
 }
 
 afterEach(() => {
+  cleanup();
   electron = false;
   nativePlatform = false;
   nativeOsPlatform = "web";
@@ -94,5 +97,17 @@ describe("detectClientOs", () => {
     nativePlatform = true;
     setUserAgent(IPHONE_UA);
     expect(detectClientOs()).toBe("macos");
+  });
+});
+
+describe("useIsNativeIOS", () => {
+  test("is true inside the Capacitor iOS native shell", () => {
+    nativePlatform = true;
+    nativeOsPlatform = "ios";
+    expect(renderHook(() => useIsNativeIOS()).result.current).toBe(true);
+  });
+
+  test("is false outside a native shell", () => {
+    expect(renderHook(() => useIsNativeIOS()).result.current).toBe(false);
   });
 });

@@ -1,13 +1,12 @@
+import {
+  type CopyBlockSurfaceData,
+  CopyBlockSurfaceDataSchema,
+} from "@vellumai/assistant-api";
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
-
-interface CopyBlockSurfaceData {
-  text?: string;
-  label?: string;
-  language?: string;
-}
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 interface CopyBlockSurfaceProps {
   surface: Surface;
@@ -19,16 +18,28 @@ interface CopyBlockSurfaceProps {
 }
 
 export function CopyBlockSurface({ surface }: CopyBlockSurfaceProps) {
-  const data = surface.data as CopyBlockSurfaceData;
+  // The wire keeps surface `data` opaque; narrow it with the canonical schema
+  // (tolerant, so a real payload never fails to parse) rather than an
+  // unchecked cast or a re-declared local interface.
+  const parsed = CopyBlockSurfaceDataSchema.safeParse(surface.data);
+  const data: CopyBlockSurfaceData = parsed.success
+    ? parsed.data
+    : { text: "" };
   const [copied, setCopied] = useState(false);
-  const text = data.text ?? "";
+  const text = data.text;
   const label = data.label ?? data.language;
 
-  const handleCopy = async () => {
-    if (!text) return;
-    await navigator.clipboard?.writeText(text);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+  const handleCopy = () => {
+    if (!text) {
+      return;
+    }
+    copyToClipboard(text, {
+      errorMessage: "Couldn't copy.",
+      onCopied: () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1600);
+      },
+    });
   };
 
   return (

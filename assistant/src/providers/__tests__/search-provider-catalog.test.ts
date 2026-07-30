@@ -20,7 +20,10 @@ describe("search-provider-catalog", () => {
 
   test("every BYOK provider has the full set of required fields", () => {
     for (const provider of BYOK_SEARCH_PROVIDERS) {
-      expect(provider.apiKeyPrefix, `${provider.id}.apiKeyPrefix`).toBeDefined();
+      expect(
+        provider.apiKeyPrefix,
+        `${provider.id}.apiKeyPrefix`,
+      ).toBeDefined();
       expect(provider.envVar, `${provider.id}.envVar`).toBeDefined();
       expect(provider.secretKey, `${provider.id}.secretKey`).toBeDefined();
       expect(
@@ -70,6 +73,12 @@ describe("search-provider-catalog", () => {
       .sort((a, b) => (a.fallbackOrder ?? 0) - (b.fallbackOrder ?? 0))
       .map((p) => p.id);
     expect(SEARCH_PROVIDER_FALLBACK_ORDER).toEqual(sorted);
+  });
+
+  test("vellum is a managed provider outside the BYOK fallback chain", () => {
+    expect(getSearchProvider("vellum")?.kind).toBe("managed");
+    expect(BYOK_SEARCH_PROVIDERS.map((p) => p.id)).not.toContain("vellum");
+    expect(SEARCH_PROVIDER_FALLBACK_ORDER).not.toContain("vellum");
   });
 
   test("getSearchProvider returns the matching entry", () => {

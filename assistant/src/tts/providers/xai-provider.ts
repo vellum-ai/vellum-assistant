@@ -156,7 +156,7 @@ async function requireApiKey(): Promise<string> {
     throw new XaiTtsError(
       "XAI_TTS_NO_API_KEY",
       "xAI API key not configured. " +
-        "Add it via: assistant credentials set --service xai --field api_key <key>",
+        'Add it via: assistant credentials prompt --service xai --field api_key --label "xAI API Key"',
     );
   }
   return apiKey;
@@ -239,7 +239,9 @@ export function createXaiProvider(
           signal: request.signal,
         });
       } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") throw err;
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
         throw new XaiTtsError(
           "XAI_TTS_REQUEST_FAILED",
           `xAI TTS request failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -367,7 +369,7 @@ export const xaiTtsProviderDefinition: TtsProviderDefinition = {
       credentialStoreKey: "credential/xai/api_key",
       displayName: "xAI API Key",
       setCommand:
-        "assistant credentials set --service xai --field api_key <key>",
+        'assistant credentials prompt --service xai --field api_key --label "xAI API Key"',
     },
   ],
   adapter: createXaiProvider(),

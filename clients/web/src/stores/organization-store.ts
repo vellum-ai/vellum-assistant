@@ -6,7 +6,8 @@
  * middleware, loaders, and API interceptors can read state synchronously
  * via `useOrganizationStore.getState()` outside the React tree. The
  * active organization is persisted to sessionStorage so page refreshes
- * and new tabs preserve the selection.
+ * and new tabs preserve the selection, and mirrored into state as
+ * `persistedOrganizationId` so React consumers can subscribe to it.
  *
  * Lifecycle (auth subscription + focus/visibility refetch) is registered
  * via `setupOrganizationStore()`, called once at app startup.
@@ -26,11 +27,19 @@ import { hasLivePlatformSession } from "@/stores/session-status";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "vellum_active_organization_id";
 
-type OrganizationStatus = "idle" | "loading" | "ready" | "error";
+export type OrganizationStatus = "idle" | "loading" | "ready" | "error";
 
 interface OrganizationState {
   organizations: OrganizationRead[];
+  /** The selection resolved against the fetched list. */
   currentOrganizationId: string | null;
+  /**
+   * The sessionStorage-persisted selection, which stands in for
+   * `currentOrganizationId` until the list resolves. Every write to the
+   * persisted value goes through a store action that updates this slice and
+   * sessionStorage together, so subscribers observe the id requests carry.
+   */
+  persistedOrganizationId: string | null;
   status: OrganizationStatus;
   error: string | null;
 }
@@ -52,7 +61,9 @@ function getSessionStorage(): Storage | null {
 
 function getStoredOrganizationId(): string | null {
   const storage = getSessionStorage();
-  if (!storage) return null;
+  if (!storage) {
+    return null;
+  }
   try {
     return storage.getItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
   } catch {
@@ -62,7 +73,9 @@ function getStoredOrganizationId(): string | null {
 
 function setStoredOrganizationId(organizationId: string): void {
   const storage = getSessionStorage();
-  if (!storage) return;
+  if (!storage) {
+    return;
+  }
   try {
     storage.setItem(ACTIVE_ORGANIZATION_STORAGE_KEY, organizationId);
   } catch {
@@ -72,7 +85,9 @@ function setStoredOrganizationId(organizationId: string): void {
 
 function clearStoredOrganizationId(): void {
   const storage = getSessionStorage();
-  if (!storage) return;
+  if (!storage) {
+    return;
+  }
   try {
     storage.removeItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
   } catch {
@@ -84,7 +99,9 @@ function resolveActiveOrganizationId(
   organizations: readonly OrganizationRead[],
   candidateId: string | null,
 ): string | null {
-  if (organizations.length === 0) return null;
+  if (organizations.length === 0) {
+    return null;
+  }
   if (candidateId && organizations.some((org) => org.id === candidateId)) {
     return candidateId;
   }
@@ -94,6 +111,7 @@ function resolveActiveOrganizationId(
 const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
   organizations: [],
   currentOrganizationId: null,
+  persistedOrganizationId: getStoredOrganizationId(),
   status: "idle",
   error: null,
 
@@ -104,7 +122,7 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
       const result = await organizationsList();
       const organizations = result.data?.results ?? [];
       const candidateId =
-        get().currentOrganizationId ?? getStoredOrganizationId();
+        get().currentOrganizationId ?? get().persistedOrganizationId;
       const currentOrganizationId = resolveActiveOrganizationId(
         organizations,
         candidateId,
@@ -117,6 +135,8 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
       set({
         organizations,
         currentOrganizationId,
+        persistedOrganizationId:
+          currentOrganizationId ?? get().persistedOrganizationId,
         status: currentOrganizationId ? "ready" : "error",
         error: currentOrganizationId
           ? null
@@ -133,10 +153,16 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
 
   setCurrentOrganizationId: (organizationId: string) => {
     const { organizations } = get();
-    if (!organizations.some((org) => org.id === organizationId)) return;
+    if (!organizations.some((org) => org.id === organizationId)) {
+      return;
+    }
 
     setStoredOrganizationId(organizationId);
-    set({ currentOrganizationId: organizationId, status: "ready" });
+    set({
+      currentOrganizationId: organizationId,
+      persistedOrganizationId: organizationId,
+      status: "ready",
+    });
   },
 
   clearOrganization: () => {
@@ -144,6 +170,7 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
     set({
       organizations: [],
       currentOrganizationId: null,
+      persistedOrganizationId: null,
       status: "idle",
       error: null,
     });
@@ -153,14 +180,30 @@ const useOrganizationStoreBase = create<OrganizationStore>()((set, get) => ({
 export const useOrganizationStore = createSelectors(useOrganizationStoreBase);
 
 /**
+ * The organization a request made right now would be scoped to: the selection
+ * resolved against the list, or the persisted one standing in for it.
+ */
+function selectRequestOrganizationId(state: OrganizationState): string | null {
+  return state.currentOrganizationId ?? state.persistedOrganizationId;
+}
+
+/**
  * Read the active organization ID for non-React contexts (API interceptors).
- * Prefer `useOrganizationStore.use.currentOrganizationId()` in components.
+ * Prefer `useRequestOrganizationId()` in components.
  */
 export function getActiveOrganizationIdForRequests(): string | null {
-  return (
-    useOrganizationStore.getState().currentOrganizationId ??
-    getStoredOrganizationId()
-  );
+  return selectRequestOrganizationId(useOrganizationStore.getState());
+}
+
+/**
+ * Subscribe to the organization requests are scoped to.
+ *
+ * Same derivation `Vellum-Organization-Id` is built from, so anything a
+ * component keys on it — a query cache scope, a readiness gate — moves with
+ * the header rather than trailing it.
+ */
+export function useRequestOrganizationId(): string | null {
+  return useOrganizationStore(selectRequestOrganizationId);
 }
 
 /**
@@ -199,17 +242,16 @@ export function setupOrganizationStore(): () => void {
   const unsubAuth = useAuthStore.subscribe((state, prevState) => {
     const hasSession = hasLivePlatformSession(state.platformSession);
     const hadSession = hasLivePlatformSession(prevState.platformSession);
-    if (
-      hasSession &&
-      (!hadSession || state.user?.id !== prevState.user?.id)
-    ) {
+    if (hasSession && (!hadSession || state.user?.id !== prevState.user?.id)) {
       useOrganizationStore.getState().fetchOrganizations();
     }
   });
 
   // 2. App resume — refetch if stale and platform session is active.
   const refetchIfStale = () => {
-    if (!hasLivePlatformSession(useAuthStore.getState().platformSession)) return;
+    if (!hasLivePlatformSession(useAuthStore.getState().platformSession)) {
+      return;
+    }
     const { status } = useOrganizationStore.getState();
     if (
       (status === "ready" || status === "error") &&

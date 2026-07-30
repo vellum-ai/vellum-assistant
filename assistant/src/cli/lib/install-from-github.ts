@@ -45,6 +45,10 @@ import { ensureBun } from "../../util/bun-runtime.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
+  type DependencyInstaller,
+  installPluginDependencies,
+} from "./install-plugin-dependencies.js";
+import {
   computeContentHash,
   computeFingerprint,
   type Fingerprint,
@@ -62,6 +66,7 @@ const execFileAsync = promisify(execFile);
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
 const PLUGIN_SOURCE_PATH_PREFIX = "plugins";
+import { DEFAULT_DIRECT_REF } from "./parse-github-plugin-spec.js";
 import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 
 /** Full Git commit SHA — 40 hex chars (SHA-1) or 64 (SHA-256). */
@@ -159,6 +164,10 @@ export interface InstallPluginDeps {
   readonly runGit?: GitRunner;
   /** Override the runner used to execute a plugin's postinstall adapter. Falls back to {@link defaultPostinstallRunner}. */
   readonly runPostinstall?: PostinstallRunner;
+  /** Override the runner used to install a plugin's dependencies. Falls back to {@link defaultDependencyInstaller}. */
+  readonly runInstallDeps?: DependencyInstaller;
+  /** Forwarded to {@link finalizeStagedInstall}; see {@link FinalizeStagedInstallParams.beforeSwap}. */
+  readonly beforeSwap?: () => Promise<void>;
 }
 
 /** Successful install result. */
@@ -321,13 +330,17 @@ async function resolvePluginSource(
 }
 
 /**
- * Prefix reserved for first-party default plugins that ship in the assistant
- * source tree. User-installable plugins must not use it — the `.disabled`
- * sentinel and the plugin registry both key on manifest names, and a
- * user plugin with a `default-` name would shadow or collide with the
- * built-in.
+ * Prefixes reserved for first-party plugins that ship from the Vellum team.
+ * User-installable plugins must not use them — the `.disabled` sentinel and
+ * the plugin registry both key on manifest names, and a user plugin with a
+ * reserved name would shadow or collide with a first-party one.
+ *
+ * - `default-`: built-in default plugins that ship in the assistant source
+ *   tree.
+ * - `vellum-`: first-class plugins shipped from the Vellum team (e.g. curated
+ *   marketplace entries).
  */
-export const RESERVED_PLUGIN_PREFIX = "default-";
+export const RESERVED_PLUGIN_PREFIXES = ["default-", "vellum-"] as const;
 
 /**
  * Reject plugin names that could escape the canonical source path or the
@@ -335,8 +348,9 @@ export const RESERVED_PLUGIN_PREFIX = "default-";
  * `plugins/`, so a legitimate name is a single path segment
  * built from kebab-case alphanumerics.
  *
- * Names prefixed with {@link RESERVED_PLUGIN_PREFIX} (`default-`) are also
- * rejected — that prefix is reserved for first-party default plugins.
+ * Names carrying one of the {@link RESERVED_PLUGIN_PREFIXES} (`default-`,
+ * `vellum-`) are also rejected — those prefixes are reserved for first-party
+ * plugins.
  *
  * Exported so callers (e.g. the CLI input prompt) can validate up front
  * before invoking {@link installPlugin}.
@@ -346,10 +360,13 @@ export function sanitizePluginName(name: string): string {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(trimmed)) {
     throw new InvalidPluginNameError(name);
   }
-  if (trimmed.startsWith(RESERVED_PLUGIN_PREFIX)) {
+  const reservedPrefix = RESERVED_PLUGIN_PREFIXES.find((prefix) =>
+    trimmed.startsWith(prefix),
+  );
+  if (reservedPrefix) {
     throw new InvalidPluginNameError(
       name,
-      `The "${RESERVED_PLUGIN_PREFIX}" prefix is reserved for first-party default plugins.`,
+      `The "${reservedPrefix}" prefix is reserved for first-party plugins.`,
     );
   }
   return trimmed;
@@ -486,13 +503,15 @@ export async function installPlugin(
     throw new PluginNotFoundError(name, ref, sourceLabel(effectiveSource));
   }
 
-  finalizeStagedInstall(stagingDir, {
+  await finalizeStagedInstall(stagingDir, {
     name,
     source: effectiveSource,
     ref,
     commit,
     committedAt,
     pluginsDir,
+    installDependencies: deps.runInstallDeps,
+    beforeSwap: deps.beforeSwap,
   });
 
   return { name, target, fileCount, ref, commit, committedAt };
@@ -512,18 +531,33 @@ export interface FinalizeStagedInstallParams {
   readonly etag?: string;
   /** Served plugins directory; the staging dir is swapped into `<pluginsDir>/<name>`. */
   readonly pluginsDir: string;
+  /** Override the runner used to install the plugin's dependencies. Falls back to {@link defaultDependencyInstaller}. */
+  readonly installDependencies?: DependencyInstaller;
+  /**
+   * Invoked after the staged tree is fully populated (dependencies installed,
+   * fingerprint recorded) and immediately before it is swapped over the live
+   * install. The upgrade path uses this to run the outgoing version's
+   * `shutdown` while its files are still on disk — mirroring
+   * `uninstallPlugin`, which runs `shutdown` before `rmSync`. Best-effort: a
+   * rejection is swallowed so a failing teardown can never block the swap.
+   */
+  readonly beforeSwap?: () => Promise<void>;
 }
 
 /**
- * Fingerprint a fully-populated `stagingDir`, write its provenance sidecar, and
- * atomically swap it into `<pluginsDir>/<name>`. Returns the final install path
- * and the fingerprint that was recorded.
+ * Install the plugin's declared dependencies, fingerprint the fully-populated
+ * `stagingDir`, write its provenance sidecar, and atomically swap it into
+ * `<pluginsDir>/<name>`. Returns the final install path and the fingerprint that
+ * was recorded.
  *
- * Shared by {@link installPlugin} (fresh materialization) and the merge-based
- * `plugins upgrade --strategy` path so both record identical provenance and use
- * the same atomic rm+rename swap.
+ * Shared by {@link installPlugin} (fresh materialization), the platform-endpoint
+ * install, and the merge-based `plugins upgrade --strategy` path so all record
+ * identical provenance, install dependencies the same way, and use the same
+ * atomic rm+rename swap. Dependencies land in `<stagingDir>/node_modules/` — a
+ * derived directory every plugin-tree walk excludes — so it does not pollute the
+ * fingerprint computed just below and rides the swap into place atomically.
  */
-export function finalizeStagedInstall(
+export async function finalizeStagedInstall(
   stagingDir: string,
   {
     name,
@@ -533,8 +567,22 @@ export function finalizeStagedInstall(
     committedAt,
     etag,
     pluginsDir,
+    installDependencies,
+    beforeSwap,
   }: FinalizeStagedInstallParams,
-): { target: string; fingerprint: Fingerprint } {
+): Promise<{ target: string; fingerprint: Fingerprint }> {
+  // Install the plugin's own runtime dependencies into the staged tree before
+  // it is fingerprinted and swapped, so its hooks/tools can resolve their bare
+  // imports. A no-op for a plugin that declares none. A hard failure here (e.g.
+  // the manifest could not be restored to its materialized bytes) must not leave
+  // the half-finalized staging dir behind, so drop it before propagating.
+  try {
+    await installPluginDependencies(stagingDir, installDependencies);
+  } catch (err) {
+    rmSync(stagingDir, { recursive: true, force: true });
+    throw err;
+  }
+
   // Hash the materialized tree before the sidecar is written (so the sidecar
   // never hashes itself) — the baseline `plugins inspect` uses to detect later
   // local edits. The per-file fingerprint answers "which files changed"; the
@@ -564,6 +612,19 @@ export function finalizeStagedInstall(
   // it, so the target's parent is no longer created as a side effect.
   const target = join(pluginsDir, name);
   mkdirSync(pluginsDir, { recursive: true });
+
+  // Give the outgoing version its shutdown before anything below reads or
+  // replaces the live install: everything fallible (fetch, merge, dependency
+  // install) has already succeeded, so a staging failure never tears a
+  // running plugin down, and the preserved-entries copy below still captures
+  // any final state the shutdown hook writes into data/.
+  if (beforeSwap) {
+    try {
+      await beforeSwap();
+    } catch {
+      // Best-effort teardown; the swap must proceed regardless.
+    }
+  }
 
   // Copy preserved entries (config.json, data/, .disabled) from the existing
   // install into the staging dir before the swap so user-owned state survives
@@ -752,10 +813,7 @@ export async function materializePluginTree(
   if (cloned.fileCount > 0 && opts.stubRef !== null) {
     await applyAdapterStub(opts.name, opts.stubRef, opts.destDir, deps);
   }
-  if (
-    cloned.fileCount > 0 &&
-    !existsSync(join(opts.destDir, "package.json"))
-  ) {
+  if (cloned.fileCount > 0 && !existsSync(join(opts.destDir, "package.json"))) {
     synthesizeMinimalPackageJson(opts.name, opts.destDir);
   }
   return cloned;
@@ -1342,6 +1400,83 @@ export async function resolveRefCommit(
     }
   }
   return peeled ?? direct;
+}
+
+/**
+ * List the branch and tag short-names a remote publishes, via a single
+ * `git ls-remote --heads --tags`. Best-effort: any failure (unreachable repo,
+ * a private one we can't authenticate to, network loss) yields an empty set so
+ * the caller falls back to its offline guess rather than aborting — a genuinely
+ * missing ref still surfaces later when the clone itself fails.
+ */
+async function listRemoteRefNames(
+  owner: string,
+  repo: string,
+  runGit: GitRunner,
+): Promise<Set<string>> {
+  const repoUrl = `https://github.com/${owner}/${repo}.git`;
+  let stdout: string;
+  try {
+    ({ stdout } = await runGit(["ls-remote", "--heads", "--tags", repoUrl], {
+      cwd: tmpdir(),
+    }));
+  } catch {
+    return new Set();
+  }
+  const names = new Set<string>();
+  for (const line of stdout.split("\n")) {
+    // Each line is `<sha>\t<refname>`; keep the branch/tag short-name, dropping
+    // the `refs/heads/` | `refs/tags/` prefix and an annotated tag's `^{}` peel.
+    const refname = line.trim().split(/\s+/)[1];
+    if (!refname) {
+      continue;
+    }
+    const name = refname
+      .replace(/^refs\/(?:heads|tags)\//, "")
+      .replace(/\^\{\}$/, "");
+    if (name) {
+      names.add(name);
+    }
+  }
+  return names;
+}
+
+/**
+ * Split a `/tree/<segments>` GitHub URL's tail into the ref and sub-path it
+ * actually denotes — the ambiguity github.com resolves by consulting the
+ * repository's refs, since a branch name can itself contain slashes
+ * (`feature/x`) and the URL can't mark where it ends. Picks the LONGEST leading
+ * prefix of `segments` that names a real branch or tag; the remainder is the
+ * sub-path.
+ *
+ * Falls back to treating the first segment as the ref (the offline heuristic)
+ * when the remote can't be listed or no prefix matches — including a full commit
+ * SHA, which `ls-remote` never enumerates but a clone can still fetch.
+ */
+export async function resolveTreeRefPath(
+  owner: string,
+  repo: string,
+  segments: readonly string[],
+  runGit: GitRunner = defaultGitRunner,
+): Promise<{ ref: string; path: string }> {
+  if (segments.length === 0) {
+    return { ref: DEFAULT_DIRECT_REF, path: "" };
+  }
+  const firstSegmentGuess = {
+    ref: segments[0]!,
+    path: segments.slice(1).join("/"),
+  };
+  if (isFullCommitSha(segments[0]!)) {
+    return firstSegmentGuess;
+  }
+  const refNames = await listRemoteRefNames(owner, repo, runGit);
+  for (let k = segments.length; k >= 1; k--) {
+    const candidate = segments.slice(0, k).join("/");
+    if (refNames.has(candidate)) {
+      return { ref: candidate, path: segments.slice(k).join("/") };
+    }
+  }
+  return firstSegmentGuess;
 }
 
 /** Inputs for {@link writeInstallMeta}, resolved during a fresh install. */

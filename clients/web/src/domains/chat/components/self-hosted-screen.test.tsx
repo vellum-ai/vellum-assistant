@@ -14,7 +14,11 @@ import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen";
 
 function render() {
   return renderToStaticMarkup(
-    createElement(StaticRouter, { location: "/" }, createElement(SelfHostedScreen)),
+    createElement(
+      StaticRouter,
+      { location: "/" },
+      createElement(SelfHostedScreen),
+    ),
   );
 }
 

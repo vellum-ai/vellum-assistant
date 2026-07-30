@@ -232,7 +232,7 @@ function OneStepCard({
       </div>
 
       {canConnect ? (
-        <Button variant="primary" size="compact" onClick={() => void connect()}>
+        <Button variant="primary" onClick={() => void connect()}>
           Connect
         </Button>
       ) : busy ? (

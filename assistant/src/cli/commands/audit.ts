@@ -66,9 +66,13 @@ export function registerAuditCommand(program: Command): void {
           let inputSummary = "";
           try {
             const parsed = JSON.parse(r.input);
-            if (parsed.command) inputSummary = parsed.command;
-            else if (parsed.path) inputSummary = parsed.path;
-            else inputSummary = r.input;
+            if (parsed.command) {
+              inputSummary = parsed.command;
+            } else if (parsed.path) {
+              inputSummary = parsed.path;
+            } else {
+              inputSummary = r.input;
+            }
           } catch {
             inputSummary = r.input;
           }

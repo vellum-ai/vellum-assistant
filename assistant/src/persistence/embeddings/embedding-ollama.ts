@@ -29,7 +29,9 @@ export class OllamaEmbeddingBackend implements EmbeddingBackend {
     inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]> {
-    if (inputs.length === 0) return [];
+    if (inputs.length === 0) {
+      return [];
+    }
 
     const texts = inputs.map((i) => {
       const n = normalizeEmbeddingInput(i);
@@ -74,6 +76,8 @@ function resolveBaseUrl(override?: string): string {
     getOllamaBaseUrlEnv() ??
     DEFAULT_OLLAMA_BASE_URL
   ).trim();
-  if (value.endsWith("/")) return value.slice(0, -1);
+  if (value.endsWith("/")) {
+    return value.slice(0, -1);
+  }
   return value;
 }

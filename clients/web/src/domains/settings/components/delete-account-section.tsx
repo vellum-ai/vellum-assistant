@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { useUserDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import {
-    useActiveAssistantLifecycleIsLoading,
-    usePlatformGate,
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";

@@ -1,6 +1,14 @@
 @import "tailwindcss";
 @import "@vellumai/design-library/tokens.css";
-@source "../node_modules/@vellumai/design-library/src/**/*.tsx";
+
+/* Capacitor iOS shell variant. Keys off the data-native-platform marker
+ * set by initNativePlatformAttributes() at boot. Deliberately :is(), not
+ * :where(): the selector must carry :root[attr] specificity (0,3,0 with
+ * the utility class) so native-ios: utilities outrank the design
+ * library's touch-mobile: pill classes, which are single-class rules
+ * inside a media query (0,1,0) and would otherwise win or lose on
+ * emission order. */
+@custom-variant native-ios (&:is(:root[data-native-platform="ios"] *));
 
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {
@@ -45,6 +53,30 @@ body {
      not create a containing block — otherwise position:fixed descendants like
      the Dropdown menu anchor to this element instead of the viewport. */
   100% { transform: none; opacity: 1; }
+}
+
+/* View Plans takeover entrance — the route swaps straight onto a full-dark
+   canvas, so fade the canvas in while the pricing content rises into place.
+   The canvas fade is opacity-only: translating it would drag the page
+   background along and expose whatever sits behind the route. */
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.plans-takeover-canvas-enter {
+  animation: fadeIn 0.25s ease-out both;
+}
+
+.plans-takeover-content-enter {
+  animation: fadeInUp 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plans-takeover-canvas-enter,
+  .plans-takeover-content-enter {
+    animation: none;
+  }
 }
 
 /* Onboarding edge characters popping into place — a quick scale-up with a soft
@@ -108,7 +140,7 @@ body {
 /* Live-voice transcript caret — a thin bar blinking like a text caret at the
  * end of the streaming speech transcript in the composer (Light 55). The
  * component also holds it static via useReducedMotion; the media query is
- * defense-in-depth matching .avatar-streaming-ring below. */
+ * defense-in-depth for callers that don't. */
 @keyframes voice-caret-blink {
   0%, 50% { opacity: 1; }
   50.01%, 100% { opacity: 0; }
@@ -193,33 +225,6 @@ body {
   }
 }
 
-/* Avatar streaming ring — a semicircular arc that traces the circular avatar's
-   edge and spins continuously while the assistant is streaming/loading. Used
-   only for custom uploaded-image avatars; character avatars convey streaming
-   through their own morph animation instead. Two adjacent borders are colored
-   (each border occupies a 90° quadrant of the ring when border-radius is 50%,
-   so two adjacent borders make a 180° semicircle); the rest stay transparent,
-   and the whole ring rotates. Border thickness/inset are set inline so the
-   ring scales with avatar size. `prefers-reduced-motion` holds it static. */
-@keyframes avatar-ring-spin {
-  to { transform: rotate(360deg); }
-}
-
-.avatar-streaming-ring {
-  border-style: solid;
-  border-radius: 50%;
-  border-color: transparent;
-  border-top-color: var(--border-active);
-  border-right-color: var(--border-active);
-  animation: avatar-ring-spin 0.85s linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .avatar-streaming-ring {
-    animation: none;
-  }
-}
-
 /* Onboarding hatching avatar pulse: scales between 0.9 and 1.0 on
  * ease-in-out, 1.2s cycle, infinite alternate. Opacity dimmed to 0.6 so the
  * creature reads as "asleep" during hatching. When the assistant becomes
@@ -252,28 +257,221 @@ body {
   opacity: 1;
 }
 
-/* Billing onboarding modal — pulsing glow behind the loading spinner */
-@keyframes onboarding-glow {
-  0%, 100% { opacity: 0.12; transform: scale(1); }
-  50% { opacity: 0.24; transform: scale(1.15); }
-}
-
-/* Billing onboarding modal — welcome screen staggered reveal */
-@keyframes welcome-reveal {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Billing onboarding modal — crown glow pulse */
-@keyframes welcome-crown-glow {
-  0%, 100% { opacity: 0.18; transform: scale(1); }
-  50% { opacity: 0.32; transform: scale(1.08); }
-}
-
 /* Billing onboarding modal — step content entrance */
 @keyframes onboarding-step-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* Provisioning takeover — the assistant grows into a larger form when the
+ * upgrade lands. It crouches, then pulses up twice, each pulse overshooting and
+ * relaxing a little higher than the one before, and settles at
+ * `--provision-avatar-growth`. The origin is the bottom edge, so the creature
+ * stands taller off its shadow rather than floating up the screen. Both custom
+ * properties come from the component. */
+.provision-avatar-stage {
+  position: relative;
+  width: 100%;
+  /* Reserving the grown height up front keeps the copy below from reflowing. */
+  height: calc(var(--provision-avatar-size) * var(--provision-avatar-growth));
+}
+
+/* While the avatar is withheld, an identity-neutral glow breathes on the
+ * creature's resting footprint so the reserved stage doesn't read as a hole.
+ * Centering is `margin-inline`, not a translate: the breathe owns `transform`. */
+.provision-avatar-placeholder {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: var(--provision-avatar-size);
+  width: calc(var(--provision-avatar-size) * 0.8);
+  margin-inline: auto;
+  /* Fallback first for engines without color-mix(), see the skeleton-shimmer
+   * note above. The takeover is always dark-themed, so a translucent white
+   * stands in for the emphasised mix. */
+  background: radial-gradient(
+    closest-side,
+    rgba(255, 255, 255, 0.12),
+    transparent 72%
+  );
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--content-emphasised) 12%, transparent),
+    transparent 72%
+  );
+  transform-origin: bottom center;
+  transition: opacity var(--provision-reveal) ease-out;
+  animation: provision-placeholder-breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes provision-placeholder-breathe {
+  0%, 100% { transform: scale(0.94); opacity: 0.65; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
+/* Fades out on the same beat the creature reveals on, then costs nothing. */
+.provision-avatar-placeholder.is-resolved {
+  opacity: 0;
+  animation: none;
+}
+
+.provision-avatar-layer {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.provision-avatar-current {
+  transform-origin: bottom center;
+  will-change: transform;
+}
+
+.provision-avatar-shadow {
+  margin-top: 14px;
+  height: 31px;
+  width: 263px;
+  will-change: transform, opacity;
+  /* Decorative avatar drop-shadow; raw rgba is conventional for a CSS shadow. */
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.45),
+    transparent 70%
+  );
+}
+
+/* The crouch is what makes this read as the creature pushing itself up rather
+ * than as something being scaled. */
+@keyframes provision-grow {
+  0% { transform: scale(1); }
+  11% { transform: scale(1.03) scaleY(0.9); }
+  38% { transform: scale(1.3); }
+  50% { transform: scale(1.24); }
+  82% { transform: scale(1.49); }
+  100% { transform: scale(var(--provision-avatar-growth)); }
+}
+
+/* The shadow tightens as it leaves the ground and spreads as it lands. */
+@keyframes provision-grow-shadow {
+  0% { transform: scaleX(1); opacity: 0.85; }
+  18% { transform: scaleX(1.08); opacity: 1; }
+  45% { transform: scaleX(0.95); opacity: 0.6; }
+  100% { transform: scaleX(1.16); opacity: 1; }
+}
+
+.provision-avatar-evolve.is-evolved .provision-avatar-current {
+  animation: provision-grow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
+}
+
+.provision-avatar-evolve.is-evolved .provision-avatar-shadow {
+  animation: provision-grow-shadow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
+}
+
+/* The creature fades in over the placeholder as soon as something is drawable:
+ * the live query settling, or the stash captured at the Stripe hand-off. The
+ * stage has already reserved its height, so this fades in place with nothing
+ * moving around it. */
+@keyframes provision-avatar-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* The takeover's arrival beat: the avatar, the surface color, and the blurred
+ * backdrop all resolve on this one duration. */
+:root {
+  --provision-reveal: 250ms;
+}
+
+.provision-avatar-reveal {
+  animation: provision-avatar-reveal var(--provision-reveal) ease-out both;
+}
+
+.provision-surface-settle {
+  transition: background-color var(--provision-reveal) ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provision-avatar-reveal {
+    animation: none;
+  }
+
+  .provision-surface-settle {
+    transition: none;
+  }
+
+  /* A static glow still marks where the creature lands. */
+  .provision-avatar-placeholder {
+    animation: none;
+  }
+
+  .provision-avatar-placeholder.is-resolved {
+    transition: none;
+  }
+}
+
+/* One gesture at three amplitudes. The strain loop sits on its own nesting
+ * level so it multiplies with the growth on the parent rather than fighting it
+ * for `transform`; the transition is what carries it back to rest from wherever
+ * in the cycle the resolve caught it, instead of snapping. */
+.provision-avatar-strain {
+  transform-origin: bottom center;
+  transition:
+    transform 260ms ease-out,
+    filter 400ms ease;
+}
+
+@keyframes provision-strain {
+  0% { transform: scale(1); }
+  18% {
+    transform: scaleX(calc(1 + var(--provision-strain) * 0.35))
+      scaleY(calc(1 - var(--provision-strain) * 0.75));
+  }
+  44% { transform: scale(calc(1 + var(--provision-strain))); }
+  66%, 100% { transform: scale(1); }
+}
+
+/* A third of every cycle is rest — that pause is what keeps it reading as
+ * effort rather than fidgeting. */
+.provision-avatar-evolve.is-working {
+  --provision-strain: 0.05;
+  --provision-strain-cycle: 3.5s;
+}
+
+.provision-avatar-evolve.is-settling {
+  --provision-strain: 0.035;
+  --provision-strain-cycle: 5s;
+}
+
+.provision-avatar-evolve.is-working .provision-avatar-strain,
+.provision-avatar-evolve.is-settling .provision-avatar-strain {
+  animation: provision-strain var(--provision-strain-cycle)
+    cubic-bezier(0.36, 0.05, 0.28, 1) infinite;
+}
+
+/* The hatching screen tilts a dead egg 45deg; this machine is recoverable and
+ * the screen offers a retry, so it slumps rather than falls over. */
+.provision-avatar-evolve.is-stalled .provision-avatar-strain {
+  transform: rotate(8deg);
+  filter: grayscale(0.7) brightness(0.78);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provision-avatar-evolve.is-evolved .provision-avatar-current {
+    animation: none;
+    transform: scale(var(--provision-avatar-growth));
+  }
+
+  .provision-avatar-evolve.is-evolved .provision-avatar-shadow {
+    animation: none;
+    transform: scaleX(1.16);
+  }
+
+  /* The stalled tilt stays — it reports a state rather than animating one. */
+  .provision-avatar-evolve.is-working .provision-avatar-strain,
+  .provision-avatar-evolve.is-settling .provision-avatar-strain {
+    animation: none;
+  }
 }
 
 /* App shell sizing guards: keep routed pages from collapsing inside flex
@@ -368,6 +566,28 @@ body {
 [data-theme="velvet"] ::-webkit-scrollbar-thumb:hover {
   background: rgba(232, 63, 91, 0.5);
   background-clip: padding-box;
+}
+
+/* Capacitor iOS shell: hide scrollbars entirely. Styling
+ * ::-webkit-scrollbar above replaces WKWebView's auto-hiding overlay
+ * indicator with an always-visible bar, which reads as broken on iOS.
+ * Scrolling and momentum are unaffected. The
+ * :root[data-native-platform="ios"] prefix covers the document scrollbar,
+ * every inner scroller, and the ::before / ::after pseudo-elements, mirroring
+ * the :root * selector list above, and outranks both it and the [data-theme]
+ * scrollbar rules on specificity. */
+:root[data-native-platform="ios"],
+:root[data-native-platform="ios"] *,
+:root[data-native-platform="ios"] *::before,
+:root[data-native-platform="ios"] *::after {
+  scrollbar-width: none;
+}
+
+:root[data-native-platform="ios"]::-webkit-scrollbar,
+:root[data-native-platform="ios"] ::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -757,7 +977,8 @@ body {
   transform: translateY(-50%) scaleY(calc(0.5 + var(--voice-amp) * 0.7));
   opacity: calc(0.3 + var(--voice-amp) * 0.7);
 }
-.voice-listening-waves--center .voice-listening-waves__half {
+.voice-listening-waves--center .voice-listening-waves__half,
+.voice-listening-waves--inline .voice-listening-waves__half {
   position: absolute;
   left: 0;
   right: 0;
@@ -766,13 +987,28 @@ body {
 }
 /* Top half sits above the midline; its wave fill hugs the half's bottom edge
  * (= the center line), rippling upward. */
-.voice-listening-waves--center .voice-listening-waves__half--top {
+.voice-listening-waves--center .voice-listening-waves__half--top,
+.voice-listening-waves--inline .voice-listening-waves__half--top {
   top: 0;
 }
 /* Bottom half is the vertical mirror below the midline. */
-.voice-listening-waves--center .voice-listening-waves__half--bottom {
+.voice-listening-waves--center .voice-listening-waves__half--bottom,
+.voice-listening-waves--inline .voice-listening-waves__half--bottom {
   bottom: 0;
   transform: scaleY(-1);
+}
+
+/* Placement: inline = the band fills a small positioned container (the
+ * composer's voice-session bar strip) instead of anchoring to a screen edge.
+ * Same mirrored-halves structure as center — the wave fills meet at the
+ * strip's midline — with the amplitude swell expressed as a vertical scale
+ * around it. */
+.voice-listening-waves--inline {
+  inset: 0;
+  height: auto;
+  transform-origin: center;
+  transform: scaleY(calc(0.55 + var(--voice-amp) * 0.45));
+  opacity: calc(0.35 + var(--voice-amp) * 0.65);
 }
 
 /* Placement: top = the band sweeps in from the ceiling edge (both room looks —
@@ -805,6 +1041,11 @@ body {
   /* Keep the top band pinned to the ceiling (flipped), just steady. */
   .voice-listening-waves--top {
     transform: scaleY(-1);
+    opacity: 0.4;
+  }
+  /* The inline strip is inset-anchored; it just holds steady. */
+  .voice-listening-waves--inline {
+    transform: none;
     opacity: 0.4;
   }
 }
@@ -850,15 +1091,10 @@ body {
   --card-surface: #000000;
 }
 
-/* About Assistant hero avatar: clicking it opens the avatar/name modal,
-   so the pointer itself becomes a pencil while over it. White-filled,
-   dark-stroked so it reads on any avatar color; hotspot at the tip.
+/* About Assistant hero avatar: clicking it opens the avatar/name modal.
    `!important` + the descendant selector out-rank ChatAvatar's inline
    `cursor: pointer` on its interactive inner elements. */
 .avatar-edit-cursor,
 .avatar-edit-cursor * {
-  cursor:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='white' stroke='%2324292E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z'/%3E%3C/svg%3E")
-      2 22,
-    pointer !important;
+  cursor: pointer !important;
 }

@@ -403,7 +403,7 @@ Runtime detects needs_confirmation
 
 **Stale callback blocking:** When inbound `callbackData` does not match any pending approval (e.g., a button from an old prompt), the runtime returns `stale_ignored` and does not process the payload as a regular message. This prevents stale button presses from triggering unrelated agent loops.
 
-**Conversational approval turn:** When a text message arrives while an approval is pending (e.g., non-Telegram channels or user typing a reply instead of clicking a button), a **conversational approval turn** is run via `runApprovalConversationTurn()` from `approval-conversation-turn.ts`. The conversational engine uses LLM structured output (native `tool_use`) to classify user intent as: `keep_pending` (reply without deciding), `approve_once`, `approve_always`, or `reject`. Non-decision messages receive a natural assistant reply and the run stays pending — no reminder spam. The engine fails closed: any model failure returns `keep_pending` with a deterministic fallback asking the user to try again. Callback/button handling remains deterministic and unchanged. The `channelSupportsRichApprovalUI()` function determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). Currently only `telegram` is classified as a rich channel.
+**Conversational approval turn:** When a text message arrives while an approval is pending (e.g., non-Telegram channels or user typing a reply instead of clicking a button), a **conversational approval turn** is run via `runApprovalConversationTurn()` from `approval-conversation-turn.ts`. The conversational engine uses LLM structured output (native `tool_use`) to classify user intent as: `keep_pending` (reply without deciding), `approve_once`, `approve_always`, or `reject`. Non-decision messages receive a natural assistant reply and the run stays pending — no reminder spam. The engine fails closed: any model failure returns `keep_pending` with a deterministic fallback asking the user to try again. Callback/button handling remains deterministic and unchanged. The `supportsInlineOptions` channel capability (`channelSupportsInlineOptions()`) determines whether to send the structured `promptText` (for channels whose adapter renders inline buttons — Telegram, WhatsApp, Slack) or the `plainTextFallback` string (for all other channels).
 
 **Guardian-aware routing:** When a guardian binding exists for the channel, the approval flow resolves the sender's actor role (`guardian` vs `non-guardian`). Non-guardian actors have `forcePromptSideEffects` set on the session so all side-effect tools trigger approval prompts regardless of existing allow rules. Approval prompts for non-guardian actions are routed to the guardian's delivery chat (not the requester's chat), and a guardian request (kind `tool_approval`) is recorded in the gateway-owned `guardian_requests` table via `guardian_requests_create`. When the guardian approves or denies, the decision commits through `guardian_requests_decide`, is applied to the underlying run, and the requester's chat is notified of the outcome. Guardian actors follow the standard approval flow. Guardian approval follow-ups also use the conversational engine with role-specific context; `approve_always` is downgraded to `approve_once` for guardian approvals since permanent allow-rules require guardian authority. All guardian state (bindings, challenges, guardian requests) is scoped to the `(assistantId, channel)` pair -- the `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeVerification`, `isGuardian`, and `getGuardianBinding`.
 
@@ -675,14 +675,20 @@ On startup, the gateway automatically reconciles the Telegram webhook registrati
 
 This also runs when the credential watcher detects changes to Telegram credentials. If the ingress URL changes (e.g., tunnel restart), the config file watcher detects the change, invalidates the `ConfigFileCache`, and triggers webhook reconciliation directly — no daemon involvement is needed. Manual webhook registration is no longer required.
 
-### Routing Auto-Configuration
+### Routing
 
-In single-assistant mode (the default local deployment), routing is automatically configured by the CLI via workspace config:
+A gateway process fronts exactly one daemon, so routing needs no configuration:
+any inbound event carrying a routable identity resolves to the local assistant
+(`LOCAL_ASSISTANT_ID`). The only event routing drops is one with neither a
+conversation nor an actor id, which has nothing to route on.
 
-- The unmapped policy is set to `default` so all inbound messages are forwarded
-- The default assistant ID is set to the current assistant's ID
+Whether a resolved event is _admitted_ is a separate decision, made against the
+channel's admission policy floor — see "Channel Trust Classification &
+Admission Policy" in `gateway/CLAUDE.md`. Routing answers "which assistant",
+admission answers "is this sender allowed".
 
-In multi-assistant mode, the operator must configure the assistant routing map in workspace config to map specific chat/user IDs to assistant IDs.
+Optional `routingEntries` in workspace config still map specific
+conversation/actor ids to explicit assistant ids, ahead of the local fallback.
 
 ### Slack Channel (Socket Mode)
 
@@ -864,11 +870,7 @@ sequenceDiagram
         Gateway->>Gateway: assistantId resolved
     else No phone number match
         Gateway->>Gateway: resolveAssistant(From, From) — fallback routing chain
-        alt Unmapped policy = reject
-            Gateway-->>TwilioAPI: TwiML <Reject reason="rejected"/>
-        else Unmapped policy = default
-            Gateway->>Gateway: use defaultAssistantId
-        end
+        Gateway->>Gateway: use LOCAL_ASSISTANT_ID
     end
 
     Gateway->>Routes: forward to runtime /v1/internal/twilio/voice-webhook (+ params, originalUrl, assistantId)

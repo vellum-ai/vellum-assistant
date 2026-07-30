@@ -15,7 +15,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import { ApiError } from "@/utils/api-errors";
@@ -94,9 +100,8 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   }),
 }));
 
-const { NotificationsPage } = await import(
-  "@/domains/settings/pages/notifications-page"
-);
+const { NotificationsPage } =
+  await import("@/domains/settings/pages/notifications-page");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -150,7 +155,9 @@ describe("NotificationsPage mutation error handling", () => {
 
     const [markRead] = await waitFor(() => {
       const buttons = buttonsByText("Mark as read");
-      if (buttons.length === 0) throw new Error("no card yet");
+      if (buttons.length === 0) {
+        throw new Error("no card yet");
+      }
       return buttons;
     });
     fireEvent.click(markRead);

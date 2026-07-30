@@ -76,6 +76,7 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Validate and persist a content source URL",
+    tags: ["content-source"],
     requestBody: z.object({ url: z.string() }),
     handler: handleContentSource,
   },

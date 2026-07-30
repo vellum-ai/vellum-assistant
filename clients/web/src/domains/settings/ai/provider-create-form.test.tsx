@@ -175,6 +175,17 @@ function getButton(label: string): HTMLButtonElement {
  * input mounts before a test reads or edits it. Idempotent — a no-op when the
  * section is already expanded.
  */
+/** The submit button — labeled "Add" or "Add <name>" for custom providers. */
+function getSubmitButton(): HTMLButtonElement {
+  const match = Array.from(
+    document.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((b) => b.textContent?.trim().startsWith("Add"));
+  if (!match) {
+    throw new Error("expected a submit button labeled Add…");
+  }
+  return match;
+}
+
 function openAdvancedFields(): void {
   const button = Array.from(
     document.querySelectorAll<HTMLButtonElement>("button"),
@@ -303,7 +314,6 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
-    openAdvancedFields();
     expect(document.body.textContent).not.toContain(
       "openai-compatible-personal",
     );
@@ -313,7 +323,10 @@ describe("ProviderCreateForm submit sequence", () => {
       ),
     ).toBe(false);
 
-    fireEvent.click(getButton("Add"));
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "Second Endpoint" },
+    });
+    fireEvent.click(getSubmitButton());
 
     await waitFor(() => {
       expect(createConnectionCalls.length).toBe(1);
@@ -679,9 +692,10 @@ describe("ProviderCreateForm submit sequence", () => {
     fireEvent.change(getInputByPlaceholder("e.g. My Anthropic Key"), {
       target: { value: "My Custom Name" },
     });
-    selectDropdownOption("Provider", "OpenAI-compatible");
+    selectDropdownOption("Provider", "Custom provider");
 
-    fireEvent.click(getButton("Add"));
+    // The custom form's submit binds to the edited name.
+    fireEvent.click(getButton("Add My Custom Name"));
 
     await waitFor(() => {
       expect(createConnectionCalls.length).toBe(1);
@@ -707,13 +721,16 @@ describe("ProviderCreateForm submit sequence", () => {
       </ModalWrapper>,
     );
 
-    fireEvent.change(getInputByPlaceholder("https://api.example.com/v1"), {
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "LM Studio" },
+    });
+    fireEvent.change(getInputByPlaceholder("https://api.x.ai/v1"), {
       target: { value: "http://localhost:1234/v1" },
     });
     fireEvent.change(getInputByPlaceholder("model-1, model-2"), {
       target: { value: "my-model" },
     });
-    fireEvent.click(getButton("Add"));
+    fireEvent.click(getSubmitButton());
 
     await waitFor(() => {
       expect(createConnectionCalls.length).toBe(1);
@@ -747,12 +764,163 @@ describe("ProviderCreateForm submit sequence", () => {
     openAdvancedFields();
     expect(internalKeyInputMounted()).toBe(false);
 
-    selectDropdownOption("Provider", "OpenAI-compatible");
-    openAdvancedFields();
+    selectDropdownOption("Provider", "Custom provider");
+    // The custom form replaces the Advanced disclosure with a top-level
+    // Name field; the internal key still never renders.
+    expect(
+      Array.from(document.querySelectorAll("button")).some(
+        (b) => b.textContent?.trim() === "Advanced",
+      ),
+    ).toBe(false);
     expect(internalKeyInputMounted()).toBe(false);
     expect(document.body.textContent).not.toContain(
       "openai-compatible-personal",
     );
+  });
+
+  test("a custom provider cannot take a built-in provider's name", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={[]}
+          defaultProviderType="openai-compatible"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "Anthropic" },
+    });
+    expect(document.body.textContent).toContain(
+      "That name belongs to a built-in provider.",
+    );
+    expect(getSubmitButton().disabled).toBe(true);
+
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "xAI" },
+    });
+    expect(document.body.textContent).not.toContain(
+      "That name belongs to a built-in provider.",
+    );
+  });
+
+  test("custom endpoints get per-connection credential slots", async () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={["openai-compatible-personal"]}
+          defaultProviderType="openai-compatible"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "xAI Two" },
+    });
+    fireEvent.change(getInputByPlaceholder("https://api.x.ai/v1"), {
+      target: { value: "https://api.x.ai/v1" },
+    });
+    fireEvent.change(getInputByPlaceholder("model-1, model-2"), {
+      target: { value: "grok-4" },
+    });
+    fireEvent.change(getInputByPlaceholder("Enter your API key"), {
+      target: { value: "sk-oc-key" },
+    });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => {
+      expect(createConnectionCalls.length).toBe(1);
+    });
+    // The vault slot and the row's ref are keyed by the connection name —
+    // a provider-keyed slot would be shared by every custom endpoint, so
+    // saving one endpoint's key would overwrite the others'.
+    expect(secretsPostCalls.length).toBe(1);
+    expect(secretsPostCalls[0].body).toEqual({
+      type: "credential",
+      name: "openai-compatible-personal-2:api_key",
+      value: "sk-oc-key",
+    });
+    expect(createConnectionCalls[0].body).toMatchObject({
+      name: "openai-compatible-personal-2",
+      auth: {
+        type: "api_key",
+        credential: "credential/openai-compatible-personal-2/api_key",
+      },
+    });
+  });
+
+  test("a custom provider cannot duplicate another custom provider's name", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={["openai-compatible-personal"]}
+          connections={[
+            {
+              name: "openai-compatible-personal",
+              provider: "openai-compatible",
+              label: "xAI",
+              auth: {
+                type: "api_key",
+                credential: "credential/openai-compatible-personal/api_key",
+              },
+              models: [{ id: "model-1" }],
+            } as unknown as ProviderConnection,
+          ]}
+          defaultProviderType="openai-compatible"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "xai" },
+    });
+    expect(document.body.textContent).toContain(
+      "A custom provider with this name already exists.",
+    );
+    expect(getSubmitButton().disabled).toBe(true);
+  });
+
+  test("a stored label with surrounding whitespace still blocks its trimmed duplicate", () => {
+    render(
+      <ModalWrapper>
+        <ProviderCreateForm
+          assistantId={ASSISTANT_ID}
+          existingNames={["openai-compatible-personal"]}
+          connections={[
+            {
+              name: "openai-compatible-personal",
+              provider: "openai-compatible",
+              label: " xAI ",
+              auth: {
+                type: "api_key",
+                credential: "credential/openai-compatible-personal/api_key",
+              },
+              models: [{ id: "model-1" }],
+            } as unknown as ProviderConnection,
+          ]}
+          defaultProviderType="openai-compatible"
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />
+      </ModalWrapper>,
+    );
+
+    fireEvent.change(getInputByPlaceholder("xAI"), {
+      target: { value: "xAI" },
+    });
+    expect(document.body.textContent).toContain(
+      "A custom provider with this name already exists.",
+    );
+    expect(getSubmitButton().disabled).toBe(true);
   });
 
   test("clicking Cancel invokes onCancel", () => {

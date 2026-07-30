@@ -30,6 +30,11 @@ import {
 import { completeSurfaceAndNotify } from "../daemon/conversation-surfaces.js";
 import { withdrawSlackApprovalCard } from "../messaging/providers/slack/withdraw.js";
 import { approvalCardSurfaceId } from "../notifications/approval-card-data.js";
+import {
+  type ApprovalAction,
+  isParkAction,
+  PARK_STATUS_LABEL,
+} from "../runtime/channel-approval-types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("guardian-card-withdrawal");
@@ -41,6 +46,21 @@ const SURFACE_STATUS_LABELS: Partial<Record<GuardianRequestStatus, string>> = {
   expired: "Expired",
   cancelled: "Cancelled",
 };
+
+/**
+ * The completion-summary label for a resolved card. A `denied` status reached by
+ * a park action reads as the neutral {@link PARK_STATUS_LABEL} rather than
+ * "Denied" — a parked contact was neither trusted nor kept out.
+ */
+function resolveStatusLabel(
+  status: GuardianRequestStatus,
+  decidedAction: ApprovalAction | undefined,
+): string {
+  if (status === "denied" && isParkAction(decidedAction)) {
+    return PARK_STATUS_LABEL;
+  }
+  return SURFACE_STATUS_LABELS[status] ?? "Resolved";
+}
 
 /** The request fields withdrawal reads — structural subset of the wire row. */
 export interface WithdrawableGuardianRequest {
@@ -64,6 +84,14 @@ export interface WithdrawGuardianCardsParams {
    * sweep) to withdraw every surface.
    */
   originChannel?: string;
+  /**
+   * The action the guardian took, when the terminal status came from a decision
+   * (omitted for the expiry sweep). A `denied` status can mean either a neutral
+   * park (`leave_unverified`) or an active rejection (`block`/`reject`); the
+   * action disambiguates them so a park renders neutrally as
+   * {@link PARK_STATUS_LABEL} instead of "Denied".
+   */
+  decidedAction?: ApprovalAction;
 }
 
 /**
@@ -73,7 +101,7 @@ export interface WithdrawGuardianCardsParams {
 export async function withdrawGuardianRequestCards(
   params: WithdrawGuardianCardsParams,
 ): Promise<void> {
-  const { request, status, originChannel } = params;
+  const { request, status, originChannel, decidedAction } = params;
 
   let deliveries: GuardianRequestDeliveryWire[];
   try {
@@ -89,9 +117,15 @@ export async function withdrawGuardianRequestCards(
   for (const delivery of deliveries) {
     try {
       if (delivery.destinationChannel === "vellum") {
-        withdrawVellumCard(request, delivery, status, originChannel);
+        withdrawVellumCard(
+          request,
+          delivery,
+          status,
+          originChannel,
+          decidedAction,
+        );
       } else if (delivery.destinationChannel === "slack") {
-        await withdrawSlackCard(request, delivery, status);
+        await withdrawSlackCard(request, delivery, status, decidedAction);
       }
       // Telegram/WhatsApp direct delivery can't edit a message in place (it
       // would post a new one), so their stale clicks are left to the existing
@@ -119,15 +153,22 @@ function withdrawVellumCard(
   delivery: GuardianRequestDeliveryWire,
   status: GuardianRequestStatus,
   originChannel: string | undefined,
+  decidedAction: ApprovalAction | undefined,
 ): void {
-  if (originChannel === "vellum") return;
-  if (!delivery.destinationConversationId) return;
+  if (originChannel === "vellum") {
+    return;
+  }
+  if (!delivery.destinationConversationId) {
+    return;
+  }
   const surfaceId = approvalCardSurfaceId(request.kind, request.id);
-  if (!surfaceId) return;
+  if (!surfaceId) {
+    return;
+  }
   completeSurfaceAndNotify(
     delivery.destinationConversationId,
     surfaceId,
-    SURFACE_STATUS_LABELS[status] ?? "Resolved",
+    resolveStatusLabel(status, decidedAction),
   );
 }
 
@@ -140,12 +181,16 @@ async function withdrawSlackCard(
   request: WithdrawableGuardianRequest,
   delivery: GuardianRequestDeliveryWire,
   status: GuardianRequestStatus,
+  decidedAction: ApprovalAction | undefined,
 ): Promise<void> {
-  if (!delivery.destinationChatId || !delivery.destinationMessageId) return;
+  if (!delivery.destinationChatId || !delivery.destinationMessageId) {
+    return;
+  }
   await withdrawSlackApprovalCard({
     channel: delivery.destinationChatId,
     messageTs: delivery.destinationMessageId,
     status,
+    ...(decidedAction ? { decidedAction } : {}),
     decidedByExternalUserId: request.decidedByExternalUserId ?? undefined,
     decidedAtMs: request.updatedAt,
   });

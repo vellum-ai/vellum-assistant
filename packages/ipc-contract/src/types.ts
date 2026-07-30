@@ -197,6 +197,8 @@ export interface PowerEvent {
 export type DeepLink =
   | { kind: "send"; message: string }
   | { kind: "openThread"; threadId: string }
+  | { kind: "billingCheckoutComplete"; status: "success"; sessionId: string }
+  | { kind: "billingCheckoutComplete"; status: "cancel"; sessionId: null }
   | { kind: "unknown"; url: string };
 
 // ---------------------------------------------------------------------------

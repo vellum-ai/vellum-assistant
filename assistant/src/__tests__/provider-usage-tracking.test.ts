@@ -91,6 +91,37 @@ describe("UsageTrackingProvider", () => {
     expect(events[0].estimatedCostUsd ?? 0).toBeCloseTo(0.00975, 10);
   });
 
+  test("stamps the triggering conversation id when the config carries one", async () => {
+    const provider = new UsageTrackingProvider(
+      makeProvider({
+        content: [{ type: "text", text: "Title" }],
+        model: "gpt-5.4-mini",
+        usage: {
+          inputTokens: 1_000,
+          outputTokens: 2_000,
+        },
+        stopReason: "end_turn",
+      }),
+    );
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Summarize" }] }],
+      {
+        config: {
+          callSite: "conversationTitle",
+          conversationId: "conv-123",
+        },
+      },
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      callSite: "conversationTitle",
+      conversationId: "conv-123",
+    });
+  });
+
   test("uses the transport provider when resolved attribution points elsewhere", async () => {
     setLlmConfig({
       callSites: {
@@ -174,6 +205,7 @@ describe("UsageTrackingProvider", () => {
       {
         config: {
           model: "gpt-5.4-mini",
+          conversationId: "conv-456",
         },
       },
     );
@@ -184,6 +216,7 @@ describe("UsageTrackingProvider", () => {
       callSite: "mainAgent",
       provider: "openai",
       model: "gpt-5.4-mini",
+      conversationId: "conv-456",
     });
   });
 });

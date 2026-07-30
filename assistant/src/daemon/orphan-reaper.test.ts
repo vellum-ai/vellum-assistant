@@ -116,7 +116,9 @@ function zombieChildPids(): number[] {
   const out: number[] = [];
   for (const entry of readdirSync("/proc")) {
     const pid = Number(entry);
-    if (!Number.isInteger(pid) || pid <= 1) continue;
+    if (!Number.isInteger(pid) || pid <= 1) {
+      continue;
+    }
     let stat: string;
     try {
       stat = readFileSync(`/proc/${pid}/stat`, "utf8");
@@ -124,7 +126,9 @@ function zombieChildPids(): number[] {
       continue;
     }
     const parsed = parseProcStat(stat);
-    if (parsed && parsed.state === "Z" && parsed.ppid === self) out.push(pid);
+    if (parsed && parsed.state === "Z" && parsed.ppid === self) {
+      out.push(pid);
+    }
   }
   return out;
 }
@@ -132,16 +136,21 @@ function zombieChildPids(): number[] {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 afterAll(() => {
-  if (!lib) return;
+  if (!lib) {
+    return;
+  }
   // Reap anything still lingering so the test process leaves no zombies.
-  for (const pid of zombieChildPids())
+  for (const pid of zombieChildPids()) {
     lib.symbols.waitpid(pid, ptr(statusBuf), WNOHANG);
+  }
 });
 
 itLinux(
   "defers then reaps a reparented orphan while libuv reaps the tracked child",
   async () => {
-    if (!lib) return;
+    if (!lib) {
+      return;
+    }
     // GIVEN this process is a child subreaper, so orphaned grandchildren
     // reparent here exactly as they reparent to a PID-1 daemon
     expect(lib.symbols.prctl(PR_SET_CHILD_SUBREAPER, 1n, 0n, 0n, 0n)).toBe(0);
@@ -157,11 +166,15 @@ itLinux(
       trackedChildExited = true;
     });
 
-    // AND we wait for that orphan to surface as our zombie child
+    // AND we wait for libuv to reap A before polling for the orphan —
+    // between A's exit and libuv's waitpid, A is itself transiently a zombie
+    // with our pid as parent, so an ungated poll can match A instead of B
     let zombies: number[] = [];
     for (let i = 0; i < 40 && zombies.length === 0; i++) {
       await sleep(50);
-      zombies = zombieChildPids();
+      if (trackedChildExited) {
+        zombies = zombieChildPids();
+      }
     }
     expect(zombies.length).toBeGreaterThan(0);
     expect(trackedChildExited).toBe(true); // libuv reaped A independently
@@ -172,7 +185,9 @@ itLinux(
     const scan2 = selectReapable(zombieChildPids(), scan1.nextSeen);
     let reaped = 0;
     for (const pid of scan2.reap) {
-      if (lib.symbols.waitpid(pid, ptr(statusBuf), WNOHANG) > 0) reaped++;
+      if (lib.symbols.waitpid(pid, ptr(statusBuf), WNOHANG) > 0) {
+        reaped++;
+      }
     }
     await sleep(50);
 

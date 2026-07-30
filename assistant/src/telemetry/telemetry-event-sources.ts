@@ -279,6 +279,8 @@ const usageSource = simpleSource(
     conversation_id: e.conversationId,
     conversation_type: e.conversationType,
     turn_index: e.turnIndex,
+    parent_conversation_id: e.parentConversationId,
+    parent_turn_index: e.parentTurnIndex,
     provider: e.provider,
     model: e.model,
     input_tokens: e.inputTokens,

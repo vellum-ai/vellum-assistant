@@ -15,6 +15,7 @@ export type { SkillEntryConfig } from "./schemas/skills.js";
 
 // Imports for AssistantConfigSchema composition
 import { AcpConfigSchema } from "./acp-schema.js";
+import { ApiRateLimitConfigSchema } from "./schemas/api-rate-limit.js";
 import { BackupConfigSchema } from "./schemas/backup.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import {
@@ -57,6 +58,7 @@ import {
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
 import { ToolsConfigSchema } from "./schemas/tools.js";
+import { UserRoutesConfigSchema } from "./schemas/user-routes.js";
 import { WorkflowsConfigSchema } from "./schemas/workflows.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
@@ -65,12 +67,16 @@ export const AssistantConfigSchema = z.object({
   memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
   monitoring: MonitoringConfigSchema.default(MonitoringConfigSchema.parse({})),
   migrations: MigrationsConfigSchema.default(MigrationsConfigSchema.parse({})),
+  userRoutes: UserRoutesConfigSchema.default(UserRoutesConfigSchema.parse({})),
   dataDir: z
     .string({ error: "dataDir must be a string" })
     .default(getDataDir())
     .describe("Directory for storing assistant data (database, logs, etc.)"),
   timeouts: TimeoutConfigSchema.default(TimeoutConfigSchema.parse({})),
   rateLimit: RateLimitConfigSchema.default(RateLimitConfigSchema.parse({})),
+  apiRateLimit: ApiRateLimitConfigSchema.default(
+    ApiRateLimitConfigSchema.parse({}),
+  ),
   secretDetection: SecretDetectionConfigSchema.default(
     SecretDetectionConfigSchema.parse({}),
   ),

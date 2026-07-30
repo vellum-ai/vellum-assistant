@@ -10,6 +10,7 @@ import {
 /**
  * Electron `vellum://` deep-link bridge → typed bus events:
  * `deeplink.send { message }` / `deeplink.openThread { threadId }`
+ * / `deeplink.billingCheckoutComplete { status, sessionId }`
  * / `deeplink.unknown { url }`.
  *
  * Two surfaces because deep links can arrive BEFORE the renderer
@@ -41,6 +42,14 @@ export function publishElectronDeepLinksSource(): () => void {
       case "openThread":
         publish("deeplink.openThread", { threadId: link.threadId });
         break;
+      case "billingCheckoutComplete":
+        publish(
+          "deeplink.billingCheckoutComplete",
+          link.status === "success"
+            ? { status: "success", sessionId: link.sessionId }
+            : { status: "cancel", sessionId: null },
+        );
+        break;
       case "unknown":
         publish("deeplink.unknown", { url: link.url });
         break;
@@ -51,7 +60,9 @@ export function publishElectronDeepLinksSource(): () => void {
 
   void drainPendingDeepLinks()
     .then((pending) => {
-      for (const link of pending) publishDeepLink(link);
+      for (const link of pending) {
+        publishDeepLink(link);
+      }
     })
     .catch((err) => {
       captureError(err, { context: "deep_link_drain", level: "warning" });

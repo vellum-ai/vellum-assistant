@@ -321,3 +321,17 @@ export type {
   ResolvedChannelPermission,
   RiskThreshold,
 } from "./channel-permission-contract.js";
+
+// Binding-strength vocabulary for the contact `verified_via` provenance —
+// display ladder (introduction card) + the enforcement order the gateway ACL
+// write path uses to refuse demotions (LUM-2505).
+export {
+  bindingStrengthForVerifiedVia,
+  isBindingDemotion,
+  knownStrengthRank,
+  VERIFIED_VIA_CHALLENGE,
+  VERIFIED_VIA_CHANNEL_CLAIM,
+  VERIFIED_VIA_MANUAL,
+} from "./binding-strength-contract.js";
+
+export type { BindingStrength } from "./binding-strength-contract.js";

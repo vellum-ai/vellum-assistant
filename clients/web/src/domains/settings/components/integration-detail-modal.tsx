@@ -3,10 +3,10 @@ import { X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import {
-    assistantsOauthConnectionsListOptions,
-    assistantsOauthConnectionsListQueryKey,
-    assistantsOauthConnectionsListSetQueryData,
-    useAssistantsOauthDisconnectByConnectionCreateMutation,
+  assistantsOauthConnectionsListOptions,
+  assistantsOauthConnectionsListQueryKey,
+  assistantsOauthConnectionsListSetQueryData,
+  useAssistantsOauthDisconnectByConnectionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
@@ -87,39 +87,42 @@ export function IntegrationDetailModal({
     (c) => c.provider === providerKey && c.connected,
   );
 
-  const { handleConnect, oauthInProgress, startOAuthPending } = useOAuthConnect({
-    assistantId,
-    providerKey,
-    displayName,
-    managedAvailable,
-    connectionsQueryKey,
-    allConnections,
-  });
+  const { handleConnect, oauthInProgress, startOAuthPending } = useOAuthConnect(
+    {
+      assistantId,
+      providerKey,
+      displayName,
+      managedAvailable,
+      connectionsQueryKey,
+      allConnections,
+    },
+  );
 
   const connectionsOpts = { path: { assistant_id: platformAssistantId } };
 
-  const disconnectOAuth = useAssistantsOauthDisconnectByConnectionCreateMutation({
-    onSuccess(_data, variables) {
-      toast.success(`${displayName} account disconnected.`);
-      const connectionId = variables.path.connection_id;
-      assistantsOauthConnectionsListSetQueryData(
-        queryClient,
-        connectionsOpts,
-        (old) => old?.filter((c) => c.id !== connectionId),
-      );
-      queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
-      setPendingDisconnectId(null);
-    },
-    onError(error) {
-      const detail = extractErrorMessage(
-        error,
-        undefined,
-        `Failed to disconnect ${displayName} account.`,
-      );
-      toast.error(detail);
-      setPendingDisconnectId(null);
-    },
-  });
+  const disconnectOAuth =
+    useAssistantsOauthDisconnectByConnectionCreateMutation({
+      onSuccess(_data, variables) {
+        toast.success(`${displayName} account disconnected.`);
+        const connectionId = variables.path.connection_id;
+        assistantsOauthConnectionsListSetQueryData(
+          queryClient,
+          connectionsOpts,
+          (old) => old?.filter((c) => c.id !== connectionId),
+        );
+        queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
+        setPendingDisconnectId(null);
+      },
+      onError(error) {
+        const detail = extractErrorMessage(
+          error,
+          undefined,
+          `Failed to disconnect ${displayName} account.`,
+        );
+        toast.error(detail);
+        setPendingDisconnectId(null);
+      },
+    });
 
   // Modal: Escape key + body scroll lock
   useEffect(() => {

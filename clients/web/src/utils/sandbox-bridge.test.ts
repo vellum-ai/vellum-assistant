@@ -66,7 +66,9 @@ describe("injectScript", () => {
 
     expect(bridgeIdx).toBeGreaterThan(hostScriptStart);
     expect(bridgeIdx).toBeLessThan(realBodyClose);
-    expect(out.indexOf("console.log('app');")).toBeLessThan(out.indexOf("</script>"));
+    expect(out.indexOf("console.log('app');")).toBeLessThan(
+      out.indexOf("</script>"),
+    );
   });
 
   it("falls back to after </head> when no </body>", () => {
@@ -89,7 +91,8 @@ describe("injectScript", () => {
 
 describe("prependScript", () => {
   it("injects right after <head>", () => {
-    const html = "<html><head><meta charset=\"utf-8\"></head><body></body></html>";
+    const html =
+      '<html><head><meta charset="utf-8"></head><body></body></html>';
     const script = "<script>early</script>";
     const out = prependScript(html, script);
     const headOpen = out.indexOf("<head>");
@@ -126,7 +129,8 @@ describe("prependScript", () => {
 
 describe("injectBridge", () => {
   it("prepends polyfill in <head> and appends bridge logic before </body>", () => {
-    const html = "<!doctype html><html><head></head><body><div>hi</div></body></html>";
+    const html =
+      "<!doctype html><html><head></head><body><div>hi</div></body></html>";
     const out = injectBridge(html, FRAME_ID);
     expect(out).toContain("<div>hi</div>");
     expect(out).toContain("window.vellum");
@@ -211,6 +215,15 @@ describe("injectBridge", () => {
     expect(out).not.toContain("vellum_fetch_request");
     expect(out).not.toContain("window.vellum.fetch");
   });
+
+  it("normalizes a missing /v1 prefix on custom-route fetch paths", () => {
+    const html = "<html><body></body></html>";
+    const out = injectBridge(html, FRAME_ID, { fetch: true });
+    // The bridge prepends "/v1" to "/x/..." paths so the host's strict
+    // "/v1/x/" check accepts callers that omit the version prefix.
+    expect(out).toContain("path.indexOf('/x/') === 0");
+    expect(out).toContain("'/v1' + path");
+  });
 });
 
 describe("buildLinkInterceptorScript", () => {
@@ -267,6 +280,11 @@ describe("buildLinkInterceptorScript", () => {
     expect(out).toContain(FRAME_ID);
   });
 
+  it("intercepts only the workspace and host vellum:// authorities", () => {
+    const out = buildLinkInterceptorScript(FRAME_ID);
+    expect(out).toContain("(workspace|host)");
+  });
+
   it("checks vellum:// scheme before external http(s) schemes", () => {
     const out = buildLinkInterceptorScript(FRAME_ID);
     const vellumIdx = out.indexOf("vellum:");
@@ -287,7 +305,8 @@ describe("injectBridge — link interceptor", () => {
   });
 
   it("injects the link interceptor before </body> alongside bridge logic", () => {
-    const html = "<!doctype html><html><head></head><body><div>hi</div></body></html>";
+    const html =
+      "<!doctype html><html><head></head><body><div>hi</div></body></html>";
     const out = injectBridge(html, FRAME_ID);
     const bodyClose = out.lastIndexOf("</body>");
     const interceptorIdx = out.indexOf("window.open");
@@ -298,7 +317,8 @@ describe("injectBridge — link interceptor", () => {
 
 describe("preparePreviewHtml", () => {
   it("prepends polyfill and styles right after <head>", () => {
-    const html = "<html><head><meta></head><body><div>hello</div></body></html>";
+    const html =
+      "<html><head><meta></head><body><div>hello</div></body></html>";
     const out = preparePreviewHtml(html);
     expect(out).toContain("storageShim");
     expect(out).toContain("overflow:hidden");
@@ -318,6 +338,8 @@ describe("preparePreviewHtml", () => {
     expect(out).toContain("storageShim");
     expect(out).toContain("overflow:hidden");
     expect(out).toContain("<div>content</div>");
-    expect(out.indexOf("storageShim")).toBeLessThan(out.indexOf("<div>content</div>"));
+    expect(out.indexOf("storageShim")).toBeLessThan(
+      out.indexOf("<div>content</div>"),
+    );
   });
 });

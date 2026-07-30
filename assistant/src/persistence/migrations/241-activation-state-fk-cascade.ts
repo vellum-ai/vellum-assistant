@@ -15,8 +15,12 @@ export function migrateActivationStateFkCascade(database: DrizzleDb): void {
       `SELECT sql FROM sqlite_master WHERE type='table' AND name='activation_state'`,
     )
     .get() as { sql: string } | null;
-  if (!row) return;
-  if (row.sql.includes("ON DELETE CASCADE")) return;
+  if (!row) {
+    return;
+  }
+  if (row.sql.includes("ON DELETE CASCADE")) {
+    return;
+  }
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {

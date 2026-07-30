@@ -47,7 +47,9 @@ export async function ensureTelegramBotUsernameResolved(): Promise<void> {
   }
 
   const token = await getSecureKeyAsync(credentialKey("telegram", "bot_token"));
-  if (!token) return;
+  if (!token) {
+    return;
+  }
 
   try {
     const controller = new AbortController();
@@ -127,7 +129,9 @@ export const telegramInviteAdapter: ChannelInviteAdapter = {
 
   resolveChannelHandle(): string | undefined {
     const botUsername = getTelegramBotUsername();
-    if (!botUsername) return undefined;
+    if (!botUsername) {
+      return undefined;
+    }
     return `@${botUsername}`;
   },
 

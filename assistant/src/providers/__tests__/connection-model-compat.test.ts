@@ -53,6 +53,9 @@ describe("isConnectionCompatibleWithModel", () => {
 
   test("oauth_subscription connection is compatible with a Codex model", () => {
     const conn = { auth: oauthAuth };
+    expect(isConnectionCompatibleWithModel(conn, "gpt-5.6-sol")).toBe(true);
+    expect(isConnectionCompatibleWithModel(conn, "gpt-5.6-terra")).toBe(true);
+    expect(isConnectionCompatibleWithModel(conn, "gpt-5.6-luna")).toBe(true);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.5")).toBe(true);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.4")).toBe(true);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.4-mini")).toBe(true);
@@ -115,7 +118,9 @@ import { getConfiguredProvider } from "../provider-send-message.js";
 
 function registerConnections(connections: Connection[]): void {
   fakeConnectionList = connections;
-  for (const c of connections) fakeConnectionsByName.set(c.name, c);
+  for (const c of connections) {
+    fakeConnectionsByName.set(c.name, c);
+  }
 }
 
 function reset(): void {

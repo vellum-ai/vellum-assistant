@@ -1,13 +1,14 @@
+import {
+  ORDERING_ERROR_PATTERNS,
+  WEB_SEARCH_ORDERING_PATTERNS,
+} from "../agent/history-repair/history-repair.js";
 import type {
   ConversationErrorCode,
   ConversationErrorEvent,
 } from "../api/events/conversation-error.js";
 import {
-  ORDERING_ERROR_PATTERNS,
-  WEB_SEARCH_ORDERING_PATTERNS,
-} from "../plugins/defaults/history-repair/terminal.js";
-import {
   isImageDimensionsTooLargeError,
+  isImageMediaTypeMismatchError,
   isImageUnprocessableError,
 } from "../plugins/defaults/image-recovery/detect.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
@@ -324,6 +325,8 @@ function connectionResolutionUserMessage(
       return `${connection}${usedBy} is bound to a different provider than the profile declares. Update the profile's connection in ${fixPath}.`;
     case "missing_connection":
       return `No provider connection is configured${usedBy}. Add an API key or log in via ${fixPath}.`;
+    case "unroutable_managed_model":
+      return `The model "${error.model ?? "<unset>"}"${usedBy} isn't served by the Vellum managed route. Pick a model from the Vellum catalog, or choose a concrete provider in ${fixPath}.`;
     case "missing_credential":
       // Provider-neutral: api_key connections store keys, oauth_subscription
       // connections store login tokens — the fix differs but the location
@@ -473,6 +476,19 @@ function classifyCore(
           errorCategory: "image_unprocessable",
         };
       }
+      if (isImageMediaTypeMismatchError(message)) {
+        // Same wire-code reuse as image_unprocessable above. This surfaces only
+        // when auto-correction could not resolve the mismatch — a recognized
+        // format is relabeled and the retry succeeds without ever reaching here,
+        // so the copy must not claim a fix that didn't happen.
+        return {
+          code: "IMAGE_TOO_LARGE",
+          userMessage:
+            "An image in this conversation is in a format the AI provider can't read, and it couldn't be converted automatically. Re-save it as PNG or JPEG and upload it again.",
+          retryable: false,
+          errorCategory: "image_media_type_mismatch",
+        };
+      }
       if (isVisionNotSupportedError(message)) {
         return visionNotSupportedClassification();
       }
@@ -548,6 +564,12 @@ function reasonToClassification(
       return managed
         ? managedBalanceClassification()
         : providerBillingClassification();
+    case "daily_limit_reached":
+      // The reason is stamped only from the platform proxy's
+      // `"code":"daily_limit_reached"` body, so it is authoritative on its
+      // own — the global routing map can lag per-connection platform-auth
+      // routes and must not downgrade this to the generic billing surface.
+      return dailyLimitClassification();
     case "overloaded":
       return providerOverloadedClassification();
     case "server_error":
@@ -689,6 +711,19 @@ function providerBillingClassification(): Omit<
       "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings → Models & Services.",
     retryable: false,
     errorCategory: "provider_billing",
+  };
+}
+
+function dailyLimitClassification(): Omit<
+  ClassifiedConversationError,
+  "debugDetails"
+> {
+  return {
+    code: "PROVIDER_BILLING",
+    userMessage:
+      "You've hit your daily credit limit. Raise the limit in Billing settings to keep going today.",
+    retryable: false,
+    errorCategory: "daily_limit_reached",
   };
 }
 

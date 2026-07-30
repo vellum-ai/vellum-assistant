@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 
-import { RenameConversationDialog } from "@/domains/chat/components/rename-conversation-dialog";
+import { NameInputDialog } from "@/domains/chat/components/name-input-dialog";
 import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
 import { conversationsByIdNamePatch } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -14,19 +14,27 @@ import { patchConversation } from "@/utils/conversation-cache";
  * optimistic-update logic is colocated with the UI rather than threaded
  * through the parent orchestrator's dependency tree.
  */
-export function RenameDialogFromStore({ assistantId }: { assistantId: string | null }) {
+export function RenameDialogFromStore({
+  assistantId,
+}: {
+  assistantId: string | null;
+}) {
   const renameRequest = useRenameRequestStore.use.renameRequest();
   const clearRename = useRenameRequestStore.use.clearRename();
   const queryClient = useQueryClient();
 
   const handleSubmit = useCallback(
     async (newTitle: string) => {
-      if (!renameRequest || !assistantId) return;
+      if (!renameRequest || !assistantId) {
+        return;
+      }
       const { conversationId, currentTitle } = renameRequest;
       clearRename();
 
       const trimmed = newTitle.trim();
-      if (!trimmed || trimmed === currentTitle) return;
+      if (!trimmed || trimmed === currentTitle) {
+        return;
+      }
 
       patchConversation(queryClient, assistantId, conversationId, {
         title: trimmed,
@@ -49,9 +57,11 @@ export function RenameDialogFromStore({ assistantId }: { assistantId: string | n
   );
 
   return (
-    <RenameConversationDialog
+    <NameInputDialog
       open={renameRequest !== null}
-      currentTitle={renameRequest?.currentTitle ?? ""}
+      title="Rename conversation"
+      submitLabel="Save"
+      initialValue={renameRequest?.currentTitle ?? ""}
       onSubmit={handleSubmit}
       onCancel={clearRename}
     />

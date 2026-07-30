@@ -10,14 +10,21 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 
+const realChildProcess = { ...childProcess };
 const execFileSyncMock = mock(childProcess.execFileSync);
 
 mock.module("node:child_process", () => ({
   ...childProcess,
   execFileSync: execFileSyncMock,
 }));
+
+// Restore the real module once this file finishes so the mock does not leak
+// into sibling test files in the same `bun test` run.
+afterAll(() => {
+  mock.module("node:child_process", () => realChildProcess);
+});
 
 import {
   buildIngressNginxConfig,
@@ -49,6 +56,13 @@ describe("buildIngressNginxConfig", () => {
     expect(listens.length).toBeGreaterThan(0);
     for (const directive of listens) {
       expect(directive).toContain("127.0.0.1");
+    }
+  });
+
+  test("emits relative redirects so a fronting proxy keeps scheme and port", () => {
+    for (const config of [conf, remoteConf]) {
+      expect(config).toContain("absolute_redirect off;");
+      expect(config).toContain("port_in_redirect off;");
     }
   });
 

@@ -14,6 +14,7 @@ Slides are a different domain from apps. Skip app-specific patterns (contextual 
 ## Navigation
 
 Build slide navigation as your own component. Common patterns:
+
 - Keyboard: `ArrowLeft` / `ArrowRight` / `Space` / `Escape`
 - Click affordances at left/right edges
 - Slide counter pill in a corner (e.g. `3 / 12`)

@@ -75,8 +75,7 @@ export class PlatformPushAdapter implements ChannelAdapter {
         : undefined;
 
     const targetGuardianPrincipalId =
-      guardianPrincipalId &&
-      isGuardianSensitiveEvent(payload.sourceEventName)
+      guardianPrincipalId && isGuardianSensitiveEvent(payload.sourceEventName)
         ? guardianPrincipalId
         : undefined;
 
@@ -101,10 +100,7 @@ export class PlatformPushAdapter implements ChannelAdapter {
           body: JSON.stringify(body),
         });
       } catch (err) {
-        if (
-          attempt < RETRY_DELAYS_MS.length &&
-          isRetryableNetworkError(err)
-        ) {
+        if (attempt < RETRY_DELAYS_MS.length && isRetryableNetworkError(err)) {
           log.warn(
             {
               attempt,
@@ -137,7 +133,10 @@ export class PlatformPushAdapter implements ChannelAdapter {
         return { success: true };
       }
 
-      if (attempt < RETRY_DELAYS_MS.length && isRetryableStatus(response.status)) {
+      if (
+        attempt < RETRY_DELAYS_MS.length &&
+        isRetryableStatus(response.status)
+      ) {
         log.warn(
           {
             attempt,

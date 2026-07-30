@@ -17,11 +17,11 @@ You are helping your user configure Twilio for voice calls. Walk through each st
 
 Before you begin, understand how each Twilio value is stored:
 
-| Value        | Type       | Storage method                                                  | Secret? |
-| ------------ | ---------- | --------------------------------------------------------------- | ------- |
-| Account SID  | Config     | `assistant config set twilio.accountSid`                        | No      |
-| Auth Token   | Credential | `assistant credentials set --service twilio --field auth_token` | **Yes** |
-| Phone Number | Config     | `assistant config set twilio.phoneNumber`                       | No      |
+| Value        | Type       | Storage method                                                     | Secret? |
+| ------------ | ---------- | ------------------------------------------------------------------ | ------- |
+| Account SID  | Config     | `assistant config set twilio.accountSid`                           | No      |
+| Auth Token   | Credential | `assistant credentials prompt --service twilio --field auth_token` | **Yes** |
+| Phone Number | Config     | `assistant config set twilio.phoneNumber`                          | No      |
 
 - **Config values** (Account SID, Phone Number) are non-sensitive identifiers. Collect them via normal conversation -- the user can paste them in chat or you can use `AskUserQuestion`.
   **Auth Token** is a secret. Collect it securely via `assistant credentials prompt` -- never accept it pasted in plaintext chat.

@@ -111,6 +111,11 @@ Each completion criterion must bind a **tool call** to the **user-visible artifa
 
 Past 500 lines the model loses things in the middle. Warnings get buried, branching loses visibility, and the file fights the task for the same context budget. If a skill is growing past 500 lines, split reference material into separate files the skill points to.
 
+Companion files ship through `scaffold_managed_skill`'s `files` input and live inside the skill folder:
+
+- **`references/*.md`** for failure modes, gotchas, and cached values the body should point to.
+- **`scripts/*`** for reusable code the procedure runs. Store the exact version that already ran successfully, and have the new skill's body invoke it through the baseDir placeholder — the word baseDir in curly braces, which resolves to that skill's folder when it loads. The terminal does not run from the skill folder, so a bare `scripts/...` path would fail. (The placeholder is spelled out here rather than written literally because this very body undergoes the same substitution.)
+
 ## Step 6 - Test the skill before calling it done
 
 After scaffolding, load the skill and confirm it activates on the intended trigger and follows its own steps. If it does not activate or drifts, fix the body and test again.

@@ -35,7 +35,9 @@ mock.module("@anthropic-ai/sdk", () => ({
         return this;
       },
       async finalMessage() {
-        if (nextThrown) throw nextThrown;
+        if (nextThrown) {
+          throw nextThrown;
+        }
         return {
           content: [],
           model: "claude-sonnet-4-6",
@@ -204,6 +206,15 @@ describe("AnthropicProvider — semantic reason stamping", () => {
         anthropicBody("invalid_request_error"),
       ),
       reason: "insufficient_credits",
+    },
+    {
+      name: "daily-limit body code → daily_limit_reached (before insufficient_credits)",
+      error: new FakeAPIError(
+        402,
+        '{"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
+        anthropicBody("invalid_request_error"),
+      ),
+      reason: "daily_limit_reached",
     },
     {
       name: "5xx → server_error",

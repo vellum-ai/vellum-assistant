@@ -16,16 +16,14 @@ import {
   type ManagedOAuthConnectClient,
   type ManagedOAuthProviderSummary,
 } from "@/domains/chat/api/managed-oauth";
+import {
+  type OAuthConnectSurfaceData,
+  OAuthConnectSurfaceDataSchema,
+} from "@vellumai/assistant-api";
+
 import type { Surface } from "@/domains/chat/types/types";
 import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
-
-interface OAuthConnectSurfaceData {
-  providerKey?: string;
-  displayName?: string;
-  description?: string;
-  logoUrl?: string | null;
-}
 
 interface OAuthConnectSurfaceProps {
   surface: Surface;
@@ -103,8 +101,14 @@ export function OAuthConnectSurface({
   oauthClient = defaultManagedOAuthConnectClient,
 }: OAuthConnectSurfaceProps) {
   const queryClient = useQueryClient();
-  const data = surface.data as OAuthConnectSurfaceData;
-  const providerKey = data.providerKey ?? "";
+  // The wire keeps surface `data` opaque; narrow it with the canonical schema
+  // (tolerant, so a real payload never fails to parse) rather than an
+  // unchecked cast or a re-declared local interface.
+  const parsedData = OAuthConnectSurfaceDataSchema.safeParse(surface.data);
+  const data: OAuthConnectSurfaceData = parsedData.success
+    ? parsedData.data
+    : { providerKey: "" };
+  const providerKey = data.providerKey;
   const [provider, setProvider] = useState<ManagedOAuthProviderSummary | null>(
     null,
   );
@@ -124,7 +128,9 @@ export function OAuthConnectSurface({
 
   useEffect(() => {
     let cancelled = false;
-    if (!assistantId || !providerKey) return;
+    if (!assistantId || !providerKey) {
+      return;
+    }
     void oauthClient.fetchProvider(assistantId, providerKey).then((result) => {
       if (!cancelled) {
         setProvider(result);
@@ -151,7 +157,9 @@ export function OAuthConnectSurface({
   };
 
   const handleConnect = async () => {
-    if (!assistantId || !providerKey || state === "connecting") return;
+    if (!assistantId || !providerKey || state === "connecting") {
+      return;
+    }
     setState("connecting");
     setErrorMessage(null);
 

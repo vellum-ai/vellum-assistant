@@ -6,8 +6,7 @@
  * transcript deltas), so tests drive it by writing transcript fields through
  * the store and asserting the rendered surface: partial/final precedence,
  * store-driven clearing, the empty-renders-nothing contract, and the caret's
- * reduced-motion behavior (verified by stubbing `motion/react`, mirroring
- * `voice-timeline-waveform.test.tsx`).
+ * reduced-motion behavior (verified by stubbing `motion/react`).
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -55,9 +54,9 @@ describe("VoiceLiveTranscript — transcript text", () => {
   test("falls back to the final transcript when no partial is in flight", () => {
     seedTranscripts("", "what I said");
     render(<VoiceLiveTranscript />);
-    expect(
-      screen.getByLabelText("Voice transcript").textContent,
-    ).toContain("what I said");
+    expect(screen.getByLabelText("Voice transcript").textContent).toContain(
+      "what I said",
+    );
   });
 
   test("streams partial updates without remounting", () => {
@@ -66,9 +65,9 @@ describe("VoiceLiveTranscript — transcript text", () => {
     act(() => {
       useLiveVoiceStore.getState().setPartialTranscript("hello world");
     });
-    expect(
-      screen.getByLabelText("Voice transcript").textContent,
-    ).toContain("hello world");
+    expect(screen.getByLabelText("Voice transcript").textContent).toContain(
+      "hello world",
+    );
   });
 });
 
@@ -138,9 +137,8 @@ describe("VoiceLiveTranscript — reduced motion", () => {
       useReducedMotion: () => true,
     }));
 
-    const { VoiceLiveTranscript: ReducedTranscript } = await import(
-      "./voice-live-transcript"
-    );
+    const { VoiceLiveTranscript: ReducedTranscript } =
+      await import("./voice-live-transcript");
     seedTranscripts("hello");
     render(<ReducedTranscript />);
 

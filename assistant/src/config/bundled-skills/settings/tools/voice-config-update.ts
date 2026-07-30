@@ -5,7 +5,9 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { listCatalogProviderIds } from "../../../../tts/provider-catalog.js";
+import { ttsVoiceFieldFor } from "../../../../tts/tts-voice-field.js";
 import {
+  getConfig,
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
@@ -44,9 +46,7 @@ const VOICE_SETTINGS = {
 type VoiceSettingName = keyof typeof VOICE_SETTINGS;
 
 /** Exported so tests can assert parity with the TOOLS.json `setting` enum. */
-export const VALID_SETTINGS = Object.keys(
-  VOICE_SETTINGS,
-) as VoiceSettingName[];
+export const VALID_SETTINGS = Object.keys(VOICE_SETTINGS) as VoiceSettingName[];
 
 const VALID_TIMEOUTS: readonly number[] = VALID_CONVERSATION_TIMEOUTS;
 
@@ -62,6 +62,7 @@ const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
 function validateSetting(
   setting: string,
   value: unknown,
+  activeTtsProviderId?: string,
 ):
   | { ok: true; coerced: string | boolean | number }
   | { ok: false; error: string } {
@@ -104,16 +105,27 @@ function validateSetting(
       if (typeof value !== "string" || value.trim().length === 0) {
         return {
           ok: false,
-          error:
-            "tts_voice_id must be a non-empty string (ElevenLabs voice ID)",
+          error: "tts_voice_id must be a non-empty string",
         };
       }
       const trimmed = value.trim();
-      if (!/^[a-zA-Z0-9]+$/.test(trimmed)) {
+      const field = ttsVoiceFieldFor(activeTtsProviderId);
+      if (field.alphanumericOnly) {
+        if (!/^[a-zA-Z0-9]+$/.test(trimmed)) {
+          return {
+            ok: false,
+            error:
+              "tts_voice_id must contain only alphanumeric characters (ElevenLabs voice ID format)",
+          };
+        }
+      } else if (!/^[a-zA-Z0-9._-]+$/.test(trimmed)) {
+        // Managed (vellum) / deepgram voices are Deepgram Aura model ids and
+        // the other providers' voice references are also hyphenated.
         return {
           ok: false,
           error:
-            "tts_voice_id must contain only alphanumeric characters (ElevenLabs voice ID format)",
+            "tts_voice_id must contain only letters, numbers, '.', '_', or '-' " +
+            "(e.g. a Deepgram Aura model id like aura-2-thalia-en)",
         };
       }
       return { ok: true, coerced: trimmed };
@@ -197,7 +209,12 @@ export async function run(
     };
   }
 
-  const validation = validateSetting(setting, value);
+  // A tts_voice_id change targets the *active* TTS provider's voice field, so
+  // validation and the write below both need to know which provider is live.
+  const activeTtsProviderId =
+    setting === "tts_voice_id" ? getConfig().services.tts.provider : undefined;
+
+  const validation = validateSetting(setting, value, activeTtsProviderId);
   if (!validation.ok) {
     return { content: `Error: ${validation.error}`, isError: true };
   }
@@ -214,12 +231,22 @@ export async function run(
   }
 
   const meta: VoiceSettingMeta = VOICE_SETTINGS[setting as VoiceSettingName];
-  const friendlyName = FRIENDLY_NAMES[setting as VoiceSettingName];
+  const friendlyName =
+    setting === "tts_voice_id"
+      ? ttsVoiceFieldFor(activeTtsProviderId).label
+      : FRIENDLY_NAMES[setting as VoiceSettingName];
+
+  // The `ttsVoiceId` UserDefaults key is an ElevenLabs concept on the desktop
+  // client. A managed (vellum) or other-provider voice lives only in daemon
+  // config and hot-applies per turn — broadcasting its id under the ElevenLabs
+  // key would pollute the client's ElevenLabs voice, so skip the broadcast.
+  const skipClientBroadcast =
+    setting === "tts_voice_id" && activeTtsProviderId !== "elevenlabs";
 
   // Send client_settings_update message to write to UserDefaults.
   // Always stringify the value — Swift's ClientSettingsUpdate.value is typed
   // as String, so a bare JSON number would fail to decode.
-  if (context.sendToClient && meta.userDefaultsKey) {
+  if (context.sendToClient && meta.userDefaultsKey && !skipClientBroadcast) {
     context.sendToClient({
       type: "client_settings_update",
       key: meta.userDefaultsKey,
@@ -240,7 +267,7 @@ export async function run(
   if (setting === "tts_voice_id") {
     setNestedValue(
       raw,
-      "services.tts.providers.elevenlabs.voiceId",
+      ttsVoiceFieldFor(activeTtsProviderId).path,
       validation.coerced,
     );
     saveRawConfig(raw);
@@ -274,9 +301,10 @@ export async function run(
     invalidateConfigCache();
   }
 
-  const broadcastNote = meta.userDefaultsKey
-    ? " The change has been broadcast to the desktop client."
-    : "";
+  const broadcastNote =
+    meta.userDefaultsKey && !skipClientBroadcast
+      ? " The change has been broadcast to the desktop client."
+      : "";
   return {
     content: `${friendlyName} updated to ${JSON.stringify(
       validation.coerced,

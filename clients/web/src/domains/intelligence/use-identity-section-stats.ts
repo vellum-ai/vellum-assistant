@@ -13,8 +13,10 @@ import {
   personalitySlidersQueryKey,
 } from "@/assistant/personality-sliders";
 import {
+  appsGetOptions,
   channelsReadinessGetOptions,
   contactsGetOptions,
+  documentsGetOptions,
   schedulesGetQueryKey,
   skillsGetOptions,
   workspaceTreeGetOptions,
@@ -56,13 +58,11 @@ function pluralLabel(n: number, singular: string, pluralForm: string): string {
 interface UseIdentitySectionStatsOptions {
   /** Skip the plugin fetch on assistants without the plugin routes. */
   supportsPlugins: boolean;
-  /** Skip the channels fetch while the Channels surface is flagged off. */
-  showChannels: boolean;
 }
 
 export function useIdentitySectionStats(
   assistantId: string,
-  { supportsPlugins, showChannels }: UseIdentitySectionStatsOptions,
+  { supportsPlugins }: UseIdentitySectionStatsOptions,
 ): Record<string, IdentitySectionStat | undefined> {
   const path = { assistant_id: assistantId };
   const common = { staleTime: STATS_STALE_MS, retry: false, enabled: true };
@@ -80,6 +80,16 @@ export function useIdentitySectionStats(
     select: (data) => data.plugins.length,
     enabled: supportsPlugins,
   });
+  const apps = useQuery({
+    ...appsGetOptions({ path }),
+    select: (data) => data.apps.length,
+    ...common,
+  });
+  const documents = useQuery({
+    ...documentsGetOptions({ path }),
+    select: (data) => data.documents.length,
+    ...common,
+  });
   const workspace = useQuery({
     ...workspaceTreeGetOptions({ path }),
     select: (data) => data.entries.length,
@@ -94,7 +104,6 @@ export function useIdentitySectionStats(
     ...channelsReadinessGetOptions({ path }),
     select: (data) => data.snapshots.filter((s) => s.ready).length,
     ...common,
-    enabled: showChannels,
   });
   // Shares the schedules cache entry owned by `fetchSchedules` (Settings
   // and the Activity page key it identically with a `Schedule[]` payload)
@@ -152,6 +161,21 @@ export function useIdentitySectionStats(
               ...(plugins.data !== undefined
                 ? [
                     `${plugins.data} ${pluralLabel(plugins.data, "plugin", "plugins")}`,
+                  ]
+                : []),
+            ].join(" · "),
+          }
+        : undefined,
+    // Apps and documents share the Library card; like the superpowers stat,
+    // both kinds are named (interpunct-separated) once their reads resolve.
+    library:
+      apps.data !== undefined
+        ? {
+            text: [
+              `${apps.data} ${pluralLabel(apps.data, "app", "apps")}`,
+              ...(documents.data !== undefined
+                ? [
+                    `${documents.data} ${pluralLabel(documents.data, "doc", "docs")}`,
                   ]
                 : []),
             ].join(" · "),

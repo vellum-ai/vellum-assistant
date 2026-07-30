@@ -178,7 +178,9 @@ export function updateExternalChatName(
 ): void {
   const db = getDb();
   const trimmedName = externalChatName.trim();
-  if (!trimmedName) return;
+  if (!trimmedName) {
+    return;
+  }
 
   db.update(externalConversationBindings)
     .set({
@@ -263,6 +265,28 @@ export function deleteBindingByChannelChat(
 }
 
 /**
+ * Remove only the thread-less (chat-level) binding for a channel + chat,
+ * leaving bindings that carry an `externalThreadId` untouched. Used when
+ * resetting a chat's main conversation so sibling thread/topic conversations
+ * in the same chat keep their bindings.
+ */
+export function deleteBindingByChannelChatNullThread(
+  sourceChannel: string,
+  externalChatId: string,
+): void {
+  const db = getDb();
+  db.delete(externalConversationBindings)
+    .where(
+      and(
+        eq(externalConversationBindings.sourceChannel, sourceChannel),
+        eq(externalConversationBindings.externalChatId, externalChatId),
+        isNull(externalConversationBindings.externalThreadId),
+      ),
+    )
+    .run();
+}
+
+/**
  * Remove an external binding by channel + external chat ID + thread ID.
  */
 export function deleteBindingByChannelChatThread(
@@ -294,7 +318,9 @@ export function deleteBindingByChannelChatThread(
 export function getBindingsForConversations(
   conversationIds: string[],
 ): Map<string, ExternalConversationBinding> {
-  if (conversationIds.length === 0) return new Map();
+  if (conversationIds.length === 0) {
+    return new Map();
+  }
 
   const db = getDb();
   const result = new Map<string, ExternalConversationBinding>();

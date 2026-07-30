@@ -44,7 +44,9 @@ function createMockWs() {
   return {
     ws: {
       send(data: string) {
-        if (closed) throw new Error("WebSocket is closed");
+        if (closed) {
+          throw new Error("WebSocket is closed");
+        }
         sent.push(data);
       },
       close(code?: number, reason?: string) {
@@ -81,7 +83,9 @@ async function drain(until?: () => boolean): Promise<void> {
   const deadline = Date.now() + 2000;
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, 10));
-    if (!until || until() || Date.now() > deadline) return;
+    if (!until || until() || Date.now() > deadline) {
+      return;
+    }
   }
 }
 
@@ -198,7 +202,9 @@ function countZeroCrossings(pcm: Buffer): number {
   let prev = pcm.readInt16LE(0);
   for (let i = 1; i < samples; i++) {
     const s = pcm.readInt16LE(i * 2);
-    if ((prev < 0 && s >= 0) || (prev >= 0 && s < 0)) crossings++;
+    if ((prev < 0 && s >= 0) || (prev >= 0 && s < 0)) {
+      crossings++;
+    }
     prev = s;
   }
   return crossings;

@@ -112,7 +112,9 @@ export function applyAcpEvent(
   switch (event.updateType) {
     case "tool_call": {
       const toolCallId = event.toolCallId;
-      if (toolCallId === undefined) return;
+      if (toolCallId === undefined) {
+        return;
+      }
       closeTrailingMessage(steps);
       steps.push({
         kind: "tool",
@@ -129,11 +131,15 @@ export function applyAcpEvent(
 
     case "tool_call_update": {
       const toolCallId = event.toolCallId;
-      if (toolCallId === undefined) return;
+      if (toolCallId === undefined) {
+        return;
+      }
       const index = steps.findIndex(
         (s) => s.kind === "tool" && s.toolCallId === toolCallId,
       );
-      if (index === -1) return;
+      if (index === -1) {
+        return;
+      }
       const target = steps[index] as Extract<AcpTimelineStep, { kind: "tool" }>;
       // ACP `ToolCallUpdate.content` REPLACES the tool's content collection: the
       // daemon forwards each update as the full current snapshot, not a delta.
@@ -215,7 +221,9 @@ export function applyAcpEvent(
 
     case "plan": {
       const entries = parsePlanEntries(event.content);
-      if (entries === null) return;
+      if (entries === null) {
+        return;
+      }
       const index = steps.findIndex((s) => s.kind === "plan");
       const planStep: AcpTimelineStep = {
         kind: "plan",
@@ -245,7 +253,9 @@ export function applyAcpEvent(
 function parsePlanEntries(
   content: string | undefined,
 ): { label: string; checked: boolean }[] | null {
-  if (!content) return null;
+  if (!content) {
+    return null;
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
@@ -257,7 +267,9 @@ function parsePlanEntries(
     : Array.isArray((parsed as { entries?: unknown })?.entries)
       ? (parsed as { entries: unknown[] }).entries
       : null;
-  if (raw === null) return null;
+  if (raw === null) {
+    return null;
+  }
   return raw.map((item) => {
     const obj = (item ?? {}) as Record<string, unknown>;
     // ACP `PlanEntry` carries its text in `content`; older shapes used `label`.
@@ -273,9 +285,13 @@ function parsePlanEntries(
  * Build the full `AcpTimelineStep[]` for an event buffer by folding
  * `applyAcpEvent` over each event. Single source of truth for the projection.
  */
-export function computeAcpRunSteps(events: AcpRunRawEvent[]): AcpTimelineStep[] {
+export function computeAcpRunSteps(
+  events: AcpRunRawEvent[],
+): AcpTimelineStep[] {
   const steps: AcpTimelineStep[] = [];
-  for (const event of events) applyAcpEvent(steps, event);
+  for (const event of events) {
+    applyAcpEvent(steps, event);
+  }
   return steps;
 }
 
@@ -297,13 +313,21 @@ export function computeAcpRunSteps(events: AcpRunRawEvent[]): AcpTimelineStep[] 
 function classifyAcpDiff(
   prev: AcpRunRawEvent[] | null,
   next: AcpRunRawEvent[],
-): { kind: "identity" | "first" | "mutate-last" | "fallback" } | {
-  kind: "append";
-  from: number;
-} {
-  if (prev === next) return { kind: "identity" };
-  if (prev === null) return { kind: "first" };
-  if (next.length < prev.length) return { kind: "fallback" };
+):
+  | { kind: "identity" | "first" | "mutate-last" | "fallback" }
+  | {
+      kind: "append";
+      from: number;
+    } {
+  if (prev === next) {
+    return { kind: "identity" };
+  }
+  if (prev === null) {
+    return { kind: "first" };
+  }
+  if (next.length < prev.length) {
+    return { kind: "fallback" };
+  }
 
   // Every element of `prev` must be reference-equal to its `next` counterpart
   // for an append. The store preserves references on append, so a single
@@ -318,7 +342,9 @@ function classifyAcpDiff(
     }
   }
 
-  if (next.length === prev.length) return { kind: "identity" };
+  if (next.length === prev.length) {
+    return { kind: "identity" };
+  }
   return { kind: "append", from: prev.length };
 }
 

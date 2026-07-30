@@ -57,7 +57,9 @@ const diskPressureWarningInjector: Injector = {
   order: DEFAULT_INJECTOR_ORDER.diskPressureWarning,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const conversation = findConversationOrSubagent(ctx.conversationId);
-    if (!conversation?.diskPressureCleanupModeActive) return null;
+    if (!conversation?.diskPressureCleanupModeActive) {
+      return null;
+    }
     return {
       id: "disk-pressure-warning",
       text: DISK_PRESSURE_WARNING_PROMPT,
@@ -106,11 +108,16 @@ const workspaceContextInjector: Injector = {
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
-    const text = resolveWorkspaceTopLevelContext(ctx.conversationId);
-    if (!text) return null;
-    if (hasInjectedUserTextBlock(runMessages, WORKSPACE_BLOCK_MATCHERS))
+    if (mode !== "full") {
       return null;
+    }
+    const text = resolveWorkspaceTopLevelContext(ctx.conversationId);
+    if (!text) {
+      return null;
+    }
+    if (hasInjectedUserTextBlock(runMessages, WORKSPACE_BLOCK_MATCHERS)) {
+      return null;
+    }
     return {
       id: "workspace-context",
       text,
@@ -140,10 +147,14 @@ interface ConfigQuarantineNotice {
  */
 function readConfigQuarantineNotice(): ConfigQuarantineNotice | null {
   const noticePath = getConfigQuarantineNoticePath();
-  if (!existsSync(noticePath)) return null;
+  if (!existsSync(noticePath)) {
+    return null;
+  }
   try {
     const parsed: unknown = JSON.parse(readFileSync(noticePath, "utf-8"));
-    if (parsed == null || typeof parsed !== "object") return null;
+    if (parsed == null || typeof parsed !== "object") {
+      return null;
+    }
     const { quarantinedAt, quarantinePath, originalPath } = parsed as Record<
       string,
       unknown
@@ -188,10 +199,14 @@ const configQuarantineNoticeInjector: Injector = {
   name: "config-quarantine-notice",
   order: DEFAULT_INJECTOR_ORDER.configQuarantineNotice,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    if (ctx.trust.trustClass !== "guardian") return null;
+    if (ctx.trust.trustClass !== "guardian") {
+      return null;
+    }
 
     const notice = readConfigQuarantineNotice();
-    if (!notice) return null;
+    if (!notice) {
+      return null;
+    }
 
     const quarantinedAtMs = Date.parse(notice.quarantinedAt);
     const ageMs = Number.isNaN(quarantinedAtMs)
@@ -248,12 +263,18 @@ interface ConfigValidationResetNotice {
  */
 function readConfigValidationResetNotice(): ConfigValidationResetNotice | null {
   const noticePath = getConfigValidationResetNoticePath();
-  if (!existsSync(noticePath)) return null;
+  if (!existsSync(noticePath)) {
+    return null;
+  }
   try {
     const parsed: unknown = JSON.parse(readFileSync(noticePath, "utf-8"));
-    if (parsed == null || typeof parsed !== "object") return null;
+    if (parsed == null || typeof parsed !== "object") {
+      return null;
+    }
     const { resetAt, invalidPaths } = parsed as Record<string, unknown>;
-    if (typeof resetAt !== "string") return null;
+    if (typeof resetAt !== "string") {
+      return null;
+    }
     const paths = Array.isArray(invalidPaths)
       ? invalidPaths.filter((p): p is string => typeof p === "string")
       : [];
@@ -288,10 +309,14 @@ const configValidationResetNoticeInjector: Injector = {
   name: "config-validation-reset-notice",
   order: DEFAULT_INJECTOR_ORDER.configValidationResetNotice,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    if (ctx.trust.trustClass !== "guardian") return null;
+    if (ctx.trust.trustClass !== "guardian") {
+      return null;
+    }
 
     const notice = readConfigValidationResetNotice();
-    if (!notice) return null;
+    if (!notice) {
+      return null;
+    }
 
     const resetAtMs = Date.parse(notice.resetAt);
     const ageMs = Number.isNaN(resetAtMs)
@@ -349,8 +374,12 @@ const NOW_MD_BLOCK_PREFIXES = [
  * so the `now-md` injector owns its input rather than having it threaded in.
  */
 function readGatedNowScratchpad(trust: TrustContext): string | null {
-  if (!isPersonalMemoryAllowed(trust)) return null;
-  if (!getConfig().memory.retrieval.scratchpadInjection.enabled) return null;
+  if (!isPersonalMemoryAllowed(trust)) {
+    return null;
+  }
+  if (!getConfig().memory.retrieval.scratchpadInjection.enabled) {
+    return null;
+  }
   return readNowScratchpad();
 }
 
@@ -382,11 +411,16 @@ const nowMdInjector: Injector = {
     runMessages?: Message[],
   ): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
-    const content = readGatedNowScratchpad(ctx.trust);
-    if (!content) return null;
-    if (hasInjectedUserTextBlock(runMessages, NOW_MD_BLOCK_PREFIXES))
+    if (mode !== "full") {
       return null;
+    }
+    const content = readGatedNowScratchpad(ctx.trust);
+    if (!content) {
+      return null;
+    }
+    if (hasInjectedUserTextBlock(runMessages, NOW_MD_BLOCK_PREFIXES)) {
+      return null;
+    }
     const text = `<NOW.md Always keep this up to date; keep under 10 lines>\n${content}\n</NOW.md>`;
     return {
       id: "now-md",

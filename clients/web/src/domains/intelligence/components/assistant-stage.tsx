@@ -12,18 +12,17 @@
  * height at the bottom.
  */
 
-import {
-  createContext,
-  useContext,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import { cn } from "@vellumai/design-library";
 
 import { useElementSize, type StageSize } from "@/hooks/use-element-size";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { toneForBg, type AvatarTone } from "@/utils/avatar-tone";
 
-import { AssistantPeekingEyes, EYES_VISIBLE_FRACTION } from "./assistant-peeking-eyes";
+import {
+  AssistantPeekingEyes,
+  EYES_VISIBLE_FRACTION,
+} from "./assistant-peeking-eyes";
 
 /**
  * Backdrop when there is no avatar color to paint — a custom-image or
@@ -150,7 +149,9 @@ export function AssistantStage({
         </div>
       )}
 
-      <AssistantStageContext.Provider value={{ stage: size, tone, bottomReserve }}>
+      <AssistantStageContext.Provider
+        value={{ stage: size, tone, bottomReserve }}
+      >
         <div className="relative z-10 flex min-h-0 flex-1 flex-col">
           {children}
         </div>

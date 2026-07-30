@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from "@capacitor/cli";
+import { KeyboardResize, KeyboardStyle } from "@capacitor/keyboard";
 
 // `server.url` is baked into `../ios/App/App/capacitor.config.json` (gitignored)
 // by `cap sync`, so whatever URL resolves here at sync time is what the
@@ -10,12 +11,43 @@ import type { CapacitorConfig } from "@capacitor/cli";
 // and bounces non-prod shells off their own host.
 const env = process.env.VELLUM_ENVIRONMENT ?? "dev";
 
-const SERVER_URL =
+const ENV_SERVER_URL =
   env === "production"
     ? "https://www.vellum.ai/assistant"
     : env === "staging"
       ? "https://staging-assistant.vellum.ai/assistant"
       : "https://dev-assistant.vellum.ai/assistant";
+
+// `VELLUM_SERVER_URL` points the shell at a self-hosted assistant's own HTTPS
+// origin, taking precedence over the environment-derived Vellum Cloud URL. It
+// must parse as an `https:` URL — iOS App Transport Security requires valid TLS
+// and `server.cleartext` stays false — so an invalid value fails `cap sync`
+// loudly instead of baking a broken URL into the archived build.
+function resolveServerUrl(): string {
+  const override = process.env.VELLUM_SERVER_URL?.trim();
+  if (!override) {
+    return ENV_SERVER_URL;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(override);
+  } catch {
+    throw new Error(
+      `VELLUM_SERVER_URL is not a valid URL: ${JSON.stringify(override)}`,
+    );
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error(
+      `VELLUM_SERVER_URL must use https: (got ${JSON.stringify(override)}); iOS App Transport Security requires valid TLS.`,
+    );
+  }
+
+  return override;
+}
+
+const SERVER_URL = resolveServerUrl();
 
 const SCHEME_NAMES: Record<string, string> = {
   production: "App",
@@ -58,6 +90,27 @@ const config: CapacitorConfig = {
     // `env(safe-area-inset-*)`, which is what PRs #4821 and #4832 assume.
     contentInset: "never",
     scheme: SCHEME_NAMES[env] ?? "App",
+  },
+  // The plugin owns keyboard avoidance on iOS: its `load()` removes the web
+  // view's own keyboard notification observers and resizes the frame itself.
+  // Pin both iOS knobs to the behavior the app already depends on so an
+  // upstream default change cannot move them silently.
+  plugins: {
+    Keyboard: {
+      // `native` resizes the whole WKWebView frame above the keyboard, which
+      // is what `src/hooks/use-visible-viewport.ts` measures against
+      // (`innerHeight` and `visualViewport.height` shrink together). `body`,
+      // `ionic`, and `none` leave the frame at full height and break that
+      // keyboard-height derivation.
+      resize: KeyboardResize.Native,
+      // `DEFAULT` follows the device appearance. The plugin swizzles
+      // `keyboardAppearance` on `WKContentView` and `UITextInputTraits`
+      // process-wide to whatever is set here, so the soft keyboard tracks the
+      // iOS Settings appearance and never the in-app light/dark/velvet theme.
+      // No `style` value expresses "follow the in-app theme"; that needs a
+      // runtime `Keyboard.setStyle()` call.
+      style: KeyboardStyle.Default,
+    },
   },
 };
 

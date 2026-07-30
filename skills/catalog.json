@@ -60,7 +60,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-30T02:16:04.000Z"
     },
     {
       "id": "chat-complex-documents",
@@ -143,6 +143,21 @@
       "updatedAt": "2026-07-01T10:52:10.000Z"
     },
     {
+      "id": "deepgram-voice",
+      "name": "deepgram-voice",
+      "description": "Select and tune a Deepgram TTS voice - curated voice list, full Aura voice catalog via API key, and tuning parameters",
+      "metadata": {
+        "icon": "assets/icon.svg",
+        "emoji": "🎤",
+        "vellum": {
+          "category": "voice",
+          "display-name": "Deepgram Voice"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-23T16:24:31.000Z"
+    },
+    {
       "id": "deploy-fullstack-vercel",
       "name": "deploy-fullstack-vercel",
       "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) or a Vellum app to Vercel as a serverless demo with seeded data",
@@ -199,7 +214,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T21:39:37.000Z"
+      "updatedAt": "2026-07-23T16:33:06.000Z"
     },
     {
       "id": "email-setup",
@@ -493,7 +508,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-07-10T04:43:15.000Z"
+      "updatedAt": "2026-07-28T05:02:41.000Z"
     },
     {
       "id": "llm-provider-setup",
@@ -584,6 +599,31 @@
       },
       "compatibility": "Requires curl and python3. Works on macOS and Linux.",
       "updatedAt": "2026-06-03T03:10:07.000Z"
+    },
+    {
+      "id": "memory-corpus-ingest",
+      "name": "memory-corpus-ingest",
+      "description": "Ingest a large dataset into memory as a skimmed map. Cold-store the raw files under a workspace imports directory, census them into a slice plan, skim each slice into compact map pages that point back at the raw files, ingest the map with the memory ingest CLI, and author a drill-in retrieval skill so the corpus stays searchable on demand. For recording archives, transcript collections, document dumps, and any corpus too large to hold in memory directly.",
+      "metadata": {
+        "emoji": "🗺️",
+        "vellum": {
+          "category": "system",
+          "display-name": "Corpus Ingest",
+          "user-invocable": "true",
+          "activation-hints": [
+            "User wants to import a large dataset, recordings archive, or document dump into memory",
+            "User asks the assistant to learn a big folder of files or a document collection",
+            "User mentions a Fathom recordings export or an archive of meeting transcripts",
+            "User wants the assistant to know what is in a corpus without pasting it all into chat"
+          ],
+          "avoid-when": [
+            "The input is a small set of distilled memories or an export from another assistant (use assistant-migration)",
+            "The input is ChatGPT conversation history (use chatgpt-import)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-30T02:27:39.000Z"
     },
     {
       "id": "notifications",
@@ -716,7 +756,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-16T14:06:51.000Z"
+      "updatedAt": "2026-07-27T13:35:46.000Z"
     },
     {
       "id": "public-ingress",
@@ -854,7 +894,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T15:56:47.000Z"
+      "updatedAt": "2026-07-24T22:39:12.000Z"
     },
     {
       "id": "start-the-day",
@@ -932,7 +972,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "twilio-setup",
@@ -950,7 +990,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-14T20:56:46.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "typescript-eval",
@@ -1026,7 +1066,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI.",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "vellum-heartbeat",
@@ -1092,7 +1132,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-22T18:02:37.000Z"
+      "updatedAt": "2026-07-27T18:18:10.000Z"
     },
     {
       "id": "vellum-oauth-integrations",
@@ -1106,30 +1146,32 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-23T15:54:16.000Z"
     },
     {
       "id": "vellum-self-knowledge",
       "name": "vellum-self-knowledge",
-      "description": "Answer questions about Vellum, the assistant's architecture, capabilities, and current configuration by routing to live sources of truth",
+      "description": "Answer questions about Vellum's architecture, configuration, and hosting from live sources of truth",
       "metadata": {
         "emoji": "🪞",
         "vellum": {
           "category": "system",
           "display-name": "Vellum Self-Knowledge",
           "activation-hints": [
-            "When the user asks what model the assistant is running on",
-            "When the user asks about Vellum, how the assistant works, or its architecture",
-            "When the user asks about the assistant's current configuration or settings",
-            "When the user asks what the assistant can do or what skills/tools are available"
+            "what model the assistant is running on",
+            "how Vellum works or its architecture",
+            "its current configuration or settings",
+            "what it can do, or what skills/tools are available",
+            "how to self-host a Vellum assistant",
+            "how to configure your own model API key"
           ],
           "avoid-when": [
-            "When the user wants to change configuration (use in-chat config instead)"
+            "changing configuration (use in-chat config instead)"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-28T22:26:01.000Z"
     },
     {
       "id": "vellum-skills-catalog",
@@ -1232,7 +1274,7 @@
     {
       "id": "voice-setup",
       "name": "voice-setup",
-      "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs TTS, and troubleshooting",
+      "description": "Complete voice configuration in chat - PTT key, microphone permissions, ElevenLabs/Deepgram TTS, and troubleshooting",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "🎙️",
@@ -1240,10 +1282,11 @@
           "category": "voice",
           "display-name": "Voice Setup",
           "includes": [
-            "elevenlabs-voice"
+            "elevenlabs-voice",
+            "deepgram-voice"
           ],
           "activation-hints": [
-            "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/TTS)",
+            "Guided setup or troubleshooting (walkthrough, PTT not working, mic issues, ElevenLabs/Deepgram/TTS)",
             "Simple voice setting changes (PTT key, wake word) -> use voice_config_update directly"
           ],
           "avoid-when": [
@@ -1252,7 +1295,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-23T16:33:06.000Z"
     },
     {
       "id": "watch-together",

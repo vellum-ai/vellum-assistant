@@ -1,5 +1,7 @@
 import { extname } from "node:path";
 
+import { z } from "zod";
+
 import { supportsHostProxy } from "../../channels/types.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
@@ -14,11 +16,44 @@ import {
   readImageFile,
 } from "../shared/filesystem/image-read.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
+import {
+  invalidToolInputResult,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
 import type {
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
+
+/**
+ * Model-input schema, the single source for both runtime validation (via
+ * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below — mirrors
+ * `filesystem/read.ts`. `offset`/`limit` catch to `undefined` so a
+ * non-numeric value reads the whole file instead of failing the call;
+ * `target_client_id` catches so a non-string (or empty) value means
+ * "untargeted".
+ */
+export const hostFileReadInputSchema = z.looseObject({
+  path: z.string().min(1).describe("Absolute path to the host file to read"),
+  offset: z
+    .number()
+    .describe("Line number to start reading from (1-indexed)")
+    .optional()
+    .catch(undefined),
+  limit: z
+    .number()
+    .describe("Maximum number of lines to read")
+    .optional()
+    .catch(undefined),
+  target_client_id: z
+    .string()
+    .describe(
+      "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
+    )
+    .optional()
+    .catch(undefined),
+});
 
 export const hostFileReadTool = {
   name: "host_file_read",
@@ -28,46 +63,21 @@ export const hostFileReadTool = {
   executionTarget: "host",
   defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema: {
-    type: "object",
-    properties: {
-      path: {
-        type: "string",
-        description: "Absolute path to the host file to read",
-      },
-      offset: {
-        type: "number",
-        description: "Line number to start reading from (1-indexed)",
-      },
-      limit: {
-        type: "number",
-        description: "Maximum number of lines to read",
-      },
-      target_client_id: {
-        type: "string",
-        description:
-          "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
-      },
-    },
-    required: ["path"],
-  },
+  input_schema: toToolInputSchema(hostFileReadInputSchema),
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const rawPath = input.path as string;
-    if (!rawPath || typeof rawPath !== "string") {
-      return {
-        content: "Error: path is required and must be a string",
-        isError: true,
-      };
+    const parsed = hostFileReadInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("host_file_read", parsed.error);
     }
+    const { path: rawPath, offset, limit } = parsed.data;
 
     const targetClientId =
-      typeof input.target_client_id === "string" &&
-      input.target_client_id !== ""
-        ? input.target_client_id
+      parsed.data.target_client_id !== ""
+        ? parsed.data.target_client_id
         : undefined;
 
     const transportInterface = context.transportInterface;
@@ -130,8 +140,8 @@ export const hostFileReadTool = {
         {
           operation: "read",
           path: rawPath,
-          offset: typeof input.offset === "number" ? input.offset : undefined,
-          limit: typeof input.limit === "number" ? input.limit : undefined,
+          offset,
+          limit,
           targetClientId,
         },
         context.conversationId,
@@ -160,11 +170,7 @@ export const hostFileReadTool = {
 
     const ops = new FileSystemOps(hostPolicy);
 
-    const result = ops.readFileSafe({
-      path: rawPath,
-      offset: typeof input.offset === "number" ? input.offset : undefined,
-      limit: typeof input.limit === "number" ? input.limit : undefined,
-    });
+    const result = ops.readFileSafe({ path: rawPath, offset, limit });
 
     if (!result.ok) {
       const { error } = result;

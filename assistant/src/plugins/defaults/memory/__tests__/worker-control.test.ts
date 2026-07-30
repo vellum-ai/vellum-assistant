@@ -56,13 +56,17 @@ function stubProcessKill(
 ): () => void {
   const original = process.kill.bind(process);
   process.kill = ((pid: number, signal?: string | number) => {
-    if ((signal ?? 0) !== 0) return true;
+    if ((signal ?? 0) !== 0) {
+      return true;
+    }
     if (permissionErrorPids.has(pid)) {
       const err = new Error("kill EPERM") as NodeJS.ErrnoException;
       err.code = "EPERM";
       throw err;
     }
-    if (livePids.has(pid)) return true;
+    if (livePids.has(pid)) {
+      return true;
+    }
     const err = new Error("kill ESRCH") as NodeJS.ErrnoException;
     err.code = "ESRCH";
     throw err;

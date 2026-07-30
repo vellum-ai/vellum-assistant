@@ -24,6 +24,7 @@ export const cronJobs = sqliteTable("cron_jobs", {
   retryBackoffMs: integer("retry_backoff_ms").notNull().default(60000),
   timeoutMs: integer("timeout_ms"), // script-mode execution timeout override (ms); null = use default
   inferenceProfile: text("inference_profile"), // llm.profiles key for LLM-executed runs; null = default main-agent selection
+  groupId: text("group_id"), // conversation_groups id for run conversations; null = system:scheduled
   createdFromConversationId: text("created_from_conversation_id"),
   createdBy: text("created_by").notNull(), // 'agent' | 'user'
   mode: text("mode").notNull().default("execute"), // 'notify' | 'execute'
@@ -275,6 +276,17 @@ export const llmUsageEvents = sqliteTable(
      * persisted before migration 267 ran.
      */
     assistantVersion: text("assistant_version"),
+    /**
+     * `conversations.conversation_type` of the parent conversation
+     * (`"standard"` / `"background"` / `"scheduled"`), captured at RECORD
+     * time. The parent conversation can be deleted before the telemetry
+     * flush joins against it (memory-retrospective forks are GC'd once
+     * superseded; users delete conversations), so a flush-time JOIN alone
+     * under-labels usage rows. Null when the call has no parent
+     * conversation and for rows persisted before migration 353 ran (the
+     * telemetry read path falls back to the JOIN for those).
+     */
+    conversationType: text("conversation_type"),
   },
   (table) => [
     index("idx_llm_usage_events_conversation_id").on(table.conversationId),

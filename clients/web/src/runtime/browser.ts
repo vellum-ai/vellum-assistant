@@ -84,6 +84,19 @@ export const openUrlInNewTab = async (url: string): Promise<boolean> => {
 };
 
 /**
+ * Like {@link openUrlInNewTab}, but for arbitrary external destinations:
+ * the plain-web tab opens with `noopener,noreferrer` so the destination
+ * never receives a `window.opener` reference (reverse tabnabbing). Use this
+ * from non-anchor surfaces (menu items, buttons) that open external links;
+ * `openUrlInNewTab` remains for the OAuth flows that need pop-up-block
+ * detection and therefore deliberately keep the opener.
+ */
+export const openExternalUrl = (url: string): Promise<void> =>
+  openUrlAcrossShells(url, (u) => {
+    window.open(u, "_blank", "noopener,noreferrer");
+  });
+
+/**
  * Subscribe to the Capacitor Browser `browserFinished` event, which fires
  * when the user dismisses the `SFSafariViewController`. Returns an
  * unsubscribe function. No-ops in non-native contexts.

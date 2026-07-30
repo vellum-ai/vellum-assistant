@@ -91,7 +91,9 @@ async function pushNotification(
         signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
       });
 
-      if (response.ok) return;
+      if (response.ok) {
+        return;
+      }
 
       const body = await response.text().catch(() => "");
       lastError = new Error(

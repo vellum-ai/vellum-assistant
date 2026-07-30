@@ -1,9 +1,10 @@
 import type {
-    CreditTier,
-    CreditTierEnum,
-    MachineTier,
-    StorageTier,
-    SubscriptionStatusEnum,
+  CreditTier,
+  CreditTierEnum,
+  MachineTier,
+  StorageTier,
+  SubscriptionResponse,
+  SubscriptionStatusEnum,
 } from "@/generated/api/types.gen";
 import { isTierDisabled } from "./tier-picker";
 
@@ -19,6 +20,35 @@ export const TIER_CHANGE_ELIGIBLE_STATUSES: ReadonlySet<SubscriptionStatusEnum> 
   new Set<SubscriptionStatusEnum>(["active", "trialing", "past_due"]);
 
 /**
+ * Whether a subscription is eligible for a one-click, in-place package switch
+ * via the change-package endpoint. True for any active Pro sub — pinned,
+ * unpinned, or customized. The platform's `change_package` action re-pins the
+ * sub to a named plan by 3-way-diffing the current Stripe line items per
+ * dimension, so posting a stock key from a diverged sub is safe: it is exactly
+ * the "override back to a named plan" flow. A true pre-catalog legacy sub (no
+ * tier metadata) returns a clean 409 whose `detail` surfaces as a toast via
+ * `useChangePackage` → `extractMutationError` (which reads the `detail` key).
+ *
+ * A cancelling sub (change-package 409s) and a non-entitlement status still gate
+ * out, as does every base sub. Every other Pro state falls back to the manage
+ * path.
+ *
+ * Shared by both change-package surfaces (plan-card banner, plans takeover) so
+ * the eligibility gate stays symmetric across them.
+ */
+export function isPackageSwitchEligible(
+  subscription: SubscriptionResponse,
+): boolean {
+  return (
+    subscription.plan_id !== "base" &&
+    subscription.cancel_at_period_end !== true &&
+    !subscription.cancel_at &&
+    subscription.status != null &&
+    TIER_CHANGE_ELIGIBLE_STATUSES.has(subscription.status)
+  );
+}
+
+/**
  * Extract a user-facing message from a subscription mutation error.
  *
  * DRF field errors arrive as `{ field_name: [message, ...] }`; we probe the
@@ -30,6 +60,7 @@ const DRF_FIELD_KEYS = [
   "machine_tier",
   "storage_tier",
   "credit_tier",
+  "package",
   "non_field_errors",
 ] as const;
 
@@ -102,7 +133,10 @@ export function resolveCreditTierSelection(
   if (prev === undefined) {
     return current;
   }
-  if (prev !== null && (prev === current || tiers.some((t) => t.tier === prev))) {
+  if (
+    prev !== null &&
+    (prev === current || tiers.some((t) => t.tier === prev))
+  ) {
     return prev;
   }
   return null;
@@ -114,6 +148,8 @@ export function resolveCreditTierSelection(
  * "From $Infinity"). Production plans always carry populated tier arrays, so
  * this only matters defensively.
  */
-export function minTierPriceCents(tiers: (MachineTier | StorageTier)[]): number {
+export function minTierPriceCents(
+  tiers: (MachineTier | StorageTier)[],
+): number {
   return tiers.length ? Math.min(...tiers.map((t) => t.price_cents)) : 0;
 }

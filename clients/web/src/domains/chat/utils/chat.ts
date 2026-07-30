@@ -44,6 +44,9 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "avatar_updated",
   "sync_changed",
   "disk_pressure_status_changed",
+  // App source-file change broadcast — carries an `appId`, not a
+  // `conversationId`; clients re-read the app on receipt.
+  "app_files_changed",
   "home_feed_updated",
   "relationship_state_updated",
   // Workspace-scoped prompt — the `contacts/prompt` IPC route fires it
@@ -79,6 +82,68 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // reach `handleBackgroundToolCompleted`.
   "background_tool_started",
   "background_tool_completed",
+  // Service-group upgrade lifecycle events are app-wide broadcasts with no
+  // top-level `conversationId` — they announce a daemon restart affecting every
+  // client, not a single conversation. Treat them as global so the
+  // conversation-id gate doesn't drop them as "missing conversationId".
+  "service_group_update_starting",
+  "service_group_update_progress",
+  "service_group_update_complete",
+  // Memory recall/status telemetry gauges carry no top-level `conversationId`
+  // (they describe the memory subsystem, not a conversation), so gate them as
+  // global to avoid being dropped as "missing conversationId".
+  "memory_recalled",
+  "memory_status",
+  // Bookmark create/delete broadcasts sync the bookmark list across clients
+  // (handled by useBookmarksSync). They carry no top-level `conversationId`, so
+  // gate them as global.
+  "bookmark.created",
+  "bookmark.deleted",
+  // Contacts-table invalidation broadcast — carries no `conversationId`; clients
+  // refetch their contact list on receipt.
+  "contacts_changed",
+  // Skill install/enable state-change broadcast — carries no `conversationId`;
+  // clients refetch their skill list on receipt.
+  "skills_state_changed",
+  // Host UI-snapshot proxy instructions — carry no `conversationId`; they target
+  // the desktop client, not a conversation.
+  "host_ui_snapshot_request",
+  "host_ui_snapshot_cancel",
+  // host_browser_cancel carries no `conversationId` (only a requestId), so it
+  // must be gated as global; the other host-proxy frames carry one.
+  "host_browser_cancel",
+  // Daemon status, model catalog, and schedule-created broadcasts are not tied
+  // to the active conversation stream (assistant_status / model_info carry no or
+  // optional conversationId; schedule_conversation_created announces a *new*
+  // conversation), so gate them as global.
+  "assistant_status",
+  "model_info",
+  "schedule_conversation_created",
+  // Heartbeat alert (no conversationId) and heartbeat-created conversation
+  // (announces a *new* conversation) are app-wide, not conversation-scoped.
+  "heartbeat_alert",
+  "heartbeat_conversation_created",
+  // Settings/config broadcasts (client-setting push, config.json change, sounds
+  // change) carry no `conversationId` — they're app-wide, not conversation-scoped.
+  "client_settings_update",
+  "config_changed",
+  "sounds_config_updated",
+  // Integration/platform lifecycle broadcasts — OAuth-connect completion,
+  // platform login prompt, and platform disconnect notice — are app-wide and
+  // carry no `conversationId`, so gate them as global.
+  "oauth_connect_result",
+  "show_platform_login",
+  "platform_disconnected",
+  // Notification-created broadcasts and recording lifecycle instructions are not
+  // tied to the active conversation stream (they carry no top-level
+  // `conversationId`, or — for notification_conversation_created — announce a
+  // *different* conversation), so gate them as global rather than through the
+  // conversation-id filter.
+  "notification_conversation_created",
+  "recording_start",
+  "recording_stop",
+  "recording_pause",
+  "recording_resume",
 ] as const;
 
 const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set(
@@ -125,7 +190,9 @@ export function hasAnyInteractiveSurface(
   for (const msg of messages) {
     if (msg.surfaces) {
       for (const s of msg.surfaces) {
-        if (isSurfaceInteractive(s)) return true;
+        if (isSurfaceInteractive(s)) {
+          return true;
+        }
       }
     }
   }
@@ -151,9 +218,15 @@ export function shouldClearFirstMessageGateOnConversationChange({
   autoGreetPending: boolean;
   assistantMessagePresent: boolean;
 }): boolean {
-  if (previousConversationId == null) return false;
-  if (nextConversationId == null) return false;
-  if (previousConversationId === nextConversationId) return false;
+  if (previousConversationId == null) {
+    return false;
+  }
+  if (nextConversationId == null) {
+    return false;
+  }
+  if (previousConversationId === nextConversationId) {
+    return false;
+  }
 
   return !(
     autoGreetPending &&
@@ -237,8 +310,12 @@ export function identitiesEqual(
   a: IdentityGetResponse | null,
   b: IdentityGetResponse | null,
 ): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
   return (
     a.name === b.name &&
     a.role === b.role &&
@@ -304,7 +381,9 @@ export function attachConfirmationToToolCall(
   if (toolUseId) {
     for (let mi = messages.length - 1; mi >= 0; mi--) {
       const msg = messages[mi];
-      if (!msg?.toolCalls?.length) continue;
+      if (!msg?.toolCalls?.length) {
+        continue;
+      }
       const tcIdx = msg.toolCalls.findIndex((tc) => tc.id === toolUseId);
       if (tcIdx !== -1) {
         return applyConfirmationToToolCall(messages, mi, tcIdx, pending);
@@ -315,7 +394,9 @@ export function attachConfirmationToToolCall(
   // 2. Fallback: last running tool call in the latest assistant message with tool calls
   for (let mi = messages.length - 1; mi >= 0; mi--) {
     const msg = messages[mi];
-    if (msg?.role !== "assistant" || !msg.toolCalls?.length) continue;
+    if (msg?.role !== "assistant" || !msg.toolCalls?.length) {
+      continue;
+    }
 
     for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
       const tc = msg.toolCalls[ti];
@@ -345,7 +426,9 @@ export function extractWirePendingConfirmation(
 ): PendingConfirmationState | null {
   for (let mi = messages.length - 1; mi >= 0; mi--) {
     const msg = messages[mi];
-    if (!msg?.toolCalls?.length) continue;
+    if (!msg?.toolCalls?.length) {
+      continue;
+    }
     for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
       const tc = msg.toolCalls[ti];
       if (tc?.pendingConfirmation) {
@@ -372,7 +455,9 @@ export function extractWirePendingQuestion(
 ): PendingQuestionState | null {
   for (let mi = messages.length - 1; mi >= 0; mi--) {
     const msg = messages[mi];
-    if (!msg?.toolCalls?.length) continue;
+    if (!msg?.toolCalls?.length) {
+      continue;
+    }
     for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
       const tc = msg.toolCalls[ti];
       if (tc?.pendingQuestion) {
@@ -405,7 +490,9 @@ export function extractWirePendingAcpConnect(
 ): PendingAcpConnectState | null {
   for (let mi = messages.length - 1; mi >= 0; mi--) {
     const msg = messages[mi];
-    if (!msg?.toolCalls?.length) continue;
+    if (!msg?.toolCalls?.length) {
+      continue;
+    }
     for (let ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
       const tc = msg.toolCalls[ti];
       if (tc?.errorCode === ACP_CLAUDE_OAUTH_MISSING_CODE && tc.id) {
@@ -426,14 +513,20 @@ export function deriveCommandText(
   input: Record<string, unknown> | undefined,
   toolName: string,
 ): string {
-  if (!input) return toolName;
+  if (!input) {
+    return toolName;
+  }
   const preferredKeys = ["command", "cmd", "path", "file", "url"];
   for (const key of preferredKeys) {
     const val = input[key];
-    if (typeof val === "string" && val.trim()) return val.trim();
+    if (typeof val === "string" && val.trim()) {
+      return val.trim();
+    }
   }
   for (const val of Object.values(input)) {
-    if (typeof val === "string" && val.trim()) return val.trim();
+    if (typeof val === "string" && val.trim()) {
+      return val.trim();
+    }
   }
   try {
     const json = JSON.stringify(input);
@@ -465,9 +558,15 @@ const MS_PER_MINUTE = 60_000;
 
 export function formatRelativeTime(timestamp: number): string {
   const diffMin = Math.floor((Date.now() - timestamp) / MS_PER_MINUTE);
-  if (diffMin < 1) return "just now";
-  if (diffMin < MINUTES_PER_HOUR) return `${diffMin}m ago`;
+  if (diffMin < 1) {
+    return "just now";
+  }
+  if (diffMin < MINUTES_PER_HOUR) {
+    return `${diffMin}m ago`;
+  }
   const diffHr = Math.floor(diffMin / MINUTES_PER_HOUR);
-  if (diffHr < HOURS_PER_DAY) return `${diffHr}h ago`;
+  if (diffHr < HOURS_PER_DAY) {
+    return `${diffHr}h ago`;
+  }
   return `${Math.floor(diffHr / HOURS_PER_DAY)}d ago`;
 }

@@ -963,6 +963,14 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("low");
   });
 
+  test("assistant memory ingest → medium", async () => {
+    const result = await classifier.classify({
+      command: "assistant memory ingest --dir staging/",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
   test("assistant conversations clear → medium", async () => {
     const result = await classifier.classify({
       command: "assistant conversations clear --confirm",

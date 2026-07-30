@@ -5,21 +5,10 @@ import type { CredentialPromptResult } from "../../runtime/routes/credential-pro
 import { applyCommandHelp, subcommand } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
-import { shouldOutputJson, writeOutput } from "../output.js";
+import { shouldOutputJson, writeError, writeOutput } from "../output.js";
 import { tryResolveConversationId } from "../utils/conversation-id.js";
+import { refuseAgentShellInlineSecret } from "../utils/inline-secret-guard.js";
 import { credentialsHelp } from "./credentials.help.js";
-
-// ---------------------------------------------------------------------------
-// Format-aware error output
-// ---------------------------------------------------------------------------
-
-function writeError(cmd: Command, message: string): void {
-  if (shouldOutputJson(cmd)) {
-    writeOutput(cmd, { ok: false, error: message });
-  } else {
-    process.stderr.write(`Error: ${message}\n`);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -219,9 +208,19 @@ export function registerCredentialsCommand(program: Command): void {
             label?: string;
             description?: string;
             allowedTools?: string;
+            generated?: boolean;
           },
           cmd: Command,
         ) => {
+          if (
+            refuseAgentShellInlineSecret(cmd, opts, {
+              what: "secret",
+              redirect: `Collect it securely via the app UI instead: assistant credentials prompt --service ${opts.service} --field ${opts.field} --label "…"`,
+            })
+          ) {
+            return;
+          }
+
           const allowedTools = opts.allowedTools
             ? opts.allowedTools.split(",").map((t) => t.trim())
             : undefined;

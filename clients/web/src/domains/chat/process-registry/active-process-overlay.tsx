@@ -63,7 +63,9 @@ export function ActiveProcessOverlay({
   descriptor,
   ids,
 }: ActiveProcessOverlayProps) {
-  if (ids.length === 0) return null;
+  if (ids.length === 0) {
+    return null;
+  }
 
   const { pill } = descriptor;
 

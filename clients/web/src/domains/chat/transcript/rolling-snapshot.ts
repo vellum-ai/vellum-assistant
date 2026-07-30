@@ -36,11 +36,18 @@ import {
 } from "@/domains/chat/utils/stream-updaters/surface-updaters";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-utils";
+import {
+  applyQueuedMessageDequeue,
+  removeQueuedMessage,
+} from "@/domains/chat/utils/stream-updaters/shared";
 
 /** Parse the envelope's ISO `emittedAt` to epoch ms, the deterministic stamp
  *  for any row an event opens. Falls back to `seq` so a malformed/absent time
  *  still yields a stable, monotonic value. */
-function emittedAtMs(emittedAt: string, seq: number | null | undefined): number {
+function emittedAtMs(
+  emittedAt: string,
+  seq: number | null | undefined,
+): number {
   const parsed = Date.parse(emittedAt);
   return Number.isFinite(parsed) ? parsed : typeof seq === "number" ? seq : 0;
 }
@@ -58,7 +65,13 @@ export function appendEventToMessages(
 ): DisplayMessage[] {
   switch (event.type) {
     case "assistant_text_delta":
-      return appendTextDelta(messages, event.text, event.messageId, undefined, at);
+      return appendTextDelta(
+        messages,
+        event.text,
+        event.messageId,
+        undefined,
+        at,
+      );
     case "assistant_thinking_delta":
       return appendThinkingDelta(
         messages,
@@ -79,6 +92,10 @@ export function appendEventToMessages(
         },
         at,
       );
+    case "message_dequeued":
+      return applyQueuedMessageDequeue(messages, event.requestId);
+    case "message_queued_deleted":
+      return removeQueuedMessage(messages, event.requestId);
     case "assistant_activity_state":
       // Only the terminal `idle` phase changes message content (it finalizes
       // running tool calls); other phases drive turn state, not history.
@@ -141,7 +158,9 @@ export function appendEventToMessages(
             : at,
       });
     case "tool_output_chunk":
-      if (!event.chunk) return messages;
+      if (!event.chunk) {
+        return messages;
+      }
       return appendToolOutputChunk(messages, {
         chunk: event.chunk,
         toolUseId: event.toolUseId,
@@ -190,7 +209,7 @@ export function appendEventToMessages(
         : messages;
     default:
       // Total: events that don't change message content (turn lifecycle,
-      // queue, subagent/workflow, sync, unknowns) leave the list untouched.
+      // subagent/workflow, sync, unknowns) leave the list untouched.
       return messages;
   }
 }
@@ -216,8 +235,12 @@ function nextProcessingState(
   event: AssistantEvent,
   seq: number | null | undefined,
 ): boolean | undefined {
-  if (current === undefined) return undefined;
-  if (typeof seq !== "number") return current;
+  if (current === undefined) {
+    return undefined;
+  }
+  if (typeof seq !== "number") {
+    return current;
+  }
   switch (event.type) {
     case "assistant_turn_start":
     case "assistant_text_delta":
@@ -252,10 +275,20 @@ export function applyEvent(
   }
 
   const at = emittedAtMs(envelope.emittedAt, seq);
-  const messages = appendEventToMessages(history.messages, envelope.message, at);
+  const messages = appendEventToMessages(
+    history.messages,
+    envelope.message,
+    at,
+  );
   const nextSeq =
-    typeof seq === "number" ? Math.max(history.seq ?? -1, seq) : history.seq ?? null;
-  const processing = nextProcessingState(history.processing, envelope.message, seq);
+    typeof seq === "number"
+      ? Math.max(history.seq ?? -1, seq)
+      : (history.seq ?? null);
+  const processing = nextProcessingState(
+    history.processing,
+    envelope.message,
+    seq,
+  );
 
   return { ...history, messages, seq: nextSeq, processing };
 }

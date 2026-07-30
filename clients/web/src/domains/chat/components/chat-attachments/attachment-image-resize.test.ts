@@ -20,7 +20,9 @@ describe("isHeicAttachment", () => {
   test("matches by mime type", () => {
     expect(isHeicAttachment({ name: "photo", type: "image/heic" })).toBe(true);
     expect(isHeicAttachment({ name: "photo", type: "image/heif" })).toBe(true);
-    expect(isHeicAttachment({ name: "photo.png", type: "image/png" })).toBe(false);
+    expect(isHeicAttachment({ name: "photo.png", type: "image/png" })).toBe(
+      false,
+    );
   });
 
   test("matches by extension when the mime type is missing", () => {
@@ -71,5 +73,25 @@ describe("filenameForResizedImage", () => {
   test("keeps existing jpeg extensions", () => {
     expect(filenameForResizedImage("photo.jpg")).toBe("photo.jpg");
     expect(filenameForResizedImage("photo.JPEG")).toBe("photo.JPEG");
+  });
+
+  test("follows the encoded type when the canvas fell back to PNG", () => {
+    expect(filenameForResizedImage("IMG_5487.HEIC", "image/png")).toBe(
+      "IMG_5487.png",
+    );
+    expect(filenameForResizedImage("photo.png", "image/png")).toBe("photo.png");
+  });
+
+  test("follows any well-formed image subtype", () => {
+    expect(filenameForResizedImage("photo.png", "image/webp")).toBe(
+      "photo.webp",
+    );
+  });
+
+  test("falls back to .jpg for a malformed encoded type", () => {
+    expect(filenameForResizedImage("photo.png", "image/svg+xml")).toBe(
+      "photo.jpg",
+    );
+    expect(filenameForResizedImage("photo.png", "")).toBe("photo.jpg");
   });
 });

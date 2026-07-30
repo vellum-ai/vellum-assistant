@@ -11,6 +11,11 @@ import {
   toolInvocations,
 } from "../persistence/schema/index.js";
 
+// Prune fires the `conversation-deleted` hook per pruned id; the memory
+// plugin's hook is what purges the relocated per-conversation tables. That
+// cascade is covered directly in the memory plugin's
+// `conversation-memory-purge.test.ts`, so this suite only asserts the
+// persistence-owned deletes.
 await initializeDb();
 
 const STALE_ID = "conv-prune-job-stale";

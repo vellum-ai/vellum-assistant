@@ -97,10 +97,16 @@ async function listEvents(
 ): Promise<CalendarEventsListResponse> {
   const query: Record<string, string> = {};
 
-  if (options?.timeMin) query.timeMin = options.timeMin;
-  if (options?.timeMax) query.timeMax = options.timeMax;
+  if (options?.timeMin) {
+    query.timeMin = options.timeMin;
+  }
+  if (options?.timeMax) {
+    query.timeMax = options.timeMax;
+  }
   query.maxResults = String(options?.maxResults ?? 25);
-  if (options?.query) query.q = options.query;
+  if (options?.query) {
+    query.q = options.query;
+  }
 
   // Default to expanding recurring events into instances
   const singleEvents = options?.singleEvents ?? true;
@@ -112,8 +118,12 @@ async function listEvents(
     query.orderBy = "startTime";
   }
 
-  if (options?.pageToken) query.pageToken = options.pageToken;
-  if (options?.syncToken) query.syncToken = options.syncToken;
+  if (options?.pageToken) {
+    query.pageToken = options.pageToken;
+  }
+  if (options?.syncToken) {
+    query.syncToken = options.syncToken;
+  }
 
   const resp = await connection.request({
     method: "GET",
@@ -212,7 +222,9 @@ async function incrementalSync(
     // the watcher/LLM. Instance expansion happens only in the bounded display
     // query (fallbackFetch), which pairs singleEvents with a timeMin window.
     const query: Record<string, string> = { syncToken, maxResults: "250" };
-    if (pageToken) query.pageToken = pageToken;
+    if (pageToken) {
+      query.pageToken = pageToken;
+    }
 
     const resp = await connection.request({
       method: "GET",
@@ -237,7 +249,9 @@ async function incrementalSync(
     }
 
     const page = resp.body as SyncResponse;
-    if (page.items) allItems = allItems.concat(page.items);
+    if (page.items) {
+      allItems = allItems.concat(page.items);
+    }
     pageToken = page.nextPageToken;
     nextSyncToken = page.nextSyncToken;
   } while (pageToken);
@@ -282,7 +296,9 @@ async function fetchInitialSyncToken(
     const query: Record<string, string> = {
       maxResults: "250",
     };
-    if (pageToken) query.pageToken = pageToken;
+    if (pageToken) {
+      query.pageToken = pageToken;
+    }
 
     const resp = await connection.request({
       method: "GET",
@@ -358,7 +374,9 @@ export const googleCalendarProvider: WatcherProvider = {
       // Convert events to watcher items, distinguishing new vs updated
       const items: WatcherItem[] = [];
       for (const event of syncResp.items) {
-        if (event.status === "cancelled") continue;
+        if (event.status === "cancelled") {
+          continue;
+        }
 
         const eventType =
           event.created === event.updated

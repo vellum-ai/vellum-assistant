@@ -215,7 +215,9 @@ function installCopy(
 /** Read the commit recorded in a copy's provenance sidecar, if present. */
 function sidecarCommit(pluginsDir: string, name: string): string | null {
   const path = join(pluginsDir, name, "install-meta.json");
-  if (!existsSync(path)) return null;
+  if (!existsSync(path)) {
+    return null;
+  }
   return JSON.parse(readFileSync(path, "utf-8")).commit ?? null;
 }
 
@@ -412,7 +414,9 @@ describe("upgradePlugin", () => {
     const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
     // AND a clone that fails mid-fetch
     const failingGit: GitRunner = async (args) => {
-      if (args[0] === "fetch") throw new Error("network down");
+      if (args[0] === "fetch") {
+        throw new Error("network down");
+      }
       return { stdout: "" };
     };
 
@@ -426,6 +430,115 @@ describe("upgradePlugin", () => {
     ).rejects.toThrow("network down");
     // AND the previously installed copy is left intact at its old pin
     expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_A);
+  });
+
+  test("invokes beforeSwap after staging and before the files are replaced", async () => {
+    // GIVEN an installed copy pinned to SHA_A and an advanced marketplace pin
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = fakeGitRunner(SHA_B);
+    // AND a beforeSwap that records what was on disk when it ran
+    const commitsSeen: Array<string | null> = [];
+    const beforeSwap = async () => {
+      commitsSeen.push(sidecarCommit(pluginsDir, "level-up"));
+    };
+
+    // WHEN the plugin is upgraded
+    const result = await upgradePlugin(
+      { name: "level-up" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir, beforeSwap },
+    );
+
+    // THEN beforeSwap ran exactly once, while the OLD install was still on
+    // disk (the outgoing version's shutdown sees its own files), and the swap
+    // completed afterwards
+    expect(result.outcome).toBe("upgraded");
+    expect(commitsSeen).toEqual([SHA_A]);
+    expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_B);
+  });
+
+  test("a beforeSwap rejection never blocks the swap", async () => {
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const runGit = fakeGitRunner(SHA_B);
+
+    const result = await upgradePlugin(
+      { name: "level-up" },
+      {
+        fetch,
+        runGit,
+        workspacePluginsDir: pluginsDir,
+        beforeSwap: async () => {
+          throw new Error("teardown exploded");
+        },
+      },
+    );
+
+    expect(result.outcome).toBe("upgraded");
+    expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_B);
+  });
+
+  test("does not invoke beforeSwap for a dry run or a no-op upgrade", async () => {
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    let calls = 0;
+    const beforeSwap = async () => {
+      calls += 1;
+    };
+
+    // Dry run against an advanced pin: reports the move, never swaps.
+    const dry = await upgradePlugin(
+      { name: "level-up", dryRun: true },
+      {
+        fetch: makeFetch({ manifest: manifestWith("level-up", SHA_B) }),
+        runGit: fakeGitRunner(SHA_B),
+        workspacePluginsDir: pluginsDir,
+        beforeSwap,
+      },
+    );
+    expect(dry.outcome).toBe("would-upgrade");
+
+    // No-op: the install already sits at the pin.
+    const noop = await upgradePlugin(
+      { name: "level-up" },
+      {
+        fetch: makeFetch({ manifest: manifestWith("level-up", SHA_A) }),
+        runGit: fakeGitRunner(SHA_A),
+        workspacePluginsDir: pluginsDir,
+        beforeSwap,
+      },
+    );
+    expect(noop.outcome).toBe("already-up-to-date");
+
+    expect(calls).toBe(0);
+  });
+
+  test("does not invoke beforeSwap when staging fails", async () => {
+    // The running plugin must never be torn down for an upgrade that cannot
+    // complete: a clone failure aborts before the swap boundary.
+    installCopy(pluginsDir, "level-up", { commit: SHA_A });
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    const failingGit: GitRunner = async (args) => {
+      if (args[0] === "fetch") {
+        throw new Error("network down");
+      }
+      return { stdout: "" };
+    };
+    let calls = 0;
+
+    await expect(
+      upgradePlugin(
+        { name: "level-up" },
+        {
+          fetch,
+          runGit: failingGit,
+          workspacePluginsDir: pluginsDir,
+          beforeSwap: async () => {
+            calls += 1;
+          },
+        },
+      ),
+    ).rejects.toThrow("network down");
+    expect(calls).toBe(0);
   });
 });
 
@@ -479,19 +592,54 @@ describe("upgradePlugin — direct GitHub-URL installs", () => {
     expect(result.toCommit).toBe(SHA_A);
   });
 
-  test("a SHA-pinned direct install is already up to date without any git", async () => {
-    // GIVEN a direct install pinned to an immutable full SHA
+  test("a SHA-pinned direct install follows the repo's default branch", async () => {
+    // GIVEN a direct install pinned to an immutable full SHA (SHA_A)
     installCopy(pluginsDir, "level-up", { commit: SHA_A, ref: SHA_A });
     const fetch = makeFetch({ manifest: undefined });
+    // AND the repo's default branch (HEAD) now points at SHA_B — a full SHA has
+    // no later revision of itself, so the upgrade follows the default branch
+    const calls: string[][] = [];
+    const runGit = directGitRunner({ HEAD: SHA_B }, SHA_B, { calls });
 
-    // WHEN the plugin is upgraded (git must never run — a SHA resolves to itself)
+    // WHEN the plugin is upgraded
     const result = await upgradePlugin(
       { name: "level-up" },
-      { fetch, runGit: unusedGitRunner, workspacePluginsDir: pluginsDir },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
     );
 
-    // THEN there is nothing to advance to
+    // THEN it advances to the default branch tip and records the move
+    expect(result.outcome).toBe("upgraded");
+    expect(result.fromCommit).toBe(SHA_A);
+    expect(result.toCommit).toBe(SHA_B);
+    expect(result.fileCount).toBeGreaterThan(0);
+    expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_B);
+    // AND the recorded ref becomes HEAD, so later upgrades follow the branch
+    // through the ordinary path instead of freezing on a SHA again
+    const meta = JSON.parse(
+      readFileSync(join(pluginsDir, "level-up", "install-meta.json"), "utf-8"),
+    );
+    expect(meta.source.ref).toBe("HEAD");
+    // AND it resolved the default branch via ls-remote before cloning
+    expect(calls[0]?.[0]).toBe("ls-remote");
+    expect(calls[0]?.at(-1)).toBe("HEAD");
+  });
+
+  test("a SHA-pinned direct install is up to date when it sits at the default branch tip", async () => {
+    // GIVEN a direct install pinned to SHA_A that is still the default branch tip
+    installCopy(pluginsDir, "level-up", { commit: SHA_A, ref: SHA_A });
+    const fetch = makeFetch({ manifest: undefined });
+    // AND HEAD still resolves to SHA_A (resolved via ls-remote, no clone)
+    const runGit = directGitRunner({ HEAD: SHA_A }, SHA_A);
+
+    // WHEN the plugin is upgraded
+    const result = await upgradePlugin(
+      { name: "level-up" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN there is nothing newer on the default branch, so it is a no-op
     expect(result.outcome).toBe("already-up-to-date");
+    expect(result.fileCount).toBeNull();
     expect(result.toCommit).toBe(SHA_A);
   });
 
@@ -787,7 +935,10 @@ describe("upgradePlugin --strategy", () => {
     // GIVEN an install whose only divergence from the pin auto-merges cleanly
     const cleanOurs: Tree = { "package.json": PKG, "common.txt": "A\nb\nc\n" };
     const cleanBase: Tree = { "package.json": PKG, "common.txt": "a\nb\nc\n" };
-    const cleanTheirs: Tree = { "package.json": PKG, "common.txt": "a\nb\nC\n" };
+    const cleanTheirs: Tree = {
+      "package.json": PKG,
+      "common.txt": "a\nb\nC\n",
+    };
     installMergeCopy("level-up", cleanOurs, SHA_A, cleanBase);
     const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
     const runGit = treeGitRunner({ [SHA_A]: cleanBase, [SHA_B]: cleanTheirs });

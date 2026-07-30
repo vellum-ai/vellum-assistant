@@ -18,7 +18,9 @@ const CONFIG_PATH = join(WORKSPACE_DIR, "config.json");
 function ensureTestDir(): void {
   const dirs = [WORKSPACE_DIR, join(WORKSPACE_DIR, "data")];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
 
@@ -105,5 +107,25 @@ describe("setImageGenModel — provider derived from model prefix", () => {
     imageGen = (readConfig().services as any)?.["image-generation"];
     expect(imageGen?.model).toBe("gpt-image-2");
     expect(imageGen?.provider).toBe("openai");
+  });
+});
+
+describe("setImageGenModel with provider vellum", () => {
+  test("a model change leaves provider vellum untouched", () => {
+    writeConfig({
+      services: {
+        "image-generation": { provider: "vellum", model: "gpt-image-2" },
+      },
+    });
+
+    setImageGenModel("gemini-3-pro-image-preview", makeCtx());
+
+    const raw = readConfig() as {
+      services: { "image-generation": { provider: string; model: string } };
+    };
+    expect(raw.services["image-generation"].model).toBe(
+      "gemini-3-pro-image-preview",
+    );
+    expect(raw.services["image-generation"].provider).toBe("vellum");
   });
 });

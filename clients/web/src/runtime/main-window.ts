@@ -22,7 +22,9 @@ import { isElectron } from "@/runtime/is-electron";
  */
 
 export async function ensureMainWindowVisible(): Promise<void> {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   await window.vellum?.mainWindow.ensureVisible();
 }
 
@@ -38,7 +40,8 @@ export async function ensureMainWindowVisible(): Promise<void> {
  * the current mode as a no-op.
  */
 export async function setOnboardingWindow(active: boolean): Promise<void> {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   await window.vellum?.mainWindow.setOnboarding(active);
 }
-

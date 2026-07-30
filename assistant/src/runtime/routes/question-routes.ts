@@ -22,15 +22,16 @@
 import { z } from "zod";
 
 import {
-  buildBatchEntries,
-  type QuestionBatchMetadata,
   type QuestionBatchSubmission,
   QuestionBatchValidationError,
-  type QuestionPromptResult,
 } from "../../permissions/question-prompter.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import * as pendingInteractions from "../pending-interactions.js";
+import {
+  readBatchMetadata,
+  resolvePendingQuestion,
+} from "../question-resolution.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -111,35 +112,20 @@ function handleQuestionResponse({ body }: RouteHandlerArgs) {
   const response: QuestionResponseBody = parsed.data;
   const { requestId } = response;
 
-  const interaction = pendingInteractions.get(requestId);
-  if (!interaction || interaction.kind !== "question") {
-    log.warn(
-      { requestId, foundKind: interaction?.kind },
-      "Question response for unknown or wrong-kind requestId",
-    );
-    throw new NotFoundError(
-      "No pending question interaction found for this requestId",
-    );
-  }
-
-  // Build + validate the result BEFORE touching `pendingInteractions`, so a
-  // bad payload leaves the pending interaction (and its timer) intact and the
-  // user gets another chance to submit a correct batch.
-  let result: QuestionPromptResult;
+  // The legacy single-question shim needs the interaction's stashed metadata to
+  // synthesize a one-element batch; peek (don't consume) before resolving.
+  let input;
   try {
-    if (response.kind === "close") {
-      const { orderedIds } = readBatchMetadata(interaction);
-      result = {
-        entries: orderedIds.map((id) => ({
-          questionId: id,
-          decision: "skipped" as const,
-        })),
-        overall: "closed",
-      };
-    } else {
-      const submissions = buildSubmissions(response, interaction);
-      result = buildCompletedResult(submissions, interaction);
-    }
+    input =
+      response.kind === "close"
+        ? ({ kind: "close" } as const)
+        : ({
+            kind: "submit",
+            submissions: buildSubmissions(
+              response,
+              pendingInteractions.get(requestId),
+            ),
+          } as const);
   } catch (err) {
     if (err instanceof QuestionBatchValidationError) {
       throw new BadRequestError(err.message);
@@ -147,40 +133,44 @@ function handleQuestionResponse({ body }: RouteHandlerArgs) {
     throw err;
   }
 
-  // Validation passed — deregister now to clear the prompter timer, then
-  // hand the result to the prompter's caller via rpcResolve.
-  pendingInteractions.resolve(
-    requestId,
-    response.kind === "close" ? "cancelled" : "answered",
-  );
+  const outcome = resolvePendingQuestion(requestId, input);
+
+  if (outcome.status === "not_found") {
+    log.warn(
+      { requestId },
+      "Question response for unknown or wrong-kind requestId",
+    );
+    throw new NotFoundError(
+      "No pending question interaction found for this requestId",
+    );
+  }
+  if (outcome.status === "invalid") {
+    throw new BadRequestError(outcome.message);
+  }
 
   log.info(
     {
       requestId,
-      overall: result.overall,
-      conversationId: interaction.conversationId,
+      overall: outcome.result.overall,
+      conversationId: outcome.conversationId,
     },
     "Question resolved",
   );
-
-  (
-    interaction.rpcResolve as
-      | ((value: QuestionPromptResult) => void)
-      | undefined
-  )?.(result);
 
   return { success: true };
 }
 
 /**
  * Normalize the incoming body to a `QuestionBatchSubmission[]` for the
- * submit/legacy paths. Returns `null` for the `close` path (no submissions).
+ * submit/legacy paths.
  */
 function buildSubmissions(
   body: SubmitBody | LegacyOptionBody | LegacyFreeTextBody,
   interaction: ReturnType<typeof pendingInteractions.get>,
 ): QuestionBatchSubmission[] {
-  if (body.kind === "submit") return body.responses;
+  if (body.kind === "submit") {
+    return body.responses;
+  }
 
   // Legacy single-question shim: synthesize a one-element batch. The
   // prompter stashed the ordered ids on the interaction metadata so we can
@@ -201,47 +191,6 @@ function buildSubmissions(
     return [{ questionId, kind: "option", optionId: body.optionId }];
   }
   return [{ questionId, kind: "free_text", text: body.text }];
-}
-
-/**
- * Build a `completed` QuestionPromptResult from a batched submission and the
- * per-question metadata the prompter stashed on the interaction. Delegates
- * the validation + ordering loop to {@link buildBatchEntries} so the
- * prompter and the route share a single implementation.
- */
-function buildCompletedResult(
-  submissions: QuestionBatchSubmission[],
-  interaction: ReturnType<typeof pendingInteractions.get>,
-): QuestionPromptResult {
-  const { orderedIds, optionsById } = readBatchMetadata(interaction);
-  if (orderedIds.length === 0) {
-    throw new QuestionBatchValidationError(
-      "No registered question ids for this batch",
-    );
-  }
-  const entries = buildBatchEntries(
-    orderedIds,
-    (qid, oid) => (optionsById[qid] ?? []).includes(oid),
-    new Set(Object.keys(optionsById)),
-    submissions,
-  );
-  return { entries, overall: "completed" };
-}
-
-/**
- * Pull the prompter-stashed batch bookkeeping off a pending interaction.
- * Returns empty defaults if the metadata is absent.
- */
-function readBatchMetadata(
-  interaction: ReturnType<typeof pendingInteractions.get>,
-): QuestionBatchMetadata {
-  const meta = interaction?.metadata as
-    | Partial<QuestionBatchMetadata>
-    | undefined;
-  return {
-    orderedIds: meta?.orderedIds ?? [],
-    optionsById: meta?.optionsById ?? {},
-  };
 }
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,32 @@
+import { z } from "zod";
+
 import { startCall } from "../../calls/call-domain.js";
 import { findActiveSession } from "../../channels/gateway-verification-sessions.js";
 import { getConfig } from "../../config/loader.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
+import {
+  invalidToolInputResult,
+  nullAsOmitted,
+} from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+/**
+ * Model-input schema, `safeParse`d at the top of {@link executeCallStart}.
+ * Same in-tool pattern and TOOLS.json drift guard as the other bundled-skill
+ * tools — see the schema block in `tools/document/document-tool.ts` for the
+ * framework. The advertised-required fields are required here — schema
+ * rejection is the only guard between a mistyped `phone_number`/`task` and
+ * `startCall`. `skip_disclosure` (deliberate `=== true` coercion) is
+ * UNDECLARED — loose passthrough.
+ */
+export const callStartInputSchema = z.looseObject({
+  phone_number: z.string(),
+  task: z.string(),
+  context: nullAsOmitted(z.string()),
+  caller_identity_mode: nullAsOmitted(
+    z.enum(["assistant_number", "user_number"]),
+  ),
+});
 
 export async function executeCallStart(
   input: Record<string, unknown>,
@@ -16,10 +40,13 @@ export async function executeCallStart(
     };
   }
 
-  const requestedPhone =
-    typeof input.phone_number === "string"
-      ? normalizePhoneNumber(input.phone_number)
-      : null;
+  const parsedInput = callStartInputSchema.safeParse(input);
+  if (!parsedInput.success) {
+    return invalidToolInputResult("call_start", parsedInput.error);
+  }
+  const parsed = parsedInput.data;
+
+  const requestedPhone = normalizePhoneNumber(parsed.phone_number);
   if (requestedPhone) {
     const activeVoiceVerification = await findActiveSession("phone");
     const verificationDestination =
@@ -37,15 +64,12 @@ export async function executeCallStart(
   }
 
   const result = await startCall({
-    phoneNumber: input.phone_number as string,
-    task: input.task as string,
-    context: input.context as string | undefined,
+    phoneNumber: parsed.phone_number,
+    task: parsed.task,
+    context: parsed.context,
     conversationId: context.conversationId,
     assistantId: context.assistantId,
-    callerIdentityMode: input.caller_identity_mode as
-      | "assistant_number"
-      | "user_number"
-      | undefined,
+    callerIdentityMode: parsed.caller_identity_mode,
     skipDisclosure: input.skip_disclosure === true,
   });
 

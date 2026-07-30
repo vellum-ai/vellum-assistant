@@ -250,7 +250,25 @@ describe("composition", () => {
     expect(resolved.provider_connection).toBeUndefined();
   });
 
-  test("a model-only tweak keeps the provider-agnostic vellum connection for managed-routable implied providers", () => {
+  test("a provider-pinning tweak over the vellum default keeps the managed routing", () => {
+    const llm = LLMSchema.parse({
+      callSites: {
+        conversationSummarization: {
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+        },
+      },
+      defaultProvider: { provider: "vellum" },
+    });
+    const resolved = resolveCallSiteConfig("conversationSummarization", llm);
+    // The tweak wins the fields it sets; the identity winner contributes its
+    // routing through the provider-agnostic managed connection.
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).toBe("claude-opus-4-6");
+    expect(resolved.provider_connection).toBe("vellum");
+  });
+
+  test("a model-only tweak on the vellum default keeps the identity provider", () => {
     const llm = LLMSchema.parse({
       callSites: {
         conversationSummarization: { model: "claude-haiku-4-5-20251001" },
@@ -258,10 +276,10 @@ describe("composition", () => {
       defaultProvider: { provider: "vellum" },
     });
     const resolved = resolveCallSiteConfig("conversationSummarization", llm);
-    expect(resolved.provider).toBe("anthropic");
-    // The vellum connection routes anthropic via expectedProvider; dropping
-    // it would leave platform installs with no resolvable connection.
-    expect(resolved.provider_connection).toBe("vellum");
+    // provider "vellum" + the tweaked model is the complete dispatch shape:
+    // the upstream derives from the model, no connection stamp needed.
+    expect(resolved.provider).toBe("vellum");
+    expect(resolved.provider_connection).toBeUndefined();
   });
 
   test("profileless call sites anchor on balanced intent through the default provider plus their tweaks", () => {

@@ -71,7 +71,7 @@ import {
   type MemoryV2ConceptRowRecord,
   type MemoryV2ConfigSnapshot,
   recordMemoryV2ActivationLog,
-} from "../../../plugins/defaults/memory/memory-v2-activation-log-store.js";
+} from "../../../plugins/defaults/memory/v2/activation-log-store.js";
 import {
   createConnection,
   getConnection,
@@ -97,6 +97,34 @@ const conversationLlmContextRoute = ROUTES.find(
 const replaceProfileRoute = ROUTES.find(
   (r) => r.operationId === "config_llm_profiles_replace",
 )!;
+
+const deleteQueuedMessageRoute = ROUTES.find(
+  (r) => r.operationId === "messages_queued_delete",
+)!;
+
+const steerQueuedMessageRoute = ROUTES.find(
+  (r) => r.operationId === "messages_queued_steer",
+)!;
+
+describe("queued message conversation context", () => {
+  test("delete accepts the forwarded conversation header when the query is absent", () => {
+    expect(() =>
+      deleteQueuedMessageRoute.handler({
+        pathParams: { id: "request-1" },
+        headers: { "x-vellum-conversation-id": "missing-conversation" },
+      }),
+    ).toThrow("Conversation not found");
+  });
+
+  test("steer accepts the forwarded conversation header when the query is absent", () => {
+    expect(() =>
+      steerQueuedMessageRoute.handler({
+        pathParams: { id: "request-1" },
+        headers: { "x-vellum-conversation-id": "missing-conversation" },
+      }),
+    ).toThrow("Conversation not found");
+  });
+});
 
 function dispatchLlmContext(messageId: string) {
   return llmContextRoute.handler({ pathParams: { id: messageId } });

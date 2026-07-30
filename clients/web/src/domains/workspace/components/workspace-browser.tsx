@@ -40,8 +40,8 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     const filePath = searchParams.get("file");
     return filePath ? getAncestorPaths(filePath) : new Set<string>();
   });
-  const [selectedPath, setSelectedPath] = useState<string | null>(
-    () => searchParams.get("file"),
+  const [selectedPath, setSelectedPath] = useState<string | null>(() =>
+    searchParams.get("file"),
   );
   const [showHidden, setShowHidden] = useState(false);
   const [sortMode, setSortMode] = useState<WorkspaceSortMode>(() =>
@@ -49,16 +49,30 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
   );
   const [viewMode, setViewMode] = useState<WorkspaceViewMode>("preview");
 
-  // Clear ?file= param after bootstrapping state from it
+  // Apply ?file= deep links (initial mount and later in-page navigations),
+  // then strip the param so tree selection owns the state again.
   useEffect(() => {
-    if (!searchParams.get("file")) return;
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete("file");
-      return next;
-    }, { replace: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const filePath = searchParams.get("file");
+    if (!filePath) {
+      return;
+    }
+    setSelectedPath(filePath);
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      for (const ancestor of getAncestorPaths(filePath)) {
+        next.add(ancestor);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("file");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchParams, setSearchParams]);
 
   const handleToggleExpand = useCallback((path: string) => {
     setExpandedPaths((prev) => {
@@ -74,7 +88,9 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
 
   const handleExpandPath = useCallback((path: string) => {
     setExpandedPaths((prev) => {
-      if (prev.has(path)) return prev;
+      if (prev.has(path)) {
+        return prev;
+      }
       const next = new Set(prev);
       next.add(path);
       return next;
@@ -118,7 +134,9 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
       const next = new Set<string>();
       for (const p of prev) {
         const mapped = remap(p);
-        if (mapped !== p) changed = true;
+        if (mapped !== p) {
+          changed = true;
+        }
         next.add(mapped);
       }
       return changed ? next : prev;

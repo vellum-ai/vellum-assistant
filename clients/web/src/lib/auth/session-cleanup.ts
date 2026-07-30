@@ -22,6 +22,8 @@
  * - https://web.dev/articles/sign-out-best-practices
  */
 
+import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
+
 const USER_PREFIX = "vellum:";
 
 /**
@@ -59,12 +61,20 @@ const LEGACY_DEVICE_KEYS = new Set([
 ]);
 
 function isUserScopedKey(key: string): boolean {
-  if (key.startsWith(USER_PREFIX)) return true;
-  if (LEGACY_DEVICE_KEYS.has(key)) return false;
+  if (key.startsWith(USER_PREFIX)) {
+    return true;
+  }
+  if (LEGACY_DEVICE_KEYS.has(key)) {
+    return false;
+  }
   return LEGACY_USER_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
 export function clearUserScopedStorage(): void {
+  // The takeover avatar stash can outlive `sessionStorage.clear()` through its
+  // in-memory mirror when the write never reached storage.
+  clearTakeoverAvatarStash();
+
   try {
     sessionStorage.clear();
   } catch {

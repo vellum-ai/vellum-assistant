@@ -94,7 +94,9 @@ const { _clearAllOAuthConnectStates, getOAuthConnectState } =
 
 function findRoute(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route;
 }
 

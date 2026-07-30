@@ -19,19 +19,25 @@ export type { UpdateState, UpdateStatus };
 
 /** Snapshot the current update state. Returns idle off Electron. */
 export async function getUpdateState(): Promise<UpdateState> {
-  if (!isElectron()) return { status: "idle" };
+  if (!isElectron()) {
+    return { status: "idle" };
+  }
   return (await window.vellum?.update?.getState()) ?? { status: "idle" };
 }
 
 /** Trigger a manual check for updates. No-op off Electron. */
 export async function checkForUpdates(): Promise<void> {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   await window.vellum?.update?.check();
 }
 
 /** Quit and install the downloaded update. No-op off Electron. */
 export async function installUpdate(): Promise<void> {
-  if (!isElectron()) return;
+  if (!isElectron()) {
+    return;
+  }
   await window.vellum?.update?.install();
 }
 
@@ -39,6 +45,8 @@ export async function installUpdate(): Promise<void> {
 export function onUpdateState(
   callback: (state: UpdateState) => void,
 ): () => void {
-  if (!isElectron()) return () => undefined;
+  if (!isElectron()) {
+    return () => undefined;
+  }
   return window.vellum?.update?.onState(callback) ?? (() => undefined);
 }

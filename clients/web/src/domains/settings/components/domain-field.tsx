@@ -31,11 +31,15 @@ export function DomainField({
 
   return (
     <div>
-      <div className={`flex h-9 w-full items-center rounded-md border bg-[var(--field-bg)] text-body-medium-lighter transition-[border-color] duration-150 ${borderClass}`}>
+      <div
+        className={`flex h-9 w-full items-center rounded-md border bg-[var(--field-bg)] text-body-medium-lighter transition-[border-color] duration-150 ${borderClass}`}
+      >
         {prefix}
         <input
           value={subdomain}
-          onChange={(e) => onSubdomainChange(e.target.value.toLowerCase().trim())}
+          onChange={(e) =>
+            onSubdomainChange(e.target.value.toLowerCase().trim())
+          }
           disabled={disabled || locked}
           readOnly={locked}
           autoFocus={autoFocus}

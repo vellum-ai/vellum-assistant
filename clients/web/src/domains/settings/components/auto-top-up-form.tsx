@@ -17,7 +17,9 @@ export interface AutoTopUpFormProps {
   onCancel: () => void;
 }
 
-export type AutoTopUpFormErrors = Partial<Record<keyof AutoTopUpFormValues, string>>;
+export type AutoTopUpFormErrors = Partial<
+  Record<keyof AutoTopUpFormValues, string>
+>;
 
 const DEFAULTS: AutoTopUpFormValues = {
   threshold_usd: "100",
@@ -32,7 +34,9 @@ const DEFAULTS: AutoTopUpFormValues = {
  * lone "-" pass through unchanged so typing-in-progress states aren't lost.
  */
 function coerceUsdToIntStr(v: string): string {
-  if (v === "" || v === "-") return v;
+  if (v === "" || v === "-") {
+    return v;
+  }
   const n = parseFloat(v);
   return Number.isFinite(n) ? String(Math.trunc(n)) : "";
 }
@@ -97,8 +101,12 @@ export function visibleAutoTopUpError(
   serverErrors: Record<string, string>,
   touched: boolean,
 ): string | undefined {
-  if (serverErrors[field]) return serverErrors[field];
-  if (touched) return clientErrors[field];
+  if (serverErrors[field]) {
+    return serverErrors[field];
+  }
+  if (touched) {
+    return clientErrors[field];
+  }
   return undefined;
 }
 
@@ -110,7 +118,9 @@ export function AutoTopUpForm({
   onCancel,
 }: AutoTopUpFormProps) {
   const [values, setValues] = useState<AutoTopUpFormValues>(initialValues);
-  const [touched, setTouched] = useState<Record<keyof AutoTopUpFormValues, boolean>>({
+  const [touched, setTouched] = useState<
+    Record<keyof AutoTopUpFormValues, boolean>
+  >({
     threshold_usd: false,
     amount_usd: false,
     monthly_cap_usd: false,
@@ -137,7 +147,11 @@ export function AutoTopUpForm({
     visibleAutoTopUpError(field, clientErrors, serverErrors, touched[field]);
 
   const handleSubmit = () => {
-    setTouched({ threshold_usd: true, amount_usd: true, monthly_cap_usd: true });
+    setTouched({
+      threshold_usd: true,
+      amount_usd: true,
+      monthly_cap_usd: true,
+    });
     // Validate against the COERCED submit values, not the focused-typing
     // snapshot. Otherwise an in-progress decimal like "12.9" can fail
     // hysteresis (12.9 >= 12.5) even though its truncated submit value
@@ -150,7 +164,9 @@ export function AutoTopUpForm({
     setValues(coercedValues);
     const submitErrors = validateAutoTopUpValues(coercedValues);
     const allValid = Object.keys(submitErrors).length === 0;
-    if (!allValid) return;
+    if (!allValid) {
+      return;
+    }
     const toApiFormat = (v: string): string =>
       v === "" ? "" : `${parseInt(v, 10)}.00`;
     onSave({
@@ -170,7 +186,7 @@ export function AutoTopUpForm({
           <Input
             type="number"
             step="1"
-            label="Auto-Reload when balance below"
+            label="Auto-reload when balance below"
             value={values.threshold_usd}
             onChange={onChange("threshold_usd")}
             onBlur={onBlur("threshold_usd")}
@@ -183,7 +199,7 @@ export function AutoTopUpForm({
           <Input
             type="number"
             step="1"
-            label="Add amount when auto reloading"
+            label="Auto-reload amount"
             value={values.amount_usd}
             onChange={onChange("amount_usd")}
             onBlur={onBlur("amount_usd")}

@@ -37,9 +37,12 @@ function releaseLabel(
   latestVersion: string | undefined,
 ): string {
   const parts = [release.version];
-  if (release.version === latestVersion) parts.push("(latest)");
-  if (currentVersion && release.version === currentVersion)
+  if (release.version === latestVersion) {
+    parts.push("(latest)");
+  }
+  if (currentVersion && release.version === currentVersion) {
     parts.push("(current)");
+  }
   return parts.join(" ");
 }
 
@@ -151,20 +154,32 @@ export function AssistantUpgrades({
     selectedVersion ?? latestRelease?.version ?? null;
 
   const isRollback = useMemo(() => {
-    if (!rollbackEnabled) return false;
-    if (!effectiveSelectedVersion || !currentVersion) return false;
+    if (!rollbackEnabled) {
+      return false;
+    }
+    if (!effectiveSelectedVersion || !currentVersion) {
+      return false;
+    }
     const target = parseSemver(effectiveSelectedVersion);
     const current = parseSemver(currentVersion);
-    if (!target || !current) return false;
+    if (!target || !current) {
+      return false;
+    }
     return compareParsed(target, current) < 0;
   }, [rollbackEnabled, effectiveSelectedVersion, currentVersion]);
 
   const upgradeAvailable = useMemo(() => {
-    if (!effectiveSelectedVersion) return false;
-    if (!currentVersion) return true;
+    if (!effectiveSelectedVersion) {
+      return false;
+    }
+    if (!currentVersion) {
+      return true;
+    }
     const target = parseSemver(effectiveSelectedVersion);
     const current = parseSemver(currentVersion);
-    if (!target || !current) return effectiveSelectedVersion !== currentVersion;
+    if (!target || !current) {
+      return effectiveSelectedVersion !== currentVersion;
+    }
     const cmp = compareParsed(target, current);
     if (!rollbackEnabled) {
       return cmp > 0;

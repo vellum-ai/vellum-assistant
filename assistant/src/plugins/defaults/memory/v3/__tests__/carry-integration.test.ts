@@ -58,11 +58,11 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { stripSpotlightInjections } from "../../../../../context/strip-injections.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
+import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../../memory-marker.js";
-import type { PageIndexEntry } from "../../v2/page-index.js";
+import type { PageIndexEntry } from "../../substrate/page-index.js";
 import { cardBytes, renderCard } from "../card.js";
 import { loadCoreSet } from "../core-set.js";
 import type { EdgeGraph } from "../edge.js";
@@ -128,17 +128,17 @@ mock.module("../dense.js", () => ({
 }));
 
 let testSqlite: Database;
-// Selection rows live on the dedicated memory connection, resolved via
-// `getMemorySqlite` — stubbed to a second in-memory DB carrying the relocated
-// table's schema. Messages and the everInjected store stay in main.
+// Selection and everInjected rows live on the dedicated memory connection,
+// resolved via `getMemorySqlite` — stubbed to a second in-memory DB carrying
+// the relocated tables' schema. Messages stay in main.
 let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
-  migrateAddMemoryV3EverInjected(db);
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
+  ensureMemoryV3EverInjectedSchema(memorySqlite);
   // Minimal `messages` shape — metadata persistence, the prune valve's
   // v3-ownership scan, and the restart rehydration read only these columns.
   testSqlite.run(/*sql*/ `
@@ -164,6 +164,10 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
         ),
   getMemorySqlite: () =>
     carryMockActive ? memorySqlite : realDbConnection.getMemorySqlite(),
+  getMemoryDb: () =>
+    carryMockActive
+      ? drizzle(memorySqlite, { schema })
+      : realDbConnection.getMemoryDb(),
 }));
 
 /** Mutable prune config: `null` until the script opens the valve window. */
@@ -438,6 +442,7 @@ async function buildFixtureLanes(): Promise<FixtureLanes> {
     edges: [],
     leaves: [],
     modifiedAt: 0,
+    freshAt: null,
   }));
   const edgeGraph = await buildEdgeGraph(entries, async (slug) => RAW[slug]!);
 
@@ -486,7 +491,9 @@ function candidateSlugs(messages: Message[]): Slug[] {
   const entries: Array<{ id: number; slug: string }> = [];
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type !== "text") continue;
+      if (block.type !== "text") {
+        continue;
+      }
       const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
         block.text,
       );
@@ -503,7 +510,9 @@ function candidateSlugs(messages: Message[]): Slug[] {
       if (finder) {
         for (const line of finder[1].split("\n")) {
           const m = /^\[(\d+)\] (?:\([^)]*\) )?(\S+)(?: — |$)/.exec(line);
-          if (m) entries.push({ id: Number(m[1]), slug: m[2]! });
+          if (m) {
+            entries.push({ id: Number(m[1]), slug: m[2]! });
+          }
         }
       }
     }
@@ -526,7 +535,9 @@ function makeProviderStub(): Provider {
       );
       const ids: number[] = [];
       candidateSlugs(messages).forEach((slug, i) => {
-        if (keep.includes(slug)) ids.push(i + 1);
+        if (keep.includes(slug)) {
+          ids.push(i + 1);
+        }
       });
       return toolUseResponse({ ids });
     },
@@ -610,13 +621,16 @@ async function runTurn(
 
   const activeBefore = getActiveSlugs(convId);
   const cards = await memoryV3Injector.produce(ctx);
-  if (!cards)
+  if (!cards) {
     throw new Error(`turn ${turnIndex}: cards injector returned null`);
+  }
   // Runtime assembly invokes the block's attachment-commit callback at its
   // user-tail commit point — this is where the everInjected store records
   // the turn's cards (and the prune valve is scheduled).
   const commit = cards.meta?.[MEMORY_V3_COMMIT_META_KEY];
-  if (typeof commit === "function") (commit as () => void)();
+  if (typeof commit === "function") {
+    (commit as () => void)();
+  }
   const netNewSlugs = [...getActiveSlugs(convId)].filter(
     (slug) => !activeBefore.has(slug),
   );
@@ -864,7 +878,7 @@ beforeAll(async () => {
     `,
     )
     .run(FORK_CONV, CONV);
-  forkEverInjected(testDb, CONV, FORK_CONV);
+  forkEverInjected(CONV, FORK_CONV);
   histories.set(FORK_CONV, rehydrateFromDb(FORK_CONV));
   forkRecord = await runTurn(FORK_CONV, 9, "strawberry guava", [
     "page-g",
@@ -879,7 +893,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await flushPruneValveForTests();
   carryMockActive = false;
-  if (workspaceDir) rmSync(workspaceDir, { recursive: true, force: true });
+  if (workspaceDir) {
+    rmSync(workspaceDir, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -989,7 +1005,9 @@ describe("memory-v3 carry integration — cache contract", () => {
     let expected = 0;
     for (const record of records) {
       expected += record.netNewBytes;
-      if (record.turn === 7) expected -= pruneWindow.bytesFreedExpected;
+      if (record.turn === 7) {
+        expected -= pruneWindow.bytesFreedExpected;
+      }
       expect(record.residentBytes).toBe(expected);
     }
   });

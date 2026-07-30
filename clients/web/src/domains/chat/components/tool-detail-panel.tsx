@@ -33,14 +33,15 @@ import { useEffect, useRef, useState } from "react";
 import { Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { DetailShell } from "@/domains/chat/components/detail-shell";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { DetailShell } from "@/components/detail-shell";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
 import {
-    deriveStepLabelFromName,
-    type IconName,
+  deriveStepLabelFromName,
+  type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { getRiskToleranceHint } from "@/domains/chat/utils/risk";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
@@ -77,15 +78,26 @@ function CopyButton({ text }: { text: string }) {
 
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
     };
   }, []);
 
   const handleCopy = () => {
-    void navigator.clipboard.writeText(text);
-    setCopied(true);
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => setCopied(false), COPIED_RESET_MS);
+    copyToClipboard(text, {
+      errorMessage: "Couldn't copy.",
+      onCopied: () => {
+        setCopied(true);
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+        timeoutRef.current = setTimeout(
+          () => setCopied(false),
+          COPIED_RESET_MS,
+        );
+      },
+    });
   };
 
   return (
@@ -95,7 +107,11 @@ function CopyButton({ text }: { text: string }) {
       aria-label={copied ? "Copied" : "Copy"}
       className="absolute right-2 top-2 flex items-center gap-1 rounded p-1 text-label-small-default text-[var(--content-tertiary)] transition-colors hover:bg-[var(--ghost-hover)] hover:text-[var(--content-default)]"
     >
-      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? (
+        <Check className="h-3.5 w-3.5" />
+      ) : (
+        <Copy className="h-3.5 w-3.5" />
+      )}
       {copied ? "Copied" : null}
     </button>
   );
@@ -133,8 +149,6 @@ export function SectionLabel({
   );
 }
 
-
-
 /**
  * Thinking variant body. Reuses the shared shell but renders the reasoning
  * markdown live: it re-derives the text from the chat-session store via the
@@ -155,7 +169,12 @@ function ThinkingDetailBody({
     detail.thinkingItemIndex,
   );
   return (
-    <DetailShell Glyph={Brain} title={detail.title} closeLabel="Close tool details" onClose={onClose}>
+    <DetailShell
+      Glyph={Brain}
+      title={detail.title}
+      closeLabel="Close tool details"
+      onClose={onClose}
+    >
       <ChatMarkdownMessage
         content={live ?? detail.thinkingText ?? ""}
         hardLineBreaks

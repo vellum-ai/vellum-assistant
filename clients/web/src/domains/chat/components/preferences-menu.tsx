@@ -1,21 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-    ChevronDown,
-    ChevronUp,
-    CircleUser,
-    MessageSquareText,
-    Settings as SettingsIcon,
-    Shield,
+  ChevronDown,
+  ChevronUp,
+  CircleUser,
+  MessageSquareText,
+  Settings as SettingsIcon,
+  Shield,
 } from "lucide-react";
 import { lazy, useState } from "react";
 import { useNavigate } from "react-router";
 
 import {
-    BottomSheet,
-    Button,
-    PanelItem,
-    Popover,
-    SideMenu,
+  BottomSheet,
+  Button,
+  PanelItem,
+  Popover,
+  SideMenu,
 } from "@vellumai/design-library";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -24,8 +24,8 @@ import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tan
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
-    useActiveAssistantIsPlatformHosted,
-    usePlatformGate,
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
@@ -107,6 +107,7 @@ export function PreferencesMenu({
         label={displayName}
         trailingIcon={isOpen ? ChevronDown : ChevronUp}
         active={isOpen}
+        data-tour-id="settings"
       />
     );
 
@@ -199,7 +200,7 @@ function PreferencesMenuContent({
             balance={formatWholeCredits(effectiveBalance)}
             onAddCredits={() => {
               onClose();
-              navigate(routes.settings.billing);
+              navigate(routes.settings.usageBilling);
             }}
           />
         </div>

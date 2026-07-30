@@ -2,9 +2,9 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentLoop } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { DiskPressureStatus } from "../daemon/disk-pressure-guard.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 
 type Context = Conversation;
 
@@ -135,7 +135,16 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: async () => {},
+    drainQueue: async (_reason?: string) => {},
+    // Forwards to drainQueue so tests that spy the drain observe the agent
+    // loop's post-turn kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => null,
 
@@ -157,7 +166,7 @@ describe("runAgentLoopImpl disk pressure gate", () => {
   });
 
   test("blocks background turns inside the cleanup-safe finally path", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const activityStates: unknown[][] = [];
     const drainQueue = mock(async (_reason: unknown) => {});
     const ctx = makeCtx({

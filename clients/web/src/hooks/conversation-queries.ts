@@ -22,15 +22,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import {
-  groupsGetOptions,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { groupsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
-import type {
-  GroupsGetData,
-} from "@/generated/daemon/types.gen";
+import type { GroupsGetData } from "@/generated/daemon/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
 import {
   archivedConversationListOptions,
   backgroundConversationListOptions,

@@ -39,9 +39,8 @@ mock.module("@/components/layout/chat-layout-slots-store", () => ({
   },
 }));
 
-const { IntelligenceLayout } = await import(
-  "@/domains/intelligence/intelligence-layout"
-);
+const { IntelligenceLayout } =
+  await import("@/domains/intelligence/intelligence-layout");
 
 const renderLayoutAt = (path: string) =>
   render(
@@ -86,6 +85,14 @@ describe("IntelligenceLayout — section pages", () => {
   test("the schedules page renders as a section, including detail sub-paths", () => {
     const { container } = renderLayoutAt("/assistant/schedules/sch_123");
     expect(container.querySelector("h1")?.textContent).toBe("Schedules");
+    expect(container.querySelector("a")?.getAttribute("href")).toBe(
+      "/assistant/identity",
+    );
+  });
+
+  test("the library page renders as a section with the back chevron", () => {
+    const { container } = renderLayoutAt("/assistant/library");
+    expect(container.querySelector("h1")?.textContent).toBe("Library");
     expect(container.querySelector("a")?.getAttribute("href")).toBe(
       "/assistant/identity",
     );

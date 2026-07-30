@@ -24,12 +24,16 @@ export const servicesConfigMigration: WorkspaceMigration = {
     "Move top-level provider/model/imageGenModel/webSearchProvider into services object with mode",
   async run(workspaceDir: string): Promise<void> {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
@@ -45,7 +49,9 @@ export const servicesConfigMigration: WorkspaceMigration = {
       "model" in config ||
       "imageGenModel" in config ||
       "webSearchProvider" in config;
-    if (!hasLegacyFields) return;
+    if (!hasLegacyFields) {
+      return;
+    }
 
     // Start from existing services (legacy daemons may have written a
     // schema-default services object to disk before this migration runs)
@@ -146,20 +152,25 @@ export const servicesConfigMigration: WorkspaceMigration = {
   },
   down(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const services = config.services;
-    if (!services || typeof services !== "object" || Array.isArray(services))
+    if (!services || typeof services !== "object" || Array.isArray(services)) {
       return;
+    }
 
     const svc = services as Record<string, Record<string, unknown>>;
 

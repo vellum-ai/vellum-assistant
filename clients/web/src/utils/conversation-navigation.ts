@@ -11,22 +11,42 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 
+export interface NavigateToConversationOptions {
+  /** Anchor the transcript to a specific message on load. */
+  messageId?: string;
+  /**
+   * Suppress the haptic tap. For callers that already fired their own haptic
+   * at action start (e.g. fork), so the navigation doesn't double-buzz.
+   */
+  silent?: boolean;
+}
+
 /**
- * Navigate to an existing conversation, resetting subagent state and updating
- * the active conversation in the store. Pass `messageId` to anchor the
- * transcript to a specific message on load.
+ * Navigate to an existing conversation, resetting stale viewer state (main
+ * view, subagent / workflow panels) and updating the active conversation in
+ * the store.
  *
  * Pure imperative function — reads stores via `.getState()`, no React hooks.
  */
 export function navigateToConversation(
   navigate: NavigateFunction,
   conversationId: string,
-  options?: { messageId?: string },
+  options?: NavigateToConversationOptions,
 ): void {
-  haptic.light();
+  if (!options?.silent) {
+    haptic.light();
+  }
   useViewerStore.getState().setMainView("chat");
-  useSubagentStore.getState().reset();
-  useWorkflowStore.getState().reset();
+  // Only wipe per-conversation process state on a genuine switch. Wiping on
+  // a same-conversation navigation kills the inline cards for subagents
+  // that are still running: the store repopulates only from live SSE
+  // events, so the spawned entries can't come back mid-run (LUM-2875).
+  if (
+    conversationId !== useConversationStore.getState().activeConversationId
+  ) {
+    useSubagentStore.getState().reset();
+    useWorkflowStore.getState().reset();
+  }
   useConversationStore.getState().setActiveConversationId(conversationId);
   void navigate(
     options?.messageId

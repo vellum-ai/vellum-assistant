@@ -162,204 +162,198 @@ describe("ConfigWatcher skills watcher reseeding", () => {
     rmSync(WORKSPACE_DIR, { recursive: true, force: true });
   });
 
-  test("watched skill file changes evict conversations and refresh skill memories", async () => {
-    watcher.start();
+  describe("recursive watcher", () => {
+    beforeEach(() => {
+      recursiveWatchAvailable = true;
+    });
 
-    const skillsWatcher = findWatcher(SKILLS_DIR);
-    expect(skillsWatcher).toBeDefined();
-    skillsWatcher!.callback("change", "example-skill/SKILL.md");
+    test("reloads on SKILL.md changes", async () => {
+      watcher.start();
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+      const skillsWatcher = findWatcher(SKILLS_DIR);
+      expect(skillsWatcher).toBeDefined();
+      skillsWatcher!.callback("change", "example-skill/SKILL.md");
 
-    expect(evictCalls).toBe(1);
-    expect(skillsChangedCalls).toBe(1);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(evictCalls).toBe(1);
+      expect(skillsChangedCalls).toBe(1);
+    });
+
+    test("reloads on TOOLS.json changes", async () => {
+      watcher.start();
+
+      const skillsWatcher = findWatcher(SKILLS_DIR);
+      skillsWatcher!.callback("change", "example-skill/TOOLS.json");
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(evictCalls).toBe(1);
+      expect(skillsChangedCalls).toBe(1);
+    });
+
+    test("ignores non-catalog files (scripts, references, build output)", async () => {
+      watcher.start();
+
+      const skillsWatcher = findWatcher(SKILLS_DIR);
+      skillsWatcher!.callback("change", "example-skill/references/foo.md");
+      skillsWatcher!.callback("change", "example-skill/dist/index.js");
+      skillsWatcher!.callback("change", "example-skill/package.json");
+      skillsWatcher!.callback("change", "example-skill/scripts/run.py");
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(evictCalls).toBe(0);
+      expect(skillsChangedCalls).toBe(0);
+    });
+
+    test("ignores catalog files under skipped dependency and staging paths", async () => {
+      watcher.start();
+
+      const skillsWatcher = findWatcher(SKILLS_DIR);
+      skillsWatcher!.callback(
+        "change",
+        "example-skill/node_modules/pkg/SKILL.md",
+      );
+      skillsWatcher!.callback(
+        "change",
+        ".install-staging/example-skill/SKILL.md",
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(evictCalls).toBe(0);
+      expect(skillsChangedCalls).toBe(0);
+    });
+
+    test("coalesces multiple catalog changes into one reload", async () => {
+      watcher.start();
+
+      const skillsWatcher = findWatcher(SKILLS_DIR);
+      skillsWatcher!.callback("change", "example-skill/SKILL.md");
+      skillsWatcher!.callback("change", "example-skill/package.json");
+      skillsWatcher!.callback("change", "example-skill/TOOLS.json");
+      skillsWatcher!.callback("change", "other-skill/SKILL.md");
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(evictCalls).toBe(1);
+      expect(skillsChangedCalls).toBe(1);
+    });
   });
 
-  test("recursive watcher ignores skipped dependency and staging paths", async () => {
-    recursiveWatchAvailable = true;
+  describe("per-skill-directory fallback", () => {
+    test("watches the root and each immediate skill directory, not nested subdirectories", () => {
+      const skillDir = join(SKILLS_DIR, "example-skill");
+      mkdirSync(join(skillDir, "references"), { recursive: true });
+      mkdirSync(join(skillDir, "dist"), { recursive: true });
 
-    watcher.start();
+      watcher.start();
 
-    const skillsWatcher = findWatcher(SKILLS_DIR);
-    expect(skillsWatcher).toBeDefined();
-    skillsWatcher!.callback(
-      "change",
-      "example-skill/node_modules/pkg/index.js",
-    );
-    skillsWatcher!.callback(
-      "change",
-      ".install-staging/example-skill/SKILL.md",
-    );
+      expect(findWatcher(SKILLS_DIR)).toBeDefined();
+      expect(findWatcher(skillDir)).toBeDefined();
+      expect(findWatcher(join(skillDir, "references"))).toBeUndefined();
+      expect(findWatcher(join(skillDir, "dist"))).toBeUndefined();
+    });
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    test("does not watch dependency or staging directories", () => {
+      const skillDir = join(SKILLS_DIR, "example-skill");
+      mkdirSync(join(skillDir, "node_modules", "pkg"), { recursive: true });
+      mkdirSync(join(SKILLS_DIR, ".install-staging", "staged"), {
+        recursive: true,
+      });
 
-    expect(evictCalls).toBe(0);
-    expect(skillsChangedCalls).toBe(0);
+      watcher.start();
 
-    skillsWatcher!.callback("change", "example-skill/references/foo.md");
+      expect(findWatcher(join(skillDir, "node_modules"))).toBeUndefined();
+      expect(findWatcher(join(SKILLS_DIR, ".install-staging"))).toBeUndefined();
+      expect(findWatcher(skillDir)).toBeDefined();
+    });
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    test("reloads on SKILL.md / TOOLS.json edits within a skill directory", async () => {
+      const skillDir = join(SKILLS_DIR, "example-skill");
+      mkdirSync(skillDir, { recursive: true });
 
-    expect(evictCalls).toBe(1);
-    expect(skillsChangedCalls).toBe(1);
-  });
+      watcher.start();
+      const skillWatcher = findWatcher(skillDir);
+      expect(skillWatcher).toBeDefined();
 
-  test("recursive watcher reloads skill memories for build output changes", async () => {
-    recursiveWatchAvailable = true;
+      skillWatcher!.callback("change", "SKILL.md");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(evictCalls).toBe(1);
+      expect(skillsChangedCalls).toBe(1);
 
-    watcher.start();
+      skillWatcher!.callback("change", "TOOLS.json");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(evictCalls).toBe(2);
+      expect(skillsChangedCalls).toBe(2);
+    });
 
-    const skillsWatcher = findWatcher(SKILLS_DIR);
-    expect(skillsWatcher).toBeDefined();
-    skillsWatcher!.callback("change", "example-skill/dist/index.js");
+    test("ignores non-catalog file edits within a skill directory", async () => {
+      const skillDir = join(SKILLS_DIR, "example-skill");
+      mkdirSync(skillDir, { recursive: true });
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+      watcher.start();
+      const skillWatcher = findWatcher(skillDir);
 
-    expect(evictCalls).toBe(1);
-    expect(skillsChangedCalls).toBe(1);
-  });
+      skillWatcher!.callback("change", "README.md");
+      skillWatcher!.callback("change", "package.json");
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
-  test("coalesces multiple skill file changes into one catalog refresh", async () => {
-    watcher.start();
+      expect(evictCalls).toBe(0);
+      expect(skillsChangedCalls).toBe(0);
+    });
 
-    const skillsWatcher = findWatcher(SKILLS_DIR);
-    expect(skillsWatcher).toBeDefined();
-    skillsWatcher!.callback("change", "example-skill/SKILL.md");
-    skillsWatcher!.callback("change", "example-skill/package.json");
-    skillsWatcher!.callback("change", "other-skill/SKILL.md");
+    test("watches and reloads when a skill is installed", async () => {
+      watcher.start();
+      const rootWatcher = findWatcher(SKILLS_DIR);
+      expect(rootWatcher).toBeDefined();
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+      const newSkillDir = join(SKILLS_DIR, "new-skill");
+      mkdirSync(newSkillDir, { recursive: true });
+      rootWatcher!.callback("rename", "new-skill");
 
-    expect(evictCalls).toBe(1);
-    expect(skillsChangedCalls).toBe(1);
-  });
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
-  test("fallback watches existing nested skill directories", async () => {
-    const referencesDir = join(SKILLS_DIR, "example-skill", "references");
-    mkdirSync(referencesDir, { recursive: true });
+      expect(findWatcher(newSkillDir)).toBeDefined();
+      expect(evictCalls).toBe(1);
+      expect(skillsChangedCalls).toBe(1);
+    });
 
-    watcher.start();
+    test("closes the watcher and reloads when a skill is removed", async () => {
+      const skillDir = join(SKILLS_DIR, "example-skill");
+      mkdirSync(skillDir, { recursive: true });
 
-    const referencesWatcher = findWatcher(referencesDir);
-    expect(referencesWatcher).toBeDefined();
-    referencesWatcher!.callback("change", "notes.md");
+      watcher.start();
+      expect(findWatcher(skillDir)).toBeDefined();
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+      rmSync(skillDir, { recursive: true, force: true });
+      const rootWatcher = findWatcher(SKILLS_DIR);
+      rootWatcher!.callback("rename", "example-skill");
 
-    expect(evictCalls).toBe(1);
-    expect(skillsChangedCalls).toBe(1);
-  });
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
-  test("fallback skips dependency and staging directories", async () => {
-    const skillDir = join(SKILLS_DIR, "example-skill");
-    const nodeModulesDir = join(skillDir, "node_modules");
-    const dependencyDir = join(nodeModulesDir, "pkg");
-    const stagingDir = join(SKILLS_DIR, ".install-staging");
-    const stagedSkillDir = join(stagingDir, "example-skill");
-    const referencesDir = join(skillDir, "references");
-    mkdirSync(dependencyDir, { recursive: true });
-    mkdirSync(stagedSkillDir, { recursive: true });
-    mkdirSync(referencesDir, { recursive: true });
+      expect(findWatcher(skillDir)).toBeUndefined();
+      expect(findCapturedWatcher(skillDir)?.closed).toBe(true);
+      expect(evictCalls).toBe(1);
+      expect(skillsChangedCalls).toBe(1);
+    });
 
-    watcher.start();
+    test("does not duplicate a watcher or reload when the root changes but the skill set does not", async () => {
+      const skillDir = join(SKILLS_DIR, "example-skill");
+      mkdirSync(skillDir, { recursive: true });
 
-    expect(findWatcher(nodeModulesDir)).toBeUndefined();
-    expect(findWatcher(dependencyDir)).toBeUndefined();
-    expect(findWatcher(stagingDir)).toBeUndefined();
-    expect(findWatcher(stagedSkillDir)).toBeUndefined();
+      watcher.start();
+      expect(capturedWatcherCount(skillDir)).toBe(1);
 
-    const skillsWatcher = findWatcher(SKILLS_DIR);
-    const skillWatcher = findWatcher(skillDir);
-    expect(skillsWatcher).toBeDefined();
-    expect(skillWatcher).toBeDefined();
+      // A stray file event at the root: no skill directory added or removed.
+      const rootWatcher = findWatcher(SKILLS_DIR);
+      rootWatcher!.callback("change", "README.md");
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
-    skillsWatcher!.callback("rename", ".install-staging");
-    skillWatcher!.callback("rename", "node_modules");
-    skillWatcher!.callback("change", "node_modules/pkg/index.js");
-
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    expect(evictCalls).toBe(0);
-    expect(skillsChangedCalls).toBe(0);
-
-    const referencesWatcher = findWatcher(referencesDir);
-    expect(referencesWatcher).toBeDefined();
-    referencesWatcher!.callback("change", "foo.md");
-
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    expect(evictCalls).toBe(1);
-    expect(skillsChangedCalls).toBe(1);
-  });
-
-  test("fallback watches skill build output directories", async () => {
-    const distDir = join(SKILLS_DIR, "example-skill", "dist");
-    const buildDir = join(SKILLS_DIR, "example-skill", "build");
-    mkdirSync(distDir, { recursive: true });
-    mkdirSync(buildDir, { recursive: true });
-
-    watcher.start();
-
-    const distWatcher = findWatcher(distDir);
-    const buildWatcher = findWatcher(buildDir);
-    expect(distWatcher).toBeDefined();
-    expect(buildWatcher).toBeDefined();
-
-    distWatcher!.callback("change", "index.js");
-
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    expect(evictCalls).toBe(1);
-    expect(skillsChangedCalls).toBe(1);
-
-    buildWatcher!.callback("change", "tool.js");
-
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    expect(evictCalls).toBe(2);
-    expect(skillsChangedCalls).toBe(2);
-  });
-
-  test("fallback adds watchers for new nested skill directories without duplicates", () => {
-    const skillDir = join(SKILLS_DIR, "example-skill");
-    const toolsDir = join(skillDir, "tools");
-    const generatedDir = join(toolsDir, "generated");
-    mkdirSync(skillDir, { recursive: true });
-
-    watcher.start();
-
-    const skillWatcher = findWatcher(skillDir);
-    expect(skillWatcher).toBeDefined();
-
-    mkdirSync(generatedDir, { recursive: true });
-    skillWatcher!.callback("rename", "tools");
-    skillWatcher!.callback("rename", "tools");
-
-    expect(findWatcher(toolsDir)).toBeDefined();
-    expect(findWatcher(generatedDir)).toBeDefined();
-    expect(capturedWatcherCount(toolsDir)).toBe(1);
-    expect(capturedWatcherCount(generatedDir)).toBe(1);
-  });
-
-  test("fallback closes stale nested watchers when directories are removed", () => {
-    const skillDir = join(SKILLS_DIR, "example-skill");
-    const referencesDir = join(skillDir, "references");
-    const deepDir = join(referencesDir, "deep");
-    mkdirSync(deepDir, { recursive: true });
-
-    watcher.start();
-
-    expect(findWatcher(referencesDir)).toBeDefined();
-    expect(findWatcher(deepDir)).toBeDefined();
-
-    rmSync(referencesDir, { recursive: true, force: true });
-    const skillWatcher = findWatcher(skillDir);
-    expect(skillWatcher).toBeDefined();
-    skillWatcher!.callback("rename", "references");
-
-    expect(findWatcher(referencesDir)).toBeUndefined();
-    expect(findWatcher(deepDir)).toBeUndefined();
-    expect(findCapturedWatcher(referencesDir)?.closed).toBe(true);
-    expect(findCapturedWatcher(deepDir)?.closed).toBe(true);
+      expect(capturedWatcherCount(skillDir)).toBe(1);
+      expect(evictCalls).toBe(0);
+      expect(skillsChangedCalls).toBe(0);
+    });
   });
 });

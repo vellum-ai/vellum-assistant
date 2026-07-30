@@ -1,39 +1,48 @@
-import { Loader2 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
-
-import { useQueryClient } from "@tanstack/react-query";
-
-import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { captureError } from "@/lib/sentry/capture-error";
-import { Button } from "@vellumai/design-library/components/button";
-import { Dropdown } from "@vellumai/design-library/components/dropdown";
-import { Notice } from "@vellumai/design-library/components/notice";
-import { toast } from "@vellumai/design-library/components/toast";
-import { Typography } from "@vellumai/design-library/components/typography";
-
-import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/shared-ui";
-import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
-import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
-import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
-import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
-import {
-  profilePickerLabel,
-  visibleProfilesForPicker,
-} from "@/assistant/profile-pickers";
-import { useStickyProfiles } from "@/assistant/use-sticky-profiles";
-import {
-  configGetOptions,
-  configGetSetQueryData,
-  configLlmDefaultproviderGetOptions,
-  useConfigPatchMutation,
-} from "@/generated/daemon/@tanstack/react-query.gen";
-import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
-import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { useQuery } from "@tanstack/react-query";
 
-export function LanguageModelCard() {
+import { Button } from "@vellumai/design-library/components/button";
+import { Notice } from "@vellumai/design-library/components/notice";
+
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
+import { LanguageModelSection } from "@/domains/settings/ai/language-model-section";
+import { ProfilesSection } from "@/domains/settings/ai/profiles-section";
+import { ProvidersSection } from "@/domains/settings/ai/providers-section";
+import {
+  configGetOptions,
+  configLlmDefaultproviderGetOptions,
+  inferenceProviderconnectionsGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { useSupportsDefaultProviderSettings } from "@/lib/backwards-compat/default-provider-settings";
+
+/**
+ * What the Language Model sidepanel is showing. Owned by AiPage (the drawer
+ * host); the card only requests transitions.
+ */
+export type LanguageModelPanelState =
+  | { kind: "profile"; name: string }
+  | { kind: "create-profile" }
+  | { kind: "provider"; name: string }
+  | { kind: "add-provider" }
+  | { kind: "overrides" };
+
+interface LanguageModelCardProps {
+  panel: LanguageModelPanelState | null;
+  onOpenPanel: (panel: LanguageModelPanelState) => void;
+  onClosePanel: () => void;
+}
+
+/**
+ * The V2 Language Model card (Figma 7412:133089): Profiles and Providers
+ * as inline sections and Overrides collapsed to a count + Manage row, with
+ * every detail surface opening in the settings sidepanel.
+ */
+export function LanguageModelCard({
+  panel,
+  onOpenPanel,
+  onClosePanel,
+}: LanguageModelCardProps) {
   const assistantId = useActiveAssistantId();
-  const queryClient = useQueryClient();
 
   const { data: config } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
@@ -43,120 +52,38 @@ export function LanguageModelCard() {
   // Older assistants 404 the default-provider route; the gate keeps the
   // query dark and the notice hidden against them.
   const supportsDefaultProvider = useSupportsDefaultProviderSettings();
-  const { data: defaultProviderStatus, refetch: refetchDefaultProvider } =
-    useQuery({
-      ...configLlmDefaultproviderGetOptions({
-        path: { assistant_id: assistantId },
-      }),
-      enabled: supportsDefaultProvider,
-    });
+  const { data: defaultProviderStatus } = useQuery({
+    ...configLlmDefaultproviderGetOptions({
+      path: { assistant_id: assistantId },
+    }),
+    enabled: supportsDefaultProvider,
+  });
   const availability = defaultProviderStatus?.availability;
 
-  const activeProfile = config?.llm?.activeProfile ?? null;
-  const advisorProfile = config?.llm?.advisorProfile ?? null;
-  const callSites = config?.llm?.callSites ?? {};
-  // Retain the last non-empty profile list so a transient empty config payload
-  // can't blank the Default Profile dropdown until the next good fetch — managed
-  // profiles are always seeded, so an empty map is never a steady state.
-  const { profiles, profileOrder } = useStickyProfiles(
-    config?.llm,
-    assistantId,
-  );
-  const orderedProfiles = useMemo(
-    () => buildOrderedProfiles(profiles, profileOrder),
-    [profiles, profileOrder],
-  );
-
-  const configMutation = useConfigPatchMutation({
-    onSuccess: (data) => {
-      configGetSetQueryData(
-        queryClient,
-        { path: { assistant_id: assistantId } },
-        data,
-      );
-    },
+  // Connection rows resolve openai-compatible model display names in the
+  // profile rows; shared TanStack cache with the sections and sidepanels.
+  const { data: connectionsData } = useQuery({
+    ...inferenceProviderconnectionsGetOptions({
+      path: { assistant_id: assistantId },
+    }),
   });
+  const connections = connectionsData?.connections;
 
-  const [effectiveActiveProfile, setDraftActiveProfile] =
-    useDraftOverride(activeProfile);
-  const [effectiveAdvisorProfile, setDraftAdvisorProfile] =
-    useDraftOverride(advisorProfile);
-
-  // Modal toggles — ephemeral UI state, correct as useState
-  const [manageProfilesOpen, setManageProfilesOpen] = useState(false);
-  const [overridesOpen, setOverridesOpen] = useState(false);
-  const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
-
-  const defaultProfilePickerEntries = useMemo(
-    () => visibleProfilesForPicker(orderedProfiles, [effectiveActiveProfile]),
-    [orderedProfiles, effectiveActiveProfile],
-  );
-
-  // Advisor Profile picker reuses the same option source as the Default
-  // Profile dropdown; the current advisor selection stays visible even if
-  // disabled so the trigger can render its label.
-  const advisorProfilePickerEntries = useMemo(
-    () => visibleProfilesForPicker(orderedProfiles, [effectiveAdvisorProfile]),
-    [orderedProfiles, effectiveAdvisorProfile],
-  );
-
+  const callSites = config?.llm?.callSites ?? {};
   const overrideCount = Object.entries(callSites).filter(
     ([id, s]) =>
       id !== "mainAgent" &&
       (s?.profile != null || s?.provider != null || s?.model != null),
   ).length;
-  const overrideLabel =
-    overrideCount === 1
-      ? "1 Override"
-      : overrideCount > 0
-        ? `${overrideCount} Overrides`
-        : "Overrides";
-  const isProfileDirty = effectiveActiveProfile !== activeProfile;
-  const isAdvisorProfileDirty = effectiveAdvisorProfile !== advisorProfile;
-
-  // One save for the whole card. Only the dirty field(s) are sent so we never
-  // re-write a value the user didn't edit (the config PATCH deep-merges every
-  // provided key, so blindly re-sending a stale selector could clobber a change
-  // made elsewhere — e.g. an `/model` switch). `null` clears the advisor profile.
-  const handleSave = useCallback(async () => {
-    try {
-      const llm: {
-        activeProfile?: string | null;
-        advisorProfile?: string | null;
-      } = {};
-      if (isProfileDirty) {
-        llm.activeProfile = effectiveActiveProfile;
-      }
-      if (isAdvisorProfileDirty) {
-        llm.advisorProfile = effectiveAdvisorProfile;
-      }
-      await configMutation.mutateAsync({
-        path: { assistant_id: assistantId },
-        body: { llm },
-      });
-      toast.success("Saved.");
-    } catch (error) {
-      toast.error("Failed to save. Please try again.");
-      captureError(error, { context: "settings-ai-language-model-save" });
-    }
-  }, [
-    isProfileDirty,
-    isAdvisorProfileDirty,
-    effectiveActiveProfile,
-    effectiveAdvisorProfile,
-    configMutation,
-    assistantId,
-  ]);
 
   return (
-    <>
-      <ByoServiceCard
+    <ByoServiceCard
         title="Language Model"
-        subtitle="Configure the LLMs that power your assistant"
+        subtitle="Profiles choose which model answers. Providers supply access to it"
       >
-        <div className="space-y-4">
+        <div className="space-y-2">
           {availability && availability.status !== "ok" && (
-            // The server owns the explainable wording — render its message
+            // The server owns the explainable wording - render its message
             // verbatim. `unknown` is transient (credential store unreachable),
             // everything else is a config problem the user must fix.
             <Notice
@@ -166,124 +93,57 @@ export function LanguageModelCard() {
                 "Your default provider is not available."}
             </Notice>
           )}
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Default Profile
-            </label>
-            <Dropdown
-              value={effectiveActiveProfile ?? ""}
-              onChange={(val) => {
-                setDraftActiveProfile(val === "" ? null : val);
+
+          {assistantId && (
+            <ProfilesSection
+              assistantId={assistantId}
+              config={config}
+              connections={connections}
+              selectedProfileName={
+                panel?.kind === "profile" ? panel.name : null
+              }
+              onOpenProfile={(name) => onOpenPanel({ kind: "profile", name })}
+              onCreateProfile={() => onOpenPanel({ kind: "create-profile" })}
+              onProfileDeleted={(name) => {
+                if (panel?.kind === "profile" && panel.name === name) {
+                  onClosePanel();
+                }
               }}
-              placeholder="Select a default profile…"
-              options={defaultProfilePickerEntries.map((p) => ({
-                value: p.name,
-                label: profilePickerLabel(p),
-              }))}
             />
-            {defaultProfilePickerEntries.length === 0 ? (
-              <Typography
-                variant="body-small-default"
-                as="p"
-                className="mt-1 text-(--content-tertiary)"
-              >
-                No profiles yet. Click Profiles below to create one.
-              </Typography>
-            ) : null}
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Advisor Profile
-            </label>
-            <Dropdown
-              value={effectiveAdvisorProfile ?? ""}
-              onChange={(val) => {
-                setDraftAdvisorProfile(val === "" ? null : val);
-              }}
-              placeholder="Select an advisor profile…"
-              options={advisorProfilePickerEntries.map((p) => ({
-                value: p.name,
-                label: profilePickerLabel(p),
-              }))}
-            />
-            <Typography
-              variant="body-small-default"
-              as="p"
-              className="mt-1 text-(--content-tertiary)"
-            >
-              Which model your assistant consults for a second opinion
-            </Typography>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outlined"
-              size="compact"
-              onClick={() => setManageProvidersOpen(true)}
-            >
-              Providers
-            </Button>
-            <Button
-              variant="outlined"
-              size="compact"
-              onClick={() => setManageProfilesOpen(true)}
-            >
-              Profiles
-            </Button>
-            <Button
-              variant="outlined"
-              size="compact"
-              onClick={() => setOverridesOpen(true)}
-            >
-              {overrideLabel}
-            </Button>
-          </div>
-
-          {(isProfileDirty || isAdvisorProfileDirty) && (
-            <div className="flex items-center gap-2">
-              <SaveButton
-                onClick={handleSave}
-                disabled={configMutation.isPending}
-              />
-              {configMutation.isPending && (
-                <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
-              )}
-            </div>
           )}
-        </div>
-      </ByoServiceCard>
 
-      {assistantId && (
-        <ManageProfilesModal
-          isOpen={manageProfilesOpen}
-          assistantId={assistantId}
-          onClose={() => setManageProfilesOpen(false)}
-        />
-      )}
+          {assistantId && (
+            <ProvidersSection
+              assistantId={assistantId}
+              selectedConnectionName={
+                panel?.kind === "provider" ? panel.name : null
+              }
+              onOpenConnection={(name) =>
+                onOpenPanel({ kind: "provider", name })
+              }
+              onAddProvider={() => onOpenPanel({ kind: "add-provider" })}
+              onConnectionDeleted={(name) => {
+                if (panel?.kind === "provider" && panel.name === name) {
+                  onClosePanel();
+                }
+              }}
+            />
+          )}
 
-      {assistantId && (
-        <CallSiteOverridesModal
-          isOpen={overridesOpen}
-          onClose={() => setOverridesOpen(false)}
-          assistantId={assistantId}
-        />
-      )}
-
-      {assistantId && (
-        <ManageProvidersModal
-          isOpen={manageProvidersOpen}
-          assistantId={assistantId}
-          onClose={() => {
-            setManageProvidersOpen(false);
-            // Fixing the problem (adding a key/connection, changing the
-            // default) should clear the notice without a reload.
-            if (supportsDefaultProvider) {
-              void refetchDefaultProvider();
+          <LanguageModelSection
+            title="Overrides"
+            count={overrideCount}
+            action={
+              <Button
+                variant="outlined"
+                size="compact"
+                onClick={() => onOpenPanel({ kind: "overrides" })}
+              >
+                Manage
+              </Button>
             }
-          }}
-        />
-      )}
-    </>
+          />
+        </div>
+    </ByoServiceCard>
   );
 }

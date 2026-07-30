@@ -48,9 +48,13 @@ export function useOnboardingEyes(): OnboardingEyes {
   const { w, h } = useOnboardingStageSize();
 
   const art = useMemo<OnboardingEyeArt | null>(() => {
-    if (!components || !chosen) return null;
+    if (!components || !chosen) {
+      return null;
+    }
     const def = components.eyeStyles.find((e) => e.id === chosen.eyeStyle);
-    if (!def) return null;
+    if (!def) {
+      return null;
+    }
     return {
       paths: def.paths,
       bbox: unionBBox(def.paths.map((p) => pathBBox(p.svgPath))),

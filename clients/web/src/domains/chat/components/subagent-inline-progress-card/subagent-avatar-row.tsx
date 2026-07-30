@@ -34,11 +34,9 @@ export function SubagentAvatarRow({
     >
       {/* pointer-events-none so clicking an avatar triggers the button, not the avatar. */}
       <div className="pointer-events-none flex items-center gap-1">
-        {subagentIds
-          .slice(0, MAX_VISIBLE_SUBAGENT_AVATARS)
-          .map((id) => (
-            <SubagentAvatarBadge key={id} subagentId={id} />
-          ))}
+        {subagentIds.slice(0, MAX_VISIBLE_SUBAGENT_AVATARS).map((id) => (
+          <SubagentAvatarBadge key={id} subagentId={id} />
+        ))}
 
         {overflowCount > 0 && (
           <div

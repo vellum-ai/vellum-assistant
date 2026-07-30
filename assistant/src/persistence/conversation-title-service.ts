@@ -133,6 +133,31 @@ export function deriveDeterministicTitle(context: TitleContext): string {
   return truncateTitle(base.replace(/\s+/g, " ").trim());
 }
 
+/**
+ * Apply a deterministic title to a conversation, but only while its current
+ * title is still a replaceable placeholder — never clobbering a user or LLM
+ * title. For conversations that will never run an agent turn (so neither the
+ * `user-prompt-submit` nor `stop` title hook ever fires), e.g. a floor-denied
+ * inbound whose only content is a guardian access-request card: without this
+ * the sidebar shows a permanent "Generating title…". Persisted as
+ * `AUTO_TITLE_DETERMINISTIC` so a later genuine turn can still upgrade it, and
+ * broadcast so connected clients converge. Returns whether the title changed.
+ */
+export function applyDeterministicTitleIfReplaceable(
+  conversationId: string,
+  title: string,
+): boolean {
+  const conversation = getConversation(conversationId);
+  if (conversation && !isReplaceableTitle(conversation.title)) {
+    return false;
+  }
+  const cleaned =
+    truncateTitle(title.replace(/\s+/g, " ").trim()) || UNTITLED_FALLBACK;
+  updateConversationTitle(conversationId, cleaned, AUTO_TITLE_DETERMINISTIC);
+  publishConversationTitleChanged(conversationId, cleaned);
+  return true;
+}
+
 // ── Title generation ─────────────────────────────────────────────────
 
 export interface GenerateTitleParams {
@@ -178,7 +203,12 @@ export async function generateAndPersistConversationTitle(
   }
 
   const prompt = buildTitlePrompt(context, userMessage, assistantResponse);
-  const title = await generateTitleViaLLM(provider, prompt, signal);
+  const title = await generateTitleViaLLM(
+    provider,
+    prompt,
+    conversationId,
+    signal,
+  );
   if (title) {
     // Re-check replaceability before persisting (race guard)
     const current = getConversation(conversationId);
@@ -316,7 +346,12 @@ export async function regenerateConversationTitle(
   if (!/\n(?:User|Assistant): /.test(prompt)) {
     return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
   }
-  const title = await generateTitleViaLLM(provider, prompt, signal);
+  const title = await generateTitleViaLLM(
+    provider,
+    prompt,
+    conversationId,
+    signal,
+  );
   if (title) {
     // Re-check isAutoTitle before persisting (race guard against manual rename)
     const current = getConversation(conversationId);
@@ -425,6 +460,7 @@ function buildTitleTool(): ToolDefinition {
 async function generateTitleViaLLM(
   provider: Provider,
   prompt: string,
+  conversationId: string,
   signal?: AbortSignal,
 ): Promise<string> {
   const { signal: timeoutSignal, cleanup } = createTimeout(15_000);
@@ -438,6 +474,7 @@ async function generateTitleViaLLM(
       config: {
         max_tokens: 256,
         callSite: "conversationTitle",
+        conversationId,
         tool_choice: { type: "tool", name: TITLE_TOOL_NAME },
         disableCache: true,
       },

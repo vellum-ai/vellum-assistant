@@ -120,7 +120,9 @@ export async function resolveLocalAssistantPlatformIdentity(
   }
 
   const cached = platformAssistantIdCache.get(assistant.assistantId);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
   const promise = ensureLocalAssistantPlatformIdentity(assistant, {
     allowGatewayRepair: options.allowGatewayRepair ?? true,
@@ -138,12 +140,16 @@ export function bootstrapLocalAssistantPlatformIdentity(
   assistantId?: string,
   options: BootstrapLocalAssistantPlatformIdentityOptions = {},
 ): void {
-  if (!isLocalMode() || isRemoteGatewayMode() || isPlatformDisabled()) return;
+  if (!isLocalMode() || isRemoteGatewayMode() || isPlatformDisabled()) {
+    return;
+  }
 
   let targetAssistantId = assistantId;
   if (!targetAssistantId) {
     const assistant = getSelectedAssistant();
-    if (!assistant || !isLocalAssistant(assistant)) return;
+    if (!assistant || !isLocalAssistant(assistant)) {
+      return;
+    }
     targetAssistantId = assistant.assistantId;
   }
 
@@ -347,7 +353,9 @@ async function fetchPlatformStatus(
     },
     credentials: "omit",
   }).catch(() => null);
-  if (!response?.ok) return null;
+  if (!response?.ok) {
+    return null;
+  }
 
   const body = (await response
     .json()
@@ -377,7 +385,9 @@ async function resolveOrganizationId(
     getActiveOrganizationIdForRequests() ??
     assistant.organizationId ??
     null;
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
 
   await useOrganizationStore
     .getState()
@@ -560,9 +570,15 @@ async function readErrorDetail(response: Response): Promise<string> {
       body && typeof body === "object" && "code" in body
         ? stringValue((body as { code?: unknown }).code)
         : null;
-    if (detail && code) return `${detail} (${code})`;
-    if (detail) return detail;
-    if (code) return code;
+    if (detail && code) {
+      return `${detail} (${code})`;
+    }
+    if (detail) {
+      return detail;
+    }
+    if (code) {
+      return code;
+    }
     return JSON.stringify(body);
   }
   return (await response.text().catch(() => "")).slice(0, 300);
@@ -586,7 +602,9 @@ function isUuid(value: string): boolean {
 function firstString(...values: unknown[]): string | null {
   for (const value of values) {
     const string = stringValue(value);
-    if (string) return string;
+    if (string) {
+      return string;
+    }
   }
   return null;
 }
@@ -597,7 +615,9 @@ function stringValue(value: unknown): string | null {
 
 function firstBoolean(...values: unknown[]): boolean | null {
   for (const value of values) {
-    if (typeof value === "boolean") return value;
+    if (typeof value === "boolean") {
+      return value;
+    }
   }
   return null;
 }

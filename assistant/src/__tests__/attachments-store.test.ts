@@ -656,18 +656,24 @@ describe("validateAttachmentUpload", () => {
       "application/octet-stream",
     );
     expect(exeResult.ok).toBe(false);
-    if (!exeResult.ok) expect(exeResult.error).toContain(".exe");
+    if (!exeResult.ok) {
+      expect(exeResult.error).toContain(".exe");
+    }
 
     const shResult = validateAttachmentUpload("script.sh", "text/plain");
     expect(shResult.ok).toBe(false);
-    if (!shResult.ok) expect(shResult.error).toContain(".sh");
+    if (!shResult.ok) {
+      expect(shResult.error).toContain(".sh");
+    }
 
     const isoResult = validateAttachmentUpload(
       "disk.iso",
       "application/octet-stream",
     );
     expect(isoResult.ok).toBe(false);
-    if (!isoResult.ok) expect(isoResult.error).toContain(".iso");
+    if (!isoResult.ok) {
+      expect(isoResult.error).toContain(".iso");
+    }
   });
 
   test("rejects dangerous extensions regardless of claimed MIME type", () => {
@@ -689,7 +695,9 @@ describe("validateAttachmentUpload", () => {
       "application/x-msdownload",
     );
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain("Unsupported MIME type");
+    if (!result.ok) {
+      expect(result.error).toContain("Unsupported MIME type");
+    }
   });
 
   test("handles filenames without extensions", () => {

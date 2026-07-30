@@ -9,12 +9,16 @@ export const extractCollectUsageDataMigration: WorkspaceMigration = {
     "Move collect-usage-data opt-out from assistantFeatureFlagValues to top-level collectUsageData config key",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return; // Malformed config — skip
@@ -23,13 +27,19 @@ export const extractCollectUsageDataMigration: WorkspaceMigration = {
     const flagValues = config.assistantFeatureFlagValues as
       | Record<string, unknown>
       | undefined;
-    if (!flagValues || typeof flagValues !== "object") return;
+    if (!flagValues || typeof flagValues !== "object") {
+      return;
+    }
 
     const FLAG_KEY = "feature_flags.collect-usage-data.enabled";
-    if (!(FLAG_KEY in flagValues)) return;
+    if (!(FLAG_KEY in flagValues)) {
+      return;
+    }
 
     const value = flagValues[FLAG_KEY];
-    if (typeof value !== "boolean") return;
+    if (typeof value !== "boolean") {
+      return;
+    }
 
     // Only write collectUsageData if the user had explicitly opted out.
     // The schema default is true, so we only need to persist false.
@@ -49,12 +59,16 @@ export const extractCollectUsageDataMigration: WorkspaceMigration = {
   },
   down(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
@@ -62,9 +76,13 @@ export const extractCollectUsageDataMigration: WorkspaceMigration = {
 
     // Only reverse if collectUsageData was explicitly set to false
     // (the forward migration only persisted false).
-    if (!("collectUsageData" in config)) return;
+    if (!("collectUsageData" in config)) {
+      return;
+    }
     const value = config.collectUsageData;
-    if (typeof value !== "boolean") return;
+    if (typeof value !== "boolean") {
+      return;
+    }
 
     // Restore the feature flag value
     const FLAG_KEY = "feature_flags.collect-usage-data.enabled";

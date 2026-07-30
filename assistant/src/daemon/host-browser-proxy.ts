@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import type { HostBrowserRequestEvent } from "../api/events/host-browser.js";
 import {
   assistantEventHub,
   broadcastMessage,
@@ -10,7 +11,6 @@ import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { sleep } from "../util/retry.js";
-import type { HostBrowserRequest } from "./message-types/host-browser.js";
 
 /** Distributive omit that preserves union variant fields. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
@@ -19,7 +19,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 
 /** Clean input type for callers — transport envelope fields are added by the proxy. */
 export type HostBrowserInput = DistributiveOmit<
-  HostBrowserRequest,
+  HostBrowserRequestEvent,
   "type" | "requestId" | "conversationId"
 >;
 
@@ -112,10 +112,10 @@ function hasClientForActor(
   clients: ReadonlyArray<{ actorPrincipalId?: string }>,
   sourceActorPrincipalId?: string,
 ): boolean {
-  if (sourceActorPrincipalId == null) return clients.length > 0;
-  return clients.some(
-    (c) => c.actorPrincipalId === sourceActorPrincipalId,
-  );
+  if (sourceActorPrincipalId == null) {
+    return clients.length > 0;
+  }
+  return clients.some((c) => c.actorPrincipalId === sourceActorPrincipalId);
 }
 
 function resolveTargetClient(
@@ -132,14 +132,15 @@ function resolveTargetClient(
   const extension = all.filter((c) => c.interfaceId === "chrome-extension");
   const candidates = isExtensionOnlyMethod(cdpMethod)
     ? extension
-    : [...extension, ...all.filter((c) => c.interfaceId !== "chrome-extension")];
+    : [
+        ...extension,
+        ...all.filter((c) => c.interfaceId !== "chrome-extension"),
+      ];
 
   if (sourceActorPrincipalId == null) {
     return candidates[0];
   }
-  return candidates.find(
-    (c) => c.actorPrincipalId === sourceActorPrincipalId,
-  );
+  return candidates.find((c) => c.actorPrincipalId === sourceActorPrincipalId);
 }
 
 export class HostBrowserProxy {
@@ -231,8 +232,12 @@ export class HostBrowserProxy {
         : this.hasExtensionClient(sourceActorPrincipalId);
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      if (connected()) return true;
-      if (Date.now() >= deadline) return false;
+      if (connected()) {
+        return true;
+      }
+      if (Date.now() >= deadline) {
+        return false;
+      }
       await sleep(EXTENSION_RECONNECT_POLL_MS);
     }
   }
@@ -294,7 +299,9 @@ export class HostBrowserProxy {
         targetClientId: preferredClient.clientId,
         op: "host_browser",
       });
-      if (rejection) return Promise.resolve(rejection);
+      if (rejection) {
+        return Promise.resolve(rejection);
+      }
     }
 
     // Pseudo-methods can only be served by the Chrome extension. Fail fast

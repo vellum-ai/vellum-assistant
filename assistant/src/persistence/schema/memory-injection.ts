@@ -27,7 +27,9 @@ export const memoryV2InjectionEvents = sqliteTable(
 );
 
 // Per-conversation record of every memory-v3 card ever injected, with a
-// pruned_at tombstone so re-injection can be suppressed after pruning.
+// pruned_at tombstone so re-injection can be suppressed after pruning. Lives in
+// the dedicated memory database (`assistant-memory.db`), not main — access it
+// via the memory connection (`getMemoryDb()` / `getMemorySqlite()`).
 export const memoryV3EverInjected = sqliteTable(
   "memory_v3_ever_injected",
   {

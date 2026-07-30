@@ -81,6 +81,28 @@ export const DENYING_ACTION_SET: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The denying actions that *park* the sender at `unverified` — a neutral hold,
+ * not an active rejection. A parked contact is still admitted under the
+ * permissive admission floors (`any_contact`, `strangers`) and can be trusted
+ * or verified later; contrast `block` (→ revoked, a hard keep-out) and `reject`
+ * (an explicit decline). Both resolve the request to `denied`, so the terminal
+ * status alone can't tell a park from a rejection — surfaces that present the
+ * resolved card consult this to render a park neutrally (see
+ * {@link PARK_STATUS_LABEL}) instead of as a denial.
+ */
+export const PARK_ACTION_SET: ReadonlySet<string> = new Set([
+  "leave_unverified",
+]);
+
+/** Completed-card label shown for a parked (leave-unverified) decision. */
+export const PARK_STATUS_LABEL = "Left unverified";
+
+/** True when `action` parks the sender at `unverified` (a neutral hold). */
+export function isParkAction(action: string | undefined): boolean {
+  return action !== undefined && PARK_ACTION_SET.has(action);
+}
+
+/**
  * Map `GuardianDecisionAction[]` to `ApprovalActionOption[]` so channel
  * prompt payloads can be derived from the unified decision action set.
  * The `action` field from GuardianDecisionAction maps to the `id` field

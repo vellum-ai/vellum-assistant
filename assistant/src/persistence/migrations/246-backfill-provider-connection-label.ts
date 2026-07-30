@@ -32,7 +32,9 @@ export function migrateBackfillProviderConnectionLabel(
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   // Guard: skip if the table doesn't exist yet (first-boot edge case where
   // migration 243 hasn't run, e.g. fresh install ordering test harness).

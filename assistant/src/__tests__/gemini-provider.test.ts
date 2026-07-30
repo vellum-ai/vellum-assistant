@@ -65,7 +65,9 @@ mock.module("@google/genai", () => ({
     models = {
       generateContentStream: async (params: Record<string, unknown>) => {
         lastStreamParams = params;
-        if (shouldThrow) throw shouldThrow;
+        if (shouldThrow) {
+          throw shouldThrow;
+        }
 
         return {
           [Symbol.asyncIterator]: async function* () {
@@ -1463,6 +1465,15 @@ describe("GeminiProvider", () => {
     ]) {
       expect(await reasonForApiError(403, message)).toBe("invalid_credentials");
     }
+  });
+
+  test("maps a daily-limit 402 body code to daily_limit_reached", async () => {
+    expect(
+      await reasonForApiError(
+        402,
+        '{"code":"daily_limit_reached","detail":"Daily credit limit reached"}',
+      ),
+    ).toBe("daily_limit_reached");
   });
 
   test("maps 404 / NOT_FOUND to model_not_found", async () => {

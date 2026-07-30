@@ -1,4 +1,3 @@
-
 import { useEffect } from "react";
 
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";

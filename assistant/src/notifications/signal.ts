@@ -25,6 +25,7 @@ export const NOTIFICATION_SOURCE_CHANNELS = [
   { id: "email", description: "Email channel" },
   { id: "platform", description: "Platform-managed channel" },
   { id: "a2a", description: "Agent-to-agent protocol channel" },
+  { id: "discord", description: "Discord channel" },
   { id: "scheduler", description: "Scheduled task runner (reminders, cron)" },
   { id: "watcher", description: "File/event watcher subsystem" },
 ] as const;
@@ -83,10 +84,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description: "Guardian decided on trusted contact request",
   },
   {
-    id: "ingress.trusted_contact.denied",
-    description: "Trusted contact request denied",
-  },
-  {
     id: "ingress.trusted_contact.verification_sent",
     description: "Verification sent to trusted contact",
   },
@@ -124,6 +121,11 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     id: "credential.health_alert",
     description:
       "OAuth credential health issue detected (expired, revoked, missing scopes)",
+  },
+  {
+    id: "telegram.webhook_health_alert",
+    description:
+      "Telegram webhook is not delivering (unregistered, or failing per getWebhookInfo)",
   },
 ] as const;
 

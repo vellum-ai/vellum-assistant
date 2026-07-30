@@ -20,10 +20,11 @@
  *     writer whose conversation flag we observed a beat after it cleared.
  *
  * With both guards the fold only ever touches rows no live turn owns. Genuine
- * crash residue is folded on this one pass (the daemon's startup reconciler
- * clears stale `processing_started_at` before this runs). The rare row a
- * reconnecting client re-activated within the startup window is left as-is and
- * reconciled by the next daemon restart's run.
+ * crash residue is folded on this one pass (the `clear-stale-processing`
+ * recovery step, ordered before this one in the same run, nulls stale
+ * `processing_started_at` first). The rare row a reconnecting client
+ * re-activated within the startup window is left as-is and reconciled by the
+ * next daemon restart's run.
  *
  * Two phases:
  *   1. Fold each eligible `finalized = 0` row's resolved content inline and set
@@ -33,9 +34,9 @@
  *      never revisits and which would otherwise leak on disk.
  */
 
-import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
+import { readdirSync, rmSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 
 import {
   parseContentRef,
@@ -43,12 +44,10 @@ import {
   resolveMessageContentBlocks,
 } from "../../persistence/message-content-file.js";
 import { getLogger } from "../../util/logger.js";
-import { getConversationsDir, getDbPath } from "../../util/platform.js";
+import { getConversationsDir } from "../../util/platform.js";
+import { openRecoveryDb } from "./db.js";
 
 const log = getLogger("recovery-inflight-content");
-
-/** Max time a recovery write waits on the daemon's writer lock before erroring. */
-const BUSY_TIMEOUT_MS = 5_000;
 
 /**
  * Delta files touched within this window may belong to a live writer, so the
@@ -71,26 +70,6 @@ interface UnfinalizedRow {
   conversationId: string;
   content: string;
   processingStartedAt: number | null;
-}
-
-/**
- * Open a read/write handle on the daemon's SQLite database. Returns null when
- * the database file does not exist yet (the daemon has not booted) — never
- * creating it. Recovery owns this handle for the lifetime of one run and
- * closes it before returning.
- */
-function openDaemonDb(): Database | null {
-  if (!existsSync(getDbPath())) {
-    return null; // daemon has not created the database yet
-  }
-  try {
-    const db = new Database(getDbPath(), { readwrite: true, create: false });
-    db.exec(`PRAGMA busy_timeout=${BUSY_TIMEOUT_MS}`);
-    return db;
-  } catch (err) {
-    log.debug({ err }, "recovery: could not open database");
-    return null;
-  }
 }
 
 /** Delta-file absolute path a row's `{ ref }` content points at, or null. */
@@ -119,7 +98,7 @@ export function recoverInflightContent(
     minAgeMs?: number;
   } = {},
 ): InflightRecoveryResult {
-  const db = openDaemonDb();
+  const db = openRecoveryDb();
   if (db == null) {
     return { finalized: 0, filesDeleted: 0, skippedProcessing: 0 };
   }

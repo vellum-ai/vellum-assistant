@@ -11,9 +11,13 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 
 function formatBookmarkDate(timestamp: number | undefined): string {
-  if (timestamp == null) return "";
+  if (timestamp == null) {
+    return "";
+  }
   const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return "";
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
   return date.toLocaleString(undefined, {
     month: "short",
     day: "numeric",

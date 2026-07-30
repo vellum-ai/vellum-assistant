@@ -117,6 +117,19 @@ test("managed-owned entries keep the vellum stamp even when a user connection ex
   expect(backfilledConnection("byok")).toBe("anthropic-personal");
 });
 
+test("routing-identity providers are never stamped with a connection", () => {
+  process.env.IS_PLATFORM = "true";
+  seedConfig({
+    managedRoute: { provider: "vellum", model: "claude-fable-5" },
+    subscription: { provider: "chatgpt", model: "gpt-5.5" },
+  });
+
+  runProviderConnectionsBackfill(getDb());
+
+  expect(backfilledConnection("managedRoute")).toBeUndefined();
+  expect(backfilledConnection("subscription")).toBeUndefined();
+});
+
 test("your-own mode reuses a custom-named connection instead of creating -personal", () => {
   delete process.env.IS_PLATFORM;
   const created = createConnection(getDb(), {

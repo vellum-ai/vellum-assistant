@@ -44,7 +44,9 @@ function safeStringSlice(
     const firstCode = str.charCodeAt(safeStart);
     if (isLowSurrogate(firstCode)) {
       safeStart++;
-      if (safeStart > safeEnd) safeEnd = safeStart;
+      if (safeStart > safeEnd) {
+        safeEnd = safeStart;
+      }
     }
   }
 

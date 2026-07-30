@@ -31,7 +31,11 @@ export const INTERNAL_CHANNELS = new Set<string>(["platform", "a2a"]);
  * them into the UI. Mirrors `ADMISSION_POLICY_HIDDEN_CHANNELS` in
  * `packages/gateway-client/src/admission-policy-contract.ts`.
  */
-export const HIDDEN_CHANNELS = new Set<string>(["vellum", "whatsapp"]);
+export const HIDDEN_CHANNELS = new Set<string>([
+  "vellum",
+  "whatsapp",
+  "discord",
+]);
 
 export function isHiddenChannel(channelType: string): boolean {
   return HIDDEN_CHANNELS.has(channelType);
@@ -60,7 +64,7 @@ export function getPolicyDescriptions(
   assistantDisplayName: string,
 ): Record<AdmissionPolicy, string> {
   return {
-    no_one: `No one can message ${assistantDisplayName} on this channel — every message is blocked, including yours.`,
+    no_one: `No one can message ${assistantDisplayName} on this channel: every message is blocked, including yours.`,
     guardian_only: `Only you can message ${assistantDisplayName}. Everyone else is turned away.`,
     trusted_contacts: `You and the people you’ve verified can message ${assistantDisplayName}. Anyone else is asked to verify first, and you’re notified.`,
     any_contact: `You and any known contact can message ${assistantDisplayName}, including contacts you haven’t verified yet. Strangers are asked to verify first.`,

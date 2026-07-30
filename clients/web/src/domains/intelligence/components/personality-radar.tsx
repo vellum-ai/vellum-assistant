@@ -21,11 +21,31 @@ const RADAR_SPOKES: {
   sub: string;
   value: (v: Record<string, number>) => number;
 }[] = [
-  { label: "Coworker", sub: "vs. companion", value: (v) => axis(v, "companion-coworker") },
-  { label: "Baby Boomer", sub: "vs. Gen Z", value: (v) => axis(v, "genz-boomer") },
-  { label: "Collaborative", sub: "vs. independent", value: (v) => axis(v, "execute-collaborate") },
-  { label: "Serious", sub: "vs. playful", value: (v) => axis(v, "playful-serious") },
-  { label: "Unfiltered", sub: "vs. polite", value: (v) => axis(v, "polite-unfiltered") },
+  {
+    label: "Coworker",
+    sub: "vs. companion",
+    value: (v) => axis(v, "companion-coworker"),
+  },
+  {
+    label: "Baby Boomer",
+    sub: "vs. Gen Z",
+    value: (v) => axis(v, "genz-boomer"),
+  },
+  {
+    label: "Collaborative",
+    sub: "vs. independent",
+    value: (v) => axis(v, "execute-collaborate"),
+  },
+  {
+    label: "Serious",
+    sub: "vs. playful",
+    value: (v) => axis(v, "playful-serious"),
+  },
+  {
+    label: "Unfiltered",
+    sub: "vs. polite",
+    value: (v) => axis(v, "polite-unfiltered"),
+  },
 ];
 
 function axis(values: Record<string, number>, id: string): number {
@@ -124,14 +144,21 @@ export function PersonalityRadar({ values, className }: PersonalityRadarProps) {
         style={{ transformOrigin: `${CX}px ${CY}px` }}
       >
         <polygon
-          points={polygonPoints((i) =>
-            R * Math.max(MIN_VALUE_FRACTION, RADAR_SPOKES[i]!.value(values) / 100),
+          points={polygonPoints(
+            (i) =>
+              R *
+              Math.max(
+                MIN_VALUE_FRACTION,
+                RADAR_SPOKES[i]!.value(values) / 100,
+              ),
           )}
-          fill="var(--card-accent)"
-          fillOpacity={0.25}
+          fill="var(--radar-fill, var(--card-accent))"
           stroke="var(--card-accent)"
           strokeWidth={2}
           strokeLinejoin="round"
+          // The photo-backdrop overlay sets a lighter fill at a softer
+          // opacity than the accent-derived default (Figma 7219-160964).
+          style={{ fillOpacity: "var(--radar-fill-opacity, 0.25)" }}
         />
       </motion.g>
 

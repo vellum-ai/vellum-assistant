@@ -3,18 +3,38 @@
 // (Scheduled, Background, per-channel sections, and custom groups) survives
 // page reloads.
 //
-// Built-in sections (scheduled / background / per-channel) and custom groups
-// are stored under SEPARATE keys so each CollapsibleNavSection.Root manages only
-// its own items — sharing a single array across two Radix roots would cause one
-// root's onValueChange to clobber the other.
+// Primary sections (Pinned / Chats), built-in sections (scheduled / background
+// / per-channel), and custom groups are stored under SEPARATE keys, chiefly
+// because they have different defaults: primary sections default to OPEN, the
+// other two to closed.
+//
+// Storage buckets are not accordion roots. Pinned/Chats and the channel
+// sections render in a *single* CollapsibleNavSection.Root so every section
+// boundary gets one uniform gap; the sidebar splits that root's value array
+// back into the primary vs category buckets with `isKnownPrimaryKey`. Custom
+// groups stay in their own root — they sit below a separator and a "Your
+// Groups" heading, so they're a genuinely separate block.
 
 import { parseStringArray } from "@/domains/chat/utils/storage-validators";
 import { createKeyedStorageAccessor } from "@/utils/typed-storage";
 
-const OPEN_CATEGORY_KEYS = new Set([
-  "scheduled",
-  "background",
-]);
+const OPEN_CATEGORY_KEYS = new Set(["scheduled", "background"]);
+
+/**
+ * The always-present primary sections (Pinned, Chats). Unlike the built-in
+ * categories and custom groups, these default to OPEN.
+ */
+export const PRIMARY_SECTION_KEYS = ["pinned", "recents"] as const;
+
+/**
+ * True for the primary sections (Pinned, Chats). The sidebar renders primary
+ * and category sections in a single accordion root so they share one uniform
+ * gap, then splits the accordion's value array back into the two storage
+ * buckets with this predicate.
+ */
+export function isKnownPrimaryKey(key: string): boolean {
+  return (PRIMARY_SECTION_KEYS as readonly string[]).includes(key);
+}
 
 /** Prefix marking a collapsible category as a per-channel origin section. */
 const CHANNEL_SECTION_PREFIX = "channel:";
@@ -52,6 +72,18 @@ const customGroupsStorage = createKeyedStorageAccessor<string[]>({
   fallback: [],
 });
 
+// Primary sections default to OPEN: the fallback returns both keys, so a
+// first-time user (no stored key) sees Pinned + Chats expanded. A stored empty
+// array is distinct — it means the user explicitly collapsed both — because
+// createKeyedStorageAccessor only falls back when the key is absent.
+const primaryStorage = createKeyedStorageAccessor<string[]>({
+  keyFn: (assistantId) => `vellum:sidebar-open-primary:${assistantId}`,
+  scope: "user",
+  parse: parseStringArray,
+  serialize: JSON.stringify,
+  fallback: [...PRIMARY_SECTION_KEYS],
+});
+
 /** Load open built-in sidebar category keys, filtering stale values. */
 export function loadOpenCategories(assistantId: string): string[] {
   return categoriesStorage.load(assistantId).filter(isKnownCategoryKey);
@@ -73,4 +105,16 @@ export function saveOpenCustomGroups(
   openGroups: string[],
 ): void {
   customGroupsStorage.save(assistantId, openGroups);
+}
+
+/** Load the open primary sections (Pinned, Chats). Defaults to both open. */
+export function loadOpenPrimary(assistantId: string): string[] {
+  return primaryStorage.load(assistantId).filter(isKnownPrimaryKey);
+}
+
+export function saveOpenPrimary(
+  assistantId: string,
+  openPrimary: string[],
+): void {
+  primaryStorage.save(assistantId, openPrimary);
 }

@@ -4,8 +4,7 @@
  * Distinct from the dictation {@link import("./voice-input-button").VoiceInputButton}:
  * that one records a single utterance and drops a transcript into the composer,
  * while this one starts a full-duplex live-voice session (mic streaming + TTS
- * playback + barge-in). The button is gated behind the `voice-mode` assistant
- * flag and renders nothing when the flag is off.
+ * playback + barge-in).
  *
  * Purely presentational: the `useLiveVoice` controller lives in the
  * layout-mounted `useLiveVoiceSessionController`; the composer binds the
@@ -19,8 +18,6 @@
 import { AudioLines } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
-
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 interface LiveVoiceButtonProps {
   /**
@@ -37,10 +34,6 @@ export function LiveVoiceButton({
   onStart,
   disabled = false,
 }: LiveVoiceButtonProps) {
-  const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
-
-  if (!voiceMode) return null;
-
   return (
     <Button
       // Filled `primary` (black) so the voice entry point carries the same
@@ -51,7 +44,10 @@ export function LiveVoiceButton({
       iconOnly={<AudioLines strokeWidth={2} />}
       onClick={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
-        onStart({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+        onStart({
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        });
       }}
       disabled={disabled}
       aria-label="Start voice mode"

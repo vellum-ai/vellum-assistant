@@ -104,13 +104,19 @@ function archiveStatusClause(status: ArchiveStatusFilter) {
  * drift: anything the sidebar shows in Recents is also findable by search,
  * and vice versa.
  *
- * Two arms:
+ * Three arms:
  * - Foreground rows: not background/scheduled/private by type, and not routed
  *   to the `system:background` / `system:scheduled` groups.
  * - Surfaced rows (`surfaced_at IS NOT NULL`): background/scheduled rows
  *   explicitly promoted via the surface API. Private rows stay excluded
  *   unconditionally, and subagent runs are excluded from the surfaced arm so
  *   they can never reach the sidebar.
+ * - Custom-group rows: rows filed into a user-created group (a non-`system:`
+ *   `group_id`), regardless of conversation type. Filing is an explicit
+ *   organizational action (the web "Move to group" menu, the
+ *   conversation-groups skill, or a schedule's configured group), so the row
+ *   must render inside that group on a cold sidebar load. Same
+ *   private/subagent exclusions as the surfaced arm.
  *
  * @param alias Table name or alias qualifying the column references
  *              (e.g. `"c"` in the search joins).
@@ -119,7 +125,24 @@ function standardListingVisibilitySql(alias = "conversations"): string {
   return (
     `((${alias}.conversation_type NOT IN ('background', 'scheduled', 'private')` +
     ` AND COALESCE(${alias}.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled'))` +
-    ` OR ${surfacedVisibilitySql(alias)})`
+    ` OR ${surfacedVisibilitySql(alias)}` +
+    ` OR ${customGroupVisibilitySql(alias)})`
+  );
+}
+
+/**
+ * Raw SQL predicate for the custom-group arm of standard-listing visibility:
+ * rows whose `group_id` names a user-created group (custom groups are UUIDs;
+ * system groups use the `system:` prefix). Private rows are excluded
+ * unconditionally and subagent runs are excluded so they can never reach the
+ * sidebar, mirroring {@link surfacedVisibilitySql}.
+ */
+function customGroupVisibilitySql(alias = "conversations"): string {
+  return (
+    `(${alias}.group_id IS NOT NULL` +
+    ` AND ${alias}.group_id NOT LIKE 'system:%'` +
+    ` AND ${alias}.conversation_type != 'private'` +
+    ` AND (${alias}.source IS NULL OR ${alias}.source != 'subagent'))`
   );
 }
 
@@ -531,7 +554,19 @@ function isMessageContentSearchAvailable(): boolean {
  */
 export async function searchConversations(
   query: string,
-  opts?: { limit?: number; maxMessagesPerConversation?: number },
+  opts?: {
+    limit?: number;
+    maxMessagesPerConversation?: number;
+    /**
+     * When true, search results include conversations whose `archived_at`
+     * is non-null. Defaults to `false` to preserve the historical
+     * "search matches the sidebar" invariant (anything in the standard
+     * listing is findable, archived rows are hidden). Surfaced only to
+     * opt-in callers like the global Search box toggle — never applied to
+     * background listing endpoints.
+     */
+    includeArchived?: boolean;
+  },
 ): Promise<ConversationSearchResult[]> {
   if (!query.trim()) {
     return [];
@@ -595,13 +630,20 @@ export async function searchConversations(
         conversation_id: string;
       }
       const placeholders = candidateIds.map(() => "?").join(",");
+      const whereClauses = [
+        `m.id IN (${placeholders})`,
+        standardListingVisibilitySql("c"),
+      ];
+      if (!opts?.includeArchived) {
+        whereClauses.push(`c.archived_at IS NULL`);
+      }
       const visibleRows = rawAll<CandidateRow>(
         "conversation:searchConversations:visibleCandidates",
         `
         SELECT m.id, m.conversation_id
         FROM messages m
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE m.id IN (${placeholders}) AND ${standardListingVisibilitySql("c")} AND c.archived_at IS NULL
+        WHERE ${whereClauses.join(" AND ")}
       `,
         ...candidateIds,
       );
@@ -656,16 +698,17 @@ export async function searchConversations(
   }
 
   // Title-only matches (message-content indexes don't cover conversation titles).
+  const titleConditions = [
+    sql.raw(standardListingVisibilitySql()),
+    sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
+  ];
+  if (!opts?.includeArchived) {
+    titleConditions.push(sql`${conversations.archivedAt} IS NULL`);
+  }
   const titleMatchConvs = db
     .select({ id: conversations.id })
     .from(conversations)
-    .where(
-      and(
-        sql.raw(standardListingVisibilitySql()),
-        sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
-        sql`${conversations.archivedAt} IS NULL`,
-      ),
-    )
+    .where(and(...titleConditions))
     .all();
   for (const row of titleMatchConvs) {
     contentConvIds.add(row.id);

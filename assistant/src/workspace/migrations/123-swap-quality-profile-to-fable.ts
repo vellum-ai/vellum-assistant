@@ -33,33 +33,49 @@ export const swapQualityProfileToFableMigration: WorkspaceMigration = {
     "Move the managed quality-optimized profile from Anthropic Opus 4.8 to Claude Fable 5",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const llm = readObject(config.llm);
-    if (llm === null) return;
+    if (llm === null) {
+      return;
+    }
 
     const profiles = readObject(llm.profiles);
-    if (profiles === null) return;
+    if (profiles === null) {
+      return;
+    }
 
     let changed = false;
 
     for (const name of TARGET_PROFILES) {
       const profile = readObject(profiles[name]);
-      if (profile === null) continue;
-      if (profile.source === "user") continue;
-      if (typeof profile.model !== "string") continue;
+      if (profile === null) {
+        continue;
+      }
+      if (profile.source === "user") {
+        continue;
+      }
+      if (typeof profile.model !== "string") {
+        continue;
+      }
 
       const swapped = MODEL_SWAPS[profile.model];
-      if (swapped === undefined) continue;
+      if (swapped === undefined) {
+        continue;
+      }
 
       profile.model = swapped;
       profiles[name] = profile;

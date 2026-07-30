@@ -9,6 +9,7 @@ import {
   useUserMfaFactorsVerifyCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { userMfaFactorsDestroy } from "@/generated/api/sdk.gen";
+import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -113,9 +114,7 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
         setInlineError("Too many attempts. Wait a minute and try again.");
         return;
       }
-      setInlineError(
-        "Couldn't verify the code. Wait a moment and try again.",
-      );
+      setInlineError("Couldn't verify the code. Wait a moment and try again.");
     },
   });
 
@@ -149,10 +148,10 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
     if (!enrollment) {
       return;
     }
-    void navigator.clipboard
-      .writeText(enrollment.secret)
-      .then(() => toast.success("Setup key copied."))
-      .catch(() => toast.error("Couldn't copy the setup key."));
+    copyToClipboard(enrollment.secret, {
+      successMessage: "Setup key copied.",
+      errorMessage: "Couldn't copy the setup key.",
+    });
   };
 
   const submitCode = () => {
@@ -172,8 +171,7 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
           <Modal.Title>Set up authenticator app</Modal.Title>
           <Modal.Description>
             Scan the QR code with an authenticator app such as Google
-            Authenticator or 1Password, then enter the 6-digit code it
-            shows.
+            Authenticator or 1Password, then enter the 6-digit code it shows.
           </Modal.Description>
         </Modal.Header>
         <Modal.Body>

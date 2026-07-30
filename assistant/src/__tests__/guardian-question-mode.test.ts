@@ -30,7 +30,9 @@ describe("guardian-question-mode", () => {
 
     expect(parsed).not.toBeNull();
     expect(parsed?.requestKind).toBe("pending_question");
-    if (!parsed || parsed.requestKind !== "pending_question") return;
+    if (!parsed || parsed.requestKind !== "pending_question") {
+      return;
+    }
     expect(parsed.callSessionId).toBe("call-1");
     expect(parsed.activeGuardianRequestCount).toBe(2);
   });
@@ -46,7 +48,9 @@ describe("guardian-question-mode", () => {
 
     expect(parsed).not.toBeNull();
     expect(parsed?.requestKind).toBe("tool_grant_request");
-    if (!parsed || parsed.requestKind !== "tool_grant_request") return;
+    if (!parsed || parsed.requestKind !== "tool_grant_request") {
+      return;
+    }
     expect(parsed.toolName).toBe("host_bash");
   });
 
@@ -63,16 +67,37 @@ describe("guardian-question-mode", () => {
 
     expect(parsed).not.toBeNull();
     expect(parsed?.requestKind).toBe("pending_question");
-    if (!parsed || parsed.requestKind !== "pending_question") return;
+    if (!parsed || parsed.requestKind !== "pending_question") {
+      return;
+    }
     expect(parsed.toolName).toBe("send_email");
   });
 
-  test("rejects invalid pending_question payload missing required fields", () => {
+  test("accepts a pending_question payload without voice fields (ask_question shape)", () => {
+    // callSessionId/activeGuardianRequestCount are voice-variant fields; an
+    // ask_question promotion carries neither (and may carry options instead).
     const parsed = parseGuardianQuestionPayload({
       requestKind: "pending_question",
       requestId: "req-3",
       requestCode: "AAA111",
-      questionText: "Missing call session and count",
+      questionText: "Which fruit?",
+      options: [
+        { id: "apple", label: "Apple" },
+        { id: "banana", label: "Banana" },
+      ],
+    });
+    expect(parsed).not.toBeNull();
+    if (!parsed || parsed.requestKind !== "pending_question") {
+      return;
+    }
+    expect(parsed.options?.map((o) => o.id)).toEqual(["apple", "banana"]);
+  });
+
+  test("rejects a pending_question payload missing base fields", () => {
+    const parsed = parseGuardianQuestionPayload({
+      requestKind: "pending_question",
+      requestId: "req-3",
+      // no requestCode / questionText — base-field strictness still holds
     });
     expect(parsed).toBeNull();
   });
@@ -274,7 +299,21 @@ describe("guardian-question-mode", () => {
       }),
     ).toBeNull();
 
-    // Strict-parse failure: missing required pending_question fields.
+    // Answer mode without voice fields (ask_question shape): still no
+    // Approve/Reject buttons — its options render via the broadcaster's
+    // question-options context instead.
+    expect(
+      parseInteractiveApprovalPayload({
+        requestKind: "pending_question",
+        requestId: "req-2b",
+        requestCode: "A1B2C3",
+        questionText: "Which fruit?",
+      }),
+    ).toBeNull();
+
+    // A pending_question carrying a toolName resolves to approval mode (a
+    // guardian approval asked as a question), so it DOES render the pair —
+    // mode, not voice-field presence, decides the rendering.
     expect(
       parseInteractiveApprovalPayload({
         requestKind: "pending_question",
@@ -282,6 +321,14 @@ describe("guardian-question-mode", () => {
         requestCode: "A1B2C3",
         questionText: "Allow send_email?",
         toolName: "send_email",
+      }),
+    ).not.toBeNull();
+
+    // Strict-parse failure: missing base fields.
+    expect(
+      parseInteractiveApprovalPayload({
+        requestKind: "pending_question",
+        requestId: "req-4",
       }),
     ).toBeNull();
   });

@@ -15,7 +15,8 @@ export const memoryHelp: CliCommandHelp = {
     "Manage memory items and maintain the assistant memory subsystem",
   helpText: `
 The 'nodes' subgroup provides content-based list, delete, and update over
-memory v2 graph nodes — address facts by text, not UUID (requires memory v2).
+memory graph nodes — address facts by text, not UUID (requires concept-page
+memory: memory.v3.live or memory.v2.enabled).
 
 The 'items' subgroup exposes full CRUD over individual memory items
 (remembered facts) — list, get, create, update, delete.
@@ -34,7 +35,8 @@ Examples:
   $ assistant memory items update 9f2c4f3a-3f1a-41e4-88e7-abc123 --statement "Prefers tea"
   $ assistant memory items delete 9f2c4f3a-3f1a-41e4-88e7-abc123
   $ assistant memory v2 validate
-  $ assistant memory v3 rebuild-index`,
+  $ assistant memory v3 rebuild-index
+  $ assistant memory ingest --dir .mv3/staging --dry-run`,
   subcommands: [
     {
       name: "nodes",
@@ -46,7 +48,8 @@ memory v2 subsystem. Unlike 'memory items', which addresses nodes by UUID, these
 commands address nodes by content text — matching the way an operator refers to
 a remembered fact without first looking up its ID.
 
-All subcommands require memory v2 to be enabled and the assistant to be running.
+All subcommands require concept-page memory (memory.v3.live or
+memory.v2.enabled) and the assistant to be running.
 
 Examples:
   $ assistant memory nodes stats
@@ -85,6 +88,11 @@ Examples:
               description: "Filter nodes whose content contains <query>",
             },
             {
+              flags: "--kind <kind>",
+              description:
+                "Restrict to auto-seeded capability nodes: 'skill' or 'cli'",
+            },
+            {
               flags: "--limit <n>",
               description: "Max results (default 50, max 200)",
             },
@@ -96,12 +104,20 @@ Examples:
           helpText: `
 Behavior:
   Returns active (non-deleted) memory graph nodes ordered by significance.
-  With --search, all nodes are scanned so the filter is exhaustive regardless
-  of graph size. Without --search the query is capped at --limit rows at the
-  DB level for efficiency.
+  With --search or --kind, all nodes are scanned so the filter is exhaustive
+  regardless of graph size. With neither, the query is capped at --limit rows
+  at the DB level for efficiency.
+
+  --kind filters to the capability nodes auto-seeded from the assistant's
+  own catalog — one 'skill' node per enabled/catalog skill, one 'cli' node
+  per CLI command. This answers "which skills have a node in memory": each
+  matching row's content names the skill and its id. Combine with --search
+  to narrow to a specific capability. Filters compose (both must match).
 
 Examples:
   $ assistant memory nodes list
+  $ assistant memory nodes list --kind skill
+  $ assistant memory nodes list --kind skill --search "pdf"
   $ assistant memory nodes list --search "coffee" --limit 10
   $ assistant memory nodes list --json`,
         },
@@ -364,10 +380,10 @@ Examples:
       name: "v2",
       description: "Memory v2 subsystem operations (concept-page model)",
       helpText: `
-The v2 memory subsystem stores prose concept pages with directed edges in
-each page's frontmatter and uses activation-based retrieval. Pages live
-under /workspace/memory/concepts/ and are gated behind the
-memory.v2.enabled config field.
+The concept-page memory subsystem stores prose concept pages with directed
+edges in each page's frontmatter. Pages live under
+/workspace/memory/concepts/ and are active when memory.v3.live or
+memory.v2.enabled is set.
 
 Mutating subcommands return a jobId enqueued on the memory job queue,
 except reembed-skills which runs synchronously inside the assistant.
@@ -408,7 +424,7 @@ changes the enabled-skill set, or to recover corrupted skill embeddings.
 
 Unlike 'reembed' (concept pages), this runs synchronously inside the
 assistant — the command returns only once the seed completes. Requires
-memory.v2.enabled to be true.
+concept-page memory to be active (memory.v3.live or memory.v2.enabled).
 
 Examples:
   $ assistant memory v2 reembed-skills`,
@@ -747,6 +763,59 @@ Example:
       ],
     },
     {
+      name: "ingest",
+      description:
+        "Batch-ingest staged concept pages directly into memory (bypasses the consolidation buffer)",
+      options: [
+        {
+          flags: "--dir <path>",
+          description:
+            "Directory of staged .md pages; slug = relative path minus .md, with forward slashes",
+        },
+        {
+          flags: "--file <path>",
+          description:
+            "JSON manifest file: an array of { slug, content } objects",
+        },
+        {
+          flags: "--dry-run",
+          description: "Validate and report without writing any pages",
+        },
+        {
+          flags: "--overwrite",
+          description:
+            "Rewrite pages whose slug already exists (default: skip them)",
+        },
+        {
+          flags: "--json",
+          description: "Machine-readable compact JSON summary output",
+        },
+      ],
+      helpText: `
+Input sources (pick exactly one):
+  --dir   Walks the directory recursively for .md files. Each file's slug is
+          its relative path minus the .md extension, with forward slashes
+          (people/alice.md becomes people/alice).
+  --file  Reads a JSON manifest: an array of { slug, content } objects where
+          content is the full page markdown (frontmatter + body).
+  stdin   With neither flag, the same JSON manifest is read from stdin when
+          it is piped (not a TTY).
+
+Behavior:
+  Writes fully-formed concept pages straight into memory/concepts/, bypassing
+  the consolidation buffer. Pages whose slug already exists are skipped unless
+  --overwrite is passed. Every page is validated and reported individually;
+  invalid pages set a non-zero exit code without blocking valid ones. Requests
+  are sent in batches of 200 pages. When the consolidation lock is held the
+  command fails and names the holder; retry after the current writer finishes.
+  Requires concept-page memory (memory.v3.live or memory.v2.enabled).
+
+Examples:
+  $ assistant memory ingest --dir .mv3/staging --dry-run
+  $ assistant memory ingest --dir .mv3/staging --overwrite
+  $ cat pages.json | assistant memory ingest --json`,
+    },
+    {
       name: "retrospective",
       description: "Run and inspect memory retrospectives (direct, no IPC)",
       helpText: `
@@ -755,7 +824,9 @@ process imports the retrospective machinery and calls it in-process, so no
 running daemon is required.
 
 Examples:
-  $ assistant memory retrospective run <conversationId>`,
+  $ assistant memory retrospective run <conversationId>
+  $ assistant memory retrospective list
+  $ assistant memory retrospective list --limit 20 --json`,
       subcommands: [
         {
           name: "run",
@@ -780,6 +851,33 @@ CLI process — no IPC round-trip to the daemon.
 
 Examples:
   $ assistant memory retrospective run abc123`,
+        },
+        {
+          name: "list",
+          description: "List the most-recently-run retrospective state rows",
+          options: [
+            {
+              flags: "--limit <n>",
+              description: "Max rows to return (default 10, max 200)",
+            },
+            {
+              flags: "--json",
+              description: "Machine-readable compact JSON output",
+            },
+          ],
+          helpText: `
+Reads the memory_retrospective_state table directly from the workspace SQLite
+database and prints the most-recently-run state rows, newest first. No daemon
+required. Each row shows the source conversation ID, when the retrospective last
+ran, how many memory entries are currently retained in the dedup log (capped at
+100 entries / 8 KB — older entries are dropped as new ones arrive, so RETAINED
+reflects the live dedup window, not a cumulative save count), and whether any
+pass has yet succeeded (status "ok") or only failed attempts exist ("pending").
+
+Examples:
+  $ assistant memory retrospective list
+  $ assistant memory retrospective list --limit 20
+  $ assistant memory retrospective list --json`,
         },
       ],
     },

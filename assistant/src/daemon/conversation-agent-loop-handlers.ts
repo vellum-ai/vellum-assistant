@@ -11,7 +11,7 @@ import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
-import { getThreadTs } from "../channels/slack-thread-store.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
@@ -23,6 +23,7 @@ import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
 import {
   formatSlackTimezoneLabel,
+  isSlackTs,
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
@@ -54,7 +55,7 @@ import { endSection, markSection } from "../persistence/slow-sync-log.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
-import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/memory-v2-activation-log-store.js";
+import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/v2/activation-log-store.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
 import { resolveMediaSourceData } from "../providers/media-resolve.js";
 import type {
@@ -131,7 +132,6 @@ import {
 } from "./inflight-message-content.js";
 import type {
   CardSurfaceData,
-  ServerMessage,
   SurfaceAction,
   UiSurfaceShow,
 } from "./message-protocol.js";
@@ -357,15 +357,24 @@ export interface EventHandlerState {
   currentThinkingTimestamps: { startedAt: number; completedAt: number }[];
   /**
    * `seq` of the most recent streamed content delta mirrored into
-   * `currentMessageContent`. Recorded as the conversation's persisted `seq`
-   * after each flush commits (the debounced partial flushes and the
-   * `message_complete` finalize), so the snapshot's advertised `seq` tracks
-   * exactly the streamed content the durable row holds. `undefined` until the
-   * first content delta of the in-flight message. Because every streamed
-   * content type rides the same mirror-and-flush path, this single field
-   * never claims content a flush has not yet written.
+   * `currentMessageContent`, stamped synchronously as the delta is emitted —
+   * before any flush writes it, so this runs ahead of the durable rows. Each
+   * flush snapshots it to learn how far the live stream has advanced; the
+   * committed watermark lives in `flushedContentSeq`. `undefined` until the
+   * first content delta of the in-flight message.
    */
-  lastPersistedContentSeq: number | undefined;
+  lastStreamedContentSeq: number | undefined;
+  /**
+   * Highest `seq` whose streamed content a flush has committed to durable rows
+   * for the in-flight turn. Raised (monotonic max) only after a partial flush
+   * or the `message_complete` finalize write commits — never at emit time —
+   * and never reset mid-turn, so it is a turn-level high-water mark that trails
+   * `lastStreamedContentSeq` by exactly the content not yet written. A caller
+   * anchoring a snapshot at this value (`inflight-turn-registry`) never
+   * advertises content the durable rows do not hold. `undefined` until the
+   * first flush of the turn commits.
+   */
+  flushedContentSeq: number | undefined;
   /**
    * Pre-compaction history buffered from `context_compacting` start events,
    * keyed by `compactionId`. The paired `compaction_completed` event no
@@ -502,7 +511,7 @@ export interface EventHandlerState {
 /** Immutable context shared across event handlers within a single agent loop run. */
 export interface EventHandlerDeps {
   readonly ctx: Conversation;
-  readonly onEvent: (msg: ServerMessage) => void;
+  readonly onEvent: (msg: AssistantEvent) => void;
   readonly reqId: string;
   readonly isFirstMessage: boolean;
   /** Whether the conversation title is replaceable — controls firstAssistantText accumulation for title generation. */
@@ -583,7 +592,8 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
     currentThinkingTimestamps: [],
-    lastPersistedContentSeq: undefined,
+    lastStreamedContentSeq: undefined,
+    flushedContentSeq: undefined,
     compactionStartMessages: new Map(),
     latencyCursor: 0,
     deferredFinalizeEffects: [],
@@ -937,7 +947,7 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
   }
   state.currentMessageContent = [];
   state.currentThinkingTimestamps = [];
-  state.lastPersistedContentSeq = undefined;
+  state.lastStreamedContentSeq = undefined;
   state.pendingPartialFlushPromise = undefined;
   // If a previous LLM call (e.g. a retried/replaced stream) held back
   // sentinel-guarded text via `drainSentinelGuardedText`, the stale
@@ -1021,6 +1031,23 @@ async function persistLoopMessageContent(
   }
 }
 
+/**
+ * Raise the in-flight turn's flushed-content watermark once a flush or finalize
+ * write has committed `committedSeq`'s content to durable rows. Monotonic max: a
+ * slower flush can resolve after a newer delta already advanced the watermark,
+ * so it must never regress. Feeds `getInflightFlushedContentSeq`, which caps the
+ * worker → daemon persist hand-off's snapshot anchor at flushed content.
+ */
+function raiseFlushedContentWatermark(
+  state: EventHandlerState,
+  committedSeq: number,
+): void {
+  state.flushedContentSeq = Math.max(
+    state.flushedContentSeq ?? 0,
+    committedSeq,
+  );
+}
+
 /** Flush `state.currentMessageContent` to the persisted assistant row. */
 async function flushAccumulatedContent(
   state: EventHandlerState,
@@ -1044,9 +1071,9 @@ async function flushAccumulatedContent(
     persistRemintAuthorities(state, deps, revealCandidates),
   );
   // Pair the seq with the exact content snapshot taken above: deltas that
-  // arrive while the write is in flight bump `lastPersistedContentSeq`
+  // arrive while the write is in flight bump `lastStreamedContentSeq`
   // again, but they are not part of this write.
-  const flushedSeq = state.lastPersistedContentSeq;
+  const flushedSeq = state.lastStreamedContentSeq;
 
   // Partial flushes append to the in-flight delta file — a pure file
   // write; the row has held the `{ ref }` since it was reserved. Delta
@@ -1061,10 +1088,48 @@ async function flushAccumulatedContent(
         "partial_flush_assistant_content",
         deps.rlog,
       );
-  // Record only after the write commits, so the snapshot seq never
-  // claims content that is not yet durable.
+  // Record only after the write commits, so the snapshot seq never claims
+  // content that is not yet durable.
   if (persisted && flushedSeq != null) {
     recordConversationPersistedSeq(deps.ctx.conversationId, flushedSeq);
+    raiseFlushedContentWatermark(state, flushedSeq);
+  }
+}
+
+/**
+ * Settle the debounced partial flush at the turn-tail seam, BEFORE the
+ * stranded-content fold. A cancelled/aborted turn exits with the debounce
+ * timer still pending; left alone it fires up to a second later — after the
+ * fold has finalized the row (and cleared the in-flight writer, so the late
+ * flush lands as a direct row write), and after the voice bridge's
+ * transcript-hygiene pass has already read and settled the row. The
+ * accumulated tail is flushed NOW, in order, so nothing is lost (barge-in
+ * partials keep their final second of text) and nothing writes after the
+ * row is settled. No-op for completed turns — `handleMessageComplete`
+ * already cleared the timer and awaited the in-flight flush.
+ */
+export async function settlePendingPartialFlush(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): Promise<void> {
+  if (state.pendingPartialFlushTimer !== undefined) {
+    clearTimeout(state.pendingPartialFlushTimer);
+    state.pendingPartialFlushTimer = undefined;
+    try {
+      await flushAccumulatedContent(state, deps);
+    } catch (err) {
+      // Same tolerance as the debounced path: a failed partial flush must
+      // not escalate a finished turn into a turn-level throw.
+      deps.rlog.warn({ err }, "Turn-tail partial flush failed (non-fatal)");
+    }
+  }
+  if (state.pendingPartialFlushPromise !== undefined) {
+    try {
+      await state.pendingPartialFlushPromise;
+    } catch {
+      // The flush swallows its own errors; defensive against future changes.
+    }
+    state.pendingPartialFlushPromise = undefined;
   }
 }
 
@@ -1224,7 +1289,14 @@ function buildAssistantChannelMetadata(
   if (deps.turnChannelContext.assistantMessageChannel === "slack") {
     const channelId = deps.ctx.trustContext?.requesterChatId;
     if (channelId) {
-      const threadTs = getThreadTs(deps.ctx.conversationId);
+      // Resolve the reply thread from this turn's own inbound thread id,
+      // captured turn-locally on the trust context at ingress (the same field
+      // guardian-approval cards read). This is deliberately not the shared
+      // conversation binding: on a legacy flat→thread aliased Slack
+      // conversation a concurrent inbound can rewrite the binding's
+      // externalThreadId mid-turn, whereas the trust context is per-turn.
+      const turnThreadTs = deps.ctx.trustContext?.sourceThreadId;
+      const threadTs = isSlackTs(turnThreadTs) ? turnThreadTs : undefined;
       const timestampTimezone = resolveAssistantReplyTimestampTimezone(
         deps.ctx,
       );
@@ -1366,7 +1438,7 @@ function handleTextDelta(
       // `getCurrentSeq()` here is that delta's seq -- the position the
       // mirrored content now reflects. A partial flush snapshots this to
       // record how far the durable rows track the live stream.
-      state.lastPersistedContentSeq = getCurrentSeq();
+      state.lastStreamedContentSeq = getCurrentSeq();
       schedulePartialFlush(state, deps);
     }
     if (deps.shouldGenerateTitle) {
@@ -1414,7 +1486,7 @@ function handleThinkingDelta(
   appendThinkingToCurrentMessage(state, event.thinking);
   // The hub stamps `seq` synchronously on the delta emitted above, so
   // `getCurrentSeq()` is that delta's position in the mirrored content.
-  state.lastPersistedContentSeq = getCurrentSeq();
+  state.lastStreamedContentSeq = getCurrentSeq();
   schedulePartialFlush(state, deps);
 }
 
@@ -2035,7 +2107,9 @@ export async function handleToolResult(
     state.currentToolUseId = undefined;
     deps.onEvent({
       type: "tool_result",
-      toolName: "",
+      // Resolved from the tool_use correlation map; empty only when the tool
+      // was cancelled before its tool_use event was ever observed.
+      toolName: state.toolUseIdToName.get(event.toolUseId) ?? "",
       result: redactedContent,
       isError: event.isError,
       conversationId: deps.ctx.conversationId,
@@ -2188,7 +2262,8 @@ export async function handleToolResult(
   // card never shows a revealed plaintext the persisted row hides.
   deps.onEvent({
     type: "tool_result",
-    toolName: "",
+    // Empty only when no tool_use event was observed for this id.
+    toolName: toolName ?? "",
     result: redactedContent,
     isError: event.isError,
     diff: event.diff,
@@ -2649,14 +2724,14 @@ export async function handleMessageComplete(
       messageId: state.lastAssistantMessageId,
     });
     // The hub stamps `seq` synchronously on the delta emitted above, so
-    // `getCurrentSeq()` is that delta's position — advance the persisted-seq
+    // `getCurrentSeq()` is that delta's position — advance the streamed-seq
     // mirror exactly like the normal text-delta path. The finalize below
     // records this value; without the advance it would record the PREVIOUS
     // emitted chunk's seq, so a `/messages` snapshot could contain this tail
     // while advertising a seq before the delta that carried it — and a
     // reconnecting client applying `seq > snapshot.seq` would append the
     // tail a second time.
-    state.lastPersistedContentSeq = getCurrentSeq();
+    state.lastStreamedContentSeq = getCurrentSeq();
     if (deps.shouldGenerateTitle) {
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
     }
@@ -2756,7 +2831,7 @@ export async function handleMessageComplete(
   state.assistantRowAwaitingFinalization = false;
   // The assistant row now holds the authoritative content (text + thinking +
   // tool_use blocks from `event.message`), and any drained tool-result rows
-  // are durable. `lastPersistedContentSeq` is the last streamed text/thinking
+  // are durable. `lastStreamedContentSeq` is the last streamed text/thinking
   // delta's seq -- the highest stamped content event this row reflects -- so
   // recording it is honest. A drained tool result was stamped earlier in the
   // turn, so this seq already covers it; a call that streams no content (a
@@ -2764,17 +2839,19 @@ export async function handleMessageComplete(
   // `recordConversationPersistedSeq` clamps monotonically, so a lower value
   // here never regresses the seq. Gate on `persisted` so a swallowed finalize
   // write never advances the seq past content that is not durable.
-  if (persisted && state.lastPersistedContentSeq != null) {
+  if (persisted && state.lastStreamedContentSeq != null) {
     recordConversationPersistedSeq(
       deps.ctx.conversationId,
-      state.lastPersistedContentSeq,
+      state.lastStreamedContentSeq,
     );
+    raiseFlushedContentWatermark(state, state.lastStreamedContentSeq);
   }
   // Reset the partial-persist mirror so subsequent calls in this turn
-  // start with an empty running view.
+  // start with an empty running view. `flushedContentSeq` is a turn-level
+  // watermark and intentionally survives the reset.
   state.currentMessageContent = [];
   state.currentThinkingTimestamps = [];
-  state.lastPersistedContentSeq = undefined;
+  state.lastStreamedContentSeq = undefined;
 
   // ── Indexing + attention projection (deferred off the critical path) ──
   // `reserveMessage` + `updateMessageContent` are CRUD-only — unlike
@@ -3232,7 +3309,7 @@ export async function dispatchAgentEvent(
       case "compaction_circuit_open":
       case "compaction_circuit_closed":
         // Circuit-breaker transitions are already in wire-contract shape
-        // (a subset of ServerMessage), so forward them to the client sink
+        // (a subset of AssistantEvent), so forward them to the client sink
         // unchanged. They drive the client's "auto-compaction paused"
         // banner.
         deps.onEvent(event);

@@ -37,13 +37,25 @@ import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
  */
 export const capacitorFlavor: SentryFlavor = {
   init(options) {
+    const enrich = options.beforeSend;
     Capacitor.init(
       {
         ...options,
         enabled: true,
         // Defensive gate for JS-bridged webview events; native envelopes
         // bypass beforeSend, so consent-gated init + close is the native gate.
-        beforeSend: (event) => (diagnosticsConsentGranted() ? event : null),
+        //
+        // Composed, not replaced: the caller's `beforeSend` carries the
+        // diagnostic enrichment every surface should get (see `sentry-init`),
+        // and overwriting it here would silently exempt iOS. The consent check
+        // stays first so a denied event is dropped before any work is done on
+        // it — the gate is not weakened by what runs after it.
+        beforeSend: (event, hint) => {
+          if (!diagnosticsConsentGranted()) {
+            return null;
+          }
+          return enrich ? enrich(event, hint) : event;
+        },
       },
       reactInit,
     );

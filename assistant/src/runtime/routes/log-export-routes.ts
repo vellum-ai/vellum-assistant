@@ -40,6 +40,7 @@ import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { createTarGz } from "./archive-utils.js";
 import { InternalError } from "./errors.js";
+import { collectInstalledInventory } from "./log-export/installed-inventory.js";
 import { collectWorkspaceData } from "./log-export/workspace-allowlist.js";
 import { redactStagedExportFiles } from "./redact-staged-export.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -127,7 +128,9 @@ async function handleExport({
      * `limit + 1` rows so truncation is detectable without a COUNT query.
      */
     const capRows = <T>(rows: T[], limit: number, section: string): T[] => {
-      if (rows.length <= limit) return rows;
+      if (rows.length <= limit) {
+        return rows;
+      }
       truncatedSections.push(section);
       log.warn(
         { section, limit },
@@ -235,14 +238,22 @@ async function handleExport({
         if (dateMatch && (startDate || endDate)) {
           const fileDate = new Date(dateMatch[1] + "T23:59:59.999Z");
           const fileDateStart = new Date(dateMatch[1] + "T00:00:00.000Z");
-          if (startDate && fileDate < startDate) continue;
-          if (endDate && fileDateStart > endDate) continue;
+          if (startDate && fileDate < startDate) {
+            continue;
+          }
+          if (endDate && fileDateStart > endDate) {
+            continue;
+          }
         }
         const filePath = join(logsDir, entry);
         try {
           const stat = statSync(filePath);
-          if (!stat.isFile()) continue;
-          if (totalBytes + stat.size > MAX_LOG_PAYLOAD_BYTES) continue;
+          if (!stat.isFile()) {
+            continue;
+          }
+          if (totalBytes + stat.size > MAX_LOG_PAYLOAD_BYTES) {
+            continue;
+          }
           const content = readFileSync(filePath, "utf-8");
           writeFileSync(join(daemonLogsDir, entry), content, "utf-8");
           collectedLogFiles.push(join(daemonLogsDir, entry));
@@ -369,6 +380,40 @@ async function handleExport({
       );
     }
 
+    // --- Installed skills & plugins inventory ---
+    // Metadata only (names, last-updated dates, content fingerprints) — never
+    // skill/plugin file bodies. Lets a support bundle answer which skills and
+    // plugins the session actually had installed, and at what version, which is
+    // otherwise unrecoverable from the archive. See
+    // `log-export/installed-inventory.ts`.
+    let inventorySkillCount = 0;
+    let inventoryPluginCount = 0;
+    try {
+      const inventory = await collectInstalledInventory();
+      inventorySkillCount = inventory.skills.length;
+      inventoryPluginCount = inventory.plugins.length;
+      writeFileSync(
+        join(staging, "installed-inventory.json"),
+        JSON.stringify(inventory, null, 2),
+        "utf-8",
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      writeFileSync(
+        join(staging, "installed-inventory-error.json"),
+        JSON.stringify(
+          { error: message, collectedAt: new Date().toISOString() },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+      log.warn(
+        { err },
+        "Failed to collect installed skills/plugins inventory, continuing without it",
+      );
+    }
+
     // --- Export manifest ---
     const manifestType = conversationId
       ? ("conversation-export" as const)
@@ -409,6 +454,8 @@ async function handleExport({
         full: full ?? false,
         workspaceEntries: workspaceResult.entries.length,
         workspaceBytes: workspaceResult.totalBytes,
+        inventorySkillCount,
+        inventoryPluginCount,
         truncatedSections,
         redactionScanned: redactionResult.filesScanned,
         redactionRedacted: redactionResult.filesRedacted,
@@ -425,7 +472,9 @@ async function handleExport({
 
     return new Uint8Array(archiveBuffer);
   } catch (err) {
-    if (err instanceof InternalError) throw err;
+    if (err instanceof InternalError) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to export");
     throw new InternalError(`Failed to export: ${message}`);
@@ -467,7 +516,9 @@ function redactValueMap(obj: Record<string, unknown>): Record<string, string> {
 
 function readSanitizedConfig(): Record<string, unknown> | undefined {
   const configPath = getWorkspaceConfigPath();
-  if (!existsSync(configPath)) return undefined;
+  if (!existsSync(configPath)) {
+    return undefined;
+  }
 
   try {
     const raw = readFileSync(configPath, "utf-8");
@@ -476,38 +527,58 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
     delete config.apiKeys;
 
     const webhook = asRecord(asRecord(config.ingress)?.webhook);
-    if (webhook) webhook.secret = redactStringValue(webhook.secret);
+    if (webhook) {
+      webhook.secret = redactStringValue(webhook.secret);
+    }
 
     const skillEntries = asRecord(asRecord(config.skills)?.entries);
     for (const entry of Object.values(skillEntries ?? {})) {
       const e = asRecord(entry);
-      if (!e) continue;
-      if ("apiKey" in e) e.apiKey = redactStringValue(e.apiKey);
+      if (!e) {
+        continue;
+      }
+      if ("apiKey" in e) {
+        e.apiKey = redactStringValue(e.apiKey);
+      }
       const env = asRecord(e.env);
-      if (env) e.env = redactValueMap(env);
+      if (env) {
+        e.env = redactValueMap(env);
+      }
     }
 
     const twilio = asRecord(config.twilio);
-    if (twilio) twilio.accountSid = redactStringValue(twilio.accountSid);
+    if (twilio) {
+      twilio.accountSid = redactStringValue(twilio.accountSid);
+    }
 
     const acpAgents = asRecord(asRecord(config.acp)?.agents);
     for (const agent of Object.values(acpAgents ?? {})) {
       const a = asRecord(agent);
-      if (!a) continue;
+      if (!a) {
+        continue;
+      }
       // Agent env is an arbitrary user-supplied map (often API keys);
       // redact every value and keep only the key names.
       const env = asRecord(a.env);
-      if (env) a.env = redactValueMap(env);
+      if (env) {
+        a.env = redactValueMap(env);
+      }
     }
 
     const mcpServers = asRecord(asRecord(config.mcp)?.servers);
     for (const server of Object.values(mcpServers ?? {})) {
       const transport = asRecord(asRecord(server)?.transport);
-      if (!transport) continue;
+      if (!transport) {
+        continue;
+      }
       const headers = asRecord(transport.headers);
-      if (headers) transport.headers = redactValueMap(headers);
+      if (headers) {
+        transport.headers = redactValueMap(headers);
+      }
       const env = asRecord(transport.env);
-      if (env) transport.env = redactValueMap(env);
+      if (env) {
+        transport.env = redactValueMap(env);
+      }
     }
 
     return config;

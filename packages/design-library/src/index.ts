@@ -176,6 +176,7 @@ export {
   type MarqueeTextProps,
 } from "./components/panel-item/marquee-text";
 export {
+  MARKDOWN_INLINE_CODE_CLASS,
   MarkdownMessage,
   quoteBlockquoteAccentClassName,
   quoteBlockquoteClassName,

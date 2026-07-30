@@ -50,6 +50,13 @@ import { getDeviceId } from "@/runtime/device-id";
 import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
+import { hardNavigate } from "@/lib/auth/hard-navigate";
+import { useAuthStore } from "@/stores/auth-store";
+import {
+  isAuthenticated,
+  isSettledSessionRejection,
+} from "@/stores/session-status";
+import { routes } from "@/utils/routes";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
@@ -113,8 +120,7 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   "config",
 ]);
 
-const ASSISTANT_PATH_RE =
-  /^\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
+const ASSISTANT_PATH_RE = /^\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
 
 /**
  * First segments whose `/v1/assistants/{id}/` prefix is stripped before
@@ -153,12 +159,16 @@ export async function rewriteForSelfHostedIngress(
   { skipSegmentAllowlist = false } = {},
 ): Promise<Request | null> {
   const ingressUrl = getSelfHostedIngressUrl();
-  if (!ingressUrl) return null;
+  if (!ingressUrl) {
+    return null;
+  }
 
   const url = new URL(request.url);
 
   const match = ASSISTANT_PATH_RE.exec(url.pathname);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   const [, subPath, firstSegment] = match;
   if (
     !skipSegmentAllowlist &&
@@ -215,7 +225,9 @@ export async function rewriteForSelfHostedIngress(
   // pipe to block on. Platform self-hosted uses TLS, so keep the streaming
   // body there to avoid buffering large uploads.
   const body = isLocalMode()
-    ? (request.body ? await request.blob() : null)
+    ? request.body
+      ? await request.blob()
+      : null
     : request.body;
 
   const init: RequestInit = {
@@ -244,16 +256,24 @@ export async function rewriteForSelfHostedIngress(
 export function authorizeRemoteGatewayRequest(
   request: Request,
 ): Request | null {
-  if (!isRemoteGatewayMode()) return null;
+  if (!isRemoteGatewayMode()) {
+    return null;
+  }
 
   const ingressUrl = getSelfHostedIngressUrl();
-  if (!ingressUrl) return null;
+  if (!ingressUrl) {
+    return null;
+  }
 
   const url = new URL(request.url);
   const ingress = new URL(ingressUrl);
   const prefix = ingress.pathname.replace(/\/$/, "");
-  if (url.origin !== ingress.origin) return null;
-  if (!url.pathname.startsWith(`${prefix}/v1/`)) return null;
+  if (url.origin !== ingress.origin) {
+    return null;
+  }
+  if (!url.pathname.startsWith(`${prefix}/v1/`)) {
+    return null;
+  }
 
   const headers = new Headers(request.headers);
   headers.delete("X-CSRFToken");
@@ -401,7 +421,9 @@ export function resetGw401RecoveryFlag(): void {
   gw401RecoveryFired = false;
 }
 
-export function localGatewayAuthRecoveryInterceptor(response: Response): Response {
+export function localGatewayAuthRecoveryInterceptor(
+  response: Response,
+): Response {
   if (response.status !== 401) {
     return response;
   }
@@ -442,6 +464,75 @@ export function localGatewayAuthRecoveryInterceptor(response: Response): Respons
   return response;
 }
 
+// In-memory latch so a burst of concurrent session rejections triggers only
+// one recovery. Reset in the recovery's `finally` so a genuine expiry after a
+// permission-403 that left the session live is still caught later.
+let platformAuthRecoveryFired = false;
+
+/** @internal Exposed for test teardown only. */
+export function resetPlatformAuthRecoveryFlag(): void {
+  platformAuthRecoveryFired = false;
+}
+
+async function recoverFromPlatformSessionRejection(): Promise<void> {
+  try {
+    // Authoritative re-probe. `refreshSession` calls `getSession()` and only
+    // ends the session on a genuine settled rejection, so an ambiguous
+    // permission-403 on a still-live session does not log anyone out. In
+    // local/gateway mode a platform rejection only drops `platformSession`
+    // and keeps `sessionStatus` authenticated, so the redirect below is
+    // skipped there.
+    await useAuthStore.getState().refreshSession();
+    if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
+      hardNavigate(
+        `${routes.account.login}?returnTo=${encodeURIComponent(
+          window.location.pathname + window.location.search,
+        )}`,
+      );
+    }
+  } finally {
+    platformAuthRecoveryFired = false;
+  }
+}
+
+/**
+ * Response interceptor for a platform session that expires mid-use.
+ *
+ * A cookie-authenticated request that comes back 401/403/410 while the app
+ * still believes it is signed in means the platform session may have ended.
+ * Nothing else notices this between boot and app-resume, so the rejection
+ * would otherwise surface only as a generic chat error. This re-verifies the
+ * session and, when it is truly gone, routes to login via a full reload.
+ *
+ * No-ops unless the rejection is settled, the app currently reads as
+ * authenticated (excludes boot probes and the already-logged-out login flow,
+ * and prevents a redirect loop), and the response did not come from the
+ * self-hosted / remote-gateway bearer path — those 401s are recovered by
+ * {@link localGatewayAuthRecoveryInterceptor}.
+ */
+export function platformAuthRecoveryInterceptor(response: Response): Response {
+  if (
+    !isSettledSessionRejection({ ok: response.ok, status: response.status })
+  ) {
+    return response;
+  }
+  if (platformAuthRecoveryFired) {
+    return response;
+  }
+  if (!isAuthenticated(useAuthStore.getState().sessionStatus)) {
+    return response;
+  }
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (ingressUrl && response.url.startsWith(ingressUrl)) {
+    return response;
+  }
+
+  platformAuthRecoveryFired = true;
+  void recoverFromPlatformSessionRejection();
+
+  return response;
+}
+
 /**
  * Normalizes HeyAPI's raw thrown errors into {@link ApiError} instances
  * for `throwOnError: true` calls only.
@@ -467,21 +558,29 @@ export function daemonErrorInterceptor(
   _request: Request | undefined,
   options: { throwOnError?: boolean },
 ): unknown {
-  if (!options.throwOnError) return error;
-  if (error instanceof ApiError) return error;
-  if (!response || response.ok) return error;
+  if (!options.throwOnError) {
+    return error;
+  }
+  if (error instanceof ApiError) {
+    return error;
+  }
+  if (!response || response.ok) {
+    return error;
+  }
   return toApiError(error, response);
 }
 
 daemonClient.interceptors.request.use(daemonRequestInterceptor);
 daemonClient.interceptors.response.use(daemonUnreachableInterceptor);
 daemonClient.interceptors.response.use(localGatewayAuthRecoveryInterceptor);
+daemonClient.interceptors.response.use(platformAuthRecoveryInterceptor);
 daemonClient.interceptors.error.use(daemonErrorInterceptor);
 
 // Gateway client uses the same routing as daemon — all gateway endpoints
 // are proxied through the same self-hosted ingress / platform gateway path.
 gatewayClient.interceptors.request.use(daemonRequestInterceptor);
 gatewayClient.interceptors.response.use(daemonUnreachableInterceptor);
+gatewayClient.interceptors.response.use(platformAuthRecoveryInterceptor);
 gatewayClient.interceptors.error.use(daemonErrorInterceptor);
 
 // Force JSON body parsing for all three generated clients. The default
@@ -495,13 +594,24 @@ gatewayClient.interceptors.error.use(daemonErrorInterceptor);
 // sites (blob downloads) explicitly override `parseAs` per-request.
 //
 // Reference: https://heyapi.dev/openapi-ts/clients/fetch#parser
-for (const apiClient of [daemonClient, gatewayClient, platformClient, authClient]) {
+for (const apiClient of [
+  daemonClient,
+  gatewayClient,
+  platformClient,
+  authClient,
+]) {
   apiClient.setConfig({ parseAs: "json" });
 }
 
 for (const apiClient of [authClient, platformClient]) {
   apiClient.interceptors.request.use(requestInterceptor);
 }
+
+// A chat send in cloud mode goes through the daemon client; other platform
+// calls go through the platform client. Not installed on `authClient` — the
+// allauth session endpoints manage their own 401 semantics, and adding it
+// there risks re-entrancy with the `getSession()` inside `refreshSession`.
+platformClient.interceptors.response.use(platformAuthRecoveryInterceptor);
 
 function arePlatformFeaturesEnabled(): boolean {
   return !isPlatformDisabled();
@@ -520,10 +630,7 @@ function arePlatformFeaturesEnabled(): boolean {
 export function platformFeaturesGate(request: Request): Request {
   if (isRemoteGatewayMode()) {
     if (
-      request.headers
-        .get("Authorization")
-        ?.toLowerCase()
-        .startsWith("bearer ")
+      request.headers.get("Authorization")?.toLowerCase().startsWith("bearer ")
     ) {
       return request;
     }
@@ -541,14 +648,20 @@ export function platformFeaturesGate(request: Request): Request {
     return new Request(request.url, { signal: aborted.signal });
   }
 
-  if (!isLocalMode()) return request;
-  if (arePlatformFeaturesEnabled()) return request;
+  if (!isLocalMode()) {
+    return request;
+  }
+  if (arePlatformFeaturesEnabled()) {
+    return request;
+  }
 
   const ingressUrl = getSelfHostedIngressUrl();
   if (ingressUrl) {
     const requestOrigin = new URL(request.url).origin;
     const gatewayOrigin = new URL(ingressUrl).origin;
-    if (requestOrigin === gatewayOrigin) return request;
+    if (requestOrigin === gatewayOrigin) {
+      return request;
+    }
   }
 
   console.debug(

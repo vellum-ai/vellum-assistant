@@ -45,7 +45,10 @@ import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper, parseJsonNullable } from "../util/row-mapper.js";
-import { withSqliteRetry } from "../util/sqlite-retry.js";
+import {
+  isRetryableSqliteError,
+  withSqliteRetry,
+} from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
@@ -77,6 +80,7 @@ import {
   type DrizzleDb,
   getDb,
   getLogsDb,
+  getMemoryDb,
   getSqliteFrom,
   getTelemetryDb,
 } from "./db-connection.js";
@@ -113,6 +117,7 @@ import {
   toolInvocations,
 } from "./schema/index.js";
 import { timeSyncSection } from "./slow-sync-log.js";
+import { deleteSubagentRecordsByParent } from "./subagent-store.js";
 
 const log = getLogger("conversation-store");
 
@@ -129,18 +134,74 @@ function logsDb(): DrizzleDb {
   return db;
 }
 
+// ---------------------------------------------------------------------------
+// Dedicated-DB cleanup for conversation deletes.
+// ---------------------------------------------------------------------------
+//
+// `llm_request_logs` (logs DB) and pending `telemetry_events` (telemetry DB)
+// live in their own files. Both conversation-delete variants — the synchronous
+// `deleteConversation` and the off-loop `deleteConversationGently` — must clear
+// them, and both must tolerate the target table not existing yet. The memory
+// worker's startup orphan sweep runs as a separate process that can race ahead
+// of the daemon's async migrations, and a dedicated file accrues its tables
+// over several migrations — so the file can be absent, an empty create-on-open
+// shell, or present-with-other-tables (e.g. the telemetry file exists for an
+// earlier table before `telemetry_events` is created). In every one of those
+// states there are no rows to delete, so the helpers below skip when the table
+// is not yet present rather than fabricate/hit a table-less file and throw
+// `no such table` on every orphan the sweep processes.
+
 /**
- * The telemetry connection (`assistant-telemetry.db`), where the
- * `telemetry_events` outbox lives. Throws if the file cannot be opened — the
- * conversation-delete call sites must not report success while unshipped
- * events referencing the deleted conversation survive to be flushed.
+ * Whether `table` exists on the given dedicated connection. Cheap
+ * `sqlite_master` lookup that distinguishes "file present but this migration
+ * has not created the table yet" from "table ready" — checking file existence
+ * alone is not enough because the dedicated logs/telemetry files hold tables
+ * created across several migrations.
  */
-function telemetryDb(): DrizzleDb {
-  const db = getTelemetryDb();
-  if (!db) {
-    throw new Error("telemetry database unavailable");
+function dedicatedTableExists(db: DrizzleDb, table: string): boolean {
+  return (
+    getSqliteFrom(db)
+      .query<
+        { name: string },
+        [string]
+      >(`SELECT name FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1`)
+      .get(table) != null
+  );
+}
+
+/**
+ * Delete a conversation's pending `telemetry_events` rows from the dedicated
+ * telemetry DB, or skip when that table does not exist yet. Telemetry redaction
+ * keys on `conversation_id` regardless of event name, so this covers every
+ * conversation-scoped pending event.
+ */
+function deletePendingTelemetryEventsForConversation(id: string): void {
+  const telemetry = getTelemetryDb({ createIfMissing: false });
+  if (!telemetry || !dedicatedTableExists(telemetry, "telemetry_events")) {
+    return;
   }
-  return db;
+  telemetry
+    .delete(telemetryEvents)
+    .where(eq(telemetryEvents.conversationId, id))
+    .run();
+}
+
+/**
+ * Delete a conversation's `llm_request_logs` rows in-process from the dedicated
+ * logs DB, or skip when that table does not exist yet. Used by the synchronous
+ * delete path; {@link deleteConversationGently} drains the same table off the
+ * event loop in batches (guarded by the same table-existence check) because its
+ * rows can be bulky.
+ */
+function deleteRequestLogsForConversation(id: string): void {
+  const logs = getLogsDb({ createIfMissing: false });
+  if (!logs || !dedicatedTableExists(logs, "llm_request_logs")) {
+    return;
+  }
+  logs
+    .delete(llmRequestLogs)
+    .where(eq(llmRequestLogs.conversationId, id))
+    .run();
 }
 
 // ── Message metadata Zod schema ──────────────────────────────────────
@@ -488,7 +549,10 @@ export const parseConversation = createRowMapper<
   title: "title",
   createdAt: "createdAt",
   updatedAt: "updatedAt",
-  totalInputTokens: "totalInputTokens",
+  totalInputTokens: {
+    from: "totalInputTokens",
+    transform: (v) => (v as number | null) ?? 0,
+  },
   totalOutputTokens: "totalOutputTokens",
   totalEstimatedCost: "totalEstimatedCost",
   contextSummary: "contextSummary",
@@ -615,6 +679,58 @@ interface InsertMessageCoreParams {
  * WAL contention. The timestamp is recomputed each attempt so a late
  * retry doesn't persist a stale `updatedAt`.
  */
+/**
+ * Guard: a message whose blocks are ALL `ui_surface` cards is invisible to
+ * the model — every provider drops cards when serializing history, and the
+ * contract (see `notifications/approval-card-builder.ts`) is that the
+ * producer pairs a card with a model-readable sibling block (for cards whose
+ * meaning the model needs, a `_surfaceFallback` text block; surfaces appended
+ * to a normal turn ride alongside its text/tool blocks and need nothing).
+ *
+ * Voice call summaries shipped without the sibling and the model silently
+ * lost those turns (LUM-2869) — nothing enforced the contract. In tests this
+ * throws, so a producer that forgets the pairing fails its own suite before
+ * merge; in production it only warns, per the daemon's never-block posture —
+ * a degraded card row beats a dropped guardian notification.
+ */
+function warnOnModelInvisibleContent(
+  content: string,
+  conversationId: string,
+): void {
+  // Fast path: the overwhelmingly common non-surface message never parses.
+  if (!content.includes('"ui_surface"')) {
+    return;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return; // legacy plain-string content — not this guard's concern
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return;
+  }
+  const allCards = parsed.every(
+    (block) =>
+      typeof block === "object" &&
+      block !== null &&
+      (block as { type?: unknown }).type === "ui_surface",
+  );
+  if (!allCards) {
+    return;
+  }
+  const surfaceTypes = parsed
+    .map((block) => (block as { surfaceType?: unknown }).surfaceType)
+    .filter((t): t is string => typeof t === "string");
+  const message =
+    "Persisting a message whose only content is ui_surface blocks — the model cannot see it. " +
+    "Pair the card with a model-readable sibling (e.g. a _surfaceFallback text block).";
+  if (process.env.NODE_ENV === "test") {
+    throw new Error(`${message} (surfaceTypes: ${surfaceTypes.join(", ")})`);
+  }
+  log.warn({ conversationId, surfaceTypes }, message);
+}
+
 async function insertMessageCore(
   params: InsertMessageCoreParams,
 ): Promise<InsertedMessage> {
@@ -627,6 +743,7 @@ async function insertMessageCore(
     clientMessageId,
     id,
   } = params;
+  warnOnModelInvisibleContent(content, conversationId);
   const db = getDb();
   // Time-ordered UUIDv7 so server-generated message ids append to the tail of
   // the WITHOUT ROWID `messages` primary key instead of scattering (v4).
@@ -791,6 +908,12 @@ export function createConversation(
         scheduleJobId?: string;
         groupId?: string;
         forkParentConversationId?: string;
+        /**
+         * Id of the conversation that spawned this one (subagent spawns).
+         * Persisted for telemetry attribution; unlike
+         * `forkParentConversationId` it implies no history inheritance.
+         */
+        parentConversationId?: string;
       },
 ) {
   const db = getDb();
@@ -833,6 +956,7 @@ export function createConversation(
     source,
     scheduleJobId: opts.scheduleJobId ?? null,
     forkParentConversationId: opts.forkParentConversationId ?? null,
+    parentConversationId: opts.parentConversationId ?? null,
     // Snapshot↔stream alignment baseline, captured at the creation instant.
     // 0 (nothing stamped yet this process) is stored as NULL so `/messages`
     // reports null and the client cold-starts rather than aligning to seq 0.
@@ -1709,63 +1833,51 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   // llm_request_logs and pending telemetry_events rows live in the dedicated
   // logs and telemetry connections, so they are deleted there — separately
   // from (and before) the main-DB transaction below, so a failure leaves the
-  // conversation intact for a retried delete. Telemetry redaction keys on
-  // conversation_id regardless of event name, so every conversation-scoped
-  // pending event is covered.
-  logsDb()
-    .delete(llmRequestLogs)
-    .where(eq(llmRequestLogs.conversationId, id))
-    .run();
-  telemetryDb()
-    .delete(telemetryEvents)
-    .where(eq(telemetryEvents.conversationId, id))
-    .run();
+  // conversation intact for a retried delete. Both helpers skip when their
+  // dedicated file does not exist yet (see the block comment on those helpers).
+  deleteRequestLogsForConversation(id);
+  deletePendingTelemetryEventsForConversation(id);
 
-  db.transaction((tx) => {
-    // Collect all message IDs for this conversation.
-    const messageRows = tx
-      .select({ id: messages.id })
-      .from(messages)
-      .where(eq(messages.conversationId, id))
-      .all();
-    const messageIds = messageRows.map((r) => r.id);
-
-    if (messageIds.length > 0) {
-      // Collect memory segment IDs linked to these messages before cascade.
-      const linkedSegments = tx
+  // Collect the conversation's segment ids from the memory connection BEFORE the
+  // delete: the startup orphan sweep purges memory_segments whose conversation_id
+  // does not exist, so reading after the conversation row is gone could race
+  // it and return nothing (losing the Qdrant purge). Best-effort: a missing or
+  // locked memory database yields no ids and must not abort the delete.
+  const memoryDb = getMemoryDb();
+  if (memoryDb) {
+    try {
+      result.segmentIds = memoryDb
         .select({ id: memorySegments.id })
         .from(memorySegments)
-        .where(inArray(memorySegments.messageId, messageIds))
-        .all();
-      result.segmentIds = linkedSegments.map((r) => r.id);
-
-      // Delete non-cascading tables first.
-      tx.delete(toolInvocations)
-        .where(eq(toolInvocations.conversationId, id))
-        .run();
-      // Cascade deletes memory_segments, message_attachments.
-      tx.delete(messages).where(eq(messages.conversationId, id)).run();
-
-      // Clean up segment embeddings.
-      if (result.segmentIds.length > 0) {
-        tx.delete(memoryEmbeddings)
-          .where(
-            and(
-              eq(memoryEmbeddings.targetType, "segment"),
-              inArray(memoryEmbeddings.targetId, result.segmentIds),
-            ),
-          )
-          .run();
-      }
-    } else {
-      // No messages — just clean up non-message tables.
-      tx.delete(toolInvocations)
-        .where(eq(toolInvocations.conversationId, id))
-        .run();
+        .where(eq(memorySegments.conversationId, id))
+        .all()
+        .map((r) => r.id);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: id },
+        "Failed to read memory segments for deleted conversation; continuing",
+      );
     }
+  }
 
+  db.transaction((tx) => {
+    // memory_segments does not cascade from messages/conversations; it lives on
+    // the memory connection and is purged directly below. The main-DB cascade
+    // still removes message_attachments.
+    tx.delete(toolInvocations)
+      .where(eq(toolInvocations.conversationId, id))
+      .run();
+    tx.delete(messages).where(eq(messages.conversationId, id)).run();
+    // Raw SQL on the same bun:sqlite handle Drizzle wraps, so the subagent rows
+    // commit or roll back with the conversation row they describe.
+    deleteSubagentRecordsByParent(id);
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
+
+  // Purge the conversation's segments and their embeddings on the memory
+  // connection after the main delete, unioning the pre-delete snapshot so the
+  // returned Qdrant cleanup list is complete.
+  result.segmentIds = purgeConversationSegments(id, result.segmentIds);
 
   // Remove the conversation's disk-view directory after the DB transaction
   if (createdAtForDiskCleanup != null) {
@@ -1828,40 +1940,65 @@ export async function deleteConversationGently(
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
 
-  // Collect the linked memory segment ids before the message cascade removes
-  // them, so the caller can clean up the matching Qdrant vector entries.
-  result.segmentIds = db
-    .select({ id: memorySegments.id })
-    .from(memorySegments)
-    .where(eq(memorySegments.conversationId, id))
-    .all()
-    .map((r) => r.id);
+  // Collect the conversation's memory segment ids from the memory connection
+  // (memory_segments is on the memory connection) so the caller can clean up the
+  // matching Qdrant vectors. The segment rows are purged by the
+  // conversation-deleted hook; their embeddings are deleted after the main
+  // delete below. Best-effort: a missing memory database yields no ids.
+  const memoryDb = getMemoryDb();
+  if (memoryDb) {
+    try {
+      result.segmentIds = memoryDb
+        .select({ id: memorySegments.id })
+        .from(memorySegments)
+        .where(eq(memorySegments.conversationId, id))
+        .all()
+        .map((r) => r.id);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: id },
+        "Failed to read memory segments for deleted conversation; continuing",
+      );
+    }
+  }
 
   // Pending telemetry_events rows live in the dedicated telemetry connection;
-  // delete them there (by conversation_id, regardless of event name) before
-  // ANY destructive work so a telemetry failure leaves the conversation fully
+  // delete them (by conversation_id, regardless of event name) before ANY
+  // destructive work so a telemetry failure leaves the conversation fully
   // intact for a retried delete — a throw after the bulk drains below would
-  // strand unredacted rows that could still flush.
-  telemetryDb()
-    .delete(telemetryEvents)
-    .where(eq(telemetryEvents.conversationId, id))
-    .run();
+  // strand unredacted rows that could still flush. Skips when the telemetry
+  // file does not exist yet.
+  deletePendingTelemetryEventsForConversation(id);
 
   // llm_request_logs lives in the dedicated logs connection, and each row is
   // bulky, so drain it off the event loop in batches against the logs DB file.
-  const logsDel = await deleteConversationRowsInBatches({
-    conversationId: id,
-    table: "llm_request_logs",
-    dbPath: getLogsDbPath(),
-  });
-  if (!logsDel.ok) {
-    throw new Error(
-      `gentle conversation delete failed (llm_request_logs, ${logsDel.backend}): ${logsDel.error ?? "unknown"}`,
-    );
+  // Skip entirely when the table does not exist yet: the batch runs a sqlite3
+  // subprocess (or in-process fallback) against getLogsDbPath(), which would
+  // otherwise hit (or create) a table-less file and fail with `no such table`
+  // on every orphan the worker's startup sweep processes before migration 297
+  // lands. The in-process connection sees the same committed schema as the
+  // subprocess, so it is the authority on whether the table is ready. No table,
+  // nothing to drain.
+  const logsDbForBatch = getLogsDb({ createIfMissing: false });
+  if (
+    logsDbForBatch &&
+    dedicatedTableExists(logsDbForBatch, "llm_request_logs")
+  ) {
+    const logsDel = await deleteConversationRowsInBatches({
+      conversationId: id,
+      table: "llm_request_logs",
+      dbPath: getLogsDbPath(),
+    });
+    if (!logsDel.ok) {
+      throw new Error(
+        `gentle conversation delete failed (llm_request_logs, ${logsDel.backend}): ${logsDel.error ?? "unknown"}`,
+      );
+    }
   }
 
   // Bulk message delete off the event loop, in lock-friendly batches. Cascades
-  // to memory_segments, message_attachments, bookmarks, channel_inbound_events.
+  // to message_attachments, bookmarks, channel_inbound_events (memory_segments
+  // is on the memory connection and is purged directly below).
   const del = await deleteConversationRowsInBatches({
     conversationId: id,
     table: "messages",
@@ -1879,23 +2016,18 @@ export async function deleteConversationGently(
     tx.delete(toolInvocations)
       .where(eq(toolInvocations.conversationId, id))
       .run();
-
-    // Clean up segment embeddings (not FK-linked to segments, so the message
-    // cascade above did not remove them).
-    if (result.segmentIds.length > 0) {
-      tx.delete(memoryEmbeddings)
-        .where(
-          and(
-            eq(memoryEmbeddings.targetType, "segment"),
-            inArray(memoryEmbeddings.targetId, result.segmentIds),
-          ),
-        )
-        .run();
-    }
-
+    // Raw SQL on the same bun:sqlite handle Drizzle wraps, so the subagent rows
+    // commit or roll back with the conversation row they describe.
+    deleteSubagentRecordsByParent(id);
     // Conversation row deletion cascades to remaining dependent tables.
     tx.delete(conversations).where(eq(conversations.id, id)).run();
   });
+
+  // Purge the conversation's segments and their embeddings on the memory
+  // connection after the batched delete, re-reading and unioning the pre-delete
+  // snapshot so a segment written during the awaited drain is still cleaned up
+  // and returned for Qdrant cleanup.
+  result.segmentIds = purgeConversationSegments(id, result.segmentIds);
 
   // Remove the conversation's disk-view directory after the DB transaction.
   if (createdAtForDiskCleanup != null) {
@@ -2591,20 +2723,6 @@ export function setConversationProcessingStartedAt(
   );
 }
 
-/**
- * Clear the persisted processing flag on every conversation that still has one
- * set, returning the number of rows cleared. Called at daemon startup to reset
- * conversations whose `processing_started_at` was left non-NULL because the
- * previous process shut down mid-turn — the in-memory agent loop driving that
- * turn is gone, so the flag is stale.
- */
-export function clearStaleProcessingFlags(): number {
-  return rawRun(
-    "conversation:clearStaleProcessingFlags",
-    "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
-  );
-}
-
 export interface InterruptedConversationRow {
   id: string;
   /** Consecutive startup auto-resume attempts since the last clean turn end. */
@@ -2613,9 +2731,9 @@ export interface InterruptedConversationRow {
 
 /**
  * Conversations whose persisted processing flag is still set. Read at daemon
- * startup before {@link clearStaleProcessingFlags} so the interrupted-turn
- * reconciler knows which conversations were mid-turn when the previous
- * process exited.
+ * startup so the interrupted-turn reconciler knows which conversations were
+ * mid-turn when the previous process exited (the monitor's recovery pass
+ * clears the flags themselves out of process).
  */
 export function listInterruptedConversations(): InterruptedConversationRow[] {
   return rawAll<{ id: string; processing_resume_attempts: number }>(
@@ -2629,10 +2747,9 @@ export function listInterruptedConversations(): InterruptedConversationRow[] {
 
 /**
  * Bump the persisted auto-resume counter for a conversation the startup
- * reconciler is about to resume. Intentionally left set by
- * {@link clearStaleProcessingFlags} — the counter must survive the flag clear
- * so the resume cap holds across boots. Reset to 0 by the clean turn-end
- * write in {@link setConversationProcessingStartedAt}.
+ * reconciler is about to resume. The counter must survive the stale-flag clear
+ * so the resume cap holds across boots. Reset to 0 by the clean turn-end write
+ * in {@link setConversationProcessingStartedAt}.
  */
 export function incrementProcessingResumeAttempts(id: string): void {
   rawRun(
@@ -2664,6 +2781,42 @@ export function isConversationProcessing(id: string): boolean {
 }
 
 /**
+ * Conversations currently mid-turn, longest-running first. Throws on a read
+ * failure — drain callers must distinguish "nothing processing" from "could
+ * not read", so this does not degrade to an empty list.
+ */
+export function listProcessingConversations(limit = 20): Array<{
+  conversationId: string;
+  title: string | null;
+  originChannel: string | null;
+  originInterface: string | null;
+  processingStartedAt: number;
+}> {
+  const rows = rawAll<{
+    id: string;
+    title: string | null;
+    origin_channel: string | null;
+    origin_interface: string | null;
+    processing_started_at: number;
+  }>(
+    "conversation:listProcessing",
+    `SELECT id, title, origin_channel, origin_interface, processing_started_at
+     FROM conversations
+     WHERE processing_started_at IS NOT NULL
+     ORDER BY processing_started_at ASC
+     LIMIT ?`,
+    limit,
+  );
+  return rows.map((row) => ({
+    conversationId: row.id,
+    title: row.title,
+    originChannel: row.origin_channel,
+    originInterface: row.origin_interface,
+    processingStartedAt: row.processing_started_at,
+  }));
+}
+
+/**
  * Highest stream `seq` whose content is durably persisted to this
  * conversation's message rows, read from the `conversations.seq` column. This
  * is the snapshot↔stream alignment baseline `/messages` returns so a client
@@ -2692,18 +2845,59 @@ export function getConversationPersistedSeq(id: string): number | null {
  * Monotonic: the `WHERE seq IS NULL OR seq < ?` guard makes the update raise
  * the high-water mark only, so out-of-order async commits never regress it.
  * Non-positive or non-finite `seq` values are ignored.
+ *
+ * Transient SQLite write contention (`SQLITE_BUSY`/`SQLITE_IOERR`) is swallowed
+ * rather than thrown. This is a single, idempotent, monotonic UPDATE of a
+ * snapshot↔stream anchor that every subsequent flush re-records with an
+ * equal-or-higher seq, so a dropped write self-heals on the next flush — the
+ * same self-healing property that lets the paired content write
+ * (`persistLoopMessageContent`) swallow its final failure. `busy_timeout`
+ * already made the statement wait for the lock before surfacing `SQLITE_BUSY`,
+ * so this synchronous path cannot usefully back off and retry; it just must not
+ * throw. Several callers are fire-and-forget bookkeeping in the agent loop
+ * (`flushAccumulatedContent`, `handleMessageComplete`, tool events) where a
+ * raw throw is fatal: the debounced partial flush becomes an unhandled
+ * rejection, and `message_complete` is on `dispatchAgentEvent`'s re-throw
+ * allowlist — either one takes down the daemon on lock contention. A
+ * non-contention error (a genuine bug: bad SQL, missing column) still throws.
  */
 export function recordConversationPersistedSeq(id: string, seq: number): void {
   if (!Number.isFinite(seq) || seq <= 0) {
     return;
   }
-  rawRun(
-    "conversation:recordPersistedSeq",
-    "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
-    seq,
-    id,
-    seq,
+  try {
+    rawRun(
+      "conversation:recordPersistedSeq",
+      "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
+      seq,
+      id,
+      seq,
+    );
+  } catch (err) {
+    if (!isRetryableSqliteError(err)) {
+      throw err;
+    }
+    log.warn(
+      { err, conversationId: id, seq },
+      "recordConversationPersistedSeq: transient SQLite contention; dropping this anchor advance (self-heals on the next flush)",
+    );
+  }
+}
+
+/**
+ * Highest `conversations.seq` anchor across all conversations, or 0 when
+ * none is recorded. Every anchor is a `getCurrentSeq()` snapshot that has
+ * been served to clients on `/messages`, so at startup the stream seq
+ * counter is floored above this value (`floorSeqAbove` in
+ * `runtime/assistant-stream-state`) — resuming below it would re-issue
+ * seqs that clients already treat as applied.
+ */
+export function getMaxPersistedConversationSeq(): number {
+  const row = rawGet<{ maxSeq: number | null }>(
+    "conversation:maxPersistedSeq",
+    "SELECT MAX(seq) AS maxSeq FROM conversations",
   );
+  return row?.maxSeq ?? 0;
 }
 
 /**
@@ -3041,16 +3235,27 @@ export async function clearAll(): Promise<{
     "DELETE FROM telemetry_events WHERE name = 'skill_loaded'",
   );
 
-  // Delete in dependency order. Cascades handle memory_segments and
-  // tool_invocations, but we explicitly clear non-cascading memory
-  // tables too.
-  await runOrThrow("DELETE FROM memory_segments");
-  await runOrThrow("DELETE FROM memory_summaries");
-  await runOrThrow("DELETE FROM memory_embeddings");
-  // memory_jobs and llm_request_logs each live in their own dedicated
-  // connection; clear them directly on those connections rather than through
-  // a sqlite3 subprocess.
+  // Delete in dependency order. The cascade handles tool_invocations. memory_jobs,
+  // memory_segments, memory_embeddings, and memory_summaries each live on a
+  // dedicated connection; clear them there rather than through a main-DB sqlite3
+  // subprocess. Clear all four directly rather than routing memory_segments
+  // through the CONVERSATIONS_CLEARED hook below: that hook is a no-op when the
+  // memory plugin is disabled, which would keep memory_segments' deleted message
+  // text searchable until the next startup sweep. memory_embeddings and
+  // memory_summaries are not conversation-keyed, so the hook never covered them.
   rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
+  rawMemoryRun(
+    "conversation:clearAll:memorySegments",
+    "DELETE FROM memory_segments",
+  );
+  rawMemoryRun(
+    "conversation:clearAll:memoryEmbeddings",
+    "DELETE FROM memory_embeddings",
+  );
+  rawMemoryRun(
+    "conversation:clearAll:memorySummaries",
+    "DELETE FROM memory_summaries",
+  );
   await runOrThrow("DELETE FROM memory_checkpoints");
   rawLogsRun(
     "conversation:clearAll:requestLogs",
@@ -3062,6 +3267,19 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
+  // Subagent lifecycle records reference conversations by id without an FK
+  // cascade; wipe them explicitly so labels/objectives don't survive (or
+  // rehydrate after) a clear-all.
+  await runOrThrow("DELETE FROM subagents");
+
+  // The memory feature's relocated conversation-keyed tables lost their main-DB
+  // cascade. Signal the wipe through the hook rather than reaching into the
+  // plugin from here — fired only after the main-DB deletes above succeed, so a
+  // failed clear-all never leaves memory wiped for conversations that still
+  // exist (and it honors the hook's "after the main tables are cleared"
+  // contract). When the plugin is disabled the hook is a no-op; the startup
+  // orphan sweep reclaims those rows on the next memory boot.
+  await runHook(HOOKS.CONVERSATIONS_CLEARED, {});
 
   // Record audit event into the telemetry_events outbox (consent-bypassing);
   // the trail persists platform-side once flushed. Best-effort: the
@@ -3109,6 +3327,138 @@ export async function clearAll(): Promise<{
   void clearAllConversationIds();
 
   return { conversations: convCount, messages: msgCount };
+}
+
+/**
+ * Delete every memory_segment, and its segment embeddings, for the given
+ * message ids on the memory connection, returning the deleted segment ids.
+ * memory_segments has no cross-file FK to messages, so a message delete never
+ * cascades to it, and the conversation-keyed purge does not apply while the
+ * conversation survives. Callers run this before removing the message rows and
+ * again after; the second pass catches segments a concurrent backfill writes in
+ * the gap between the two. Best-effort: a missing or locked memory database is
+ * logged and treated as a no-op so it never aborts the delete.
+ */
+function purgeMessageSegments(messageIds: string[], context: string): string[] {
+  const memoryDb = getMemoryDb();
+  if (!memoryDb || messageIds.length === 0) {
+    return [];
+  }
+  let ids: string[] = [];
+  try {
+    ids = memoryDb
+      .select({ id: memorySegments.id })
+      .from(memorySegments)
+      .where(inArray(memorySegments.messageId, messageIds))
+      .all()
+      .map((r) => r.id);
+  } catch (err) {
+    log.warn(
+      { err, context },
+      "Failed to read memory segments for deleted messages; continuing",
+    );
+  }
+  if (ids.length > 0) {
+    try {
+      memoryDb
+        .delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "segment"),
+            inArray(memoryEmbeddings.targetId, ids),
+          ),
+        )
+        .run();
+    } catch (err) {
+      log.warn(
+        { err, context },
+        "Failed to delete segment embeddings for deleted messages; continuing",
+      );
+    }
+  }
+  // Independent of the embedding delete above: a missing or partially migrated
+  // embedding cache must not leave the plaintext segment rows behind.
+  try {
+    memoryDb
+      .delete(memorySegments)
+      .where(inArray(memorySegments.messageId, messageIds))
+      .run();
+  } catch (err) {
+    log.warn(
+      { err, context },
+      "Failed to delete memory segments for deleted messages; continuing",
+    );
+  }
+  return ids;
+}
+
+/**
+ * Delete a conversation's memory_segments and their segment embeddings on the
+ * memory connection, returning the deleted segment ids for Qdrant cleanup.
+ * memory_segments has no cross-file FK to conversations, so a conversation
+ * delete does not cascade to it and the conversation-deleted hook is a no-op
+ * when the memory plugin is disabled; this purge runs regardless. It re-reads
+ * the ids and unions them with any already known, capturing rows a concurrent
+ * index wrote during an awaited batch delete while preserving ids the boot
+ * orphan sweep may have removed once the conversation row went away. Embeddings
+ * and segments are deleted under independent guards so a missing or broken
+ * embedding cache (such as a partial migration) cannot block deletion of the
+ * plaintext segment rows. Best-effort throughout.
+ */
+export function purgeConversationSegments(
+  conversationId: string,
+  knownSegmentIds: string[] = [],
+): string[] {
+  const memoryDb = getMemoryDb();
+  if (!memoryDb) {
+    return knownSegmentIds;
+  }
+  const ids = new Set(knownSegmentIds);
+  try {
+    for (const row of memoryDb
+      .select({ id: memorySegments.id })
+      .from(memorySegments)
+      .where(eq(memorySegments.conversationId, conversationId))
+      .all()) {
+      ids.add(row.id);
+    }
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to read memory segments for deleted conversation; continuing",
+    );
+  }
+  const segmentIds = [...ids];
+  if (segmentIds.length > 0) {
+    try {
+      memoryDb
+        .delete(memoryEmbeddings)
+        .where(
+          and(
+            eq(memoryEmbeddings.targetType, "segment"),
+            inArray(memoryEmbeddings.targetId, segmentIds),
+          ),
+        )
+        .run();
+    } catch (err) {
+      log.warn(
+        { err, conversationId },
+        "Failed to delete segment embeddings for deleted conversation; continuing",
+      );
+    }
+  }
+  try {
+    memoryDb
+      .delete(memorySegments)
+      .where(eq(memorySegments.conversationId, conversationId))
+      .run();
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "Failed to delete memory segments for deleted conversation; continuing",
+    );
+  }
+  return segmentIds;
 }
 
 export function deleteLastExchange(conversationId: string): number {
@@ -3169,6 +3519,10 @@ export function deleteLastExchange(conversationId: string): number {
           .filter((id): id is string => id != null)
       : [];
 
+  // Purge the undone messages' segments before removing their rows so a crash
+  // between the two re-indexes live messages rather than orphaning segments.
+  purgeMessageSegments(messageIds, "deleteLastExchange");
+
   db.transaction((tx) => {
     tx.delete(messages).where(condition).run();
     const maxResult = tx
@@ -3184,6 +3538,10 @@ export function deleteLastExchange(conversationId: string): number {
       .where(eq(conversations.id, conversationId))
       .run();
   });
+
+  // Second purge now the message rows are gone, catching any segments a backfill
+  // wrote in the gap between the purge above and the delete.
+  purgeMessageSegments(messageIds, "deleteLastExchange:post-delete");
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
@@ -3432,23 +3790,19 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
     .where(eq(messages.id, messageId))
     .get();
 
-  db.transaction((tx) => {
-    // Collect memory segment IDs linked to this message before cascade.
-    const linkedSegments = tx
-      .select({ id: memorySegments.id })
-      .from(memorySegments)
-      .where(eq(memorySegments.messageId, messageId))
-      .all();
-    result.segmentIds = linkedSegments.map((r) => r.id);
+  // Purge the message's segments before removing its row so a crash between the
+  // two re-indexes a live message rather than orphaning segments for a gone one.
+  result.segmentIds = purgeMessageSegments([messageId], "deleteMessageById");
 
+  db.transaction((tx) => {
     // Detach nullable FK references so the cascade doesn't destroy them.
     tx.update(channelInboundEvents)
       .set({ messageId: null })
       .where(eq(channelInboundEvents.messageId, messageId))
       .run();
 
-    // Now safe to delete — NOT NULL cascades remove memory_segments
-    // and message_attachments.
+    // NOT NULL cascades remove message_attachments. memory_segments is on the
+    // memory connection and was purged above.
     tx.delete(messages).where(eq(messages.id, messageId)).run();
 
     // Recalculate lastMessageAt after deletion.
@@ -3465,19 +3819,14 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
         .where(eq(conversations.id, msgRow.conversationId))
         .run();
     }
-
-    // Clean up segment embeddings from SQLite (Qdrant cleanup is the caller's job).
-    if (result.segmentIds.length > 0) {
-      tx.delete(memoryEmbeddings)
-        .where(
-          and(
-            eq(memoryEmbeddings.targetType, "segment"),
-            inArray(memoryEmbeddings.targetId, result.segmentIds),
-          ),
-        )
-        .run();
-    }
   });
+
+  // Second purge now the message row is gone: a backfill racing this delete can
+  // write segments after the purge above while its own existence check still
+  // sees the message present, so re-run the cleanup to remove any it added.
+  result.segmentIds.push(
+    ...purgeMessageSegments([messageId], "deleteMessageById:post-delete"),
+  );
 
   deleteOrphanAttachments(candidateAttachmentIds);
 

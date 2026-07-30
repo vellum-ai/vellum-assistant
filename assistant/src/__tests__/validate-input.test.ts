@@ -32,7 +32,9 @@ describe("validateInputAgainstSchema — required", () => {
   test("lists each missing required field individually", () => {
     const result = validateInputAgainstSchema("document_update", {}, schema);
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.errors).toContain("surface_id is required");
     expect(result.errors).toContain("content is required");
   });
@@ -77,7 +79,9 @@ describe("validateInputAgainstSchema — required", () => {
   test("flags only truly absent keys, not explicit-undefined ones", () => {
     const result = validateInputAgainstSchema("document_update", {}, schema);
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.errors).toContain("surface_id is required");
     expect(result.errors).toContain("content is required");
   });
@@ -175,7 +179,9 @@ describe("validateInputAgainstSchema — nullable / union types", () => {
     };
     const result = validateInputAgainstSchema("t", { note: null }, schema);
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.errors).toContain("note must be a string");
     expect(result.errors).not.toContain("note is required");
   });
@@ -199,7 +205,9 @@ describe("validateInputAgainstSchema — nullable / union types", () => {
       schema,
     );
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.errors).toContain("content must be a string");
   });
 });
@@ -224,7 +232,9 @@ describe("validateInputAgainstSchema — enum", () => {
   test("fails with the list of allowed values", () => {
     const result = validateInputAgainstSchema("t", { mode: "bogus" }, schema);
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.errors).toContain('mode must be one of "replace", "append"');
   });
 });
@@ -257,7 +267,9 @@ describe("validateInputAgainstSchema — array items", () => {
       schema,
     );
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.errors).toContain("tags[1] must be a string");
     expect(result.errors).toContain("tags[3] must be a string");
     expect(result.errors).not.toContain("tags[0] must be a string");
@@ -286,7 +298,9 @@ describe("validateInputAgainstSchema — unknown keys", () => {
       schema,
     );
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.errors).toContain(
       'Unknown parameter "foo". Supported: "surface_id", "content", "mode"',
     );
@@ -295,7 +309,9 @@ describe("validateInputAgainstSchema — unknown keys", () => {
   test("flags multiple unknown keys individually", () => {
     const result = validateInputAgainstSchema("t", { foo: 1, bar: 2 }, schema);
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     const unknownErrors = result.errors.filter((e) =>
       e.startsWith("Unknown parameter"),
     );
@@ -442,7 +458,9 @@ describe("validateInputAgainstSchema — boolean string error message", () => {
       { type: "object", properties: { auto_open: { type: "boolean" } } },
     );
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) {
+      return;
+    }
     expect(result.errors).toContain(
       "auto_open must be a boolean — pass true or false as a JSON boolean, not a string",
     );

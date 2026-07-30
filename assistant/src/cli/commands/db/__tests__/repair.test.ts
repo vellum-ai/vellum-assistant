@@ -77,7 +77,9 @@ function seedHealthyDb(opts: { walMode?: boolean } = {}): void {
     const ins = db.prepare(
       "INSERT INTO conversations (id, title) VALUES (?, ?)",
     );
-    for (let i = 0; i < 50; i++) ins.run(`c-${i}`, `t-${i}`);
+    for (let i = 0; i < 50; i++) {
+      ins.run(`c-${i}`, `t-${i}`);
+    }
   } finally {
     db.close();
   }
@@ -144,7 +146,9 @@ async function runRepair(args: string[]): Promise<{
     try {
       await program.parseAsync(["node", "assistant", "db", ...args]);
     } catch (e) {
-      if ((e as Error).message !== "__test_exit__") throw e;
+      if ((e as Error).message !== "__test_exit__") {
+        throw e;
+      }
     }
   } finally {
     process.stdout.write = origOut;
@@ -192,6 +196,9 @@ describe("assistant db repair — healthy DB", () => {
   });
 });
 
+// Integrity-checking the corrupt seed (including the malformed-image throw
+// path) plus the follow-on backfill step can exceed bun's 5s per-test
+// default on a loaded machine, so each gets a 30s ceiling.
 describe("assistant db repair — corrupt DB", () => {
   test("integrity check surfaces corruption and exits 1", async () => {
     seedCorruptDb();
@@ -212,7 +219,7 @@ describe("assistant db repair — corrupt DB", () => {
     // backfill itself runs against an empty conversations dir and reports
     // "nothing to backfill", so the summary is `1 ok, 1 failed`.
     expect(stdout).toMatch(/Done\. 2 steps ran: 1 ok, 1 failed/);
-  });
+  }, 30_000);
 
   test("--json carries the full error list from integrity-check", async () => {
     seedCorruptDb();
@@ -225,7 +232,7 @@ describe("assistant db repair — corrupt DB", () => {
     expect(Array.isArray(parsed.steps[0].result.data.errors)).toBe(true);
     expect(parsed.steps[0].result.data.errors.length).toBeGreaterThan(0);
     expect(parsed.errorCount).toBe(1);
-  });
+  }, 30_000);
 });
 
 describe("assistant db repair — DB missing", () => {

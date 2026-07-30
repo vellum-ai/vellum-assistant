@@ -39,6 +39,32 @@ export const MemoryRetrospectiveConfigSchema = z
         "Minimum milliseconds between attempts (success or failure). Prevents tight retry loops across trigger types. Pre-compaction bypasses this gate.",
       ),
 
+    sweepIntervalMs: z
+      .number({
+        error: "memory.retrospective.sweepIntervalMs must be a number",
+      })
+      .int("memory.retrospective.sweepIntervalMs must be an integer")
+      .positive(
+        "memory.retrospective.sweepIntervalMs must be a positive integer",
+      )
+      .default(8 * 60 * 60 * 1000)
+      .describe(
+        "Cadence of the scheduled retrospective sweep, the timer-driven backstop that re-scans conversations for unprocessed messages the event-driven triggers missed (e.g. a turn that ended in a crash or IPC drop before the post-turn hooks ran). A conversation is only swept when its last retrospective attempt is at least this old, so the sweep never competes with the responsive interval/message_count triggers on active conversations.",
+      ),
+
+    sweepLookbackMs: z
+      .number({
+        error: "memory.retrospective.sweepLookbackMs must be a number",
+      })
+      .int("memory.retrospective.sweepLookbackMs must be an integer")
+      .positive(
+        "memory.retrospective.sweepLookbackMs must be a positive integer",
+      )
+      .default(7 * 24 * 60 * 60 * 1000)
+      .describe(
+        "How far back the scheduled retrospective sweep looks for stalled work. The sweep backstops turns that ended abnormally (crash / IPC drop), and such turns are by definition recent — so only conversations whose last message falls inside this window are scanned, and the retrospective job re-applies the same window at execution time so a stale queued backlog is skipped instead of run. Conversations dormant beyond the window are outside the sweep's scope entirely: their unprocessed tails are ordinary end-of-conversation remainders, not stalled work. Values below twice memory.retrospective.sweepIntervalMs are clamped up to that floor — scheduler and queue delay stretch the gap between consecutive scans past the nominal cadence, so a window at or under one interval would leave a permanent blind span between passes.",
+      ),
+
     keepSupersededRuns: z
       .boolean({
         error: "memory.retrospective.keepSupersededRuns must be a boolean",

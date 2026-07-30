@@ -8,6 +8,7 @@ function resetStore() {
     assistantId: null,
     openCategories: [],
     openCustomGroups: [],
+    openPrimary: ["pinned", "recents"],
     backgroundActivated: false,
     scheduledActivated: false,
   });
@@ -61,9 +62,7 @@ describe("SidebarCollapseStore", () => {
       .getState()
       .setOpenCategories(["scheduled", "background"]);
 
-    const raw = localStorage.getItem(
-      "vellum:sidebar-open-categories:asst-1",
-    );
+    const raw = localStorage.getItem("vellum:sidebar-open-categories:asst-1");
     expect(JSON.parse(raw!)).toEqual(["scheduled", "background"]);
     expect(useSidebarCollapseStore.getState().openCategories).toEqual([
       "scheduled",
@@ -73,9 +72,7 @@ describe("SidebarCollapseStore", () => {
 
   test("setOpenCustomGroups persists to localStorage", () => {
     useSidebarCollapseStore.getState().setAssistantId("asst-1");
-    useSidebarCollapseStore
-      .getState()
-      .setOpenCustomGroups(["grp-1", "grp-2"]);
+    useSidebarCollapseStore.getState().setOpenCustomGroups(["grp-1", "grp-2"]);
 
     const raw = localStorage.getItem(
       "vellum:sidebar-open-custom-groups:asst-1",
@@ -106,10 +103,7 @@ describe("SidebarCollapseStore", () => {
   });
 
   test("falls back to defaults when localStorage has invalid data", () => {
-    localStorage.setItem(
-      "vellum:sidebar-open-categories:asst-1",
-      "not-json",
-    );
+    localStorage.setItem("vellum:sidebar-open-categories:asst-1", "not-json");
 
     useSidebarCollapseStore.getState().setAssistantId("asst-1");
 
@@ -123,6 +117,33 @@ describe("SidebarCollapseStore", () => {
       "scheduled",
     ]);
     expect(localStorage.length).toBe(0);
+  });
+
+  test("openPrimary defaults to Pinned + Chats open when nothing is stored", () => {
+    useSidebarCollapseStore.getState().setAssistantId("asst-1");
+    expect(useSidebarCollapseStore.getState().openPrimary).toEqual([
+      "pinned",
+      "recents",
+    ]);
+  });
+
+  test("setOpenPrimary persists to localStorage", () => {
+    useSidebarCollapseStore.getState().setAssistantId("asst-1");
+    useSidebarCollapseStore.getState().setOpenPrimary(["pinned"]);
+
+    const raw = localStorage.getItem("vellum:sidebar-open-primary:asst-1");
+    expect(JSON.parse(raw!)).toEqual(["pinned"]);
+    expect(useSidebarCollapseStore.getState().openPrimary).toEqual(["pinned"]);
+  });
+
+  test("setAssistantId hydrates a collapsed primary section from storage", () => {
+    // Stored empty array = user collapsed both; must not fall back to open.
+    localStorage.setItem(
+      "vellum:sidebar-open-primary:asst-1",
+      JSON.stringify([]),
+    );
+    useSidebarCollapseStore.getState().setAssistantId("asst-1");
+    expect(useSidebarCollapseStore.getState().openPrimary).toEqual([]);
   });
 });
 

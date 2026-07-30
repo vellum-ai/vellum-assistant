@@ -47,9 +47,9 @@ describe("sanitizeUrl", () => {
   });
 
   it("redacts parametric hash fragments (OAuth implicit flow)", () => {
-    expect(
-      sanitizeUrl("https://app/#access_token=abc&token_type=Bearer"),
-    ).toBe("https://app/#[REDACTED]");
+    expect(sanitizeUrl("https://app/#access_token=abc&token_type=Bearer")).toBe(
+      "https://app/#[REDACTED]",
+    );
   });
 
   it("preserves anchor-style hashes without `=`", () => {

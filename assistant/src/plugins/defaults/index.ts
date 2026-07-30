@@ -44,11 +44,6 @@ import explorationDriftPostToolUse, {
   resetExplorationDriftStateForTests,
 } from "./exploration-drift/hooks/post-tool-use.js";
 import explorationDriftPkg from "./exploration-drift/package.json" with { type: "json" };
-import historyRepairPostModelCall from "./history-repair/hooks/post-model-call.js";
-import historyRepairStop from "./history-repair/hooks/stop.js";
-import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
-import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
-import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
 import imageFallbackConversationDeleted from "./image-fallback/hooks/conversation-deleted.js";
 import imageFallbackInit from "./image-fallback/hooks/init.js";
 import imageFallbackPostCompact from "./image-fallback/hooks/post-compact.js";
@@ -68,16 +63,14 @@ import maxTokensContinuePostModelCall from "./max-tokens-continue/hooks/post-mod
 import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
 import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
 import memoryConversationDeleted from "./memory/hooks/conversation-deleted.js";
+import memoryConversationsCleared from "./memory/hooks/conversations-cleared.js";
 import memoryInit from "./memory/hooks/init.js";
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryShutdown from "./memory/hooks/shutdown.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
 import { memoryInjectors } from "./memory/injectors.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
-import {
-  memoryV3Injector,
-  memoryV3SpotlightInjector,
-} from "./memory/v3/injector.js";
+import platformHostedPkg from "./platform-hosted/package.json" with { type: "json" };
 import { sessionInjectors } from "./session/injectors.js";
 import sessionPkg from "./session/package.json" with { type: "json" };
 import surfaceCompletionNudgePostModelCall from "./surface-completion-nudge/hooks/post-model-call.js";
@@ -185,14 +178,14 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * the initial injection, and `post-compact` re-applies the injections onto
  * the compacted history after a mid-turn compaction; a `conversation-deleted`
  * hook fails the plugin's pending background jobs when a conversation is
- * deleted. It contributes its personal-memory
- * runtime injectors (PKB context/reminder and the memory-v2 static block, plus
- * the two memory-v3 injectors) to the global injector registry via the
- * `injectors` field; the registry unions them with the domain plugins'
- * injectors and sorts by `order` into the per-turn chain, and the v3 injectors
- * self-gate on `memory.v3.live`. Registered first among the default plugins so
- * later `user-prompt-submit` hooks (history repair, title) see the fully
- * memory-injected history.
+ * deleted. Its runtime injectors (PKB context/reminder, the memory-v2 static
+ * block, and the two memory-v3 injectors) reach the global injector registry
+ * through `memory/injectors.ts` — the plugin's single injector entry point, so
+ * the host stays off the tier directories; the registry unions them with the
+ * domain plugins' injectors and sorts by `order` into the per-turn chain, and
+ * the v3 injectors self-gate on `memory.v3.live`. Registered first among the
+ * default plugins so later `user-prompt-submit` hooks (history repair, title)
+ * see the fully memory-injected history.
  */
 export const defaultMemoryPlugin: Plugin = {
   manifest: {
@@ -205,8 +198,9 @@ export const defaultMemoryPlugin: Plugin = {
     "user-prompt-submit": memoryUserPromptSubmit,
     "post-compact": memoryPostCompact,
     "conversation-deleted": memoryConversationDeleted,
+    "conversations-cleared": memoryConversationsCleared,
   },
-  injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
+  injectors: memoryInjectors,
 };
 
 /**
@@ -275,23 +269,15 @@ export const defaultSessionPlugin: Plugin = {
 };
 
 /**
- * `history-repair` — normalizes the working message history (tool-use/tool-result
- * pairing, role alternation). The `user-prompt-submit` hook normalizes the
- * history before each provider call; the `post-model-call` hook handles the
- * provider rejection where the call failed on an ordering violation,
- * deep-repairing the history and asking the loop to retry; the `stop` hook
- * clears the one-shot repair bound on a terminal stop so the next turn repairs
- * afresh.
+ * `platform-hosted` — contributes the platform-hosted `/reengage` route. It
+ * ships no hooks, tools, or injectors, so it registers as a manifest only;
+ * the route source is served once the assistant dispatches default-plugin
+ * routes.
  */
-export const defaultHistoryRepairPlugin: Plugin = {
+export const defaultPlatformHostedPlugin: Plugin = {
   manifest: {
-    name: historyRepairPkg.name,
-    version: historyRepairPkg.version,
-  },
-  hooks: {
-    "user-prompt-submit": historyRepairUserPromptSubmit,
-    "post-model-call": historyRepairPostModelCall,
-    stop: historyRepairStop,
+    name: platformHostedPkg.name,
+    version: platformHostedPkg.version,
   },
 };
 
@@ -448,6 +434,7 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
     defaultDocumentsPlugin,
     defaultChannelPlugin,
     defaultSessionPlugin,
+    defaultPlatformHostedPlugin,
     defaultImageFallbackPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
@@ -456,7 +443,6 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
     defaultExplorationDriftPlugin,
     defaultTaskProgressNudgePlugin,
     defaultSurfaceCompletionNudgePlugin,
-    defaultHistoryRepairPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,
@@ -522,7 +508,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
   resetEmptyResponseNudgeStoreForTests();
   resetMaxTokensContinueStoreForTests();
-  resetRepairStateStoreForTests();
   resetImageRecoveryStoreForTests();
   resetExplorationDriftStateForTests();
   resetTaskProgressNudgeStateForTests();

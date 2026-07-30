@@ -136,9 +136,19 @@ Proactively remove unused code during every change. Remove code your change make
 
 Default to no comment — bias aggressively toward terseness and rely on good naming. Follow the commenting density of the surrounding code.
 
+## Em Dashes
+
+Never use em dashes (`—`). Use a period, comma, colon, parentheses, or a plain hyphen instead.
+
+This covers everything you write: user-facing copy, code comments, documentation, commit messages, and PR descriptions.
+
+**User-facing copy is the strict case.** The assistant's own system prompt already forbids em dashes (`assistant/src/prompts/templates/SOUL.md`), so a UI string that uses one is written in a different voice from the assistant standing next to it. Treat any string a user can read (product copy, error messages, notifications, seeded prompts, API descriptions) as a hard no.
+
+Existing text is not swept retroactively. Fix em dashes on lines you are already changing and leave the rest alone.
+
 ## Control-Flow Braces
 
-Wrap every `if` / `else` / `for` / `while` / `do…while` body in braces, even a single-statement one-liner. Braces make control flow easy to scan — the block boundary is explicit — and close a common footgun: a second line added under a braceless condition reads as if it sits inside the branch but runs unconditionally. The ESLint `curly` rule flags this in both `assistant/` and `clients/web/` (currently at `warn`); it is fully auto-fixable, so add braces to any control statement you touch.
+Wrap every `if` / `else` / `for` / `while` / `do…while` body in braces, even a single-statement one-liner. Braces make control flow easy to scan — the block boundary is explicit — and close a common footgun: a second line added under a braceless condition reads as if it sits inside the branch but runs unconditionally. The ESLint `curly` rule enforces this at `error` in both `assistant/` and `clients/web/`; it is fully auto-fixable with `eslint --fix`.
 
 ## Generic Examples
 

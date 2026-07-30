@@ -40,8 +40,9 @@ mock.module("../runtime/client.js", () => ({
     forwardToRuntimeMock(...args),
 }));
 
+const { normalizeSlackAppMention } =
+  await import("../slack/message-normalizer.js");
 const {
-  normalizeSlackAppMention,
   resolveSlackChannel,
   resolveSlackUser,
   resolveSlackUserSync,
@@ -50,17 +51,16 @@ const {
   clearUserInfoCache,
   getChannelInfoCacheSize,
   getUserInfoCacheSize,
-} = await import("../slack/normalize.js");
+} = await import("../slack/user-directory.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
 const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
 const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
   await import("../risk/admission-policy-cache.js");
-import type { SlackAppMentionEvent } from "../slack/normalize.js";
+import type { SlackAppMentionEvent } from "../slack/message-schemas.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: "default-assistant",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
@@ -78,7 +78,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "default",
     trustProxy: false,
     ...overrides,
   } as GatewayConfig;

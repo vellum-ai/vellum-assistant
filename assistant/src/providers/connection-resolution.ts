@@ -33,7 +33,7 @@ import {
 } from "../config/llm-resolver.js";
 import { getDb } from "../persistence/db-connection.js";
 import { credentialKey } from "../security/credential-key.js";
-import { ConfigError, ProviderNotConfiguredError } from "../util/errors.js";
+import { ProviderNotConfiguredError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
@@ -44,44 +44,19 @@ import { resolveManagedProxyContext } from "./platform-proxy/context.js";
 import { checkCredentialPresence } from "./provider-availability.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
+import {
+  ConnectionResolutionError,
+  resolveRoutingIdentity,
+} from "./routing-identity.js";
 import type { Provider } from "./types.js";
 import {
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
 } from "./vellum-model-routing.js";
 
+export { ConnectionResolutionError, resolveRoutingIdentity };
+
 const log = getLogger("providers/connection-resolution");
-
-/**
- * Error raised when a `provider_connection` reference cannot be resolved
- * because the configuration is broken (DB lookup throws, no such row, or
- * the connection's provider does not match the resolving profile's
- * declared provider). These are deterministic configuration bugs that
- * should fail loudly rather than silently rerouting.
- */
-export class ConnectionResolutionError extends ConfigError {
-  public readonly model?: string;
-  public readonly profileName?: string;
-
-  constructor(
-    public readonly connectionName: string,
-    public readonly reason:
-      | "lookup_failed"
-      | "not_found"
-      | "provider_mismatch"
-      | "missing_connection"
-      | "model_incompatible"
-      | "missing_credential"
-      | "platform_unauthenticated",
-    message: string,
-    options?: { cause?: unknown; model?: string; profileName?: string },
-  ) {
-    super(message, { cause: options?.cause });
-    this.name = "ConnectionResolutionError";
-    this.model = options?.model;
-    this.profileName = options?.profileName;
-  }
-}
 
 /**
  * Resolve a Provider through a named `provider_connection`.
@@ -113,6 +88,15 @@ export async function tryResolveProviderForConnectionName(
   expectedProvider?: string,
   model?: string,
 ): Promise<Provider | null> {
+  // Routing identities carry no upstream of their own: translate to the
+  // identity's canonical connection row and derived upstream before any
+  // lookup. The stored connectionName is overridden — an identity has
+  // exactly one authoritative row.
+  const identity = resolveRoutingIdentity(expectedProvider, model);
+  if (identity) {
+    connectionName = identity.connectionName;
+    expectedProvider = identity.expectedProvider;
+  }
   let connection;
   try {
     connection = getConnection(getDb(), connectionName);
@@ -249,6 +233,15 @@ export async function resolveDefaultProvider(
 ): Promise<Provider | null> {
   const resolved = resolveCallSiteConfig("mainAgent", config.llm);
   let connectionName = resolved.provider_connection;
+  // A routing-identity provider names its own connection row; the
+  // provider-keyed auto-resolve scan below cannot find it ("chatgpt" rows
+  // store provider "openai"), so short-circuit to the canonical name.
+  if (!connectionName) {
+    connectionName = resolveRoutingIdentity(
+      resolved.provider,
+      resolved.model,
+    )?.connectionName;
+  }
   if (!connectionName) {
     // The merged config has no provider_connection — the profile likely set
     // provider without a connection ("Any active" selection), and the merge
@@ -333,7 +326,13 @@ export async function preflightResolvedConfig(
   },
   attribution: { profileName?: string } = {},
 ): Promise<void> {
-  const connectionName = resolved.provider_connection;
+  // Routing identities preflight through their canonical row and derived
+  // upstream; an unroutable vellum model throws here — it is statically
+  // detectable, exactly what preflight exists to surface.
+  const identity = resolveRoutingIdentity(resolved.provider, resolved.model);
+  const provider = identity?.expectedProvider ?? resolved.provider;
+  const connectionName =
+    identity?.connectionName ?? resolved.provider_connection;
   if (!connectionName) {
     return;
   }
@@ -361,11 +360,11 @@ export async function preflightResolvedConfig(
   }
 
   if (isVellumManagedConnection(connection)) {
-    if (!MANAGED_ROUTABLE_PROVIDERS.has(resolved.provider)) {
+    if (!MANAGED_ROUTABLE_PROVIDERS.has(provider)) {
       throw new ConnectionResolutionError(
         connectionName,
         "provider_mismatch",
-        `provider_connection "${connectionName}" is the Vellum-managed connection, which cannot serve provider "${resolved.provider}"`,
+        `provider_connection "${connectionName}" is the Vellum-managed connection, which cannot serve provider "${provider}"`,
         errorOptions,
       );
     }
@@ -379,11 +378,11 @@ export async function preflightResolvedConfig(
     }
     return;
   }
-  if (connection.provider !== resolved.provider) {
+  if (connection.provider !== provider) {
     throw new ConnectionResolutionError(
       connectionName,
       "provider_mismatch",
-      `provider_connection "${connectionName}" has provider="${connection.provider}" but the resolved config declares provider="${resolved.provider}"`,
+      `provider_connection "${connectionName}" has provider="${connection.provider}" but the resolved config declares provider="${provider}"`,
       errorOptions,
     );
   }

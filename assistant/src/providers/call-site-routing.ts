@@ -24,17 +24,20 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { getDb } from "../persistence/db-connection.js";
+import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
 import {
   ConnectionResolutionError,
+  resolveRoutingIdentity,
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
 import { shouldUseNativeWebSearch } from "./registry.js";
+import { recordProviderRequestDiagnostics } from "./request-diagnostics.js";
 import type {
   Message,
   Provider,
@@ -42,6 +45,7 @@ import type {
   SendMessageOptions,
 } from "./types.js";
 
+const log = getLogger("providers/call-site-routing");
 export class CallSiteRoutingProvider implements Provider {
   public readonly tokenEstimationProvider?: string;
   // Forward native web-search capability so it survives the wrapper chain
@@ -217,6 +221,18 @@ export class CallSiteRoutingProvider implements Provider {
 
     let connectionName = resolved.provider_connection;
 
+    // A routing-identity provider ("vellum"/"chatgpt") names its own
+    // connection row; the provider-keyed scan below cannot find it (the
+    // chatgpt row stores provider "openai"), so short-circuit to the
+    // canonical name. Unroutable vellum models throw here — loudly —
+    // instead of falling through to the default transport.
+    if (!connectionName) {
+      connectionName = resolveRoutingIdentity(
+        resolved.provider,
+        resolved.model,
+      )?.connectionName;
+    }
+
     // When no connection is set, auto-resolve one for the resolved provider —
     // including when the provider matches the default's name. The default
     // transport may ride the managed (platform-billed) connection, so reusing
@@ -251,8 +267,28 @@ export class CallSiteRoutingProvider implements Provider {
         resolved.model,
       );
       if (connectionProvider) {
+        // The connection whose credential the call authenticates with is only
+        // known here, and diagnostics for a failed request are unactionable
+        // without it ("which key was this?"). Recorded once the adapter exists,
+        // so a connection that fell back to the default transport is not
+        // reported as the one that signed the request.
+        recordProviderRequestDiagnostics({ connection_name: connectionName });
         return connectionProvider;
       }
+      // Soft credential failure: the routed connection yielded no usable
+      // adapter and dispatch is landing on the default transport, which may
+      // be the platform-billed route — keep every such degradation
+      // observable.
+      log.warn(
+        {
+          callSite,
+          connectionName,
+          provider: resolved.provider,
+          model: resolved.model,
+          reason: "credential_unavailable",
+        },
+        "Routed connection yielded no adapter — falling back to the default transport",
+      );
       return this.defaultProvider;
     }
 

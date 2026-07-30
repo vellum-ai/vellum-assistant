@@ -113,6 +113,24 @@ describe("resolveEffectiveContextWindow", () => {
     expect(resolved.maxInputTokens).toBe(175000);
   });
 
+  test("a routing-identity profile resolves the model's own context limits", () => {
+    const llm = LLMSchema.parse({
+      profiles: {
+        managed: { provider: "vellum", model: "gpt-5.5" },
+      },
+      activeProfile: "managed",
+    });
+
+    const resolved = resolveEffectiveContextWindow({
+      llm,
+      callSite: "mainAgent",
+    });
+
+    // The catalog owner (openai) carries gpt-5.5's limits; a raw "vellum"
+    // lookup would miss and misreport the model max as the 200k default.
+    expect(resolved.modelMaxInputTokens).toBe(1050000);
+  });
+
   test("unknown catalog model falls back safely to the default 200k cap", () => {
     const llm = LLMSchema.parse({
       callSites: {

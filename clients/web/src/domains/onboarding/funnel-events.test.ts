@@ -37,7 +37,9 @@ interface IngestPayload {
 function ingestPayload(callIndex: number): IngestPayload {
   const options = ingestMock.mock.calls[callIndex]?.[0] as
     { body: IngestPayload } | undefined;
-  if (!options) throw new Error(`No ingest call at index ${callIndex}`);
+  if (!options) {
+    throw new Error(`No ingest call at index ${callIndex}`);
+  }
   return options.body;
 }
 
@@ -82,6 +84,17 @@ describe("onboarding funnel events", () => {
     expect(privacy.completed_at).toMatch(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
     );
+  });
+
+  test("stamps arbitrary variant arms beyond the pre-chat union", () => {
+    // Other funnels (e.g. tips) ride the same emitter with their own arms;
+    // the ingest stores ab_variant as an open string.
+    const event = buildOnboardingFunnelEvent(
+      ONBOARDING_FUNNEL_STEPS.privacyTos,
+      { variant: "on" },
+    );
+
+    expect(event.ab_variant).toBe("on");
   });
 
   test("defaults ab_variant to control when no variant is passed", () => {

@@ -103,21 +103,51 @@ export function assistantSupports(minVersion: string): boolean {
   return supportsVersion(version, minVersion);
 }
 
+/**
+ * Non-hook variant of {@link useAssistantScopedSupports}, for imperative
+ * callers (event handlers, async ops) — same owner-scoping rule, read off a
+ * `getState()` snapshot.
+ *
+ * Narrows `ownerAssistantId` to `string`: a null/undefined owner is never
+ * supported, so a `true` result always carries a usable assistant id.
+ *
+ * Inherits {@link assistantSupports}'s conservative `false` while the version
+ * is unhydrated, so callers that may run before the identity fetch lands must
+ * await {@link whenAssistantVersionKnown} first.
+ */
+export function assistantScopedSupports(
+  minVersion: string,
+  ownerAssistantId: string | null | undefined,
+): ownerAssistantId is string {
+  const identityAssistantId = useAssistantIdentityStore.getState().assistantId;
+  return (
+    assistantSupports(minVersion) &&
+    ownerAssistantId != null &&
+    ownerAssistantId === identityAssistantId
+  );
+}
+
 function supportsVersion(
   version: string | null | undefined,
   minVersion: string,
 ): boolean {
-  if (!version) return false;
+  if (!version) {
+    return false;
+  }
   const parsed = parseSemver(version);
   const min = parseSemver(minVersion);
-  if (!parsed || !min) return false;
+  if (!parsed || !min) {
+    return false;
+  }
   // Compare base versions (major.minor.patch) first, ignoring
   // pre-release suffixes. If the bases differ, the higher base wins.
   const baseCmp = compareParsed(
     { ...parsed, pre: null },
     { ...min, pre: null },
   );
-  if (baseCmp !== 0) return baseCmp > 0;
+  if (baseCmp !== 0) {
+    return baseCmp > 0;
+  }
   // Base versions are equal. Dev pre-releases (e.g.
   // `0.10.0-dev.202606211252.5cf8576`) are development builds AHEAD of
   // the stable release with the same base — they contain unreleased

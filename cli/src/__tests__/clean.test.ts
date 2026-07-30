@@ -19,6 +19,13 @@ const stopProcessMock = mock(
   async (_pid: number, _label: string): Promise<boolean> => true,
 );
 
+// Snapshot the real modules so the afterAll below can restore them. Bun runs
+// every test file in one process with a shared loader, and `mock.restore()`
+// does not undo `mock.module()`; without restoring, these mocks (notably the
+// partial `process.js` mock) leak into sibling test files.
+const realOrphanDetection = { ...(await import("../lib/orphan-detection.js")) };
+const realProcess = { ...(await import("../lib/process.js")) };
+
 beforeAll(() => {
   mock.module("../lib/orphan-detection.js", () => ({
     detectOrphanedProcesses: detectOrphansMock,
@@ -65,6 +72,9 @@ afterEach(() => {
 
 afterAll(() => {
   process.argv = [...originalArgv];
+  // Restore the real modules so the mocks do not leak into sibling test files.
+  mock.module("../lib/orphan-detection.js", () => realOrphanDetection);
+  mock.module("../lib/process.js", () => realProcess);
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

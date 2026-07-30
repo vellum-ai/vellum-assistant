@@ -32,7 +32,9 @@ export function parseCredentialEntries(
       if (colonIdx >= 0) {
         const service = entry.name.slice(0, colonIdx);
         const field = entry.name.slice(colonIdx + 1);
-        if (service && field) results.push({ service, field });
+        if (service && field) {
+          results.push({ service, field });
+        }
       }
     }
   }

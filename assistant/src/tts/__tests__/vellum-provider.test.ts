@@ -236,7 +236,9 @@ describe("vellum TTS definition", () => {
     expect(vellumTtsProviderDefinition.mediaStreamPlayback.outputFormat).toBe(
       "pcm",
     );
-    expect(vellumTtsProviderDefinition.supportsVoiceSelection).toBe(false);
+    // True since managed voice selection: clients gate their voice dropdown
+    // on this flag (old daemons report false and show no selector).
+    expect(vellumTtsProviderDefinition.supportsVoiceSelection).toBe(true);
   });
 
   test("requires only the platform connection credential", () => {

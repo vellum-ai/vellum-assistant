@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from "react";
 
 import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
@@ -46,7 +45,9 @@ export function useAudioAmplitude({
     let cancelled = false;
 
     function attachStream(stream: MediaStream) {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
 
@@ -58,7 +59,9 @@ export function useAudioAmplitude({
       const dataArray = new Uint8Array(analyser.fftSize);
 
       function tick() {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
 
         analyser.getByteTimeDomainData(dataArray);
 

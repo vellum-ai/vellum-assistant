@@ -19,7 +19,9 @@ export const movePidToWorkspaceMigration: WorkspaceMigration = {
   run(workspaceDir: string): void {
     const oldPath = join(getVellumRoot(), "vellum.pid");
     const newPath = join(workspaceDir, "vellum.pid");
-    if (!existsSync(oldPath)) return;
+    if (!existsSync(oldPath)) {
+      return;
+    }
     if (existsSync(newPath)) {
       try {
         unlinkSync(oldPath);
@@ -34,7 +36,9 @@ export const movePidToWorkspaceMigration: WorkspaceMigration = {
   down(workspaceDir: string): void {
     const oldPath = join(getVellumRoot(), "vellum.pid");
     const newPath = join(workspaceDir, "vellum.pid");
-    if (!existsSync(newPath)) return;
+    if (!existsSync(newPath)) {
+      return;
+    }
     if (existsSync(oldPath)) {
       try {
         unlinkSync(newPath);

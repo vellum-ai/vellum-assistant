@@ -37,7 +37,9 @@ const log = getLogger("media-resolve");
  * when a reference can no longer be resolved.
  */
 export function mediaSourceBytes(source: MediaSource): Buffer | null {
-  if (source.type === "base64") return Buffer.from(source.data, "base64");
+  if (source.type === "base64") {
+    return Buffer.from(source.data, "base64");
+  }
   return getAttachmentContent(source.attachmentId);
 }
 
@@ -69,7 +71,9 @@ export function base64Source<T extends MediaSource>(
  * without decoding or a disk read.
  */
 export function mediaSourceByteLength(source: MediaSource): number {
-  if (source.type === "workspace_ref") return source.sizeBytes;
+  if (source.type === "workspace_ref") {
+    return source.sizeBytes;
+  }
   return Math.floor((source.data.length * 3) / 4);
 }
 
@@ -86,12 +90,16 @@ export function resolveMediaSourceData(
     return { data: source.data, media_type: source.media_type };
   }
   const bytes = getAttachmentContent(source.attachmentId);
-  if (!bytes) return null;
+  if (!bytes) {
+    return null;
+  }
   return { data: bytes.toString("base64"), media_type: source.media_type };
 }
 
 function resolveImageBlock(block: ImageContent): ContentBlock {
-  if (block.source.type === "base64") return block;
+  if (block.source.type === "base64") {
+    return block;
+  }
   const bytes = getAttachmentContent(block.source.attachmentId);
   if (!bytes) {
     log.warn(
@@ -116,7 +124,9 @@ function resolveImageBlock(block: ImageContent): ContentBlock {
 }
 
 function resolveFileBlock(block: FileContent): ContentBlock {
-  if (block.source.type === "base64") return block;
+  if (block.source.type === "base64") {
+    return block;
+  }
   const { attachmentId, media_type, filename } = block.source;
   const bytes = getAttachmentContent(attachmentId);
   if (!bytes) {
@@ -159,7 +169,9 @@ function resolveBlock(block: ContentBlock): ContentBlock {
       return resolveFileBlock(block);
     case "tool_result": {
       // Nested media (e.g. a browser screenshot) may also carry references.
-      if (!block.contentBlocks?.length) return block;
+      if (!block.contentBlocks?.length) {
+        return block;
+      }
       return { ...block, contentBlocks: block.contentBlocks.map(resolveBlock) };
     }
     default:
@@ -187,7 +199,9 @@ function contentHasReference(content: ContentBlock[]): boolean {
  */
 export function resolveMediaReferences(messages: Message[]): Message[] {
   return messages.map((message) => {
-    if (!contentHasReference(message.content)) return message;
+    if (!contentHasReference(message.content)) {
+      return message;
+    }
     return { ...message, content: message.content.map(resolveBlock) };
   });
 }

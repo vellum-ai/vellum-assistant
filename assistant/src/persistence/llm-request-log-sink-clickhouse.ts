@@ -252,7 +252,9 @@ export class ClickHouseLlmRequestLogSink implements LlmRequestLogWriter {
   }
 
   private async assistantId(): Promise<string> {
-    if (this.cachedAssistantId) return this.cachedAssistantId;
+    if (this.cachedAssistantId) {
+      return this.cachedAssistantId;
+    }
     const val = await this.resolveAssistantId();
     if (!val) {
       throw new Error(
@@ -264,7 +266,9 @@ export class ClickHouseLlmRequestLogSink implements LlmRequestLogWriter {
   }
 
   private async url(): Promise<string> {
-    if (this.cachedUrl) return this.cachedUrl;
+    if (this.cachedUrl) {
+      return this.cachedUrl;
+    }
     const val = await this.resolveUrl();
     if (!val) {
       throw new Error(
@@ -276,7 +280,9 @@ export class ClickHouseLlmRequestLogSink implements LlmRequestLogWriter {
   }
 
   private async password(): Promise<string> {
-    if (this.cachedPassword) return this.cachedPassword;
+    if (this.cachedPassword) {
+      return this.cachedPassword;
+    }
     const val = await this.resolvePassword();
     if (!val) {
       throw new Error(
@@ -311,7 +317,9 @@ export function getClickHouseLlmRequestLogSink(): ClickHouseLlmRequestLogSink | 
   } catch {
     return null;
   }
-  if (!cfg || cfg.readSource !== "clickhouse") return null;
+  if (!cfg || cfg.readSource !== "clickhouse") {
+    return null;
+  }
   const key = JSON.stringify(cfg.clickhouse);
   if (!cachedSink || cachedSink.key !== key) {
     cachedSink = { key, sink: new ClickHouseLlmRequestLogSink(cfg.clickhouse) };

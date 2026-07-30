@@ -4,9 +4,11 @@ import { sql } from "drizzle-orm";
 
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { heartbeatRuns } from "../../persistence/schema/index.js";
 import {
   completeHeartbeatRun,
   countCompletedHeartbeatRuns,
+  getLastHeartbeatRunAt,
   insertPendingHeartbeatRun,
   listHeartbeatRuns,
   markStaleRunningAsError,
@@ -17,6 +19,19 @@ import {
 } from "../heartbeat-run-store.js";
 
 await initializeDb();
+
+/**
+ * Raw read-back of every row (any status). `listHeartbeatRuns` serves run
+ * history and hides bookkeeping rows (pending/superseded), so tests that
+ * assert on those statuses read the table directly.
+ */
+function allRuns() {
+  return getDb()
+    .select()
+    .from(heartbeatRuns)
+    .orderBy(sql`${heartbeatRuns.scheduledFor} DESC`)
+    .all();
+}
 
 describe("heartbeat-run-store", () => {
   beforeEach(() => {
@@ -29,7 +44,7 @@ describe("heartbeat-run-store", () => {
     const id = insertPendingHeartbeatRun(scheduledFor);
     expect(id).toBeTruthy();
 
-    const rows = listHeartbeatRuns();
+    const rows = allRuns();
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe(id);
     expect(rows[0].status).toBe("pending");
@@ -134,7 +149,7 @@ describe("heartbeat-run-store", () => {
     const ok = supersedePendingRun(id);
     expect(ok).toBe(true);
 
-    const rows = listHeartbeatRuns();
+    const rows = allRuns();
     expect(rows[0].status).toBe("superseded");
   });
 
@@ -156,7 +171,7 @@ describe("heartbeat-run-store", () => {
     const count = markStaleRunsAsMissed(5 * 60 * 1000);
     expect(count).toBe(2);
 
-    const rows = listHeartbeatRuns();
+    const rows = allRuns();
     const byId = Object.fromEntries(rows.map((r) => [r.id, r]));
     expect(byId[id1].status).toBe("missed");
     expect(byId[id2].status).toBe("missed");
@@ -185,9 +200,9 @@ describe("heartbeat-run-store", () => {
 
   test("listHeartbeatRuns returns rows ordered by scheduledFor desc", () => {
     const now = Date.now();
-    insertPendingHeartbeatRun(now - 2000);
-    insertPendingHeartbeatRun(now);
-    insertPendingHeartbeatRun(now - 1000);
+    skipHeartbeatRun(insertPendingHeartbeatRun(now - 2000), "overlap");
+    skipHeartbeatRun(insertPendingHeartbeatRun(now), "overlap");
+    skipHeartbeatRun(insertPendingHeartbeatRun(now - 1000), "overlap");
 
     const rows = listHeartbeatRuns();
     expect(rows).toHaveLength(3);
@@ -199,11 +214,46 @@ describe("heartbeat-run-store", () => {
   test("listHeartbeatRuns respects limit", () => {
     const now = Date.now();
     for (let i = 0; i < 5; i++) {
-      insertPendingHeartbeatRun(now + i);
+      skipHeartbeatRun(insertPendingHeartbeatRun(now + i), "overlap");
     }
 
     const rows = listHeartbeatRuns(3);
     expect(rows).toHaveLength(3);
+  });
+
+  test("listHeartbeatRuns hides bookkeeping rows (pending, superseded)", () => {
+    const now = Date.now();
+
+    // Superseded rows: pending runs replaced by timer resets, scheduled in
+    // the future at insert time — never ran.
+    for (let i = 0; i < 3; i++) {
+      supersedePendingRun(insertPendingHeartbeatRun(now + 60 * 60 * 1000 + i));
+    }
+    // The not-yet-fired next scheduled run.
+    insertPendingHeartbeatRun(now + 60 * 60 * 1000 + 10);
+
+    // Real history: a completed run, a skipped run, a missed run, and one
+    // in flight.
+    const okId = insertPendingHeartbeatRun(now - 3000);
+    startHeartbeatRun(okId);
+    completeHeartbeatRun(okId, { status: "ok", conversationId: "conv-1" });
+    const skippedId = insertPendingHeartbeatRun(now - 2000);
+    skipHeartbeatRun(skippedId, "outside_active_hours");
+    const missedId = insertPendingHeartbeatRun(now - 10 * 60 * 1000);
+    markStaleRunsAsMissed(5 * 60 * 1000);
+    const runningId = insertPendingHeartbeatRun(now - 1000);
+    startHeartbeatRun(runningId);
+
+    const rows = listHeartbeatRuns();
+    expect(rows.map((r) => r.id).sort()).toEqual(
+      [okId, skippedId, missedId, runningId].sort(),
+    );
+
+    // The pagination cursor path applies the same filter.
+    const paged = listHeartbeatRuns(10, now + 2 * 60 * 60 * 1000);
+    expect(paged.map((r) => r.id).sort()).toEqual(
+      [okId, skippedId, missedId, runningId].sort(),
+    );
   });
 
   test("countCompletedHeartbeatRuns counts only ok rows", () => {
@@ -239,5 +289,48 @@ describe("heartbeat-run-store", () => {
     skipHeartbeatRun(id2, "outside_active_hours");
 
     expect(countCompletedHeartbeatRuns()).toBe(0);
+  });
+
+  test("getLastHeartbeatRunAt returns the newest executed-run timestamp", () => {
+    const now = Date.now();
+
+    const oldId = insertPendingHeartbeatRun(now - 5000);
+    startHeartbeatRun(oldId);
+    completeHeartbeatRun(oldId, { status: "ok", conversationId: "conv-1" });
+
+    const newId = insertPendingHeartbeatRun(now - 1000);
+    startHeartbeatRun(newId);
+    completeHeartbeatRun(newId, { status: "error", error: "fail" });
+
+    // Non-executed rows never contribute, even when newer.
+    skipHeartbeatRun(insertPendingHeartbeatRun(now), "outside_active_hours");
+    insertPendingHeartbeatRun(now + 60 * 60 * 1000);
+
+    const newRow = allRuns().find((r) => r.id === newId);
+    expect(getLastHeartbeatRunAt()).toBe(newRow!.finishedAt!);
+  });
+
+  test("getLastHeartbeatRunAt falls back to startedAt when finishedAt is null", () => {
+    const now = Date.now();
+    const id = insertPendingHeartbeatRun(now - 60 * 60 * 1000);
+    startHeartbeatRun(id);
+    const db = getDb();
+    const backdatedStartedAt = now - 60 * 60 * 1000;
+    db.run(
+      sql`UPDATE heartbeat_runs SET started_at = ${backdatedStartedAt} WHERE id = ${id}`,
+    );
+    // Crash sweep finalizes the row as error without a finishedAt.
+    markStaleRunningAsError(45 * 60 * 1000);
+
+    expect(getLastHeartbeatRunAt()).toBe(backdatedStartedAt);
+  });
+
+  test("getLastHeartbeatRunAt returns null when no run ever executed", () => {
+    expect(getLastHeartbeatRunAt()).toBeNull();
+
+    skipHeartbeatRun(insertPendingHeartbeatRun(Date.now()), "disabled");
+    supersedePendingRun(insertPendingHeartbeatRun(Date.now() + 1));
+
+    expect(getLastHeartbeatRunAt()).toBeNull();
   });
 });

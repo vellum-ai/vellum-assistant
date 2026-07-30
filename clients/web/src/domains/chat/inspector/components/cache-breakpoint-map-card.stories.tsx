@@ -1,7 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import type { LLMCallSummary, LLMRequestLogEntry } from "@vellumai/assistant-api";
+import type {
+  LLMCallSummary,
+  LLMRequestLogEntry,
+} from "@vellumai/assistant-api";
 
 import { CacheBreakpointMapCard } from "./cache-breakpoint-map-card";
 
@@ -82,7 +85,9 @@ function cachedRequest() {
 function disabledRequest() {
   return {
     model: "claude-sonnet-4",
-    tools: toolDefinitions.map(({ cache_control: _cacheControl, ...rest }) => rest),
+    tools: toolDefinitions.map(
+      ({ cache_control: _cacheControl, ...rest }) => rest,
+    ),
     system: [text(SYSTEM_PROMPT)],
     messages: [
       { role: "user", content: [text("Summarize the file at src/app.ts")] },

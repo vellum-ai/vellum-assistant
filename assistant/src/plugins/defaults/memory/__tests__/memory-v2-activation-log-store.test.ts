@@ -20,7 +20,7 @@ import {
   getMemoryV2ActivationLogByMessageIds,
   type MemoryV2ConceptRowRecord,
   recordMemoryV2ActivationLog,
-} from "../memory-v2-activation-log-store.js";
+} from "../v2/activation-log-store.js";
 import {
   sampleConcepts,
   sampleConfig,

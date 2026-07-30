@@ -60,33 +60,32 @@ describe("interrupted-turn reconciler", () => {
     getDb().run("DELETE FROM conversations");
   });
 
-  test("resume disabled: clears every stale flag and resumes nothing", () => {
+  test("resume disabled: resumes nothing and leaves flags for the monitor to clear", () => {
     seedInterrupted("conv-a");
     seedInterrupted("conv-b");
     createConversation({ id: "conv-idle" });
 
     const result = reconcileInterruptedConversations(false);
 
-    expect(result.cleared).toBe(2);
     expect(result.resume).toEqual([]);
     expect(result.capped).toEqual([]);
     expect(result.trustUnrecoverable).toEqual([]);
-    expect(readRow("conv-a").processing_started_at).toBeNull();
-    expect(readRow("conv-b").processing_started_at).toBeNull();
-    expect(readRow("conv-a").processing_resume_attempts).toBe(0);
+    // The reconciler no longer clears — the monitor's recovery pass does.
+    expect(readRow("conv-a").processing_started_at).not.toBeNull();
+    expect(readRow("conv-b").processing_started_at).not.toBeNull();
   });
 
-  test("resume enabled: clears flags and selects local conversations under guardian trust", () => {
+  test("resume enabled: selects local conversations under guardian trust and leaves flags set", () => {
     seedInterrupted("conv-a");
     createConversation({ id: "conv-idle" });
 
     const result = reconcileInterruptedConversations(true);
 
-    expect(result.cleared).toBe(1);
     expect(result.resume).toEqual([guardianTarget("conv-a")]);
     expect(result.capped).toEqual([]);
     expect(result.trustUnrecoverable).toEqual([]);
-    expect(readRow("conv-a").processing_started_at).toBeNull();
+    // Selection reads the flag but leaves it set for the monitor to clear.
+    expect(readRow("conv-a").processing_started_at).not.toBeNull();
     // Selection no longer charges the attempt — that happens as each wake
     // starts, so a crash mid-resume can't burn un-attempted budgets.
     expect(readRow("conv-a").processing_resume_attempts).toBe(0);
@@ -103,33 +102,31 @@ describe("interrupted-turn reconciler", () => {
     expect(result.trustUnrecoverable).toEqual([]);
   });
 
-  test("remote-channel conversations are cleared but skipped when trust can't be recovered", () => {
+  test("remote-channel conversations are skipped when trust can't be recovered", () => {
     seedInterrupted("conv-remote");
     setConversationOriginChannelIfUnset("conv-remote", "telegram");
     seedInterrupted("conv-local");
 
     const result = reconcileInterruptedConversations(true);
 
-    expect(result.cleared).toBe(2);
     expect(result.resume).toEqual([guardianTarget("conv-local")]);
     expect(result.capped).toEqual([]);
     expect(result.trustUnrecoverable).toEqual(["conv-remote"]);
-    expect(readRow("conv-remote").processing_started_at).toBeNull();
+    expect(readRow("conv-remote").processing_started_at).not.toBeNull();
     // A skipped conversation is never charged an attempt.
     expect(readRow("conv-remote").processing_resume_attempts).toBe(0);
   });
 
-  test("conversations at the attempt cap are cleared but not resumed", () => {
+  test("conversations at the attempt cap are not resumed", () => {
     seedInterrupted("conv-fresh");
     seedInterrupted("conv-capped", MAX_RESUME_ATTEMPTS);
 
     const result = reconcileInterruptedConversations(true);
 
-    expect(result.cleared).toBe(2);
     expect(result.resume).toEqual([guardianTarget("conv-fresh")]);
     expect(result.capped).toEqual(["conv-capped"]);
     expect(result.trustUnrecoverable).toEqual([]);
-    expect(readRow("conv-capped").processing_started_at).toBeNull();
+    expect(readRow("conv-capped").processing_started_at).not.toBeNull();
     expect(readRow("conv-capped").processing_resume_attempts).toBe(
       MAX_RESUME_ATTEMPTS,
     );

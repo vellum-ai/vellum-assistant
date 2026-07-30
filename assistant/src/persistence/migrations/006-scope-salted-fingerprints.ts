@@ -21,7 +21,9 @@ export function migrateMemoryItemsScopeSaltedFingerprints(
   const checkpoint = raw
     .query(`SELECT 1 FROM memory_checkpoints WHERE key = ?`)
     .get(checkpointKey);
-  if (checkpoint) return;
+  if (checkpoint) {
+    return;
+  }
 
   interface ItemRow {
     id: string;
@@ -100,7 +102,9 @@ export function downMemoryItemsScopeSaltedFingerprints(
     .query(`SELECT id, kind, subject, statement FROM memory_items`)
     .all() as ItemRow[];
 
-  if (items.length === 0) return;
+  if (items.length === 0) {
+    return;
+  }
 
   try {
     raw.exec("BEGIN");

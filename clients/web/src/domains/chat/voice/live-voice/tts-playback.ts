@@ -19,7 +19,11 @@
  * misdecoded as raw PCM (which would play header/interleaved bytes as garbage).
  *
  * {@link LiveVoiceAudioPlayer} schedules gapless sequential playback through a
- * Web Audio `AudioContext` by chaining `AudioBufferSourceNode` start times.
+ * Web Audio `AudioContext` by chaining `AudioBufferSourceNode` start times. In
+ * the Capacitor iOS shell, the context feeds a `MediaStreamAudioDestinationNode`
+ * played by an `HTMLAudioElement` so WebKit renders TTS through the same
+ * VoiceProcessingIO unit that captures the microphone. That gives WebKit's
+ * acoustic echo canceller the assistant audio as its far-end reference.
  *
  * Playback is gapless because each source is started at the running
  * `playheadTime` cursor — the precise `AudioContext.currentTime` at which the
@@ -35,6 +39,8 @@
  */
 
 import { createAudioContext } from "@/domains/chat/voice/audio-context";
+import { captureError } from "@/lib/sentry/capture-error";
+import { isNativeIOS } from "@/runtime/platform-detection";
 
 /** A single TTS audio frame as delivered by the live-voice channel. */
 export interface TtsAudioChunk {
@@ -50,6 +56,23 @@ export interface TtsAudioChunk {
   sampleRate: number;
   /** MIME type of the audio payload (e.g. "audio/pcm", "audio/wav"). */
   mimeType: string;
+}
+
+/**
+ * Playback progress of the current response's TTS audio.
+ *
+ * `totalSeconds` is the cumulative duration of every buffer scheduled since the
+ * last reset (new response / stop); `playedSeconds` is how much of it has
+ * actually sounded, derived from the audio playhead. During a mid-turn silence
+ * (queue drained, more speech coming) `playedSeconds === totalSeconds`, so a
+ * consumer's cursor holds at the last spoken word rather than resetting — the
+ * next audio burst grows `totalSeconds` and the cursor advances again.
+ */
+export interface LiveVoicePlaybackProgress {
+  /** Seconds of scheduled audio already played, in [0, totalSeconds]. */
+  playedSeconds: number;
+  /** Total seconds of audio scheduled for the current response so far. */
+  totalSeconds: number;
 }
 
 /**
@@ -115,6 +138,11 @@ export interface AudioContextLike {
   ): AudioBuffer;
   createBufferSource(): AudioBufferSourceNode;
   /**
+   * Create a MediaStream-backed output bus. Capacitor iOS uses this so WebKit
+   * can render TTS through its voice-processing audio unit.
+   */
+  createMediaStreamDestination?(): MediaStreamAudioDestinationNode;
+  /**
    * Create an analyser tapping the output bus for amplitude metering (drives
    * the voice-room avatar's TTS-reactive pulse). Optional so lightweight test
    * contexts can omit it — the player then degrades to no metering
@@ -135,6 +163,21 @@ export type AudioContextFactory = () => AudioContextLike;
 const defaultAudioContextFactory: AudioContextFactory = () =>
   createAudioContext() as unknown as AudioContextLike;
 
+type MediaStreamPlaybackElement = Pick<
+  HTMLAudioElement,
+  "pause" | "play" | "srcObject"
+>;
+
+type MediaStreamPlaybackElementFactory = () => MediaStreamPlaybackElement;
+
+const defaultMediaStreamPlaybackElementFactory: MediaStreamPlaybackElementFactory =
+  () => new Audio();
+
+interface MediaStreamOutputRoute {
+  destination: MediaStreamAudioDestinationNode;
+  element: MediaStreamPlaybackElement;
+}
+
 /**
  * Decode base64-encoded little-endian 16-bit PCM into normalized Float32
  * samples in the range [-1, 1).
@@ -153,7 +196,9 @@ export function decodePcm16Base64(dataBase64: string): Float32Array {
     const hi = binary.charCodeAt(i * 2 + 1);
     // Reassemble little-endian, then sign-extend the 16-bit value.
     let int16 = (hi << 8) | lo;
-    if (int16 >= 0x8000) int16 -= 0x10000;
+    if (int16 >= 0x8000) {
+      int16 -= 0x10000;
+    }
     // Divide by 32768 so full-scale negative maps to exactly -1.
     samples[i] = int16 / 0x8000;
   }
@@ -162,7 +207,10 @@ export function decodePcm16Base64(dataBase64: string): Float32Array {
 
 export class LiveVoiceAudioPlayer {
   private readonly createContext: AudioContextFactory;
+  private readonly useMediaStreamOutput: boolean;
+  private readonly createMediaStreamPlaybackElement: MediaStreamPlaybackElementFactory;
   private context: AudioContextLike | null = null;
+  private mediaStreamOutput: MediaStreamOutputRoute | null = null;
 
   /** Sources currently scheduled (playing or pending). */
   private activeSources = new Set<AudioBufferSourceNode>();
@@ -174,6 +222,19 @@ export class LiveVoiceAudioPlayer {
   private playheadTime = 0;
 
   private playingState = false;
+
+  /**
+   * Cumulative duration (seconds) of every buffer scheduled since the last
+   * progress reset. Backs {@link getPlaybackProgress}.
+   *
+   * Deliberately NOT reset in {@link settleIfIdle}: a drain mid-turn (ack →
+   * tool run → more speech) zeroes only the playhead, so progress reports
+   * `played == total` and a consumer's word cursor holds at the last spoken
+   * word instead of snapping back. Reset only on {@link stop} (barge-in
+   * flush), {@link resetPlaybackProgress} (new response), and context
+   * (re)creation.
+   */
+  private totalScheduledSeconds = 0;
 
   /**
    * Analyser tapping the output bus for amplitude metering. Sources connect
@@ -216,8 +277,17 @@ export class LiveVoiceAudioPlayer {
    */
   private containerDecodeChain: Promise<void> = Promise.resolve();
 
-  constructor(options?: { audioContextFactory?: AudioContextFactory }) {
-    this.createContext = options?.audioContextFactory ?? defaultAudioContextFactory;
+  constructor(options?: {
+    audioContextFactory?: AudioContextFactory;
+    useMediaStreamOutput?: boolean;
+    mediaStreamPlaybackElementFactory?: MediaStreamPlaybackElementFactory;
+  }) {
+    this.createContext =
+      options?.audioContextFactory ?? defaultAudioContextFactory;
+    this.useMediaStreamOutput = options?.useMediaStreamOutput ?? isNativeIOS();
+    this.createMediaStreamPlaybackElement =
+      options?.mediaStreamPlaybackElementFactory ??
+      defaultMediaStreamPlaybackElementFactory;
   }
 
   /** Whether any audio is scheduled, playing, or still decoding. */
@@ -258,7 +328,9 @@ export class LiveVoiceAudioPlayer {
   /** Synchronous raw-PCM fast path. */
   private enqueueRawPcm(chunk: TtsAudioChunk): void {
     const samples = decodePcm16Base64(chunk.dataBase64);
-    if (samples.length === 0) return;
+    if (samples.length === 0) {
+      return;
+    }
 
     const context = this.ensureContext();
 
@@ -338,13 +410,18 @@ export class LiveVoiceAudioPlayer {
 
     // Route through the metering analyser when present (so output amplitude can
     // drive the room avatar), otherwise straight to the destination.
-    source.connect(this.analyser ?? context.destination);
+    source.connect(
+      this.analyser ??
+        this.mediaStreamOutput?.destination ??
+        context.destination,
+    );
 
     // Chain start time from the running playhead. Never schedule in the past:
     // if the queue drained the playhead may lag behind currentTime.
     const startAt = Math.max(this.playheadTime, context.currentTime);
     source.start(startAt);
     this.playheadTime = startAt + buffer.duration;
+    this.totalScheduledSeconds += buffer.duration;
 
     this.activeSources.add(source);
     source.onended = () => {
@@ -381,6 +458,7 @@ export class LiveVoiceAudioPlayer {
     }
     this.activeSources.clear();
     this.pendingContainerDecodes = 0;
+    this.totalScheduledSeconds = 0;
     // Reset the decode chain so the next response's container frames don't queue
     // behind the abandoned (now generation-invalidated) decode — a slow/stuck
     // `decodeAudioData` from the interrupted utterance must not delay or silence
@@ -395,7 +473,9 @@ export class LiveVoiceAudioPlayer {
    * or after a {@link stop}. Resolves immediately when nothing is playing.
    */
   waitUntilDrained(): Promise<void> {
-    if (!this.isPlaying) return Promise.resolve();
+    if (!this.isPlaying) {
+      return Promise.resolve();
+    }
     return new Promise<void>((resolve) => {
       this.drainResolvers.push(resolve);
     });
@@ -413,12 +493,15 @@ export class LiveVoiceAudioPlayer {
     this.stop();
     const context = this.context;
     this.context = null;
+    this.disposeMediaStreamOutput();
     // The analyser belongs to the closed context; drop it (and its buffer) so a
     // reused player rebuilds metering against a fresh context.
     this.analyser = null;
     this.analyserSamples = null;
     this.smoothedOutputAmplitude = 0;
-    if (context) await context.close();
+    if (context) {
+      await context.close();
+    }
   }
 
   /**
@@ -432,7 +515,9 @@ export class LiveVoiceAudioPlayer {
    */
   prewarm(): void {
     const context = this.ensureContext();
-    if (context.state !== "running") void context.resume();
+    if (context.state !== "running") {
+      void context.resume();
+    }
   }
 
   private ensureContext(): AudioContextLike {
@@ -440,6 +525,8 @@ export class LiveVoiceAudioPlayer {
       const context = this.createContext();
       this.context = context;
       this.playheadTime = 0;
+      this.totalScheduledSeconds = 0;
+      const outputNode = this.createOutputNode(context);
       // Tap the output bus for amplitude metering when the context supports it.
       // Scheduled sources connect through this analyser to the destination; a
       // context without createAnalyser (test mock) skips metering entirely and
@@ -447,12 +534,64 @@ export class LiveVoiceAudioPlayer {
       if (context.createAnalyser) {
         const analyser = context.createAnalyser();
         analyser.fftSize = 256;
-        analyser.connect(context.destination);
+        analyser.connect(outputNode);
         this.analyser = analyser;
         this.analyserSamples = new Float32Array(analyser.fftSize);
       }
+      this.startMediaStreamOutput(context);
     }
     return this.context;
+  }
+
+  private createOutputNode(context: AudioContextLike): AudioNode {
+    // WebKit only supplies default-device MediaStream-track playback to its
+    // VoiceProcessingIO capture unit as far-end echo-cancellation audio:
+    // https://github.com/WebKit/WebKit/blob/41daa01748411a95855d8b6a0f0ffbd54f729a08/Source/WebKit/GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager.cpp#L228-L292
+    if (!this.useMediaStreamOutput || !context.createMediaStreamDestination) {
+      return context.destination;
+    }
+
+    const destination = context.createMediaStreamDestination();
+    const element = this.createMediaStreamPlaybackElement();
+    element.srcObject = destination.stream;
+    this.mediaStreamOutput = { destination, element };
+    return destination;
+  }
+
+  private startMediaStreamOutput(context: AudioContextLike): void {
+    const route = this.mediaStreamOutput;
+    if (!route) {
+      return;
+    }
+
+    void route.element.play().catch((error: unknown) => {
+      if (this.context !== context || this.mediaStreamOutput !== route) {
+        return;
+      }
+
+      this.disposeMediaStreamOutput();
+      if (this.analyser) {
+        this.analyser.disconnect();
+        this.analyser.connect(context.destination);
+      }
+      captureError(error, {
+        context: "live_voice_ios_media_stream_output",
+      });
+    });
+  }
+
+  private disposeMediaStreamOutput(): void {
+    const route = this.mediaStreamOutput;
+    this.mediaStreamOutput = null;
+    if (!route) {
+      return;
+    }
+
+    route.element.pause();
+    route.element.srcObject = null;
+    for (const track of route.destination.stream.getTracks()) {
+      track.stop();
+    }
   }
 
   /**
@@ -469,7 +608,9 @@ export class LiveVoiceAudioPlayer {
   getOutputAmplitude(): number {
     const analyser = this.analyser;
     const samples = this.analyserSamples;
-    if (!analyser || !samples) return 0;
+    if (!analyser || !samples) {
+      return 0;
+    }
 
     if (!this.playingState) {
       // Nothing scheduled — ease back to rest so the avatar settles between
@@ -492,8 +633,42 @@ export class LiveVoiceAudioPlayer {
     return this.smoothedOutputAmplitude;
   }
 
+  /**
+   * Playback progress of the current response's TTS audio, or `null` when
+   * nothing has been scheduled since the last reset (no context yet, fresh
+   * response, or post-stop/dispose).
+   *
+   * Played time is derived from the playhead rather than accumulated:
+   * `remaining = playheadTime - currentTime` is the unplayed tail of the
+   * scheduled timeline, so silent gaps between bursts never inflate played
+   * time, and after a drain (`playheadTime` zeroed) progress reports
+   * `played == total`. Side-effect-free: reading never advances state.
+   */
+  getPlaybackProgress(): LiveVoicePlaybackProgress | null {
+    if (this.context === null || this.totalScheduledSeconds === 0) {
+      return null;
+    }
+    const remaining = Math.max(0, this.playheadTime - this.context.currentTime);
+    const played = Math.min(
+      this.totalScheduledSeconds,
+      Math.max(0, this.totalScheduledSeconds - remaining),
+    );
+    return { playedSeconds: played, totalSeconds: this.totalScheduledSeconds };
+  }
+
+  /**
+   * Zero the playback-progress accumulator for a new response. Called by the
+   * controller at the start of each response, paired with the transcript
+   * clear, so the word cursor starts fresh with the new caption.
+   */
+  resetPlaybackProgress(): void {
+    this.totalScheduledSeconds = 0;
+  }
+
   private handleSourceEnded(source: AudioBufferSourceNode): void {
-    if (!this.activeSources.delete(source)) return;
+    if (!this.activeSources.delete(source)) {
+      return;
+    }
     source.disconnect();
     this.settleIfIdle();
   }
@@ -504,7 +679,9 @@ export class LiveVoiceAudioPlayer {
    * could still schedule one. Called whenever either count reaches zero.
    */
   private settleIfIdle(): void {
-    if (this.activeSources.size > 0 || this.pendingContainerDecodes > 0) return;
+    if (this.activeSources.size > 0 || this.pendingContainerDecodes > 0) {
+      return;
+    }
     this.playheadTime = 0;
     this.playingState = false;
     this.resolveDrain();
@@ -513,6 +690,8 @@ export class LiveVoiceAudioPlayer {
   private resolveDrain(): void {
     const resolvers = this.drainResolvers;
     this.drainResolvers = [];
-    for (const resolve of resolvers) resolve();
+    for (const resolve of resolvers) {
+      resolve();
+    }
   }
 }

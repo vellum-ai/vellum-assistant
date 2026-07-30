@@ -39,6 +39,10 @@ const llmUsage: LlmUsageTelemetryEvent = {
   // Zero is legitimate here (wire bound is min(0)) — the wire schema must
   // not reject it.
   turn_index: 0,
+  parent_conversation_id: "conv-parent",
+  // Zero is legitimate (wire bound is min(0)): a subagent can be spawned
+  // before the parent's first real user turn.
+  parent_turn_index: 0,
   provider: "anthropic",
   model: "claude-fable-5",
   input_tokens: 1200,

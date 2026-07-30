@@ -22,16 +22,22 @@ import { isElectron } from "@/runtime/is-electron";
 export type DeepLink =
   | { kind: "send"; message: string }
   | { kind: "openThread"; threadId: string }
+  | { kind: "billingCheckoutComplete"; status: "success"; sessionId: string }
+  | { kind: "billingCheckoutComplete"; status: "cancel"; sessionId: null }
   | { kind: "unknown"; url: string };
 
 export async function drainPendingDeepLinks(): Promise<DeepLink[]> {
-  if (!isElectron()) return [];
+  if (!isElectron()) {
+    return [];
+  }
   return (await window.vellum?.deepLinks.drain()) ?? [];
 }
 
 export function subscribeToDeepLinks(
   callback: (link: DeepLink) => void,
 ): () => void {
-  if (!isElectron()) return () => undefined;
+  if (!isElectron()) {
+    return () => undefined;
+  }
   return window.vellum?.deepLinks.onLink(callback) ?? (() => undefined);
 }

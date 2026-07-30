@@ -1,15 +1,15 @@
 {
-  "version": 5,
+  "version": 6,
   "providers": [
     {
       "id": "vellum",
-      "displayName": "Vellum Managed",
-      "subtitle": "Text-to-speech through your Vellum account — billed to Vellum credits, no separate API key needed.",
+      "displayName": "Vellum",
+      "subtitle": "Text-to-speech through your Vellum account \u2014 billed to Vellum credits, no separate API key needed.",
       "setupMode": "cli",
       "setupHint": "Connect your Vellum account to enable managed speech.",
       "credentialMode": "credential",
       "credentialNamespace": "vellum",
-      "supportsVoiceSelection": false,
+      "supportsVoiceSelection": true,
       "credentialsGuide": {
         "description": "Connect this assistant to your Vellum account; managed speech uses that connection instead of a provider API key.",
         "url": "https://platform.vellum.ai/",

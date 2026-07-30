@@ -212,13 +212,16 @@ export type TtsXaiProviderConfig = z.infer<typeof TtsXaiProviderConfigSchema>;
 
 /**
  * Vellum managed provider configuration under `services.tts.providers`.
- *
- * Intentionally empty: the platform pins the voice and model, so there is
- * nothing to configure yet. The block exists to satisfy the
- * catalog-completeness guard and to give future options a home.
  */
 const TtsVellumProviderConfigSchema = z
-  .object({})
+  .object({
+    model: z
+      .string()
+      .optional()
+      .describe(
+        "Managed TTS voice model (e.g. aura-2-thalia-en). Unset means the platform's default voice. The platform rejects voices it does not offer.",
+      ),
+  })
   .describe("Vellum managed provider configuration under services.tts");
 
 export type TtsVellumProviderConfig = z.infer<

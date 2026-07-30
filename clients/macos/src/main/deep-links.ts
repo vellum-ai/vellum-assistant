@@ -74,6 +74,11 @@ export function resolveAcceptedSchemes(env: string): string[] {
   return [...accepted];
 }
 
+// Stripe Checkout Session ids (`cs_test_a1B2…` / `cs_live_…`). Mirrors the
+// shape check the platform's hand-off view applies before it builds the
+// deep link, so garbage never reaches the renderer's billing route.
+const CHECKOUT_SESSION_ID_RE = /^cs_[A-Za-z0-9_]{1,255}$/;
+
 const currentEnv = resolveEnvironmentName(process.env);
 const REGISTERED_SCHEMES = resolveRegisteredSchemes(currentEnv);
 const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
@@ -94,6 +99,13 @@ const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
  *   - `vellum://thread/<id>` → `{ kind: "openThread", threadId }`.
  *     Trailing slashes / extra path segments are tolerated;
  *     `threadId` is the first non-empty path segment.
+ *   - `vellum://billing/checkout-complete?status=…&session_id=…` →
+ *     `{ kind: "billingCheckoutComplete", status, sessionId }`. The
+ *     platform bounces a native-initiated Stripe Checkout here once
+ *     the user finishes in the system browser. `status=success`
+ *     requires a well-formed Checkout Session id; `status=cancel`
+ *     carries none. Anything else is `unknown` with the query
+ *     stripped, so a stray session id never reaches telemetry.
  *   - Malformed URL (unparseable, percent-encoding throws) →
  *     `kind: "unknown"`.
  */
@@ -114,6 +126,28 @@ export const parseVellumUrl = (input: string): DeepLink => {
     const threadId = url.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
     if (threadId) return { kind: "openThread", threadId };
     return { kind: "unknown", url: input };
+  }
+  if (url.host === "billing") {
+    // Never echo the query back on the `unknown` fallbacks — the renderer
+    // logs that URL as a Sentry breadcrumb, and it may carry a session id.
+    const withoutQuery = `${url.protocol}//${url.host}${url.pathname}`;
+    const segment = url.pathname.replace(/^\/+/, "").split("/")[0];
+    if (segment !== "checkout-complete") {
+      return { kind: "unknown", url: withoutQuery };
+    }
+    const status = url.searchParams.get("status");
+    if (status === "cancel") {
+      return {
+        kind: "billingCheckoutComplete",
+        status: "cancel",
+        sessionId: null,
+      };
+    }
+    const sessionId = url.searchParams.get("session_id") ?? "";
+    if (status === "success" && CHECKOUT_SESSION_ID_RE.test(sessionId)) {
+      return { kind: "billingCheckoutComplete", status: "success", sessionId };
+    }
+    return { kind: "unknown", url: withoutQuery };
   }
   if (url.host === "auth" && url.pathname.startsWith("/callback")) {
     // The deprecated `/accounts/native/*` flow returns its auth code here.

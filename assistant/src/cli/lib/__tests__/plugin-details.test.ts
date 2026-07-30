@@ -66,7 +66,9 @@ function makeFetch(config: FixtureConfig): FetchLike {
     const url = typeof input === "string" ? input : input.toString();
 
     for (const needle of config.failOn ?? []) {
-      if (url.includes(needle)) throw new Error(`network down: ${needle}`);
+      if (url.includes(needle)) {
+        throw new Error(`network down: ${needle}`);
+      }
     }
 
     if (config.raw && url in config.raw) {
@@ -76,7 +78,9 @@ function makeFetch(config: FixtureConfig): FetchLike {
     if (url.includes("/contents")) {
       const key = listingKey(url);
       const entries = config.listings?.[key];
-      if (!entries) return new Response("not found", { status: 404 });
+      if (!entries) {
+        return new Response("not found", { status: 404 });
+      }
       return new Response(JSON.stringify(entries), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -97,14 +101,18 @@ function listingKey(url: string): string {
 
 function splitOnce(s: string, sep: string): [string, string] {
   const i = s.indexOf(sep);
-  if (i === -1) return [s, ""];
+  if (i === -1) {
+    return [s, ""];
+  }
   return [s.slice(0, i), s.slice(i + sep.length)];
 }
 
 /** The bundled catalog entry for {@link name} — the source under test. */
 function bundledMatch(name: string): PluginSearchMatch {
   const match = readBundledPluginCatalog().matches.find((m) => m.name === name);
-  if (!match) throw new Error(`bundled catalog has no entry for "${name}"`);
+  if (!match) {
+    throw new Error(`bundled catalog has no entry for "${name}"`);
+  }
   return match;
 }
 
@@ -273,9 +281,7 @@ describe("getPluginDetails (bundled catalog, offline)", () => {
     // AND an external repo that would otherwise be used
     const fetch = makeFetch({
       listings: {
-        [caveman.source.repo]: [
-          fileEntry("README.md", "raw://caveman/readme"),
-        ],
+        [caveman.source.repo]: [fileEntry("README.md", "raw://caveman/readme")],
       },
       raw: { "raw://caveman/readme": "# Remote Caveman" },
     });

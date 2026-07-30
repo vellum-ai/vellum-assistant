@@ -84,7 +84,7 @@ export function unregisterPluginHooks(pluginName: string): void {
  * In-process default plugin hooks are read from this registry (synchronous)
  * and filtered by the `.disabled` sentinel at read time via
  * {@link isPluginDisabled}. User-land hooks are pulled from the plugin cache
- * (async; applies any pending source-versions reconcile first). Default hooks are prepended so they compose
+ * (async, pure cache read). Default hooks are prepended so they compose
  * innermost, ahead of any user plugins.
  *
  * The `TCtx` generic mirrors {@link HookFunction}'s — callers parameterize
@@ -137,8 +137,8 @@ export async function getHookEntriesFor<TCtx = unknown>(
     });
   }
 
-  // User-land hooks from the plugin cache (async; applies any pending
-  // source-versions reconcile first). The per-chat
+  // User-land hooks from the plugin cache (async, pure cache read; dispatch
+  // never activates plugins). The per-chat
   // scope is threaded through so a deselected user plugin's hooks are excluded
   // too — standalone workspace hooks (not owned by a plugin) always run.
   const userEntries = await getUserHookEntriesFor<TCtx>(

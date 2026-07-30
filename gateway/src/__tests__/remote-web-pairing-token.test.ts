@@ -645,6 +645,7 @@ describe("remote web pairing token exchange", () => {
       );
 
       expect(res.status).toBe(503);
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
       expect(await res.json()).toEqual({
         error: {
           code: "GUARDIAN_REPAIR_REQUIRED",
@@ -694,6 +695,7 @@ describe("remote web pairing token exchange", () => {
     );
 
     expect(res.status).toBe(401);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(await res.json()).toEqual({
       error: {
         code: "INVALID_OR_EXPIRED_DEVICE_CODE",

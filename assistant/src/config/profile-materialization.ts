@@ -1,3 +1,4 @@
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import {
   getCatalogProviderForModel,
   isModelInCatalog,
@@ -6,7 +7,11 @@ import {
   MANAGED_ROUTABLE_PROVIDERS,
   VELLUM_MANAGED_CONNECTION_NAME,
 } from "../providers/vellum-model-routing.js";
-import type { LLMConfigBase, ProfileEntry } from "./schemas/llm.js";
+import {
+  type LLMConfigBase,
+  type ProfileEntry,
+  routingIdentityModelIssue,
+} from "./schemas/llm.js";
 
 /**
  * Materializes a partial custom profile into a complete, standalone
@@ -75,10 +80,16 @@ export function completeCustomProfile(
     profile.openrouter,
   );
 
+  // A routing-identity fill base serves any model its route can dispatch —
+  // identity + model is the complete shape, so no provider implication.
+  const fillBaseServesModel = (model: string): boolean =>
+    ROUTING_IDENTITY_PROVIDERS.has(dflt.provider)
+      ? routingIdentityModelIssue(dflt.provider, model) === null
+      : isModelInCatalog(dflt.provider, model);
   if (
     profile.model !== undefined &&
     profile.provider === undefined &&
-    !isModelInCatalog(dflt.provider, profile.model)
+    !fillBaseServesModel(profile.model)
   ) {
     const implied = getCatalogProviderForModel(profile.model);
     if (implied !== undefined) {
@@ -92,6 +103,16 @@ export function completeCustomProfile(
   // dispatch routes it via `expectedProvider` — but only onto providers it
   // can actually route; a non-managed-routable provider (openrouter, ollama)
   // would hit the mismatch path instead of auto-resolution.
+  // Routing-identity providers resolve their connection per-request from
+  // the provider value; a stamped provider_connection would be dead weight
+  // at best and a misroute at worst.
+  if (
+    completed.provider !== undefined &&
+    ROUTING_IDENTITY_PROVIDERS.has(completed.provider)
+  ) {
+    return structuredClone(completed);
+  }
+
   const vellumRoutable =
     dflt.provider_connection === VELLUM_MANAGED_CONNECTION_NAME &&
     completed.provider !== undefined &&

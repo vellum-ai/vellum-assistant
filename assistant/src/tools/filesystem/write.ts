@@ -1,13 +1,19 @@
 import { join, resolve, sep } from "node:path";
 
+import { z } from "zod";
+
 import { getAppsDir } from "../../apps/app-store.js";
 import { RiskLevel } from "../../permissions/types.js";
-import { enqueuePkbIndexJob } from "../../plugins/defaults/memory/jobs/embed-pkb-file.js";
+import { enqueuePkbIndexJob } from "../../plugins/defaults/memory/v1/jobs/embed-pkb-file.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
-import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
+import { sandboxPolicyWithHostFallback } from "../shared/filesystem/path-policy.js";
+import {
+  invalidToolInputResult,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -31,9 +37,15 @@ const INLINE_SCRIPT_RE =
   /<script\b(?![^>]*\bsrc=)[^>]*>[\s\S]{400,}?<\/script>/i;
 
 function isSelfContainedArtifactHtml(path: string, content: string): boolean {
-  if (!/\.html?$/i.test(path)) return false;
-  if (content.length < 3000) return false;
-  if (!STANDALONE_HTML_RE.test(content)) return false;
+  if (!/\.html?$/i.test(path)) {
+    return false;
+  }
+  if (content.length < 3000) {
+    return false;
+  }
+  if (!STANDALONE_HTML_RE.test(content)) {
+    return false;
+  }
   return INLINE_SCRIPT_RE.test(content);
 }
 
@@ -49,12 +61,37 @@ const ARTIFACT_REDIRECT_MESSAGE =
 function isInsidePkbRoot(absPath: string, pkbRoot: string): boolean {
   const normalizedRoot = resolve(pkbRoot);
   const normalized = resolve(absPath);
-  if (normalized === normalizedRoot) return false;
+  if (normalized === normalizedRoot) {
+    return false;
+  }
   const rootWithSep = normalizedRoot.endsWith(sep)
     ? normalizedRoot
     : normalizedRoot + sep;
   return normalized.startsWith(rootWithSep);
 }
+
+/**
+ * Model-input schema, the single source for both runtime validation (via
+ * `TOOL_INPUT_SCHEMAS`) and the advertised `input_schema` below. Loose so
+ * injected fields (e.g. `activity`, which the model must send but the tool
+ * never reads) pass through untouched.
+ */
+export const fileWriteInputSchema = z.looseObject({
+  path: z
+    .string()
+    .min(1)
+    .describe(
+      "The path to the file to write (absolute or relative to working directory)",
+    ),
+  content: z.string().describe("The content to write to the file"),
+  activity: z
+    .string()
+    .describe(
+      "Brief non-technical explanation of what you are doing and why, shown as a status update.",
+    )
+    .optional()
+    .catch(undefined),
+});
 
 export const fileWriteTool = {
   name: "file_write",
@@ -64,46 +101,19 @@ export const fileWriteTool = {
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
 
-  input_schema: {
-    type: "object",
-    properties: {
-      path: {
-        type: "string",
-        description:
-          "The path to the file to write (absolute or relative to working directory)",
-      },
-      content: {
-        type: "string",
-        description: "The content to write to the file",
-      },
-      activity: {
-        type: "string",
-        description:
-          "Brief non-technical explanation of what you are doing and why, shown as a status update.",
-      },
-    },
-    required: ["path", "content", "activity"],
-  },
+  input_schema: toToolInputSchema(fileWriteInputSchema, {
+    advertiseRequired: ["activity"],
+  }),
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const rawPath = input.path as string;
-    if (!rawPath || typeof rawPath !== "string") {
-      return {
-        content: "Error: path is required and must be a string",
-        isError: true,
-      };
+    const parsed = fileWriteInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return invalidToolInputResult("file_write", parsed.error);
     }
-
-    const fileContent = input.content;
-    if (typeof fileContent !== "string") {
-      return {
-        content: "Error: content is required and must be a string",
-        isError: true,
-      };
-    }
+    const { path: rawPath, content: fileContent } = parsed.data;
 
     // Redirect self-contained interactive HTML artifacts to app-builder.
     // Exempt writes that land inside the apps directory (app-builder's own
@@ -116,7 +126,7 @@ export const fileWriteTool = {
     }
 
     const ops = new FileSystemOps((path, opts) =>
-      sandboxPolicy(path, context.workingDir, opts),
+      sandboxPolicyWithHostFallback(path, context.workingDir, opts),
     );
 
     const result = ops.writeFileSafe({ path: rawPath, content: fileContent });
@@ -137,7 +147,11 @@ export const fileWriteTool = {
           isError: true,
         };
       }
-      return { content: `Error: ${error.message}`, isError: true };
+      const hint =
+        error.code === "PATH_OUT_OF_BOUNDS"
+          ? ". To write files outside the workspace, use the host_file_write tool instead."
+          : "";
+      return { content: `Error: ${error.message}${hint}`, isError: true };
     }
 
     const { filePath, oldContent, newContent, isNewFile } = result.value;

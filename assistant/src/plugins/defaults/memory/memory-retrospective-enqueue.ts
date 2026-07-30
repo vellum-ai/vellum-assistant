@@ -9,11 +9,19 @@
 //   - Source isn't a `scheduled` thread or a memory-consolidation background
 //     (low yield — see `isLowYieldRetrospectiveSource`).
 //
-// All four trigger types funnel through `upsertMemoryRetrospectiveJob` which
+// All trigger types funnel through `upsertMemoryRetrospectiveJob` which
 // coalesces rapid enqueues into a single pending row per conversation.
-// `lifecycle` and `compaction` triggers get a small debounce so the job runs
-// after the corresponding signal settles; `interval` and `message_count`
-// fire immediately.
+// `compaction` gets a small debounce so the job runs after the signal
+// settles; `interval`, `message_count`, and `sweep` fire immediately.
+//
+// The four triggers split by cadence: `interval` / `message_count` /
+// `compaction` are event-driven — evaluated from the post-turn indexing hook
+// and the compaction site, so they only fire while a conversation is actively
+// taking turns. `sweep` is the timer-driven backstop: a scheduled job
+// (`memory_retrospective_sweep`) re-scans conversations for unprocessed
+// messages the event triggers missed when a turn ended before its post-turn
+// hooks ran (crash / IPC drop) and the conversation then went idle. See
+// `memory-retrospective-sweep.ts`.
 
 import {
   getConversation,
@@ -27,7 +35,7 @@ import { type TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import { getLogger } from "./logging.js";
 import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./v2/constants.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./substrate/constants.js";
 
 const log = getLogger("memory-retrospective-enqueue");
 
@@ -35,7 +43,7 @@ export type MemoryRetrospectiveTrigger =
   | "interval"
   | "message_count"
   | "compaction"
-  | "lifecycle";
+  | "sweep";
 
 const COMPACTION_DEBOUNCE_MS = 500;
 
@@ -99,7 +107,9 @@ export function isMemoryRetrospectiveConversation(
  */
 function isLowYieldRetrospectiveSource(conversationId: string): boolean {
   const conversation = getConversation(conversationId);
-  if (!conversation) return false;
+  if (!conversation) {
+    return false;
+  }
   return (
     conversation.conversationType === "scheduled" ||
     conversation.source === MEMORY_V2_CONSOLIDATION_SOURCE

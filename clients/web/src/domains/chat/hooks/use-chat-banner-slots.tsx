@@ -49,9 +49,13 @@ export function useChatBannerSlots({
   queueSteering,
 }: UseChatBannerSlotsParams): ChatBannerSlots {
   const {
-    showBanner, isOnIOS, nudge,
-    showGitHubBanner, githubNudge,
-    showDiscordBanner, discordNudge,
+    showBanner,
+    isOnIOS,
+    nudge,
+    showGitHubBanner,
+    githubNudge,
+    showDiscordBanner,
+    discordNudge,
   } = nudges;
 
   const mainBannerSlot = useMemo((): ReactNode => {
@@ -93,18 +97,36 @@ export function useChatBannerSlots({
       );
     }
     return null;
-  }, [showBanner, isOnIOS, nudge, showGitHubBanner, githubNudge, showDiscordBanner, discordNudge]);
+  }, [
+    showBanner,
+    isOnIOS,
+    nudge,
+    showGitHubBanner,
+    githubNudge,
+    showDiscordBanner,
+    discordNudge,
+  ]);
 
-  const mainQueuedDrawerSlot = useMemo((): ReactNode => (
-    <QueuedMessagesDrawer
-      queuedMessages={queuedMessages}
-      onCancelMessage={onCancelQueuedMessage}
-      onCancelAll={onCancelAllQueued}
-      onSteer={onSteerMessage}
-      showSteer={queueSteering}
-      onEditTail={onEditQueueTail}
-    />
-  ), [queuedMessages, onCancelQueuedMessage, onCancelAllQueued, onSteerMessage, queueSteering, onEditQueueTail]);
+  const mainQueuedDrawerSlot = useMemo(
+    (): ReactNode => (
+      <QueuedMessagesDrawer
+        queuedMessages={queuedMessages}
+        onCancelMessage={onCancelQueuedMessage}
+        onCancelAll={onCancelAllQueued}
+        onSteer={onSteerMessage}
+        showSteer={queueSteering}
+        onEditTail={onEditQueueTail}
+      />
+    ),
+    [
+      queuedMessages,
+      onCancelQueuedMessage,
+      onCancelAllQueued,
+      onSteerMessage,
+      queueSteering,
+      onEditQueueTail,
+    ],
+  );
 
   return { mainBannerSlot, mainQueuedDrawerSlot };
 }

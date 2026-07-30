@@ -40,9 +40,13 @@ const slackMessagesInjector: Injector = {
   name: "slack-messages",
   order: DEFAULT_INJECTOR_ORDER.slackMessages,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    if (ctx.channelCapabilities?.channel !== "slack") return null;
+    if (ctx.channelCapabilities?.channel !== "slack") {
+      return null;
+    }
     const messages = ctx.slackChronologicalMessages;
-    if (!messages || messages.length === 0) return null;
+    if (!messages || messages.length === 0) {
+      return null;
+    }
     return {
       id: "slack-messages",
       // `text` is informational only — `replace-run-messages` placements
@@ -79,13 +83,17 @@ const threadFocusInjector: Injector = {
   order: DEFAULT_INJECTOR_ORDER.threadFocus,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
-    if (mode !== "full") return null;
+    if (mode !== "full") {
+      return null;
+    }
     const caps = ctx.channelCapabilities;
     if (!caps || caps.channel !== "slack" || caps.chatType !== "channel") {
       return null;
     }
     const block = ctx.slackActiveThreadFocusBlock;
-    if (typeof block !== "string" || block.length === 0) return null;
+    if (typeof block !== "string" || block.length === 0) {
+      return null;
+    }
     return {
       id: "thread-focus",
       text: block,

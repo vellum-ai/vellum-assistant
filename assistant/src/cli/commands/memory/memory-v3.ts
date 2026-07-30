@@ -23,11 +23,11 @@ import { cliIpcCall } from "../../../ipc/cli-client.js";
 import type {
   MemoryEvalRunResult,
   MemoryEvalTallyResult,
-} from "../../../plugins/defaults/memory/routes/memory-eval-routes.js";
+} from "../../../plugins/defaults/memory/src/memory-eval-routes.js";
 import type {
   MemoryV3BackfillSectionsResult,
   MemoryV3RebuildIndexResult,
-} from "../../../plugins/defaults/memory/routes/memory-v3-routes.js";
+} from "../../../plugins/defaults/memory/src/memory-v3-routes.js";
 import { subcommand } from "../../lib/cli-command-help.js";
 import { log } from "../../logger.js";
 
@@ -93,7 +93,9 @@ function formatTally(r: MemoryEvalTallyResult): string {
     `  sign-test p:    ${r.signTestP.toFixed(3)} over ${r.decided} decided turns`,
     `  confident:      ${r.confident ? "yes" : "no"}`,
   ];
-  for (const note of r.notes) lines.push(`  note: ${note}`);
+  for (const note of r.notes) {
+    lines.push(`  note: ${note}`);
+  }
   return lines.join("\n");
 }
 

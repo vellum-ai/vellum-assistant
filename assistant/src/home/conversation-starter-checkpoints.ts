@@ -7,7 +7,7 @@
 import { eq } from "drizzle-orm";
 
 import { getDb } from "../persistence/db-connection.js";
-import { rawGet } from "../persistence/raw-query.js";
+import { rawMemoryGet } from "../persistence/raw-query.js";
 import { memoryCheckpoints } from "../persistence/schema/index.js";
 
 // ── Checkpoint keys ──────────────────────────────────────────────
@@ -27,7 +27,9 @@ export function checkpointKey(base: string): string {
 }
 
 export function parseCheckpointInt(value: string | undefined): number | null {
-  if (value == null) return null;
+  if (value == null) {
+    return null;
+  }
   const n = parseInt(value, 10);
   return Number.isNaN(n) ? null : n;
 }
@@ -61,7 +63,7 @@ export function upsertCheckpoint(
 
 export function countActiveMemoryNodes(): number {
   return (
-    rawGet<{ c: number }>(
+    rawMemoryGet<{ c: number }>(
       "starters:countActiveMemoryNodes",
       `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone'`,
     )?.c ?? 0

@@ -286,7 +286,9 @@ async function handleShareApp({ rawBody }: RouteHandlerArgs): Promise<{
       throw new BadRequestError("Invalid manifest: missing required fields");
     }
   } catch (err) {
-    if (err instanceof RouteError) throw err;
+    if (err instanceof RouteError) {
+      throw err;
+    }
     throw new BadRequestError("Invalid zip file");
   }
 

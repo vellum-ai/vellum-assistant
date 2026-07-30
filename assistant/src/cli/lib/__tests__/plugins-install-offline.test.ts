@@ -72,7 +72,13 @@ function buildProgram(): Command {
 }
 
 async function runInstall(name: string): Promise<void> {
-  await buildProgram().parseAsync(["node", "assistant", "plugins", "install", name]);
+  await buildProgram().parseAsync([
+    "node",
+    "assistant",
+    "plugins",
+    "install",
+    name,
+  ]);
 }
 
 describe("plugins install by name — disable-platform mode", () => {
@@ -89,10 +95,16 @@ describe("plugins install by name — disable-platform mode", () => {
   });
 
   afterEach(() => {
-    if (savedDisable === undefined) {delete process.env.VELLUM_DISABLE_PLATFORM;}
-    else {process.env.VELLUM_DISABLE_PLATFORM = savedDisable;}
-    if (savedIsPlatform === undefined) {delete process.env.IS_PLATFORM;}
-    else {process.env.IS_PLATFORM = savedIsPlatform;}
+    if (savedDisable === undefined) {
+      delete process.env.VELLUM_DISABLE_PLATFORM;
+    } else {
+      process.env.VELLUM_DISABLE_PLATFORM = savedDisable;
+    }
+    if (savedIsPlatform === undefined) {
+      delete process.env.IS_PLATFORM;
+    } else {
+      process.env.IS_PLATFORM = savedIsPlatform;
+    }
     process.exitCode = savedExitCode;
     mock.restore();
   });

@@ -20,20 +20,29 @@ export const bumpHeartbeatInterval30mTo60mMigration: WorkspaceMigration = {
     "Bump persisted heartbeat.intervalMs from 30 minutes to 60 minutes",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
+    if (!existsSync(configPath)) {
+      return;
+    }
 
     let config: Record<string, unknown>;
     try {
       const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return;
+      }
       config = raw as Record<string, unknown>;
     } catch {
       return;
     }
 
     const heartbeat = config.heartbeat;
-    if (!heartbeat || typeof heartbeat !== "object" || Array.isArray(heartbeat))
+    if (
+      !heartbeat ||
+      typeof heartbeat !== "object" ||
+      Array.isArray(heartbeat)
+    ) {
       return;
+    }
 
     const heartbeatConfig = heartbeat as Record<string, unknown>;
     const intervalMs = heartbeatConfig.intervalMs;

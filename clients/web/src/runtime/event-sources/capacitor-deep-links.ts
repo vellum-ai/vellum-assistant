@@ -2,7 +2,9 @@ import { publish } from "@/lib/event-bus";
 import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
 import {
   OAUTH_COMPLETE_DEEP_LINK_EVENT,
+  parseBillingCheckoutCompleteDeepLink,
   parseOAuthCompleteDeepLink,
+  parseStartVoiceDeepLink,
 } from "@/runtime/native-deep-link";
 
 /**
@@ -10,9 +12,13 @@ import {
  *
  * OAuth-complete URLs (`vellum-assistant://oauth-complete?…`) dispatch
  * the `OAUTH_COMPLETE_DEEP_LINK_EVENT` window CustomEvent that
- * `useOAuthCompleteDeepLinkListener` already consumes; any other URL
- * publishes `deeplink.unknown { url }` on the bus (query/fragment
- * stripped).
+ * `useOAuthCompleteDeepLinkListener` already consumes;
+ * `vellum-assistant://billing/checkout-complete?…` publishes
+ * `deeplink.billingCheckoutComplete` (the same event the Electron shell
+ * emits, consumed by `useGlobalDeepLinkConsumer`);
+ * `vellum-assistant://voice?mode=…` publishes `deeplink.startVoice`; any
+ * other URL publishes `deeplink.unknown { url }` on the bus
+ * (query/fragment stripped).
  *
  * Off Capacitor iOS the function is a no-op — Electron deep links flow
  * through `publishElectronDeepLinksSource` instead.
@@ -34,6 +40,23 @@ function handleUrl(url: string): void {
     );
     return;
   }
+
+  // Must precede the `unknown` fallback: that path strips the query, which
+  // would destroy the Session id the billing consumer needs to open the Pro
+  // onboarding wizard.
+  const checkout = parseBillingCheckoutCompleteDeepLink(url);
+  if (checkout !== null) {
+    publish("deeplink.billingCheckoutComplete", checkout);
+    return;
+  }
+  // Also before the `unknown` fallback: the stripped query would take `mode`
+  // with it.
+  const startVoice = parseStartVoiceDeepLink(url);
+  if (startVoice !== null) {
+    publish("deeplink.startVoice", startVoice);
+    return;
+  }
+
   // A malformed OAuth-complete URL can carry one-time auth codes in its
   // query/fragment — strip both so they never reach telemetry breadcrumbs.
   publish("deeplink.unknown", { url: sanitizeUnknownUrl(url) });

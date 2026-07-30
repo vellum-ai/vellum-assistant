@@ -20,14 +20,21 @@
 //     survives GC of superseded retrospective conversations and spans more
 //     than the last pass. Capped — see `appendToRememberedLog`.
 //
-// The schema enforces the foreign key with ON DELETE CASCADE, so deleting a
-// conversation collects its state row automatically.
+// The row lives on the dedicated memory connection (`assistant-memory.db`),
+// resolved via `memoryDbOrNull`; every read/write degrades to a no-op when
+// that connection is unavailable. The memory database has no `conversations`
+// table, so there is no FK cascade — the `conversation-deleted` hook purges the
+// row explicitly instead.
 
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
-import { type DrizzleDb, getDb } from "../../../persistence/db-connection.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
 import { memoryRetrospectiveState } from "../../../persistence/schema/index.js";
 import { withSqliteRetry } from "./host-utils.js";
+import { getLogger } from "./logging.js";
+import { memoryDbOrNull } from "./memory-db.js";
+
+const log = getLogger("memory-retrospective-state");
 
 export interface MemoryRetrospectiveState {
   conversationId: string;
@@ -74,10 +81,14 @@ export function appendToRememberedLog(
 }
 
 function parseRememberedLog(raw: string | null): string[] {
-  if (!raw) return [];
+  if (!raw) {
+    return [];
+  }
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
     return parsed.filter((entry): entry is string => typeof entry === "string");
   } catch {
     return [];
@@ -89,17 +100,57 @@ function serializeRememberedLog(log: string[]): string | null {
 }
 
 /**
+ * Return the `limit` most-recently-run retrospective state rows, newest first.
+ */
+export function listRetrospectiveStates(
+  limit: number,
+): MemoryRetrospectiveState[] {
+  const mdb = memoryDbOrNull("listRetrospectiveStates");
+  if (!mdb) {
+    return [];
+  }
+  const rows = mdb
+    .select({
+      conversationId: memoryRetrospectiveState.conversationId,
+      lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
+      lastRunAt: memoryRetrospectiveState.lastRunAt,
+      rememberedLog: memoryRetrospectiveState.rememberedLog,
+    })
+    .from(memoryRetrospectiveState)
+    .orderBy(desc(memoryRetrospectiveState.lastRunAt))
+    .limit(limit)
+    .all();
+  return rows.map((row) => ({
+    conversationId: row.conversationId,
+    lastProcessedMessageId: row.lastProcessedMessageId,
+    lastRunAt: row.lastRunAt,
+    rememberedLog: parseRememberedLog(row.rememberedLog),
+  }));
+}
+
+/**
  * Load the state row for a conversation, or `null` if no row exists.
  */
 export function getRetrospectiveState(
   conversationId: string,
 ): MemoryRetrospectiveState | null {
-  const row = getDb()
-    .select()
+  const mdb = memoryDbOrNull("getRetrospectiveState");
+  if (!mdb) {
+    return null;
+  }
+  const row = mdb
+    .select({
+      conversationId: memoryRetrospectiveState.conversationId,
+      lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
+      lastRunAt: memoryRetrospectiveState.lastRunAt,
+      rememberedLog: memoryRetrospectiveState.rememberedLog,
+    })
     .from(memoryRetrospectiveState)
     .where(eq(memoryRetrospectiveState.conversationId, conversationId))
     .get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return {
     conversationId: row.conversationId,
     lastProcessedMessageId: row.lastProcessedMessageId,
@@ -121,14 +172,31 @@ export async function upsertRetrospectiveState(
     rememberedLog?: string[];
   },
 ): Promise<void> {
-  const db = getDb();
+  const mdb = memoryDbOrNull("upsertRetrospectiveState");
+  if (!mdb) {
+    return;
+  }
   const serializedLog =
     args.rememberedLog === undefined
       ? undefined
       : serializeRememberedLog(args.rememberedLog);
+  // Only overwrite the stored log when the caller supplied one, so an
+  // omitted `rememberedLog` leaves the existing value untouched (seeded NULL
+  // on first insert).
+  const set: {
+    lastProcessedMessageId: string;
+    lastRunAt: number;
+    rememberedLog?: string | null;
+  } = {
+    lastProcessedMessageId: args.lastProcessedMessageId,
+    lastRunAt: args.lastRunAt,
+  };
+  if (serializedLog !== undefined) {
+    set.rememberedLog = serializedLog;
+  }
   await withSqliteRetry(
     () =>
-      db
+      mdb
         .insert(memoryRetrospectiveState)
         .values({
           conversationId: args.conversationId,
@@ -138,13 +206,7 @@ export async function upsertRetrospectiveState(
         })
         .onConflictDoUpdate({
           target: memoryRetrospectiveState.conversationId,
-          set: {
-            lastProcessedMessageId: args.lastProcessedMessageId,
-            lastRunAt: args.lastRunAt,
-            ...(serializedLog !== undefined
-              ? { rememberedLog: serializedLog }
-              : {}),
-          },
+          set,
         })
         .run(),
     {
@@ -175,6 +237,10 @@ export async function upsertRetrospectiveState(
  * `lastRunAt` is copied verbatim — the cooldown gate inherits from source.
  * `rememberedLog` is copied verbatim — the parent's saves remain the child's
  * dedup baseline.
+ *
+ * The row lives on the memory connection, so this reads/writes there rather
+ * than on the main fork transaction's handle — the `database` arg is unused
+ * now, and an unavailable memory database is a best-effort no-op.
  */
 export function forkRetrospectiveState(args: {
   database: DrizzleDb;
@@ -184,50 +250,64 @@ export function forkRetrospectiveState(args: {
   lastCopiedSourceMessageId: string | null;
 }): void {
   const {
-    database,
     sourceConversationId,
     forkedConversationId,
     forkedMessageIds,
     lastCopiedSourceMessageId,
   } = args;
 
-  const sourceRow = database
-    .select()
-    .from(memoryRetrospectiveState)
-    .where(eq(memoryRetrospectiveState.conversationId, sourceConversationId))
-    .get();
-  if (!sourceRow) return;
-
-  let forkedPointer = "";
-  if (sourceRow.lastProcessedMessageId !== "") {
-    const mapped = forkedMessageIds.get(sourceRow.lastProcessedMessageId);
-    if (mapped !== undefined) {
-      forkedPointer = mapped;
-    } else if (lastCopiedSourceMessageId !== null) {
-      // Source pointer is past the fork boundary — everything copied has
-      // already been processed by the source, so clamp to the last copied
-      // message so the fork waits for new post-fork messages.
-      forkedPointer = forkedMessageIds.get(lastCopiedSourceMessageId) ?? "";
+  try {
+    const mdb = memoryDbOrNull("forkRetrospectiveState");
+    if (!mdb) {
+      return;
     }
-  }
 
-  database
-    .insert(memoryRetrospectiveState)
-    .values({
-      conversationId: forkedConversationId,
-      lastProcessedMessageId: forkedPointer,
-      lastRunAt: sourceRow.lastRunAt,
-      rememberedLog: sourceRow.rememberedLog,
-    })
-    .onConflictDoUpdate({
-      target: memoryRetrospectiveState.conversationId,
-      set: {
+    const sourceRow = mdb
+      .select({
+        lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
+        lastRunAt: memoryRetrospectiveState.lastRunAt,
+        rememberedLog: memoryRetrospectiveState.rememberedLog,
+      })
+      .from(memoryRetrospectiveState)
+      .where(eq(memoryRetrospectiveState.conversationId, sourceConversationId))
+      .get();
+    if (!sourceRow) {
+      return;
+    }
+
+    let forkedPointer = "";
+    if (sourceRow.lastProcessedMessageId !== "") {
+      const mapped = forkedMessageIds.get(sourceRow.lastProcessedMessageId);
+      if (mapped !== undefined) {
+        forkedPointer = mapped;
+      } else if (lastCopiedSourceMessageId !== null) {
+        // Source pointer is past the fork boundary — everything copied has
+        // already been processed by the source, so clamp to the last copied
+        // message so the fork waits for new post-fork messages.
+        forkedPointer = forkedMessageIds.get(lastCopiedSourceMessageId) ?? "";
+      }
+    }
+
+    mdb
+      .insert(memoryRetrospectiveState)
+      .values({
+        conversationId: forkedConversationId,
         lastProcessedMessageId: forkedPointer,
         lastRunAt: sourceRow.lastRunAt,
         rememberedLog: sourceRow.rememberedLog,
-      },
-    })
-    .run();
+      })
+      .onConflictDoUpdate({
+        target: memoryRetrospectiveState.conversationId,
+        set: {
+          lastProcessedMessageId: forkedPointer,
+          lastRunAt: sourceRow.lastRunAt,
+          rememberedLog: sourceRow.rememberedLog,
+        },
+      })
+      .run();
+  } catch (err) {
+    log.warn({ err }, "failed to fork retrospective state; continuing");
+  }
 }
 
 /**
@@ -243,10 +323,13 @@ export async function bumpRetrospectiveLastRunAt(
   conversationId: string,
   lastRunAt: number,
 ): Promise<void> {
-  const db = getDb();
+  const mdb = memoryDbOrNull("bumpRetrospectiveLastRunAt");
+  if (!mdb) {
+    return;
+  }
   await withSqliteRetry(
     () =>
-      db
+      mdb
         .insert(memoryRetrospectiveState)
         .values({
           conversationId,

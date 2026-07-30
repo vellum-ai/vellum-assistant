@@ -68,5 +68,54 @@ Examples:
   $ assistant routes inspect plugins/my-plugin/status
   $ assistant routes inspect items --json`,
     },
+    {
+      name: "worker",
+      description: "Manage the route host process (start/stop/status)",
+      helpText: `
+The route host runs user-defined /x/* handlers in a separate OS process, so a
+handler that blocks does not stall the assistant's main event loop and can be
+reclaimed with a hard kill. The assistant spawns it on demand (on the first
+request); these commands manage that process directly.
+
+\`start\` spawns it as a child of the assistant (so it shows up in
+\`assistant ps\`); \`stop\` SIGTERMs it — the next request respawns it.
+
+Examples:
+  $ assistant routes worker start
+  $ assistant routes worker status
+  $ assistant routes worker stop`,
+      subcommands: [
+        {
+          name: "start",
+          description: "Spawn the route host process if it is not running",
+          options: [
+            {
+              flags: "--json",
+              description: "Emit raw JSON instead of a formatted summary",
+            },
+          ],
+        },
+        {
+          name: "stop",
+          description: "SIGTERM the route host process",
+          options: [
+            {
+              flags: "--json",
+              description: "Emit raw JSON instead of a formatted summary",
+            },
+          ],
+        },
+        {
+          name: "status",
+          description: "Report the route host process liveness",
+          options: [
+            {
+              flags: "--json",
+              description: "Emit raw JSON instead of a formatted summary",
+            },
+          ],
+        },
+      ],
+    },
   ],
 };

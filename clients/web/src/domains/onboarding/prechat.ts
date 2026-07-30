@@ -90,7 +90,9 @@ export function buildPreChatInitialMessage(
 ): string {
   const assistant = ctx.assistantName?.trim();
   const user = ctx.userName?.trim();
-  if (!assistant && !user) return DEFAULT_PRECHAT_INITIAL_MESSAGE;
+  if (!assistant && !user) {
+    return DEFAULT_PRECHAT_INITIAL_MESSAGE;
+  }
   const hi = assistant ? `Hi ${assistant}` : "Hi";
   const intro = user ? `, I'm ${user}` : "";
   return `${hi}${intro}. Nice to meet you.`;
@@ -141,7 +143,9 @@ export const PRIOR_ASSISTANT_DISPLAY_NAMES: Record<string, string> = {
 };
 
 function capitalizeFirst(value: string): string {
-  if (!value) return value;
+  if (!value) {
+    return value;
+  }
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
@@ -154,7 +158,9 @@ export function normalizePreChatTasks(tasks: string[]): string[] {
 }
 
 export function normalizePreChatPriorAssistants(ids: string[]): string[] {
-  return ids.map((id) => PRIOR_ASSISTANT_DISPLAY_NAMES[id] ?? capitalizeFirst(id));
+  return ids.map(
+    (id) => PRIOR_ASSISTANT_DISPLAY_NAMES[id] ?? capitalizeFirst(id),
+  );
 }
 
 /**
@@ -230,20 +236,32 @@ function getSessionStorage(): Storage | null {
 function isPreChatOnboardingContext(
   value: unknown,
 ): value is PreChatOnboardingContext {
-  if (value === null || typeof value !== "object") return false;
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
 
   // After the object check, use `in` narrowing for required fields and a
   // single record view for optional-field checks (TypeScript doesn't support
   // `in` narrowing on dynamic/optional keys without this step).
   const candidate = value as Record<string, unknown>; // narrowed from `object`
 
-  if (!Array.isArray(candidate.tools)) return false;
-  if (!candidate.tools.every((t) => typeof t === "string")) return false;
+  if (!Array.isArray(candidate.tools)) {
+    return false;
+  }
+  if (!candidate.tools.every((t) => typeof t === "string")) {
+    return false;
+  }
 
-  if (!Array.isArray(candidate.tasks)) return false;
-  if (!candidate.tasks.every((t) => typeof t === "string")) return false;
+  if (!Array.isArray(candidate.tasks)) {
+    return false;
+  }
+  if (!candidate.tasks.every((t) => typeof t === "string")) {
+    return false;
+  }
 
-  if (typeof candidate.tone !== "string") return false;
+  if (typeof candidate.tone !== "string") {
+    return false;
+  }
 
   if (
     candidate.userName !== undefined &&
@@ -270,17 +288,28 @@ function isPreChatOnboardingContext(
     return false;
   }
   if (candidate.googleScopes !== undefined) {
-    if (!Array.isArray(candidate.googleScopes)) return false;
-    if (!candidate.googleScopes.every((s) => typeof s === "string")) return false;
+    if (!Array.isArray(candidate.googleScopes)) {
+      return false;
+    }
+    if (!candidate.googleScopes.every((s) => typeof s === "string")) {
+      return false;
+    }
   }
   if (candidate.priorAssistants !== undefined) {
-    if (!Array.isArray(candidate.priorAssistants)) return false;
-    if (!candidate.priorAssistants.every((s) => typeof s === "string")) return false;
+    if (!Array.isArray(candidate.priorAssistants)) {
+      return false;
+    }
+    if (!candidate.priorAssistants.every((s) => typeof s === "string")) {
+      return false;
+    }
   }
   if (candidate.cohort !== undefined && typeof candidate.cohort !== "string") {
     return false;
   }
-  if (candidate.initialMessage !== undefined && typeof candidate.initialMessage !== "string") {
+  if (
+    candidate.initialMessage !== undefined &&
+    typeof candidate.initialMessage !== "string"
+  ) {
     return false;
   }
   if (
@@ -289,12 +318,19 @@ function isPreChatOnboardingContext(
   ) {
     return false;
   }
-  if (candidate.bootstrapTemplate !== undefined && typeof candidate.bootstrapTemplate !== "string") {
+  if (
+    candidate.bootstrapTemplate !== undefined &&
+    typeof candidate.bootstrapTemplate !== "string"
+  ) {
     return false;
   }
   if (candidate.skills !== undefined) {
-    if (!Array.isArray(candidate.skills)) return false;
-    if (!candidate.skills.every((s) => typeof s === "string")) return false;
+    if (!Array.isArray(candidate.skills)) {
+      return false;
+    }
+    if (!candidate.skills.every((s) => typeof s === "string")) {
+      return false;
+    }
   }
   if (candidate.title !== undefined && typeof candidate.title !== "string") {
     return false;
@@ -310,11 +346,11 @@ function isPreChatOnboardingContext(
  * just means the chat opener will fall back to its un-personalized
  * default, which is the right degraded behavior.
  */
-export function setPendingPreChatContext(
-  ctx: PreChatOnboardingContext,
-): void {
+export function setPendingPreChatContext(ctx: PreChatOnboardingContext): void {
   const storage = getSessionStorage();
-  if (storage === null) return;
+  if (storage === null) {
+    return;
+  }
   try {
     // Clear any prior value first so a failed `setItem` (quota exceeded,
     // private mode, etc.) leaves storage empty rather than holding the
@@ -344,7 +380,9 @@ export function setPendingPreChatContext(
  */
 export function consumePendingPreChatContext(): PreChatOnboardingContext | null {
   const storage = getSessionStorage();
-  if (storage === null) return null;
+  if (storage === null) {
+    return null;
+  }
 
   let raw: string | null;
   try {
@@ -352,7 +390,9 @@ export function consumePendingPreChatContext(): PreChatOnboardingContext | null 
   } catch {
     return null;
   }
-  if (raw === null) return null;
+  if (raw === null) {
+    return null;
+  }
 
   // Always clear on read, even if parsing/validation fails below: a
   // malformed payload is unrecoverable, so leaving it in storage just
@@ -370,7 +410,9 @@ export function consumePendingPreChatContext(): PreChatOnboardingContext | null 
     return null;
   }
 
-  if (!isPreChatOnboardingContext(parsed)) return null;
+  if (!isPreChatOnboardingContext(parsed)) {
+    return null;
+  }
   return parsed;
 }
 
@@ -382,7 +424,9 @@ export function consumePendingPreChatContext(): PreChatOnboardingContext | null 
  */
 export function clearPendingPreChatContext(): void {
   const storage = getSessionStorage();
-  if (storage === null) return;
+  if (storage === null) {
+    return;
+  }
   try {
     storage.removeItem(STORAGE_KEY);
   } catch {
@@ -411,9 +455,13 @@ export const ASSISTANT_NAME_KEY = "onboarding.prechat.assistantName";
  */
 export function setPendingAssistantName(name: string): void {
   const trimmed = name.trim();
-  if (!trimmed) return;
+  if (!trimmed) {
+    return;
+  }
   const storage = getSessionStorage();
-  if (storage === null) return;
+  if (storage === null) {
+    return;
+  }
   try {
     storage.setItem(ASSISTANT_NAME_KEY, trimmed);
   } catch {
@@ -429,7 +477,9 @@ export function setPendingAssistantName(name: string): void {
  */
 export function consumePendingAssistantName(): string | null {
   const storage = getSessionStorage();
-  if (storage === null) return null;
+  if (storage === null) {
+    return null;
+  }
   try {
     const value = storage.getItem(ASSISTANT_NAME_KEY);
     storage.removeItem(ASSISTANT_NAME_KEY);
@@ -450,7 +500,9 @@ export function consumePendingAssistantName(): string | null {
  */
 export function peekPendingPreChatContext(): PreChatOnboardingContext | null {
   const storage = getSessionStorage();
-  if (storage === null) return null;
+  if (storage === null) {
+    return null;
+  }
 
   let raw: string | null;
   try {
@@ -458,7 +510,9 @@ export function peekPendingPreChatContext(): PreChatOnboardingContext | null {
   } catch {
     return null;
   }
-  if (raw === null) return null;
+  if (raw === null) {
+    return null;
+  }
 
   let parsed: unknown;
   try {
@@ -467,6 +521,8 @@ export function peekPendingPreChatContext(): PreChatOnboardingContext | null {
     return null;
   }
 
-  if (!isPreChatOnboardingContext(parsed)) return null;
+  if (!isPreChatOnboardingContext(parsed)) {
+    return null;
+  }
   return parsed;
 }

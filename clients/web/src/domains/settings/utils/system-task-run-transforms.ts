@@ -4,6 +4,8 @@ import type {
   RetrospectiveRunsGetResponse,
 } from "@/generated/daemon/types.gen";
 
+import { isBookkeepingRun } from "@/domains/settings/utils/schedule-formatters";
+
 import type {
   ScheduleRun,
   SystemTaskKind,
@@ -14,7 +16,34 @@ type ConsolidationRun = ConsolidationRunsGetResponse["runs"][number];
 type RetrospectiveRun = RetrospectiveRunsGetResponse["runs"][number];
 
 /** Union of all raw system-task run types from the daemon SDK. */
-export type AnySystemTaskRun = HeartbeatRun | ConsolidationRun | RetrospectiveRun;
+export type AnySystemTaskRun =
+  HeartbeatRun | ConsolidationRun | RetrospectiveRun;
+
+/** Human-readable labels for heartbeat `skip_reason` codes. */
+const SKIP_REASON_LABELS: Record<string, string> = {
+  disabled: "heartbeat is disabled",
+  outside_active_hours: "outside active hours",
+  overlap: "previous run was still active",
+  pre_first_user_message: "waiting for the first conversation",
+  max_consecutive_runs: "consecutive-run cap reached",
+  max_daily_runs: "daily run cap reached",
+  quiesced: "assistant was shutting down",
+};
+
+/**
+ * Detail text for runs that never executed: skipped runs surface why the
+ * guard skipped them, missed runs explain the gap. Executed runs return null
+ * — their detail line is duration and cost.
+ */
+function unexecutedRunText(run: AnySystemTaskRun): string | null {
+  if (run.status === "missed") {
+    return "Missed while the assistant was offline";
+  }
+  if ("skipReason" in run && run.skipReason) {
+    return `Skipped — ${SKIP_REASON_LABELS[run.skipReason] ?? run.skipReason}`;
+  }
+  return null;
+}
 
 /**
  * Maps a raw system-task run from the daemon SDK into the shared
@@ -51,10 +80,7 @@ export function toScheduleRun(
     startedAt: run.startedAt ?? run.scheduledFor,
     finishedAt: run.finishedAt,
     durationMs: run.durationMs,
-    output:
-      "skipReason" in run && run.skipReason
-        ? `Skipped: ${run.skipReason}`
-        : null,
+    output: unexecutedRunText(run),
     error: run.error,
     conversationId: run.conversationId,
     conversationExists: run.conversationExists,
@@ -69,7 +95,9 @@ export function toScheduleRun(
 export function selectHeartbeatRuns(
   data: HeartbeatRunsGetResponse,
 ): ScheduleRun[] {
-  return data.runs.map((r) => toScheduleRun(r, "heartbeat"));
+  return data.runs
+    .filter((r) => !isBookkeepingRun(r))
+    .map((r) => toScheduleRun(r, "heartbeat"));
 }
 
 /** Select transform: extracts `ScheduleRun[]` from a consolidation runs response. */

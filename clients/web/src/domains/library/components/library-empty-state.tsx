@@ -9,6 +9,12 @@ import { type ChangeEvent, type RefObject } from "react";
 import { Button } from "@vellumai/design-library";
 
 interface LibraryEmptyStateProps {
+  /**
+   * File-picker `accept` filter. `undefined` leaves the picker unrestricted
+   * (touch devices, where iOS ignores extension filters) — see
+   * `LibraryView` for the platform rationale.
+   */
+  accept: string | undefined;
   fileInputRef: RefObject<HTMLInputElement | null>;
   isImporting: boolean;
   onImportBundle: (e: ChangeEvent<HTMLInputElement>) => void;
@@ -16,6 +22,7 @@ interface LibraryEmptyStateProps {
 }
 
 export function LibraryEmptyState({
+  accept,
   fileInputRef,
   isImporting,
   onImportBundle,
@@ -26,7 +33,7 @@ export function LibraryEmptyState({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".vellum"
+        accept={accept}
         className="hidden"
         onChange={onImportBundle}
       />

@@ -40,8 +40,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
-    defaultAssistantId: undefined,
-    unmappedPolicy: "reject",
     port: 7830,
     runtimeProxyRequireAuth: true,
     shutdownDrainMs: 5000,
@@ -242,6 +240,26 @@ describe("createSpeechRelayUpgradeHandler — gate", () => {
     expect(new URL(data.data.upstreamWsUrl).pathname).toBe(
       "/v1/speech/tts/stream",
     );
+  });
+
+  test("forwards the tts voice model to velay", async () => {
+    // Regression: the daemon sends the selected managed voice as `model`;
+    // a gateway that rejects it silently breaks voice selection (the
+    // daemon's synthesis fails before velay ever sees the session).
+    const server = makeFakeServer();
+    const handler = createSpeechRelayUpgradeHandler(makeConfig(), "tts", {
+      credentials: makeCredentials("vk-1"),
+    });
+    const req = new Request(
+      `http://127.0.0.1:7830/v1/speech/tts/stream?key=${TOKEN}&encoding=linear16&sample_rate=16000&container=none&model=cjVigY5qzO86Huf0OWal`,
+      { headers: { upgrade: "websocket" } },
+    );
+
+    expect(await handler(req, server)).toBeUndefined();
+    const data = (server.upgrade as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0]![1] as { data: SpeechRelaySocketData };
+    const upstream = new URL(data.data.upstreamWsUrl);
+    expect(upstream.searchParams.get("model")).toBe("cjVigY5qzO86Huf0OWal");
   });
 
   test("rejects a missing token", async () => {

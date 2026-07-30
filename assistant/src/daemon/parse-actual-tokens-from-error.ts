@@ -23,7 +23,9 @@ export function parseActualTokensFromError(
   // ContextOverflowError. Use the parsed field directly when available.
   if (isContextOverflowError(errorOrMessage)) {
     const actual = errorOrMessage.actualTokens;
-    if (typeof actual === "number" && actual > 0) return actual;
+    if (typeof actual === "number" && actual > 0) {
+      return actual;
+    }
     // Typed error without `actualTokens` — fall through to regex-parse the
     // underlying message in case the upstream body carries it in text form.
     return parseFromMessage(errorOrMessage.message ?? null);
@@ -63,25 +65,37 @@ const OVERFLOW_MESSAGE_PATTERNS: readonly RegExp[] = [
  * error, a plain `Error`/object with a `message`, or a raw string.
  */
 export function looksLikeContextOverflowError(err: unknown): boolean {
-  if (isContextOverflowError(err)) return true;
+  if (isContextOverflowError(err)) {
+    return true;
+  }
   const message = extractMessage(err);
-  if (message === null) return false;
+  if (message === null) {
+    return false;
+  }
   return OVERFLOW_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 /** Pull a message string out of an untyped error-ish value, if possible. */
 function extractMessage(errorOrMessage: unknown): string | null {
-  if (errorOrMessage == null) return null;
-  if (typeof errorOrMessage === "string") return errorOrMessage;
+  if (errorOrMessage == null) {
+    return null;
+  }
+  if (typeof errorOrMessage === "string") {
+    return errorOrMessage;
+  }
   if (typeof errorOrMessage === "object" && "message" in errorOrMessage) {
     const msg = (errorOrMessage as { message?: unknown }).message;
-    if (typeof msg === "string") return msg;
+    if (typeof msg === "string") {
+      return msg;
+    }
   }
   return null;
 }
 
 function parseFromMessage(errorMessage: string | null): number | null {
-  if (!errorMessage) return null;
+  if (!errorMessage) {
+    return null;
+  }
 
   // Match patterns like "242201 tokens > 200000" or "242201 > 200000 maximum"
   const match = errorMessage.match(
@@ -90,7 +104,9 @@ function parseFromMessage(errorMessage: string | null): number | null {
   if (match) {
     const raw = (match[1] || match[2]).replace(/,/g, "");
     const parsed = parseInt(raw, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
+    if (!isNaN(parsed) && parsed > 0) {
+      return parsed;
+    }
   }
 
   // Fallback: match "too many input tokens: N > M"
@@ -98,7 +114,9 @@ function parseFromMessage(errorMessage: string | null): number | null {
   if (fallback) {
     const raw = fallback[1].replace(/,/g, "");
     const parsed = parseInt(raw, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
+    if (!isNaN(parsed) && parsed > 0) {
+      return parsed;
+    }
   }
 
   return null;

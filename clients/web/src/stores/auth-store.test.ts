@@ -30,10 +30,19 @@ let mockPrimeError: Error | null = null;
 let mockGatewayToken: string | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
 const primeLocalGatewayConnectionMock = mock(async () => {
-  if (mockPrimeError) throw mockPrimeError;
+  if (mockPrimeError) {
+    throw mockPrimeError;
+  }
+});
+const primeLocalGatewayConnectionWithStartupRetryMock = mock(async () => {
+  if (mockPrimeError) {
+    throw mockPrimeError;
+  }
 });
 const primeLocalGatewayConnectionWithRepairMock = mock(async () => {
-  if (mockPrimeError) throw mockPrimeError;
+  if (mockPrimeError) {
+    throw mockPrimeError;
+  }
 });
 const ensureGatewayTokenMock = mock(async () => {});
 const refreshRemoteGatewaySessionMock = mock(async () => false);
@@ -110,7 +119,9 @@ const EMPTY_CONSENT = {
 let mockFetchConsentResult: unknown = EMPTY_CONSENT;
 let mockFetchConsentError: Error | null = null;
 const fetchConsentMock = mock(async () => {
-  if (mockFetchConsentError) throw mockFetchConsentError;
+  if (mockFetchConsentError) {
+    throw mockFetchConsentError;
+  }
   return mockFetchConsentResult;
 });
 const clearOrganizationMock = mock(() => {});
@@ -191,6 +202,8 @@ mock.module("@/lib/local-mode", () => ({
   getLocalAssistants: () => [],
   getSelectedAssistant: () => mockSelectedAssistant,
   primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
+  primeLocalGatewayConnectionWithStartupRetry:
+    primeLocalGatewayConnectionWithStartupRetryMock,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
@@ -239,6 +252,7 @@ const setTosAcceptedMock = mock((_value: boolean) => {});
 const setPrivacyConsentMock = mock((_value: boolean) => {});
 const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
 const setDiagnosticsConsentCurrentMock = mock((_value: boolean) => {});
+const setHasConsentRecordMock = mock((_value: boolean) => {});
 const setShareAnalyticsMock = mock((_value: boolean | null) => {});
 const setShareDiagnosticsMock = mock((_value: boolean | null) => {});
 const setServerAnalyticsEffectiveMock = mock((_value: boolean | null) => {});
@@ -264,6 +278,7 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
       setServerDiagnosticsEffective: setServerDiagnosticsEffectiveMock,
       setAnalyticsConsentCurrent: setAnalyticsConsentCurrentMock,
       setDiagnosticsConsentCurrent: setDiagnosticsConsentCurrentMock,
+      setHasConsentRecord: setHasConsentRecordMock,
       setConsentHydrated: setConsentHydratedMock,
       shareAnalytics: mockStoreShareAnalytics,
       pendingAnalyticsOptIn: mockStorePendingAnalyticsOptIn,
@@ -276,9 +291,10 @@ mock.module("@/lib/auth/session-cleanup", () => ({
   clearUserScopedStorage: clearUserScopedStorageMock,
 }));
 
-// Use the REAL resolved-assistants store: the auth-store init path calls its
-// `.getState().setFromApi(...)`, which a plain stub can't provide. It's
-// dependency-light, so loading it for real is cheap.
+// Use the REAL resolved-assistants store: it's dependency-light, so loading it
+// for real is cheap, and the `beforeEach` resets it between tests. (The list is
+// now loaded by the platform-assistants-sync subscription, not the auth store —
+// see platform-assistants-sync.test.ts for that coverage.)
 
 // Auth-store writes the selection through the public wrapper, not the store
 // action — mock the wrapper module so the real one (and its local-mode deps)
@@ -376,6 +392,7 @@ beforeEach(() => {
   mockPrimeError = null;
   setSelectedAssistantMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
+  primeLocalGatewayConnectionWithStartupRetryMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   ensureGatewayTokenMock.mockClear();
   refreshRemoteGatewaySessionMock.mockClear();
@@ -389,6 +406,7 @@ beforeEach(() => {
   setPrivacyConsentMock.mockClear();
   setAnalyticsConsentCurrentMock.mockClear();
   setDiagnosticsConsentCurrentMock.mockClear();
+  setHasConsentRecordMock.mockClear();
   setShareAnalyticsMock.mockClear();
   setShareDiagnosticsMock.mockClear();
   setServerAnalyticsEffectiveMock.mockClear();
@@ -566,6 +584,39 @@ describe("auth store onboarding flag reconciliation", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(bootstrapLocalAssistantPlatformIdentityMock).toHaveBeenCalledWith();
+  });
+
+  test("initSession restores the local gateway session through the startup-retry prime", async () => {
+    // The boot restore must ride out the gateway's reboot startup window rather
+    // than the bare prime, so a transient "starting" failure doesn't drop the
+    // persisted local assistant to the recovery controls.
+    mockIsLocalMode = true;
+    mockIsGatewayAuth = true;
+
+    await useAuthStore.getState().initSession();
+
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).toHaveBeenCalledTimes(1);
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+  });
+
+  test("initSession settles unauthenticated when the startup-retry prime is exhausted", async () => {
+    // After the ride-out budget is spent the prime still throws; boot falls
+    // through to the chooser exactly as before.
+    mockIsLocalMode = true;
+    mockIsGatewayAuth = true;
+    mockPrimeError = new Error("Gateway token request failed: 401");
+
+    await useAuthStore.getState().initSession();
+
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
   });
 
   test("initSession uses server consent when server has a consent record", async () => {
@@ -1338,18 +1389,6 @@ describe("auth store onboarding flag reconciliation", () => {
     sessionUser = null;
     await useAuthStore.getState().initSession();
     expect(setConsentHydratedMock).toHaveBeenCalledWith(true);
-  });
-
-  test("initSession marks the assistants list hydrated even when the platform fetch fails", async () => {
-    sessionUser = { id: "user-1", email: "user@example.com" };
-    useResolvedAssistantsStore.setState({ assistantsHydrated: false });
-    listAssistantsMock.mockImplementationOnce(async () => {
-      throw new Error("Network error");
-    });
-
-    await useAuthStore.getState().initSession();
-
-    expect(useResolvedAssistantsStore.getState().assistantsHydrated).toBe(true);
   });
 
   test("initSession falls back to device keys when fetchConsent fails", async () => {

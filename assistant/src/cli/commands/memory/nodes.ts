@@ -50,7 +50,12 @@ export function registerMemoryNodesCommand(memory: Command): void {
     .alias("ls")
     .action(
       async (
-        opts: { search?: string; limit?: string; json?: boolean },
+        opts: {
+          search?: string;
+          limit?: string;
+          kind?: string;
+          json?: boolean;
+        },
         cmd: Command,
       ) => {
         const queryParams: Record<string, string> = {};
@@ -59,6 +64,9 @@ export function registerMemoryNodesCommand(memory: Command): void {
         }
         if (opts.limit) {
           queryParams.limit = opts.limit;
+        }
+        if (opts.kind) {
+          queryParams.kind = opts.kind;
         }
         const r = await cliIpcCall<ListMemoryNodesResult>("listMemoryNodes", {
           queryParams,
@@ -80,9 +88,10 @@ export function registerMemoryNodesCommand(memory: Command): void {
         }
 
         if (result.nodes.length === 0) {
+          const suffix = describeFilters(opts);
           log.info(
-            opts.search
-              ? `No memory nodes found matching "${opts.search}".`
+            suffix
+              ? `No memory nodes found ${suffix}.`
               : "No memory nodes found. The memory graph is empty.",
           );
           return;
@@ -121,9 +130,10 @@ export function registerMemoryNodesCommand(memory: Command): void {
           );
         }
 
+        const suffix = describeFilters(opts);
         console.log(
           `\n${result.total} node${result.total === 1 ? "" : "s"}${
-            opts.search ? ` matching "${opts.search}"` : ""
+            suffix ? ` ${suffix}` : ""
           }`,
         );
       },
@@ -235,6 +245,21 @@ export function registerMemoryNodesCommand(memory: Command): void {
       printStats(result.stats!);
     },
   );
+}
+
+/**
+ * Human-readable trailing clause describing the active list filters, e.g.
+ * `of kind "skill" matching "coffee"`. Returns "" when no filter is set.
+ */
+function describeFilters(opts: { kind?: string; search?: string }): string {
+  const parts: string[] = [];
+  if (opts.kind) {
+    parts.push(`of kind "${opts.kind}"`);
+  }
+  if (opts.search) {
+    parts.push(`matching "${opts.search}"`);
+  }
+  return parts.join(" ");
 }
 
 const MEMORY_TYPES = [

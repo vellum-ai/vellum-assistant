@@ -54,7 +54,9 @@ class MockTtsSynthesisError extends Error {
 mock.module("../../../tts/synthesize-text.js", () => ({
   synthesizeText: async (options: Record<string, unknown>) => {
     lastSynthesizeOptions = options;
-    if (mockSynthesizeError) throw mockSynthesizeError;
+    if (mockSynthesizeError) {
+      throw mockSynthesizeError;
+    }
     return mockSynthesizeResult;
   },
   TtsSynthesisError: MockTtsSynthesisError,
@@ -74,7 +76,9 @@ import type { RouteHandlerArgs } from "../types.js";
 
 function getRoute(endpoint: string) {
   const route = ROUTES.find((r) => r.endpoint === endpoint);
-  if (!route) throw new Error(`Route ${endpoint} not found`);
+  if (!route) {
+    throw new Error(`Route ${endpoint} not found`);
+  }
   return route;
 }
 
@@ -94,7 +98,9 @@ async function expectRouteError(
     expect(err).toBeInstanceOf(RouteError);
     const re = err as InstanceType<typeof RouteError>;
     expect(re.statusCode).toBe(statusCode);
-    if (code) expect(re.code).toBe(code);
+    if (code) {
+      expect(re.code).toBe(code);
+    }
     return re;
   }
 }
@@ -121,12 +127,16 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("tts-routes", () => {
-  test("exports route definitions for tts/providers, tts/synthesize, and tts/synthesize-cli", () => {
-    expect(ROUTES).toHaveLength(3);
+  test("exports route definitions for tts/providers, tts/managed-voices, tts/synthesize, and tts/synthesize-cli", () => {
+    expect(ROUTES).toHaveLength(4);
 
     const providers = getRoute("tts/providers");
     expect(providers.method).toBe("GET");
     expect(providers.policy?.requiredScopes).toContain("settings.read");
+
+    const managedVoices = getRoute("tts/managed-voices");
+    expect(managedVoices.method).toBe("GET");
+    expect(managedVoices.policy?.requiredScopes).toContain("settings.read");
 
     const synthesize = getRoute("tts/synthesize");
     expect(synthesize.method).toBe("POST");

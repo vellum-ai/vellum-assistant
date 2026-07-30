@@ -7,7 +7,9 @@ export type InteractionType = "computer_use" | "text_qa";
 export function classifyHeuristic(task: string): InteractionType {
   const lower = task.toLowerCase().trim();
 
-  if (lower.includes("?")) return "text_qa";
+  if (lower.includes("?")) {
+    return "text_qa";
+  }
 
   const qaStarters = [
     "what",
@@ -32,7 +34,9 @@ export function classifyHeuristic(task: string): InteractionType {
     "list",
   ];
   for (const starter of qaStarters) {
-    if (lower.startsWith(starter)) return "text_qa";
+    if (lower.startsWith(starter)) {
+      return "text_qa";
+    }
   }
 
   const cuStarters = [
@@ -71,7 +75,9 @@ export function classifyHeuristic(task: string): InteractionType {
     "show me",
   ];
   for (const starter of cuStarters) {
-    if (lower.startsWith(starter)) return "computer_use";
+    if (lower.startsWith(starter)) {
+      return "computer_use";
+    }
   }
 
   return "computer_use";

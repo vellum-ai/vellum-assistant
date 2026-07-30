@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ABOUT_ASSISTANT_SECTIONS,
   isAboutAssistantPath,
   isConversationChatPath,
   isConversationPath,
@@ -10,13 +11,13 @@ import {
 describe("routes", () => {
   test("builds schedule-filtered usage URLs", () => {
     expect(routes.settings.usageForSchedule("schedule-123")).toBe(
-      "/assistant/settings/billing?tab=usage&range=7d&groupBy=schedule&scheduleId=schedule-123",
+      "/assistant/settings/usage?tab=usage&range=7d&groupBy=schedule&scheduleId=schedule-123",
     );
   });
 
   test("encodes schedule ids in usage URLs", () => {
     expect(routes.settings.usageForSchedule("schedule with spaces")).toBe(
-      "/assistant/settings/billing?tab=usage&range=7d&groupBy=schedule&scheduleId=schedule+with+spaces",
+      "/assistant/settings/usage?tab=usage&range=7d&groupBy=schedule&scheduleId=schedule+with+spaces",
     );
   });
 
@@ -51,6 +52,19 @@ describe("isAboutAssistantPath", () => {
     expect(isAboutAssistantPath(routes.schedules.detail("sch_123"))).toBe(true);
   });
 
+  test("matches the Library section, including the app viewer sub-path", () => {
+    expect(isAboutAssistantPath(routes.library.root)).toBe(true);
+    expect(isAboutAssistantPath(routes.library.app("app-1"))).toBe(true);
+  });
+
+  test("every registry section counts as an About Assistant path", () => {
+    // Chrome and sidebar highlight derive from the same registry — this
+    // guards the wiring, so a new section can't get one without the other.
+    for (const { to } of ABOUT_ASSISTANT_SECTIONS) {
+      expect(isAboutAssistantPath(to)).toBe(true);
+    }
+  });
+
   test("rejects the Activity page and conversations", () => {
     expect(isAboutAssistantPath(routes.home)).toBe(false);
     expect(isAboutAssistantPath(routes.conversation("conv-1"))).toBe(false);
@@ -82,9 +96,9 @@ describe("isConversationChatPath (composer-mounting routes only)", () => {
 
   test("matches a bare conversation route, tolerating a trailing slash", () => {
     expect(isConversationChatPath(routes.conversation("conv-1"))).toBe(true);
-    expect(
-      isConversationChatPath(`${routes.conversation("conv-1")}/`),
-    ).toBe(true);
+    expect(isConversationChatPath(`${routes.conversation("conv-1")}/`)).toBe(
+      true,
+    );
   });
 
   test("rejects the inspector subroute — InspectPage has no composer", () => {

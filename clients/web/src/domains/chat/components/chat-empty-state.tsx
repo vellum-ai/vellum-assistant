@@ -1,12 +1,10 @@
-
-import { type ReactNode } from "react";
-
 import { BusyIndicator } from "@/domains/chat/components/busy-indicator";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
-import { Typography } from "@vellumai/design-library";
 
 /**
- * Empty-state hero for a fresh chat: optional avatar and greeting headline.
+ * Empty-state hero for a fresh chat: the serif greeting headline. The
+ * avatar itself lives in `ComposerPeek` (hanging from the top of the
+ * screen, or peeking behind the input), not beside the headline.
  * Presentational only — the composer and conversation-starter chips are
  * rendered by the parent `ChatBody` in the same flex column so that
  * greeting → composer → starters appear as one vertically-centered group.
@@ -28,36 +26,30 @@ export interface ChatEmptyStateProps {
    * greeting doesn't flash before the personalized one arrives.
    */
   isGenerating?: boolean;
-  /**
-   * Optional avatar rendered above the greeting on mobile, or to its left on
-   * desktop. Caller passes a
-   * `<ChatAvatar … size={40} interactive />` when avatar data is available;
-   * omit the slot to render greeting-only.
-   */
-  avatarSlot?: ReactNode;
 }
 
 export function ChatEmptyState({
   greeting = DEFAULT_EMPTY_STATE_GREETING,
   isGenerating = false,
-  avatarSlot,
 }: ChatEmptyStateProps) {
   return (
-    <div className="py-8">
+    // Extra bottom padding over the top: the greeting reads as its own
+    // group with clear air above the composer (Figma: New-App 7471-25035).
+    <div className="pt-8 pb-16">
       <div className="mx-auto w-full max-w-[var(--chat-max-width)] px-3 sm:px-6">
-        <div className="flex flex-col items-center justify-center gap-3 md:flex-row">
-          {avatarSlot}
+        <div className="flex flex-col items-center justify-center">
           {isGenerating ? (
             <BusyIndicator size={10} />
           ) : (
-            <>
-              <Typography variant="title-medium" className="text-[var(--content-emphasized)] md:hidden">
-                {greeting}
-              </Typography>
-              <Typography variant="title-large" className="hidden text-[var(--content-emphasized)] md:block">
-                {greeting}
-              </Typography>
-            </>
+            /* The serif brand headline (Figma "Brand/Medium": Instrument
+               Serif 32px) — larger than the old title tokens, scaled down
+               a step on mobile. */
+            <h1
+              className="text-center text-[24px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasized)] md:text-[32px]"
+              style={{ fontFamily: "var(--font-serif)" }}
+            >
+              {greeting}
+            </h1>
           )}
         </div>
       </div>

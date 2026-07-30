@@ -134,7 +134,9 @@ const BLOCK_SIZE = 512;
 
 function padToBlock(data: Uint8Array): Uint8Array {
   const remainder = data.length % BLOCK_SIZE;
-  if (remainder === 0) return data;
+  if (remainder === 0) {
+    return data;
+  }
   const padded = new Uint8Array(data.length + (BLOCK_SIZE - remainder));
   padded.set(data);
   return padded;

@@ -3,11 +3,17 @@
  *
  * Phase transitions: `pending` → `visible` → `dismissed`.
  * The card becomes visible when all conditions are met (native, did onboarding,
- * greeting arrived, no tasks selected during prechat). Once dismissed it never
- * reappears.
+ * greeting arrived, and the handoff is choice-eligible — see
+ * `onboardingChoiceEligible` below). Once dismissed it never reappears.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { PRECHAT_TASKS } from "@/types/prechat-tasks";
@@ -16,7 +22,17 @@ interface UseOnboardingChoiceOptions {
   isNative: boolean;
   didOnboarding: boolean;
   messages: DisplayMessage[];
-  onboardingTasksEmpty: boolean;
+  /**
+   * True when the pre-chat handoff qualifies for the choice card: the user
+   * selected no tasks during prechat (so the card's task chooser has work to
+   * do) AND the handoff did not auto-send a hidden kickoff message
+   * (`initialMessageHidden` on the pre-chat context). Hidden-kickoff flows
+   * (research onboarding's "Let's chat") script the assistant's first reply —
+   * including its own choice surface — so the legacy card must never stack on
+   * top. Derived from the validated pre-chat context by
+   * `useOnboardingOrchestrator`.
+   */
+  onboardingChoiceEligible: boolean;
   activeConversationId: string | null;
   onboardingConversationId: string | null;
   sendMessage: (content: string) => void;
@@ -33,7 +49,7 @@ export function useOnboardingChoice({
   isNative,
   didOnboarding,
   messages,
-  onboardingTasksEmpty,
+  onboardingChoiceEligible,
   activeConversationId,
   onboardingConversationId,
   sendMessage,
@@ -70,8 +86,8 @@ export function useOnboardingChoice({
       phase === "pending" &&
       isNative &&
       didOnboarding &&
+      onboardingChoiceEligible &&
       greetingSeenRef.current &&
-      onboardingTasksEmpty &&
       activeConversationId === onboardingConversationId
     ) {
       visibleConversationIdRef.current = activeConversationId;
@@ -79,7 +95,15 @@ export function useOnboardingChoice({
     }
     // `messages` is not read in the body; listed so this effect re-fires
     // when a new message arrives and greetingSeenRef may have just latched.
-  }, [phase, isNative, didOnboarding, messages, onboardingTasksEmpty, activeConversationId, onboardingConversationId]);
+  }, [
+    phase,
+    isNative,
+    didOnboarding,
+    messages,
+    onboardingChoiceEligible,
+    activeConversationId,
+    onboardingConversationId,
+  ]);
 
   // Dismiss if the user switches to a different conversation.
   useEffect(() => {

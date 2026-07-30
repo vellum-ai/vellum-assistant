@@ -1,7 +1,7 @@
 import { v4 as uuid } from "uuid";
 
+import type { AssistantEvent } from "../api/index.js";
 import { getConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import type { ExecutionTarget } from "../tools/tool-types.js";
@@ -36,10 +36,10 @@ export class PermissionPrompter {
    * pendingInteractions, matching the host proxy pattern.
    */
   private ownedIds = new Set<string>();
-  private sendToClient: (msg: ServerMessage) => void;
+  private sendToClient: (msg: AssistantEvent) => void;
   private onStateChanged?: ConfirmationStateCallback;
 
-  constructor(sendToClient: (msg: ServerMessage) => void) {
+  constructor(sendToClient: (msg: AssistantEvent) => void) {
     this.sendToClient = sendToClient;
   }
 
@@ -47,7 +47,7 @@ export class PermissionPrompter {
     this.onStateChanged = cb;
   }
 
-  updateSender(sendToClient: (msg: ServerMessage) => void): void {
+  updateSender(sendToClient: (msg: AssistantEvent) => void): void {
     this.sendToClient = sendToClient;
   }
 
@@ -145,7 +145,7 @@ export class PermissionPrompter {
         signal.addEventListener("abort", onAbort, { once: true });
       }
 
-      const confirmationMsg: ServerMessage & {
+      const confirmationMsg: AssistantEvent & {
         type: "confirmation_request";
       } = {
         type: "confirmation_request",
@@ -180,10 +180,13 @@ export class PermissionPrompter {
 
       // Promote the confirmation to a guardian request so channel
       // guardian decisions (reactions, buttons, text) can resolve it.
+      // The prompter runs inside the emitting turn, so the request binds
+      // to that turn's trust snapshot.
       if (conversationId) {
         void createGuardianRequestForConfirmation(
           confirmationMsg,
           conversationId,
+          { preferTurnSnapshot: true },
         );
       }
 

@@ -81,6 +81,12 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   /** When set, the subagent/wake tool allowlist (see {@link subagentToolGateMode}). */
   subagentAllowedTools?: Set<string>;
   /**
+   * When true, side-effecting tools are refused for this subagent regardless of
+   * trust class (the read-only background continuation): kept off the wire tool
+   * surface and rejected in the executor gate. Independent of the allowlist.
+   */
+  subagentDenySideEffects?: boolean;
+  /**
    * Collects tool names the subagent attempted but that
    * {@link subagentAllowedTools} denied, for parent-visible reporting. The
    * executor records into this Set (shared by reference with the Conversation).
@@ -111,6 +117,18 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   callSessionId?: string;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
   readonly transportInterface?: InterfaceId;
+  /**
+   * Per-turn snapshot of the channel's UI capabilities, captured at turn start
+   * (mirrors {@link Conversation.currentTurnChannelCapabilities}). Read per tool
+   * call — together with the structural {@link SurfaceConversationContext.channelCapabilities}
+   * fallback — to derive `ToolContext.supportsDynamicUi`, so UI-dependent tools
+   * (e.g. `ask_question`) can degrade to text on channels that can't render
+   * dynamic surfaces.
+   */
+  readonly currentTurnChannelCapabilities?: {
+    readonly channel: string;
+    readonly supportsDynamicUi: boolean;
+  };
   /**
    * The conversation's per-chat plugin scope (mirrors
    * {@link Conversation.enabledPlugins}). `null`/absent means no per-chat

@@ -78,15 +78,16 @@ The `/webhooks/twilio/voice` endpoint handles both outbound and inbound voice ca
 When the voice webhook is called without a `callSessionId` query parameter, the gateway treats it as an inbound call and resolves the assistant using the standard routing chain:
 
 1. **`resolveAssistantByPhoneNumber(config, To)`** — Reverse lookup of the inbound `To` number against `assistantPhoneNumbers`. If the dialed number matches an assistant's configured phone number, that assistant handles the call.
-2. **Fallback to `resolveAssistant(From, From)`** — If no phone number match is found, the standard routing chain is used: `conversation_id` match, `actor_id` match, then the unmapped policy.
-3. **TwiML Reject for unmapped** — When the unmapped policy is `reject` (and no route matches), the gateway returns `<Reject reason="rejected"/>` TwiML directly to Twilio. Twilio plays a busy signal and hangs up. The call is never forwarded to the runtime.
+2. **Fallback to `resolveAssistant(From, From)`** — If no phone number match is found, the standard routing chain is used: `conversation_id` match, `actor_id` match, then the local assistant.
+3. **Admission, not routing, denies a call** — Routing resolves every identified caller (and anonymous callers too; voice lines are intentionally open). A call is refused with `<Reject reason="rejected"/>` TwiML only when the `phone` admission policy is `no_one`, which is checked before routing runs.
 4. **Forward with assistantId** — When routing succeeds, the gateway forwards the voice webhook to the runtime at `POST /v1/internal/twilio/voice-webhook` with a JSON body containing `{ params, originalUrl, assistantId }`. The runtime calls `createInboundVoiceSession()` to bootstrap a session keyed by CallSid, then returns `<Connect><Stream>` TwiML pointing Twilio to the gateway's media-stream WebSocket proxy (after a daemon-side STT/TTS credential preflight; calls that fail it get `<Say>` setup-required copy plus `<Hangup/>`).
 
 ### Inbound call lifecycle (gateway perspective)
 
 ```
 Caller → Twilio → Gateway /webhooks/twilio/voice (no callSessionId)
-  → resolveAssistantByPhoneNumber(To) || resolveAssistant(From) || TwiML Reject
+  → phone admission floor (`no_one` → TwiML Reject)
+  → resolveAssistantByPhoneNumber(To) || resolveAssistant(From) || local assistant
   → forward to runtime /v1/internal/twilio/voice-webhook (JSON: { params, originalUrl, assistantId })
   → runtime returns TwiML (<Connect><Stream> media-stream connect)
   → Twilio opens WebSocket → Gateway /webhooks/twilio/media-stream/<callSessionId>/<token> → Runtime /v1/calls/media-stream
@@ -131,7 +132,7 @@ The `/deliver/telegram` endpoint accepts an optional `approval` field in the req
 
 **Inline keyboard format:** Each action is rendered as a single-button row. The callback data uses the compact format `apr:<requestId>:<action>` (e.g., `apr:request-uuid:approve_once`) so the runtime can parse it back when the button is clicked.
 
-**Fallback behavior:** For non-rich channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before calling the delivery endpoint. The fallback includes plain-text instructions so the user can respond via text. The `channelSupportsRichApprovalUI()` function in the runtime determines which format to use. Free-text responses are classified by the conversational approval engine.
+**Fallback behavior:** For non-rich channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before calling the delivery endpoint. The fallback includes plain-text instructions so the user can respond via text. The `supportsInlineOptions` channel capability (`channelSupportsInlineOptions()`) in the runtime determines which format to use. Free-text responses are classified by the conversational approval engine.
 
 ## Telegram Typing Indicator
 
@@ -147,37 +148,37 @@ The gateway serves as the single public ingress point for all external callbacks
 
 Control-plane routes are listed with their flat paths. Clients emit assistant-scoped URLs (`/v1/assistants/{id}/...`) because multi-tenant cloud routing needs the id; the deployment boundary strips the prefix before the request reaches the gateway — cloud's Django `RuntimeProxyView` strips it for every route, and the self-hosted web client's ingress rewrite (`rewriteForSelfHostedIngress` in `clients/web/src/lib/api-interceptors.ts`) flattens the contact family (`contacts`, `contact-channels`) while forwarding other segments scoped, verbatim. Contacts are therefore served flat-only, while gateway-global families that self-hosted clients still reach with scoped paths (trust-rules, channel-admission-policy, channel-permission-overrides, backups) also register assistant-scoped variants that match and discard the id. The flattening spans the whole `contacts`/`contact-channels` segment family: self-hosted invites requests land on the gateway's flat edge-scoped invite routes (the same invite engine the assistant relays to), and assistant-only subpaths (`contacts/search`, `contacts/prompt`) fall through the runtime-proxy catch-all to the assistant verbatim. Never remove a flat control-plane route — the flat family is the load-bearing cloud path.
 
-| Route                                      | Method          | Description                                                                                                                                   |
-| ------------------------------------------ | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/webhooks/telegram`                       | POST            | Telegram bot webhook (validated via `TELEGRAM_WEBHOOK_SECRET`)                                                                                |
-| `/deliver/telegram`                        | POST            | Internal endpoint for the assistant runtime to deliver outbound messages/attachments to Telegram chats                                        |
-| `/webhooks/twilio/voice`                   | POST            | Twilio voice webhook (validated via HMAC-SHA1 signature)                                                                                      |
-| `/webhooks/twilio/status`                  | POST            | Twilio status callback (validated via HMAC-SHA1 signature)                                                                                    |
-| `/webhooks/twilio/media-stream/:callSessionId/:token` | WS   | Twilio Media Streams WebSocket (bidirectional proxy to runtime; handshake metadata in URL path segments)                                      |
-| `/webhooks/oauth/callback`                 | GET             | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime |
-| `/v1/channel-verification-sessions`        | POST            | Authenticated control-plane proxy for creating verification sessions (inbound challenge or outbound verification)                             |
-| `/v1/channel-verification-sessions`        | DELETE          | Authenticated control-plane proxy for cancelling active verification sessions                                                                 |
-| `/v1/channel-verification-sessions/resend` | POST            | Authenticated control-plane proxy for resending outbound verification code                                                                    |
-| `/v1/channel-verification-sessions/status` | GET             | Authenticated control-plane proxy for verification binding status                                                                             |
-| `/v1/channel-verification-sessions/revoke` | POST            | Authenticated control-plane proxy for revoking verification binding (cancels sessions and removes binding)                                    |
-| `/v1/integrations/telegram/config`         | GET/POST/DELETE | Authenticated control-plane proxy for Telegram integration config                                                                             |
-| `/v1/integrations/telegram/commands`       | POST            | Authenticated control-plane proxy for Telegram command registration                                                                           |
-| `/v1/integrations/telegram/setup`          | POST            | Authenticated control-plane proxy for Telegram setup orchestration                                                                            |
-| `/v1/contacts`                             | GET/POST        | Gateway-native contact list and upsert (search-filtered lists relay through the assistant runtime with a gateway ACL overlay)                 |
-| `/v1/contacts/:id`                         | GET/DELETE      | Gateway-native contact retrieval and deletion                                                                                                 |
-| `/v1/contacts/merge`                       | POST            | Gateway-native transactional contact merge                                                                                                    |
-| `/v1/contacts/prompt/submit`               | POST            | Contact info submitted in response to a `contact_request` prompt — gateway-first upsert, then IPC to unblock the waiting flow                 |
-| `/v1/contacts/guardian/channel`            | POST            | Guardian-authenticated guardian channel creation (platform auto-verify)                                                                       |
-| `/v1/contact-channels/:contactChannelId`   | PATCH           | Gateway-native contact-channel status/policy update                                                                                           |
-| `/v1/contact-channels/:contactChannelId/verify` | POST       | Guardian-authenticated manual channel verification                                                                                            |
-| `/v1/contacts/invites`                     | GET/POST        | Gateway-native invite list/create against the gateway DB's `ingress_invites` table                                                            |
-| `/v1/contacts/invites/:id`                 | DELETE          | Gateway-native invite revoke                                                                                                                  |
-| `/v1/contacts/invites/:id/call`            | POST            | Gateway-native invite-call relay — validates the invite row, then delegates the provider call to the assistant                                |
-| `/v1/contacts/invites/redeem`              | POST            | Gateway-native invite redemption (voice code and link token)                                                                                  |
-| `/v1/health`                               | GET             | Authenticated runtime health proxy (`/v1/health` on runtime)                                                                                  |
-| `/healthz`                                 | GET             | Liveness probe                                                                                                                                |
-| `/readyz`                                  | GET             | Readiness probe                                                                                                                               |
-| `/schema`                                  | GET             | Returns the OpenAPI 3.1 schema for this gateway                                                                                               |
+| Route                                                 | Method          | Description                                                                                                                                   |
+| ----------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/webhooks/telegram`                                  | POST            | Telegram bot webhook (validated via `TELEGRAM_WEBHOOK_SECRET`)                                                                                |
+| `/deliver/telegram`                                   | POST            | Internal endpoint for the assistant runtime to deliver outbound messages/attachments to Telegram chats                                        |
+| `/webhooks/twilio/voice`                              | POST            | Twilio voice webhook (validated via HMAC-SHA1 signature)                                                                                      |
+| `/webhooks/twilio/status`                             | POST            | Twilio status callback (validated via HMAC-SHA1 signature)                                                                                    |
+| `/webhooks/twilio/media-stream/:callSessionId/:token` | WS              | Twilio Media Streams WebSocket (bidirectional proxy to runtime; handshake metadata in URL path segments)                                      |
+| `/webhooks/oauth/callback`                            | GET             | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime |
+| `/v1/channel-verification-sessions`                   | POST            | Authenticated control-plane proxy for creating verification sessions (inbound challenge or outbound verification)                             |
+| `/v1/channel-verification-sessions`                   | DELETE          | Authenticated control-plane proxy for cancelling active verification sessions                                                                 |
+| `/v1/channel-verification-sessions/resend`            | POST            | Authenticated control-plane proxy for resending outbound verification code                                                                    |
+| `/v1/channel-verification-sessions/status`            | GET             | Authenticated control-plane proxy for verification binding status                                                                             |
+| `/v1/channel-verification-sessions/revoke`            | POST            | Authenticated control-plane proxy for revoking verification binding (cancels sessions and removes binding)                                    |
+| `/v1/integrations/telegram/config`                    | GET/POST/DELETE | Authenticated control-plane proxy for Telegram integration config                                                                             |
+| `/v1/integrations/telegram/commands`                  | POST            | Authenticated control-plane proxy for Telegram command registration                                                                           |
+| `/v1/integrations/telegram/setup`                     | POST            | Authenticated control-plane proxy for Telegram setup orchestration                                                                            |
+| `/v1/contacts`                                        | GET/POST        | Gateway-native contact list and upsert (search-filtered lists relay through the assistant runtime with a gateway ACL overlay)                 |
+| `/v1/contacts/:id`                                    | GET/DELETE      | Gateway-native contact retrieval and deletion                                                                                                 |
+| `/v1/contacts/merge`                                  | POST            | Gateway-native transactional contact merge                                                                                                    |
+| `/v1/contacts/prompt/submit`                          | POST            | Contact info submitted in response to a `contact_request` prompt — gateway-first upsert, then IPC to unblock the waiting flow                 |
+| `/v1/contacts/guardian/channel`                       | POST            | Guardian-authenticated guardian channel creation (platform auto-verify)                                                                       |
+| `/v1/contact-channels/:contactChannelId`              | PATCH           | Gateway-native contact-channel status/policy update                                                                                           |
+| `/v1/contact-channels/:contactChannelId/verify`       | POST            | Guardian-authenticated manual channel verification                                                                                            |
+| `/v1/contacts/invites`                                | GET/POST        | Gateway-native invite list/create against the gateway DB's `ingress_invites` table                                                            |
+| `/v1/contacts/invites/:id`                            | DELETE          | Gateway-native invite revoke                                                                                                                  |
+| `/v1/contacts/invites/:id/call`                       | POST            | Gateway-native invite-call relay — validates the invite row, then delegates the provider call to the assistant                                |
+| `/v1/contacts/invites/redeem`                         | POST            | Gateway-native invite redemption (voice code and link token)                                                                                  |
+| `/v1/health`                                          | GET             | Authenticated runtime health proxy (`/v1/health` on runtime)                                                                                  |
+| `/healthz`                                            | GET             | Liveness probe                                                                                                                                |
+| `/readyz`                                             | GET             | Readiness probe                                                                                                                               |
+| `/schema`                                             | GET             | Returns the OpenAPI 3.1 schema for this gateway                                                                                               |
 
 ### Tunnel Setup
 
@@ -369,14 +370,14 @@ See [`benchmarking/gateway/README.md`](../benchmarking/gateway/README.md) for lo
 
 ## Troubleshooting
 
-| Symptom                        | Check                                                                                                                                                                          |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Telegram messages not arriving | Is the webhook registered? `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`                                                                                           |
-| 401 on webhook                 | Does `TELEGRAM_WEBHOOK_SECRET` match the `secret_token` in setWebhook?                                                                                                         |
-| "No route configured" replies  | Add a routing entry or configure the unmapped policy to `default` with a default assistant via workspace config                                                                |
-| Runtime errors                 | Is the assistant runtime reachable? Check runtime logs.                                                                                                                        |
-| No reply from assistant        | Is the assistant runtime processing messages? Check that the runtime HTTP server is running.                                                                                   |
-| 403 on channel inbound         | The runtime rejected the request because JWT authentication failed. Ensure the gateway and runtime share the same signing key (`~/.vellum/protected/actor-token-signing-key`). |
+| Symptom                           | Check                                                                                                                                                                                                                             |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telegram messages not arriving    | Is the webhook registered? `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`                                                                                                                                              |
+| 401 on webhook                    | Does `TELEGRAM_WEBHOOK_SECRET` match the `secret_token` in setWebhook?                                                                                                                                                            |
+| Inbound messages silently dropped | Routing only drops events with no conversation _and_ no actor id (`"No routable identity"` in the `routing` logger). Anything else resolves; if it still never reaches the assistant, check the channel's admission policy floor. |
+| Runtime errors                    | Is the assistant runtime reachable? Check runtime logs.                                                                                                                                                                           |
+| No reply from assistant           | Is the assistant runtime processing messages? Check that the runtime HTTP server is running.                                                                                                                                      |
+| 403 on channel inbound            | The runtime rejected the request because JWT authentication failed. Ensure the gateway and runtime share the same signing key (`~/.vellum/protected/actor-token-signing-key`).                                                    |
 
 ### Guardian-Specific Troubleshooting
 

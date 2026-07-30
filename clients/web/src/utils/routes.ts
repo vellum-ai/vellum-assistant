@@ -16,7 +16,8 @@ const r = <const T extends string>(path: T): T => path;
 
 const dyn = (parent: string, id: string): string => `${parent}/${id}`;
 const LOCAL_ADMIN_ORIGIN = "http://localhost:3000";
-const SETTINGS_BILLING_PATH = r("/assistant/settings/billing");
+const SETTINGS_USAGE_PATH = r("/assistant/settings/usage");
+const PLANS_PATH = r("/assistant/plans");
 
 /**
  * Search param the chat transcript reads on load to scroll to and highlight a
@@ -24,6 +25,15 @@ const SETTINGS_BILLING_PATH = r("/assistant/settings/billing");
  * link producer (settings) and the consumer (chat).
  */
 export const SCROLL_TO_MESSAGE_PARAM = "message";
+
+/**
+ * Search param naming a Pro package. Carried by the checkout deep link
+ * (`/assistant/checkout?package=<slug>`) that the marketing pricing CTAs
+ * target, and by the plans takeover's one-shot switch deep link
+ * ({@link routes.plansForPackage}). Shared by every producer and reader so the
+ * spelling can't drift.
+ */
+export const PACKAGE_PARAM = "package";
 
 export const routes = {
   assistant: r("/assistant"),
@@ -74,7 +84,9 @@ export const routes = {
     relayToken?: string,
   ) => {
     const base = `${dyn(r("/assistant/conversations"), conversationId)}?prompt=${encodeURIComponent(prompt)}`;
-    return relayToken ? `${base}&relay=${encodeURIComponent(relayToken)}` : base;
+    return relayToken
+      ? `${base}&relay=${encodeURIComponent(relayToken)}`
+      : base;
   },
   /**
    * LLM-context inspector for a single conversation. The conversation id
@@ -129,8 +141,7 @@ export const routes = {
    */
   schedules: {
     root: r("/assistant/schedules"),
-    detail: (scheduleId: string) =>
-      dyn(r("/assistant/schedules"), scheduleId),
+    detail: (scheduleId: string) => dyn(r("/assistant/schedules"), scheduleId),
   },
   identity: r("/assistant/identity"),
   /**
@@ -181,6 +192,26 @@ export const routes = {
     root: r("/assistant/contacts"),
   },
 
+  /** Full-screen pricing takeover ("View Plans") — renders outside ChatLayout
+   *  chrome, a sibling of the settings/logs full-screen shells. */
+  plans: PLANS_PATH,
+  /**
+   * Plans takeover URL that opens the in-place package-switch flow for `key`
+   * on load. A one-shot deep link: the page consumes the param, strips it, and
+   * routes the key through the same guards a card click gets.
+   */
+  plansForPackage: (key: string) =>
+    `${PLANS_PATH}?${PACKAGE_PARAM}=${encodeURIComponent(key)}`,
+
+  /**
+   * Deep-link checkout entrypoint. The marketing pricing CTAs route here (via
+   * auth `returnTo`) with `?package=<slug>` to start Stripe checkout for a
+   * chosen Pro package. Sits behind auth but OUTSIDE `ActiveAssistantGate` so a
+   * brand-new user with no assistant can reach it; the resolver exempts it from
+   * the no-assistant funnel redirect.
+   */
+  checkout: r("/assistant/checkout"),
+
   settings: {
     root: r("/assistant/settings"),
     general: r("/assistant/settings/general"),
@@ -189,18 +220,33 @@ export const routes = {
     credentials: r("/assistant/settings/credentials"),
     notifications: r("/assistant/settings/notifications"),
     voice: r("/assistant/settings/voice"),
+    sounds: r("/assistant/settings/sounds"),
     privacy: r("/assistant/settings/privacy"),
     bookmarks: r("/assistant/settings/bookmarks"),
-    billing: SETTINGS_BILLING_PATH,
-    billingUsage: `${SETTINGS_BILLING_PATH}?tab=usage`,
+    usage: SETTINGS_USAGE_PATH,
+    // Deep-link straight to the Billing sub-tab (only shown when signed in to
+    // the Vellum platform).
+    usageBilling: `${SETTINGS_USAGE_PATH}?tab=billing`,
+    usageBillingConfigureTopUps: `${SETTINGS_USAGE_PATH}?tab=billing&configure_top_up=1`,
+    // Post-Stripe-Checkout return. The Billing tab opens the Pro onboarding
+    // wizard while `session_id` is in the URL — the same param the platform's
+    // web `success_url` lands on `/assistant/settings/billing` with.
+    usageBillingCheckout: (sessionId: string) => {
+      const params = new URLSearchParams({
+        tab: "billing",
+        session_id: sessionId,
+      });
+      return `${SETTINGS_USAGE_PATH}?${params.toString()}`;
+    },
     usageForSchedule: (scheduleId: string) => {
+      // Billing is the default tab when available, so force the Usage tab.
       const params = new URLSearchParams({
         tab: "usage",
         range: "7d",
         groupBy: "schedule",
         scheduleId,
       });
-      return `${SETTINGS_BILLING_PATH}?${params.toString()}`;
+      return `${SETTINGS_USAGE_PATH}?${params.toString()}`;
     },
     community: r("/assistant/settings/community"),
     developer: r("/assistant/settings/developer"),
@@ -228,28 +274,77 @@ export const routes = {
   },
 } as const;
 
+export interface AboutAssistantSection {
+  readonly key: string;
+  readonly label: string;
+  readonly to: string;
+}
+
 /**
- * Path prefixes of the "About Assistant" section — the routes mounted under
- * `IntelligenceLayout`'s tab bar. Sub-paths (e.g. `/assistant/plugins/:name`)
- * count as inside the section.
+ * Single source of truth for the About Assistant drill-down sections —
+ * the pages that wear `IntelligenceLayout`'s shared back-button chrome.
+ * Drives the layout chrome (label lookup via
+ * {@link aboutAssistantSectionForPath}), the sidebar's active-section
+ * highlight ({@link isAboutAssistantPath}), and the overview strip's
+ * labels/links (`buildIdentitySections`), so a section added here gets
+ * all three behaviors at once.
+ *
+ * Sub-paths count as inside a section: the legacy plugins/skills paths
+ * still carry the per-item detail routes (so they wear the My
+ * Superpowers chrome), and `/assistant/library/:appId` — the app viewer,
+ * which renders full-bleed *outside* `IntelligenceLayout` — still counts
+ * as Library territory for the sidebar highlight.
  */
-const ABOUT_ASSISTANT_PATHS: readonly string[] = [
+export const ABOUT_ASSISTANT_SECTIONS = [
+  { key: "schedules", label: "Schedules", to: routes.schedules.root },
+  { key: "superpowers", label: "My Superpowers", to: routes.superpowers },
+  { key: "plugins", label: "My Superpowers", to: routes.plugins },
+  { key: "skills", label: "My Superpowers", to: routes.skills.root },
+  { key: "memory", label: "Memory", to: routes.memory },
+  { key: "library", label: "Library", to: routes.library.root },
+  { key: "workspace", label: "Workspace", to: routes.workspace },
+  { key: "contacts", label: "Contacts", to: routes.contacts.root },
+  { key: "channels", label: "Channels", to: routes.channels },
+] as const satisfies readonly AboutAssistantSection[];
+
+export type AboutAssistantSectionKey =
+  (typeof ABOUT_ASSISTANT_SECTIONS)[number]["key"];
+
+/**
+ * About Assistant pages that render bare — the overview and personality
+ * own their full-bleed stage chrome, so they are not chrome sections.
+ */
+const BARE_ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.identity,
   routes.personality,
-  routes.schedules.root,
-  routes.memory,
-  routes.superpowers,
-  routes.plugins,
-  routes.skills.root,
-  routes.workspace,
-  routes.contacts.root,
-  routes.channels,
 ];
+
+const isPathWithin = (pathname: string, path: string): boolean =>
+  pathname === path || pathname.startsWith(`${path}/`);
+
+/** The chrome section `pathname` falls inside, if any. */
+export function aboutAssistantSectionForPath(
+  pathname: string,
+): AboutAssistantSection | null {
+  return (
+    ABOUT_ASSISTANT_SECTIONS.find(({ to }) => isPathWithin(pathname, to)) ??
+    null
+  );
+}
+
+/** The registry entry for `key` — label/path lookups for the overview strip. */
+export function aboutAssistantSection(
+  key: AboutAssistantSectionKey,
+): AboutAssistantSection {
+  // The key type is proven against the registry, so find() cannot miss.
+  return ABOUT_ASSISTANT_SECTIONS.find((section) => section.key === key)!;
+}
 
 /** Whether `pathname` falls inside the About Assistant section. */
 export function isAboutAssistantPath(pathname: string): boolean {
-  return ABOUT_ASSISTANT_PATHS.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  return (
+    BARE_ABOUT_ASSISTANT_PATHS.some((path) => isPathWithin(pathname, path)) ||
+    aboutAssistantSectionForPath(pathname) !== null
   );
 }
 

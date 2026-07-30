@@ -38,9 +38,6 @@ import {
   walkPluginTree,
 } from "./plugin-tree-walk.js";
 
-/** Directory names skipped at any depth. */
-const EXCLUDED_DIRS_ANYWHERE = new Set(["node_modules"]);
-
 /**
  * The result of one source walk over a plugin directory.
  */
@@ -83,7 +80,6 @@ export function snapshotPluginSource(pluginDir: string): SourceSnapshot {
     realRoot,
     {
       excludeRootEntries: [...PRESERVED_ENTRIES, GENERATED_APP_BUILD_DIR],
-      excludeDirsAnywhere: EXCLUDED_DIRS_ANYWHERE,
       excludeDotEntries: true,
       bestEffort: true,
     },

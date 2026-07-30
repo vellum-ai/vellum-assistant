@@ -14,7 +14,7 @@ export function clampUnitInterval(value: number): number {
  * `(x + 1) / 2`, then clamp. Single-channel display normalization for the
  * legacy v1 semantic-search path; do **not** use before hybrid fusion —
  * the affine rescale halves pairwise dense differences and shifts ranking
- * toward sparse. Hybrid fusion (`v2/sim.ts`) instead clamps negative
+ * toward sparse. Hybrid fusion (`substrate/sim.ts`) instead clamps negative
  * cosines to 0 with `Math.max(0, x)` and lets positive cosines pass
  * through unchanged.
  */

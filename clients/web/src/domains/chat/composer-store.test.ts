@@ -463,7 +463,9 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
+    if (att.kind !== "uploaded") {
+      throw new Error("expected uploaded attachment");
+    }
     expect(att.filename).toBe("IMG_5487.jpg");
     expect(att.mimeType).toBe("image/jpeg");
     expect(att.sizeBytes).toBe(111);
@@ -489,7 +491,9 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
+    if (att.kind !== "uploaded") {
+      throw new Error("expected uploaded attachment");
+    }
     expect(att.mimeType).toBe("image/png");
     expect(fetchAttachmentContentBlobMock).not.toHaveBeenCalled();
   });
@@ -511,7 +515,9 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
+    if (att.kind !== "uploaded") {
+      throw new Error("expected uploaded attachment");
+    }
     expect(att.filename).toBe("IMG_1.jpg");
     expect(att.mimeType).toBe("image/jpeg");
   });
@@ -526,7 +532,9 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
+    if (att.kind !== "uploaded") {
+      throw new Error("expected uploaded attachment");
+    }
     expect(att.filename).toBe("IMG_2.HEIC");
     expect(att.mimeType).toBe("image/heic");
     expect(fetchAttachmentContentBlobMock).not.toHaveBeenCalled();

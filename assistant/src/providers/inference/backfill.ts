@@ -24,7 +24,10 @@ import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
 import { isConnectionCompatibleWithModel } from "../connection-model-compat.js";
 import { MANAGED_ROUTABLE_PROVIDERS } from "../vellum-model-routing.js";
-import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "./auth.js";
+import {
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  ROUTING_IDENTITY_PROVIDERS,
+} from "./auth.js";
 import {
   createConnection,
   getConnection,
@@ -181,6 +184,14 @@ function ensureProviderConnection(
       { entry: entryLabel, provider },
       "Skipping backfill for provider that requires per-connection base_url/models",
     );
+    return false;
+  }
+
+  // Routing identities carry their target in the provider value itself —
+  // dispatch resolves the row per-request (vellum via the model's managed
+  // upstream, chatgpt via the subscription row). Stamping a provider-keyed
+  // row here would misroute them.
+  if (ROUTING_IDENTITY_PROVIDERS.has(provider)) {
     return false;
   }
 

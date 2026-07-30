@@ -70,7 +70,10 @@ export function resolveAnchoredGuardian(
       channelType: sourceGuardian.channelType,
       source: "source-channel-contact",
     };
-  } else if (vellumGuardian && !(requireAnchorPrincipal && !anchorPrincipalId)) {
+  } else if (
+    vellumGuardian &&
+    !(requireAnchorPrincipal && !anchorPrincipalId)
+  ) {
     // Source-channel resolution did not match the anchor → use the anchored
     // vellum identity.
     resolved = {

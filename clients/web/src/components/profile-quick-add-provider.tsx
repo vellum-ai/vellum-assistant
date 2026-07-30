@@ -16,7 +16,7 @@
  * success toast.
  *
  * The create-persistence here is a re-implementation, not a copy, of
- * `ManageProfilesModal`'s create path: that modal lives in the settings
+ * the retired settings profile-save path: that code lived in the settings
  * domain and uses its `useDaemonConfigMutation` hook, which this provider
  * cannot import (`local/no-cross-domain-imports`). So it persists via the
  * generated SDK functions (`configGet`/`configPatch`), sources `profileOrder`
@@ -29,20 +29,23 @@
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-    createContext,
-    useCallback,
-    useContext,
-    useMemo,
-    useRef,
-    useState,
-    type ReactNode,
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
 } from "react";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { ProfilePatchEntry } from "@/generated/daemon/types.gen";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import { configGet, configPatch } from "@/generated/daemon/sdk.gen";
-import { configGetSetQueryData, inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  configGetSetQueryData,
+  inferenceProviderconnectionsGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { toast } from "@vellumai/design-library/components/toast";
 
 interface OpenProfileQuickAddArgs {
@@ -67,9 +70,8 @@ interface ProfileQuickAddContextValue {
   openProfileQuickAdd: (args?: OpenProfileQuickAddArgs) => void;
 }
 
-const ProfileQuickAddContext = createContext<ProfileQuickAddContextValue | null>(
-  null,
-);
+const ProfileQuickAddContext =
+  createContext<ProfileQuickAddContextValue | null>(null);
 
 export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
@@ -115,7 +117,9 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   // config here keeps the append authoritative regardless of stale inputs.
   const handleSave = useCallback(
     async (name: string, entry: ProfilePatchEntry) => {
-      if (!assistantId) return;
+      if (!assistantId) {
+        return;
+      }
 
       // throwOnError: true so a failed reload ABORTS the save. With a swallowed
       // error the empty fallbacks below would treat the server config as empty

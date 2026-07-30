@@ -34,7 +34,10 @@
 // https://vite.dev/guide/worker#import-with-query-suffixes
 import WORKLET_MODULE_URL from "./pcm-downsample-worklet.ts?worker&url";
 
-import { createAudioContext, getAudioContextCtor } from "@/domains/chat/voice/audio-context";
+import {
+  createAudioContext,
+  getAudioContextCtor,
+} from "@/domains/chat/voice/audio-context";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
 import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
 
@@ -69,8 +72,7 @@ export type LiveVoiceCaptureError =
   | "unknown";
 
 export type LiveVoiceCaptureResult =
-  | { ok: true }
-  | { ok: false; error: LiveVoiceCaptureError; cause?: unknown };
+  { ok: true } | { ok: false; error: LiveVoiceCaptureError; cause?: unknown };
 
 export interface LiveVoiceAudioCaptureOptions {
   /** Receives each 16 kHz mono Int16 LE PCM chunk as a transferred buffer. */
@@ -154,9 +156,15 @@ export class LiveVoiceAudioCapture {
    * throw. Calling `start()` while already running is a no-op success.
    */
   async start(): Promise<LiveVoiceCaptureResult> {
-    if (this.disposed) return { ok: false, error: "unsupported" };
-    if (this.context) return { ok: true };
-    if (!isSupported()) return { ok: false, error: "unsupported" };
+    if (this.disposed) {
+      return { ok: false, error: "unsupported" };
+    }
+    if (this.context) {
+      return { ok: true };
+    }
+    if (!isSupported()) {
+      return { ok: false, error: "unsupported" };
+    }
 
     // Snapshot the cancel epoch at entry. A stop()/shutdown() that races our
     // awaits bumps the epoch (and/or sets `disposed`); seeing either change
@@ -232,7 +240,9 @@ export class LiveVoiceAudioCapture {
    * closes its gate. Synchronous: onChunk fires before this returns.
    */
   flush(): void {
-    if (this.batchLength === 0) return;
+    if (this.batchLength === 0) {
+      return;
+    }
     const tail = this.batch.buffer.slice(0, this.batchLength * 2);
     this.batchLength = 0;
     this.onChunk(tail);
@@ -257,9 +267,13 @@ export class LiveVoiceAudioCapture {
 
   /** Computes and forwards the smoothed RMS amplitude for a PCM chunk. */
   private emitAmplitude(buf: ArrayBuffer): void {
-    if (!this.onAmplitude) return;
+    if (!this.onAmplitude) {
+      return;
+    }
     const samples = new Int16Array(buf);
-    if (samples.length === 0) return;
+    if (samples.length === 0) {
+      return;
+    }
 
     let sumSquares = 0;
     for (let i = 0; i < samples.length; i++) {

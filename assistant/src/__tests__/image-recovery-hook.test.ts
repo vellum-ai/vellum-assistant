@@ -27,7 +27,7 @@ import {
   createConversation,
   getMessages,
 } from "../persistence/conversation-crud.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getMemorySqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
@@ -70,8 +70,8 @@ function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
-  db.run("DELETE FROM memory_segments");
-  db.run("DELETE FROM memory_embeddings");
+  getMemorySqlite()?.run("DELETE FROM memory_segments");
+  getMemorySqlite()?.run("DELETE FROM memory_embeddings");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }
@@ -238,6 +238,89 @@ describe("image-recovery post-model-call hook — direct", () => {
     expect(ctx.messages[0].content).toContainEqual({
       type: "text",
       text: "what is this?",
+    });
+  });
+
+  test("media-type-mismatch rejection → relabels the mislabeled image and continues", async () => {
+    // GIVEN a stored history holding a normally-sized PNG declared as
+    // image/jpeg (a renamed file — clients derive the MIME from the
+    // extension), and the provider rejection that mismatch produces.
+    const pngData = makePngBase64(1024, 768);
+    const mislabeled: ContentBlock = {
+      type: "image",
+      source: { type: "base64", media_type: "image/jpeg", data: pngData },
+    };
+    const conv = createConversation();
+    await addMessage(conv.id, "user", JSON.stringify([mislabeled]), {
+      skipIndexing: true,
+    });
+    const ctx = makePostModelCallCtx({
+      conversationId: conv.id,
+      messages: [{ role: "user", content: [structuredClone(mislabeled)] }],
+      error: new Error(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.0.image.source.base64.data: Image does not match the provided media type image/jpeg"}}',
+      ),
+    });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN it retries with the image relabeled to its sniffed type — bytes
+    // kept — both in the working history and in the stored row, so the
+    // mismatch cannot re-reject on this or any later turn.
+    expect(ctx.decision).toBe("continue");
+    const workingImage = ctx.messages[0].content[0] as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    expect(workingImage.source).toMatchObject({
+      media_type: "image/png",
+      data: pngData,
+    });
+    const storedImage = getMessages(conv.id)[0].content[0] as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    expect(storedImage.source).toMatchObject({
+      media_type: "image/png",
+      data: pngData,
+    });
+  });
+
+  test("media-type-mismatch on an unrecognized format → no retry, error surfaces", async () => {
+    // GIVEN a mismatch rejection for an image whose actual format the sniffer
+    // cannot identify (a renamed BMP: "BM" magic, not in the sniff set), so no
+    // relabel is possible and the image is within size limits.
+    const bmpData = Buffer.concat([
+      Buffer.from("BM"),
+      Buffer.alloc(64, 0),
+    ]).toString("base64");
+    const unrecognized: ContentBlock = {
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: bmpData },
+    };
+    const ctx = makePostModelCallCtx({
+      messages: [{ role: "user", content: [structuredClone(unrecognized)] }],
+      error: new Error(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.0.content.0.image.source.base64.data: Image does not match the provided media type image/png"}}',
+      ),
+    });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN it does not retry (nothing could be corrected) and leaves the
+    // history untouched, so the original error surfaces instead of a false
+    // "corrected — resend" loop.
+    expect(ctx.decision).toBe("stop");
+    expect(isImageRecoveryAttempted(ctx.conversationId)).toBe(false);
+    const image = ctx.messages[0].content[0] as Extract<
+      ContentBlock,
+      { type: "image" }
+    >;
+    expect(image.source).toMatchObject({
+      media_type: "image/png",
+      data: bmpData,
     });
   });
 

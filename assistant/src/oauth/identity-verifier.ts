@@ -19,7 +19,9 @@ function getNestedValue(obj: unknown, dotPath: string): unknown {
   const parts = dotPath.split(".");
   let current: unknown = obj;
   for (const part of parts) {
-    if (current == null || typeof current !== "object") return undefined;
+    if (current == null || typeof current !== "object") {
+      return undefined;
+    }
     current = (current as Record<string, unknown>)[part];
   }
   return current;
@@ -27,7 +29,9 @@ function getNestedValue(obj: unknown, dotPath: string): unknown {
 
 /** Safely parse a JSON string, returning a fallback on failure or null/undefined input. */
 function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
-  if (value == null) return fallback;
+  if (value == null) {
+    return fallback;
+  }
   try {
     return JSON.parse(value) as T;
   } catch {
@@ -56,7 +60,9 @@ export async function verifyIdentity(
   accessToken: string,
 ): Promise<string | undefined> {
   const { identityUrl: rawUrl } = providerRow;
-  if (!rawUrl) return undefined;
+  if (!rawUrl) {
+    return undefined;
+  }
 
   try {
     // Interpolate ${accessToken} in the URL (HubSpot pattern)
@@ -95,14 +101,18 @@ export async function verifyIdentity(
 
     // Make the request
     const resp = await fetch(url, init);
-    if (!resp.ok) return undefined;
+    if (!resp.ok) {
+      return undefined;
+    }
 
     const body: unknown = await resp.json();
 
     // Check OK field (Slack pattern: body.ok must be truthy)
     if (providerRow.identityOkField) {
       const okValue = getNestedValue(body, providerRow.identityOkField);
-      if (!okValue) return undefined;
+      if (!okValue) {
+        return undefined;
+      }
     }
 
     // Parse response paths
@@ -110,7 +120,9 @@ export async function verifyIdentity(
       providerRow.identityResponsePaths,
       [],
     );
-    if (responsePaths.length === 0) return undefined;
+    if (responsePaths.length === 0) {
+      return undefined;
+    }
 
     const { identityFormat } = providerRow;
 
@@ -118,7 +130,9 @@ export async function verifyIdentity(
     if (!identityFormat) {
       for (const path of responsePaths) {
         const value = getNestedValue(body, path);
-        if (value != null) return String(value);
+        if (value != null) {
+          return String(value);
+        }
       }
       return undefined;
     }
@@ -141,7 +155,9 @@ export async function verifyIdentity(
       }
     }
 
-    if (allResolved) return result;
+    if (allResolved) {
+      return result;
+    }
 
     // Fallback: if some tokens couldn't be resolved, try cleaning up
     // the format string by removing unresolved tokens and their surrounding
@@ -162,11 +178,15 @@ export async function verifyIdentity(
     }
 
     cleaned = cleaned.trim();
-    if (cleaned) return cleaned;
+    if (cleaned) {
+      return cleaned;
+    }
 
     // Last resort: return the first non-null path value
     for (const value of pathValues.values()) {
-      if (value != null) return value;
+      if (value != null) {
+        return value;
+      }
     }
 
     return undefined;

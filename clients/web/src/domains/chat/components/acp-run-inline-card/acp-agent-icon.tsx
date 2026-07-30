@@ -11,10 +11,15 @@ import { publicAsset } from "@/utils/public-asset";
 /** Resolve an agent string to a brand SVG under /images/prior-assistants, if known. */
 function brandSrc(agent: string): string | undefined {
   const a = agent.toLowerCase();
-  if (a.includes("claude")) return "/images/prior-assistants/claude.svg";
-  if (a.includes("codex") || a.includes("openai") || a.includes("gpt"))
+  if (a.includes("claude")) {
+    return "/images/prior-assistants/claude.svg";
+  }
+  if (a.includes("codex") || a.includes("openai") || a.includes("gpt")) {
     return "/images/prior-assistants/chatgpt.svg";
-  if (a.includes("copilot")) return "/images/prior-assistants/copilot.svg";
+  }
+  if (a.includes("copilot")) {
+    return "/images/prior-assistants/copilot.svg";
+  }
   return undefined;
 }
 

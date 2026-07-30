@@ -140,6 +140,8 @@ export async function managedSpeechTranscribe(input: {
 export async function managedSpeechSynthesize(input: {
   text: string;
   format: ManagedSpeechTtsFormat;
+  /** Voice model (e.g. "aura-2-thalia-en"); omitted = platform default. */
+  model?: string;
   signal?: AbortSignal;
 }): Promise<ManagedSpeechResult<ManagedSpeechSynthesis>> {
   const resolved = await resolveClient();
@@ -153,7 +155,11 @@ export async function managedSpeechSynthesize(input: {
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: input.text, format: input.format }),
+      body: JSON.stringify({
+        text: input.text,
+        format: input.format,
+        ...(input.model !== undefined ? { model: input.model } : {}),
+      }),
       signal: input.signal,
     },
   );
@@ -176,6 +182,83 @@ export async function managedSpeechSynthesize(input: {
     value: {
       audio,
       contentType: response.headers.get("content-type") ?? "audio/mpeg",
+    },
+  };
+}
+
+export interface ManagedSpeechVoice {
+  model: string;
+  label: string;
+  description: string;
+  sampleUrl: string;
+  /** Upstream provider that synthesizes this voice (e.g. "deepgram"). */
+  source: string;
+}
+
+export interface ManagedSpeechVoiceCatalog {
+  /** Offered voices in display order; only currently-usable voices. */
+  voices: ManagedSpeechVoice[];
+  /** Always one of `voices`; null when no voices are offered. */
+  defaultModel: string | null;
+}
+
+function parseVoice(value: unknown): ManagedSpeechVoice | null {
+  const voice = value as Partial<Record<keyof ManagedSpeechVoice, unknown>>;
+  if (
+    typeof voice?.model !== "string" ||
+    typeof voice.label !== "string" ||
+    typeof voice.description !== "string" ||
+    typeof voice.sampleUrl !== "string" ||
+    typeof voice.source !== "string"
+  ) {
+    return null;
+  }
+  return {
+    model: voice.model,
+    label: voice.label,
+    description: voice.description,
+    sampleUrl: voice.sampleUrl,
+    source: voice.source,
+  };
+}
+
+export async function managedSpeechVoices(input?: {
+  signal?: AbortSignal;
+}): Promise<ManagedSpeechResult<ManagedSpeechVoiceCatalog>> {
+  const resolved = await resolveClient();
+  if ("error" in resolved) {
+    return resolved.error;
+  }
+  const { client } = resolved;
+
+  const response = await client.fetch(
+    `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/managed-speech/tts/voices/`,
+    { method: "GET", signal: input?.signal },
+  );
+
+  if (!response.ok) {
+    return await platformError(response, "voice listing");
+  }
+
+  const body: unknown = await response.json().catch(() => null);
+  const raw = body as { voices?: unknown; defaultModel?: unknown } | null;
+  const voices = Array.isArray(raw?.voices)
+    ? raw.voices.map(parseVoice).filter((v): v is ManagedSpeechVoice => !!v)
+    : null;
+  if (!voices) {
+    return {
+      ok: false,
+      kind: "platform-error",
+      status: response.status,
+      message: "Managed speech voice listing returned a malformed response.",
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      voices,
+      defaultModel:
+        typeof raw?.defaultModel === "string" ? raw.defaultModel : null,
     },
   };
 }

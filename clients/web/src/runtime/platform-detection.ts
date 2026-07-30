@@ -17,11 +17,17 @@ import { isNativePlatform } from "@/runtime/native-auth";
  * Always returns `false` during SSR (no `navigator`).
  */
 export function isIOSBrowser(): boolean {
-  if (typeof navigator === "undefined") return false;
+  if (typeof navigator === "undefined") {
+    return false;
+  }
 
   const ua = navigator.userAgent;
-  if (/iPhone|iPod/.test(ua)) return true;
-  if (/iPad/.test(ua)) return true;
+  if (/iPhone|iPod/.test(ua)) {
+    return true;
+  }
+  if (/iPad/.test(ua)) {
+    return true;
+  }
 
   // iPadOS 13+ in desktop mode: reports as Mac but has multitouch
   const uaData = (
@@ -48,7 +54,9 @@ export function isIOSBrowser(): boolean {
  * Ref: https://developer.chrome.com/docs/multidevice/user-agent/#chrome_for_ios_user_agent
  */
 export function isSafariBrowser(): boolean {
-  if (typeof navigator === "undefined") return false;
+  if (typeof navigator === "undefined") {
+    return false;
+  }
   const ua = navigator.userAgent;
   return (
     /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium/.test(ua)
@@ -67,8 +75,12 @@ export function isSafariBrowser(): boolean {
  * Always returns `false` during SSR (no `navigator`).
  */
 export function isMacOSBrowser(): boolean {
-  if (typeof navigator === "undefined") return false;
-  if (isIOSBrowser()) return false;
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+  if (isIOSBrowser()) {
+    return false;
+  }
   const uaData = (
     navigator as Navigator & {
       userAgentData?: { platform?: string };
@@ -91,7 +103,9 @@ export function isMacOSBrowser(): boolean {
  * Always returns `false` during SSR (no `navigator`).
  */
 export function isAndroidBrowser(): boolean {
-  if (typeof navigator === "undefined") return false;
+  if (typeof navigator === "undefined") {
+    return false;
+  }
   return /Android/i.test(navigator.userAgent);
 }
 
@@ -137,14 +151,20 @@ export type ClientOs = "macos" | "ios" | "android" | "web";
  * `false` when `window`/`navigator` are undefined, so SSR resolves to `web`.
  */
 export function detectClientOs(): ClientOs {
-  if (isElectron()) return "macos";
+  if (isElectron()) {
+    return "macos";
+  }
   if (isNativePlatform()) {
     // `isNativePlatform()` is true for the iOS AND Android Capacitor shells,
     // so distinguish them explicitly rather than assuming iOS.
     return Capacitor.getPlatform() === "android" ? "android" : "ios";
   }
-  if (isIOSBrowser()) return "ios";
-  if (isAndroidBrowser()) return "android";
+  if (isIOSBrowser()) {
+    return "ios";
+  }
+  if (isAndroidBrowser()) {
+    return "android";
+  }
   return "web";
 }
 
@@ -285,4 +305,22 @@ export function useIsMacOSWeb(): boolean {
     () => isMacOSBrowser() && !isNativePlatform() && !isElectron(),
     () => false,
   );
+}
+
+/**
+ * Hook form of `isNativeIOS()`, safe to call from a render body.
+ *
+ * The value is correct on the very first render and constant thereafter:
+ * Capacitor injects `native-bridge.js` as a `WKUserScript` at
+ * `.atDocumentStart`, so `window.Capacitor` exists before this bundle
+ * executes. `subscribe` is a noop because nothing can change the value, and
+ * the `getServerSnapshot` argument is unreachable because `clients/web`
+ * renders client-only through `createRoot` (no SSR, no hydration).
+ *
+ * Prefer it over the bare function in JSX (docs/CAPACITOR.md): it keeps the
+ * shape consistent with `useIsIOSWeb` / `useIsMacOSWeb` and stays correct if a
+ * prerender step is ever added. There is no first-paint flicker to avoid.
+ */
+export function useIsNativeIOS(): boolean {
+  return useSyncExternalStore(noop, isNativeIOS, () => false);
 }

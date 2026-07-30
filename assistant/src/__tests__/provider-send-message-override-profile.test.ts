@@ -98,6 +98,72 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     expect(captured?.config?.callSite).toBe("conversationTitle");
   });
 
+  test("CallSiteConfiguredProvider forwards its stored overrideProfile when the caller sets callSite", async () => {
+    let captured: SendMessageOptions | undefined;
+    const inner: Provider = {
+      name: "anthropic",
+      async sendMessage(
+        _messages: Message[],
+        options?: SendMessageOptions,
+      ): Promise<ProviderResponse> {
+        captured = options;
+        return makeResponse("anthropic");
+      },
+    };
+
+    const provider = new CallSiteConfiguredProvider(
+      inner,
+      "inference",
+      "byok-sonnet",
+    );
+    await provider.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "inference" },
+    });
+
+    // Naming a call site must not opt the caller out of profile propagation:
+    // the two fields are independent, and downstream resolution reads the
+    // override off the config it is handed.
+    expect(captured?.config?.overrideProfile).toBe("byok-sonnet");
+  });
+
+  test("a profile-pinned send resolves the profile's model, not the call-site default", async () => {
+    setLlmConfig({
+      profiles: {
+        "balanced-together": {
+          provider: "together",
+          model: "moonshotai/Kimi-K2-Instruct",
+        },
+      },
+    });
+
+    let captured: Record<string, unknown> | undefined;
+    const inner: Provider = {
+      name: "together",
+      async sendMessage(
+        _messages: Message[],
+        options?: SendMessageOptions,
+      ): Promise<ProviderResponse> {
+        captured = options?.config as Record<string, unknown> | undefined;
+        return makeResponse("together");
+      },
+    };
+
+    const provider = new CallSiteConfiguredProvider(
+      new RetryProvider(inner),
+      "inference",
+      "balanced-together",
+    );
+    await provider.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "inference" },
+    });
+
+    // Losing the override strands a Together connection on the `inference`
+    // call-site default (`cost-optimized`), whose model is a Fireworks id —
+    // the provider half stays correct, so the upstream 400 names a model the
+    // caller never chose.
+    expect(captured?.model).toBe("moonshotai/Kimi-K2-Instruct");
+  });
+
   test("RetryProvider resolves model from named profile when overrideProfile is set", async () => {
     setLlmConfig({
       profiles: {

@@ -18,6 +18,7 @@
 import type {
   LatencyBreakdown,
   LatencyPhase,
+  LatencySubPhase,
 } from "../api/responses/llm-request-log-entry.js";
 
 /** Canonical mark names, in the order they fire on the first call of a turn. */
@@ -31,6 +32,13 @@ export type LatencyMark =
   | "call_complete";
 
 /**
+ * Phase key for the memory & context retrieval span. Exported so the
+ * orchestrator can open a sub-span recording scope
+ * (`turn-latency-sub-spans.ts`) keyed to this phase around the hook chain.
+ */
+export const MEMORY_CONTEXT_PHASE_KEY = "memory_context";
+
+/**
  * Phase metadata keyed by the mark that closes the span. A mark with no
  * entry here (e.g. `turn_start`, which only opens the first phase) emits
  * no phase of its own.
@@ -38,7 +46,7 @@ export type LatencyMark =
 const PHASE_BY_CLOSING_MARK: Record<string, { key: string; label: string }> = {
   prompt_hook_start: { key: "queue", label: "Queue & turn setup" },
   prompt_hook_end: {
-    key: "memory_context",
+    key: MEMORY_CONTEXT_PHASE_KEY,
     label: "Memory & context retrieval",
   },
   tools_resolved: { key: "setup", label: "Budget gate & tool resolution" },
@@ -54,11 +62,45 @@ export class TurnLatencyTracker {
     kind?: "thinking" | "text";
   }[] = [];
 
+  /**
+   * Sub-spans accumulated against a phase key, attached to that phase the
+   * first time it serializes (consume-on-attach, so multi-call turns emit
+   * them exactly once). Entries for a phase that never serializes die with
+   * the per-turn tracker.
+   */
+  private readonly subSpansByPhase = new Map<string, LatencySubPhase[]>();
+
+  /**
+   * Record a caller-measured sub-span inside the phase identified by
+   * `parentPhaseKey` (e.g. {@link MEMORY_CONTEXT_PHASE_KEY}). Insertion
+   * order is preserved — the inspector renders sub-steps in execution
+   * order. A negative duration (non-monotonic clock) is dropped, mirroring
+   * the phase-level guard in {@link serializeSince}.
+   */
+  recordSubSpan(
+    parentPhaseKey: string,
+    key: string,
+    label: string,
+    ms: number,
+  ): void {
+    if (ms < 0) {
+      return;
+    }
+    const existing = this.subSpansByPhase.get(parentPhaseKey);
+    if (existing) {
+      existing.push({ key, label, ms });
+    } else {
+      this.subSpansByPhase.set(parentPhaseKey, [{ key, label, ms }]);
+    }
+  }
+
   /** Stamp a point-in-time mark. Cheap (`Date.now()`); safe to over-call. */
   mark(name: LatencyMark): void {
     // A retried provider call re-issues `request_sent`; drop the failed
     // attempt's stale marks first so the retry's segment measures only itself.
-    if (name === "request_sent") this.supersedeFailedAttempt();
+    if (name === "request_sent") {
+      this.supersedeFailedAttempt();
+    }
     this.marks.push({ name, at: Date.now() });
   }
 
@@ -80,20 +122,28 @@ export class TurnLatencyTracker {
     let failedRequestSent = -1;
     for (let i = this.marks.length - 1; i >= 0; i--) {
       const name = this.marks[i]!.name;
-      if (name === "call_complete") return; // prior attempt finished — nothing stale
+      if (name === "call_complete") {
+        return;
+      } // prior attempt finished — nothing stale
       if (name === "request_sent") {
         failedRequestSent = i;
         break;
       }
     }
-    if (failedRequestSent === -1) return; // no prior attempt this turn
+    if (failedRequestSent === -1) {
+      return;
+    } // no prior attempt this turn
     // Drop from the failed attempt's paired setup mark (its `tools_resolved`,
     // if any) through its trailing marks, keeping a retry `tools_resolved`
     // already stamped as the last mark.
     let start = failedRequestSent;
-    if (this.marks[start - 1]?.name === "tools_resolved") start -= 1;
+    if (this.marks[start - 1]?.name === "tools_resolved") {
+      start -= 1;
+    }
     let end = this.marks.length;
-    if (this.marks[end - 1]!.name === "tools_resolved") end -= 1;
+    if (this.marks[end - 1]!.name === "tools_resolved") {
+      end -= 1;
+    }
     this.marks.splice(start, end - start);
   }
 
@@ -118,7 +168,9 @@ export class TurnLatencyTracker {
     cursor: number;
   } {
     const end = this.marks.length;
-    if (end === 0 || cursor >= end) return { breakdown: null, cursor: end };
+    if (end === 0 || cursor >= end) {
+      return { breakdown: null, cursor: end };
+    }
 
     const phases: LatencyPhase[] = [];
     // Start at max(cursor, 1): the first mark of the whole turn has no
@@ -126,14 +178,26 @@ export class TurnLatencyTracker {
     // is measured against the previous segment's last mark (index cursor-1).
     for (let i = Math.max(cursor, 1); i < end; i++) {
       const meta = PHASE_BY_CLOSING_MARK[this.marks[i]!.name];
-      if (!meta) continue;
+      if (!meta) {
+        continue;
+      }
       const ms = this.marks[i]!.at - this.marks[i - 1]!.at;
       // A non-monotonic clock would yield a negative span; drop it rather
       // than render misleading noise.
-      if (ms < 0) continue;
-      phases.push({ key: meta.key, label: meta.label, ms });
+      if (ms < 0) {
+        continue;
+      }
+      const phase: LatencyPhase = { key: meta.key, label: meta.label, ms };
+      const subPhases = this.subSpansByPhase.get(meta.key);
+      if (subPhases) {
+        phase.subPhases = subPhases;
+        this.subSpansByPhase.delete(meta.key);
+      }
+      phases.push(phase);
     }
-    if (phases.length === 0) return { breakdown: null, cursor: end };
+    if (phases.length === 0) {
+      return { breakdown: null, cursor: end };
+    }
 
     const breakdown: LatencyBreakdown = { phases };
     const requestSent = this.findMarkFrom("request_sent", cursor)?.at;
@@ -156,7 +220,9 @@ export class TurnLatencyTracker {
     }
     // Per-call kind, read off this segment's own `first_token` mark (a pure
     // tool-call response streams none, leaving it undefined).
-    if (firstTokenMark?.kind) breakdown.firstTokenKind = firstTokenMark.kind;
+    if (firstTokenMark?.kind) {
+      breakdown.firstTokenKind = firstTokenMark.kind;
+    }
     return { breakdown, cursor: end };
   }
 
@@ -165,7 +231,9 @@ export class TurnLatencyTracker {
     from: number,
   ): { at: number; kind?: "thinking" | "text" } | undefined {
     for (let i = Math.max(from, 0); i < this.marks.length; i++) {
-      if (this.marks[i]!.name === name) return this.marks[i]!;
+      if (this.marks[i]!.name === name) {
+        return this.marks[i]!;
+      }
     }
     return undefined;
   }

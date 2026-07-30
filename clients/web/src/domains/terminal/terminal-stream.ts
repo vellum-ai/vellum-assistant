@@ -7,7 +7,10 @@
  */
 
 import { client as platformClient } from "@/generated/api/client.gen";
-import { normalizeSSEPayload, unwrapMessageEnvelope } from "@/lib/streaming/sse-payload";
+import {
+  normalizeSSEPayload,
+  unwrapMessageEnvelope,
+} from "@/lib/streaming/sse-payload";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { toError } from "@/utils/to-error";
 
@@ -55,7 +58,9 @@ export function subscribeTerminalEvents(
   };
 
   const connect = async () => {
-    if (cancelled) return;
+    if (cancelled) {
+      return;
+    }
 
     let streamError: Error | null = null;
     try {
@@ -79,17 +84,23 @@ export function subscribeTerminalEvents(
       });
 
       for await (const payload of stream) {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
 
         const raw = normalizeSSEPayload(payload);
-        if (!raw) continue;
+        if (!raw) {
+          continue;
+        }
 
         const eventData = unwrapMessageEnvelope(raw);
 
         const seq = typeof eventData.seq === "number" ? eventData.seq : -1;
         const data = typeof eventData.data === "string" ? eventData.data : "";
 
-        if (seq < 0 || data === "") continue;
+        if (seq < 0 || data === "") {
+          continue;
+        }
 
         try {
           onEvent({ seq, data });
@@ -98,7 +109,9 @@ export function subscribeTerminalEvents(
         }
       }
 
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
 
       if (streamError) {
         onError(streamError);
@@ -107,7 +120,9 @@ export function subscribeTerminalEvents(
 
       onError(new Error("Terminal stream ended unexpectedly"));
     } catch (err) {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       onError(toError(err, "Terminal stream connection failed"));
     }
   };

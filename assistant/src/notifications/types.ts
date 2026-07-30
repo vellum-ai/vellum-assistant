@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { ChannelPolicies } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
 import { AccessRequestPayloadSchema } from "./access-request-copy.js";
+import { ToolApprovalSourceViewSchema } from "./guardian-question-mode.js";
 import { UrgencySchema } from "./urgency.js";
 
 /**
@@ -101,6 +102,10 @@ export const ChannelDeliveryPayloadSchema = z.object({
   urgency: UrgencySchema,
   approvalContext: ApprovalUIMetadataSchema.optional(),
   accessRequestContext: AccessRequestPayloadSchema.optional(),
+  /** Source reference for a tool-approval card, projected once by the
+   *  broadcaster so channel adapters render it without re-parsing
+   *  `contextPayload`. */
+  toolApprovalSource: ToolApprovalSourceViewSchema.optional(),
 });
 export type ChannelDeliveryPayload = z.infer<
   typeof ChannelDeliveryPayloadSchema

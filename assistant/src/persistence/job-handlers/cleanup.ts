@@ -1,7 +1,10 @@
 import type { AssistantConfig } from "../../config/types.js";
+import { HOOKS } from "../../plugin-api/constants.js";
+import { runHook } from "../../plugins/pipeline.js";
 import { rotateToolInvocations } from "../../telemetry/tool-usage-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getLogsDbPath } from "../../util/logs-db-path.js";
+import { purgeConversationSegments } from "../conversation-crud.js";
 import { runAsyncSqlite } from "../db-async-query.js";
 import { getDb } from "../db-connection.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
@@ -43,11 +46,14 @@ export async function pruneOldLlmRequestLogsJob(
   // which no longer enqueues a retention-0 prune; guarding here too ensures a
   // job left pending from before that fix does not wipe every log on its next
   // run.
-  if (retentionMs === null || retentionMs === undefined || retentionMs <= 0)
+  if (retentionMs === null || retentionMs === undefined || retentionMs <= 0) {
     return;
+  }
 
   const cutoffMs = Math.floor(Date.now() - retentionMs);
-  if (!Number.isFinite(cutoffMs)) return;
+  if (!Number.isFinite(cutoffMs)) {
+    return;
+  }
 
   // Inline the cutoff and batch limit (both integers, both validated)
   // and chain `SELECT changes()` so we can read the row count from the
@@ -112,7 +118,9 @@ export async function pruneOldToolInvocationsJob(
   // 0 (or any non-positive window) means disabled — keep forever. Guarding
   // <= 0 mirrors the LLM-log prune and short-circuits before dispatching a
   // pointless async query (rotateToolInvocations no-ops on this too).
-  if (retentionDays <= 0) return;
+  if (retentionDays <= 0) {
+    return;
+  }
 
   await rotateToolInvocations(retentionDays);
 }
@@ -132,11 +140,15 @@ export function _parseDeletedCount(stdout: string | undefined): number {
 }
 
 function parseDeletedCount(stdout: string | undefined): number {
-  if (!stdout) return 0;
+  if (!stdout) {
+    return 0;
+  }
   const lines = stdout.split(/\r?\n/).filter((s) => s.trim().length > 0);
   for (let i = lines.length - 1; i >= 0; i--) {
     const n = parseInt(lines[i].trim(), 10);
-    if (Number.isFinite(n) && n >= 0) return n;
+    if (Number.isFinite(n) && n >= 0) {
+      return n;
+    }
   }
   return 0;
 }
@@ -167,7 +179,9 @@ export function pruneOldConversationsJob(
   // 0 (or any non-positive window) means disabled — keep forever. Guarding
   // <= 0 mirrors the LLM-log prune so a stray non-positive window can never
   // produce a cutoff at/after `now` that deletes live conversations.
-  if (retentionDays <= 0) return;
+  if (retentionDays <= 0) {
+    return;
+  }
 
   const cutoffMs = Date.now() - retentionDays * 86_400_000;
 
@@ -177,10 +191,12 @@ export function pruneOldConversationsJob(
     cutoffMs,
     PRUNE_BATCH_LIMIT,
   );
-  if (stale.length === 0) return;
+  if (stale.length === 0) {
+    return;
+  }
 
   const db = getDb();
-  let pruned = 0;
+  const prunedIds: string[] = [];
   for (const { id } of stale) {
     db.transaction(() => {
       // Re-check staleness inside the transaction to avoid racing with a conversation
@@ -191,7 +207,9 @@ export function pruneOldConversationsJob(
         id,
         cutoffMs,
       );
-      if (still.length === 0) return;
+      if (still.length === 0) {
+        return;
+      }
 
       // Non-cascading tables. llm_request_logs and conversation-scoped
       // telemetry_events rows live in the dedicated logs/telemetry
@@ -226,9 +244,21 @@ export function pruneOldConversationsJob(
         `DELETE FROM conversations WHERE id = ?`,
         id,
       );
-      pruned++;
+      prunedIds.push(id);
     });
   }
+
+  // Purge each pruned conversation's segments directly, then fire the
+  // conversation-deleted signal. The hook is fire-and-forget and a no-op when
+  // the memory plugin is disabled, so relying on it alone would leave the
+  // deleted conversation's plaintext segment rows in the memory database; the
+  // direct purge removes them regardless. The hook still handles the derived
+  // per-conversation tables and cancels the conversation's pending jobs.
+  for (const id of prunedIds) {
+    purgeConversationSegments(id);
+    void runHook(HOOKS.CONVERSATION_DELETED, { conversationId: id });
+  }
+  const pruned = prunedIds.length;
 
   if (stale.length === PRUNE_BATCH_LIMIT) {
     enqueueMemoryJob("prune_old_conversations", { retentionDays });

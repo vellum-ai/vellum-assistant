@@ -7,53 +7,46 @@
  * app's workspace panel.
  */
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-    queryOptions,
-    useMutation,
-    useQuery,
-    useQueryClient,
-} from "@tanstack/react-query";
-import {
-    ArrowDownAZ,
-    ArrowDownWideNarrow,
-    ChevronDown,
-    ChevronRight,
-    Eye,
-    EyeOff,
-    FilePlus,
-    FileText,
-    Folder,
-    FolderPlus,
-    Image as ImageIcon,
-    Pencil,
-    Plus,
-    Search,
-    Trash2,
-    Video,
-    X,
+  ArrowDownAZ,
+  ArrowDownWideNarrow,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  FilePlus,
+  FileText,
+  Folder,
+  FolderPlus,
+  Image as ImageIcon,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  Video,
+  X,
 } from "lucide-react";
-import {
-    type FormEvent,
-    useCallback,
-    useMemo,
-    useRef,
-    useState,
-} from "react";
+import { type FormEvent, useCallback, useMemo, useRef, useState } from "react";
 
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
-    sortEntries,
-    type WorkspaceSortMode,
+  sortEntries,
+  type WorkspaceSortMode,
 } from "@/domains/workspace/utils/sort-entries";
 import {
-    workspaceDeletePost,
-    workspaceMkdirPost,
-    workspaceRenamePost,
-    workspaceTreeGet,
-    workspaceWritePost,
+  workspaceDeletePost,
+  workspaceMkdirPost,
+  workspaceRenamePost,
+  workspaceTreeGet,
+  workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
 import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
+import {
+  WORKSPACE_TREE_QUERY_KEY,
+  workspaceTreeQueryOptions,
+} from "@/lib/workspace-tree-query";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
@@ -81,32 +74,6 @@ interface EntryTarget {
 type TreeDialog =
   | { type: "create"; kind: "file" | "folder"; parentPath: string }
   | { type: "rename"; path: string; name: string };
-
-function workspaceTreeRetrieveOptions(opts: {
-  path: { assistant_id: string };
-  query?: { path?: string; showHidden?: boolean; includeDirSizes?: boolean };
-}) {
-  return queryOptions<WorkspaceTreeGetResponse>({
-    queryFn: async () => {
-      const query: Record<string, string> = {};
-      if (opts.query?.path) query.path = opts.query.path;
-      if (opts.query?.showHidden) query.showHidden = "true";
-      if (opts.query?.includeDirSizes) query.includeDirSizes = "true";
-      const { data, error } = await workspaceTreeGet({
-        path: opts.path,
-        query,
-      });
-      if (error) {
-        throw error;
-      }
-      if (!data) {
-        throw new Error("Failed to load workspace tree");
-      }
-      return data;
-    },
-    queryKey: ["assistantsWorkspaceTreeRetrieve", opts],
-  });
-}
 
 /**
  * The daemon's write and rename endpoints overwrite existing entries
@@ -221,13 +188,11 @@ function TreeNode({
     isDirectory && (isExpanded || searchLower.length > 0);
 
   const { data } = useQuery({
-    ...workspaceTreeRetrieveOptions({
-      path: { assistant_id: assistantId },
-      query: {
-        path: entryPath,
-        showHidden,
-        includeDirSizes: sortMode === "size",
-      },
+    ...workspaceTreeQueryOptions({
+      assistantId,
+      path: entryPath,
+      showHidden,
+      includeDirSizes: sortMode === "size",
     }),
     enabled: isDirectory && effectivelyExpanded,
   });
@@ -329,7 +294,11 @@ function TreeNode({
             <ContextMenu.Item
               leftIcon={<Trash2 className="h-3.5 w-3.5" />}
               onSelect={() =>
-                onRequestDelete({ path: entryPath, name: entryName, isDirectory })
+                onRequestDelete({
+                  path: entryPath,
+                  name: entryName,
+                  isDirectory,
+                })
               }
             >
               Delete
@@ -337,7 +306,11 @@ function TreeNode({
             <ContextMenu.Item
               leftIcon={<Pencil className="h-3.5 w-3.5" />}
               onSelect={() =>
-                onRequestRename({ path: entryPath, name: entryName, isDirectory })
+                onRequestRename({
+                  path: entryPath,
+                  name: entryName,
+                  isDirectory,
+                })
               }
             >
               Rename
@@ -413,14 +386,18 @@ function NameItemDialog({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (canSubmit) onConfirm(trimmed);
+    if (canSubmit) {
+      onConfirm(trimmed);
+    }
   };
 
   return (
     <Modal.Root
       open
       onOpenChange={(next) => {
-        if (!next && !pending) onCancel();
+        if (!next && !pending) {
+          onCancel();
+        }
       }}
     >
       <Modal.Content
@@ -443,7 +420,9 @@ function NameItemDialog({
         onEscapeKeyDown={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          if (!pending) onCancel();
+          if (!pending) {
+            onCancel();
+          }
         }}
       >
         <form onSubmit={handleSubmit}>
@@ -533,9 +512,10 @@ export function WorkspaceTree({
   }, []);
 
   const { data, isLoading } = useQuery(
-    workspaceTreeRetrieveOptions({
-      path: { assistant_id: assistantId },
-      query: { showHidden, includeDirSizes: sortMode === "size" },
+    workspaceTreeQueryOptions({
+      assistantId,
+      showHidden,
+      includeDirSizes: sortMode === "size",
     }),
   );
 
@@ -549,7 +529,7 @@ export function WorkspaceTree({
   // contents from the viewer.
   const invalidateWorkspace = useCallback(() => {
     for (const key of [
-      "assistantsWorkspaceTreeRetrieve",
+      WORKSPACE_TREE_QUERY_KEY,
       "assistantsWorkspaceFileRetrieve",
       "assistantsWorkspaceFileContentRetrieve",
     ]) {
@@ -613,7 +593,12 @@ export function WorkspaceTree({
       const newPath = parentPath
         ? `${parentPath}/${input.newName}`
         : input.newName;
-      await assertNameAvailable(assistantId, parentPath, input.newName, oldName);
+      await assertNameAvailable(
+        assistantId,
+        parentPath,
+        input.newName,
+        oldName,
+      );
       const { error, response } = await workspaceRenamePost({
         path: { assistant_id: assistantId },
         body: { oldPath: input.oldPath, newPath },
@@ -876,7 +861,9 @@ export function WorkspaceTree({
         destructive
         isPending={deleteMutation.isPending}
         onConfirm={() => {
-          if (deleteTarget) deleteMutation.mutate(deleteTarget);
+          if (deleteTarget) {
+            deleteMutation.mutate(deleteTarget);
+          }
         }}
         onCancel={() => setDeleteTarget(null)}
       />

@@ -24,6 +24,7 @@ import {
   jpegFilenameFor,
   normalizeImageBase64,
   normalizeImageBytes,
+  sniffImageFileMimeType,
 } from "../util/image-conversion.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -43,8 +44,12 @@ export interface StoredAttachment {
 }
 
 export function classifyKind(mimeType: string): string {
-  if (mimeType.startsWith("image/")) return "image";
-  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("image/")) {
+    return "image";
+  }
+  if (mimeType.startsWith("video/")) {
+    return "video";
+  }
   return "document";
 }
 
@@ -56,15 +61,21 @@ export class AttachmentUploadError extends Error {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function resolveUniqueFilename(dir: string, filename: string): string {
   const sanitized = basename(filename);
   const existingPath = join(dir, sanitized);
-  if (!existsSync(existingPath)) return sanitized;
+  if (!existsSync(existingPath)) {
+    return sanitized;
+  }
 
   const ext = extname(sanitized);
   const base = basename(sanitized, ext);
@@ -266,7 +277,9 @@ function materializeAttachmentIntoConversation(
     const readablePath = [row.filePath, row.sourcePath].find(
       (path): path is string => !!path && existsSync(path),
     );
-    if (!readablePath) return;
+    if (!readablePath) {
+      return;
+    }
 
     if (!sourcePath && readablePath !== row.filePath) {
       sourcePath = readablePath;
@@ -359,7 +372,9 @@ export function scopeAttachmentToMessageConversation(
     conversationCreatedAt,
   );
   const row = getAttachmentRow(scopedId);
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return {
     id: row.id,
     originalFilename: row.originalFilename,
@@ -405,7 +420,9 @@ export function writeAttachmentToDisk(
 const INVALID_BASE64_RE = /[^A-Za-z0-9+/=]/;
 
 export function isValidBase64(data: string): boolean {
-  if (data.length === 0) return true;
+  if (data.length === 0) {
+    return true;
+  }
   return !INVALID_BASE64_RE.test(data);
 }
 
@@ -612,6 +629,13 @@ export function uploadAttachmentFromBytes(
  *
  * The file stays on disk; the attachment row stores an empty dataBase64 and
  * records the on-disk path in the `file_path` column.
+ *
+ * A declared image MIME that disagrees with the file's magic bytes is
+ * corrected before the row is written. Callers here pass a MIME they were
+ * handed (a signal's attachment metadata, a tool's `mimeType` argument), which
+ * is ultimately extension-derived — and the stored value becomes the
+ * `media_type` on every replay of the message, so a wrong one makes the
+ * provider reject the conversation on every later turn.
  */
 export function uploadFileBackedAttachment(
   filename: string,
@@ -620,7 +644,9 @@ export function uploadFileBackedAttachment(
   sizeBytes: number,
 ): StoredAttachment & { filePath: string } {
   const now = Date.now();
-  const kind = classifyKind(mimeType);
+  const sniffed = sniffImageFileMimeType(filePath);
+  const storedMimeType = sniffed && sniffed !== mimeType ? sniffed : mimeType;
+  const kind = classifyKind(storedMimeType);
   const id = uuid();
   const db = getDb();
 
@@ -628,7 +654,7 @@ export function uploadFileBackedAttachment(
     .values({
       id,
       originalFilename: filename,
-      mimeType,
+      mimeType: storedMimeType,
       sizeBytes,
       kind,
       dataBase64: "",
@@ -647,7 +673,7 @@ export function uploadFileBackedAttachment(
   return {
     id,
     originalFilename: filename,
-    mimeType,
+    mimeType: storedMimeType,
     sizeBytes,
     kind,
     thumbnailBase64: null,
@@ -677,7 +703,9 @@ export function getFilePathForAttachment(attachmentId: string): string | null {
 export function getSourcePathsForAttachments(
   attachmentIds: string[],
 ): Map<string, string> {
-  if (attachmentIds.length === 0) return new Map();
+  if (attachmentIds.length === 0) {
+    return new Map();
+  }
   const placeholders = attachmentIds.map(() => "?").join(", ");
   const rows = rawAll<{ id: string; source_path: string }>(
     "attachments:getSourcePaths",
@@ -729,7 +757,9 @@ export function getFilePathBySourcePath(
  */
 export function getAttachmentContent(attachmentId: string): Buffer | null {
   const row = getAttachmentRow(attachmentId);
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
 
   try {
     if (row.filePath) {
@@ -779,10 +809,11 @@ function normalizeUploadedImageBase64(
   dataBase64: string,
 ): { filename: string; mimeType: string; dataBase64: string } {
   const norm = normalizeImageBase64(mimeType, dataBase64);
-  if (
-    !norm.converted ||
-    computeSizeBytesFromBase64(norm.dataBase64) > MAX_UPLOAD_BYTES
-  ) {
+  if (!norm.converted) {
+    // Bytes untouched, but the declared MIME may have been sniff-corrected.
+    return { filename, mimeType: norm.mimeType, dataBase64 };
+  }
+  if (computeSizeBytesFromBase64(norm.dataBase64) > MAX_UPLOAD_BYTES) {
     return { filename, mimeType, dataBase64 };
   }
   return {
@@ -1046,7 +1077,9 @@ export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
     .where(eq(attachments.id, attachmentId))
     .get();
 
-  if (!existing) return "not_found";
+  if (!existing) {
+    return "not_found";
+  }
 
   // An attachment row can still be shared by multiple messages inside the same
   // conversation. Only delete it when no remaining links point to the row.
@@ -1056,7 +1089,9 @@ export function deleteAttachment(attachmentId: string): DeleteAttachmentResult {
     .where(eq(messageAttachments.attachmentId, attachmentId))
     .all().length;
 
-  if (refCount > 0) return "still_referenced";
+  if (refCount > 0) {
+    return "still_referenced";
+  }
 
   // Collect file path BEFORE deleting the DB row (the row contains the path reference)
   const { filePath } = existing;
@@ -1079,7 +1114,9 @@ export function getAttachmentsByIds(
   ids: string[],
   options?: { hydrateFileData?: boolean },
 ): Array<StoredAttachment & { dataBase64: string }> {
-  if (ids.length === 0) return [];
+  if (ids.length === 0) {
+    return [];
+  }
   const db = getDb();
   const hydrateFileData = options?.hydrateFileData ?? false;
   const results: Array<StoredAttachment & { dataBase64: string }> = [];
@@ -1156,7 +1193,9 @@ export function getAttachmentsForMessage(
     .orderBy(messageAttachments.position)
     .all();
 
-  if (links.length === 0) return [];
+  if (links.length === 0) {
+    return [];
+  }
 
   const ids = links
     .map((l) => l.attachmentId)
@@ -1181,11 +1220,15 @@ export function getAttachmentMetadataForMessage(
     .orderBy(messageAttachments.position)
     .all();
 
-  if (links.length === 0) return [];
+  if (links.length === 0) {
+    return [];
+  }
 
   const results: StoredAttachment[] = [];
   for (const link of links) {
-    if (!link.attachmentId) continue;
+    if (!link.attachmentId) {
+      continue;
+    }
     const row = db
       .select({
         id: attachments.id,
@@ -1199,7 +1242,9 @@ export function getAttachmentMetadataForMessage(
       .from(attachments)
       .where(eq(attachments.id, link.attachmentId))
       .get();
-    if (row) results.push(row);
+    if (row) {
+      results.push(row);
+    }
   }
   return results;
 }
@@ -1238,7 +1283,9 @@ export function getAttachmentById(
  * Returns the number of orphaned attachments removed.
  */
 export function deleteOrphanAttachments(candidateIds: string[]): number {
-  if (candidateIds.length === 0) return 0;
+  if (candidateIds.length === 0) {
+    return 0;
+  }
 
   const db = getDb();
 
@@ -1250,7 +1297,9 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
     ...candidateIds,
   ).map((row) => row.id);
 
-  if (orphanIds.length === 0) return 0;
+  if (orphanIds.length === 0) {
+    return 0;
+  }
 
   // Collect file paths BEFORE deleting the DB rows via Drizzle
   const orphanFilePaths: string[] = [];
@@ -1260,7 +1309,9 @@ export function deleteOrphanAttachments(candidateIds: string[]): number {
       .from(attachments)
       .where(eq(attachments.id, id))
       .get();
-    if (row?.filePath) orphanFilePaths.push(row.filePath);
+    if (row?.filePath) {
+      orphanFilePaths.push(row.filePath);
+    }
   }
 
   // Delete the orphaned DB rows first — if this fails, the on-disk files

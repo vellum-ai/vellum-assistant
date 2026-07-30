@@ -9,9 +9,9 @@ import { desc, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { loadSkillCatalog } from "../../config/skills.js";
-import { getDb } from "../../persistence/db-connection.js";
+import { getDb, getMemoryDb } from "../../persistence/db-connection.js";
 import type { MemoryJob } from "../../persistence/jobs-store.js";
-import { rawAll } from "../../persistence/raw-query.js";
+import { rawMemoryAll } from "../../persistence/raw-query.js";
 import {
   conversationStarters,
   memoryGraphNodes,
@@ -52,7 +52,10 @@ function buildMemoryRollup(): string {
     significance: number | null;
   }>;
   try {
-    const db = getDb();
+    const db = getMemoryDb();
+    if (!db) {
+      return "";
+    }
     rows = db
       .select({
         type: memoryGraphNodes.type,
@@ -69,7 +72,9 @@ function buildMemoryRollup(): string {
     return "";
   }
 
-  if (rows.length === 0) return "";
+  if (rows.length === 0) {
+    return "";
+  }
 
   const byKind = new Map<string, string[]>();
   for (const item of rows) {
@@ -95,9 +100,11 @@ function buildNewItemsDiff(): string {
   const lastGenAt =
     parseCheckpointInt(getCheckpointValue(checkpointKey(CK_LAST_GEN_AT))) ?? 0;
 
-  if (lastGenAt === 0) return ""; // No previous generation — skip diff
+  if (lastGenAt === 0) {
+    return "";
+  } // No previous generation — skip diff
 
-  const newItems = rawAll<{
+  const newItems = rawMemoryAll<{
     kind: string;
     content: string;
   }>(
@@ -108,7 +115,9 @@ function buildNewItemsDiff(): string {
     lastGenAt,
   );
 
-  if (newItems.length === 0) return "";
+  if (newItems.length === 0) {
+    return "";
+  }
 
   return (
     "## New since last generation\n" +
@@ -126,7 +135,9 @@ function buildNewItemsDiff(): string {
 function buildSkillsSummary(): string {
   try {
     const catalog = loadSkillCatalog();
-    if (catalog.length === 0) return "";
+    if (catalog.length === 0) {
+      return "";
+    }
 
     const lines = catalog
       .filter((s) => s.description && s.displayName)
@@ -411,15 +422,18 @@ export async function generateConversationStartersJob(
   const prevBatch = getCheckpointValue(checkpointKey(CK_BATCH));
   const nextBatch = prevBatch ? parseInt(prevBatch, 10) + 1 : 1;
 
-  // Collect the memory types that informed this batch
+  // Collect the memory types that informed this batch. Graph nodes live on the
+  // memory connection; the conversation_starters writes below stay on main.
   let sourceKinds = "";
   try {
-    const kindRows = db
-      .select({ kind: memoryGraphNodes.type })
-      .from(memoryGraphNodes)
-      .where(sql`${memoryGraphNodes.fidelity} != 'gone'`)
-      .groupBy(memoryGraphNodes.type)
-      .all();
+    const memoryDb = getMemoryDb();
+    const kindRows =
+      memoryDb
+        ?.select({ kind: memoryGraphNodes.type })
+        .from(memoryGraphNodes)
+        .where(sql`${memoryGraphNodes.fidelity} != 'gone'`)
+        .groupBy(memoryGraphNodes.type)
+        .all() ?? [];
     sourceKinds = kindRows.map((r) => r.kind).join(",");
   } catch {
     // Table may have been dropped (migration 203)

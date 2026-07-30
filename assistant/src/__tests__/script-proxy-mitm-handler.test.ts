@@ -127,7 +127,9 @@ function connectAndRequest(
     const onData = (chunk: Buffer) => {
       headerBuf += chunk.toString();
       const endIdx = headerBuf.indexOf("\r\n\r\n");
-      if (endIdx === -1) return;
+      if (endIdx === -1) {
+        return;
+      }
 
       socket.removeListener("data", onData);
       const statusLine = headerBuf.slice(0, headerBuf.indexOf("\r\n"));
@@ -159,9 +161,13 @@ function connectAndRequest(
       let resolved = false;
 
       const tryResolve = () => {
-        if (resolved) return;
+        if (resolved) {
+          return;
+        }
         const headerEndIdx = responseBuf.indexOf("\r\n\r\n");
-        if (headerEndIdx === -1) return;
+        if (headerEndIdx === -1) {
+          return;
+        }
 
         const responseHeaderBlock = responseBuf.slice(0, headerEndIdx);
         const bodyPart = responseBuf.slice(headerEndIdx + 4);
@@ -401,7 +407,9 @@ describe("MITM handler", () => {
         const onData = (chunk: Buffer) => {
           headerBuf += chunk.toString();
           const endIdx = headerBuf.indexOf("\r\n\r\n");
-          if (endIdx === -1) return;
+          if (endIdx === -1) {
+            return;
+          }
           socket.removeListener("data", onData);
           const connectStatus = Number(
             headerBuf.slice(0, headerBuf.indexOf("\r\n")).split(" ")[1],

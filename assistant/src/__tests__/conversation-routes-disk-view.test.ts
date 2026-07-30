@@ -264,7 +264,9 @@ function createFakeConversation(conversationId: string): Conversation {
 
 function getOrCreateFakeConversation(conversationId: string): Conversation {
   const existing = conversationInstances.get(conversationId);
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   const created = createFakeConversation(conversationId);
   conversationInstances.set(conversationId, created);
   return created;
@@ -277,7 +279,9 @@ async function waitFor<T>(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = getter();
-    if (value !== undefined) return value;
+    if (value !== undefined) {
+      return value;
+    }
     await Bun.sleep(20);
   }
   throw new Error("Timed out waiting for expected disk-view output");
@@ -409,9 +413,13 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
     const messagesPath = join(conversationDir, "messages.jsonl");
 
     const lines = await waitFor(() => {
-      if (!existsSync(messagesPath)) return undefined;
+      if (!existsSync(messagesPath)) {
+        return undefined;
+      }
       const raw = readFileSync(messagesPath, "utf-8").trim();
-      if (!raw) return undefined;
+      if (!raw) {
+        return undefined;
+      }
       const parsed = raw.split("\n").map(
         (line) =>
           JSON.parse(line) as {
@@ -603,9 +611,13 @@ describe("conversationKey send path disk-view regression", () => {
     expect(existsSync(metaPath)).toBe(true);
 
     const lines = await waitFor(() => {
-      if (!existsSync(messagesPath)) return undefined;
+      if (!existsSync(messagesPath)) {
+        return undefined;
+      }
       const raw = readFileSync(messagesPath, "utf-8").trim();
-      if (!raw) return undefined;
+      if (!raw) {
+        return undefined;
+      }
       const parsed = raw
         .split("\n")
         .map((line) => JSON.parse(line) as { role: string; content?: string });

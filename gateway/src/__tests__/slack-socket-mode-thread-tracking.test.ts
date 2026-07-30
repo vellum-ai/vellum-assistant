@@ -1,11 +1,12 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { LOCAL_ASSISTANT_ID } from "../assistant-id.js";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import * as schema from "../db/schema.js";
 import type { RuntimeInboundPayload } from "../runtime/client.js";
-import type { NormalizedSlackEvent } from "../slack/normalize.js";
+import type { NormalizedSlackEvent } from "../slack/message-schemas.js";
 import {
   SLACK_THREAD_ALREADY_MUTED,
   SLACK_THREAD_MUTE_SUCCESS,
@@ -81,7 +82,7 @@ mock.module("../verification/text-verification.js", () => ({
 
 const { SlackSocketModeClient } = await import("../slack/socket-mode.js");
 const { clearChannelInfoCache, clearUserInfoCache, resolveSlackUser } =
-  await import("../slack/normalize.js");
+  await import("../slack/user-directory.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
 const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
 const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
@@ -98,7 +99,6 @@ type SocketModeHarness = {
 function makeConfig(): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: "ast-default",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
@@ -122,7 +122,6 @@ function makeConfig(): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "reject",
     trustProxy: false,
   };
 }
@@ -179,6 +178,7 @@ function createSlackStore(): { rawDb: Database; store: SlackStore } {
 function createHarness(
   store: SlackStore,
   onEvent: (event: NormalizedSlackEvent) => void,
+  gatewayConfig: GatewayConfig = makeConfig(),
 ): SocketModeHarness {
   const harness = Object.create(
     SlackSocketModeClient.prototype,
@@ -189,7 +189,7 @@ function createHarness(
     botUserId: "UBOT",
     botUsername: "assistant",
     teamName: "Example Team",
-    gatewayConfig: makeConfig(),
+    gatewayConfig,
     threadMode: "mention_then_thread",
   };
   harness.onEvent = onEvent;
@@ -638,7 +638,7 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
-  test("does not pre-track unrouted app mention threads during slow mentioned-user lookup", async () => {
+  test("arms the thread for an app mention even while a mentioned-user lookup is still pending", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
@@ -697,13 +697,20 @@ describe("SlackSocketModeClient thread tracking", () => {
       );
       await flushAsyncEventEmission();
 
+      // Nothing emits while the mentioned-user lookup is still in flight —
+      // the queue preserves ordering rather than letting the reply overtake
+      // the mention that armed the thread.
       expect(emitted).toHaveLength(0);
 
       expect(resolveDelayedMention).toBeDefined();
       resolveDelayedMention!(makeSlackUserResponse());
       await flushAsyncEventEmission();
 
-      expect(emitted).toHaveLength(0);
+      // Once the lookup resolves both drain, in order. The channel has no
+      // routing entry, so both carry the local assistant.
+      expect(emitted).toHaveLength(2);
+      expect(emitted[0].event.source.updateId).toBe("Ev-unrouted-mention");
+      expect(emitted[1].event.source.updateId).toBe("Ev-unrouted-reply");
     } finally {
       rawDb.close();
     }
@@ -786,8 +793,8 @@ describe("SlackSocketModeClient thread tracking", () => {
     const client = createHarness(store, (event) => emitted.push(event));
     const ws = makeOpenSocket();
     // Workspace routes by actor, not by channel: no conversation_id entry
-    // exists for any channel, and unmappedPolicy stays "reject". The key
-    // must look like a real Slack user ID (uppercase, U-prefixed) — that's
+    // exists for any channel. The key must look like a real Slack user ID
+    // (uppercase, U-prefixed) — that's
     // how the tracking check tells Slack actor routes apart from other
     // channels' actor keys in the shared routingEntries list.
     client.config.gatewayConfig.routingEntries = [
@@ -857,8 +864,9 @@ describe("SlackSocketModeClient thread tracking", () => {
         routeSource: "actor_id",
       });
 
-      // An unrouted human's reply in the armed thread is still dropped at
-      // normalize time — arming the thread must not loosen forwarding.
+      // A human with no explicit actor route replying in the armed thread is
+      // forwarded on the local assistant. Routing no longer gates on whether
+      // a route entry exists; the admission floor decides admittance.
       client.handleMessage(
         JSON.stringify({
           envelope_id: "env-unrouted-actor-followup",
@@ -880,54 +888,20 @@ describe("SlackSocketModeClient thread tracking", () => {
       );
       await flushAsyncEventEmission();
 
-      expect(emitted).toHaveLength(1);
+      expect(emitted).toHaveLength(2);
+      expect(emitted[1].routing).toEqual({
+        assistantId: LOCAL_ASSISTANT_ID,
+        routeSource: "default",
+      });
     } finally {
       rawDb.close();
     }
   });
 
-  test("does not track bot replies when the only actor routes belong to other channels (non-Slack keys)", async () => {
-    const { rawDb, store } = createSlackStore();
-    const emitted: NormalizedSlackEvent[] = [];
-    const client = createHarness(store, (event) => emitted.push(event));
-    const ws = makeOpenSocket();
-    // routingEntries is shared across channels; a Telegram-style numeric
-    // actor key must not make Slack channels eligible for thread tracking.
-    client.config.gatewayConfig.routingEntries = [
-      { type: "actor_id", key: "123456789", assistantId: "ast-telegram" },
-    ];
-    const threadTs = "1700000001.000500";
-
-    try {
-      client.handleMessage(
-        JSON.stringify({
-          envelope_id: "env-bot-nonslack-actor-reply",
-          type: "events_api",
-          payload: {
-            event_id: "Ev-bot-nonslack-actor-reply",
-            event: {
-              type: "message",
-              user: "UBOT",
-              text: "bot reply with only non-Slack actor routes configured",
-              ts: "1700000001.000600",
-              channel: "C-unrouted",
-              channel_type: "channel",
-              thread_ts: threadTs,
-            },
-          },
-        }),
-        ws,
-      );
-      await flushAsyncEventEmission();
-
-      expect(emitted).toHaveLength(0);
-      expect(store.hasThread(threadTs)).toBe(false);
-    } finally {
-      rawDb.close();
-    }
-  });
-
-  test("does not track bot replies in unrouted channels", async () => {
+  test("tracks bot replies in channels with no routing entry, without forwarding the echo", async () => {
+    // Channels without a routing entry used to be ineligible for thread
+    // tracking. Every channel is routable now, so the thread is armed — but
+    // the bot's own echo is still never forwarded.
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
@@ -957,7 +931,7 @@ describe("SlackSocketModeClient thread tracking", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(0);
-      expect(store.hasThread(threadTs)).toBe(false);
+      expect(store.hasThread(threadTs)).toBe(true);
     } finally {
       rawDb.close();
     }
@@ -1420,9 +1394,9 @@ describe("SlackSocketModeClient thread tracking", () => {
       expect(emitted[0].event.message.conversationExternalId).toBe("D-direct");
       expect(emitted[0].threadTs).toBe("1700000000.000500");
       expect(emitted[0].event.source.threadId).toBe("1700000000.000500");
-      // DMs route to the default assistant even when the channel is unmapped.
+      // DMs resolve to the local assistant like any other channel.
       expect(emitted[0].routing).toEqual({
-        assistantId: "ast-default",
+        assistantId: LOCAL_ASSISTANT_ID,
         routeSource: "default",
       });
     } finally {
@@ -1660,6 +1634,45 @@ describe("SlackSocketModeClient thread tracking", () => {
     },
   );
 
+  test("does not arm a thread for a malformed app mention missing its user", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    const threadTs = "1700000005.000100";
+
+    try {
+      // Channel "C-thread" IS routed (conversation_id), so routing succeeds on
+      // the channel alone even though `user` is missing. Without the identity
+      // guard the thread would arm here, then normalizeSlackAppMention drops the
+      // mention for missing identity — leaving a thread that admits later
+      // unmentioned replies.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-malformed-mention",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-malformed-mention",
+            event: {
+              type: "app_mention",
+              text: "<@UBOT> hi",
+              ts: "1700000005.000200",
+              channel: "C-thread",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(false);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("renders live app mention user IDs as display-name labels", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
@@ -1877,6 +1890,325 @@ describe("SlackSocketModeClient thread tracking", () => {
         "@Example User continue in #visible-name",
       );
       expect(conversationInfoChannels).toEqual([]);
+    } finally {
+      rawDb.close();
+    }
+  });
+});
+
+// Characterization of the processEventPayload classification/admit filter,
+// pinning the observable emit/drop outcome for each event type across its
+// multi-branch admit conditions (DM, subscribed channel via conversation_id
+// routing, tracked thread, and unrouted/untracked). This locks the intricate
+// dispatch behavior before the discriminated-union classifier refactor.
+describe("SlackSocketModeClient event classification admit conditions", () => {
+  // A config whose only routes are actor_id entries for the event authors
+  // below. It routes those actors to an assistant regardless of channel
+  // subscription, so a reaction/edit/delete in an unsubscribed, non-DM channel
+  // WOULD route — leaving the dispatch filter's tracked-thread branch as the
+  // sole gate on the emit outcome. This is the "actor-routed Slack workspace"
+  // where the tracked-thread admit condition is observable.
+  function makeActorRoutedConfig(): GatewayConfig {
+    return {
+      ...makeConfig(),
+      routingEntries: [
+        { type: "actor_id", key: "U-reactor", assistantId: "ast-actor" },
+        { type: "actor_id", key: "U-editor", assistantId: "ast-actor" },
+        { type: "actor_id", key: "U-author", assistantId: "ast-actor" },
+      ],
+    };
+  }
+
+  function emitFor(
+    store: SlackStore,
+    innerEvent: Record<string, unknown>,
+    eventId: string,
+    gatewayConfig?: GatewayConfig,
+  ): { emitted: NormalizedSlackEvent[]; run: () => Promise<void> } {
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(
+      store,
+      (event) => emitted.push(event),
+      gatewayConfig,
+    );
+    const ws = makeOpenSocket();
+    return {
+      emitted,
+      run: async () => {
+        client.handleMessage(
+          JSON.stringify({
+            envelope_id: `env-${eventId}`,
+            type: "events_api",
+            payload: { event_id: eventId, event: innerEvent },
+          }),
+          ws,
+        );
+        await flushAsyncEventEmission();
+      },
+    };
+  }
+
+  function reaction(channel: string, ts = "1700000000.010000") {
+    return {
+      type: "reaction_added",
+      user: "U-reactor",
+      reaction: "eyes",
+      item: { type: "message", channel, ts },
+      event_ts: "1700000000.010001",
+    };
+  }
+
+  function edit(channel: string, channelType?: string) {
+    return {
+      type: "message",
+      subtype: "message_changed",
+      channel,
+      ...(channelType ? { channel_type: channelType } : {}),
+      message: {
+        user: "U-editor",
+        text: "edited",
+        ts: "1700000000.020000",
+      },
+    };
+  }
+
+  function del(channel: string, channelType?: string) {
+    return {
+      type: "message",
+      subtype: "message_deleted",
+      channel,
+      ...(channelType ? { channel_type: channelType } : {}),
+      deleted_ts: "1700000000.030000",
+      previous_message: {
+        user: "U-author",
+        text: "gone",
+        ts: "1700000000.030000",
+      },
+    };
+  }
+
+  test("admits a reaction in a subscribed channel (conversation_id route)", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        reaction("C-thread"),
+        "Ev-rx-sub",
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.callbackData).toBe("reaction:eyes");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a reaction in a DM channel via the local assistant", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(store, reaction("D-direct"), "Ev-rx-dm");
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a reaction in an unsubscribed, untracked, non-DM channel", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        reaction("C-random"),
+        "Ev-rx-drop",
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a message edit in a subscribed channel", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        edit("C-thread", "channel"),
+        "Ev-edit-sub",
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.isEdit).toBe(true);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a message edit in an unsubscribed, untracked, non-DM channel", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        edit("C-random", "channel"),
+        "Ev-edit-drop",
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a message delete in a subscribed channel", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        del("C-thread", "channel"),
+        "Ev-del-sub",
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.callbackData).toBe("message_deleted");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a message delete in an unsubscribed, untracked, non-DM channel", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        del("C-random", "channel"),
+        "Ev-del-drop",
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  // Tracked-thread branch. The emit outcome passes two gates in series: the
+  // dispatch filter (channel subscribed / DM / tracked-thread) AND the
+  // normalizer's routing (conversation_id / actor_id / DM-default). To pin the
+  // FILTER's tracked-thread branch specifically, these cases hold routing
+  // "would-pass" via an actor_id route (makeActorRoutedConfig) in an
+  // unsubscribed, non-DM channel; tracking the event's ts is then the only
+  // variable, so admit-when-tracked vs drop-when-untracked isolates the
+  // filter branch. Without this pairing a classifier regression that stopped
+  // admitting tracked-but-unsubscribed events would go unnoticed.
+  test("admits a reaction in an unsubscribed channel whose item is a tracked thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const trackedTs = "1700000000.010000";
+      store.trackThread(trackedTs, "C-random", 60_000);
+      const { emitted, run } = emitFor(
+        store,
+        reaction("C-random", trackedTs),
+        "Ev-rx-tracked",
+        makeActorRoutedConfig(),
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.callbackData).toBe("reaction:eyes");
+      expect(emitted[0].routing.assistantId).toBe("ast-actor");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a reaction in an unsubscribed, untracked channel even when the actor is routable", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      // Same actor-routed config, same unsubscribed channel, but no tracked
+      // thread: routing would succeed, so the drop proves the filter — not
+      // routing — gates on the tracked-thread branch.
+      const { emitted, run } = emitFor(
+        store,
+        reaction("C-random"),
+        "Ev-rx-untracked",
+        makeActorRoutedConfig(),
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a message edit in an unsubscribed channel whose message is a tracked thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      // The edit builder stamps message.ts = 1700000000.020000; tracking it
+      // makes hasThread(message.ts) admit despite the unsubscribed channel.
+      store.trackThread("1700000000.020000", "C-random", 60_000);
+      const { emitted, run } = emitFor(
+        store,
+        edit("C-random", "channel"),
+        "Ev-edit-tracked",
+        makeActorRoutedConfig(),
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.isEdit).toBe(true);
+      expect(emitted[0].routing.assistantId).toBe("ast-actor");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a message edit in an unsubscribed, untracked channel even when the actor is routable", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        edit("C-random", "channel"),
+        "Ev-edit-untracked",
+        makeActorRoutedConfig(),
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("admits a message delete in an unsubscribed channel whose ts is a tracked thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      // The del builder stamps deleted_ts = 1700000000.030000; tracking it
+      // makes hasThread(deleted_ts) admit despite the unsubscribed channel.
+      store.trackThread("1700000000.030000", "C-random", 60_000);
+      const { emitted, run } = emitFor(
+        store,
+        del("C-random", "channel"),
+        "Ev-del-tracked",
+        makeActorRoutedConfig(),
+      );
+      await run();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.message.callbackData).toBe("message_deleted");
+      expect(emitted[0].routing.assistantId).toBe("ast-actor");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("drops a message delete in an unsubscribed, untracked channel even when the actor is routable", async () => {
+    const { rawDb, store } = createSlackStore();
+    try {
+      const { emitted, run } = emitFor(
+        store,
+        del("C-random", "channel"),
+        "Ev-del-untracked",
+        makeActorRoutedConfig(),
+      );
+      await run();
+      expect(emitted).toHaveLength(0);
     } finally {
       rawDb.close();
     }

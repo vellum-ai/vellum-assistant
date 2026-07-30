@@ -45,7 +45,9 @@ describe("CesProcessManager.onTransportClose", () => {
       connections.push(socket);
       socket.on("error", () => {});
     });
-    await new Promise<void>((resolve) => server.listen(mockSocketPath, resolve));
+    await new Promise<void>((resolve) =>
+      server.listen(mockSocketPath, resolve),
+    );
   });
 
   afterEach(async () => {
