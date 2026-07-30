@@ -1,3 +1,4 @@
+import { stripeScaleDigits } from "@vellumai/service-contracts/stripe-currency";
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
@@ -24,55 +25,11 @@ interface PlatformInvoicesListResult {
 }
 
 /**
- * These sets follow Stripe's amount scaling rules for charges and invoices
- * (https://docs.stripe.com/currencies), not ISO 4217 metadata: divide the
- * minor-unit integer by 100 for most currencies, by 1 for the zero-decimal
- * set (e.g. JPY, KRW), and by 1000 for the three-decimal set (e.g. BHD).
- * ISK, HUF, TWD, and UGX are deliberately absent from the zero-decimal set:
- * Stripe charges and invoices them as two-decimal amounts and treats them
- * as zero-decimal only for payouts, per Stripe's currency docs.
- */
-const STRIPE_ZERO_DECIMAL_CURRENCIES = new Set([
-  "BIF",
-  "CLP",
-  "DJF",
-  "GNF",
-  "JPY",
-  "KMF",
-  "KRW",
-  "MGA",
-  "PYG",
-  "RWF",
-  "VND",
-  "VUV",
-  "XAF",
-  "XOF",
-  "XPF",
-]);
-
-const STRIPE_THREE_DECIMAL_CURRENCIES = new Set([
-  "BHD",
-  "JOD",
-  "KWD",
-  "OMR",
-  "TND",
-]);
-
-function stripeScaleDigits(currencyCode: string): number {
-  if (STRIPE_ZERO_DECIMAL_CURRENCIES.has(currencyCode)) {
-    return 0;
-  }
-  if (STRIPE_THREE_DECIMAL_CURRENCIES.has(currencyCode)) {
-    return 3;
-  }
-  return 2;
-}
-
-/**
  * Render a Stripe minor-unit amount as major units, e.g. "USD 12.34". The
  * display fraction digits are forced to match stripeScaleDigits so Intl's
- * ISO metadata cannot apply a different scale (see the currency sets above).
- * Unknown currency codes fall back to the raw minor-unit amount.
+ * ISO metadata cannot apply a different scale (see the currency sets in
+ * @vellumai/service-contracts/stripe-currency). Unknown currency codes fall
+ * back to the raw minor-unit amount.
  */
 function formatInvoiceAmount(
   amountMinorUnits: number,
