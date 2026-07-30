@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
@@ -66,7 +65,7 @@ export function HomepageContent() {
           <p className="mb-0 text-zinc-600">
             Curious what we believe, who we&apos;re building for, and what we refuse to
             compromise on?{" "}
-            <Link href={"/docs/constitution" as Route} className="underline">
+            <Link href={"/docs/constitution"} className="underline">
               Read the Vellum Constitution
             </Link>
             .

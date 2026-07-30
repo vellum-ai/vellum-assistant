@@ -148,6 +148,17 @@ async function verifyMarkdown(route: string): Promise<void> {
     return;
   }
 
+  // Redirect stubs are excluded from the mirror generation; their `.md` URL
+  // must 404 rather than serve a "moved" page to agents.
+  if (REDIRECT_STUB_ROUTES.has(route)) {
+    const stub = await fetchWithTimeout(`${baseUrl}${mdPath}`);
+    check(
+      stub.status === 404,
+      `${mdPath}: expected 404 for a redirect stub mirror, got ${stub.status}`,
+    );
+    return;
+  }
+
   const mirror = await fetchWithTimeout(`${baseUrl}${mdPath}`);
   check(mirror.status === 200, `${mdPath}: expected 200, got ${mirror.status}`);
   check(isMarkdownResponse(mirror), `${mdPath}: content-type is not markdown`);
@@ -180,6 +191,12 @@ async function verifyLlmsTxt(): Promise<void> {
     body.startsWith("# Vellum Docs"),
     "/docs/llms.txt: unexpected content",
   );
+  for (const route of REDIRECT_STUB_ROUTES) {
+    check(
+      !body.includes(`${route}.md`),
+      `/docs/llms.txt: lists the redirect stub ${route}`,
+    );
+  }
 }
 
 async function verifySitemap(): Promise<void> {

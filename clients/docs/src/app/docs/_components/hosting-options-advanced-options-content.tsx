@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -31,7 +30,7 @@ export function HostingOptionsAdvancedOptionsContent() {
             instead of on Vellum&apos;s. If you want the managed,
             recommended path, see{" "}
             <Link
-              href={"/docs/hosting-options/cloud-hosting" as Route}
+              href={"/docs/hosting-options/cloud-hosting"}
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
               Cloud hosting

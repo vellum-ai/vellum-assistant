@@ -42,10 +42,9 @@ describe("GET /docs/api/search", () => {
 
     const request = new NextRequest("http://localhost/docs/api/search?q=a");
     const response = await GET(request);
-    const body = (await response.json()) as { mode: string; results: unknown[] };
+    const body = (await response.json()) as { results: unknown[] };
 
     expect(response.status).toBe(200);
-    expect(body.mode).toBe("lexical");
     expect(body.results).toHaveLength(0);
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
@@ -97,9 +96,8 @@ describe("GET /docs/api/search", () => {
 
     const request = new NextRequest("http://localhost/docs/api/search?q=installation");
     const response = await GET(request);
-    const body = (await response.json()) as { mode: string; results: Array<{ route: string }> };
+    const body = (await response.json()) as { results: Array<{ route: string }> };
 
-    expect(body.mode).toBe("lexical");
     expect(body.results[0]?.route).toBe("/docs/getting-started");
     expect(response.headers.get("cache-control")).toBe("private, max-age=30");
   });
@@ -128,6 +126,6 @@ describe("GET /docs/api/search", () => {
     const response = await GET(request);
     const body = (await response.json()) as Record<string, unknown>;
 
-    expect(Object.keys(body).sort()).toEqual(["mode", "query", "results", "tookMs"]);
+    expect(Object.keys(body).sort()).toEqual(["query", "results", "tookMs"]);
   });
 });

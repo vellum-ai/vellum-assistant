@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -298,7 +297,7 @@ export function HelpCommonIssuesContent() {
           <p className="mb-0 text-zinc-600">
             See{" "}
             <Link
-              href={"/docs/key-concepts/memory-and-context" as Route}
+              href={"/docs/key-concepts/memory-and-context"}
               className={linkClass}
             >
               Memory &amp; Context
@@ -465,7 +464,7 @@ export function HelpCommonIssuesContent() {
             loading?&rdquo; and it can read the file and tell you
             what&apos;s wrong. For more on building skills, see the{" "}
             <Link
-              href={"/docs/getting-started/your-first-skill" as Route}
+              href={"/docs/getting-started/your-first-skill"}
               className={linkClass}
             >
               Your first skill
@@ -523,7 +522,7 @@ export function HelpCommonIssuesContent() {
           <p className="mb-0 text-zinc-600">
             If your assistant can&apos;t self-diagnose and nothing
             here matches, head to{" "}
-            <Link href={"/docs/help/getting-help" as Route} className={linkClass}>
+            <Link href={"/docs/help/getting-help"} className={linkClass}>
               Getting Help
             </Link>{" "}
             for where to ask. Bring a description of what you tried,

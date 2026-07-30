@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -319,7 +318,7 @@ export function ExtensibilityToolsContent() {
             case the prompt exists to catch. For the full mapping of bands to
             tolerance thresholds and what each approval prompt looks like, see{" "}
             <Link
-              href={"/docs/trust-security/the-permissions-model" as Route}
+              href={"/docs/trust-security/the-permissions-model"}
               className={linkClass}
             >
               The permissions model
@@ -337,7 +336,7 @@ export function ExtensibilityToolsContent() {
             and only tools whose <code>category</code> appears in that list are
             offered under that policy. Today that surfaces as per-channel
             permission profiles (see{" "}
-            <Link href={"/docs/key-concepts/channels" as Route} className={linkClass}>
+            <Link href={"/docs/key-concepts/channels"} className={linkClass}>
               Channels
             </Link>
             ), where a policy that allows <code>coding</code> admits every tool

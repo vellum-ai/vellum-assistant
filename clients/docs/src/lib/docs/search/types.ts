@@ -26,12 +26,10 @@ export interface DocsSearchResult {
   sectionId: string | null;
   snippet: string;
   score: number;
-  lexicalScore: number;
 }
 
 export interface DocsSearchResponse {
   query: string;
-  mode: "lexical";
   tookMs: number;
   results: DocsSearchResult[];
 }

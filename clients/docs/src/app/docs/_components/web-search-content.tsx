@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -428,7 +427,7 @@ export function WebSearchContent() {
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             For pricing details and credit denominations, see the{" "}
             <Link
-              href={"/docs/pricing" as Route}
+              href={"/docs/pricing"}
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               pricing page
@@ -449,7 +448,7 @@ export function WebSearchContent() {
             step-by-step walkthrough of connecting your Tavily API key, provider
             configuration, and advanced usage, see the{" "}
             <Link
-              href={"/docs/key-concepts/web-search/tavily" as Route}
+              href={"/docs/key-concepts/web-search/tavily"}
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Tavily integration page
@@ -470,7 +469,7 @@ export function WebSearchContent() {
             citations. For a step-by-step walkthrough of connecting your Perplexity API key,
             provider configuration, and advanced usage, see the{" "}
             <Link
-              href={"/docs/key-concepts/web-search/perplexity" as Route}
+              href={"/docs/key-concepts/web-search/perplexity"}
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Perplexity integration page
@@ -491,7 +490,7 @@ export function WebSearchContent() {
             For a step-by-step walkthrough of connecting your Brave Search API key, provider
             configuration, and advanced usage, see the{" "}
             <Link
-              href={"/docs/key-concepts/web-search/brave" as Route}
+              href={"/docs/key-concepts/web-search/brave"}
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Brave Search integration page
@@ -513,7 +512,7 @@ export function WebSearchContent() {
             web search and web fetch. For a step-by-step walkthrough of connecting your
             Firecrawl API key, provider configuration, and advanced usage, see the{" "}
             <Link
-              href={"/docs/key-concepts/web-search/firecrawl" as Route}
+              href={"/docs/key-concepts/web-search/firecrawl"}
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Firecrawl integration page

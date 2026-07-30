@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { routes } from "@/lib/routes";
@@ -100,7 +99,7 @@ export function HelpFaqContent() {
             <li>
               <strong>
                 <Link
-                  href={"/docs/hosting-options/cloud-hosting" as Route}
+                  href={"/docs/hosting-options/cloud-hosting"}
                   className="font-semibold text-emerald-700 underline hover:text-emerald-800"
                 >
                   Vellum Cloud
@@ -114,7 +113,7 @@ export function HelpFaqContent() {
             <li>
               <strong>
                 <Link
-                  href={"/docs/hosting-options/local-hosting" as Route}
+                  href={"/docs/hosting-options/local-hosting"}
                   className="font-semibold text-emerald-700 underline hover:text-emerald-800"
                 >
                   Local hosting
@@ -130,7 +129,7 @@ export function HelpFaqContent() {
             <li>
               <strong>
                 <Link
-                  href={"/docs/hosting-options/advanced-options" as Route}
+                  href={"/docs/hosting-options/advanced-options"}
                   className="font-semibold text-emerald-700 underline hover:text-emerald-800"
                 >
                   User-Hosted Remote
@@ -147,7 +146,7 @@ export function HelpFaqContent() {
             Most users should start on Cloud. You can move later if your
             needs change. See the{" "}
             <Link
-              href={"/docs/hosting-options" as Route}
+              href={"/docs/hosting-options"}
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
               Hosting options overview

@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -22,7 +21,7 @@ const TOC_ITEMS = [
 const linkClass =
   "font-semibold text-emerald-700 underline hover:text-emerald-800";
 
-const OVERVIEW_PAGE_URL = "/docs/extensibility" as Route;
+const OVERVIEW_PAGE_URL = "/docs/extensibility";
 
 type SkillField = {
   name: string;

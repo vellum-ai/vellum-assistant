@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { AgentLoopDiagram } from "@/app/docs/_components/agent-loop-diagram";
@@ -682,14 +681,14 @@ export function ExtensibilityHooksContent() {
                       <strong className="text-zinc-900 dark:text-zinc-100">
                         Example:
                       </strong>{" "}
-                      <Link
-                        href={hook.example.href as Route}
+                      <a
+                        href={hook.example.href}
                         className="font-mono text-xs text-emerald-600 underline hover:text-emerald-800 dark:text-emerald-400"
                         target="_blank"
                         rel="noopener noreferrer"
                       >
                         {hook.example.label}
-                      </Link>
+                      </a>
                     </p>
                   ) : null}
                   {hook.note ? (

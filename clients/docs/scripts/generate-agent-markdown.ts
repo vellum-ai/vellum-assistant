@@ -27,13 +27,12 @@ import remarkGfm from "remark-gfm";
 import remarkStringify from "remark-stringify";
 import { unified } from "unified";
 
-import { SITE_URL } from "../src/lib/metadata";
 import {
-  listPageFiles,
-  loadPageMetadata,
-  renderPage,
-  routeFromPageFile,
-} from "./lib/docs-pages";
+  discoverDocsPages,
+  REDIRECT_STUB_ROUTES,
+} from "../src/lib/discover-docs-routes";
+import { SITE_URL } from "../src/lib/metadata";
+import { loadPageMetadata, renderPage } from "./lib/docs-pages";
 import { buildLlmsText, type DocsPageMeta } from "./lib/llms-text";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -43,12 +42,6 @@ const OUTPUT_ROOT = join(ROOT, "generated", "md");
 const DOCS_INDEX_OUTPUT = join(OUTPUT_ROOT, "docs-index.json");
 const DOCS_PUBLIC_ROOT = join(ROOT, "public", "docs");
 const LLMS_OUTPUT = join(DOCS_PUBLIC_ROOT, "llms.txt");
-
-/** The /docs/api subtree is reserved for non-page surfaces and is excluded
- *  from mirroring (the Accept rewrites in next.config.ts skip it too). */
-function isMirroredRoute(route: string): boolean {
-  return route !== "/docs/api" && !route.startsWith("/docs/api/");
-}
 
 const htmlToMarkdown = unified()
   .use(rehypeParse, { fragment: true })
@@ -139,13 +132,12 @@ async function removeGeneratedDocsLlmsFiles(dir: string): Promise<void> {
 }
 
 async function main() {
-  const pageFiles = (await listPageFiles(DOCS_PAGES_ROOT)).sort();
-  const pages = pageFiles
-    .map((pageFile) => ({
-      pageFile,
-      route: routeFromPageFile(pageFile, DOCS_PAGES_ROOT, "/docs"),
-    }))
-    .filter(({ route }) => isMirroredRoute(route));
+  // Redirect stubs permanently redirect their HTML route; mirroring them
+  // would point agents at a page that only says "moved". llms.txt and the
+  // mirror tree list the redirect targets instead.
+  const pages = discoverDocsPages(DOCS_PAGES_ROOT).filter(
+    ({ route }) => !REDIRECT_STUB_ROUTES.has(route)
+  );
 
   await rm(OUTPUT_ROOT, { recursive: true, force: true });
   await removeGeneratedDocsLlmsFiles(DOCS_PUBLIC_ROOT);

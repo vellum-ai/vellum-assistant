@@ -7,19 +7,15 @@ import type { DocsSearchResponse } from "@/lib/docs/search/types";
 
 const MIN_QUERY_LENGTH = 2;
 const MAX_QUERY_LENGTH = 160;
-const DEFAULT_LIMIT = 10;
 
-function parseLimit(value: string | null): number {
+// Parses only; the ranker owns defaulting and clamping.
+function parseLimit(value: string | null): number | undefined {
   if (!value) {
-    return DEFAULT_LIMIT;
+    return undefined;
   }
 
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_LIMIT;
-  }
-
-  return Math.min(Math.max(parsed, 1), 20);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function buildResponse(body: DocsSearchResponse, cacheControl: string): NextResponse<DocsSearchResponse> {
@@ -46,7 +42,6 @@ export async function GET(request: NextRequest) {
       return buildResponse(
         {
           query,
-          mode: "lexical",
           tookMs: Math.round(performance.now() - startedAt),
           results: [],
         },
@@ -56,7 +51,7 @@ export async function GET(request: NextRequest) {
 
     const index = await loadDocsSearchIndex();
 
-    const { mode, results } = searchDocsIndex({
+    const results = searchDocsIndex({
       query,
       limit,
       index,
@@ -65,7 +60,6 @@ export async function GET(request: NextRequest) {
     return buildResponse(
       {
         query,
-        mode,
         tookMs: Math.round(performance.now() - startedAt),
         results,
       },
@@ -78,7 +72,6 @@ export async function GET(request: NextRequest) {
     return buildResponse(
       {
         query: "",
-        mode: "lexical",
         tookMs: Math.round(performance.now() - startedAt),
         results: [],
       },
