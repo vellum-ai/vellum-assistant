@@ -34,7 +34,7 @@ export async function searchGlobal(
   query: string,
   options?: { limit?: number; signal?: AbortSignal },
 ): Promise<GlobalSearchResponse> {
-  const limit = options?.limit ?? 20;
+  const limit = options?.limit ?? 10;
 
   try {
     const { data, response } = await searchGlobalGet({
