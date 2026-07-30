@@ -609,12 +609,18 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Transcript data (sanitise + build items)
   // -------------------------------------------------------------------------
+  // Single balance-status read shared by every proactive billing surface in
+  // this component: the transcript's tail card, the empty state's card, and
+  // the low-balance composer banner.
+  const balanceStatus = useBillingBalanceStatus();
+
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     messages,
     showThinking,
     turnActive: isAssistantBusy,
     thinkingLabel,
     showOnboardingChoice,
+    creditsExhausted: balanceStatus.isExhausted,
   });
 
   // --- Ref writes (connect hook outputs to ActiveChatView's debug refs) ---
@@ -1005,6 +1011,7 @@ export function ChatMainPanel({
     mainView,
     openedAppState,
     isAssistantBusy,
+    showCreditsUpsell: balanceStatus.isExhausted,
     onSelectStarter: handleSelectStarter,
     onSelectSuggestion: newThreadSuggestionsEnabled
       ? setSelectedSuggestion
@@ -1032,10 +1039,8 @@ export function ChatMainPanel({
   const billingBannerDecision =
     errorBillingBannerDecision ?? noticeBillingBannerDecision;
 
-  // Single balance-status read shared by every proactive billing surface in
-  // this component. Error-driven banners always take precedence over the
-  // proactive low-balance warning.
-  const balanceStatus = useBillingBalanceStatus();
+  // Error-driven banners always take precedence over the proactive
+  // low-balance warning.
   const lowBalanceBannerDismissed = useLowBalanceBannerStore.use.dismissed();
   const showLowBalanceBanner = shouldShowLowBalanceBanner({
     billingBannerDecision,

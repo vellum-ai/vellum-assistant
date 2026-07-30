@@ -41,8 +41,17 @@ const STARTER: ConversationStarter = {
   batch: 0,
 };
 
+const startersRef = { value: [STARTER] };
+
 mock.module("@/domains/chat/hooks/use-conversation-starters", () => ({
-  useConversationStarters: () => ({ starters: [STARTER] }),
+  useConversationStarters: () => ({ starters: startersRef.value }),
+}));
+
+// The real card mounts platform gates, subscription queries, and a router
+// navigate; the hook only decides whether/where it renders, so a sentinel div
+// keeps the test on the slot-composition logic.
+mock.module("@/domains/chat/components/credits-upsell-card", () => ({
+  CreditsUpsellCard: () => <div data-slot="credits-upsell-card" />,
 }));
 
 const FEATURED: ThreadSuggestion = {
@@ -76,6 +85,7 @@ function baseParams(
     mainView: "chat",
     openedAppState: null,
     isAssistantBusy: false,
+    showCreditsUpsell: false,
     onSelectStarter: () => {},
     ...overrides,
   };
@@ -83,6 +93,7 @@ function baseParams(
 
 beforeEach(() => {
   flagRef.value = false;
+  startersRef.value = [STARTER];
 });
 
 afterEach(() => {
@@ -172,5 +183,75 @@ describe("useChatEmptyState startersSlot", () => {
     expect(
       container.querySelector('[data-slot="suggestion-library"]'),
     ).toBeNull();
+  });
+});
+
+describe("useChatEmptyState credits upsell card", () => {
+  test("showCreditsUpsell renders the card above the starter chips", () => {
+    const { result } = renderHook(() =>
+      useChatEmptyState(baseParams({ showCreditsUpsell: true })),
+    );
+
+    const { container } = render(<>{result.current.startersSlot}</>);
+    // Card first, chips after it.
+    expect(
+      container.firstElementChild?.querySelector(
+        '[data-slot="credits-upsell-card"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(`[aria-label="Send: ${STARTER.label}"]`),
+    ).not.toBeNull();
+  });
+
+  test("showCreditsUpsell with no starters still renders the card alone", () => {
+    startersRef.value = [];
+    const { result } = renderHook(() =>
+      useChatEmptyState(baseParams({ showCreditsUpsell: true })),
+    );
+
+    const { container } = render(<>{result.current.startersSlot}</>);
+    expect(
+      container.querySelector('[data-slot="credits-upsell-card"]'),
+    ).not.toBeNull();
+  });
+
+  test("no card when showCreditsUpsell is false (normal balance, loading, or gated-off billing query)", () => {
+    // `useBillingBalanceStatus` is inert (isExhausted false) while the summary
+    // is loading and for self-hosted / logged-out assistants, so those states
+    // all arrive here as `showCreditsUpsell: false` and never flash the card.
+    const { result } = renderHook(() => useChatEmptyState(baseParams()));
+
+    const { container } = render(<>{result.current.startersSlot}</>);
+    expect(
+      container.querySelector('[data-slot="credits-upsell-card"]'),
+    ).toBeNull();
+  });
+
+  test("no card on the app-editing empty state", () => {
+    const { result } = renderHook(() =>
+      useChatEmptyState(
+        baseParams({
+          showCreditsUpsell: true,
+          mainView: "app-editing",
+          openedAppState: { name: "My App" },
+        }),
+      ),
+    );
+
+    const { container } = render(<>{result.current.startersSlot}</>);
+    expect(
+      container.querySelector('[data-slot="credits-upsell-card"]'),
+    ).toBeNull();
+  });
+
+  test("no card once the conversation has messages (the transcript owns it)", () => {
+    const { result } = renderHook(() =>
+      useChatEmptyState(
+        baseParams({ showCreditsUpsell: true, isEmptyConversation: false }),
+      ),
+    );
+
+    expect(result.current.startersSlot).toBeUndefined();
   });
 });

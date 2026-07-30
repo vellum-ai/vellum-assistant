@@ -38,6 +38,15 @@ export interface UseTranscriptDataParams {
   thinkingLabel: string | null;
   /** Whether the onboarding choice card should appear in the transcript. */
   showOnboardingChoice: boolean;
+  /**
+   * Whether the org's credit balance is exhausted (from the shared
+   * `useBillingBalanceStatus()` read in `chat-route-content`). While true, a
+   * proactive credits upsell card is appended at the transcript tail of open
+   * conversations; empty conversations surface the card through the
+   * empty-state slots instead. Suppressed while a turn is in flight
+   * (`turnActive`) so the card never sits under the live progress indicator.
+   */
+  creditsExhausted: boolean;
 }
 
 export interface TranscriptData {
@@ -55,6 +64,7 @@ export function useTranscriptData({
   turnActive,
   thinkingLabel,
   showOnboardingChoice,
+  creditsExhausted,
 }: UseTranscriptDataParams): TranscriptData {
   // --- Store reads --------------------------------------------------------
   const ephemeralMetaResults = useChatSessionStore.use.ephemeralMetaResults();
@@ -112,8 +122,16 @@ export function useTranscriptData({
         thinkingLabel,
         ephemeralMetaResults,
         showOnboardingChoice,
+        // The proactive card is an open-conversation surface: with no
+        // messages the chat renders the empty state (which mounts its own
+        // card), not the transcript. In-flight turns suppress it so a credit
+        // wall never renders under the live progress indicator; the
+        // turn-settled billing refetch re-shows it as soon as the turn ends.
+        appendCreditsUpsell:
+          creditsExhausted && !turnActive && sanitizedMessages.length > 0,
       }),
     [
+      creditsExhausted,
       sanitizedMessages,
       pendingSecret,
       pendingConfirmation,

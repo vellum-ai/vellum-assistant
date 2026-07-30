@@ -45,6 +45,14 @@ export interface BuildTranscriptItemsInput {
    *  the transcript tail. Not persisted; cleared on the next send/switch. */
   ephemeralMetaResults?: EphemeralMetaResult[];
   showOnboardingChoice?: boolean;
+  /**
+   * When true (the org's credit balance is exhausted), append the proactive
+   * credits upsell card directly after the message-derived items, ahead of
+   * trailers (thinking slot, pending prompts, onboarding choice). Skipped
+   * when the last message row already substituted a `creditsUpsell` card for
+   * its provider-error row, so an open conversation never shows two cards.
+   */
+  appendCreditsUpsell?: boolean;
 }
 
 /**
@@ -93,6 +101,15 @@ function toCreditsUpsellItem(message: DisplayMessage): CreditsUpsellItem {
   creditsUpsellItemCache.set(message, item);
   return item;
 }
+
+/** Singleton for the proactive exhausted-balance card appended after the
+ *  message-derived items (see `appendCreditsUpsell`). Not tied to any message row;
+ *  the stable reference keeps `TranscriptRow`'s `memo()` effective across
+ *  rebuilds. */
+const PROACTIVE_CREDITS_UPSELL_ITEM: CreditsUpsellItem = {
+  kind: "creditsUpsell",
+  key: "credits-upsell-proactive",
+};
 
 /**
  * Project the chat state into an ordered flat list of transcript items.
@@ -162,6 +179,17 @@ export function buildTranscriptItems(
     }
 
     items.push(toMessageItem(message));
+  }
+
+  // The proactive exhausted-balance card lands directly after the message
+  // rows; deduping here means trailers pushed below (thinking slot, pending
+  // prompts, onboarding choice) can never mask a just-failed turn's
+  // substituted card and cause a doubled card.
+  if (
+    input.appendCreditsUpsell &&
+    items[items.length - 1]?.kind !== "creditsUpsell"
+  ) {
+    items.push(PROACTIVE_CREDITS_UPSELL_ITEM);
   }
 
   for (const result of input.ephemeralMetaResults ?? []) {
