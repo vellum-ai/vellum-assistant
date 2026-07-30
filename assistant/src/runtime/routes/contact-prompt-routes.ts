@@ -36,7 +36,10 @@ import { z } from "zod";
 import { getLogger } from "../../util/logger.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { handleGetContact, handleMergeContactsRoute } from "./contact-routes.js";
+import {
+  handleGetContact,
+  handleMergeContactsRoute,
+} from "./contact-routes.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -82,16 +85,23 @@ const pendingContactPrompts = new Map<string, PendingContactPrompt>();
 async function resolveContactPrompt({
   body = {},
 }: RouteHandlerArgs): Promise<{ resolved: boolean }> {
-  const { requestId, contactId, channelId, channelType, address, error, confirmed } =
-    body as {
-      requestId: string;
-      contactId?: string;
-      channelId?: string;
-      channelType?: string;
-      address?: string;
-      error?: string;
-      confirmed?: boolean;
-    };
+  const {
+    requestId,
+    contactId,
+    channelId,
+    channelType,
+    address,
+    error,
+    confirmed,
+  } = body as {
+    requestId: string;
+    contactId?: string;
+    channelId?: string;
+    channelType?: string;
+    address?: string;
+    error?: string;
+    confirmed?: boolean;
+  };
   const pending = pendingContactPrompts.get(requestId);
   if (!pending) {
     log.warn({ requestId }, "resolve_contact_prompt: no pending prompt found");
@@ -238,7 +248,6 @@ async function handleContactPrompt({
     keepName = keepResult?.contact.displayName;
     discardName = discardResult?.contact.displayName;
   }
->>>>>>> df800024e5b (feat(contacts): add merge-confirmation mode to contacts prompt CLI)
 
   const requestId = uuid();
 
