@@ -418,46 +418,48 @@ export function isProviderErrorMetadata(
 }
 
 /**
- * Row-level variant of {@link isSystemCardMetadata} for callers holding the
- * raw persisted `metadata` JSON string. The single place the parse lives so
- * display merging and turn grouping agree on what a card is.
+ * Parse an assistant row's raw persisted `metadata` JSON and apply a
+ * metadata-level predicate to it. The single place the assistant-role guard
+ * and malformed-JSON fallback live, so the row-level message-kind checks
+ * cannot diverge.
  */
-export function isSystemCardMessage(
+function assistantRowMetadataMatches(
   role: string,
   metadata: string | null,
+  predicate: (parsed: Record<string, unknown>) => boolean,
 ): boolean {
   if (role !== "assistant" || !metadata) {
     return false;
   }
   try {
-    return isSystemCardMetadata(
-      JSON.parse(metadata) as Record<string, unknown>,
-    );
+    return predicate(JSON.parse(metadata) as Record<string, unknown>);
   } catch {
     return false;
   }
 }
 
 /**
+ * Row-level variant of {@link isSystemCardMetadata} for callers holding the
+ * raw persisted `metadata` JSON string, so display merging and turn grouping
+ * agree on what a card is.
+ */
+export function isSystemCardMessage(
+  role: string,
+  metadata: string | null,
+): boolean {
+  return assistantRowMetadataMatches(role, metadata, isSystemCardMetadata);
+}
+
+/**
  * Row-level variant of {@link isProviderErrorMetadata} for callers holding
- * the raw persisted `metadata` JSON string. The single place the parse lives
- * so display merging and wire projection agree on which rows carry the
- * provider-error marker.
+ * the raw persisted `metadata` JSON string, so display merging and wire
+ * projection agree on which rows carry the provider-error marker.
  */
 export function isProviderErrorMessage(
   role: string,
   metadata: string | null,
 ): boolean {
-  if (role !== "assistant" || !metadata) {
-    return false;
-  }
-  try {
-    return isProviderErrorMetadata(
-      JSON.parse(metadata) as Record<string, unknown>,
-    );
-  } catch {
-    return false;
-  }
+  return assistantRowMetadataMatches(role, metadata, isProviderErrorMetadata);
 }
 
 /**
