@@ -392,9 +392,16 @@ drives the phase is suspended at the same time.
 That symmetry is also the hazard: a suspended web layer stops pushing, and an
 island frozen on "Listening…" is a claim about a live socket and a live mic that
 nothing is checking. Every push therefore carries a `staleDate`
-(`VoiceLiveActivityPlugin.contentStaleAfter`, two minutes), and the views drop
+(`VoiceLiveActivityPlugin.contentStaleAfter`, 45 seconds), and the views drop
 the phase label once `context.isStale` goes true. It does not make the island
 correct — only honest about not knowing.
+
+That horizon was two minutes until JARVIS-1377, which reported the island frozen
+on the phase it opened with. Two minutes is the shortest horizon that never
+accuses a *healthy* session, and that is the wrong thing to optimize while the
+wedged case is the common one: being early costs the phase wording, being late
+sustains a false claim that the mic is live. The constant's docstring carries
+the full reasoning and the phase-aware refinement to reach for next.
 
 ### 2. No App Group
 
@@ -508,7 +515,7 @@ The Simulator does not faithfully reproduce any of these.
 | Interruption handling | Take a real phone call mid-session; the session should end, not keep "listening" into a dead mic |
 | Bluetooth / AirPods routing | `.voiceChat` HFP routing needs real hardware |
 | No stranded island | Force-quit mid-session; the `applicationWillTerminate` end is fire-and-forget, so it may or may not win the race — relaunch and confirm `load()`'s sweep clears whatever survived. Same check after a crash |
-| Stale island | Background a session and leave it long enough for iOS to suspend the web view; past the two-minute `staleDate` the island must stop showing a phase label rather than keep claiming "Listening…" |
+| Stale island | Background a session and leave it long enough for iOS to suspend the web view; past the 45-second `staleDate` the island must stop showing a phase label rather than keep claiming "Listening…" |
 
 ## Shipping prerequisites
 
