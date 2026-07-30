@@ -1,0 +1,158 @@
+/**
+ * Registers the running Live Activity's ActivityKit push token with the
+ * platform, so the *server* can update the island when this web layer cannot.
+ *
+ * Every other update in this domain is pushed from here — see
+ * `use-live-activity-mirror.ts`. That path has one structural flaw it cannot
+ * fix from the inside: it runs on the JS main thread of a `WKWebView` that iOS
+ * throttles and eventually suspends once the app is backgrounded, which is the
+ * only state in which the Lock Screen and the Dynamic Island are on screen at
+ * all. Registering the token gives the same activity a second driver — the
+ * daemon reports each phase change to the platform, which pushes it through
+ * APNs, and iOS applies it with no app process involved.
+ *
+ * The two drivers coexist by design rather than by arbitration. They carry the
+ * same `ContentState`, ActivityKit takes the newest, and whichever of them is
+ * alive at the time wins: foregrounded, the local push lands first because it
+ * skips a round trip through Apple; backgrounded, it is the only one that
+ * arrives.
+ *
+ * **The lexicon travels with the token.** Phase wording belongs to the web
+ * layer — `liveVoiceSurfaceLabel` is the same call the voice room makes, and
+ * the native side deliberately owns none of it because the shell ships on App
+ * Store cadence while this bundle deploys continuously. A server composing its
+ * own strings would reintroduce exactly that drift one layer further out, so
+ * registration hands over a phase→label map and the platform only ever looks a
+ * phase up in it.
+ *
+ * Best-effort throughout, like everything else that touches the island: a
+ * failure here costs a background update, never a voice session.
+ */
+
+import {
+  assistantsLiveActivityTokensDelete,
+  assistantsLiveActivityTokensUpsert,
+} from "@/generated/api/sdk.gen";
+import type { ApnsEnvironmentEnum } from "@/generated/api/types.gen";
+import {
+  isLiveVoiceSessionActive,
+  LIVE_VOICE_STATE_LABELS,
+  liveVoiceSurfaceLabel,
+  type LiveVoiceSessionState,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
+import { captureError } from "@/lib/sentry/capture-error";
+
+/**
+ * Bundle-id suffix that maps to the development APNs entitlement — the same
+ * rule `runtime/push-registration.ts` applies to device tokens, and for the
+ * same reason: APNs rejects a token minted under one environment when it is
+ * addressed against the other, so the platform stores the environment
+ * alongside the token.
+ */
+const DEV_BUNDLE_SUFFIX = ".dev";
+
+function resolveApnsEnvironment(bundleId: string): ApnsEnvironmentEnum {
+  return bundleId.endsWith(DEV_BUNDLE_SUFFIX) ? "development" : "production";
+}
+
+/**
+ * Every phase an activity can be pushed into, paired with its wording.
+ *
+ * Derived from the label table rather than restated, so a phase added to the
+ * session cannot quietly ship without server-side copy. `idle` and `failed` are
+ * filtered out for the same reason they have no `ContentState.Phase` case:
+ * neither has an activity to address.
+ */
+function phaseLabels(): Record<string, string> {
+  const labels: Record<string, string> = {};
+  const phases = (
+    Object.keys(LIVE_VOICE_STATE_LABELS) as LiveVoiceSessionState[]
+  ).filter(isLiveVoiceSessionActive);
+  for (const phase of phases) {
+    // Read through the same helper the room and the mirror use rather than the
+    // raw table, so a server-pushed label is the string the user would have
+    // seen locally — including the relabel rules, resolved for their steady
+    // state. `reconnecting` and silent-`speaking` are transient conditions the
+    // server does not observe, so they resolve false here.
+    labels[phase] = liveVoiceSurfaceLabel(phase, false, true);
+  }
+  return labels;
+}
+
+/** The registration currently held, so it can be retired when the session is. */
+let registered: { token: string; assistantId: string } | null = null;
+
+/**
+ * Register (or re-register) the activity's push token for a conversation.
+ *
+ * Safe to call repeatedly: iOS rotates tokens mid-activity and each value
+ * invalidates the last, so every event re-registers. The platform keys on
+ * `(user, token)`, so a rotation replaces the row rather than accumulating one.
+ */
+export async function registerLiveActivityPushToken(
+  token: string,
+  assistantId: string,
+  conversationId: string,
+): Promise<void> {
+  try {
+    // `@capacitor/app` is a plugin Proxy — destructure inline (see CAPACITOR.md).
+    const { App } = await import("@capacitor/app");
+    const { id: bundleId } = await App.getInfo();
+
+    const result = await assistantsLiveActivityTokensUpsert({
+      path: { assistant_id: assistantId },
+      body: {
+        token,
+        bundle_id: bundleId,
+        apns_environment: resolveApnsEnvironment(bundleId),
+        conversation_id: conversationId,
+        labels: phaseLabels(),
+      },
+      throwOnError: false,
+    });
+
+    if (result.error) {
+      captureError(result.error, {
+        context: "live_activity_push_registration",
+        level: "warning",
+        bestEffort: true,
+      });
+      return;
+    }
+
+    registered = { token, assistantId };
+  } catch (err) {
+    captureError(err, {
+      context: "live_activity_push_registration",
+      level: "warning",
+      bestEffort: true,
+    });
+  }
+}
+
+/**
+ * Retire the registration when the session ends.
+ *
+ * Best-effort by nature — the session may be ending precisely because the app
+ * is going away, and this request may never leave. The platform therefore
+ * expires registrations on its own; this is the fast path, not the guarantee.
+ */
+export async function unregisterLiveActivityPushToken(): Promise<void> {
+  const current = registered;
+  if (current === null) {
+    return;
+  }
+  registered = null;
+  try {
+    await assistantsLiveActivityTokensDelete({
+      path: { assistant_id: current.assistantId, token: current.token },
+      throwOnError: false,
+    });
+  } catch (err) {
+    captureError(err, {
+      context: "live_activity_push_unregistration",
+      level: "warning",
+      bestEffort: true,
+    });
+  }
+}
