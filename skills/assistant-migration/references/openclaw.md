@@ -46,8 +46,10 @@ openclaw gateway status --json > /tmp/openclaw-gateway-status.json
 Once the consistent snapshot rides along in the bundle (`openclaw-memory.db` in the recipe below), extract review candidates deterministically:
 
 ```sh
-bun run {baseDir}/scripts/parse-agent-memory-db.ts --file /path/to/openclaw-memory.db --source openclaw
+bun run <skill-dir>/scripts/parse-agent-memory-db.ts --file /path/to/openclaw-memory.db --source openclaw
 ```
+
+(`<skill-dir>` is the installed skill directory. The runnable form lives in SKILL.md Memory Import Guidance, whose `{baseDir}` placeholder the skill loader substitutes at load time; substitution does not apply to reference files, so resolve the path yourself when running from here.)
 
 The parser introspects `sqlite_master` instead of assuming a schema, skips FTS5 shadow tables and credential-named tables/columns, redacts credential-shaped values, and emits `MemoryImportItem[]` JSON on stdout plus a per-table census on stderr. Then follow SKILL.md's Memory Import Guidance from the review step onward: creator review, staged v3 pages (`source: import:openclaw`), and the `assistant memory ingest` run.
 
