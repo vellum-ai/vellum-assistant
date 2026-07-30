@@ -131,14 +131,52 @@ describe("VoiceSessionPill: layouts", () => {
     expect(root().className).toContain("rounded-full");
   });
 
-  test("row: a full-width band that takes its own space in flow", () => {
+  test("row: the same pill stretched edge to edge, taking its own space in flow", () => {
     renderPill({ layout: "row" });
-    // Full width and no radius: the row is the page's top edge on a phone, and
-    // `shrink-0` is what keeps it pushing the page down rather than being
-    // squeezed out of the column.
+    // Edge to edge, and still a pill: the row is one shape with the header
+    // pill rather than a squared-off band. `shrink-0` is what keeps it pushing
+    // the page down rather than being squeezed out of the column.
     expect(root().className).toContain("w-full");
     expect(root().className).toContain("shrink-0");
-    expect(root().className).not.toContain("rounded-full");
+    expect(root().className).toContain("rounded-full");
+  });
+});
+
+describe("VoiceSessionPill: controls on touch", () => {
+  // The design library gives an icon-only ghost Button an opaque chip on touch
+  // (`touch-mobile:bg-[var(--surface-lift)]` plus a theme foreground). That is
+  // right on app chrome and wrong on a surface painted an arbitrary avatar
+  // color, where it lands as a theme-colored tile floating on the fill. These
+  // assert the merge outcome, which is the whole of the bug: the overrides are
+  // only worth anything if tailwind-merge drops the library's classes.
+  test("no theme chip survives on the row's controls", () => {
+    renderPill({ layout: "row", paint: NAVY_PAINT });
+    for (const name of [
+      "Mute microphone",
+      "Mute assistant",
+      "End voice session",
+    ]) {
+      const { className } = screen.getByRole("button", { name });
+      expect(className).not.toContain("touch-mobile:bg-[var(--surface-lift)]");
+      expect(className).not.toContain(
+        "touch-mobile:[--vbtn-fg:var(--content-default)]",
+      );
+      expect(className).toContain("touch-mobile:bg-transparent");
+      expect(className).toContain(
+        "touch-mobile:[--vbtn-fg:var(--room-fg-muted",
+      );
+    }
+  });
+
+  test("the 40px touch target survives the override", () => {
+    // The tap target comes from a separate `touch-mobile:h-10 w-10` pair, so
+    // dropping the chip must not shrink the control back to desktop size.
+    renderPill({ layout: "row", paint: NAVY_PAINT });
+    const { className } = screen.getByRole("button", {
+      name: "End voice session",
+    });
+    expect(className).toContain("touch-mobile:h-10");
+    expect(className).toContain("touch-mobile:w-10");
   });
 });
 

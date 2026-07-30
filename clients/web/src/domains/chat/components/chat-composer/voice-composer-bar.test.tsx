@@ -275,6 +275,21 @@ describe("VoiceComposerBar — structure and accessibility", () => {
     }
   });
 
+  test("controls stay bare on touch, at full tap size", () => {
+    // On touch the design library gives an icon-only ghost Button an opaque
+    // chip and a theme foreground, which reads as a tile floating on the
+    // block's avatar-colored fill. The override drops the chip and keeps the
+    // 40px target, which comes from a separate pair of classes.
+    renderBar("listening", { onExpand: () => {} });
+    const { className } = screen.getByRole("button", {
+      name: "End voice session",
+    });
+    expect(className).not.toContain("touch-mobile:bg-[var(--surface-lift)]");
+    expect(className).toContain("touch-mobile:bg-transparent");
+    expect(className).toContain("touch-mobile:[--vbtn-fg:var(--room-fg-muted");
+    expect(className).toContain("touch-mobile:h-10");
+  });
+
   test("the band fades at both edges instead of hard-clipping", () => {
     // Includes the -webkit- prefix: the iOS client is a WKWebView and drops
     // the unprefixed property, which would silently disable the fade there.

@@ -20,9 +20,11 @@
  * - `"pill"`: an elongated pill in the header's right cluster. Height is
  *   capped at `h-8` (32px), because the header's Electron title-bar row is 44px
  *   min-height with 32px controls, so the pill must never stretch it.
- * - `"row"`: a full-bleed band above the thread header on a phone, where the
- *   header has no width to give. It is laid out in flow and pushes the page
- *   down rather than overlaying it, so a live session hides nothing.
+ * - `"row"`: the same pill stretched edge to edge above the thread header on a
+ *   phone, where the header has no width to give. It keeps the pill's radius
+ *   rather than squaring off into a band, so the two layouts read as one shape
+ *   at two widths. It is laid out in flow and pushes the page down rather than
+ *   overlaying it, so a live session hides nothing.
  *
  * The paint arrives as a prop rather than being resolved here: the fill is an
  * arbitrary avatar color, so chrome on it reads the `--room-*` vars the paint
@@ -87,7 +89,11 @@ const SILENT_AMPLITUDE = () => 0;
  */
 const PILL_WIDTH_CLASS = "w-56";
 
-/** Band height on a phone: a 44px row clears the touch target the controls want. */
+/**
+ * Pill height on a phone: a 44px row clears the touch target the controls want.
+ * The radius follows the height (`rounded-full`), so the caps are 22px and the
+ * row keeps its `px-3` inset to hold the outer glyphs clear of that curve.
+ */
 const ROW_HEIGHT_CLASS = "h-11";
 
 export interface VoiceSessionPillProps {
@@ -133,8 +139,8 @@ export interface VoiceSessionPillProps {
    */
   paint?: VoiceSurfacePaint | null;
   /**
-   * `"pill"` (default) for the header's right cluster, `"row"` for the
-   * full-bleed band a phone shows above the thread header.
+   * `"pill"` (default) for the header's right cluster, `"row"` for the same
+   * pill stretched edge to edge above a phone's thread header.
    */
   layout?: "pill" | "row";
 }
@@ -209,10 +215,10 @@ export function VoiceSessionPill({
       data-theme={voiceSurfaceTheme(paint)}
       style={paint ? voiceSurfaceStyle(paint) : undefined}
       className={cn(
-        "relative flex items-center gap-1 overflow-hidden transition-colors duration-300 [-webkit-app-region:no-drag]",
+        "relative flex items-center gap-1 overflow-hidden rounded-full transition-colors duration-300 [-webkit-app-region:no-drag]",
         isRow
-          ? `w-full shrink-0 px-2 ${ROW_HEIGHT_CLASS}`
-          : `h-8 rounded-full px-1 ${PILL_WIDTH_CLASS}`,
+          ? `w-full shrink-0 px-3 ${ROW_HEIGHT_CLASS}`
+          : `h-8 px-1 ${PILL_WIDTH_CLASS}`,
         // Until the avatar resolves there is no room color to paint, so the
         // surface holds the app's own raised surface.
         !paint && "bg-[var(--surface-lift)]",

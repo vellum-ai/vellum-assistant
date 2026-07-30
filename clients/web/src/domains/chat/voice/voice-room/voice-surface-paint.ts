@@ -77,9 +77,27 @@ export function voiceSurfaceMutedInk(paint: VoiceSurfacePaint | null): string {
  * Control chrome toned for the fill under it. The token fallbacks only apply
  * if a caller renders a control without the vars, which no painted surface
  * does.
+ *
+ * The `touch-mobile:` half is not a duplicate of the resting half. An icon-only
+ * ghost Button that expands on mobile takes an opaque chip there
+ * (`touch-mobile:bg-[var(--surface-lift)]` plus a `--content-default`
+ * foreground, see the design library's compound variants), which is right on
+ * app chrome and wrong here: on a surface painted an arbitrary avatar color it
+ * lands as a theme-colored tile floating on the fill. These re-state the
+ * resting tones under the same variant so they win, and tailwind-merge drops
+ * the library's conflicting classes rather than stacking them. The `40px` tap
+ * target comes from a separate `touch-mobile:h-10 touch-mobile:w-10` pair, so
+ * it survives untouched.
+ *
+ * Press feedback moves to `active:`, because `hover:` sits inside
+ * `@media (hover: hover)` and a touch device never matches it, leaving a touch
+ * control with no acknowledgement at all.
  */
 export const VOICE_SURFACE_CONTROL_CLASS = [
   "[--vbtn-fg:var(--room-fg-muted,var(--content-secondary))]",
   "hover:[--vbtn-fg:var(--room-fg,var(--content-default))]",
   "hover:bg-[var(--room-wash,var(--surface-hover))]",
+  "touch-mobile:bg-transparent",
+  "touch-mobile:[--vbtn-fg:var(--room-fg-muted,var(--content-secondary))]",
+  "touch-mobile:active:bg-[var(--room-wash,var(--surface-hover))]",
 ].join(" ");

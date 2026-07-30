@@ -55,6 +55,7 @@ import {
   VoiceMeshWaves,
 } from "@/domains/chat/voice/voice-room/voice-mesh-waves";
 import { BAND_VOICE } from "@/domains/chat/voice/voice-room/voice-room-eyes";
+import { VOICE_SURFACE_CONTROL_CLASS } from "@/domains/chat/voice/voice-room/voice-surface-paint";
 
 // Between turns (mic muted, assistant silent) the band reads a steady zero,
 // which is the room's empty floor: no ink at all until a voice is present.
@@ -115,13 +116,6 @@ export interface VoiceComposerBarProps {
 const BLOCK_HEIGHT_CLASS = "h-[5.25rem]";
 
 /**
- * Control chrome toned for the avatar color under it, via the `--room-*` vars
- * the composer publishes from `toneForBg`. Theme tokens cannot be used here:
- * the block is painted an arbitrary avatar color, so `--content-default` is as
- * likely to be invisible on it as legible. The token fallbacks only apply if a
- * caller renders the block without the vars, which the composer never does.
- */
-/**
  * Ink for a control that is currently *off* (mic muted, assistant muted).
  *
  * Not the negative theme token: that is a mid-tone red, and the block is
@@ -131,21 +125,16 @@ const BLOCK_HEIGHT_CLASS = "h-[5.25rem]";
  * on every palette color.
  *
  * Applied as an inline style rather than another utility: it competes with the
- * resting `--vbtn-fg` in {@link VOICE_CONTROL_CLASS}, and two
+ * resting `--vbtn-fg` in {@link VOICE_SURFACE_CONTROL_CLASS}, and two
  * arbitrary-property classes setting the same variable are ordered by
- * Tailwind's own sort, not by the order they are passed in.
+ * Tailwind's own sort, not by the order they are passed in. An inline style
+ * outranks both, on touch as well as on desktop.
  */
 function mutedInk(fillIsLight: boolean): CSSProperties {
   return {
     "--vbtn-fg": fillIsLight ? "#991B1B" : "#FCA5A5",
   } as CSSProperties;
 }
-
-const VOICE_CONTROL_CLASS = [
-  "[--vbtn-fg:var(--room-fg-muted,var(--content-secondary))]",
-  "hover:[--vbtn-fg:var(--room-fg,var(--content-default))]",
-  "hover:bg-[var(--room-wash,var(--surface-hover))]",
-].join(" ");
 
 export function VoiceComposerBar({
   state,
@@ -219,7 +208,7 @@ export function VoiceComposerBar({
           aria-label={muted ? "Unmute microphone" : "Mute microphone"}
           aria-pressed={muted}
           tooltip={muted ? "Unmute microphone" : "Mute microphone"}
-          className={VOICE_CONTROL_CLASS}
+          className={VOICE_SURFACE_CONTROL_CLASS}
           style={muted ? mutedInk(fillIsLight) : undefined}
         />
       </div>
@@ -249,7 +238,7 @@ export function VoiceComposerBar({
           aria-label={outputMuted ? "Unmute assistant" : "Mute assistant"}
           aria-pressed={outputMuted}
           tooltip={outputMuted ? "Unmute assistant" : "Mute assistant"}
-          className={VOICE_CONTROL_CLASS}
+          className={VOICE_SURFACE_CONTROL_CLASS}
           style={outputMuted ? mutedInk(fillIsLight) : undefined}
         />
         {onExpand ? (
@@ -259,7 +248,7 @@ export function VoiceComposerBar({
             onClick={onExpand}
             aria-label="Open voice room"
             tooltip="Open voice room"
-            className={VOICE_CONTROL_CLASS}
+            className={VOICE_SURFACE_CONTROL_CLASS}
           />
         ) : null}
         <Button
@@ -268,7 +257,7 @@ export function VoiceComposerBar({
           onClick={onEnd}
           aria-label="End voice session"
           tooltip="End voice session"
-          className={VOICE_CONTROL_CLASS}
+          className={VOICE_SURFACE_CONTROL_CLASS}
         />
       </div>
     </div>
