@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   STT_LANGUAGES,
   STT_MULTI_CODE,
+  sttCatalogEntryForLocale,
   sttLanguageGroupsFor,
   sttLanguageLabelForCode,
   sttLanguageMatches,
@@ -328,42 +329,79 @@ describe("sttLanguageLabelForCode", () => {
   });
 });
 
+describe("sttCatalogEntryForLocale", () => {
+  test("maps a regional locale to its catalog entry", () => {
+    expect(sttCatalogEntryForLocale("hi-IN")?.code).toBe("hi");
+    expect(sttCatalogEntryForLocale("ta-IN")?.code).toBe("ta");
+  });
+
+  test("returns null for English, empty, undefined, and out-of-catalog locales", () => {
+    expect(sttCatalogEntryForLocale("en-US")).toBeNull();
+    expect(sttCatalogEntryForLocale("")).toBeNull();
+    expect(sttCatalogEntryForLocale(undefined)).toBeNull();
+    // Welsh is not on the nova-3 roster.
+    expect(sttCatalogEntryForLocale("cy-GB")).toBeNull();
+  });
+});
+
 describe("suggestedLanguageForLocale", () => {
-  test("returns null for English locales", () => {
-    expect(suggestedLanguageForLocale("en-US")).toBeNull();
+  test("returns null for English locales under every provider", () => {
+    for (const providerId of ["deepgram", "vellum", "xai"]) {
+      expect(suggestedLanguageForLocale("en-US", providerId)).toBeNull();
+    }
   });
 
   test("returns null for undefined", () => {
-    expect(suggestedLanguageForLocale(undefined)).toBeNull();
+    expect(suggestedLanguageForLocale(undefined, "deepgram")).toBeNull();
   });
 
   test("returns null for the empty string", () => {
-    expect(suggestedLanguageForLocale("")).toBeNull();
+    expect(suggestedLanguageForLocale("", "deepgram")).toBeNull();
   });
 
   test("returns null for a subtag outside the catalog", () => {
     // Welsh is not on the nova-3 roster.
-    expect(suggestedLanguageForLocale("cy-GB")).toBeNull();
+    expect(suggestedLanguageForLocale("cy-GB", "deepgram")).toBeNull();
   });
 
-  test("returns multi for a code-switching-roster locale", () => {
+  test("returns multi for a code-switching-roster locale under a multi-capable provider", () => {
     // A multi-roster-language speaker talking to an English-speaking
     // assistant is exactly the code-switching case.
-    expect(suggestedLanguageForLocale("hi-IN")).toBe(STT_MULTI_CODE);
+    expect(suggestedLanguageForLocale("hi-IN", "deepgram")).toBe(
+      STT_MULTI_CODE,
+    );
+    expect(suggestedLanguageForLocale("hi-IN", "vellum")).toBe(STT_MULTI_CODE);
   });
 
-  test("returns the monolingual pin for an extended-roster locale", () => {
+  test("falls back to the monolingual pin where the provider lacks multi", () => {
+    // xai's option set omits Multilingual, but "hi" is in every
+    // language-selectable provider's set, so the suggestion degrades to the
+    // pin instead of vanishing.
+    expect(suggestedLanguageForLocale("hi-IN", "xai")).toBe("hi");
+  });
+
+  test("returns the monolingual pin for an extended-roster locale where nova-3 runs", () => {
     // Tamil is outside what "multi" can follow, so the suggestion is the
     // monolingual pin itself.
-    expect(suggestedLanguageForLocale("ta-IN")).toBe("ta");
-    expect(suggestedLanguageForLocale("ko-KR")).toBe("ko");
+    expect(suggestedLanguageForLocale("ta-IN", "deepgram")).toBe("ta");
+    expect(suggestedLanguageForLocale("ta-IN", "vellum")).toBe("ta");
+    expect(suggestedLanguageForLocale("ko-KR", "deepgram")).toBe("ko");
+  });
+
+  test("returns null for an extended-roster locale under a provider without the extended set", () => {
+    // xai never offers "ta", so there is nothing valid to suggest and the
+    // first-run row stays hidden.
+    expect(suggestedLanguageForLocale("ta-IN", "xai")).toBeNull();
+    expect(suggestedLanguageForLocale("ko-KR", "xai")).toBeNull();
   });
 
   test("normalizes case", () => {
-    expect(suggestedLanguageForLocale("HI")).toBe(STT_MULTI_CODE);
+    expect(suggestedLanguageForLocale("HI", "deepgram")).toBe(STT_MULTI_CODE);
   });
 
   test("takes the primary subtag of a regional locale", () => {
-    expect(suggestedLanguageForLocale("pt-BR")).toBe(STT_MULTI_CODE);
+    expect(suggestedLanguageForLocale("pt-BR", "deepgram")).toBe(
+      STT_MULTI_CODE,
+    );
   });
 });

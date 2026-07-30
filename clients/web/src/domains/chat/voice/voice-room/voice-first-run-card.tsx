@@ -20,6 +20,7 @@ import { useSttLanguageSelection } from "@/components/speech/use-stt-language-se
 import { VoiceList } from "@/components/speech/voice-list";
 import { VoiceProvidersNote } from "@/components/speech/voice-providers-note";
 import {
+  sttCatalogEntryForLocale,
   sttLanguageLabelForCode,
   suggestedLanguageForLocale,
 } from "@/lib/stt/language-catalog";
@@ -50,8 +51,10 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * language is broken rather than suboptimal (the assistant would mishear every
  * turn), so it is the one default worth surfacing before the first session.
  * The row appears only on locale evidence (the browser locale suggests a
- * non-English spoken language) and only when the daemon reports the configured
- * STT provider as language-selectable; English-locale users see the card
+ * non-English spoken language), only when the daemon reports the configured
+ * STT provider as language-selectable, and only when that provider's option
+ * set actually offers the suggested language (a Tamil locale under xai has
+ * nothing valid to suggest, so no row); English-locale users see the card
  * unchanged. It is a surfaced smart default, not a question: nothing is
  * written unless the user explicitly picks, and a pick hot-applies from the
  * next spoken turn (no Save, matching the voice picker's semantics).
@@ -122,10 +125,12 @@ export function VoiceFirstRunCard({
 
   // Locale evidence for the listening-language row: null for English locales
   // and locales outside the catalog. Guarded for environments without a
-  // `navigator` (the pattern voice-input-button uses).
-  const suggestedCode = suggestedLanguageForLocale(
-    typeof navigator !== "undefined" ? navigator.language : undefined,
-  );
+  // `navigator` (the pattern voice-input-button uses). Provider-agnostic on
+  // purpose: it only decides whether the hook's queries are worth enabling,
+  // before the configured provider is known.
+  const navigatorLanguage =
+    typeof navigator !== "undefined" ? navigator.language : undefined;
+  const localeEntry = sttCatalogEntryForLocale(navigatorLanguage);
   // A null assistant id keeps the hook's queries disabled, so without locale
   // evidence the intro renders byte-identical to before, with no daemon
   // fetches pulled into the first-run render.
@@ -135,7 +140,16 @@ export function VoiceFirstRunCard({
     configuredProviderId,
     selectLanguage,
     selecting: languageSelecting,
-  } = useSttLanguageSelection(suggestedCode !== null ? assistantId : null);
+  } = useSttLanguageSelection(localeEntry !== null ? assistantId : null);
+  // The actual suggestion is provider-scoped: null when the configured
+  // provider's option set does not offer the locale's language (a Tamil
+  // locale under xai), so the row never renders a suggestion the picker
+  // withholds. `languageAvailable` stays false until config arrives, so the
+  // row only renders once `configuredProviderId` is the real provider.
+  const suggestedCode = suggestedLanguageForLocale(
+    navigatorLanguage,
+    configuredProviderId,
+  );
 
   return (
     <Modal.Root

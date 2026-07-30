@@ -339,18 +339,16 @@ export function sttLanguageLabelForCode(
 }
 
 /**
- * Suggested STT language for a browser locale (`navigator.language`), or
- * `null` when no suggestion applies (English, empty, or outside the catalog).
- *
- * A speaker of a code-switching-roster language talking to an
- * English-speaking assistant is exactly the code-switching case, so those
- * locales suggest `multi` rather than the monolingual code. Languages on the
- * extended roster only (e.g. Tamil) are outside what `multi` can follow, so
- * the suggestion is the monolingual pin itself.
+ * The catalog entry a browser locale (`navigator.language`) maps to, or
+ * `null` when none does (English, empty, or outside the catalog).
+ * Provider-agnostic locale evidence: the first-run card uses it to decide
+ * whether the language queries are worth enabling before the configured
+ * provider is known, then derives the actual suggestion with
+ * `suggestedLanguageForLocale` once it is.
  */
-export function suggestedLanguageForLocale(
+export function sttCatalogEntryForLocale(
   navigatorLanguage: string | undefined,
-): string | null {
+): SttLanguageOption | null {
   if (!navigatorLanguage) {
     return null;
   }
@@ -358,9 +356,40 @@ export function suggestedLanguageForLocale(
   if (primarySubtag === "en") {
     return null;
   }
-  const entry = STT_LANGUAGES.find((option) => option.code === primarySubtag);
+  return STT_LANGUAGES.find((option) => option.code === primarySubtag) ?? null;
+}
+
+/**
+ * Suggested STT language for a browser locale (`navigator.language`) under
+ * the daemon provider `daemonProviderId`, or `null` when no suggestion
+ * applies (English, empty, outside the catalog, or a language the provider's
+ * option set does not offer). Provider-aware at the source so every caller
+ * inherits the same scoping the option lists use: a code
+ * `sttLanguageOptionsFor` withholds is never suggested.
+ *
+ * A speaker of a code-switching-roster language talking to an
+ * English-speaking assistant is exactly the code-switching case, so those
+ * locales suggest `multi` where the provider supports it; where it does not
+ * (xai), the suggestion falls back to the monolingual pin, which every
+ * language-selectable provider offers. Languages on the extended roster only
+ * (e.g. Tamil) are outside what `multi` can follow, so the suggestion is the
+ * monolingual pin itself, and only where nova-3 runs; elsewhere there is
+ * nothing valid to suggest.
+ */
+export function suggestedLanguageForLocale(
+  navigatorLanguage: string | undefined,
+  daemonProviderId: string,
+): string | null {
+  const entry = sttCatalogEntryForLocale(navigatorLanguage);
   if (!entry) {
     return null;
   }
-  return entry.extended ? entry.code : STT_MULTI_CODE;
+  if (entry.extended) {
+    return NOVA3_ROSTER_DAEMON_PROVIDERS.has(daemonProviderId)
+      ? entry.code
+      : null;
+  }
+  return MULTI_CAPABLE_DAEMON_PROVIDERS.has(daemonProviderId)
+    ? STT_MULTI_CODE
+    : entry.code;
 }

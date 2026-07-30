@@ -315,6 +315,44 @@ describe("VoiceFirstRunCard", () => {
       expect(options[1]?.textContent).toContain("Suggested");
     });
 
+    test("under xai a multi-roster locale falls back to the monolingual suggestion", () => {
+      // xai's option set omits Multilingual, so the suggestion degrades to
+      // the Hindi pin (which every language-selectable provider offers)
+      // instead of vanishing or naming a row the picker withholds.
+      stubLocale("hi-IN");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        configuredProviderId: "xai",
+      };
+      const { getByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      const options = languageOptions(getByLabelText);
+      expect(options[0]?.textContent).toContain("Auto-detect (default)");
+      expect(options[1]?.textContent).toContain("Hindi");
+      expect(options[1]?.textContent).toContain("Suggested");
+      expect(options.some((o) => o.textContent?.includes("Multilingual"))).toBe(
+        false,
+      );
+    });
+
+    test("an extended-roster locale under xai sees no row: nothing valid to suggest", () => {
+      // xai never offers "ta", so a row would render with no suggestion and
+      // no matching language; the provider-aware suggestion hides it.
+      stubLocale("ta-IN");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        configuredProviderId: "xai",
+      };
+      const { queryByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+      expect(queryByLabelText(ROW_LABEL)).toBeNull();
+    });
+
     test("the row opens the language sub-view in place: one dialog, no stack", () => {
       stubLocale("hi-IN");
       sttLanguageSelection = { ...sttLanguageSelection, available: true };

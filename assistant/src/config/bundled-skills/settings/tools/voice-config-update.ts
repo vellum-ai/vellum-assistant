@@ -1,6 +1,9 @@
 import { normalizeActivationKey } from "../../../../daemon/handlers/config-voice.js";
 import { managedSpeechAvailable } from "../../../../platform/managed-speech.js";
-import { DEEPGRAM_NOVA3_MONOLINGUAL_CODES } from "../../../../providers/speech-to-text/deepgram.js";
+import {
+  DEEPGRAM_MULTI_LANGUAGE_CODES,
+  DEEPGRAM_NOVA3_MONOLINGUAL_CODES,
+} from "../../../../providers/speech-to-text/deepgram.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -74,6 +77,37 @@ const VALID_STT_LANGUAGES = [
   ...DEEPGRAM_NOVA3_MONOLINGUAL_CODES,
   "multi",
 ] as const;
+
+/**
+ * Codes accepted when the effective STT provider is xai: the pre-expansion
+ * multi-roster monolinguals (which include "en"), the set xAI was verified
+ * with. The extended nova-3 codes are verified against Deepgram's docs only,
+ * and "multi" is a Deepgram nova-3 mode the resolver never forwards to xAI,
+ * so both are rejected here rather than persisted as unverified or dead
+ * values. Derived from the daemon's roster source, same as the web catalog's
+ * provider scoping (`sttLanguageOptionsFor`).
+ */
+const XAI_STT_LANGUAGES: readonly string[] = DEEPGRAM_MULTI_LANGUAGE_CODES;
+
+/**
+ * Rejection copy when a roster code is valid in general but not for xai. It
+ * names the provider and the accepted set so the model can steer the user
+ * instead of retrying blindly.
+ */
+const XAI_STT_LANGUAGE_ERROR = `the configured STT provider is xai, which supports: ${XAI_STT_LANGUAGES.join(
+  ", ",
+)}. Multilingual (multi) and the extended language codes are Deepgram/managed (vellum) only; switch stt_provider to use them`;
+
+/**
+ * STT providers that auto-detect the spoken language natively and take no
+ * language parameter (the resolver's value is ignored). A language write is
+ * still allowed for them (it applies after a later provider switch), but the
+ * success message notes the setting has no effect while they are active.
+ */
+const AUTO_DETECT_STT_PROVIDERS: ReadonlySet<string> = new Set([
+  "google-gemini",
+  "openai-whisper",
+]);
 
 /**
  * Rejection copy for stt_language. The roster is too long to enumerate in an
@@ -156,6 +190,7 @@ function validateSetting(
   setting: string,
   value: unknown,
   activeTtsProviderId?: string,
+  activeSttProviderId?: string,
 ):
   | { ok: true; coerced: string | boolean | number }
   | { ok: false; error: string } {
@@ -258,6 +293,20 @@ function validateSetting(
           error: STT_LANGUAGE_ERROR,
         };
       }
+      // Provider scoping, after alias normalization so "Tamil" and "ta" fail
+      // the same way: the extended roster and "multi" are verified for
+      // Deepgram nova-3 (BYOK deepgram and the managed relay) only. Under
+      // xai, persisting them would mean every web surface withholds the code
+      // while the resolver forwards it unverified (or, for "multi", drops it
+      // silently), so the write is an honest rejection instead. Auto-detect
+      // providers keep the unconditional write (the value applies after a
+      // later provider switch); the success message carries the caveat.
+      if (
+        activeSttProviderId === "xai" &&
+        !XAI_STT_LANGUAGES.includes(coerced)
+      ) {
+        return { ok: false, error: XAI_STT_LANGUAGE_ERROR };
+      }
       return { ok: true, coerced };
     }
     case "fish_audio_reference_id": {
@@ -342,7 +391,18 @@ export async function run(
   const activeTtsProviderId =
     setting === "tts_voice_id" ? getConfig().services.tts.provider : undefined;
 
-  const validation = validateSetting(setting, value, activeTtsProviderId);
+  // An stt_language change is scoped by the *effective* STT provider (the
+  // same source the sparse-config write-seeding below reads): the extended
+  // roster and "multi" are only valid where nova-3 runs.
+  const activeSttProviderId =
+    setting === "stt_language" ? getConfig().services.stt.provider : undefined;
+
+  const validation = validateSetting(
+    setting,
+    value,
+    activeTtsProviderId,
+    activeSttProviderId,
+  );
   if (!validation.ok) {
     return { content: `Error: ${validation.error}`, isError: true };
   }
@@ -429,9 +489,11 @@ export async function run(
     invalidateConfigCache();
   }
 
-  // The write is unconditional across providers: the daemon resolver already
-  // forwards the language only to adapters that accept one (and drops "multi"
-  // for xAI), matching how stt_provider does not cross-validate credentials.
+  // Provider scoping happened in validation (xai only accepts its verified
+  // set); for the remaining providers the write is unconditional. Auto-detect
+  // providers ignore the value at resolve time, so writing it is harmless and
+  // the success note below says so, matching how stt_provider does not
+  // cross-validate credentials.
   if (setting === "stt_language") {
     // A sparse raw config may lack `services.stt.provider` entirely. Writing
     // only the language would persist `{ stt: { language } }`, and
@@ -459,10 +521,18 @@ export async function run(
     meta.userDefaultsKey && !skipClientBroadcast
       ? " The change has been broadcast to the desktop client."
       : "";
+  // A language written while an auto-detecting provider is active persists
+  // but has no effect until the provider changes; say so in the same
+  // provider-aware voice the tool description uses.
+  const autoDetectNote =
+    activeSttProviderId !== undefined &&
+    AUTO_DETECT_STT_PROVIDERS.has(activeSttProviderId)
+      ? ` Note: the configured STT provider (${activeSttProviderId}) auto-detects the spoken language natively and ignores this setting.`
+      : "";
   return {
     content: `${friendlyName} updated to ${JSON.stringify(
       validation.coerced,
-    )}.${broadcastNote}`,
+    )}.${broadcastNote}${autoDetectNote}`,
     isError: false,
   };
 }

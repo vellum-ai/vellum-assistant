@@ -692,6 +692,106 @@ describe("voice_config_update - stt_language", () => {
     expect((readConfig().services as any)?.stt?.language).toBe("multi");
   });
 
+  test("deepgram accepts an extended-roster code", async () => {
+    writeConfig({ services: { stt: { provider: "deepgram" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "ta" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("ta");
+  });
+
+  test("xai rejects an extended-roster code, naming the provider and its set, and writes nothing", async () => {
+    // The extended codes are verified for Deepgram nova-3 only; persisting
+    // one under xai would have every web surface withhold it while the
+    // resolver forwards it unverified.
+    writeConfig({ services: { stt: { provider: "xai" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "ta" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("xai");
+    expect(result.content).toContain("en, es, fr, de, hi, ru, pt, ja, it, nl");
+    expect(result.content).toContain("Deepgram/managed");
+    expect((readConfig().services as any)?.stt?.language).toBeUndefined();
+  });
+
+  test("xai rejects multi with the provider-naming error and writes nothing", async () => {
+    // Previously accepted as a silent no-op (the resolver drops "multi" for
+    // xAI); the honest rejection replaces a dead persisted value.
+    writeConfig({ services: { stt: { provider: "xai" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "multi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("xai");
+    expect(result.content).toContain("Deepgram/managed");
+    expect((readConfig().services as any)?.stt?.language).toBeUndefined();
+  });
+
+  test("the alias path normalizes before the provider check", async () => {
+    writeConfig({ services: { stt: { provider: "xai" } } });
+    invalidateConfigCache();
+
+    // "Tamil" normalizes to ta first, so it fails with the provider-scoped
+    // error rather than the generic unknown-language one.
+    const rejected = await run(
+      { setting: "stt_language", value: " Tamil " },
+      makeContext(),
+    );
+    expect(rejected.isError).toBe(true);
+    expect(rejected.content).toContain("xai");
+    expect((readConfig().services as any)?.stt?.language).toBeUndefined();
+
+    // "French" normalizes to fr, which is inside xai's verified set.
+    const accepted = await run(
+      { setting: "stt_language", value: "French" },
+      makeContext(),
+    );
+    expect(accepted.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("fr");
+  });
+
+  test("an auto-detect provider keeps the unconditional write and notes the setting is ignored", async () => {
+    writeConfig({ services: { stt: { provider: "google-gemini" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "ta" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("ta");
+    expect(result.content).toContain("google-gemini");
+    expect(result.content).toContain("auto-detects");
+  });
+
+  test("a language-forwarding provider's success carries no auto-detect note", async () => {
+    writeConfig({ services: { stt: { provider: "deepgram" } } });
+    invalidateConfigCache();
+
+    const result = await run(
+      { setting: "stt_language", value: "hi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).not.toContain("auto-detects");
+  });
+
   test("rejects an unknown language with the accepted set and writes nothing", async () => {
     const result = await run(
       { setting: "stt_language", value: "klingon" },
