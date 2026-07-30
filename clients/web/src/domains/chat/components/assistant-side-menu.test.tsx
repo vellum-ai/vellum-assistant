@@ -531,6 +531,69 @@ describe("AssistantSideMenu · overlay close affordance", () => {
   });
 });
 
+describe("AssistantSideMenu · overlay iOS floating glyph row", () => {
+  // Class-presence pins only: they assert the markup still carries the
+  // `native-ios:` utilities, not that anything floats or composites.
+  const conversations = [
+    makeConversation({ conversationId: "a", title: "Alpha" }),
+  ];
+
+  const overlayDom = (): HTMLElement => {
+    // A detached node, not a testing-library render: this only inspects
+    // static markup, and mounting it would leave React's cleanup with a tree
+    // it doesn't own.
+    const container = document.createElement("div");
+    container.innerHTML = renderMenu({ conversations, variant: "overlay" });
+    return container;
+  };
+
+  const glyph = (container: HTMLElement, label: string): HTMLElement => {
+    const match = container.querySelector<HTMLElement>(
+      `[aria-label="${label}"]`,
+    );
+    if (!match) {
+      throw new Error(`No overlay header glyph labelled "${label}"`);
+    }
+    return match;
+  };
+
+  test("the glyph row carries the floating placement utilities", () => {
+    const container = overlayDom();
+    const row = glyph(container, "Close navigation").parentElement;
+
+    expect(row?.className).toContain("native-ios:absolute");
+    expect(row?.className).toContain("native-ios:inset-x-4");
+    expect(row?.className).toContain("native-ios:top-4");
+    expect(row?.className).toContain("native-ios:z-10");
+    expect(row?.className).toContain("native-ios:pointer-events-none");
+  });
+
+  test("both glyphs opt back into pointer events", () => {
+    const container = overlayDom();
+
+    expect(glyph(container, "Close navigation").className).toContain(
+      "pointer-events-auto",
+    );
+    expect(glyph(container, "Search (⌘K)").className).toContain(
+      "pointer-events-auto",
+    );
+  });
+
+  test("the scroll body reserves the glyph band and carries both mask declarations", () => {
+    const body = overlayDom().querySelector<HTMLElement>(
+      '[data-slot="side-menu-body"]',
+    );
+
+    expect(body?.className).toContain("native-ios:pt-14");
+    // Anchored on the `native-ios:[` prefix so the unprefixed assertion is not
+    // satisfied by the `-webkit-` spelling, which contains it as a substring.
+    expect(body?.className).toContain("native-ios:[mask-image:linear-gradient");
+    expect(body?.className).toContain(
+      "native-ios:[-webkit-mask-image:linear-gradient",
+    );
+  });
+});
+
 describe("AssistantSideMenu · section header menus", () => {
   const conversations = [
     makeConversation({
