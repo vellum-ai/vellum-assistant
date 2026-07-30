@@ -24,11 +24,13 @@ interface PlatformInvoicesListResult {
 }
 
 /**
- * These lists follow Stripe's amount scaling rules
- * (https://docs.stripe.com/currencies), not ISO 4217 metadata. Notably,
- * Stripe keeps two-decimal scaling for ISK, HUF, TWD, and UGX for backward
- * compatibility even though ISO treats them as zero-decimal, so those codes
- * are deliberately absent from the zero-decimal list.
+ * These sets follow Stripe's amount scaling rules for charges and invoices
+ * (https://docs.stripe.com/currencies), not ISO 4217 metadata: divide the
+ * minor-unit integer by 100 for most currencies, by 1 for the zero-decimal
+ * set (e.g. JPY, KRW), and by 1000 for the three-decimal set (e.g. BHD).
+ * ISK, HUF, TWD, and UGX are deliberately absent from the zero-decimal set:
+ * Stripe charges and invoices them as two-decimal amounts and treats them
+ * as zero-decimal only for payouts, per Stripe's currency docs.
  */
 const STRIPE_ZERO_DECIMAL_CURRENCIES = new Set([
   "BIF",
@@ -67,11 +69,10 @@ function stripeScaleDigits(currencyCode: string): number {
 }
 
 /**
- * Amounts are in Stripe's minor units; render as major units using Stripe's
- * amount scaling rules (2 for USD, 0 for JPY, 3 for BHD), e.g. "USD 12.34".
- * The display fraction digits are forced to match the same scale so Intl's
- * ISO metadata cannot round Stripe's two-decimal special cases (ISK, HUF,
- * TWD, UGX). Unknown currency codes fall back to the raw minor-unit amount.
+ * Render a Stripe minor-unit amount as major units, e.g. "USD 12.34". The
+ * display fraction digits are forced to match stripeScaleDigits so Intl's
+ * ISO metadata cannot apply a different scale (see the currency sets above).
+ * Unknown currency codes fall back to the raw minor-unit amount.
  */
 function formatInvoiceAmount(
   amountMinorUnits: number,
@@ -126,10 +127,7 @@ export function registerPlatformInvoicesCommands(platform: Command): void {
           : {},
       );
       if (!r.ok) {
-        return exitFromIpcResult(
-          { ok: false, error: r.error, statusCode: r.statusCode },
-          cmd,
-        );
+        return exitFromIpcResult(r, cmd);
       }
 
       const result = r.result!;
@@ -161,10 +159,7 @@ export function registerPlatformInvoicesCommands(platform: Command): void {
         pathParams: { id: invoiceId },
       });
       if (!r.ok) {
-        return exitFromIpcResult(
-          { ok: false, error: r.error, statusCode: r.statusCode },
-          cmd,
-        );
+        return exitFromIpcResult(r, cmd);
       }
 
       if (shouldOutputJson(cmd)) {
