@@ -16,8 +16,8 @@ import {
 } from "@/domains/chat/components/chat-attachments/utils";
 import { LocalFileIcon } from "@/domains/chat/components/local-file/local-file-icon";
 import { LocalFileMenu } from "@/domains/chat/components/local-file/local-file-menu";
+import { openLocalFile } from "@/domains/chat/components/local-file/open-local-file";
 import type { LocalFileKind } from "@/domains/chat/utils/mime-sniff";
-import { openWorkspaceFile } from "@/utils/open-workspace-file";
 
 export interface LocalFileCardProps {
   /** Markdown alt/label text, which may equal the filename. */
@@ -60,7 +60,7 @@ export function LocalFileCard({
 
   const open = () => {
     if (canOpen) {
-      void openWorkspaceFile(workspacePath);
+      openLocalFile(workspacePath, filename, assistantId);
     }
   };
 

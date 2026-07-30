@@ -4,13 +4,21 @@
  * Renders the document content using a Tiptap/ProseMirror editor and provides
  * a toggleable comment sidebar. Comment anchors, active highlights, and text
  * selection are wired via React props/callbacks (no iframe postMessage).
+ *
+ * Two backing stores, chosen by the `source` prop: a document surface in the
+ * daemon's document database, or a markdown file in the assistant workspace.
+ * Comments, PDF export, and comment feedback all key off a document id, so
+ * they exist only in `document` mode and the props union does not accept them
+ * in `workspace-file` mode.
  */
 
+import { useQueryClient } from "@tanstack/react-query";
 import {
   lazy,
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   type Ref,
@@ -31,8 +39,11 @@ import {
   createComment,
   fetchComments,
 } from "@/domains/chat/api/document-comments";
+import {
+  saveDocumentContent,
+  type DocumentSaveTarget,
+} from "@/domains/chat/api/document-save";
 import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
-import { documentsPost } from "@/generated/daemon/sdk.gen";
 import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import {
   DocumentCommentPanel,
@@ -56,18 +67,33 @@ export interface DocumentViewerContainerHandle {
   refreshComments: () => Promise<void>;
 }
 
-export interface DocumentViewerContainerProps {
-  surfaceId: string;
+interface DocumentViewerCommonProps {
   assistantId: string;
-  conversationId: string;
   documentName: string;
   content: string;
   onClose: () => void;
-  onExport?: () => void;
-  onSubmitFeedback?: () => void;
   /** Imperative handle ref for SSE-driven refresh triggers. */
   handleRef?: Ref<DocumentViewerContainerHandle>;
 }
+
+/** A document surface: autosave writes through the documents API. */
+export interface DbDocumentViewerProps extends DocumentViewerCommonProps {
+  source: "document";
+  surfaceId: string;
+  conversationId: string;
+  onExport?: () => void;
+  onSubmitFeedback?: () => void;
+}
+
+/** A workspace markdown file: autosave rewrites the file on disk. */
+export interface WorkspaceFileViewerProps extends DocumentViewerCommonProps {
+  source: "workspace-file";
+  workspacePath: string;
+}
+
+export type DocumentViewerContainerProps =
+  | DbDocumentViewerProps
+  | WorkspaceFileViewerProps;
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -93,17 +119,39 @@ interface TextSelection {
 // Component
 // ---------------------------------------------------------------------------
 
-export function DocumentViewerContainer({
-  surfaceId,
-  assistantId,
-  conversationId,
-  documentName,
-  content,
-  onClose,
-  onExport,
-  onSubmitFeedback,
-  handleRef,
-}: DocumentViewerContainerProps) {
+export function DocumentViewerContainer(props: DocumentViewerContainerProps) {
+  const { assistantId, documentName, content, onClose, handleRef } = props;
+
+  // Document-id affordances. All null/undefined in workspace-file mode, where
+  // no document id exists to hang them off.
+  const surfaceId = props.source === "document" ? props.surfaceId : null;
+  const conversationId =
+    props.source === "document" ? props.conversationId : null;
+  const onExport = props.source === "document" ? props.onExport : undefined;
+  const onSubmitFeedback =
+    props.source === "document" ? props.onSubmitFeedback : undefined;
+  const workspacePath =
+    props.source === "workspace-file" ? props.workspacePath : null;
+  /** Comments hang off a document id, so a file-backed document has none. */
+  const supportsComments = surfaceId !== null && conversationId !== null;
+
+  // Where autosave writes.
+  const saveTarget: DocumentSaveTarget =
+    props.source === "workspace-file"
+      ? {
+          source: "workspace-file",
+          assistantId,
+          workspacePath: props.workspacePath,
+        }
+      : {
+          source: "document",
+          assistantId,
+          surfaceId: props.surfaceId,
+          conversationId: props.conversationId,
+          title: documentName,
+        };
+
+  const queryClient = useQueryClient();
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [textSelection, setTextSelection] = useState<TextSelection | null>(
     null,
@@ -123,6 +171,14 @@ export function DocumentViewerContainer({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const savedFadeRef = useRef<ReturnType<typeof setTimeout>>(null);
 
+  // The debounced save reads the destination through a ref, so a save that
+  // flushes after a rename or a document switch writes to the current target
+  // rather than the one that was current when the keystroke landed.
+  const saveTargetRef = useRef(saveTarget);
+  useLayoutEffect(() => {
+    saveTargetRef.current = saveTarget;
+  });
+
   const handleContentChange = useCallback(
     (markdown: string) => {
       if (saveTimerRef.current) {
@@ -133,33 +189,27 @@ export function DocumentViewerContainer({
       }
       setSaveStatus("saving");
       saveTimerRef.current = setTimeout(() => {
-        const wordCount = markdown
-          .trim()
-          .split(/\s+/)
-          .filter((w) => w.length > 0).length;
-        void documentsPost({
-          path: { assistant_id: assistantId },
-          body: {
-            surfaceId,
-            conversationId,
-            title: documentName,
-            content: markdown,
-            wordCount,
-          },
-          throwOnError: true,
-        }).then(
+        const target = saveTargetRef.current;
+        void saveDocumentContent(target, markdown).then(
           () => {
             setSaveStatus("saved");
             savedFadeRef.current = setTimeout(
               () => setSaveStatus("idle"),
               2000,
             );
+            if (target.source === "workspace-file") {
+              // The workspace browser reads the same file through its own
+              // query, so it must see the bytes this editor just wrote.
+              void queryClient.invalidateQueries({
+                queryKey: ["assistantsWorkspaceFileRetrieve"],
+              });
+            }
           },
           () => setSaveStatus("idle"),
         );
       }, 1000);
     },
-    [assistantId, surfaceId, conversationId, documentName],
+    [queryClient],
   );
 
   // Clear inline comment state when panel closes (but keep text selection
@@ -175,7 +225,7 @@ export function DocumentViewerContainer({
     setCommentAnchors([]);
     setActiveHighlight(null);
     setTextSelection(null);
-  }, [surfaceId]);
+  }, [surfaceId, workspacePath]);
 
   // -------------------------------------------------------------------------
   // Comment panel interaction handlers
@@ -221,6 +271,9 @@ export function DocumentViewerContainer({
    * Called by SSE event handlers and after creating inline comments.
    */
   const refreshComments = useCallback(async () => {
+    if (surfaceId === null) {
+      return;
+    }
     await commentPanelRef.current?.refreshComments();
     try {
       const comments = await fetchComments(assistantId, surfaceId);
@@ -241,7 +294,7 @@ export function DocumentViewerContainer({
 
   const handleCommentSubmit = useCallback(
     async (commentText: string) => {
-      if (!textSelection) {
+      if (!textSelection || surfaceId === null || conversationId === null) {
         return;
       }
       setAddingInlineComment(true);
@@ -279,7 +332,7 @@ export function DocumentViewerContainer({
   // seed the anchor highlights. Acceptable tradeoff vs adding an
   // onCommentsLoaded callback to the panel component.
   useEffect(() => {
-    if (!commentsPanelOpen) {
+    if (!commentsPanelOpen || surfaceId === null) {
       return;
     }
     let cancelled = false;
@@ -310,6 +363,8 @@ export function DocumentViewerContainer({
         <Typography
           variant="title-small"
           className="min-w-0 flex-1 truncate text-[var(--content-emphasised)]"
+          // The full path tells the user which file on disk they are editing.
+          title={workspacePath ?? undefined}
         >
           {documentName}
         </Typography>
@@ -341,16 +396,18 @@ export function DocumentViewerContainer({
           </Button>
         ) : null}
 
-        <Button
-          variant={commentsPanelOpen ? "outlined" : "ghost"}
-          size="compact"
-          leftIcon={<MessageSquareText />}
-          onClick={toggleComments}
-          aria-label={commentsPanelOpen ? "Close comments" : "Open comments"}
-          aria-pressed={commentsPanelOpen}
-        >
-          Comments
-        </Button>
+        {supportsComments ? (
+          <Button
+            variant={commentsPanelOpen ? "outlined" : "ghost"}
+            size="compact"
+            leftIcon={<MessageSquareText />}
+            onClick={toggleComments}
+            aria-label={commentsPanelOpen ? "Close comments" : "Open comments"}
+            aria-pressed={commentsPanelOpen}
+          >
+            Comments
+          </Button>
+        ) : null}
 
         <Button
           variant="ghost"
@@ -397,7 +454,11 @@ export function DocumentViewerContainer({
               }}
               commentAnchors={commentAnchors}
               highlightRange={activeHighlight}
-              onCommentSubmit={(text) => void handleCommentSubmit(text)}
+              onCommentSubmit={
+                supportsComments
+                  ? (text) => void handleCommentSubmit(text)
+                  : undefined
+              }
               commentSubmitting={addingInlineComment}
               className="h-full"
             />
@@ -405,7 +466,7 @@ export function DocumentViewerContainer({
         </div>
 
         {/* Comment panel sidebar */}
-        {commentsPanelOpen ? (
+        {commentsPanelOpen && surfaceId !== null && conversationId !== null ? (
           <DocumentCommentPanel
             surfaceId={surfaceId}
             assistantId={assistantId}

@@ -90,7 +90,8 @@ export function MobileChatOverlays() {
 
   const handleDocumentSubmitFeedback = useCallback(() => {
     const docState = useViewerStore.getState().openedDocumentState;
-    if (!docState) {
+    // Only a db-backed document has comments to submit feedback on.
+    if (!docState || docState.source !== "document") {
       return;
     }
     const prompt = `Please review and address my comments on "${docState.documentName}".`;

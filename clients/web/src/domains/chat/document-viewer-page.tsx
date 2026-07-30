@@ -152,6 +152,7 @@ export function DocumentViewerPage() {
 
     useViewerStore.getState().openDocument();
     useViewerStore.getState().setLoadedDocument({
+      source: "document",
       surfaceId: doc.surfaceId,
       conversationId,
       documentName: doc.title,
@@ -217,6 +218,7 @@ export function DocumentViewerPage() {
   return (
     <div ref={swipeContainerRef} className="flex min-h-0 flex-1 flex-col">
       <DocumentViewerContainer
+        source="document"
         surfaceId={doc.surfaceId}
         assistantId={assistantId}
         conversationId={doc.conversationId}

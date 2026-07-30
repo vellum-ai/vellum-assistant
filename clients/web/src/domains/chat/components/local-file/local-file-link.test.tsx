@@ -16,10 +16,17 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 
 const { LocalFileLink } =
   await import("@/domains/chat/components/local-file/local-file-link");
+const { useViewerStore } = await import("@/stores/viewer-store");
+
+const loadWorkspaceFileDocument = mock(
+  async (_assistantId: string, _workspacePath: string) => {},
+);
 
 beforeEach(() => {
   openWorkspaceFile.mockClear();
   toastError.mockClear();
+  loadWorkspaceFileDocument.mockClear();
+  useViewerStore.setState({ loadWorkspaceFileDocument });
 });
 
 afterEach(() => {
@@ -65,8 +72,12 @@ describe("LocalFileLink", () => {
 
   test("clicking opens the workspace file instead of navigating", () => {
     render(
-      <LocalFileLink href="/workspace/notes.md" workspacePath="notes.md">
-        notes.md
+      <LocalFileLink
+        href="/workspace/data/rows.csv"
+        workspacePath="data/rows.csv"
+        assistantId="asst-1"
+      >
+        the rows
       </LocalFileLink>,
     );
 
@@ -77,6 +88,42 @@ describe("LocalFileLink", () => {
     fireEvent(screen.getByRole("link"), event);
 
     expect(event.defaultPrevented).toBe(true);
+    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("data/rows.csv");
+    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+  });
+
+  test("clicking a markdown file opens it in the document drawer", () => {
+    render(
+      <LocalFileLink
+        href="/workspace/drafts/notes.md"
+        workspacePath="drafts/notes.md"
+        assistantId="asst-1"
+      >
+        my notes
+      </LocalFileLink>,
+    );
+
+    fireEvent.click(screen.getByRole("link"));
+
+    expect(loadWorkspaceFileDocument).toHaveBeenCalledTimes(1);
+    expect(loadWorkspaceFileDocument.mock.calls[0]).toEqual([
+      "asst-1",
+      "drafts/notes.md",
+    ]);
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  test("a markdown file without an assistant falls back to the workspace", () => {
+    render(
+      <LocalFileLink href="/workspace/notes.md" workspacePath="notes.md">
+        notes.md
+      </LocalFileLink>,
+    );
+
+    fireEvent.click(screen.getByRole("link"));
+
+    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
     expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
     expect(openWorkspaceFile.mock.calls[0]![0]).toBe("notes.md");
   });

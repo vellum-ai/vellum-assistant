@@ -7,9 +7,16 @@ mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
 
 const { LocalFileCard } =
   await import("@/domains/chat/components/local-file/local-file-card");
+const { useViewerStore } = await import("@/stores/viewer-store");
+
+const loadWorkspaceFileDocument = mock(
+  async (_assistantId: string, _workspacePath: string) => {},
+);
 
 beforeEach(() => {
   openWorkspaceFile.mockClear();
+  loadWorkspaceFileDocument.mockClear();
+  useViewerStore.setState({ loadWorkspaceFileDocument });
 });
 
 afterEach(() => {
@@ -89,23 +96,44 @@ describe("LocalFileCard", () => {
   test("clicking a ready card opens the workspace file", () => {
     render(
       <LocalFileCard
-        displayName="notes.md"
-        filename="notes.md"
+        displayName="rows.csv"
+        filename="rows.csv"
         sizeBytes={12}
         kind="file"
         state="ready"
-        workspacePath="drafts/notes.md"
+        workspacePath="data/rows.csv"
         assistantId="asst-1"
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open notes.md" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open rows.csv" }));
 
     expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
-    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("drafts/notes.md");
+    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("data/rows.csv");
+    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
   });
 
   test("Enter on a ready card opens the workspace file", () => {
+    render(
+      <LocalFileCard
+        displayName="rows.csv"
+        filename="rows.csv"
+        sizeBytes={12}
+        kind="file"
+        state="ready"
+        workspacePath="data/rows.csv"
+        assistantId="asst-1"
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Open rows.csv" }), {
+      key: "Enter",
+    });
+
+    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
+  });
+
+  test("clicking a markdown card opens it in the document drawer", () => {
     render(
       <LocalFileCard
         displayName="notes.md"
@@ -118,10 +146,31 @@ describe("LocalFileCard", () => {
       />,
     );
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "Open notes.md" }), {
-      key: "Enter",
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Open notes.md" }));
 
+    expect(loadWorkspaceFileDocument).toHaveBeenCalledTimes(1);
+    expect(loadWorkspaceFileDocument.mock.calls[0]).toEqual([
+      "asst-1",
+      "drafts/notes.md",
+    ]);
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  test("a markdown card without an assistant falls back to the workspace", () => {
+    render(
+      <LocalFileCard
+        displayName="notes.md"
+        filename="notes.md"
+        sizeBytes={12}
+        kind="file"
+        state="ready"
+        workspacePath="drafts/notes.md"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open notes.md" }));
+
+    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
     expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
   });
 

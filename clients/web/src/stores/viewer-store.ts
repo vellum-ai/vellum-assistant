@@ -7,7 +7,8 @@
  * **State managed:**
  * - `mainView` — which top-level panel is displayed
  * - `activeAppId` / `openedAppState` — app viewer
- * - `openedDocumentState` — document viewer
+ * - `activeDocumentTarget` / `openedDocumentState` — document viewer, holding
+ *   either a db-backed document surface or a workspace markdown file
  * - `isAppMinimized` — mobile-only: app viewer minimized
  * - `intelligenceTab` — sub-tab inside the intelligence panel
  * - `assetsRefreshKey` — counter bumped to force asset re-fetches
@@ -32,7 +33,13 @@ import type { SetupChannelId } from "@/types/channel-types";
 import type { ProcessKind } from "@/domains/chat/process-registry/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
-import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
+import { toast } from "@vellumai/design-library";
+
+import {
+  appsByIdOpenPost,
+  documentsByIdGet,
+  workspaceFileGet,
+} from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
@@ -165,11 +172,66 @@ export interface OpenedAppState {
   html: string;
 }
 
-export interface OpenedDocumentState {
+/**
+ * A document surface stored in the daemon's document database. Edits are saved
+ * through the documents API and carry the document-id affordances (comments,
+ * PDF export, feedback).
+ */
+export interface OpenedDbDocumentState {
+  source: "document";
   surfaceId: string;
   conversationId: string;
   documentName: string;
   content: string;
+}
+
+/**
+ * A markdown file in the assistant workspace, opened in the same editor. Edits
+ * are saved by rewriting the file on disk, so this variant carries no document
+ * id and none of the document-id affordances exist for it.
+ */
+export interface OpenedWorkspaceFileDocumentState {
+  source: "workspace-file";
+  workspacePath: string;
+  documentName: string;
+  content: string;
+}
+
+/**
+ * What the document viewer is showing. The `source` discriminant decides where
+ * saves go, so it is never optional: a file-backed document has no surface id
+ * and a db-backed document has no workspace path.
+ */
+export type OpenedDocumentState =
+  | OpenedDbDocumentState
+  | OpenedWorkspaceFileDocumentState;
+
+/**
+ * The document the viewer is loading or showing, tracked so a load that
+ * resolves after the user moved on can detect that it is stale. One union
+ * rather than a surface-id field plus a path field, so "showing a file while a
+ * surface id is active" cannot be represented.
+ */
+export type DocumentTarget =
+  | { source: "document"; surfaceId: string }
+  | { source: "workspace-file"; workspacePath: string };
+
+/** Whether two document targets address the same document. */
+export function sameDocumentTarget(
+  a: DocumentTarget | null,
+  b: DocumentTarget,
+): boolean {
+  if (a === null || a.source !== b.source) {
+    return false;
+  }
+  if (a.source === "document" && b.source === "document") {
+    return a.surfaceId === b.surfaceId;
+  }
+  return (
+    a.source === "workspace-file" &&
+    b.source === "workspace-file" &&
+    a.workspacePath === b.workspacePath
+  );
 }
 
 export type ChannelSetupType = SetupChannelId;
@@ -312,7 +374,7 @@ export interface ViewerState {
   mainView: MainView;
   activeAppId: string | null;
   openedAppState: OpenedAppState | null;
-  activeDocumentSurfaceId: string | null;
+  activeDocumentTarget: DocumentTarget | null;
   openedDocumentState: OpenedDocumentState | null;
   isAppMinimized: boolean;
   intelligenceTab: IntelligenceTab;
@@ -439,6 +501,15 @@ export interface ViewerActions {
     assistantId: string,
     documentSurfaceId: string,
   ) => Promise<void>;
+  /**
+   * Open a markdown file from the assistant workspace in the document viewer.
+   * The viewer then edits the file itself: saves rewrite it on disk rather than
+   * writing a document row, so the transcript and the workspace never fork.
+   */
+  loadWorkspaceFileDocument: (
+    assistantId: string,
+    workspacePath: string,
+  ) => Promise<void>;
   setLoadedDocument: (document: OpenedDocumentState) => void;
   updateDocumentContent: (
     surfaceId: string,
@@ -465,7 +536,7 @@ const INITIAL_STATE: ViewerState = {
   mainView: "chat",
   activeAppId: null,
   openedAppState: null,
-  activeDocumentSurfaceId: null,
+  activeDocumentTarget: null,
   openedDocumentState: null,
   isAppMinimized: false,
   intelligenceTab: "identity",
@@ -862,9 +933,13 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   loadDocument: async (assistantId, documentSurfaceId) => {
     const viewBeforeDocument = resolveViewBefore(get(), "viewBeforeDocument");
+    const target: DocumentTarget = {
+      source: "document",
+      surfaceId: documentSurfaceId,
+    };
     set({
       mainView: "document",
-      activeDocumentSurfaceId: documentSurfaceId,
+      activeDocumentTarget: target,
       openedDocumentState: null,
       viewBeforeDocument,
     });
@@ -873,19 +948,20 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         path: { assistant_id: assistantId, id: documentSurfaceId },
         throwOnError: true,
       });
-      if (get().activeDocumentSurfaceId !== documentSurfaceId) {
+      if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
         return;
       }
       if (!result) {
         set({
           mainView: viewBeforeDocument,
-          activeDocumentSurfaceId: null,
+          activeDocumentTarget: null,
           openedDocumentState: null,
         });
         return;
       }
       set({
         openedDocumentState: {
+          source: "document",
           surfaceId: result.surfaceId,
           conversationId: result.conversationId,
           documentName: result.title ?? "Untitled",
@@ -893,14 +969,66 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         },
       });
     } catch {
-      if (get().activeDocumentSurfaceId !== documentSurfaceId) {
+      if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
         return;
       }
       set({
         mainView: viewBeforeDocument,
-        activeDocumentSurfaceId: null,
+        activeDocumentTarget: null,
         openedDocumentState: null,
       });
+    }
+  },
+
+  loadWorkspaceFileDocument: async (assistantId, workspacePath) => {
+    const viewBeforeDocument = resolveViewBefore(get(), "viewBeforeDocument");
+    const target: DocumentTarget = { source: "workspace-file", workspacePath };
+    set({
+      mainView: "document",
+      activeDocumentTarget: target,
+      openedDocumentState: null,
+      viewBeforeDocument,
+    });
+
+    const giveUp = () => {
+      if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
+        return;
+      }
+      set({
+        mainView: viewBeforeDocument,
+        activeDocumentTarget: null,
+        openedDocumentState: null,
+      });
+      toast.error("Couldn't open this file");
+    };
+
+    try {
+      const { data: result } = await workspaceFileGet({
+        path: { assistant_id: assistantId },
+        query: { path: workspacePath },
+        throwOnError: true,
+      });
+      if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
+        return;
+      }
+      // `content` is null for binary files and for text too large to inline.
+      // Editing either would truncate the file on the next save.
+      if (!result || result.isBinary || typeof result.content !== "string") {
+        giveUp();
+        return;
+      }
+      set({
+        openedDocumentState: {
+          source: "workspace-file",
+          // The requested path, not the echoed one, so a save writes exactly
+          // the file this content was read from.
+          workspacePath,
+          documentName: result.name,
+          content: result.content,
+        },
+      });
+    } catch {
+      giveUp();
     }
   },
 
@@ -909,14 +1037,12 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   },
 
   updateDocumentContent: (surfaceId, content, mode) => {
-    const state = get();
-    if (
-      !state.openedDocumentState ||
-      state.openedDocumentState.surfaceId !== surfaceId
-    ) {
+    const prev = get().openedDocumentState;
+    // Streamed edits address a document surface, so they never apply to a
+    // file-backed document.
+    if (!prev || prev.source !== "document" || prev.surfaceId !== surfaceId) {
       return;
     }
-    const prev = state.openedDocumentState;
     const newContent = mode === "append" ? prev.content + content : content;
     set({ openedDocumentState: { ...prev, content: newContent } });
   },
@@ -924,7 +1050,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   handleDocumentLoadFailed: () => {
     set({
       mainView: get().viewBeforeDocument,
-      activeDocumentSurfaceId: null,
+      activeDocumentTarget: null,
       openedDocumentState: null,
     });
   },
@@ -932,7 +1058,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   closeDocument: () => {
     set({
       mainView: get().viewBeforeDocument,
-      activeDocumentSurfaceId: null,
+      activeDocumentTarget: null,
       openedDocumentState: null,
     });
   },

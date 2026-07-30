@@ -1,11 +1,41 @@
-import { beforeEach, describe, it, expect } from "bun:test";
+import { beforeEach, describe, it, expect, mock } from "bun:test";
 
-import {
-  isAppNotFoundError,
-  useViewerStore,
-  type ActivityStepsPayload,
-  type ToolDetailPayload,
+import type {
+  ActivityStepsPayload,
+  ToolDetailPayload,
 } from "@/stores/viewer-store";
+import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
+
+// The store reads workspace files through the daemon SDK. Spread the real
+// module so the actions this file does not exercise keep their real bindings.
+const daemonSdk = await import("@/generated/daemon/sdk.gen");
+
+type WorkspaceFileGetResult = {
+  data: (Omit<WorkspaceFileGetResponse, "content"> & { content: unknown }) | null;
+};
+
+let workspaceFileGetResult: () => Promise<WorkspaceFileGetResult> = () =>
+  Promise.reject(new Error("not stubbed"));
+const workspaceFileGetCalls: unknown[] = [];
+
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...daemonSdk,
+  workspaceFileGet: (options: unknown) => {
+    workspaceFileGetCalls.push(options);
+    return workspaceFileGetResult();
+  },
+}));
+
+const toastError = mock((_message: string) => {});
+const toastModule = await import("@vellumai/design-library/components/toast");
+mock.module("@vellumai/design-library/components/toast", () => ({
+  ...toastModule,
+  toast: { ...toastModule.toast, error: toastError },
+}));
+
+const { isAppNotFoundError, useViewerStore } = await import(
+  "@/stores/viewer-store"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -17,6 +47,8 @@ function getState() {
 
 beforeEach(() => {
   getState().reset();
+  workspaceFileGetCalls.length = 0;
+  toastError.mockClear();
 });
 
 const SAMPLE_APP = {
@@ -26,11 +58,18 @@ const SAMPLE_APP = {
   html: "<h1>App</h1>",
 };
 const SAMPLE_DOC = {
+  source: "document",
   surfaceId: "surf-1",
   conversationId: "conv-1",
   documentName: "README.md",
   content: "# Hello",
-};
+} as const;
+const SAMPLE_FILE_DOC = {
+  source: "workspace-file",
+  workspacePath: "drafts/notes.md",
+  documentName: "notes.md",
+  content: "# Notes",
+} as const;
 const SAMPLE_TOOL: ToolDetailPayload = {
   toolCallId: "tc-1",
   toolName: "spawn_subagent",
@@ -842,6 +881,165 @@ describe("closeDocument", () => {
     const state = getState();
     expect(state.mainView).toBe("app");
     expect(state.openedDocumentState).toBeNull();
+    expect(state.activeDocumentTarget).toBeNull();
+  });
+});
+
+describe("updateDocumentContent", () => {
+  it("applies a streamed replace to the matching document surface", () => {
+    useViewerStore.setState({ openedDocumentState: SAMPLE_DOC });
+    getState().updateDocumentContent("surf-1", "# Replaced", "replace");
+    expect(getState().openedDocumentState?.content).toBe("# Replaced");
+  });
+
+  it("leaves a file-backed document alone", () => {
+    useViewerStore.setState({ openedDocumentState: SAMPLE_FILE_DOC });
+    getState().updateDocumentContent("surf-1", "# Replaced", "replace");
+    expect(getState().openedDocumentState).toBe(SAMPLE_FILE_DOC);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Document viewer: workspace files
+// ---------------------------------------------------------------------------
+
+describe("loadWorkspaceFileDocument", () => {
+  it("opens the fetched file as a file-backed document", async () => {
+    workspaceFileGetResult = () =>
+      Promise.resolve({
+        data: {
+          path: "drafts/notes.md",
+          name: "notes.md",
+          size: 7,
+          mimeType: "text/markdown",
+          modifiedAt: "2026-07-29T00:00:00.000Z",
+          content: "# Notes",
+          isBinary: false,
+        },
+      });
+
+    await getState().loadWorkspaceFileDocument("asst-1", "drafts/notes.md");
+
+    const state = getState();
+    expect(state.mainView).toBe("document");
+    expect(state.openedDocumentState).toEqual({
+      source: "workspace-file",
+      workspacePath: "drafts/notes.md",
+      documentName: "notes.md",
+      content: "# Notes",
+    });
+    expect(workspaceFileGetCalls.length).toBe(1);
+    expect(workspaceFileGetCalls[0]).toMatchObject({
+      path: { assistant_id: "asst-1" },
+      query: { path: "drafts/notes.md" },
+    });
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("saves the prior view so closing restores it", async () => {
+    useViewerStore.setState({ mainView: "app" });
+    workspaceFileGetResult = () =>
+      Promise.resolve({
+        data: {
+          path: "notes.md",
+          name: "notes.md",
+          size: 1,
+          mimeType: "text/markdown",
+          modifiedAt: "2026-07-29T00:00:00.000Z",
+          content: "hi",
+          isBinary: false,
+        },
+      });
+
+    await getState().loadWorkspaceFileDocument("asst-1", "notes.md");
+    expect(getState().viewBeforeDocument).toBe("app");
+
+    getState().closeDocument();
+    expect(getState().mainView).toBe("app");
+  });
+
+  it("restores the prior view and reports a failed fetch", async () => {
+    useViewerStore.setState({ mainView: "app" });
+    workspaceFileGetResult = () => Promise.reject(new Error("404"));
+
+    await getState().loadWorkspaceFileDocument("asst-1", "gone.md");
+
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.openedDocumentState).toBeNull();
+    expect(state.activeDocumentTarget).toBeNull();
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a file whose content the daemon did not inline", async () => {
+    workspaceFileGetResult = () =>
+      Promise.resolve({
+        data: {
+          path: "huge.md",
+          name: "huge.md",
+          size: 5_000_000,
+          mimeType: "text/markdown",
+          modifiedAt: "2026-07-29T00:00:00.000Z",
+          content: null,
+          isBinary: false,
+        },
+      });
+
+    await getState().loadWorkspaceFileDocument("asst-1", "huge.md");
+
+    expect(getState().openedDocumentState).toBeNull();
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a binary file", async () => {
+    workspaceFileGetResult = () =>
+      Promise.resolve({
+        data: {
+          path: "logo.md",
+          name: "logo.md",
+          size: 12,
+          mimeType: "image/png",
+          modifiedAt: "2026-07-29T00:00:00.000Z",
+          content: null,
+          isBinary: true,
+        },
+      });
+
+    await getState().loadWorkspaceFileDocument("asst-1", "logo.md");
+
+    expect(getState().openedDocumentState).toBeNull();
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a response for a file the user already navigated away from", async () => {
+    let resolveFirst: (value: WorkspaceFileGetResult) => void = () => {};
+    workspaceFileGetResult = () =>
+      new Promise<WorkspaceFileGetResult>((resolve) => {
+        resolveFirst = resolve;
+      });
+
+    const first = getState().loadWorkspaceFileDocument("asst-1", "slow.md");
+    // The user opened a document surface while the file was still loading.
+    useViewerStore.setState({
+      openedDocumentState: SAMPLE_DOC,
+      activeDocumentTarget: { source: "document", surfaceId: "surf-1" },
+    });
+
+    resolveFirst({
+      data: {
+        path: "slow.md",
+        name: "slow.md",
+        size: 2,
+        mimeType: "text/markdown",
+        modifiedAt: "2026-07-29T00:00:00.000Z",
+        content: "hi",
+        isBinary: false,
+      },
+    });
+    await first;
+
+    expect(getState().openedDocumentState).toBe(SAMPLE_DOC);
+    expect(toastError).not.toHaveBeenCalled();
   });
 });
 

@@ -13,15 +13,15 @@ import {
   localFileKindFromFilename,
 } from "@/domains/chat/components/local-file/local-file-icon";
 import { filenameFromHref } from "@/domains/chat/components/local-file/local-file-target";
+import { openLocalFile } from "@/domains/chat/components/local-file/open-local-file";
 import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
-import { openWorkspaceFile } from "@/utils/open-workspace-file";
 
 export interface LocalFileLinkProps {
   href: string;
   workspacePath: string | null;
   /**
-   * Accepted so callers can pass the active assistant uniformly across the
-   * local-file components. The link resolves nothing from the daemon itself.
+   * The active assistant, needed to read a markdown file into the document
+   * drawer. Without it the click falls back to the workspace browser.
    */
   assistantId?: string;
   /** The markdown label. */
@@ -33,6 +33,7 @@ export interface LocalFileLinkProps {
 export function LocalFileLink({
   href,
   workspacePath,
+  assistantId,
   children,
   onActivate,
 }: LocalFileLinkProps): ReactNode {
@@ -51,7 +52,7 @@ export function LocalFileLink({
       toast.error("This file isn't available here");
       return;
     }
-    void openWorkspaceFile(workspacePath);
+    openLocalFile(workspacePath, filename, assistantId);
   };
 
   return (
