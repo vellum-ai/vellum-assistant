@@ -151,8 +151,11 @@ Examples:
       description: "Read the organization's Stripe invoice history",
       helpText: `
 Invoices are read from the platform's billing invoices endpoint using this
-assistant's platform API key. Amounts are in the currency's minor units
-(e.g. cents); 'created' is a Unix timestamp in seconds.
+assistant's platform API key. Amounts are Stripe-scaled integers: divide
+by 100 for most currencies, by 1 for Stripe zero-decimal currencies
+(e.g. JPY, KRW), and by 1000 for three-decimal ones (e.g. BHD). ISK, HUF,
+TWD, and UGX stay two-decimal in Stripe's API for backward compatibility.
+'created' is a Unix timestamp in seconds.
 
 The platform returns one page of invoices at a time (newest first). When
 the response's 'has_more' is true, pass the last invoice's id via
@@ -189,9 +192,13 @@ Fields:
   status              Stripe status (draft, open, paid, uncollectible,
                       void), or null
   currency            Lowercase ISO currency code (e.g. usd)
-  amount_due          Amount due in the currency's minor units (e.g. cents)
-  amount_paid         Amount paid, in minor units
-  amount_remaining    Amount still owed, in minor units
+  amount_due          Amount due as a Stripe-scaled integer: divide by
+                      100 for most currencies, by 1 for Stripe
+                      zero-decimal currencies (e.g. JPY, KRW), and by
+                      1000 for three-decimal ones (e.g. BHD); ISK, HUF,
+                      TWD, and UGX stay two-decimal in Stripe's API
+  amount_paid         Amount paid, same Stripe scaling as amount_due
+  amount_remaining    Amount still owed, same Stripe scaling as amount_due
   created             Creation time as a Unix timestamp in seconds
   hosted_invoice_url  Link to the hosted Stripe invoice page, or null
   invoice_pdf         Link to the invoice PDF, or null
@@ -221,8 +228,9 @@ Arguments:
                 platform invoices list' to find it
 
 The platform has no per-invoice endpoint, so the assistant pages through
-the org's invoice list (newest first) until the ID matches. Unknown IDs
-return a not-found error.
+the org's invoice list (newest first) until the ID matches. The lookup
+searches the most recent 2,500 invoices (25 pages) and errors if the ID
+is not found within that range.
 
 Requires platform credentials (run 'assistant platform connect' first or
 ensure VELLUM_PLATFORM_URL is set and credentials are stored).
