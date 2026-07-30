@@ -5,12 +5,12 @@ import type { NextConfig } from "next";
 // the HTML page.
 // Browsers never send text/markdown in Accept, so human traffic is unaffected.
 // The negative lookahead skips ranges explicitly marked unacceptable with
-// q=0; a full RFC 9110 q-value parse is not expressible in a `has` regex, so
-// q=0 following other media-type parameters is not detected.
+// q=0, scanning past any preceding media-type parameters (e.g. charset).
 const MARKDOWN_ACCEPT_HEADER = {
   type: "header" as const,
   key: "accept",
-  value: "(.*?)text/markdown(?!\\s*;\\s*q=0(?:\\.0{1,3})?\\s*(?:,|$))(.*)",
+  value:
+    "(.*?)text/markdown(?!(?:\\s*;\\s*[^;,=]+=[^;,]*)*\\s*;\\s*q=0(?:\\.0{1,3})?\\s*(?:,|$))(.*)",
 };
 
 const nextConfig: NextConfig = {

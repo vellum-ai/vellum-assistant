@@ -230,6 +230,15 @@ describe("next config docs Markdown content negotiation", () => {
     await expect(
       resolveBeforeFilesRewrite("/docs/pricing", "text/markdown; q=0, */*")
     ).resolves.toBeNull();
+    await expect(
+      resolveBeforeFilesRewrite(
+        "/docs/pricing",
+        "text/markdown;charset=utf-8;q=0"
+      )
+    ).resolves.toBeNull();
+    await expect(
+      resolveBeforeFilesRewrite("/docs/pricing", "text/markdown;level=1;q=0")
+    ).resolves.toBeNull();
   });
 
   test("serves HTML (no rewrite) to browsers", async () => {
