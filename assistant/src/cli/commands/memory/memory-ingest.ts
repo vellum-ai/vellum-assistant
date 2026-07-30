@@ -217,10 +217,11 @@ export function registerMemoryIngestCommand(memory: Command): void {
         );
         if (!r.ok) {
           // A batch failed mid-run (e.g. 409 lock conflict, daemon down).
-          // Earlier batches have already committed, so report the partial
-          // aggregate instead of discarding it: a scripted migration needs
-          // to know exactly what landed before the failure.
+          // `partial` covers fully completed batches only and is therefore a
+          // lower bound: the daemon commits pages one by one, so the failing
+          // batch itself may have written pages this aggregate cannot see.
           const message = r.error ?? "Unknown error";
+          const verb = aggregate.dryRun ? "would write" : "wrote";
           if (opts.json === true) {
             log.info(
               JSON.stringify({ ok: false, error: message, partial: aggregate }),
@@ -228,7 +229,8 @@ export function registerMemoryIngestCommand(memory: Command): void {
           } else {
             log.error(`Error: ${message}`);
             log.error(
-              `Partial results before the failure: wrote ${aggregate.written} page(s); ` +
+              `Partial results from completed batches (the failing batch is ` +
+                `indeterminate): ${verb} ${aggregate.written} page(s); ` +
                 `skipped ${aggregate.skipped} existing; ${aggregate.invalid} invalid.`,
             );
           }
