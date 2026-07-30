@@ -109,6 +109,37 @@ describe("CommandPalette", () => {
     expect(row.textContent).toContain("we compared alpha and beta");
   });
 
+  test("highlights the match when the query contains search filters", () => {
+    render(
+      <CommandPalette
+        isOpen
+        surface="window"
+        onClose={() => undefined}
+        query="is:archived alpha"
+        onQueryChange={() => undefined}
+        selectedIndex={0}
+        sections={[
+          {
+            id: "search-conversations",
+            label: "Conversations",
+            items: [
+              {
+                id: "search-conv-c1",
+                title: "Trip planning",
+                snippet: "…we compared alpha and beta itineraries…",
+              },
+            ],
+          },
+        ]}
+        onKeyDown={() => undefined}
+      />,
+    );
+
+    const row = screen.getByRole("option");
+    const highlight = row.querySelector("span.font-medium");
+    expect(highlight?.textContent).toBe("alpha");
+  });
+
   test("renders nothing while closed outside the iOS shell", () => {
     isMobileRef.value = true;
     nativeIOSRef.value = false;
