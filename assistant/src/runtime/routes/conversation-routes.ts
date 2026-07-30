@@ -1169,6 +1169,7 @@ export function handleListMessages({
       ...(m.backgroundToolCompletion
         ? { backgroundToolCompletion: m.backgroundToolCompletion }
         : {}),
+      ...(m.systemCard ? { systemCard: true } : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };
   });
