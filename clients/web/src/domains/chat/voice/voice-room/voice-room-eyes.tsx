@@ -1265,6 +1265,7 @@ export function VoiceRoomEyes({
                 room's spine (see CURSOR_MAX_X / CURSOR_MAX_Y). */}
             <div
               ref={parallaxRef}
+              data-testid="voice-room-eyes-parallax"
               style={{
                 transform: "translate(0px, 0px)",
                 transition: "transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
