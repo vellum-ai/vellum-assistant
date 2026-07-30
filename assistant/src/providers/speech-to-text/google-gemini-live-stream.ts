@@ -11,9 +11,10 @@
  * - Uses a long-lived WebSocket-backed session (not periodic REST polls).
  * - The server emits transcription events natively via
  *   `serverContent.inputTranscription`; we do not diff responses ourselves.
- * - Suppresses the model's text turn (`responseModalities: [TEXT]`,
- *   system instruction telling the model to stay silent) so we only pay
- *   for transcription work.
+ * - Keeps the model quiet with a system instruction telling it to stay
+ *   silent, so we only pay for transcription work. The response modality
+ *   cannot be used for this: Live models serve AUDIO only, and the adapter
+ *   simply never reads the audio turn.
  *
  * Lifecycle:
  * 1. {@link start} opens the Live session and resolves on `onopen`.
@@ -45,11 +46,17 @@ const log = getLogger("google-gemini-live-stream");
 // ---------------------------------------------------------------------------
 
 /**
- * Default Gemini Live-capable model. See the @google/genai SDK example at
- * `@google/genai/dist/node/node.d.ts` (class `Live.connect`) — the Gemini
- * Live API currently ships under the `gemini-live-2.5-flash-preview` id.
+ * Default Gemini Live-capable model, meaning one that advertises
+ * `bidiGenerateContent` in the v1beta ListModels response. A model missing
+ * from that list closes the Live socket with code 1008 ("not found for API
+ * version v1beta, or is not supported for bidiGenerateContent").
+ *
+ * Prefer a `-latest` alias over a dated `-preview` id. Google rotates the
+ * alias forward, while preview ids are retired on their own schedule and can
+ * keep serving grandfathered projects after they stop being listed, so a
+ * retired id can fail for new API keys while still working internally.
  */
-const DEFAULT_MODEL = "gemini-live-2.5-flash-preview";
+const DEFAULT_MODEL = "gemini-2.5-flash-native-audio-latest";
 
 /**
  * Default timeout (ms) for the Live session handshake.
@@ -83,7 +90,7 @@ const SILENT_SYSTEM_INSTRUCTION =
 // ---------------------------------------------------------------------------
 
 export interface GoogleGeminiLiveStreamOptions {
-  /** Gemini Live model to use (default: "gemini-live-2.5-flash-preview"). */
+  /** Gemini Live model to use (default: {@link DEFAULT_MODEL}). */
   model?: string;
   /** Override the Google AI API base URL (useful for proxies or on-prem). */
   baseUrl?: string;
@@ -209,7 +216,12 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
     const connectPromise = this.client.live.connect({
       model: this.model,
       config: {
-        responseModalities: [Modality.TEXT],
+        // Live models serve AUDIO only. Asking for TEXT closes the socket
+        // during setup with code 1007 ("The requested combination of response
+        // modalities (TEXT) is not supported by the model"). Transcription is
+        // unaffected: it arrives out-of-band on `inputAudioTranscription`, not
+        // as a response modality, which is the only output this adapter reads.
+        responseModalities: [Modality.AUDIO],
         inputAudioTranscription: {},
         systemInstruction: SILENT_SYSTEM_INSTRUCTION,
       },
