@@ -817,7 +817,7 @@ describe("buildTranscriptItems", () => {
   // Proactive exhausted-balance card (appendCreditsUpsell)
   // ---------------------------------------------------------------------------
 
-  test("appendCreditsUpsell appends the proactive card at the very end", () => {
+  test("appendCreditsUpsell appends the proactive card after the messages", () => {
     const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
     const assistant = makeMessage({
       id: "m2",
@@ -836,6 +836,26 @@ describe("buildTranscriptItems", () => {
       kind: "creditsUpsell",
       key: "credits-upsell-proactive",
     });
+    expectDistinctNonEmptyKeys(items);
+  });
+
+  test("proactive card lands before trailers (thinking slot, onboarding choice)", () => {
+    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [user],
+      isThinking: true,
+      showOnboardingChoice: true,
+      appendCreditsUpsell: true,
+    });
+
+    expect(items.map((i) => i.kind)).toEqual([
+      "message",
+      "creditsUpsell",
+      "thinking",
+      "onboardingChoice",
+    ]);
     expectDistinctNonEmptyKeys(items);
   });
 
@@ -866,10 +886,63 @@ describe("buildTranscriptItems", () => {
     });
   });
 
+  test("trailers after the substituted upsell do not defeat the dedupe", () => {
+    // The dedupe consults the last message-derived item, so trailer rows
+    // (onboarding choice, thinking slot, pending prompts) between the
+    // substituted card and the tail must not produce a second card.
+    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+    const errorRow = makeMessage({
+      id: "m2",
+      role: "assistant",
+      ...textBody("I hit a snag: your credits ran out."),
+      providerError: {
+        code: "PROVIDER_BILLING",
+        category: "credits_exhausted",
+      },
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [user, errorRow],
+      showOnboardingChoice: true,
+      appendCreditsUpsell: true,
+    });
+
+    expect(items.map((i) => i.kind)).toEqual([
+      "message",
+      "creditsUpsell",
+      "onboardingChoice",
+    ]);
+    expectDistinctNonEmptyKeys(items);
+  });
+
+  test("the thinking slot of a still-busy failed turn does not defeat the dedupe", () => {
+    const errorRow = makeMessage({
+      id: "m1",
+      role: "assistant",
+      ...textBody("I hit a snag: your credits ran out."),
+      providerError: {
+        code: "PROVIDER_BILLING",
+        category: "credits_exhausted",
+      },
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [errorRow],
+      turnActive: true,
+      appendCreditsUpsell: true,
+    });
+
+    expect(items.map((i) => i.kind)).toEqual(["creditsUpsell", "thinking"]);
+    expect(items.filter((i) => i.kind === "creditsUpsell")).toHaveLength(1);
+    expectDistinctNonEmptyKeys(items);
+  });
+
   test("an old substituted upsell followed by later messages still gets the proactive tail card", () => {
-    // The dedupe is against the transcript TAIL only: a historical exhaustion
-    // (topped up, conversation continued, exhausted again) should not
-    // suppress the new tail card.
+    // The dedupe consults only the LAST message-derived item: a historical
+    // exhaustion (topped up, conversation continued, exhausted again) should
+    // not suppress the new tail card.
     const errorRow = makeMessage({
       id: "m1",
       role: "assistant",

@@ -43,7 +43,8 @@ export interface UseTranscriptDataParams {
    * `useBillingBalanceStatus()` read in `chat-route-content`). While true, a
    * proactive credits upsell card is appended at the transcript tail of open
    * conversations; empty conversations surface the card through the
-   * empty-state slots instead.
+   * empty-state slots instead. Suppressed while a turn is in flight
+   * (`turnActive`) so the card never sits under the live progress indicator.
    */
   creditsExhausted: boolean;
 }
@@ -123,8 +124,11 @@ export function useTranscriptData({
         showOnboardingChoice,
         // The proactive card is an open-conversation surface: with no
         // messages the chat renders the empty state (which mounts its own
-        // card), not the transcript.
-        appendCreditsUpsell: creditsExhausted && sanitizedMessages.length > 0,
+        // card), not the transcript. In-flight turns suppress it so a credit
+        // wall never renders under the live progress indicator; the
+        // turn-settled billing refetch re-shows it as soon as the turn ends.
+        appendCreditsUpsell:
+          creditsExhausted && !turnActive && sanitizedMessages.length > 0,
       }),
     [
       creditsExhausted,

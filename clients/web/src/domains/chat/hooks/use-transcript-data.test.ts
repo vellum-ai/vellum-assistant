@@ -2,7 +2,8 @@
  * Tests for `useTranscriptData`'s proactive credits-upsell append: with the
  * balance exhausted, an open conversation gets the card at the transcript
  * tail, a fresh conversation does not (the empty state owns the card there),
- * and a just-failed turn's substituted card is never doubled. The projection
+ * an in-flight turn suppresses the card until it settles, and a just-failed
+ * turn's substituted card is never doubled. The projection
  * itself (`buildTranscriptItems`) is real; only the two chat stores the hook
  * reads are stubbed inert.
  */
@@ -38,16 +39,22 @@ function makeMessage(
   return { id, role, ...textBody(text) };
 }
 
-function setup(messages: DisplayMessage[], creditsExhausted: boolean) {
-  return renderHook(() =>
-    useTranscriptData({
-      messages,
-      showThinking: false,
-      turnActive: false,
-      thinkingLabel: null,
-      showOnboardingChoice: false,
-      creditsExhausted,
-    }),
+function setup(
+  messages: DisplayMessage[],
+  creditsExhausted: boolean,
+  turnActive = false,
+) {
+  return renderHook(
+    (props: { turnActive: boolean }) =>
+      useTranscriptData({
+        messages,
+        showThinking: false,
+        turnActive: props.turnActive,
+        thinkingLabel: null,
+        showOnboardingChoice: false,
+        creditsExhausted,
+      }),
+    { initialProps: { turnActive } },
   );
 }
 
@@ -79,6 +86,30 @@ describe("useTranscriptData proactive credits upsell", () => {
     expect(
       result.current.transcriptItems.filter((i) => i.kind === "creditsUpsell"),
     ).toHaveLength(0);
+  });
+
+  test("no proactive card while a turn is in flight; it appears once the turn settles", () => {
+    const messages = [
+      makeMessage("m1", "user", "Hello"),
+      makeMessage("m2", "assistant", "Hi"),
+    ];
+    const { result, rerender } = setup(messages, true, true);
+
+    // In flight: only the thinking slot trails the messages, no credit wall
+    // under the live progress indicator.
+    expect(result.current.transcriptItems.map((i) => i.kind)).toEqual([
+      "message",
+      "message",
+      "thinking",
+    ]);
+
+    rerender({ turnActive: false });
+
+    expect(result.current.transcriptItems.map((i) => i.kind)).toEqual([
+      "message",
+      "message",
+      "creditsUpsell",
+    ]);
   });
 
   test("a just-failed turn's substituted card is not doubled", () => {
