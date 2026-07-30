@@ -37,6 +37,7 @@ import { Tooltip, Typography } from "@vellumai/design-library";
 
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
+import { thinkingPreview } from "@/domains/chat/utils/thinking-preview";
 import {
   formatMs,
   type ToolCallCardStep,
@@ -635,7 +636,7 @@ export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
   if (step.kind === "thinking") {
     return (
       <StepPill>
-        <PillText>{step.text}</PillText>
+        <PillText>{thinkingPreview(step.text)}</PillText>
       </StepPill>
     );
   }
