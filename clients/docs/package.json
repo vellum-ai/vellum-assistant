@@ -11,12 +11,14 @@
     "test": "bun test src"
   },
   "dependencies": {
+    "minisearch": "7.2.0",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",
+    "cheerio": "1.2.0",
     "@types/node": "26.1.2",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
