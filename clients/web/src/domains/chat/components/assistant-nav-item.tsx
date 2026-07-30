@@ -232,7 +232,8 @@ export function AssistantNavItem({
       title="New Chat"
       data-tour-id="new-chat"
       className={cn(
-        "group relative flex w-full cursor-pointer items-center overflow-hidden rounded-[8px] select-none",
+        "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
+        collapsed ? "rounded-[6px]" : "rounded-[8px]",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         "transition-colors duration-150 active:scale-[0.98]",
         hex && !navTourActive
@@ -242,7 +243,11 @@ export function AssistantNavItem({
       )}
       style={
         {
-          height: isMobile ? MOBILE_ROW_HEIGHT : NEW_CHAT_ROW_HEIGHT,
+          height: collapsed
+            ? COLLAPSED_ASSISTANT_ROW_HEIGHT
+            : isMobile
+              ? MOBILE_ROW_HEIGHT
+              : NEW_CHAT_ROW_HEIGHT,
           gap: SIDEBAR_CHIP_GAP,
           paddingLeft: collapsed ? 0 : ROW_PADDING_X,
           paddingRight: collapsed ? 0 : ROW_PADDING_X,
@@ -291,7 +296,7 @@ export function AssistantNavItem({
           aria-current={active ? "page" : undefined}
           className={cn(
             "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
-            collapsed ? "rounded-[8px]" : "rounded-[6px]",
+            "rounded-[6px]",
             "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
             "transition-colors duration-150 active:scale-[0.98]",
             active
@@ -376,7 +381,7 @@ export function AssistantNavItem({
       aria-current={active ? "page" : undefined}
       className={cn(
         "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
-        collapsed ? "rounded-[8px]" : "rounded-[6px]",
+        "rounded-[6px]",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         "transition-[filter,transform,background-color,color] duration-300 active:scale-[0.98]",
         navTourActive

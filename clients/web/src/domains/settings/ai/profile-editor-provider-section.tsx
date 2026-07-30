@@ -26,6 +26,9 @@ import type {
 } from "@/generated/daemon/types.gen";
 
 const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
   "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
@@ -44,9 +47,9 @@ function connectionModelsToCatalog(
 /**
  * Whether the current connection restricts a catalog-backed provider to the
  * Codex-compatible subscription model set. A ChatGPT `oauth_subscription`
- * connection only accepts `CODEX_SUBSCRIPTION_MODEL_IDS`, so both the model
- * list and the free-text escape hatch must respect that limit — a typed id
- * the endpoint rejects would otherwise be saveable.
+ * connection is restricted to `CODEX_SUBSCRIPTION_MODEL_IDS`, so both the
+ * model list and the free-text escape hatch must respect that limit — a typed
+ * id the endpoint rejects would otherwise be saveable.
  */
 function restrictsToSubscriptionModels(
   provider: ConnectionProvider | "",

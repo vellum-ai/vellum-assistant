@@ -113,3 +113,16 @@ describe("ChatLayoutHeader — right cluster", () => {
     expect(toggleCommandPaletteSpy).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("ChatLayoutHeader mobile affordances", () => {
+  test("renders the hamburger and search affordances with their aria wiring", () => {
+    renderHeader({ drawerOpen: false });
+
+    const hamburger = screen.getByRole("button", { name: "Open navigation" });
+    expect(hamburger.getAttribute("aria-expanded")).toBe("false");
+    expect(hamburger.getAttribute("aria-controls")).toBe("chat-side-menu");
+    expect(
+      screen.getByRole("button", { name: "Search (Ctrl+K)" }),
+    ).toBeTruthy();
+  });
+});

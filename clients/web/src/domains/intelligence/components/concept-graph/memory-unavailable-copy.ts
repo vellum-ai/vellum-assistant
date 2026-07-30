@@ -15,17 +15,35 @@
 import type { MemoryTier } from "@/domains/intelligence/memory-graph/get-memory-stats";
 
 /**
- * Seeds the upgrade chat. Deliberately states the goal and not a procedure: the
- * right migration depends on whether the concept corpus is empty (backfill) or
- * populated (a staged reform), which the assistant can determine and this
- * surface cannot. Asking for confirmation before the rewrite is part of the
- * ask, since the corpus is not regenerable.
+ * Seeds the upgrade chat on a **v2** assistant.
+ *
+ * Names the skill it will most likely want, then gets out of the way. The
+ * pointer is worth handing over, but it stays a pointer: both migration skills
+ * carry `avoid-when` rules, so an empty or near-empty corpus can end up
+ * somewhere else entirely, and the assistant is the one that can count its
+ * pages and read those rules. "Work out what my corpus actually needs" is what
+ * lets it deviate; "follow it exactly" is what keeps it honest once it picks.
  */
-export const MEMORY_V3_UPGRADE_PROMPT =
-  "Upgrade my memory to v3 so the memory graph works. Check whether your " +
-  "concept corpus is empty or already populated first, then run the migration " +
-  "that fits. Tell me what you're about to change before you rewrite anything " +
-  "you remember.";
+export const MEMORY_V2_UPGRADE_PROMPT = `Migrate my memory from v2 to v3. That's most likely your "Memory v3 Migration" skill, but work out what my corpus actually needs and follow whichever skill you use exactly.
+
+Run it in the background and tell me when it's done, or if something blocks.`;
+
+/**
+ * Seeds the upgrade chat on a **v1** assistant, whose memory lives in the
+ * legacy PKB graph with no concept pages at all.
+ *
+ * Names both skills and their order, because that order is real and not
+ * obvious: the v2 migration backfills `memory/concepts/` from `pkb/` and the
+ * buffer, and the v3 migration reforms the result, so reaching for v3 first
+ * meets its empty-corpus guard. Hedged for the same reason as the v2 seed, and
+ * one case in particular: a v1 assistant that never wrote a PKB entry has
+ * nothing for either skill to migrate, and the whole job collapses to a config
+ * change. Stated as a mandate, this seed would describe a sequence that cannot
+ * run.
+ */
+export const MEMORY_V1_UPGRADE_PROMPT = `Migrate my memory from v1 to v3. That's most likely two hops, your "Memory v2 Migration" skill and then your "Memory v3 Migration" skill, but work out what my assistant actually needs and follow whichever skills you use exactly.
+
+Run it in the background and tell me when it's done, or if something blocks.`;
 
 /**
  * Seeds the turn-memory-back-on chat. The Memory toggle lives on the Developer
@@ -44,6 +62,13 @@ export interface MemoryUnavailableCopy {
   title: string;
   detail: string;
   action: MemoryUnavailableAction;
+  /**
+   * Seed for the chat this state's CTA opens, where it opens one. Carried on
+   * the copy rather than chosen by the component: which seed is correct is a
+   * property of the tier (a v2 corpus gets reformed, a v1 one gets backfilled),
+   * and that decision belongs next to the tier's other copy.
+   */
+  prompt?: string;
 }
 
 /**
@@ -92,6 +117,7 @@ export function describeMemoryUnavailable(
       detail:
         "Your assistant isn't keeping anything from your conversations, so there's no map to draw. Turn Memory back on to start remembering again.",
       action: "settings",
+      prompt: MEMORY_ENABLE_PROMPT,
     };
   }
   if (tier === "v1" || tier === "v2") {
@@ -100,6 +126,8 @@ export function describeMemoryUnavailable(
       detail:
         "Your assistant is on an older memory engine. Memory v3 reorganizes what it knows into a linked wiki of concepts, and that wiki is what this map draws.",
       action: "upgrade",
+      prompt:
+        tier === "v1" ? MEMORY_V1_UPGRADE_PROMPT : MEMORY_V2_UPGRADE_PROMPT,
     };
   }
   return {

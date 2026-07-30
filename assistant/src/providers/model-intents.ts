@@ -18,7 +18,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   },
   openai: {
     balanced: "gpt-5.4-mini",
-    "latency-optimized": "gpt-5.4-nano",
+    "latency-optimized": "gpt-5.6-luna",
     "quality-optimized": "gpt-5.4",
     "vision-optimized": "gpt-5.4",
   },

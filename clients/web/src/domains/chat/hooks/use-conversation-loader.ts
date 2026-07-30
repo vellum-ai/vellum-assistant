@@ -13,6 +13,7 @@ import {
 import {
   createDraftConversationId,
   resolveBootstrappedConversationId,
+  shouldMintNewChatDraft,
 } from "@/domains/chat/utils/conversation-selection";
 import {
   loadLastViewedConversationId,
@@ -24,6 +25,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { isNativeIOS } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
@@ -299,17 +301,32 @@ export function useConversationLoader({
     }
 
     const explicitConversationId = urlConversationId;
+    const currentConversationId =
+      useConversationStore.getState().activeConversationId;
+
+    // The Capacitor iOS shell cold-launches into a fresh draft instead of
+    // resuming a conversation. A draft is minted only while nothing is selected
+    // in the URL or the store, and the minting pass writes the key to the store
+    // in the same body, so the gate closes for the rest of the session.
+    const newChatDraftConversationId = shouldMintNewChatDraft({
+      platformStartsInNewChat: isNativeIOS(),
+      urlConversationId: explicitConversationId,
+      currentConversationId,
+    })
+      ? createDraftConversationId()
+      : null;
 
     // Only the "resume last-viewed" / "land on latest foreground" fallbacks
-    // read the fetched list. An explicit URL key, an onboarding draft, or the
-    // existing in-memory selection all resolve without it — so the chat
-    // transcript the user opened renders immediately instead of blocking on
-    // the sidebar's conversation-list API.
+    // read the fetched list. An explicit URL key, an onboarding draft, the
+    // existing in-memory selection, or a new-chat draft all resolve without
+    // it, so the chat transcript the user opened renders immediately instead
+    // of blocking on the sidebar's conversation-list API.
     const needsConversationList = !(
       explicitConversationId != null ||
       searchParams.get("onboarding") === "1" ||
       (assistantIdRef.current === assistantId &&
-        useConversationStore.getState().activeConversationId != null)
+        currentConversationId != null) ||
+      newChatDraftConversationId != null
     );
     if (needsConversationList && conversationListIsPending) {
       return;
@@ -346,8 +363,8 @@ export function useConversationLoader({
     const key = resolveBootstrappedConversationId({
       queryParamKey: explicitConversationId,
       onboardingDraftConversationId,
-      currentConversationId:
-        useConversationStore.getState().activeConversationId,
+      newChatDraftConversationId,
+      currentConversationId,
       currentAssistantId: assistantIdRef.current,
       nextAssistantId: assistantId,
       storedConversationId: loadLastViewedConversationId(assistantId),

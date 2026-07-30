@@ -116,12 +116,18 @@ const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> = {
     },
   },
   "latency-optimized": {
-    // The managed latency class. `cost-optimized`'s upstream showed
-    // multi-second cross-session TTFT tails on live voice drives, which the
-    // front model's leading tokens cannot absorb — they ARE the turn-taking
-    // verdict. Replace only with a model whose managed credentials are
-    // provisioned in every environment.
-    model: "claude-haiku-4-5-20251001",
+    // The managed latency class. Its leading tokens are the live-voice
+    // turn-taking verdict, so what this profile optimizes is the tail of
+    // time-to-first-token rather than the median: a verdict slower than
+    // `liveVoice.frontModel.endpointDecisionTimeoutMs` trips the speculative
+    // fail-open commit in live-voice-session.ts, which is audible dead air.
+    //
+    // Two constraints bind the model id. Its managed credentials must be
+    // provisioned in every environment, and it alone selects the upstream:
+    // `provider` below is the provider-agnostic managed sentinel, so
+    // `getManagedUpstream` resolves the real upstream from the model's catalog
+    // owner.
+    model: "gpt-5.6-luna",
     provider: "vellum",
     source: "managed",
     label: "Latency",

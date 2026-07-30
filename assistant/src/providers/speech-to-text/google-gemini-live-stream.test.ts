@@ -235,13 +235,18 @@ describe("GoogleGeminiLiveStreamingTranscriber", () => {
   // Setup config
   // ─────────────────────────────────────────────────────────────────
 
-  test("connect() is called with TEXT-only modality and inputAudioTranscription enabled", async () => {
+  test("connect() is called with AUDIO-only modality and inputAudioTranscription enabled", async () => {
     const { capturedCalls } = await startSession();
 
     expect(capturedCalls).toHaveLength(1);
     const params = capturedCalls[0].params;
-    expect(params.model).toBe("gemini-live-2.5-flash-preview");
-    expect(params.config?.responseModalities).toEqual(["TEXT"]);
+    // A `-latest` alias rather than a dated `-preview` id: preview ids are
+    // retired on Google's schedule and then close the Live socket with 1008.
+    expect(params.model).toBe("gemini-2.5-flash-native-audio-latest");
+    // Live models serve AUDIO only; requesting TEXT closes the socket during
+    // setup with 1007. Transcription rides on `inputAudioTranscription`
+    // regardless of the response modality.
+    expect(params.config?.responseModalities).toEqual(["AUDIO"]);
     expect(params.config?.inputAudioTranscription).toEqual({});
     expect(typeof params.config?.systemInstruction).toBe("string");
   });

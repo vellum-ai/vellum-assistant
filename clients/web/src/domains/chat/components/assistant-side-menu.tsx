@@ -1,4 +1,4 @@
-import { Clock, MessageSquare, Pin, Search, SquarePen, X } from "lucide-react";
+import { Search, SquarePen, X } from "lucide-react";
 import {
   useCallback,
   useLayoutEffect,
@@ -20,25 +20,25 @@ import {
   ConversationListProvider,
   type ConversationListContextValue,
 } from "@/domains/chat/components/conversation-list-context";
-import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
+import { SidebarListContextMenu } from "@/domains/chat/components/sidebar-list-context-menu";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
-import {
-  GroupActionsMenu,
-  type GroupMenuItemsProps,
-} from "@/domains/chat/components/group-actions-menu";
+import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
+import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
-import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
+import { useSectionDragReorder } from "@/domains/chat/hooks/use-section-drag-reorder";
+import {
+  SIDEBAR_CONVERSATION_LIMIT,
+  useSidebarState,
+  type SidebarSection,
+  type UseSidebarStateParams,
+} from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
-import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
+import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
+import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
-import {
-  DEFAULT_GROUP_ICON,
-  getGroupIcon,
-} from "@/domains/chat/utils/group-icon-registry";
-import { getChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 import { Button, SideMenu } from "@vellumai/design-library";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
@@ -79,6 +79,12 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onUnarchiveConversation?: (conversation: Conversation) => void;
   onMarkConversationUnread?: (conversation: Conversation) => void;
   onMarkConversationRead?: (conversation: Conversation) => void;
+  /**
+   * Create a new, empty custom group - the sidebar's own "New group…", as
+   * opposed to {@link AssistantSideMenuProps.onCreateGroupInto}, which creates
+   * a group around an existing conversation. Omit to drop the affordance.
+   */
+  onCreateGroup?: () => void;
   onRenameGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
   onMarkAllReadInGroup?: (conversations: Conversation[]) => void;
@@ -112,6 +118,7 @@ function SearchButton() {
       iconOnly={<Search />}
       aria-label="Search (⌘K)"
       title="Search (⌘K)"
+      className={NATIVE_IOS_BARE_ICON_BUTTON}
       onClick={handleClick}
     />
   );
@@ -125,20 +132,27 @@ function SearchButton() {
  *   Header
  *     • Your Assistant → Intelligence view
  *     • ───────────────
- *   Body · Pinned section (when non-empty)
- *     • pinned thread
- *   Body · Chats section
- *     • thread …       — recent conversations inline
- *     • …
- *     • Show more/less — page through recent conversations
+ *   Body · one section list, in the user's own order (default shown)
+ *     • Pinned ▾       - when non-empty
+ *     • Group ▾        - one collapsible section per custom group
+ *     • Chats ▾        - recent conversations, with Show more/less
  *     • Channel ▾      — one collapsible section per origin channel
  *                        (Slack, Telegram, WhatsApp, …)
- *     • ───────────────
- *     • Group ▾        — one collapsible section per custom group
  *   Footer
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
  *     • caller-provided action (PreferencesMenu)
+ *
+ * This component does **not** know that order. `useSidebarState` hands it one
+ * flat `sections` array already sorted by the user's stored preference, and
+ * every section renders through the same path - which is what lets a custom
+ * group sit above Recents, and what keeps the spacing between any two
+ * sections identical.
+ *
+ * Every section is a peer: same shell, same header treatment, same drag
+ * handle, and no divider anywhere in the list. A custom group is not a
+ * different class of thing from Pinned or a channel section, so nothing here
+ * may imply a grouping the user didn't create (LUM-2909).
  *
  * The conversation rows, row lists, and collapsible sections are
  * components ({@link ConversationRow} / {@link ConversationRowList} /
@@ -170,6 +184,7 @@ export function AssistantSideMenu({
   onMarkConversationUnread,
   onMarkConversationRead,
   conversationGroups,
+  onCreateGroup,
   onRenameGroup,
   onDeleteGroup,
   onMarkAllReadInGroup,
@@ -240,6 +255,12 @@ export function AssistantSideMenu({
     onReorder: (_section, ordered) => onReorderConversations?.(ordered),
   });
 
+  // Whole-section reordering, separate from the row-level controller above.
+  const sectionDragFor = useSectionDragReorder({
+    sections: sidebar.sections,
+    onReorder: sidebar.onReorderSections,
+  });
+
   // Header actions for a sidebar section. Every section gets the same shape —
   // Pinned, Chats, each channel section, and each custom group — so the bulk
   // actions are identical everywhere and the only per-section difference is
@@ -251,8 +272,12 @@ export function AssistantSideMenu({
       onRename?: () => void;
       onDelete?: () => void;
       onCopyGroupId?: () => void;
+      onMoveUp?: () => void;
+      onMoveDown?: () => void;
     },
   ): GroupMenuItemsProps => ({
+    onMoveUp: options?.onMoveUp,
+    onMoveDown: options?.onMoveDown,
     onMarkAllRead: onMarkAllReadInGroup
       ? () => onMarkAllReadInGroup(conversations)
       : undefined,
@@ -312,6 +337,37 @@ export function AssistantSideMenu({
     onRemoveFromGroup,
     dragReorder,
     canReorder: !!onReorderConversations,
+  };
+
+  // Header actions for one section: the bulk actions every section shares,
+  // the move-up/down pair its position allows (absent at either end, which is
+  // how the menu avoids offering a move that does nothing), and - for custom
+  // groups only - rename/delete/copy-id.
+  const sectionMenu = (
+    section: SidebarSection,
+    index: number,
+  ): GroupMenuItemsProps => {
+    const moveOptions = {
+      onMoveUp:
+        index === 0 ? undefined : () => sidebar.onMoveSection(section.key, -1),
+      onMoveDown:
+        index === sidebar.sections.length - 1
+          ? undefined
+          : () => sidebar.onMoveSection(section.key, 1),
+    };
+    if (section.type !== "group") {
+      return buildGroupMenu(section.label, section.all, moveOptions);
+    }
+    return buildGroupMenu(section.label, section.all, {
+      ...moveOptions,
+      onRename: onRenameGroup
+        ? () => onRenameGroup(section.group.id)
+        : undefined,
+      onDelete: onDeleteGroup
+        ? () => onDeleteGroup(section.group.id)
+        : undefined,
+      onCopyGroupId: () => copyIdToClipboard(section.group.id, "Group ID"),
+    });
   };
 
   // --- Built-in navigation ---
@@ -394,7 +450,7 @@ export function AssistantSideMenu({
         variant={variant}
         width={width}
         onWidthChange={onWidthChange}
-        className="relative h-full"
+        className="relative h-full border-0"
       >
         <SideMenu.Header>
           {variant === "overlay" ? (
@@ -406,6 +462,7 @@ export function AssistantSideMenu({
                 variant="ghost"
                 iconOnly={<X />}
                 aria-label="Close navigation"
+                className={NATIVE_IOS_BARE_ICON_BUTTON}
                 onClick={() => onClose?.()}
               />
               <SearchButton />
@@ -443,50 +500,17 @@ export function AssistantSideMenu({
         >
           {variant === "overlay" ? builtInNav : null}
           {isCollapsedRail ? (
+            /* The rail shows the same sections in the same order, as icons.
+               Nothing here is type-aware - order and labels come straight
+               from `sidebar.sections`, so the rail can't drift from the
+               expanded list the way two hand-maintained orders would. */
             <div className="flex flex-col items-center gap-2">
-              {sidebar.pinned.length > 0 ? (
+              {sidebar.sections.map((section) => (
                 <CollapsedGroupIcon
-                  icon={Pin}
-                  label="Pinned"
-                  indicatorState={getGroupIndicatorState(
-                    sidebar.pinned,
-                    processingConversationIds,
-                    attentionConversationIds,
-                  )}
-                >
-                  {(close) => (
-                    <CollapsedGroupFlyout
-                      title="Pinned"
-                      conversations={sidebar.pinned}
-                      onClosePopover={close}
-                    />
-                  )}
-                </CollapsedGroupIcon>
-              ) : null}
-              <CollapsedGroupIcon
-                icon={Clock}
-                label="Recents"
-                disabled={sidebar.recents.all.length === 0}
-                indicatorState={getGroupIndicatorState(
-                  sidebar.recents.all,
-                  processingConversationIds,
-                  attentionConversationIds,
-                )}
-              >
-                {(close) => (
-                  <CollapsedGroupFlyout
-                    title="Recents"
-                    conversations={sidebar.recents.all}
-                    onClosePopover={close}
-                  />
-                )}
-              </CollapsedGroupIcon>
-              {sidebar.channelSections.map((section) => (
-                <CollapsedGroupIcon
-                  key={section.channelId}
-                  icon={getChannelIcon(section.channelId)}
-                  label={getChannelLabel(section.channelId)}
-                  disabled={section.totalCount === 0}
+                  key={section.key}
+                  icon={sectionIcon(section)}
+                  label={section.label}
+                  disabled={section.all.length === 0}
                   indicatorState={getGroupIndicatorState(
                     section.all,
                     processingConversationIds,
@@ -495,29 +519,8 @@ export function AssistantSideMenu({
                 >
                   {(close) => (
                     <CollapsedGroupFlyout
-                      title={getChannelLabel(section.channelId)}
+                      title={section.label}
                       conversations={section.all}
-                      onClosePopover={close}
-                    />
-                  )}
-                </CollapsedGroupIcon>
-              ))}
-              {sidebar.customGroups.map((group) => (
-                <CollapsedGroupIcon
-                  key={group.id}
-                  icon={getGroupIcon(group.icon) ?? DEFAULT_GROUP_ICON}
-                  label={group.name}
-                  disabled={group.conversations.length === 0}
-                  indicatorState={getGroupIndicatorState(
-                    group.conversations,
-                    processingConversationIds,
-                    attentionConversationIds,
-                  )}
-                >
-                  {(close) => (
-                    <CollapsedGroupFlyout
-                      title={group.name}
-                      conversations={group.conversations}
                       onClosePopover={close}
                     />
                   )}
@@ -525,106 +528,41 @@ export function AssistantSideMenu({
               ))}
             </div>
           ) : (
-            <>
-              {/* Pinned, Chats, and the channel sections share one accordion
-                  root, so its gap governs every section boundary uniformly.
-                  Their open state lives in two storage buckets (Pinned/Chats
-                  default open); `use-sidebar-state` merges and re-splits it.
-                  New Chat lives in the assistant cluster above, not as a
-                  section-header action. */}
+            /* Right-clicking the list (including the empty space below the
+               last section) creates a group, so the affordance covers the
+               whole scrollport rather than any one section. */
+            <SidebarListContextMenu onCreateGroup={onCreateGroup}>
+              {/* Every section - Pinned, Chats, channels, custom groups -
+                  shares one accordion root, so its gap is the only thing
+                  between any two of them and the spacing is uniform by
+                  construction. Their open state lives in three storage buckets
+                  with different defaults (Pinned/Chats open);
+                  `use-sidebar-state` merges and re-splits it. New Chat lives in
+                  the assistant cluster above, not as a section-header
+                  action. */}
               <CollapsibleNavSection.Root
                 type="multiple"
                 className="gap-3"
                 value={sidebar.effectiveOpenSections}
                 onValueChange={sidebar.onOpenSectionsChange}
               >
-                {sidebar.pinned.length > 0 ? (
-                  <ConversationNavSection
-                    value="pinned"
-                    icon={Pin}
-                    label="Pinned"
-                    groupMenu={buildGroupMenu("Pinned", sidebar.pinned)}
-                    items={sidebar.pinned}
-                    dragSection="pinned"
-                    collapsedIndicator={collapsedActivityDot(sidebar.pinned)}
+                {/* No dividers between sections. A custom group is a peer of
+                    Pinned, Chats, and a channel section, not a different class
+                    of thing, so nothing here may hint at a grouping the user
+                    didn't create - they order these however they like. The
+                    header's own indent (SIDEBAR_SECTION_INDENT) is what marks
+                    where a section starts. */}
+                {sidebar.sections.map((section, index) => (
+                  <SidebarSectionItem
+                    key={section.key}
+                    section={section}
+                    groupMenu={sectionMenu(section, index)}
+                    drag={sectionDragFor(section)}
+                    collapsedIndicator={collapsedActivityDot(section.all)}
                   />
-                ) : null}
-
-                <ConversationNavSection
-                  value="recents"
-                  icon={MessageSquare}
-                  label="Chats"
-                  groupMenu={buildGroupMenu("Chats", sidebar.recents.all)}
-                  items={sidebar.recents.items}
-                  pagination={sidebar.recents}
-                  collapsedIndicator={collapsedActivityDot(sidebar.recents.all)}
-                />
-
-                {sidebar.channelSections.map((section) => {
-                  const label = getChannelLabel(section.channelId);
-                  return (
-                    <ConversationNavSection
-                      key={section.channelId}
-                      value={channelSectionKey(section.channelId)}
-                      icon={getChannelIcon(section.channelId)}
-                      label={label}
-                      groupMenu={buildGroupMenu(label, section.all)}
-                      items={section.items}
-                      pagination={section}
-                      collapsedIndicator={collapsedActivityDot(section.all)}
-                    />
-                  );
-                })}
+                ))}
               </CollapsibleNavSection.Root>
-
-              {sidebar.customGroups.length > 0 ? (
-                <>
-                  <SideMenu.Separator />
-                  <CollapsibleNavSection.Root
-                    type="multiple"
-                    className="gap-3"
-                    value={sidebar.effectiveOpenCustomGroups}
-                    onValueChange={sidebar.onOpenCustomGroupsChange}
-                  >
-                    {sidebar.customGroups.map((group) => {
-                      const groupMenu = buildGroupMenu(
-                        group.name,
-                        group.conversations,
-                        {
-                          onRename: onRenameGroup
-                            ? () => onRenameGroup(group.id)
-                            : undefined,
-                          onDelete: onDeleteGroup
-                            ? () => onDeleteGroup(group.id)
-                            : undefined,
-                          onCopyGroupId: () =>
-                            copyIdToClipboard(group.id, "Group ID"),
-                        },
-                      );
-                      return (
-                        <ConversationNavSection
-                          key={group.id}
-                          value={group.id}
-                          label={group.name}
-                          /* The "…" button and the header's right-click menu
-                             both render from `groupMenu`. */
-                          trailing={
-                            <GroupActionsMenu
-                              label={group.name}
-                              {...groupMenu}
-                            />
-                          }
-                          groupMenu={groupMenu}
-                          items={group.conversations}
-                          dragSection={`group:${group.id}`}
-                          collapsedIndicator={collapsedActivityDot(group.conversations)}
-                        />
-                      );
-                    })}
-                  </CollapsibleNavSection.Root>
-                </>
-              ) : null}
-            </>
+            </SidebarListContextMenu>
           )}
         </SideMenu.Body>
 

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
+import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 
 function resetStore() {
-  useSidebarCollapseStore.setState({
+  useSidebarLayoutStore.setState({
     assistantId: null,
     openCategories: [],
     openCustomGroups: [],
@@ -19,9 +19,9 @@ afterEach(() => {
   localStorage.clear();
 });
 
-describe("SidebarCollapseStore", () => {
+describe("SidebarLayoutStore", () => {
   test("defaults to no open categories or custom groups", () => {
-    const state = useSidebarCollapseStore.getState();
+    const state = useSidebarLayoutStore.getState();
     expect(state.openCategories).toEqual([]);
     expect(state.openCustomGroups).toEqual([]);
     expect(state.assistantId).toBeNull();
@@ -37,42 +37,42 @@ describe("SidebarCollapseStore", () => {
       JSON.stringify(["grp-abc"]),
     );
 
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
 
-    const state = useSidebarCollapseStore.getState();
+    const state = useSidebarLayoutStore.getState();
     expect(state.assistantId).toBe("asst-1");
     expect(state.openCategories).toEqual(["scheduled", "background"]);
     expect(state.openCustomGroups).toEqual(["grp-abc"]);
   });
 
   test("setAssistantId no-ops when assistantId is unchanged", () => {
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
-    useSidebarCollapseStore.getState().setOpenCategories(["scheduled"]);
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore.getState().setOpenCategories(["scheduled"]);
 
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
 
-    expect(useSidebarCollapseStore.getState().openCategories).toEqual([
+    expect(useSidebarLayoutStore.getState().openCategories).toEqual([
       "scheduled",
     ]);
   });
 
   test("setOpenCategories persists to localStorage", () => {
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
-    useSidebarCollapseStore
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore
       .getState()
       .setOpenCategories(["scheduled", "background"]);
 
     const raw = localStorage.getItem("vellum:sidebar-open-categories:asst-1");
     expect(JSON.parse(raw!)).toEqual(["scheduled", "background"]);
-    expect(useSidebarCollapseStore.getState().openCategories).toEqual([
+    expect(useSidebarLayoutStore.getState().openCategories).toEqual([
       "scheduled",
       "background",
     ]);
   });
 
   test("setOpenCustomGroups persists to localStorage", () => {
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
-    useSidebarCollapseStore.getState().setOpenCustomGroups(["grp-1", "grp-2"]);
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore.getState().setOpenCustomGroups(["grp-1", "grp-2"]);
 
     const raw = localStorage.getItem(
       "vellum:sidebar-open-custom-groups:asst-1",
@@ -90,13 +90,13 @@ describe("SidebarCollapseStore", () => {
       JSON.stringify(["background", channelSectionKey("slack")]),
     );
 
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
-    expect(useSidebarCollapseStore.getState().openCategories).toEqual([
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    expect(useSidebarLayoutStore.getState().openCategories).toEqual([
       "scheduled",
     ]);
 
-    useSidebarCollapseStore.getState().setAssistantId("asst-2");
-    expect(useSidebarCollapseStore.getState().openCategories).toEqual([
+    useSidebarLayoutStore.getState().setAssistantId("asst-2");
+    expect(useSidebarLayoutStore.getState().openCategories).toEqual([
       "background",
       channelSectionKey("slack"),
     ]);
@@ -105,35 +105,35 @@ describe("SidebarCollapseStore", () => {
   test("falls back to defaults when localStorage has invalid data", () => {
     localStorage.setItem("vellum:sidebar-open-categories:asst-1", "not-json");
 
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
 
-    expect(useSidebarCollapseStore.getState().openCategories).toEqual([]);
+    expect(useSidebarLayoutStore.getState().openCategories).toEqual([]);
   });
 
   test("setOpenCategories does not persist when no assistantId is set", () => {
-    useSidebarCollapseStore.getState().setOpenCategories(["scheduled"]);
+    useSidebarLayoutStore.getState().setOpenCategories(["scheduled"]);
 
-    expect(useSidebarCollapseStore.getState().openCategories).toEqual([
+    expect(useSidebarLayoutStore.getState().openCategories).toEqual([
       "scheduled",
     ]);
     expect(localStorage.length).toBe(0);
   });
 
   test("openPrimary defaults to Pinned + Chats open when nothing is stored", () => {
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
-    expect(useSidebarCollapseStore.getState().openPrimary).toEqual([
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    expect(useSidebarLayoutStore.getState().openPrimary).toEqual([
       "pinned",
       "recents",
     ]);
   });
 
   test("setOpenPrimary persists to localStorage", () => {
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
-    useSidebarCollapseStore.getState().setOpenPrimary(["pinned"]);
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore.getState().setOpenPrimary(["pinned"]);
 
     const raw = localStorage.getItem("vellum:sidebar-open-primary:asst-1");
     expect(JSON.parse(raw!)).toEqual(["pinned"]);
-    expect(useSidebarCollapseStore.getState().openPrimary).toEqual(["pinned"]);
+    expect(useSidebarLayoutStore.getState().openPrimary).toEqual(["pinned"]);
   });
 
   test("setAssistantId hydrates a collapsed primary section from storage", () => {
@@ -142,14 +142,14 @@ describe("SidebarCollapseStore", () => {
       "vellum:sidebar-open-primary:asst-1",
       JSON.stringify([]),
     );
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
-    expect(useSidebarCollapseStore.getState().openPrimary).toEqual([]);
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    expect(useSidebarLayoutStore.getState().openPrimary).toEqual([]);
   });
 });
 
-describe("SidebarCollapseStore — independent lazy-section activation", () => {
+describe("SidebarLayoutStore - independent lazy-section activation", () => {
   test("both activation flags default to false", () => {
-    const state = useSidebarCollapseStore.getState();
+    const state = useSidebarLayoutStore.getState();
     expect(state.backgroundActivated).toBe(false);
     expect(state.scheduledActivated).toBe(false);
   });
@@ -161,10 +161,10 @@ describe("SidebarCollapseStore — independent lazy-section activation", () => {
      */
 
     // WHEN only the Background section is revealed
-    useSidebarCollapseStore.getState().activateBackground();
+    useSidebarLayoutStore.getState().activateBackground();
 
     // THEN Background is activated and Scheduled stays dormant
-    const state = useSidebarCollapseStore.getState();
+    const state = useSidebarLayoutStore.getState();
     expect(state.backgroundActivated).toBe(true);
     expect(state.scheduledActivated).toBe(false);
   });
@@ -175,10 +175,10 @@ describe("SidebarCollapseStore — independent lazy-section activation", () => {
      */
 
     // WHEN only the Scheduled section is revealed
-    useSidebarCollapseStore.getState().activateScheduled();
+    useSidebarLayoutStore.getState().activateScheduled();
 
     // THEN Scheduled is activated and Background stays dormant
-    const state = useSidebarCollapseStore.getState();
+    const state = useSidebarLayoutStore.getState();
     expect(state.scheduledActivated).toBe(true);
     expect(state.backgroundActivated).toBe(false);
   });
@@ -190,13 +190,13 @@ describe("SidebarCollapseStore — independent lazy-section activation", () => {
      */
 
     // GIVEN an assistant is selected
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
 
     // WHEN the Background category is expanded
-    useSidebarCollapseStore.getState().setOpenCategories(["background"]);
+    useSidebarLayoutStore.getState().setOpenCategories(["background"]);
 
     // THEN only Background is activated
-    const state = useSidebarCollapseStore.getState();
+    const state = useSidebarLayoutStore.getState();
     expect(state.backgroundActivated).toBe(true);
     expect(state.scheduledActivated).toBe(false);
   });
@@ -214,10 +214,10 @@ describe("SidebarCollapseStore — independent lazy-section activation", () => {
     );
 
     // WHEN the assistant is selected
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
 
     // THEN Scheduled activates from storage and Background stays dormant
-    const state = useSidebarCollapseStore.getState();
+    const state = useSidebarLayoutStore.getState();
     expect(state.scheduledActivated).toBe(true);
     expect(state.backgroundActivated).toBe(false);
   });
@@ -229,15 +229,15 @@ describe("SidebarCollapseStore — independent lazy-section activation", () => {
      */
 
     // GIVEN Background was revealed on the first assistant
-    useSidebarCollapseStore.getState().setAssistantId("asst-1");
-    useSidebarCollapseStore.getState().activateBackground();
-    expect(useSidebarCollapseStore.getState().backgroundActivated).toBe(true);
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore.getState().activateBackground();
+    expect(useSidebarLayoutStore.getState().backgroundActivated).toBe(true);
 
     // WHEN switching to a second assistant with nothing persisted
-    useSidebarCollapseStore.getState().setAssistantId("asst-2");
+    useSidebarLayoutStore.getState().setAssistantId("asst-2");
 
     // THEN both activation flags reset for the new assistant
-    const state = useSidebarCollapseStore.getState();
+    const state = useSidebarLayoutStore.getState();
     expect(state.backgroundActivated).toBe(false);
     expect(state.scheduledActivated).toBe(false);
   });

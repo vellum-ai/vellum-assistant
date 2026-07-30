@@ -2,7 +2,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { Conversation } from "@/types/conversation-types";
-import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
+import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 
 // The Background/Scheduled sections own their lazy queries; stub both so the
 // hook resolves without a QueryClient and these tests stay focused on the
@@ -37,10 +37,11 @@ function makeConversation(
 afterEach(() => {
   cleanup();
   localStorage.clear();
-  useSidebarCollapseStore.setState({
+  useSidebarLayoutStore.setState({
     assistantId: null,
     openCategories: [],
     openCustomGroups: [],
+    sectionOrder: [],
   });
 });
 
@@ -148,7 +149,7 @@ describe("useSidebarState pagination", () => {
 });
 
 describe("useSidebarState open-section persistence", () => {
-  // Pinned/Chats and the channel sections share one accordion root, so every
+  // Every section shares one accordion root, so every
   // toggle emits the whole value array — including sections that attention
   // forced open. Persisting those would outlive the attention that opened
   // them and leave the section stuck open across reloads.
@@ -180,10 +181,10 @@ describe("useSidebarState open-section persistence", () => {
       ),
     );
 
-    expect(useSidebarCollapseStore.getState().openCategories).not.toContain(
+    expect(useSidebarLayoutStore.getState().openCategories).not.toContain(
       "channel:slack",
     );
-    expect(useSidebarCollapseStore.getState().openPrimary).not.toContain(
+    expect(useSidebarLayoutStore.getState().openPrimary).not.toContain(
       "recents",
     );
   });
@@ -209,17 +210,18 @@ describe("useSidebarState open-section persistence", () => {
       ]),
     );
 
-    expect(useSidebarCollapseStore.getState().openCategories).toContain(
+    expect(useSidebarLayoutStore.getState().openCategories).toContain(
       "channel:slack",
     );
   });
 });
 
 describe("useSidebarState custom-group open-section persistence", () => {
-  // Custom groups render in their own accordion root, but attention forces
-  // them open the same way the shared root's sections are forced open — so
-  // their writes need the same filter, or a group the user never opened
-  // stays expanded once the attention clears.
+  // Custom groups share the one accordion root with every other section, and
+  // attention forces them open the same way - so their writes need the same
+  // filter, or a group the user never opened stays expanded once the
+  // attention clears. The write must also land in the custom-group bucket,
+  // not the primary or category bucket the same array carries.
   test("does not persist a custom group that only attention forced open", () => {
     const conversations = [
       makeConversation(0, { conversationId: "g1", groupId: "grp-a" }),
@@ -239,18 +241,144 @@ describe("useSidebarState custom-group open-section persistence", () => {
       }),
     );
 
-    expect(result.current.effectiveOpenCustomGroups).toContain("grp-b");
+    expect(result.current.effectiveOpenSections).toContain("grp-b");
 
     // Opening Alpha emits Beta's forced key alongside the real change.
     act(() =>
-      result.current.onOpenCustomGroupsChange([
-        ...result.current.effectiveOpenCustomGroups,
+      result.current.onOpenSectionsChange([
+        ...result.current.effectiveOpenSections,
         "grp-a",
       ]),
     );
 
-    const stored = useSidebarCollapseStore.getState().openCustomGroups;
+    const stored = useSidebarLayoutStore.getState().openCustomGroups;
     expect(stored).toContain("grp-a");
     expect(stored).not.toContain("grp-b");
+    // The shared array also carried "recents"; it must not leak into the
+    // custom-group bucket.
+    expect(stored).not.toContain("recents");
+  });
+});
+
+describe("useSidebarState section order", () => {
+  const conversations = [
+    makeConversation(0, { conversationId: "r1" }),
+    makeConversation(1, { conversationId: "g1", groupId: "grp-a" }),
+    makeConversation(2, {
+      conversationId: "s1",
+      originChannel: "slack",
+      groupId: "system:all",
+    }),
+  ];
+  const conversationGroups = [
+    { id: "grp-a", name: "Alpha", sortPosition: 0, isSystemGroup: false },
+  ];
+
+  function renderSidebar() {
+    return renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations,
+        conversationGroups,
+      }),
+    );
+  }
+
+  test("defaults to custom groups above Chats and channel sections", () => {
+    const { result } = renderSidebar();
+
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "grp-a",
+      "recents",
+      "channel:slack",
+    ]);
+  });
+
+  test("persists a reorder and applies it on the next render", () => {
+    const { result } = renderSidebar();
+
+    act(() =>
+      result.current.onReorderSections([
+        "recents",
+        "channel:slack",
+        "grp-a",
+      ]),
+    );
+
+    expect(useSidebarLayoutStore.getState().sectionOrder).toEqual([
+      "recents",
+      "channel:slack",
+      "grp-a",
+    ]);
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "recents",
+      "channel:slack",
+      "grp-a",
+    ]);
+  });
+
+  test("onMoveSection nudges one section and is a no-op at the ends", () => {
+    const { result } = renderSidebar();
+
+    act(() => result.current.onMoveSection("recents", -1));
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "recents",
+      "grp-a",
+      "channel:slack",
+    ]);
+
+    // Already first - nothing to persist, and nothing moves.
+    act(() => result.current.onMoveSection("recents", -1));
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "recents",
+      "grp-a",
+      "channel:slack",
+    ]);
+  });
+
+  test("a section that disappears keeps its slot for when it returns", () => {
+    const { result, rerender } = renderSidebar();
+
+    act(() =>
+      result.current.onReorderSections([
+        "channel:slack",
+        "recents",
+        "grp-a",
+      ]),
+    );
+
+    // Slack goes quiet: its section stops rendering entirely.
+    const withoutSlack = conversations.filter((c) => c.conversationId !== "s1");
+    rerender();
+    const quiet = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations: withoutSlack,
+        conversationGroups,
+      }),
+    );
+    expect(quiet.result.current.sections.map((s) => s.key)).toEqual([
+      "recents",
+      "grp-a",
+    ]);
+
+    // Reordering while it's gone must not forget where it lived.
+    act(() =>
+      quiet.result.current.onReorderSections(["grp-a", "recents"]),
+    );
+    expect(useSidebarLayoutStore.getState().sectionOrder).toContain(
+      "channel:slack",
+    );
+
+    // It comes back where the user left it: ahead of Chats.
+    const back = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations,
+        conversationGroups,
+      }),
+    );
+    const keys = back.result.current.sections.map((s) => s.key);
+    expect(keys.indexOf("channel:slack")).toBeLessThan(keys.indexOf("recents"));
   });
 });

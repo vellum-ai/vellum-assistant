@@ -864,7 +864,7 @@ describe("loadConfig startup behavior", () => {
     expect(effective["quality-optimized"]?.provider).toBe("openai");
     expect(effective["quality-optimized"]?.model).toBe("gpt-5.4");
     expect(effective["cost-optimized"]?.provider).toBe("openai");
-    expect(effective["cost-optimized"]?.model).toBe("gpt-5.4-nano");
+    expect(effective["cost-optimized"]?.model).toBe("gpt-5.6-luna");
   });
 
   test("off-platform hatch with a provider outside the named matrix columns resolves through the shared BYOK templates", () => {

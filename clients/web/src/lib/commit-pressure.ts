@@ -48,8 +48,10 @@ const MAX_SOURCES = 24;
  * instrumented, and `query:*` keys are minted from live query ids.
  */
 export type UpdateSource =
-  | "avatar-morph"
+  | "audio-amplitude"
+  | "composer-peek"
   | "smooth-stream"
+  | "spoken-word-cursor"
   | "transcript-scroll"
   | "viewport-min-height"
   | (string & {});

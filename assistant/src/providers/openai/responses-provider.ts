@@ -8,6 +8,7 @@ import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROMPT_CACHE_BREAKPOINT_MODEL_IDS } from "../model-catalog.js";
+import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
@@ -241,6 +242,7 @@ export class OpenAIResponsesProvider implements Provider {
 
     try {
       const effectiveModel = modelOverride ?? this.model;
+      recordProviderRequestDiagnostics({ model_id: effectiveModel });
       const input = this.toResponsesInput(messages);
 
       const params: Record<string, unknown> = {

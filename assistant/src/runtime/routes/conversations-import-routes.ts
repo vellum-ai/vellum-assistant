@@ -78,6 +78,27 @@ function isRenderableRole(role: string): role is "user" | "assistant" {
   return role === "user" || role === "assistant";
 }
 
+/**
+ * Provenance `source` for an imported conversation. Export tooling prefixes
+ * `sourceKey` with the originating provider (e.g. `chatgpt:abc123`), so the
+ * substring before the first colon is normalized (lowercased, non
+ * `[a-z0-9-]` runs collapsed to `-`) into `import:<provider>`; only keys
+ * with no usable prefix fall back to `import:unknown`. Distinguishes
+ * imported rows from the schema default `"user"` (schema/conversations.ts).
+ */
+function deriveImportSource(sourceKey: string | undefined): string {
+  const colonIdx = sourceKey?.indexOf(":") ?? -1;
+  if (sourceKey === undefined || colonIdx <= 0) {
+    return "import:unknown";
+  }
+  const provider = sourceKey
+    .slice(0, colonIdx)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return provider ? `import:${provider}` : "import:unknown";
+}
+
 // -- Handler --
 
 async function handleConversationsImport({ body }: RouteHandlerArgs) {
@@ -123,8 +144,9 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
       const { convCreatedAt, convUpdatedAt, messageTimestamps } =
         resolveTimestamps(conv, messages);
 
+      const source = deriveImportSource(conv.sourceKey);
       const conversation = await withSqliteRetry(
-        () => createConversation(conv.title),
+        () => createConversation({ title: conv.title, source }),
         { op: "conversationsImport.createConversation" },
       );
 
@@ -236,7 +258,11 @@ export const ROUTES: RouteDefinition[] = [
     },
     handler: handleConversationsImport,
     summary: "Import conversations",
-    description: "Import conversations from a standard JSON payload.",
+    description:
+      "Import conversations from a standard JSON payload. Created " +
+      "conversations record a provenance source of `import:<provider>` " +
+      "derived from the `sourceKey` prefix (e.g. `chatgpt:abc123` -> " +
+      "`import:chatgpt`), or `import:unknown` when no prefix is present.",
     tags: ["conversations"],
     requestBody: z.object({
       conversations: z.array(

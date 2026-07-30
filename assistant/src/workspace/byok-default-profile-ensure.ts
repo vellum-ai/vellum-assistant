@@ -157,6 +157,10 @@ const HISTORICAL_INTENT_MODELS: Record<
       // latency intent 2026-05-05 (#29755) to 2026-05-22 (#31798).
       "gemini-3.1-flash-lite-preview",
     ],
+    openai: [
+      // latency intent 2026-05-05 (#29755) to 2026-07-29 (#39527).
+      "gpt-5.4-nano",
+    ],
     fireworks: [
       // latency intent 2026-05-05 (#29755) to 2026-07-28 (#39446). On live
       // configs migration 136 rewrote it to deepseek-v4-flash (the current

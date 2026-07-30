@@ -241,6 +241,37 @@ describe("writePage + readPage round-trip", () => {
     expect(read!.frontmatter.status).toBe("cc-draft");
   });
 
+  test("round-trips the provenance fields (source, origin_date)", async () => {
+    // Imported/backfilled pages carry `source: import:<provider>` and an
+    // `origin_date:` for original chronology. Both are declared (not
+    // passthrough) so they parse with a real type and survive the
+    // renderPageContent write -> readPage round-trip.
+    const page = makePage({
+      slug: "imported-page",
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        source: "import:chatgpt",
+        origin_date: "2023-04-01",
+      },
+    });
+    await writePage(workspaceDir, page);
+
+    const read = await readPage(workspaceDir, "imported-page");
+    expect(read).not.toBeNull();
+    expect(read!.frontmatter.source).toBe("import:chatgpt");
+    expect(read!.frontmatter.origin_date).toBe("2023-04-01");
+
+    // The rendered file carries both keys in its frontmatter block.
+    const raw = readFileSync(
+      join(workspaceDir, "memory", "concepts", "imported-page.md"),
+      "utf-8",
+    );
+    expect(raw).toMatch(/source: "?import:chatgpt"?/);
+    expect(raw).toMatch(/origin_date: "?2023-04-01"?/);
+  });
+
   test("renders frontmatter at the top with --- delimiters", async () => {
     const page = makePage();
     await writePage(workspaceDir, page);

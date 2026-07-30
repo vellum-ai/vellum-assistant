@@ -3,7 +3,7 @@
  *
  * This is where the ingress gate stops being bookkeeping: a request is
  * forwarded only when `findServableRoute` says this exact route may be
- * served. Anything else is a 404 — including a declaration awaiting
+ * served. Anything else is a 404, including a declaration awaiting
  * approval, so a route that is not yet servable is indistinguishable from
  * one that was never declared.
  *
@@ -84,9 +84,9 @@ export interface PluginWebhookHandlerDeps {
  * The requested path must equal a servable route's declared path. Matching
  * is exact rather than prefix-based: a declaration covers the paths it
  * listed, so serving `<declared>/anything` would hand out reach nobody
- * granted. Exact matching also disposes of traversal — no
- * `..` segment equals a declared path — and of percent-encoded spellings,
- * which fail closed rather than being decoded into a match.
+ * granted. Exact matching also disposes of traversal, since no `..` segment
+ * equals a declared path, and of percent-encoded spellings, which fail
+ * closed rather than being decoded into a match.
  */
 export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
   const { config, resolve, credentials, fetchImpl } = deps;
