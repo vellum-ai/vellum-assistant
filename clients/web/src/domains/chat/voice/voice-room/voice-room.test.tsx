@@ -176,10 +176,9 @@ mock.module("@/domains/chat/surface-actions", () => ({
   handleSurfaceAction: handleSurfaceActionSpy,
 }));
 
-// The settings gear calls this hook at mount (hoisted above its picker so
-// the serialized write chain survives close/reopen), which would pull the
-// daemon React Query graph into every room render. Stubbed as unavailable;
-// its behavior is covered in voice-room-settings-menu.test.tsx.
+// Stubbed so the room's subtree never pulls the daemon React Query graph
+// into a render. Nothing in the room selects a listening language now, but the
+// first-run card reaches for the same hook.
 mock.module("@/components/speech/use-stt-language-selection", () => ({
   useSttLanguageSelection: () => ({
     available: false,
@@ -761,12 +760,14 @@ describe("VoiceRoom — minimize (session keeps running)", () => {
 describe("VoiceRoom: top-right corner", () => {
   test("holds the exit and nothing else", () => {
     // The corner is down to one control. A cluster of small chrome competed
-    // with the room's own cast, so the in-session settings gear left with the
-    // minimize it sat beside. See voice-room-settings-menu.test.tsx: the menu
-    // itself still works, it just has no home in the room.
+    // with the room's own cast, so the in-session settings gear was deleted
+    // along with the minimize it sat beside; voice and listening language are
+    // picked in Settings.
     startOwnedSession("listening");
     render(<VoiceRoom />);
-    expect(screen.getByRole("button", { name: "Exit voice session" })).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: "Exit voice session" }),
+    ).toBeDefined();
     expect(screen.queryByRole("button", { name: "Voice settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Show captions" })).toBeNull();
   });

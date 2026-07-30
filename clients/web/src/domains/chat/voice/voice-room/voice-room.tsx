@@ -67,12 +67,7 @@
  * attaches only while the room is mounted.
  */
 
-import {
-  useEffect,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Captions, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 
@@ -206,9 +201,7 @@ function VoiceRoomSheet({
         className="top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0"
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
-        style={
-          { "--voice-sheet-top": `${headerBottom}px` } as CSSProperties
-        }
+        style={{ "--voice-sheet-top": `${headerBottom}px` } as CSSProperties}
         aria-label="Voice session"
         // The room narrates itself through its own live region; a description
         // element would be a second, redundant announcement.
@@ -275,8 +268,8 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   );
 
   // The state caption (e.g. "Listening…") shows only while the assistant
-  // transcript is hidden; the captions toggle itself lives in the room's
-  // settings gear ({@link VoiceRoomSettingsMenu}).
+  // transcript is hidden. Nothing in the room toggles that any more: the
+  // preference is the Settings page's, read here.
   const showAssistantTranscript =
     useVoicePrefsStore.use.showAssistantTranscript();
 
@@ -484,9 +477,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           so ending works even mid-load / on failure.
           Nothing else shares the corner. Minimize moved into the centred row
           below as "show transcript", named for what the user wants rather than
-          for what the window does, and the in-session settings gear went with
-          it: a corner of small controls competed with the room's own cast for
-          attention. */}
+          for what the window does, and the in-session settings gear was deleted
+          with it: a corner of small controls competed with the room's own cast
+          for attention. Voice and listening language are Settings' now. */}
       <div
         // An equal gap from both edges, so the control reads as sitting in the
         // corner rather than floating near it.
@@ -615,9 +608,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
           </button>
         </Tooltip>
 
-        <Tooltip
-          content={outputMuted ? "Unmute assistant" : "Mute assistant"}
-        >
+        <Tooltip content={outputMuted ? "Unmute assistant" : "Mute assistant"}>
           <button
             type="button"
             onClick={() => setLiveVoiceOutputMuted(!outputMuted)}
