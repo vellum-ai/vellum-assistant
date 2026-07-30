@@ -24,11 +24,13 @@ From `clients/web/`:
 
 ```bash
 bun install
-bun run android:open
+bun run android:run
 ```
 
-`android:open` runs `cap sync android` and opens the project in Android Studio.
-Use `bun run android:sync` when you only need to refresh native generated files.
+`android:run` syncs the dev configuration, builds `devDebug`, starts or reuses
+a connected device or available emulator, installs the app, and launches it.
+Use `bun run android:open` to work in Android Studio or `bun run android:sync`
+when you only need to refresh native generated files.
 
 ## Build Variants
 
@@ -82,6 +84,13 @@ clients/
 ```
 
 ## Common Tasks
+
+### Run Android From the Command Line
+
+```bash
+cd clients/web
+bun run android:run
+```
 
 ### Sync Android After Editing Capacitor Config
 

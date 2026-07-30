@@ -21,6 +21,7 @@
     "postinstall": "test -d src/generated || bun run openapi-ts",
     "openapi-ts": "bun run scripts/transform-daemon-spec.ts && bun run scripts/transform-gateway-spec.ts && openapi-ts",
     "android:sync": "bunx cap sync android",
+    "android:run": "bunx --bun cap run android --flavor dev",
     "android:open": "bun run android:sync && bunx cap open android",
     "ios:setup": "bunx cap sync ios && cd ../ios/App && xcodegen generate --spec project.yml",
     "ios:open": "bun run ios:setup && open ../ios/App/App.xcodeproj",
