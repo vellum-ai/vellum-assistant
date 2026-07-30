@@ -182,10 +182,13 @@ export function DocsSearch({ registerShortcut = true }: DocsSearchProps) {
       return;
     }
 
-    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = previousOverflow;
+      // Restore to unlocked rather than the captured value: when the spotlight
+      // opens from the mobile drawer (which holds its own body lock), the
+      // captured value is "hidden" and restoring it would leave scroll stuck
+      // after both close.
+      document.body.style.overflow = "";
     };
   }, [spotlightMounted]);
 

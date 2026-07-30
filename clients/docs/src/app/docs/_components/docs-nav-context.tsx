@@ -69,7 +69,8 @@ export function DocsNavProvider({ children }: { children: ReactNode }) {
   // past the md breakpoint while the drawer is open, the drawer (and its close
   // button) disappears while body scroll stays locked. Close on crossing.
   useEffect(() => {
-    const mql = window.matchMedia("(min-width: 768px)");
+    // 48rem matches Tailwind's md breakpoint even under non-16px root font sizes.
+    const mql = window.matchMedia("(min-width: 48rem)");
     const handleChange = (event: MediaQueryListEvent) => {
       if (event.matches) {
         close();
