@@ -173,6 +173,14 @@ export {
   CredentialResolutionError,
   resolveCredential,
 } from "./resolve-credential.js";
+// Read-only contact lookup, for a plugin that owns an inbound channel and must
+// decide whether a sender is someone the user knows before letting the message
+// reach the agent loop. Deliberately read-only: a channel that could mint its
+// own contacts could admit its own senders. A `null` result means "not a known
+// contact", and an absent `status` means the gateway was unreachable — a gate
+// must treat both as untrusted rather than as permission. See the module docs.
+export type { PluginContactMatch } from "./contacts.js";
+export { findContactByChannelAddress } from "./contacts.js";
 // Resolve a provider for a call site (optionally overriding the profile) so a
 // plugin can run inference through the workspace's configured profiles and
 // credentials — managed-proxy or BYOK — without supplying its own API key.
