@@ -694,8 +694,11 @@ function managedBalanceClassification(): Omit<
 > {
   return {
     code: "PROVIDER_BILLING",
+    // This text is persisted as a real assistant message (it re-enters LLM
+    // history and is what older/native clients display), so it must read as
+    // the assistant speaking, not UI chrome.
     userMessage:
-      "You've run out of credits. Add funds to continue using the assistant.",
+      "You're out of credits, so I can't reply right now. Add credits in Settings → Billing and we can pick up where we left off.",
     retryable: false,
     errorCategory: "credits_exhausted",
   };

@@ -115,6 +115,7 @@ import {
   hasMessages,
   isConversationProcessing,
   isHiddenMessageMetadata,
+  isProviderErrorMetadata,
   isSystemCardMetadata,
   type MessageRow,
   recordConversationPersistedSeq,
@@ -890,6 +891,7 @@ export function handleListMessages({
     let backgroundEventNotification: boolean | undefined;
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     let systemCard: boolean | undefined;
+    let providerError: ConversationMessage["providerError"];
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
@@ -900,6 +902,19 @@ export function handleListMessages({
         // render as standalone system notices, not persona speech.
         if (isSystemCardMetadata(meta)) {
           systemCard = true;
+        }
+        // Daemon-persisted provider-failure notices carry the classified
+        // error code/category so clients can render a themed card instead
+        // of a persona bubble.
+        if (isProviderErrorMetadata(meta)) {
+          providerError = {
+            ...(typeof meta.providerErrorCode === "string"
+              ? { code: meta.providerErrorCode }
+              : {}),
+            ...(typeof meta.providerErrorCategory === "string"
+              ? { category: meta.providerErrorCategory }
+              : {}),
+          };
         }
         // Every wake persists a `<background_event source="...">` trigger row
         // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
@@ -973,6 +988,7 @@ export function handleListMessages({
       backgroundEventNotification,
       backgroundToolCompletion,
       systemCard,
+      providerError,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -1169,6 +1185,7 @@ export function handleListMessages({
       ...(m.backgroundToolCompletion
         ? { backgroundToolCompletion: m.backgroundToolCompletion }
         : {}),
+      ...(m.providerError ? { providerError: m.providerError } : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };
   });

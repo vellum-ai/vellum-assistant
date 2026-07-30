@@ -47,6 +47,7 @@ import {
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
+  PROVIDER_ERROR_MESSAGE_KIND,
   resolveOverrideProfile,
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
@@ -1343,6 +1344,12 @@ export async function runAgentLoopImpl(
             capturedTurnInterfaceContext.userMessageInterface,
           assistantMessageInterface:
             capturedTurnInterfaceContext.assistantMessageInterface,
+          // Mark the synthetic row as a provider-failure notice so clients
+          // can render it as a themed card instead of persona speech
+          // (`isProviderErrorMetadata` -> the wire `providerError` field).
+          messageKind: PROVIDER_ERROR_MESSAGE_KIND,
+          providerErrorCode: state.providerErrorCode ?? undefined,
+          providerErrorCategory: state.providerErrorCategory ?? undefined,
         };
         const errorAssistantMessage = createAssistantMessage(
           state.providerErrorUserMessage,

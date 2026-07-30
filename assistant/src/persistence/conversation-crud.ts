@@ -301,10 +301,25 @@ export const messageMetadataSchema = z
      * Discriminates daemon-authored rows from ordinary turns.
      * `"system_card"` marks pre-composed status cards (the /compact, /clean,
      * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
-     * Kept as a plain string so unknown future kinds never fail metadata
-     * validation.
+     * `"provider_error"` marks the synthetic assistant row the agent loop
+     * persists when a turn dies on the provider-error path; see
+     * {@link PROVIDER_ERROR_MESSAGE_KIND}. Kept as a plain string so unknown
+     * future kinds never fail metadata validation.
      */
     messageKind: z.string().optional(),
+    /**
+     * Stable classified error code (`ClassifiedConversationError.code`, e.g.
+     * `"PROVIDER_BILLING"`) stamped alongside
+     * `messageKind: "provider_error"` on persisted provider-failure rows.
+     */
+    providerErrorCode: z.string().optional(),
+    /**
+     * Classified error category (`ClassifiedConversationError.errorCategory`,
+     * e.g. `"credits_exhausted"`) stamped alongside
+     * `messageKind: "provider_error"`. Clients switch on this to pick a
+     * themed rendering for the row.
+     */
+    providerErrorCategory: z.string().optional(),
     /**
      * Structured terminal record stamped onto a `<background_event
      * source="background-tool">` wake so the web can rebuild the inline
@@ -370,6 +385,16 @@ export function isHiddenMessageMetadata(
 export const SYSTEM_CARD_MESSAGE_KIND = "system_card";
 
 /**
+ * `messageKind` value marking the synthetic assistant row the agent loop
+ * persists when a turn terminates on the provider-error path (see the
+ * `persistProviderErrorAsAssistantMessage` branch). The row's text stays in
+ * LLM history like any assistant message; the marker (plus the
+ * `providerErrorCode`/`providerErrorCategory` fields stamped next to it) lets
+ * clients render the row as a themed notice instead of persona speech.
+ */
+export const PROVIDER_ERROR_MESSAGE_KIND = "provider_error";
+
+/**
  * Shared predicate for the system-card marker on assistant-message metadata
  * (see the `messageKind` field on {@link messageMetadataSchema}). One
  * definition so display merging, transcript rendering, and turn grouping
@@ -379,6 +404,17 @@ export function isSystemCardMetadata(
   metadata: Record<string, unknown> | null | undefined,
 ): boolean {
   return metadata?.messageKind === SYSTEM_CARD_MESSAGE_KIND;
+}
+
+/**
+ * Shared predicate for the provider-error marker on assistant-message
+ * metadata (see the `messageKind` field on {@link messageMetadataSchema}).
+ * One definition so persistence stamping and wire projection cannot drift.
+ */
+export function isProviderErrorMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.messageKind === PROVIDER_ERROR_MESSAGE_KIND;
 }
 
 /**

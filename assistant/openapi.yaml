@@ -19537,6 +19537,14 @@ paths:
                           additionalProperties: false
                         systemCard:
                           type: boolean
+                        providerError:
+                          type: object
+                          properties:
+                            code:
+                              type: string
+                            category:
+                              type: string
+                          additionalProperties: false
                         slackMessage:
                           type: object
                           properties:
