@@ -161,6 +161,7 @@ function Harness({
     mainView: "chat",
     openedAppState: null,
     isAssistantBusy: false,
+    showCreditsUpsell: false,
     onSelectStarter: () => {},
     onSelectSuggestion: setSelected,
   });

@@ -78,14 +78,17 @@ export interface OnboardingChoiceItem extends TranscriptItemBase {
   kind: "onboardingChoice";
 }
 
-/** Friendly credits upsell card, emitted in place of a persisted
+/** Friendly credits upsell card. Emitted in place of a persisted
  *  credits-exhausted provider-error row (`providerError.category` matching
- *  `credits_exhausted`). The row's text stays in message state (the LLM
- *  transcript keeps it); only the rendering is substituted. */
+ *  `credits_exhausted`), where the row's text stays in message state (the LLM
+ *  transcript keeps it) and only the rendering is substituted. Also appended
+ *  proactively at the transcript tail while the org's balance is exhausted,
+ *  so the credit wall shows before the next send fails. */
 export interface CreditsUpsellItem extends TranscriptItemBase {
   kind: "creditsUpsell";
-  /** Id of the provider-error message row this card renders in place of. */
-  messageId: string;
+  /** Id of the provider-error message row this card renders in place of.
+   *  Absent on the proactive tail card, which has no backing message row. */
+  messageId?: string;
 }
 
 export interface EphemeralMetaItem extends TranscriptItemBase {

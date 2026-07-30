@@ -45,6 +45,13 @@ export interface BuildTranscriptItemsInput {
    *  the transcript tail. Not persisted; cleared on the next send/switch. */
   ephemeralMetaResults?: EphemeralMetaResult[];
   showOnboardingChoice?: boolean;
+  /**
+   * When true (the org's credit balance is exhausted), append the proactive
+   * credits upsell card at the very end of the list, unless the last item is
+   * already a `creditsUpsell` (the card substituted for a just-failed turn's
+   * provider-error row), so an open conversation never shows two cards.
+   */
+  appendCreditsUpsell?: boolean;
 }
 
 /**
@@ -93,6 +100,15 @@ function toCreditsUpsellItem(message: DisplayMessage): CreditsUpsellItem {
   creditsUpsellItemCache.set(message, item);
   return item;
 }
+
+/** Singleton for the proactive exhausted-balance card appended at the
+ *  transcript tail (see `appendCreditsUpsell`). Not tied to any message row;
+ *  the stable reference keeps `TranscriptRow`'s `memo()` effective across
+ *  rebuilds. */
+const PROACTIVE_CREDITS_UPSELL_ITEM: CreditsUpsellItem = {
+  kind: "creditsUpsell",
+  key: "credits-upsell-proactive",
+};
 
 /**
  * Project the chat state into an ordered flat list of transcript items.
@@ -217,6 +233,13 @@ export function buildTranscriptItems(
       kind: "onboardingChoice",
       key: "onboarding-choice",
     });
+  }
+
+  if (
+    input.appendCreditsUpsell &&
+    items[items.length - 1]?.kind !== "creditsUpsell"
+  ) {
+    items.push(PROACTIVE_CREDITS_UPSELL_ITEM);
   }
 
   return items;
