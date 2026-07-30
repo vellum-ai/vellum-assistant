@@ -220,6 +220,18 @@ describe("next config docs Markdown content negotiation", () => {
     ).resolves.toBe("/docs/_md/pricing");
   });
 
+  test("does not rewrite when markdown is explicitly unacceptable (q=0)", async () => {
+    await expect(
+      resolveBeforeFilesRewrite("/docs/pricing", "text/html, text/markdown;q=0")
+    ).resolves.toBeNull();
+    await expect(
+      resolveBeforeFilesRewrite("/docs/pricing", "text/markdown;q=0.0")
+    ).resolves.toBeNull();
+    await expect(
+      resolveBeforeFilesRewrite("/docs/pricing", "text/markdown; q=0, */*")
+    ).resolves.toBeNull();
+  });
+
   test("serves HTML (no rewrite) to browsers", async () => {
     await expect(
       resolveBeforeFilesRewrite("/docs/pricing", "text/html,application/xhtml+xml")
