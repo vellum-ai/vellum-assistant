@@ -7,7 +7,6 @@ import type {
   SttProviderId,
 } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
-import { deepgramLanguageOptions } from "./deepgram.js";
 import {
   getCredentialProvider,
   getProviderEntry,
@@ -478,6 +477,10 @@ async function createStreamingTranscriber(
     case "deepgram": {
       const { DeepgramRealtimeTranscriber } =
         await import("./deepgram-realtime.js");
+      // Lazy like the xai case's xaiLanguageOptions import: pulling the
+      // batch adapter module in at top level would defeat the lazy module
+      // graph this factory documents.
+      const { deepgramLanguageOptions } = await import("./deepgram.js");
       return new DeepgramRealtimeTranscriber(apiKey, {
         sampleRate: options.sampleRate,
         ...deepgramLanguageOptions(options.language),
