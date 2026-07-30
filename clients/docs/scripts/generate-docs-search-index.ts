@@ -47,8 +47,7 @@ async function generateIndex(): Promise<GeneratedIndex> {
       continue;
     }
 
-    const extracted = extractDocsPageFromHtml(route, rendered.html);
-    chunks.push(...extracted.chunks);
+    chunks.push(...extractDocsPageFromHtml(route, rendered.html));
     pageCount += 1;
   }
 

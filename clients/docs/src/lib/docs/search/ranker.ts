@@ -75,8 +75,8 @@ function getMiniSearch(chunks: DocsSearchChunk[]): MiniSearch<SearchableChunk> {
   return mini;
 }
 
-function clampLimit(limit: number): number {
-  if (!Number.isFinite(limit) || limit <= 0) {
+function clampLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit) || limit <= 0) {
     return 10;
   }
   return Math.min(Math.max(Math.floor(limit), 1), 20);
@@ -142,7 +142,6 @@ function toResult(query: string, candidate: RankedChunk): DocsSearchResult {
     sectionId: candidate.chunk.sectionId,
     snippet: extractSnippet(candidate.chunk.body, snippetQuery),
     score: candidate.score,
-    lexicalScore: candidate.lexicalScore,
   };
 }
 
@@ -150,15 +149,12 @@ export function searchDocsIndex(params: {
   query: string;
   limit?: number;
   index: DocsSearchIndexFile;
-}): { mode: "lexical"; results: DocsSearchResult[] } {
+}): DocsSearchResult[] {
   const query = normalizeText(params.query);
-  const limit = clampLimit(params.limit ?? 10);
+  const limit = clampLimit(params.limit);
 
   if (query.length < 2 || params.index.chunks.length === 0) {
-    return {
-      mode: "lexical",
-      results: [],
-    };
+    return [];
   }
 
   const lexicalTopK = Math.max(40, limit * 4);
@@ -168,8 +164,5 @@ export function searchDocsIndex(params: {
     topK: lexicalTopK,
   });
 
-  return {
-    mode: "lexical",
-    results: candidates.slice(0, limit).map((candidate) => toResult(query, candidate)),
-  };
+  return candidates.slice(0, limit).map((candidate) => toResult(query, candidate));
 }

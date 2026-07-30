@@ -17,13 +17,13 @@ describe("extractDocsPageFromHtml", () => {
       </div>
     `;
 
-    const extracted = extractDocsPageFromHtml("/docs/getting-started", html);
+    const chunks = extractDocsPageFromHtml("/docs/getting-started", html);
 
-    expect(extracted.pageTitle).toBe("Getting Started");
-    expect(extracted.breadcrumb).toBe("Docs / Getting Started");
-    expect(extracted.chunks.length).toBeGreaterThanOrEqual(2);
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
 
-    const sectionChunk = extracted.chunks.find((chunk) => chunk.sectionId === "install");
+    const sectionChunk = chunks.find((chunk) => chunk.sectionId === "install");
+    expect(sectionChunk?.pageTitle).toBe("Getting Started");
+    expect(sectionChunk?.breadcrumb).toBe("Docs / Getting Started");
     expect(sectionChunk?.url).toBe("/docs/getting-started#install");
     expect(sectionChunk?.heading).toBe("Installation");
     expect(sectionChunk?.body).toContain("Run the installer");
@@ -47,10 +47,10 @@ describe("extractDocsPageFromHtml", () => {
       </div>
     `;
 
-    const extracted = extractDocsPageFromHtml("/docs/help/faq", html);
+    const chunks = extractDocsPageFromHtml("/docs/help/faq", html);
 
-    const h2Chunk = extracted.chunks.find((chunk) => chunk.sectionId === "top");
-    const h3Chunk = extracted.chunks.find((chunk) => chunk.sectionId === "billing");
+    const h2Chunk = chunks.find((chunk) => chunk.sectionId === "top");
+    const h3Chunk = chunks.find((chunk) => chunk.sectionId === "billing");
 
     expect(h2Chunk?.headingLevel).toBe(2);
     expect(h3Chunk?.headingLevel).toBe(3);
@@ -72,16 +72,16 @@ describe("extractDocsPageFromHtml", () => {
       </div>
     `;
 
-    const extracted = extractDocsPageFromHtml("/docs/guides", html);
+    const chunks = extractDocsPageFromHtml("/docs/guides", html);
 
-    const sectionChunk = extracted.chunks.find((chunk) => chunk.sectionId === "setup");
-    const standaloneChunk = extracted.chunks.find((chunk) => chunk.sectionId === "troubleshooting");
+    const sectionChunk = chunks.find((chunk) => chunk.sectionId === "setup");
+    const standaloneChunk = chunks.find((chunk) => chunk.sectionId === "troubleshooting");
 
     expect(sectionChunk?.url).toBe("/docs/guides#setup");
     expect(standaloneChunk?.url).toBe("/docs/guides#troubleshooting");
     expect(standaloneChunk?.heading).toBe("Troubleshooting");
 
-    const setupChunks = extracted.chunks.filter((chunk) => chunk.sectionId === "setup");
+    const setupChunks = chunks.filter((chunk) => chunk.sectionId === "setup");
     expect(setupChunks.length).toBe(1);
   });
 
@@ -99,10 +99,10 @@ describe("extractDocsPageFromHtml", () => {
       </div>
     `;
 
-    const extracted = extractDocsPageFromHtml("/docs/guides", html);
+    const chunks = extractDocsPageFromHtml("/docs/guides", html);
 
-    const installChunk = extracted.chunks.find((chunk) => chunk.sectionId === "install");
-    const uninstallChunk = extracted.chunks.find((chunk) => chunk.sectionId === "uninstall");
+    const installChunk = chunks.find((chunk) => chunk.sectionId === "install");
+    const uninstallChunk = chunks.find((chunk) => chunk.sectionId === "uninstall");
 
     expect(installChunk?.body).toContain("installer bundle");
     expect(installChunk?.body).not.toContain("zamboni");
@@ -124,13 +124,13 @@ describe("extractDocsPageFromHtml", () => {
       </div>
     `;
 
-    const extracted = extractDocsPageFromHtml("/docs/features", html);
+    const chunks = extractDocsPageFromHtml("/docs/features", html);
 
-    const sectionChunk = extracted.chunks.find((chunk) => chunk.sectionId === "list");
+    const sectionChunk = chunks.find((chunk) => chunk.sectionId === "list");
     expect(sectionChunk?.body).toContain("Alpha Beta");
     expect(sectionChunk?.body).not.toContain("AlphaBeta");
 
-    const pageChunk = extracted.chunks.find((chunk) => chunk.sectionId === null);
+    const pageChunk = chunks.find((chunk) => chunk.sectionId === null);
     expect(pageChunk?.body).toContain("Alpha Beta");
     expect(pageChunk?.body).not.toContain("AlphaBeta");
   });
@@ -149,9 +149,9 @@ describe("extractDocsPageFromHtml", () => {
       </div>
     `;
 
-    const extracted = extractDocsPageFromHtml("/docs/overview", html);
+    const chunks = extractDocsPageFromHtml("/docs/overview", html);
 
-    const sectionChunk = extracted.chunks.find((chunk) => chunk.sectionId === "intro");
+    const sectionChunk = chunks.find((chunk) => chunk.sectionId === "intro");
     expect(sectionChunk?.heading).toBe("Introduction");
     expect(sectionChunk?.body).toContain("Welcome to the product");
   });
@@ -171,14 +171,14 @@ describe("extractDocsPageFromHtml", () => {
       </div>
     `;
 
-    const extracted = extractDocsPageFromHtml("/docs/guides", html);
+    const chunks = extractDocsPageFromHtml("/docs/guides", html);
 
-    const parentChunk = extracted.chunks.find((chunk) => chunk.sectionId === "parent");
+    const parentChunk = chunks.find((chunk) => chunk.sectionId === "parent");
     expect(parentChunk).toBeDefined();
     expect(parentChunk?.body).toContain("Child body content");
     expect(parentChunk?.body).not.toContain("Sibling body content");
 
-    const childChunk = extracted.chunks.find((chunk) => chunk.sectionId === "child");
+    const childChunk = chunks.find((chunk) => chunk.sectionId === "child");
     expect(childChunk?.body).toContain("Child body content");
   });
 
@@ -194,10 +194,10 @@ describe("extractDocsPageFromHtml", () => {
       </div>
     `;
 
-    const extracted = extractDocsPageFromHtml("/docs", html);
+    const chunks = extractDocsPageFromHtml("/docs", html);
 
-    expect(extracted.chunks.length).toBeGreaterThan(0);
-    const pageChunk = extracted.chunks.find((chunk) => chunk.sectionId === null);
+    expect(chunks.length).toBeGreaterThan(0);
+    const pageChunk = chunks.find((chunk) => chunk.sectionId === null);
     expect(pageChunk).toBeDefined();
     expect(pageChunk?.url).toBe("/docs");
     expect(pageChunk?.body).toContain("Hello docs world");
