@@ -20,7 +20,7 @@
  *   - platform_plans (GET platform/plans): fetches the plan catalog with pricing.
  *   - platform_invoices_list (GET platform/invoices): fetches one
  *     cursor-paginated page of the org's Stripe invoice history.
- *   - platform_invoices_get (GET platform/invoices/:id): pages through the
+ *   - platform_invoices_by_id_get (GET platform/invoices/:id): pages through the
  *     invoice list and returns a single invoice by Stripe invoice ID.
  */
 
@@ -819,7 +819,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: PlatformInvoicesListResponseSchema,
   },
   {
-    operationId: "platform_invoices_get",
+    operationId: "platform_invoices_by_id_get",
     endpoint: "platform/invoices/:id",
     method: "GET",
     policy: {

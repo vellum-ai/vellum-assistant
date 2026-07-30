@@ -1,5 +1,5 @@
 /**
- * Unit tests for the platform_invoices_list and platform_invoices_get route
+ * Unit tests for the platform_invoices_list and platform_invoices_by_id_get route
  * handlers: cursor forwarding, page walking, the page cap, and error paths.
  */
 
@@ -38,7 +38,7 @@ const listHandler = ROUTES.find(
   (r) => r.operationId === "platform_invoices_list",
 )!.handler;
 const getHandler = ROUTES.find(
-  (r) => r.operationId === "platform_invoices_get",
+  (r) => r.operationId === "platform_invoices_by_id_get",
 )!.handler;
 
 const INVOICES_URL = "https://platform.test/v1/organizations/billing/invoices/";
@@ -182,7 +182,7 @@ describe("platform_invoices_list", () => {
   });
 });
 
-describe("platform_invoices_get", () => {
+describe("platform_invoices_by_id_get", () => {
   test("resolves an invoice found on the first page with one fetch", async () => {
     const target = invoice("in_target");
     stubFetch(() =>

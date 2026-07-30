@@ -112,9 +112,12 @@ export function registerPlatformInvoicesCommands(platform: Command): void {
 
   subcommand(invoices, "get").action(
     async (invoiceId: string, _opts: Record<string, unknown>, cmd: Command) => {
-      const r = await cliIpcCall<PlatformInvoice>("platform_invoices_get", {
-        pathParams: { id: invoiceId },
-      });
+      const r = await cliIpcCall<PlatformInvoice>(
+        "platform_invoices_by_id_get",
+        {
+          pathParams: { id: invoiceId },
+        },
+      );
       if (!r.ok) {
         return exitFromIpcResult(r, cmd);
       }

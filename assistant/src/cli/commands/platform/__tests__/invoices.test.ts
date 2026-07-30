@@ -125,10 +125,10 @@ describe("assistant platform invoices get", () => {
     ipc.response = { ok: true, result: invoiceA };
   });
 
-  test("calls platform_invoices_get with the id path param and emits JSON with --json", async () => {
+  test("calls platform_invoices_by_id_get with the id path param and emits JSON with --json", async () => {
     const out = await runInvoices(["get", "in_123", "--json"]);
 
-    expect(ipc.calls[0][0]).toBe("platform_invoices_get");
+    expect(ipc.calls[0][0]).toBe("platform_invoices_by_id_get");
     expect(ipc.calls[0][1]).toEqual({ pathParams: { id: "in_123" } });
 
     const parsed = JSON.parse(out.join(""));
