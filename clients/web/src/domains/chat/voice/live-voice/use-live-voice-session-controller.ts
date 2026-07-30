@@ -40,15 +40,11 @@ import {
 import {
   endLiveVoiceSession,
   isLiveVoiceSessionActive,
-  subscribeSettledLiveVoiceState,
   useLiveVoiceStore,
-  type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { drainPendingVoiceStartDeepLink } from "@/domains/chat/voice/live-voice/start-voice-deep-link";
 import { useLiveActivityMirror } from "@/domains/chat/voice/live-voice/use-live-activity-mirror";
 import {
-  activateVoiceAudioSession,
-  deactivateVoiceAudioSession,
   subscribeVoiceAudioInterruptions,
 } from "@/runtime/native-audio-session";
 
@@ -59,73 +55,47 @@ export type UseLiveVoiceSessionControllerOptions = Pick<
 >;
 
 /**
- * Hold the native iOS audio session open for exactly as long as a live-voice
- * session is running.
+ * Report native `AVAudioSession` interruptions into the live-voice session.
  *
- * Driven off store *phase transitions* rather than off the `starter`, so
- * sessions begun from any surface — the composer mic, a start-voice deep link,
- * a reconnect — are covered symmetrically, and so `failed` releases the audio
- * session just as `idle` does.
+ * **This deliberately no longer activates an audio session of its own.**
+ * WebKit owns the shared `AVAudioSession` backing `getUserMedia` in a
+ * `WKWebView`, and activating ours alongside it is what `docs/CAPACITOR.md`
+ * § "Full-duplex TTS must render through a MediaStream track" warns about. That
+ * pattern has now broken live voice on a handset twice: first as #39331, which
+ * produced no capture at all and was reverted in #39345, and again when it
+ * returned in #39306, where a session died roughly 60ms after its socket
+ * opened. The second failure took a while to attribute because #39306's uploads
+ * were all rejected by App Store Connect until #39556, so the plugin had never
+ * actually run on a device before.
  *
- * Everything runs through {@link subscribeSettledLiveVoiceState} inside an
- * effect, never a reactive selector in a render body: the controller sets
- * `observeAudioState: false` precisely so high-frequency amplitude/transcript
- * updates do not re-render the mounting layout, and reading `state` reactively
- * here would subscribe the layout to session churn all over again. Settled
- * rather than raw because a reconnect passes through `idle` on its way back to
- * `connecting` within one tick, and tearing the audio session down and back up
- * on every retry is exactly what the `audio` background mode exists to prevent.
+ * Nothing else depended on it. Echo cancellation moved to WebKit's own
+ * voice-processing unit in #39347 via a `MediaStreamAudioDestinationNode`, and
+ * background/lock-screen audio is claimed by `UIBackgroundModes: audio` in
+ * `Info.plist`, which is independent of this call. Whether the plist entry
+ * alone actually sustains a backgrounded session is still unmeasured (see the
+ * background-audio contract in `docs/CAPACITOR.md`), but a session that dies
+ * immediately in the foreground is strictly worse than one that may not survive
+ * backgrounding.
  *
- * Off the iOS shell every call is a no-op (see `runtime/native-audio-session`),
- * so this is inert in the browser and on Electron.
+ * The interruption subscription stays. It listens to
+ * `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri
+ * taking the input from WebKit's session, and ending on that is unrelated to
+ * owning a session ourselves.
  *
- * **This is the riskiest call in the iOS voice feature — do not change it
- * without a handset.** WebKit owns the shared `AVAudioSession` backing
- * `getUserMedia` in a `WKWebView`, so activating our own around a live capture
- * unit is what `docs/CAPACITOR.md` § "Full-duplex TTS must render through a
- * MediaStream track" warns about: the same pattern shipped as #39331, produced
- * no capture at all, and was reverted in #39345.
+ * Off the iOS shell this is a no-op (see `runtime/native-audio-session`), so it
+ * is inert in the browser and on Electron.
  *
- * Two things keep it in the tree anyway. Activation happens once, at the
- * session's leading edge, never re-asserted mid-session (the re-assert was the
- * prime suspect in #39331) — that is what `holdingAudioSession` guarantees. And
- * echo cancellation no longer rides on it at all: #39347 gets AEC from WebKit's
- * own voice-processing unit via a `MediaStreamAudioDestinationNode`, so the only
- * thing left on this call is background/lock-screen audio.
- *
- * **The Simulator cannot evaluate any of that** — its mock audio device has no
+ * **The Simulator cannot evaluate any of this.** Its mock audio device has no
  * acoustic path, so it passes whether or not a real handset would go silent.
- * Every Simulator run passed during #39331.
+ * Every Simulator run passed during #39331, and the Simulator sustained a
+ * session normally throughout the #39306 failure too.
  */
 function useNativeAudioSessionLifecycle(): void {
   useEffect(() => {
-    // Mirrors whether we currently hold the native audio session, so activate
-    // fires once per session — not once per `listening`/`thinking`/`speaking`
-    // transition — and deactivate never double-fires.
-    let holdingAudioSession = false;
-
-    const sync = (state: LiveVoiceSessionState): void => {
-      const active = isLiveVoiceSessionActive(state);
-      if (active === holdingAudioSession) {
-        return;
-      }
-      holdingAudioSession = active;
-      void (active
-        ? activateVoiceAudioSession()
-        : deactivateVoiceAudioSession());
-    };
-
-    // A session can already be running when this mounts (the controller
-    // remounts across layout-level route changes while the store persists).
-    sync(useLiveVoiceStore.getState().state);
-    const unsubscribeStore = subscribeSettledLiveVoiceState((s) =>
-      sync(s.state),
-    );
-
     const unsubscribeInterruptions = subscribeVoiceAudioInterruptions(
       (event) => {
         // A phone call or Siri has taken the mic. End the session rather than
-        // leave it "listening" into a dead input. No auto-resume on `ended` —
+        // leave it "listening" into a dead input. No auto-resume on `ended`:
         // the user restarts explicitly.
         if (event.type !== "began") {
           return;
@@ -137,18 +107,7 @@ function useNativeAudioSessionLifecycle(): void {
       },
     );
 
-    return () => {
-      unsubscribeStore();
-      unsubscribeInterruptions();
-      // A live audio session must never outlive its controller. Usually the
-      // sibling teardown in `useLiveVoice` has already reset the store to
-      // `idle` (which `sync` observed), leaving this a no-op; it covers the
-      // orders where it has not.
-      if (holdingAudioSession) {
-        holdingAudioSession = false;
-        void deactivateVoiceAudioSession();
-      }
-    };
+    return unsubscribeInterruptions;
   }, []);
 }
 

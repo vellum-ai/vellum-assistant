@@ -164,6 +164,10 @@ That history is the reason this is device-only territory. A change here that loo
 
 **Echo cancellation does not depend on this.** It used to be the argument for `.voiceChat`; since #39347 it comes from WebKit's own voice-processing unit, reached by routing TTS through a `MediaStreamAudioDestinationNode`. So if this plugin ever has to go, AEC does not go with it.
 
+**Settled, the hard way: the web layer no longer activates an audio session at all.** The pattern broke live voice on a handset twice. First as #39331 (no capture at all, reverted in #39345), then again when it returned in #39306, where a session died roughly 60ms after its WebSocket opened while the Simulator sustained one normally against the same backend. The second failure went unattributed for a day because every #39306 upload was rejected by App Store Connect until #39556, so the plugin had never actually run on a device. `useNativeAudioSessionLifecycle` now only subscribes to interruptions; it never calls `activate`. Do not reintroduce the activation without a device test, and note that a green Simulator run is not one.
+
+The `VoiceAudioSession` plugin stays in the shell: its interruption reporting listens to `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri taking the input from WebKit's session, which is unrelated to owning a session ourselves.
+
 What is genuinely still open is **background audio**. `UIBackgroundModes: audio` in `clients/ios/App/App/Info.plist`, plus an active `.playAndRecord` / `.voiceChat` session, buys:
 
 - audio keeps playing while the app is backgrounded or the screen is locked;

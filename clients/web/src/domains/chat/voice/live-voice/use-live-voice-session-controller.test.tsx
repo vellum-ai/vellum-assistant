@@ -334,71 +334,47 @@ describe("session lifetime", () => {
 // ---------------------------------------------------------------------------
 
 describe("native audio session", () => {
-  test("activates once per session, not once per phase change", async () => {
+  // The regression guard. Activating our own AVAudioSession alongside the one
+  // WebKit holds for getUserMedia has broken live voice on a handset twice:
+  // #39331 (no capture at all, reverted in #39345) and again in #39306, where
+  // a session died ~60ms after its socket opened. Nothing may reintroduce it
+  // without a device test, and the Simulator cannot provide one.
+  test("never activates an audio session of its own", async () => {
     const h = renderPersistentController();
-    expect(activateVoiceAudioSession).not.toHaveBeenCalled();
-
     await startListeningViaStarter(h);
-    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
 
-    // The churn a real turn produces. The audio session is already held; none
-    // of this may re-activate it.
-    act(() => {
-      useLiveVoiceStore.getState().setState("thinking");
-      useLiveVoiceStore.getState().setState("speaking");
-      useLiveVoiceStore.getState().setState("listening");
-    });
-    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
+    // The churn a real turn produces, none of which may reach the bridge.
+    for (const phase of ["transcribing", "thinking", "speaking", "listening"] as const) {
+      await act(async () => {
+        useLiveVoiceStore.getState().setState(phase);
+        await Promise.resolve();
+      });
+    }
+
+    expect(activateVoiceAudioSession).not.toHaveBeenCalled();
     expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
   });
 
-  test("deactivates when the session reaches idle", async () => {
-    const h = renderPersistentController();
-    await startListeningViaStarter(h);
-
-    await act(async () => {
-      useLiveVoiceStore.getState().controls?.stop();
-      await Promise.resolve();
-    });
-
-    expect(useLiveVoiceStore.getState().state).toBe("idle");
-    expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
-  });
-
-  test("deactivates when the session fails", async () => {
+  test("never deactivates one either, through idle, failure or unmount", async () => {
     const h = renderPersistentController();
     await startListeningViaStarter(h);
 
     await act(async () => {
       useLiveVoiceStore.getState().fail("velay unreachable");
+      await Promise.resolve();
     });
-
-    expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
-  });
-
-  // The reconnect path re-enters `connectSession`, which resets the store (to
-  // `idle`) and immediately sets `connecting` again. Acting on that phantom
-  // `idle` would run `setActive(false, .notifyOthersOnDeactivation)` →
-  // `setActive(true)` mid-session — possibly while backgrounded or locked,
-  // which is exactly the state the `audio` background mode exists to hold open.
-  test("a reconnect that passes through idle does not churn the audio session", async () => {
-    const h = renderPersistentController();
-    await startListeningViaStarter(h);
-    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
-
     await act(async () => {
-      const store = useLiveVoiceStore.getState();
-      store.reset();
-      store.setState("connecting");
-      store.setReconnecting(true);
-      store.setSessionContext("assistant-1", "conv-1");
+      useLiveVoiceStore.getState().setState("idle");
+      await Promise.resolve();
+    });
+    act(() => {
+      h.view.unmount();
     });
 
     expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
-    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
   });
 
-  test("deactivates on unmount and drops the interruption listener", async () => {
+  test("drops the interruption listener on unmount", async () => {
     const h = renderPersistentController();
     await startListeningViaStarter(h);
 
@@ -406,21 +382,7 @@ describe("native audio session", () => {
       h.view.unmount();
     });
 
-    // Exactly one release, whichever order the controller's own teardown and
-    // this cleanup happen to run in.
-    expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
     expect(unsubscribeInterruptions).toHaveBeenCalledTimes(1);
-  });
-
-  test("unmounting without a session deactivates nothing", () => {
-    const h = renderPersistentController();
-
-    act(() => {
-      h.view.unmount();
-    });
-
-    expect(activateVoiceAudioSession).not.toHaveBeenCalled();
-    expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
   });
 
   test("an interruption ends the active session", async () => {
@@ -433,10 +395,10 @@ describe("native audio session", () => {
     });
 
     // A phone call took the mic; the session ends rather than listening into
-    // a dead input.
+    // a dead input. The interruption arrives on WebKit's session, which is why
+    // this still works without us owning one.
     expect(h.lastClient().ended).toBe(true);
     expect(useLiveVoiceStore.getState().state).toBe("idle");
-    expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
   });
 
   test("an interruption ending does not resume or disturb the session", async () => {
@@ -450,7 +412,6 @@ describe("native audio session", () => {
 
     expect(useLiveVoiceStore.getState().state).toBe("listening");
     expect(h.lastClient().closed).toBe(false);
-    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
   });
 
   test("an interruption with no session running is a no-op", async () => {
@@ -466,13 +427,10 @@ describe("native audio session", () => {
   });
 
   // The skew case: an App Store shell older than the `VoiceAudioSession`
-  // plugin. Voice must behave exactly as it does today. The bridge resolves its
-  // fallback rather than rejecting — `callNativeVoice` swallows the "no web
-  // implementation" error, which `runtime/native-audio-session.test.ts` pins
-  // directly.
+  // plugin, where even the interruption listener never fires. Voice must behave
+  // exactly as it does with one. `runtime/native-audio-session.test.ts` pins the
+  // bridge's own off-native and missing-plugin behavior directly.
   test("a bridge with no plugin behind it neither blocks nor breaks a session", async () => {
-    activateVoiceAudioSession.mockImplementation(async () => false);
-
     const h = renderPersistentController();
     await startListeningViaStarter(h);
     expect(useLiveVoiceStore.getState().state).toBe("listening");
