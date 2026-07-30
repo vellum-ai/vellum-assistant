@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
 import { SessionCornerAction } from "@/domains/onboarding/components/session-corner-action";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
@@ -90,14 +91,14 @@ export function HostingScreen() {
   } = useOnboardingLogin(`${routes.onboarding.hosting}?from=select-assistant`);
 
   // Electron mirrors the Swift client's Hosting step, which has no login
-  // affordance — its login lives on the wake-up step instead.
+  // affordance; its login lives on the wake-up step instead.
   const showLogin = fromSelectAssistant && !hasPlatformSession && !electron;
 
   const onContinue = () => {
     if (selected === "vellum-cloud") {
       clearGatewayToken();
       setSelfHostedConnection(null);
-      // Cloud is managed — drop any provider key staged from a prior
+      // Cloud is managed: drop any provider key staged from a prior
       // Local/Docker visit so it can't leak into a later local hatch.
       setPendingProviderKey(null);
       void navigate(routes.onboarding.privacy);
@@ -161,6 +162,7 @@ export function HostingScreen() {
         <div
           role="radiogroup"
           aria-label="Hosting options"
+          onKeyDown={handleRadioCardArrowNav}
           className={`grid w-full ${electron ? "mt-8 gap-2" : "auto-rows-fr mt-10 gap-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
         >
@@ -169,6 +171,7 @@ export function HostingScreen() {
               key={opt.mode}
               option={opt}
               selected={selected === opt.mode}
+              tabStop={selected === opt.mode}
               onSelect={() => {
                 if (!opt.disabled) {
                   setSelected(opt.mode);
@@ -225,12 +228,15 @@ export function HostingScreen() {
 function HostingCard({
   option,
   selected,
+  tabStop,
   onSelect,
   loginLabel,
   onLogin,
 }: {
   option: HostingOption;
   selected: boolean;
+  /** The radiogroup's single roving tab stop lands on this card. */
+  tabStop: boolean;
   onSelect: () => void;
   loginLabel: string;
   /** Present on the locked cloud card when logging in can unlock it. */
@@ -249,7 +255,7 @@ function HostingCard({
     <div
       role={locked ? undefined : "radio"}
       aria-checked={locked ? undefined : selected}
-      tabIndex={locked ? undefined : 0}
+      tabIndex={locked ? undefined : tabStop ? 0 : -1}
       onClick={locked ? undefined : onSelect}
       onKeyDown={
         locked

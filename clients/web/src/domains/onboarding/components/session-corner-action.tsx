@@ -1,8 +1,9 @@
 import { LogIn, LogOut } from "lucide-react";
+import { useNavigate } from "react-router";
 
-import { hardNavigate } from "@/lib/auth/hard-navigate";
+import { handleLogout } from "@/lib/auth/handle-logout";
 import { isElectron } from "@/runtime/is-electron";
-import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import { useHasPlatformSession } from "@/stores/auth-store";
 import { Button } from "@vellumai/design-library/components/button";
 
 /**
@@ -11,14 +12,15 @@ import { Button } from "@vellumai/design-library/components/button";
  * Escapes the layout's scroll container by positioning against the
  * OnboardingLayout root, clearing the iOS status bar via the safe-area inset.
  *
- * Hidden on electron — the compact Swift-parity onboarding windows keep
+ * Hidden on electron: the compact Swift-parity onboarding windows keep
  * their own login affordances.
  *
  * Login rides the screen's own `useOnboardingLogin` instance (passed in) so
  * the corner control and any in-flow login affordance share pending state.
- * Logout ends the platform session and reloads the page in place, so the
- * screen re-resolves in its logged-out state — or the route middleware
- * redirects if this runtime requires a session.
+ * Logout delegates to the local-mode-aware `handleLogout`: with an active
+ * local assistant it drops only the platform session (this screen then
+ * re-renders logged out in place); otherwise it runs the full logout and
+ * owns the resulting navigation.
  */
 export function SessionCornerAction({
   loginLoading,
@@ -29,17 +31,12 @@ export function SessionCornerAction({
   onLogin: () => void;
   onCancelLogin: () => void;
 }) {
+  const navigate = useNavigate();
   const hasPlatformSession = useHasPlatformSession();
-  const logout = useAuthStore.use.logout();
 
   if (isElectron()) {
     return null;
   }
-
-  const handleLogout = async () => {
-    await logout();
-    hardNavigate(window.location.pathname + window.location.search);
-  };
 
   return (
     <div
@@ -53,7 +50,7 @@ export function SessionCornerAction({
         leftIcon={hasPlatformSession ? <LogOut /> : <LogIn />}
         onClick={
           hasPlatformSession
-            ? () => void handleLogout()
+            ? () => void handleLogout(navigate)
             : loginLoading
               ? onCancelLogin
               : onLogin

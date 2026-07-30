@@ -22,6 +22,7 @@ import {
 } from "@/lib/local-mode";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
 import { SessionCornerAction } from "@/domains/onboarding/components/session-corner-action";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
@@ -100,7 +101,7 @@ export function SelectAssistantScreen() {
   );
   const [removePending, setRemovePending] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
-  // After a manual removal the user is mid-management on this screen — a
+  // After a manual removal the user is mid-management on this screen: a
   // sudden auto-connect to the sole remaining assistant would be jarring, so
   // the auto-skip stands down for the rest of the visit.
   const removedThisVisitRef = useRef(false);
@@ -131,10 +132,10 @@ export function SelectAssistantScreen() {
       // Offer recovery only where wake can actually run: the assistant is local
       // and CLI-wakeable AND this runtime has a local-mode host (mirrors the
       // wake affordance gate in status-banner), and the failure is one a
-      // guardian re-provision can fix — the token is gone/unrefreshable on disk,
+      // guardian re-provision can fix (the token is gone/unrefreshable on disk,
       // the gateway rejected it at the /auth/token mint (a 401 from a signing-key
-      // mismatch), or the local gateway is unresolved (no recorded port).
-      // Otherwise keep the generic message — repair can't help.
+      // mismatch), or the local gateway is unresolved with no recorded port).
+      // Otherwise keep the generic message; repair can't help.
       if (
         assistant.isLocal &&
         isLocalModeHostAvailable() &&
@@ -156,7 +157,7 @@ export function SelectAssistantScreen() {
     setRecoveryPending(false);
     setRecoveryError(null);
     // If recovery interrupted an auto-skip, dismissing it must land on the
-    // chooser — leaving autoSkipping set would re-render the indefinite
+    // chooser; leaving autoSkipping set would re-render the indefinite
     // "Connecting…" screen with no way out.
     setAutoSkipping(false);
   };
@@ -180,7 +181,7 @@ export function SelectAssistantScreen() {
         // Re-provisioning the guardian token revokes the gateway session
         // token derived from the old one. The cached token is still valid by
         // its local expiry, so `ensureGatewayToken` on reconnect would reuse
-        // it and every gateway call would 401 — drop it so the reconnect mints
+        // it and every gateway call would 401, so drop it and the reconnect mints
         // a fresh one against the new guardian principal.
         clearGatewayToken();
         clearRecoveryState();
@@ -247,7 +248,7 @@ export function SelectAssistantScreen() {
 
   // Auto-skip when there's exactly one assistant and it's accessible.
   // Don't skip when the user just logged in or navigated here deliberately
-  // (e.g. from settings or the Developer menu) — let them see the chooser.
+  // (e.g. from settings or the Developer menu): let them see the chooser.
   // Reactive to assistants so it fires when the store populates after mount.
   useEffect(() => {
     if (fromLogin || noAutoSkip || removedThisVisitRef.current) {
@@ -328,6 +329,7 @@ export function SelectAssistantScreen() {
         <div
           role="radiogroup"
           aria-label="Assistants"
+          onKeyDown={handleRadioCardArrowNav}
           className={`flex w-full flex-col ${electron ? "mt-8 gap-2" : "mt-10 gap-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
@@ -339,6 +341,11 @@ export function SelectAssistantScreen() {
                 assistant={assistant}
                 selected={selected === assistant.id}
                 locked={!accessible}
+                tabStop={
+                  selected == null
+                    ? accessibleAssistants[0]?.id === assistant.id
+                    : selected === assistant.id
+                }
                 onSelect={() => {
                   if (accessible) {
                     setSelected(assistant.id);
@@ -463,6 +470,7 @@ function AssistantCard({
   assistant,
   selected,
   locked,
+  tabStop,
   onSelect,
   loginLabel,
   loginDisabled,
@@ -473,6 +481,8 @@ function AssistantCard({
   selected: boolean;
   /** Not selectable in this session (platform-hosted without a login). */
   locked: boolean;
+  /** The radiogroup's single roving tab stop lands on this card. */
+  tabStop: boolean;
   onSelect: () => void;
   loginLabel: string;
   loginDisabled: boolean;
@@ -491,7 +501,7 @@ function AssistantCard({
     <div
       role={locked ? undefined : "radio"}
       aria-checked={locked ? undefined : selected}
-      tabIndex={locked ? undefined : 0}
+      tabIndex={locked ? undefined : tabStop ? 0 : -1}
       onClick={locked ? undefined : onSelect}
       onKeyDown={
         locked
