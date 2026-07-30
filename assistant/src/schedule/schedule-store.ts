@@ -495,7 +495,7 @@ export async function updateSchedule(
     const rewritesMode =
       updates.mode !== undefined && updates.mode !== existing.mode;
     if (rewritesTrigger || rewritesTarget || rewritesMode) {
-      // UserError: a caller-facing refusal, not a daemon fault — transport
+      // UserError: a caller-facing refusal, not a daemon fault. Transport
       // surfaces map it to a 4xx carrying this message, not a generic 500.
       throw new UserError(
         "A trusted deferred wake's target, trigger text, and mode are fixed at creation; cancel and re-create it",
