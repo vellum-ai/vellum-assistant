@@ -161,6 +161,25 @@ describe("retry normalization: pre-adaptive thinking models", () => {
     }
   });
 
+  test("drops adaptive thinking for undated model aliases", async () => {
+    // Anthropic serves undated aliases for dated catalog IDs, and profiles
+    // and the CLI accept either form (inference.help.ts advertises
+    // `--model claude-haiku-4-5`)
+    for (const model of [
+      "claude-haiku-4-5",
+      "claude-opus-4-5",
+      "claude-sonnet-4-5",
+    ]) {
+      const { provider, lastConfig } = makePipeline("anthropic");
+
+      await provider.sendMessage([userMessage], {
+        config: { model, thinking: { type: "adaptive" } },
+      });
+
+      expect(lastConfig()?.thinking).toBeUndefined();
+    }
+  });
+
   test("preserves adaptive thinking for models that support it", async () => {
     // GIVEN a call-site config that enables thinking for Opus 4.8
     setLlmConfig({

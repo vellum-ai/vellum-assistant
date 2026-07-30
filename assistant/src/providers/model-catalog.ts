@@ -52,7 +52,7 @@ export interface CatalogModel {
   adaptiveThinkingOnly?: boolean;
   /**
    * When true, the model predates adaptive thinking and rejects
-   * `thinking: { type: "adaptive" }` (Anthropic 400s such calls) — it only
+   * `thinking: { type: "adaptive" }` (Anthropic 400s such calls). It only
    * supports the legacy `{ type: "enabled", budget_tokens }` form, which
    * Vellum never sends. The daemon drops an enabled thinking config for these
    * models before dispatching to the Anthropic wire. Mutually exclusive with
@@ -2256,12 +2256,19 @@ export function isAdaptiveThinkingOnlyModel(modelId: string): boolean {
  * Whether the given model predates adaptive thinking and rejects
  * `thinking: { type: "adaptive" }`, driven by the `adaptiveThinkingUnsupported`
  * capability in the catalog. Matches the model ID across every provider (same
- * pattern as {@link isAdaptiveThinkingOnlyModel}).
+ * pattern as {@link isAdaptiveThinkingOnlyModel}), and also matches the
+ * undated aliases Anthropic serves for dated catalog IDs (`claude-haiku-4-5`
+ * resolves the same model as `claude-haiku-4-5-20251001`), since profiles and
+ * the CLI accept either form.
  */
 export function isAdaptiveThinkingUnsupportedModel(modelId: string): boolean {
+  const stripDateSuffix = (id: string): string => id.replace(/-\d{8}$/, "");
+  const normalized = stripDateSuffix(modelId);
   return PROVIDER_CATALOG.some((p) =>
     p.models.some(
-      (m) => m.id === modelId && m.adaptiveThinkingUnsupported === true,
+      (m) =>
+        m.adaptiveThinkingUnsupported === true &&
+        (m.id === modelId || stripDateSuffix(m.id) === normalized),
     ),
   );
 }

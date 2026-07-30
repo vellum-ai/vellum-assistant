@@ -560,7 +560,7 @@ function normalizeSendMessageOptions(
   // never sends the legacy budget_tokens form. Drop an adaptive thinking
   // config for these models so the request goes out without thinking instead
   // of failing. A pass-through `{ type: "enabled", budget_tokens }` config is
-  // left intact — these models do support that shape.
+  // left intact: these models do support that shape.
   if (
     typeof nextConfig.model === "string" &&
     isAdaptiveThinkingUnsupportedModel(nextConfig.model) &&
