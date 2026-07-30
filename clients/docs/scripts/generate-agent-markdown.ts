@@ -28,13 +28,12 @@ import remarkStringify from "remark-stringify";
 import { unified } from "unified";
 
 import { agentMarkdownPathForPage } from "../src/lib/agent-markdown-paths";
-import { SITE_URL } from "../src/lib/metadata";
 import {
-  listPageFiles,
-  loadPageMetadata,
-  renderPage,
-  routeFromPageFile,
-} from "./lib/docs-pages";
+  discoverDocsPages,
+  REDIRECT_STUB_ROUTES,
+} from "../src/lib/discover-docs-routes";
+import { SITE_URL } from "../src/lib/metadata";
+import { loadPageMetadata, renderPage } from "./lib/docs-pages";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(SCRIPT_DIR, "..");
@@ -51,12 +50,6 @@ interface DocsPageMeta {
   route: string;
   title: string;
   description: string;
-}
-
-/** The /docs/api subtree is reserved for non-page surfaces and is excluded
- *  from mirroring (the Accept rewrites in next.config.ts skip it too). */
-function isMirroredRoute(route: string): boolean {
-  return route !== "/docs/api" && !route.startsWith("/docs/api/");
 }
 
 const htmlToMarkdown = unified()
@@ -189,13 +182,12 @@ function buildLlmsText(pages: DocsPageMeta[]): string {
 }
 
 async function main() {
-  const pageFiles = (await listPageFiles(DOCS_PAGES_ROOT)).sort();
-  const pages = pageFiles
-    .map((pageFile) => ({
-      pageFile,
-      route: routeFromPageFile(pageFile, DOCS_PAGES_ROOT, "/docs"),
-    }))
-    .filter(({ route }) => isMirroredRoute(route));
+  // Redirect stubs permanently redirect their HTML route; mirroring them
+  // would point agents at a page that only says "moved". llms.txt and the
+  // mirror tree list the redirect targets instead.
+  const pages = discoverDocsPages(DOCS_PAGES_ROOT).filter(
+    ({ route }) => !REDIRECT_STUB_ROUTES.has(route)
+  );
 
   await rm(OUTPUT_ROOT, { recursive: true, force: true });
   await removeGeneratedDocsLlmsFiles(DOCS_PUBLIC_ROOT);

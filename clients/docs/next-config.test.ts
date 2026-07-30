@@ -66,11 +66,16 @@ function docsPathForSource(source: string, pathname: string): string | null {
   }
 
   const docsPath = pathname.slice(prefix.length);
-  if (source === "/docs/:path((?!llms\\.txt$)(?!api\\/)(?!_md).*)") {
+  if (
+    source ===
+    "/docs/:path((?!llms\\.txt$)(?!api(?:\\/|$))(?!_md(?:\\/|$)).*)"
+  ) {
     if (
       docsPath === "llms.txt" ||
+      docsPath === "api" ||
       docsPath.startsWith("api/") ||
-      docsPath.startsWith("_md")
+      docsPath === "_md" ||
+      docsPath.startsWith("_md/")
     ) {
       return null;
     }
@@ -152,7 +157,7 @@ describe("next config rewrite sources", () => {
       "/docs/index.md",
       "/docs/:path*.md",
       "/docs",
-      "/docs/:path((?!llms\\.txt$)(?!api\\/)(?!_md).*)",
+      "/docs/:path((?!llms\\.txt$)(?!api(?:\\/|$))(?!_md(?:\\/|$)).*)",
     ]);
   });
 
@@ -266,6 +271,15 @@ describe("next config docs Markdown content negotiation", () => {
     ).resolves.toEqual([]);
   });
 
+  test("does not rewrite the bare /docs/api path", async () => {
+    await expect(
+      resolveBeforeFilesRewrite("/docs/api", "text/markdown")
+    ).resolves.toBeNull();
+    await expect(markdownRewriteDestinationsFor("/docs/api")).resolves.toEqual(
+      []
+    );
+  });
+
   test("does not re-enter the mirror route itself", async () => {
     await expect(
       resolveBeforeFilesRewrite("/docs/_md/pricing", "text/markdown")
@@ -273,5 +287,16 @@ describe("next config docs Markdown content negotiation", () => {
     await expect(
       markdownRewriteDestinationsFor("/docs/_md/pricing")
     ).resolves.toEqual([]);
+    await expect(
+      resolveBeforeFilesRewrite("/docs/_md", "text/markdown")
+    ).resolves.toBeNull();
+  });
+
+  test("the _md exclusion is anchored to the exact subtree", async () => {
+    // Only /docs/_md and /docs/_md/... are excluded; an _md-prefixed sibling
+    // path still negotiates.
+    await expect(
+      resolveBeforeFilesRewrite("/docs/_mdsomething", "text/markdown")
+    ).resolves.toBe("/docs/_md/_mdsomething");
   });
 });
