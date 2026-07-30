@@ -24,8 +24,15 @@
  *   interactive, so the user can keep navigating; navigating away hands the
  *   session off to the title-bar pill. Deliberately not `aria-modal`: the
  *   surrounding chrome stays usable.
- * - `"fullscreen"` (mobile): `fixed inset-0` over the whole viewport, modal,
- *   with safe-area padding for notched iOS shells.
+ * - `"sheet"` (mobile): a `BottomSheet` that slides up and rests below the
+ *   thread header, the mobile counterpart of the inset panel. Radix portals it
+ *   out of the layout and positions it `fixed`, so it is told where the header
+ *   ends ({@link useChatHeaderHeight}) rather than inheriting that edge from
+ *   the DOM. Modal, because Radix makes it so.
+ * - `"fullscreen"`: `fixed inset-0` over the whole viewport, modal, with
+ *   safe-area padding for notched iOS shells. No longer mounted by the chat
+ *   layout; kept as the variant a surface with no chrome to sit under would
+ *   want, and the default.
  *
  * The look is laid out against the ROOM's box, not the window's. See
  * {@link useRoomBox}. As a panel those are different rectangles, so the color
@@ -55,11 +62,16 @@
  * handler attaches only while the room is mounted.
  */
 
-import { useEffect, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Mic, MicOff, Minus, Square, X } from "lucide-react";
 
-import { Tooltip, cn } from "@vellumai/design-library";
+import { BottomSheet, Tooltip, cn } from "@vellumai/design-library";
 
 import {
   endLiveVoiceSession,
@@ -80,6 +92,7 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import { useActiveConnectSurface } from "./use-active-connect-surface";
+import { useChatHeaderHeight } from "./use-chat-header-height";
 import { toRoomLocal, useRoomBox } from "./use-room-box";
 import { resolveWaveAccentHex } from "./wave-accent";
 
@@ -122,7 +135,7 @@ const SESSION_CONTROL_NEUTRAL_CLASS =
   "border-[var(--room-border)] text-[var(--room-fg-muted)] hover:bg-[var(--room-wash)] hover:text-[var(--room-fg)]";
 
 /** Placement variant. See the module docstring. */
-export type VoiceRoomVariant = "fullscreen" | "content";
+export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
 
 export function VoiceRoom({
   variant = "fullscreen",
@@ -136,6 +149,51 @@ export function VoiceRoom({
     <AnimatePresence>
       {visible ? <VoiceRoomOverlay key="voice-room" variant={variant} /> : null}
     </AnimatePresence>
+  );
+}
+
+/**
+ * Sheet chrome for the mobile room.
+ *
+ * `open` is held true for as long as this renders: mounting is already gated by
+ * `AnimatePresence` above, so letting Radix drive the open state as well would
+ * unmount the content the instant the session ended and cut the room's exit
+ * animation short. Radix therefore owns the entrance (its `data-[state=open]`
+ * slide-up) and Motion owns the exit.
+ *
+ * Radix's own dismissals, Escape and a tap on the overlay, minimize rather than
+ * end: the sheet is the lesser dismissal on mobile exactly as it is on desktop,
+ * and the session keeps running behind the composer's voice bar.
+ */
+function VoiceRoomSheet({
+  headerHeight,
+  children,
+}: {
+  /** Where the sheet's top edge rests. See {@link useChatHeaderHeight}. */
+  headerHeight: number;
+  children: ReactNode;
+}) {
+  return (
+    <BottomSheet.Root open onOpenChange={minimizeVoiceRoom}>
+      <BottomSheet.Content
+        // The room is a surface in its own right: a full-bleed color fill and
+        // bands that must reach the sheet's rounded corners.
+        padded={false}
+        // Override the primitive's default height band. The room is not a
+        // menu sized to its rows; it fills everything between the header and
+        // the bottom edge.
+        className="top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0"
+        style={
+          { "--voice-sheet-top": `${headerHeight}px` } as CSSProperties
+        }
+        aria-label="Voice session"
+        // The room narrates itself through its own live region; a description
+        // element would be a second, redundant announcement.
+        aria-describedby={undefined}
+      >
+        {children}
+      </BottomSheet.Content>
+    </BottomSheet.Root>
   );
 }
 
@@ -173,6 +231,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // The room's own rectangle. Everything in the look lays out against this, not
   // the window. As an inset panel they differ (see the module docstring).
   const { ref: roomRef, box } = useRoomBox();
+  // Where the mobile sheet's top edge rests. Measured for every variant (hooks
+  // cannot be conditional) but only read by the sheet.
+  const headerHeight = useChatHeaderHeight();
   // The entry origin is a viewport point; the look lays out in room-local
   // space. Fullscreen's offset is zero, which makes this a no-op there.
   const localEntryOrigin = toRoomLocal(entryOrigin, box);
@@ -230,7 +291,14 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // It fires even when the composer textarea (or any other focused element)
   // still holds focus as the room opens, so it is intentionally not guarded
   // by the event target.
+  // Skipped for the sheet: Radix owns Escape there, and its handler already
+  // routes to the same minimize through `onOpenChange`. Two handlers would
+  // both fire on one keypress.
+  const sheet = variant === "sheet";
   useEffect(() => {
+    if (sheet) {
+      return;
+    }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -239,31 +307,38 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [sheet]);
 
   const fullscreen = variant === "fullscreen";
 
-  return (
+  const body = (
     <motion.div
       ref={roomRef}
       className={cn(
         "z-50 flex items-center justify-center overflow-hidden",
-        // Both variants sit at z-50, the highest tier used inside the chat
-        // layout. The content variant rounds its corners so it reads as a panel
-        // set inside the surrounding chrome; `overflow-hidden` above is what
-        // clips the full-bleed color/wave layers to that radius.
-        fullscreen ? "fixed inset-0" : "absolute inset-0 rounded-xl",
+        // Every variant sits at z-50, the highest tier used inside the chat
+        // layout. `overflow-hidden` above is what clips the full-bleed
+        // color/wave layers to whatever radius the variant carries: the panel's
+        // corners on desktop, the sheet's top corners on mobile.
+        fullscreen && "fixed inset-0",
+        variant === "content" && "absolute inset-0 rounded-xl",
+        // The sheet's own box is the Radix content element, which is already
+        // positioned and rounded; the room fills it.
+        sheet && "absolute inset-0 rounded-t-[24px]",
       )}
       // Theme tokens (the connect label, the ambient transcript) follow the
       // look: dark over the void and the dark avatar colors, light over the
       // light one (yellow).
       data-theme={tone?.isLight ? "light" : "dark"}
-      role="dialog"
-      // Only the fullscreen room is modal. The content variant deliberately
-      // leaves the header and sidenav usable, so claiming the rest of the app
-      // is inert would be a lie to assistive tech.
+      // The sheet's Radix content element is the dialog; a second `role` and
+      // label nested inside it would announce the room twice.
+      role={sheet ? undefined : "dialog"}
+      // Only the fullscreen room is modal by its own declaration. The content
+      // variant deliberately leaves the header and sidenav usable, so claiming
+      // the rest of the app is inert would be a lie to assistive tech; the
+      // sheet gets real modality from Radix instead of asserting it here.
       aria-modal={fullscreen || undefined}
-      aria-label="Voice session"
+      aria-label={sheet ? undefined : "Voice session"}
       // Fullscreen covers `ChatLayoutHeader`, so it loses the header's
       // safe-area protection — pad the centered avatar inside the
       // notch/home-indicator per docs/CAPACITOR.md. The background layers are
@@ -547,5 +622,11 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         {muted ? `Muted — ${stateLabel}` : stateLabel}
       </div>
     </motion.div>
+  );
+
+  return sheet ? (
+    <VoiceRoomSheet headerHeight={headerHeight}>{body}</VoiceRoomSheet>
+  ) : (
+    body
   );
 }
