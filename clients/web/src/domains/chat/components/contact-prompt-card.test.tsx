@@ -29,15 +29,14 @@ describe("ContactPromptCard defaultValue", () => {
     cleanup();
   });
 
-  test("pre-fills the input with defaultValue and enables Save", () => {
+  test("pre-fills the input with the suggested placeholder and enables Save", () => {
     render(
       <ContactPromptCard
         {...baseProps}
         contactRequest={{
           requestId: "req-1",
           channel: "email",
-          defaultValue: "user@example.com",
-          placeholder: "Enter email address",
+          placeholder: "user@example.com",
         }}
       />,
     );
@@ -50,11 +49,7 @@ describe("ContactPromptCard defaultValue", () => {
     render(
       <ContactPromptCard
         {...baseProps}
-        contactRequest={{
-          requestId: "req-2",
-          channel: "email",
-          placeholder: "Enter email address",
-        }}
+        contactRequest={{ requestId: "req-2", channel: "email" }}
       />,
     );
 
@@ -83,7 +78,7 @@ describe("ContactPromptCard defaultValue", () => {
     expect(onSubmit).toHaveBeenCalledWith("555-0100", "sms");
   });
 
-  test("submits the edited address, not the original defaultValue", () => {
+  test("submits the edited address, not the original placeholder", () => {
     const onSubmit = mock(() => {});
 
     render(
