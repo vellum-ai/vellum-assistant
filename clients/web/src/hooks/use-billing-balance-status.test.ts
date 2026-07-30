@@ -53,8 +53,8 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 
 const { useBillingBalanceStatus } =
   await import("./use-billing-balance-status");
-const { shouldShowLowBalanceBanner } =
-  await import("@/domains/chat/components/low-balance-banner");
+const { resolveComposerBillingBanner } =
+  await import("@/domains/chat/utils/error-classification");
 
 function summary(
   overrides: Partial<BillingSummaryResponse> = {},
@@ -158,19 +158,19 @@ describe("useBillingBalanceStatus", () => {
   test("exhausted status never co-shows with the low-balance banner", () => {
     // Server contract: `low_balance_warning` is kept false while the balance
     // is exhausted, so an exhausted status (which drives the proactive upsell
-    // card) always fails the low-balance banner's visibility rule. The
-    // exclusivity lives server-side; this pins the client wiring to it.
+    // card) always fails the low-balance leg of the composer banner decision.
+    // The exclusivity lives server-side; this pins the client wiring to it.
     const { result } = setup({
       seed: summary({ effective_balance: "0.00", low_balance_warning: false }),
     });
     expect(result.current.isExhausted).toBe(true);
     expect(
-      shouldShowLowBalanceBanner({
+      resolveComposerBillingBanner({
         billingBannerDecision: null,
         isLowBalance: result.current.isLowBalance,
         dismissed: false,
       }),
-    ).toBe(false);
+    ).toBeNull();
   });
 
   test("all-false while the summary is unresolved", () => {

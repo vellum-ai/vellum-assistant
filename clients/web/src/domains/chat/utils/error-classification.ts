@@ -105,10 +105,18 @@ export type ComposerBillingBanner =
  * precedence over the proactive low-balance warning. `managed_credits` maps
  * to no banner: the in-transcript credits upsell card owns that state, while
  * the classified error keeps the generic notice suppressed.
+ *
+ * The low-balance warning renders only when no error-driven decision is
+ * active, the server reports `low_balance_warning` (`isLowBalance`), and the
+ * user has not dismissed the banner this session. The exhausted-credits
+ * surfaces never overlap with it: the server keeps `low_balance_warning`
+ * false while the balance is exhausted, and it is false for auto-top-up orgs
+ * and whenever the billing query is gated off.
  */
 export function resolveComposerBillingBanner(args: {
   billingBannerDecision: ChatBillingBannerDecision | null;
-  showLowBalanceBanner: boolean;
+  isLowBalance: boolean;
+  dismissed: boolean;
 }): ComposerBillingBanner | null {
   if (args.billingBannerDecision === "daily_limit") {
     return "daily_limit";
@@ -119,7 +127,7 @@ export function resolveComposerBillingBanner(args: {
   if (args.billingBannerDecision === "managed_credits") {
     return null;
   }
-  return args.showLowBalanceBanner ? "low_balance" : null;
+  return args.isLowBalance && !args.dismissed ? "low_balance" : null;
 }
 
 export function shouldSuppressGenericChatErrorNotice(

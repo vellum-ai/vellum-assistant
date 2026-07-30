@@ -1,10 +1,10 @@
-import { lazy, useState } from "react";
+import { useState } from "react";
 
 import { useNavigate } from "react-router";
 
-import { LazyBoundary } from "@/components/lazy-boundary";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
+import { LazyAddCreditsModal } from "@/domains/chat/components/lazy-add-credits-modal";
 import { resolveCreditPaywallCta } from "@/domains/chat/utils/credit-paywall-cta";
 import {
   isBillingCtaUpgradeArm,
@@ -13,15 +13,6 @@ import {
 import { useIsFreePlan } from "@/hooks/use-is-free-plan";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
-
-// Lazy for the same reason as the `AddCreditsModal` mount in
-// `active-chat-view.tsx`: the Stripe checkout modal stays out of the chat
-// bundle until a CTA actually opens it.
-const AddCreditsModal = lazy(() =>
-  import("@/components/add-credits-modal").then((m) => ({
-    default: m.AddCreditsModal,
-  })),
-);
 
 const UPGRADE_COPY = {
   title: "You’re out of Free credits",
@@ -39,8 +30,9 @@ const ADD_CREDITS_COPY = {
  * Friendly credits upsell card: a single-CTA credit wall built on
  * {@link BillingErrorBanner}, rendered in the transcript in place of a
  * persisted credits-exhausted provider-error row. Self-contained (it resolves
- * its own CTA mode and mounts its own {@link AddCreditsModal} instance), so it
- * can also be mounted outside the transcript with no transcript-specific props.
+ * its own CTA mode and mounts its own {@link LazyAddCreditsModal} instance),
+ * so it can also be mounted outside the transcript with no transcript-specific
+ * props.
  */
 export function CreditsUpsellCard() {
   const navigate = useNavigate();
@@ -97,14 +89,10 @@ export function CreditsUpsellCard() {
         }
         detached={true}
       />
-      {showAddCredits ? (
-        <LazyBoundary>
-          <AddCreditsModal
-            open={showAddCredits}
-            onOpenChange={setShowAddCredits}
-          />
-        </LazyBoundary>
-      ) : null}
+      <LazyAddCreditsModal
+        open={showAddCredits}
+        onOpenChange={setShowAddCredits}
+      />
     </>
   );
 }

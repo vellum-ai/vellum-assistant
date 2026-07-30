@@ -73,10 +73,7 @@ import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
 import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
-import {
-  LowBalanceBanner,
-  shouldShowLowBalanceBanner,
-} from "@/domains/chat/components/low-balance-banner";
+import { LowBalanceBanner } from "@/domains/chat/components/low-balance-banner";
 import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-primer";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
@@ -188,7 +185,6 @@ export interface ChatMainPanelProps {
 
   // Upward signals to ActiveChatView local state
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
-  setShowAddCreditsModal: Dispatch<SetStateAction<boolean>>;
 
   // Shared refs (owned by ActiveChatView for debug API / keydown handler)
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -263,7 +259,6 @@ export function ChatMainPanel({
   historyPagination,
   diskPressure,
   setRefreshEpoch,
-  setShowAddCreditsModal,
   inputRef,
   sanitizedMessagesRef,
   transcriptItemsRef,
@@ -1029,17 +1024,11 @@ export function ChatMainPanel({
   const billingBannerDecision =
     errorBillingBannerDecision ?? noticeBillingBannerDecision;
 
-  // Error-driven banners always take precedence over the proactive
-  // low-balance warning.
   const lowBalanceBannerDismissed = useLowBalanceBannerStore.use.dismissed();
-  const showLowBalanceBanner = shouldShowLowBalanceBanner({
+  const composerBillingBanner = resolveComposerBillingBanner({
     billingBannerDecision,
     isLowBalance: balanceStatus.isLowBalance,
     dismissed: lowBalanceBannerDismissed,
-  });
-  const composerBillingBanner = resolveComposerBillingBanner({
-    billingBannerDecision,
-    showLowBalanceBanner,
   });
 
   // -------------------------------------------------------------------------
@@ -1181,9 +1170,7 @@ export function ChatMainPanel({
               ) : composerBillingBanner === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
               ) : composerBillingBanner === "low_balance" ? (
-                <LowBalanceBanner
-                  onAddCredits={() => setShowAddCreditsModal(true)}
-                />
+                <LowBalanceBanner />
               ) : null
             }
             diskPressureBanner={diskPressureBannerSlot}
