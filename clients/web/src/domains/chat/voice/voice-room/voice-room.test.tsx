@@ -561,6 +561,22 @@ describe("VoiceRoom: mobile sheet", () => {
     removeHeader();
   });
 
+  test("opening does not land focus on the exit", () => {
+    // Radix focuses the first focusable child on open, which is the top-right
+    // exit. That lit its focus ring and popped its "End voice session"
+    // tooltip, so the first thing a freshly opened room said was how to leave
+    // it. Focus belongs on the sheet itself.
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    const sheet = screen.getByRole("dialog", { name: "Voice session" });
+    const exit = screen.getByRole("button", { name: "Exit voice session" });
+    expect(document.activeElement).not.toBe(exit);
+    expect(document.activeElement).toBe(sheet);
+    removeHeader();
+  });
+
   test("with no header present the sheet rests at the top edge", () => {
     // Pop-outs render no header. They never show the room, but a zero offset
     // is the right answer for a surface with nothing above it either way.

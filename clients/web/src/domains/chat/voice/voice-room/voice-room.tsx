@@ -201,6 +201,19 @@ function VoiceRoomSheet({
         className="top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0"
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
+        // Radix focuses the first focusable child on open, which here is the
+        // top-right exit. That drew its focus ring and popped its "End voice
+        // session" tooltip over a room the user had only just opened, so the
+        // first thing the room said was how to leave it. Focus goes to the
+        // sheet itself instead (Radix gives the content `tabIndex={-1}`), which
+        // still announces the room and leaves Escape to the window handler
+        // above.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          if (event.currentTarget instanceof HTMLElement) {
+            event.currentTarget.focus();
+          }
+        }}
         style={{ "--voice-sheet-top": `${headerBottom}px` } as CSSProperties}
         aria-label="Voice session"
         // The room narrates itself through its own live region; a description

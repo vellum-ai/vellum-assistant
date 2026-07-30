@@ -201,12 +201,15 @@ export function VoiceSessionPillHost({
 
   if (variant === "row") {
     // In flow above the thread header, so a live session pushes the page down
-    // instead of covering any of it. The band paints itself edge to edge; the
-    // failure chip does not, so it gets the header's own inset to sit on.
-    return showFailure ? (
-      <div className="shrink-0 px-4 pt-2">{content}</div>
-    ) : (
-      content
+    // instead of covering any of it. The pill takes a small inset rather than
+    // running into the screen edges: a shade tighter than the header's own
+    // `px-4`, so the surface still reads as spanning the width. The failure
+    // chip keeps the header's inset, plus the gap above that the pill gets
+    // from the header's own top padding.
+    return (
+      <div className={showFailure ? "shrink-0 px-4 pt-2" : "shrink-0 px-2"}>
+        {content}
+      </div>
     );
   }
 

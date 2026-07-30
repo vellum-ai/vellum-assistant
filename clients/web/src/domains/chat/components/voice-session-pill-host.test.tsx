@@ -355,10 +355,17 @@ describe("VoiceSessionPillHost: row variant (above the phone header)", () => {
   test("lays the band out in flow so it pushes the page down", () => {
     startSession("listening");
     const { container } = render(<VoiceSessionPillHost variant="row" />);
-    // The band itself is the host's root here: nothing wraps it in a `fixed`
-    // or `absolute` box, which is what keeps it taking its own space in the
-    // layout column rather than covering the header under it.
-    expect(container.firstChild).toBe(pill());
+    // The wrapper is a plain in-flow box carrying only the side inset: no
+    // `fixed` or `absolute`, which is what keeps the pill taking its own space
+    // in the layout column rather than covering the header under it.
+    const wrapper = container.firstChild as HTMLElement;
+    expect(wrapper.className).toContain("shrink-0");
+    expect(wrapper.className).not.toContain("fixed");
+    expect(wrapper.className).not.toContain("absolute");
+    // A small inset, so the pill's caps clear the screen edges while the
+    // surface still reads as spanning the width.
+    expect(wrapper.className).toContain("px-2");
+    expect(wrapper.firstChild).toBe(pill());
     expect((pill() as HTMLElement).className).toContain("w-full");
   });
 
