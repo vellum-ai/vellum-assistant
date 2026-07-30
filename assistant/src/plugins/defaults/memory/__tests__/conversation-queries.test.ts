@@ -155,6 +155,20 @@ describe("buildExcerpt", () => {
     expect(excerpt).toBe("Inner tool text");
   });
 
+  test("centers the excerpt on a token match when the query is not contiguous", () => {
+    const filler = "start padding ".repeat(25);
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        { type: "text", text: `${filler}alpha and shortly after beta appear` },
+      ]),
+      "alpha beta",
+    );
+
+    expect(excerpt).toContain("alpha");
+    expect(excerpt).toContain("beta");
+    expect(excerpt.startsWith("…")).toBe(true);
+  });
+
   test("returns an empty excerpt for messages with no legible text", () => {
     const excerpt = buildExcerpt(
       JSON.stringify([

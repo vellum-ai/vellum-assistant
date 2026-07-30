@@ -15,6 +15,7 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import type { ConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
+import { tokenize } from "./embeddings/sparse-tokenize.js";
 import {
   parseContentRef,
   resolveMessageContentBlocks,
@@ -945,13 +946,42 @@ function wrapRecallEvidenceExcerpt(
     : wrapUntrustedContent(excerpt, { source });
 }
 
+/**
+ * Earliest occurrence of any lexical token of `query` in `lowerText`, using
+ * the same tokenizer as the sparse index so the window centers on what the
+ * search actually matched.
+ */
+function findEarliestTokenMatch(
+  lowerText: string,
+  query: string,
+): { index: number; length: number } | null {
+  let best: { index: number; length: number } | null = null;
+  for (const token of new Set(tokenize(query))) {
+    const idx = lowerText.indexOf(token);
+    if (idx !== -1 && (best === null || idx < best.index)) {
+      best = { index: idx, length: token.length };
+    }
+  }
+  return best;
+}
+
 function buildExcerptFromText(text: string, query: string): string {
   const WINDOW = 100;
   const lowerText = text.toLowerCase();
   const lowerQuery = query.toLowerCase();
-  const idx = lowerText.indexOf(lowerQuery);
+  let idx = lowerText.indexOf(lowerQuery);
+  let matchLength = query.length;
   if (idx === -1) {
-    // Query not present in the text (e.g. the lexical index matched JSON
+    // Sparse search matches tokens independently, so a multi-token query
+    // may never occur contiguously; center on the earliest token instead.
+    const tokenMatch = findEarliestTokenMatch(lowerText, query);
+    if (tokenMatch) {
+      idx = tokenMatch.index;
+      matchLength = tokenMatch.length;
+    }
+  }
+  if (idx === -1) {
+    // No token present either (e.g. the lexical index matched JSON
     // structure instead); fall back to the start of the text.
     return text
       .slice(0, WINDOW * 2)
@@ -959,7 +989,7 @@ function buildExcerptFromText(text: string, query: string): string {
       .trim();
   }
   const start = Math.max(0, idx - WINDOW);
-  const end = Math.min(text.length, idx + query.length + WINDOW);
+  const end = Math.min(text.length, idx + matchLength + WINDOW);
   const excerpt =
     (start > 0 ? "\u2026" : "") +
     text.slice(start, end).replace(/\s+/g, " ").trim() +
