@@ -56,6 +56,35 @@ describe("extractDocsPageFromHtml", () => {
     expect(h3Chunk?.headingLevel).toBe(3);
   });
 
+  test("chunks standalone headings even when sections exist", () => {
+    const html = `
+      <div class="docs-main">
+        <div class="docs-breadcrumb">Docs / Guides</div>
+        <h1>Guides</h1>
+        <div class="docs-prose">
+          <section id="setup">
+            <h2 id="setup">Setup</h2>
+            <p>Setup instructions here.</p>
+          </section>
+          <h2 id="troubleshooting">Troubleshooting</h2>
+          <p>Troubleshooting tips here.</p>
+        </div>
+      </div>
+    `;
+
+    const extracted = extractDocsPageFromHtml("/docs/guides", html);
+
+    const sectionChunk = extracted.chunks.find((chunk) => chunk.sectionId === "setup");
+    const standaloneChunk = extracted.chunks.find((chunk) => chunk.sectionId === "troubleshooting");
+
+    expect(sectionChunk?.url).toBe("/docs/guides#setup");
+    expect(standaloneChunk?.url).toBe("/docs/guides#troubleshooting");
+    expect(standaloneChunk?.heading).toBe("Troubleshooting");
+
+    const setupChunks = extracted.chunks.filter((chunk) => chunk.sectionId === "setup");
+    expect(setupChunks.length).toBe(1);
+  });
+
   test("creates fallback page chunk when headings are missing", () => {
     const html = `
       <div class="docs-main">

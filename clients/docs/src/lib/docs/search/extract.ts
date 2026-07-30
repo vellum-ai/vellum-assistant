@@ -113,39 +113,37 @@ export function extractDocsPageFromHtml(route: string, html: string): ExtractedD
     seenIds.add(sectionId);
   });
 
-  if (chunks.length === 0) {
-    proseRoot.find("h2[id], h3[id]").each((_, element) => {
-      const heading = $(element);
-      const sectionId = normalizeText(heading.attr("id") ?? "") || null;
-      if (!sectionId || seenIds.has(sectionId)) {
-        return;
-      }
+  proseRoot.find("h2[id], h3[id]").each((_, element) => {
+    const heading = $(element);
+    const sectionId = normalizeText(heading.attr("id") ?? "") || null;
+    if (!sectionId || seenIds.has(sectionId)) {
+      return;
+    }
 
-      const headingText = normalizeText(heading.text()) || sectionId;
-      const headingLevel: 1 | 2 | 3 = heading.get(0)?.tagName?.toLowerCase() === "h3" ? 3 : 2;
+    const headingText = normalizeText(heading.text()) || sectionId;
+    const headingLevel: 1 | 2 | 3 = heading.get(0)?.tagName?.toLowerCase() === "h3" ? 3 : 2;
 
-      const block = heading.closest("section").length > 0 ? heading.closest("section") : heading.parent();
-      const body = cleanSectionBody(block.text(), headingText);
+    const block = heading.closest("section").length > 0 ? heading.closest("section") : heading.parent();
+    const body = cleanSectionBody(block.text(), headingText);
 
-      if (!body) {
-        return;
-      }
+    if (!body) {
+      return;
+    }
 
-      chunks.push(
-        makeChunk({
-          route,
-          pageTitle,
-          breadcrumb,
-          heading: headingText,
-          headingLevel,
-          sectionId,
-          body,
-        })
-      );
+    chunks.push(
+      makeChunk({
+        route,
+        pageTitle,
+        breadcrumb,
+        heading: headingText,
+        headingLevel,
+        sectionId,
+        body,
+      })
+    );
 
-      seenIds.add(sectionId);
-    });
-  }
+    seenIds.add(sectionId);
+  });
 
   const pageBody = normalizeText(proseRoot.text());
   if (pageBody) {

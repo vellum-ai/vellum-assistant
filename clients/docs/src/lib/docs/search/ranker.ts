@@ -13,6 +13,7 @@ interface SearchableChunk extends DocsSearchChunk {
 
 interface RankedChunk {
   chunk: DocsSearchChunk;
+  matchedTerms: string[];
   lexicalScore: number;
   score: number;
 }
@@ -115,6 +116,7 @@ function lexicalSearch(params: {
 
       return {
         chunk,
+        matchedTerms: result.terms,
         lexicalScore: result.score,
         score: result.score,
       } satisfies RankedChunk;
@@ -129,6 +131,8 @@ function lexicalSearch(params: {
 }
 
 function toResult(query: string, candidate: RankedChunk): DocsSearchResult {
+  const snippetQuery = [...candidate.matchedTerms, query].join(" ").trim() || query;
+
   return {
     id: candidate.chunk.id,
     url: candidate.chunk.url,
@@ -136,7 +140,7 @@ function toResult(query: string, candidate: RankedChunk): DocsSearchResult {
     pageTitle: candidate.chunk.pageTitle,
     heading: candidate.chunk.heading,
     sectionId: candidate.chunk.sectionId,
-    snippet: extractSnippet(candidate.chunk.body, query),
+    snippet: extractSnippet(candidate.chunk.body, snippetQuery),
     score: candidate.score,
     lexicalScore: candidate.lexicalScore,
   };

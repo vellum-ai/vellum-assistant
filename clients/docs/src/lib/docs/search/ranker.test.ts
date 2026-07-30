@@ -54,6 +54,26 @@ describe("searchDocsIndex", () => {
     expect(fuzzy.results[0]?.route).toBe("/docs/help/common-issues");
   });
 
+  test("builds fuzzy-match snippets from the matched term, not the raw query token", () => {
+    const index: DocsSearchIndexFile = {
+      ...BASE_INDEX,
+      chunks: [
+        {
+          ...BASE_INDEX.chunks[1]!,
+          body: `${"Filler text that pads the beginning of the body well past the snippet window so a start-of-body fallback would miss the match. ".repeat(3)}Reconnect your Google Calendar integration to fix sync.`,
+        },
+      ],
+    };
+
+    const fuzzy = searchDocsIndex({
+      query: "calender",
+      index,
+      limit: 5,
+    });
+
+    expect(fuzzy.results[0]?.snippet.toLowerCase()).toContain("calendar");
+  });
+
   test("boosts title/heading matches over body-only matches", () => {
     const index: DocsSearchIndexFile = {
       ...BASE_INDEX,
