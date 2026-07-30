@@ -326,6 +326,27 @@ describe("useChangeTiers", () => {
     expect(result.current.currentKnown).toBe(true);
   });
 
+  test("currentKnown is false when the tiers predate the subscription", async () => {
+    // Both queries sit in cache for `staleTime` without refetching, so the
+    // subscription can be refreshed on its own and leave the tiers describing
+    // the plan before it. Nothing about the onboarding query itself looks wrong
+    // in that window; only the pairing does.
+    const { result, client } = setup();
+    expect(result.current.currentKnown).toBe(true);
+
+    // Re-seed the same payload as an older read. Nothing about it changes
+    // except its vintage, which is the entire defect.
+    act(() => {
+      client.setQueryData(ONBOARDING_KEY, onboardingFixture, {
+        updatedAt: Date.now() - 60_000,
+      });
+    });
+
+    await waitFor(() => expect(result.current.currentKnown).toBe(false));
+    // The tiers still read fine on their own, which is what hides this.
+    expect(result.current.current.machineTier).not.toBeNull();
+  });
+
   test("currentKnown is false while cached tiers are being re-read", async () => {
     // A background refetch keeps `isSuccess` true over the old payload, so the
     // tiers stay readable while a fresher answer is already on its way.

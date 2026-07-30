@@ -191,14 +191,23 @@ export function useChangeTiers({
   //     legitimately reports, so it cannot be told apart from one
   //   - failed over cached data: payload retained, real but no longer current
   //   - re-reading cached data: payload retained and possibly about to change
-  // Only a settled, successful, non-empty read that nothing is currently
-  // superseding says these tiers are the sub's. Callers treat everything else
-  // as unrankable, which costs a fast path and never costs correctness.
+  //
+  // A settled read is still not enough on its own, because these tiers are
+  // ranked against a subscription read from a different query. The client holds
+  // both for `staleTime` without refetching, so a subscription refreshed on its
+  // own can be paired with onboarding describing the plan before it: a fresh
+  // Ultra sub beside a cached machine-less payload ranks a step down as a step
+  // up. The two have to be read from the same moment or later, so the payload
+  // must not predate the subscription it is being compared against.
+  //
+  // Callers treat everything else as unrankable, which costs a fast path and
+  // never costs correctness.
   const currentKnown =
     !onPro ||
     (onboardingQuery.isSuccess &&
       onboardingQuery.data != null &&
-      !onboardingQuery.isFetching);
+      !onboardingQuery.isFetching &&
+      onboardingQuery.dataUpdatedAt >= subscriptionQuery.dataUpdatedAt);
 
   const isPending =
     changeMachineTierMutation.isPending ||
