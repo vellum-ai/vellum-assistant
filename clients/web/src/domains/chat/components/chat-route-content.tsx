@@ -514,7 +514,7 @@ export function ChatMainPanel({
   const queueSteering = useAssistantFeatureFlagStore.use.queueSteering();
 
   // -------------------------------------------------------------------------
-  // Draft secret detection — owns the composer warning's matches/dismissal
+  // Draft secret detection: owns the composer warning's matches/dismissal
   // plus the pre-send gate state.
   // -------------------------------------------------------------------------
   const draftSecretDetection = useDraftSecretDetection({

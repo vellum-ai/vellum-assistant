@@ -115,7 +115,7 @@ export interface DraftSecretDetectionResult {
   /**
    * Arm a single-use bypass bound to the exact content the last
    * {@link checkBeforeSend} blocked. A no-op when nothing is blocked.
-   * Invalidated by any subsequent draft edit or conversation switch — the
+   * Invalidated by any subsequent draft edit or conversation switch: the
    * bypass approves the content as it stood when armed.
    */
   allowOnce: () => void;
@@ -142,8 +142,8 @@ export function useDraftSecretDetection({
   const scanNextInputImmediatelyRef = useRef(false);
   const prevConversationIdRef = useRef(conversationId);
 
-  // Dismissal and send-block state are scoped to one conversation's draft —
-  // a conversation switch invalidates them. Layout effect: the reset must
+  // Dismissal and send-block state are scoped to one conversation's draft,
+  // so a conversation switch invalidates them. Layout effect: the reset must
   // land before the switched route paints.
   useLayoutEffect(() => {
     allowOnceContentRef.current = null;
