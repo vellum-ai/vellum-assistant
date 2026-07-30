@@ -73,16 +73,6 @@ export interface PendingContactRequestState {
   /** Display name of the contact to discard. Merge mode only. */
   discardName?: string;
 }
-  mode?: "merge";
-  /** Contact id to keep (surviving). Merge mode only. */
-  keepId?: string;
-  /** Contact id to merge away. Merge mode only. */
-  discardId?: string;
-  /** Display name of the contact to keep. Merge mode only. */
-  keepName?: string;
-  /** Display name of the contact to discard. Merge mode only. */
-  discardName?: string;
-}
 
 export interface PendingQuestionState {
   requestId: string;
