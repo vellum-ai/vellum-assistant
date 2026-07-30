@@ -2,7 +2,6 @@ import { readdir } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { Metadata } from "next";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -64,23 +63,10 @@ export function routeFromPageFile(
 
 export interface RenderedPage {
   html: string;
-  metadata: Metadata | undefined;
 }
 
 export async function loadPageModule(pageFile: string): Promise<Record<string, unknown>> {
   return (await import(pathToFileURL(pageFile).href)) as Record<string, unknown>;
-}
-
-/** Import a page module and return its exported metadata without rendering.
- *  Useful as a fallback for pages that import cleanly but are not rendered
- *  (e.g. request-time pages excluded from static generation). */
-export async function loadPageMetadata(pageFile: string): Promise<Metadata | undefined> {
-  try {
-    const pageModule = await loadPageModule(pageFile);
-    return pageModule.metadata as Metadata | undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function isRedirectError(error: unknown): boolean {
@@ -106,7 +92,6 @@ export async function renderPage(pageFile: string): Promise<RenderedPage | null>
   try {
     return {
       html: renderToStaticMarkup(React.createElement(Page)),
-      metadata: pageModule.metadata as Metadata | undefined,
     };
   } catch (error) {
     if (isRedirectError(error)) {
