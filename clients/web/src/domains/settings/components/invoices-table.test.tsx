@@ -256,6 +256,29 @@ describe("InvoicesTable pagination", () => {
     expect(getByTestId("invoices-load-more-retry")).not.toBeNull();
   });
 
+  test("collapsing and re-expanding clears the inline error", async () => {
+    seedTwoPages();
+    nextPageErrorStatus = 400;
+    const { getByTestId, queryByTestId, getAllByTestId } = await openTable({
+      showAll: true,
+    });
+
+    fireEvent.click(getByTestId("invoices-load-more"));
+    await waitFor(() =>
+      expect(queryByTestId("invoices-load-more-error")).not.toBeNull(),
+    );
+
+    nextPageErrorStatus = null;
+    fireEvent.click(getByTestId("invoices-toggle"));
+    expect(queryByTestId("invoices-table")).toBeNull();
+    fireEvent.click(getByTestId("invoices-toggle"));
+
+    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
+    expect(getAllByTestId("invoice-row").length).toBeGreaterThan(0);
+    expect(queryByTestId("invoices-load-more-error")).toBeNull();
+    expect(queryByTestId("invoices-load-more")).not.toBeNull();
+  });
+
   test("a failed background refetch stays silent and keeps Load more", async () => {
     seedTwoPages();
     const { client, queryByTestId, getAllByTestId } = await openTable({
