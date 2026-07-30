@@ -787,8 +787,9 @@ describe("AssistantSideMenu · section dividers", () => {
   });
 
   // The divider was in the DOM before this change but drawn in
-  // `--border-base`, which is ~1.05:1 against the sidebar's
+  // `--border-base`, measured at 1.12:1 against the sidebar's
   // `--surface-overlay` — visually absent, which is what the bug report saw.
+  // `--border-element` measures 1.57:1 on the same surface.
   test("the divider uses a visible border token", () => {
     const container = parse(
       renderMenu({
@@ -838,6 +839,68 @@ describe("AssistantSideMenu · section reordering", () => {
     );
     expect(headers).toHaveLength(1);
     expect(headers[0]?.getAttribute("draggable")).toBeNull();
+  });
+
+  // Regression guard. The handlers first sat on the section root, where
+  // `dragleave` bubbling up from the section's own conversation rows cleared
+  // the indicator every time the pointer crossed one — so dragging over an
+  // expanded section showed no drop target at all. Keeping them on the header
+  // is what fixes it, and only an event-level test can tell the difference.
+  test("dragging over a section header marks it as the drop target", async () => {
+    const { container } = render(
+      createElement(AssistantSideMenu, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "rail" as const,
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+        onSelectConversation: () => {},
+      }),
+    );
+    try {
+      const headerFor = (label: string) =>
+        Array.from(
+          container.querySelectorAll<HTMLElement>(
+            '[data-slot="collapsible-nav-section-header"]',
+          ),
+        ).find((h) => h.textContent?.includes(label))!;
+
+      // Minimal DataTransfer stand-in: `onDragStart` only sets an effect and
+      // a payload (Firefox needs the latter to begin a drag at all).
+      const dataTransfer = { effectAllowed: "", dropEffect: "", setData: () => {} };
+      const fire = (el: HTMLElement, type: string) => {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.assign(event, { dataTransfer, clientY: 10 });
+        act(() => {
+          el.dispatchEvent(event);
+        });
+      };
+
+      fire(headerFor("Alpha"), "dragstart");
+      fire(headerFor("Chats"), "dragover");
+
+      const chatsSection = headerFor("Chats").closest(
+        '[data-slot="collapsible-nav-section-section"]',
+      );
+      // A zero-height rect in the test DOM puts the pointer past the midpoint,
+      // so the insertion line lands on the trailing edge.
+      expect(chatsSection?.className).toContain("inset_0_-2px");
+
+      // The dragged section dims — deferred one tick past `dragstart` on
+      // purpose, because re-rendering the dragged node inside the dragstart
+      // dispatch cancels the drag in Chromium.
+      await waitFor(() => {
+        const dimmed = Array.from(
+          container.querySelectorAll(
+            '[data-slot="collapsible-nav-section-section"]',
+          ),
+        ).filter((el) => el.className.includes("opacity-50"));
+        expect(dimmed).toHaveLength(1);
+        expect(dimmed[0]?.textContent).toContain("Alpha");
+      });
+    } finally {
+      cleanup();
+    }
   });
 
   // Drag events fire on neither touch nor the keyboard, so the header menu

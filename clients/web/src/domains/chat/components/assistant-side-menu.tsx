@@ -286,16 +286,13 @@ export function AssistantSideMenu({
     if (sidebar.sections.length < 2) {
       return undefined;
     }
-    const { draggable, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop } =
-      sectionDragReorder.getItemProps(
+    const indicator = sectionDragReorder.dropIndicator;
+    return {
+      headerProps: sectionDragReorder.getItemProps(
         SECTION_DRAG_KEY,
         sidebar.sections,
         section,
-      );
-    const indicator = sectionDragReorder.dropIndicator;
-    return {
-      handleProps: { draggable, onDragStart, onDragEnd },
-      targetProps: { onDragOver, onDragLeave, onDrop },
+      ),
       dragging: sectionDragReorder.draggingId === section.key,
       dropEdge:
         indicator?.section === SECTION_DRAG_KEY &&
@@ -645,9 +642,14 @@ export function AssistantSideMenu({
                   <Fragment key={section.key}>
                     {previous && previous.kind !== section.kind ? (
                       /* `--border-element`, not the `SideMenu.Separator`
-                         default of `--border-base`: on the sidebar's
-                         `--surface-overlay` that token is a ~1.05:1 hairline,
-                         which is why this divider read as missing entirely.
+                         default of `--border-base`: measured against the
+                         sidebar's `--surface-overlay`, `--border-base` is a
+                         1.12:1 hairline (`--border-element` is 1.57:1), which
+                         is why this divider read as missing entirely rather
+                         than merely subtle. Overridden here rather than in the
+                         design library because the other separators (footer,
+                         pinned apps) sit on different surfaces and aren't
+                         load-bearing the way this boundary is.
                          `my-0` leaves the accordion gap as the only spacing,
                          so a divider costs no extra height. */
                       <SideMenu.Separator className="my-0 bg-[var(--border-element)]" />

@@ -112,22 +112,29 @@ function LongPressHeaderMenu({
 // ---------------------------------------------------------------------------
 
 /**
- * Drag-to-reorder wiring for a whole section, split across two elements:
- * the header is the *handle* (only it starts a drag, so dragging a
- * conversation row inside an expanded section doesn't pick the section up),
- * while the section root is the *target* (a tall expanded section stays
- * droppable over its whole height, not just its header strip).
+ * Drag-to-reorder wiring for a whole section.
+ *
+ * Every handler goes on the **header** — it is both the drag handle and the
+ * drop target — while the visual state (`dragging`, `dropEdge`) styles the
+ * whole section box.
+ *
+ * The header, not the section root, owns the handlers deliberately.
+ * `dragleave` bubbles, so a section root that is also the drop target
+ * receives leave events from each of its own conversation rows as the pointer
+ * crosses them; those have a `relatedTarget` outside the root, so the drop
+ * indicator gets cleared on the way past an expanded section. Keeping the
+ * handlers on one flat element (the same shape a conversation row uses)
+ * removes that class of bug: leaves between the header's own children always
+ * resolve to a descendant and are correctly ignored.
  *
  * Structural on purpose — this component sits in shared `components/` and
  * shouldn't reach into the chat domain's drag hook for a type.
  */
 export interface CollapsibleNavSectionDrag {
-  handleProps: {
+  headerProps: {
     draggable: true;
     onDragStart: (event: DragEvent<HTMLElement>) => void;
     onDragEnd: () => void;
-  };
-  targetProps: {
     onDragOver: (event: DragEvent<HTMLElement>) => void;
     onDragLeave: (event: DragEvent<HTMLElement>) => void;
     onDrop: (event: DragEvent<HTMLElement>) => void;
@@ -188,7 +195,7 @@ function CollapsibleNavSectionSection({
         "flex items-center justify-between",
         drag && "cursor-grab active:cursor-grabbing",
       )}
-      {...drag?.handleProps}
+      {...drag?.headerProps}
     >
       {/* The horizontal geometry (padding, chip width, gap) is inline from
           sidebar-nav-geometry at every breakpoint — the assistant cluster
@@ -281,6 +288,11 @@ function CollapsibleNavSectionSection({
       ref={ref}
       data-slot="collapsible-nav-section-section"
       value={value}
+      /* Visual state only — the handlers live on the header (see
+         {@link CollapsibleNavSectionDrag}). Drawing the insertion line on the
+         whole section box, rather than on the header strip, keeps "lands after
+         this section" from reading as "lands inside it" when the section is
+         expanded. */
       className={cn(
         drag?.dragging && "opacity-50",
         // Insertion line, matching the conversation-row drop indicator.
@@ -290,7 +302,6 @@ function CollapsibleNavSectionSection({
           "shadow-[inset_0_-2px_0_0_var(--primary-base)]",
         className,
       )}
-      {...drag?.targetProps}
       {...itemProps}
     >
       {header}
