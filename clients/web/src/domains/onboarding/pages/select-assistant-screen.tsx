@@ -433,8 +433,8 @@ export function SelectAssistantScreen() {
         message={
           <>
             This won&rsquo;t delete{" "}
-            {removeTarget ? assistantLabel(removeTarget) : "the assistant"} —
-            it only removes it from this device. Logging in will make it
+            {removeTarget ? assistantLabel(removeTarget) : "the assistant"}.
+            It only removes it from this device. Logging in will make it
             available again.
             {removeError && (
               <span className="mt-2 block text-[var(--system-negative-strong)]">
