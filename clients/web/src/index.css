@@ -380,30 +380,65 @@ body {
   transform: scaleX(1.16);
 }
 
-/* The settle dips past the resting size and comes back, so the weight reads as
- * landing rather than deflating. */
+/* The step down is a ratchet run backwards: it lets go a notch at a time and
+ * catches itself on each one, rather than sinking in a single motion. A smooth
+ * descent reads as deflating, which is the wrong feeling for a plan that is
+ * still working. The per-keyframe easing is what does it: the release into each
+ * notch accelerates, and the catch overshoots slightly and recovers, so each
+ * step lands with a click. The outer timing function stays linear so these
+ * carry the motion.
+ *
+ * The notches interpolate between the grown scale and rest, so they hold
+ * whatever `--provision-avatar-growth` is set to. */
 @keyframes provision-shrink {
-  0% { transform: scale(var(--provision-avatar-growth)); }
-  22% { transform: scale(calc(var(--provision-avatar-growth) * 1.02)); }
-  62% { transform: scale(1.06); }
-  84% { transform: scale(0.97) scaleY(0.95); }
+  0% {
+    transform: scale(var(--provision-avatar-growth));
+    animation-timing-function: cubic-bezier(0.45, 0, 0.75, 0);
+  }
+  10% {
+    transform: scale(calc(var(--provision-avatar-growth) * 1.012));
+    animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
+  }
+  28% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.62)) scaleY(0.985);
+    animation-timing-function: cubic-bezier(0.2, 1.5, 0.4, 1);
+  }
+  40% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.62));
+    animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
+  }
+  58% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.28)) scaleY(0.985);
+    animation-timing-function: cubic-bezier(0.2, 1.5, 0.4, 1);
+  }
+  70% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.28));
+    animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
+  }
+  86% {
+    transform: scale(0.975) scaleY(0.955);
+    animation-timing-function: cubic-bezier(0.2, 1.6, 0.4, 1);
+  }
   100% { transform: scale(1); }
 }
 
-/* The shadow gathers in under the creature as it comes down. */
+/* The shadow tightens a notch behind each drop and spreads as it is caught. */
 @keyframes provision-shrink-shadow {
   0% { transform: scaleX(1.16); opacity: 1; }
-  62% { transform: scaleX(1.04); opacity: 0.72; }
-  84% { transform: scaleX(1.06); opacity: 0.95; }
+  28% { transform: scaleX(1.12); opacity: 0.9; }
+  40% { transform: scaleX(1.13); opacity: 0.92; }
+  58% { transform: scaleX(1.06); opacity: 0.82; }
+  70% { transform: scaleX(1.07); opacity: 0.84; }
+  86% { transform: scaleX(0.98); opacity: 0.94; }
   100% { transform: scaleX(1); opacity: 0.85; }
 }
 
 .provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-current {
-  animation: provision-shrink 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
+  animation: provision-shrink 1.25s linear both;
 }
 
 .provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-shadow {
-  animation: provision-shrink-shadow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
+  animation: provision-shrink-shadow 1.25s linear both;
 }
 
 /* The creature fades in over the placeholder as soon as something is drawable:

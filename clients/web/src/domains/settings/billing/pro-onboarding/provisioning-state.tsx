@@ -352,7 +352,11 @@ function DimensionChip({
   return (
     <div
       data-testid={testId}
-      className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5${
+      // `flex-auto`, not `flex-1`: chips size from their own content and then
+      // share what is left over. Equal thirds would wrap the widest value while
+      // its neighbour sat on slack, which is what a rate pair does next to a
+      // machine size. `min-w-0` keeps the shrink chain for narrow viewports.
+      className={`flex min-w-0 flex-auto items-center gap-2 rounded-lg px-2 py-1.5${
         pending ? " opacity-70" : ""
       }`}
       style={{ backgroundColor: CHIP_BACKGROUND }}
