@@ -63,8 +63,8 @@ export function EnvironmentsContent() {
             <Image
               src="/docs/architecture-diagram.webp"
               alt="Architecture diagram showing the relationship between channels, environments, and external providers"
-              width={1200}
-              height={800}
+              width={5484}
+              height={3481}
               unoptimized
               className="w-full rounded-lg"
             />
