@@ -193,12 +193,16 @@ const KEY_DISAMBIGUATOR = "~";
  * what the model actually reads, and an escape costs what it costs.
  */
 function prefixWithinLimit(text: string, limit: number): string {
-  if (JSON.stringify(text).length <= limit) {
+  // Both bounds here lean on escaping never shrinking a string: its serialized
+  // form is at least the text plus two quotes. So text already past the limit
+  // needs no measuring, and no prefix longer than the limit can fit either.
+  // Searching the whole text instead costs a stringify of it on every step.
+  if (text.length + 2 <= limit && JSON.stringify(text).length <= limit) {
     return text;
   }
 
   let low = 0;
-  let high = text.length;
+  let high = Math.min(text.length, limit);
   while (low < high) {
     const mid = Math.ceil((low + high) / 2);
     if (JSON.stringify(truncate(text, mid)).length <= limit) {
@@ -275,7 +279,7 @@ function shareBudget(costs: readonly number[], budget: number): number[] {
  */
 function renderEntry(
   key: string,
-  raw: unknown,
+  text: string,
   serialized: string,
   allowance: number,
   taken: Set<string>,
@@ -299,7 +303,7 @@ function renderEntry(
   const value =
     serialized.length <= valueLimit
       ? serialized
-      : serializeWithinLimit(stringify(raw), valueLimit);
+      : serializeWithinLimit(text, valueLimit);
   return `${uniqueKeyJson}:${value}`;
 }
 
@@ -360,7 +364,7 @@ export function capPayloadForRender(
   // escape walk below and fail the same pending row on every tick.
   const bounded = capRecord(parsed, 0);
 
-  const entries: Array<{ key: string; serialized: string; raw: unknown }> = [];
+  const entries: Array<{ key: string; serialized: string; text: string }> = [];
   for (const [rawKey, value] of Object.entries(bounded)) {
     // Keys are provider-authored in practice, but this payload was parsed back
     // out of the database, so treat them with the same suspicion as values.
@@ -368,10 +372,14 @@ export function capPayloadForRender(
       escapeContentBoundaries(rawKey),
       WATCHER_PAYLOAD_KEY_MAX_CHARS,
     );
+    // Escape once: the serialized form is what is measured, and the escaped
+    // text is what a truncated value is cut from.
+    const escaped = escapeStrings(value);
+    const serialized = JSON.stringify(escaped);
     entries.push({
       key,
-      serialized: JSON.stringify(escapeStrings(value)),
-      raw: value,
+      serialized,
+      text: typeof escaped === "string" ? escaped : serialized,
     });
   }
 
@@ -399,7 +407,7 @@ export function capPayloadForRender(
   const parts = kept.map((entry, index) =>
     renderEntry(
       entry.key,
-      entry.raw,
+      entry.text,
       entry.serialized,
       allowances[index] ?? 0,
       taken,
@@ -414,12 +422,6 @@ export function capPayloadForRender(
   // budget is derived from this ceiling, so enforce it rather than trust it.
   // Reaching it costs parseability, which is what the tests assert on.
   return truncate(`{${parts.join(",")}}`, budget);
-}
-
-/** Serialize a value to the text used when it has to be truncated. */
-function stringify(value: unknown): string {
-  const escaped = escapeStrings(value);
-  return typeof escaped === "string" ? escaped : JSON.stringify(escaped);
 }
 
 /** Escape fence-boundary sequences in every string within a value. */
