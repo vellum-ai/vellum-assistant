@@ -479,7 +479,7 @@ export async function updateSchedule(
 
   // Owner-defer provenance certifies that the assistant's owner chose both the
   // conversation this wake resumes and the text it carries. Rewriting either
-  // would leave the marker standing over content it no longer describes, so on
+  // would leave the marker standing over content it does not describe, so on
   // these rows the authority-bearing trio is fixed at creation. Same-value
   // writes pass, so an idempotent update that echoes current state is not an
   // error. Changing a trusted defer is cancel-and-recreate through

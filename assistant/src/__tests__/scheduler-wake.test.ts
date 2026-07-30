@@ -73,9 +73,8 @@ describe("scheduler wake mode", () => {
     await runDueSchedulesOnce();
 
     // THEN wakeAgentForOpportunity is called with the correct arguments,
-    // including the conversation's guardian resting trust. Without it the
-    // resumed turn resolves the fail-closed `unknown` class and every
-    // sensitive tool it deferred mid-task is denied (LUM-2929).
+    // including the target conversation's guardian resting trust, which the
+    // resumed turn runs under.
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledWith({
       conversationId: "conv-xyz",

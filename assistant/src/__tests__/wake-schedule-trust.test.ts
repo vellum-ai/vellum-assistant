@@ -50,7 +50,7 @@ const OWNER_WAKE_JOB = {
   createdFromConversationId: TARGET,
 };
 
-/** A defer written before owner provenance existed. */
+/** A defer carrying legacy provenance, which records no author. */
 const LEGACY_WAKE_JOB = {
   ...OWNER_WAKE_JOB,
   createdBy: LEGACY_DEFER_CREATED_BY,
@@ -115,8 +115,8 @@ describe("an owner-authored defer on a guardian-owned conversation", () => {
     const options = buildWakeScheduleOptions(OWNER_WAKE_JOB, TARGET);
 
     // `bash` in the workspace sandbox and a host-reaching invocation alike.
-    // This is what lets a resumed deferral keep using the tools it deferred
-    // mid-task, which is the bug LUM-2929 reported.
+    // This is what lets a resumed deferral keep using the tools it was using
+    // when it deferred.
     expect(gateDecision(options.trustContext, "sandbox")).toBe("proceed");
     expect(gateDecision(options.trustContext, "host")).toBe("proceed");
   });
@@ -151,10 +151,9 @@ describe("a row without owner provenance recovers nothing", () => {
   });
 
   test("a legacy defer fails closed even on a guardian-owned target", () => {
-    // Pre-upgrade rows are the whole reason the marker is versioned. While the
-    // update surface still accepted `wakeConversationId`, an actor could have
-    // retargeted an existing defer, and nothing distinguishes such a row from
-    // an untouched one. They keep firing; they never recover trust.
+    // A legacy row records no author for its target or text, so a retargeted
+    // one is indistinguishable from an untouched one. Such rows keep firing;
+    // they never recover trust.
     const options = buildWakeScheduleOptions(LEGACY_WAKE_JOB, TARGET);
 
     expect(options).not.toHaveProperty("trustContext");

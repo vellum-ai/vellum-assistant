@@ -32,13 +32,12 @@ type WakeScheduleFields = Pick<
  *   creation, so retargeting `wakeConversationId` breaks the equality even if
  *   the update surface's own guard were bypassed or regressed.
  *
- * Rows written before this proof existed carry neither, so they fail closed.
- * That is deliberate and cannot be relaxed: while the update surface still
- * accepted `wakeConversationId`, an actor could have retargeted an existing
- * defer, and nothing distinguishes such a row from an untouched one. A legacy
- * defer keeps firing and keeps its place in the defer list; its woken turn
- * simply runs at the fail-closed `unknown` class, exactly as every wake did
- * before this proof was introduced. Re-creating the defer earns the elevation.
+ * A row carrying legacy defer provenance carries neither field and therefore
+ * fails closed. That is deliberate and cannot be relaxed: such a row's target
+ * and text have no recorded author, so a retargeted one is indistinguishable
+ * from an untouched one. It keeps firing and keeps its place in the defer list;
+ * its woken turn runs at the fail-closed `unknown` class. Re-creating the defer
+ * earns the elevation.
  */
 function hasOwnerAuthoredWakeTarget(
   job: WakeScheduleFields,
