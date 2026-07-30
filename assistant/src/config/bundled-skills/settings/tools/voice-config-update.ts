@@ -1,6 +1,6 @@
 import { normalizeActivationKey } from "../../../../daemon/handlers/config-voice.js";
 import { managedSpeechAvailable } from "../../../../platform/managed-speech.js";
-import { DEEPGRAM_MULTI_LANGUAGE_CODES } from "../../../../providers/speech-to-text/deepgram.js";
+import { DEEPGRAM_NOVA3_MONOLINGUAL_CODES } from "../../../../providers/speech-to-text/deepgram.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -63,38 +63,89 @@ const FRIENDLY_NAMES: Record<VoiceSettingName, string> = {
 };
 
 /**
- * Curated spoken-language codes for `services.stt.language`: Deepgram
- * nova-3's `multi` (code-switching) roster plus `multi` itself, derived from
- * the daemon's single roster source (`DEEPGRAM_MULTI_LANGUAGE_CODES`, which
+ * Curated spoken-language codes for `services.stt.language`: the verified
+ * Deepgram nova-3 monolingual roster plus `multi` itself, derived from the
+ * daemon's single roster source (`DEEPGRAM_NOVA3_MONOLINGUAL_CODES`, which
  * the web settings catalog mirrors under a parity test). The config schema
  * accepts any non-empty string, but this tool only offers the curated set so
  * a conversational request cannot persist an unvalidated code.
  */
 const VALID_STT_LANGUAGES = [
-  ...DEEPGRAM_MULTI_LANGUAGE_CODES,
+  ...DEEPGRAM_NOVA3_MONOLINGUAL_CODES,
   "multi",
 ] as const;
+
+/**
+ * Rejection copy for stt_language. The roster is too long to enumerate in an
+ * error message, so it names the count and a few examples; the full set is
+ * `VALID_STT_LANGUAGES`.
+ */
+const STT_LANGUAGE_ERROR = `stt_language must be one of the ${VALID_STT_LANGUAGES.length - 1} supported language codes (e.g. en, es, hi, ta, zh, ko) or multi for code-switching; language names like "hindi", "tamil", and "multilingual" are also accepted`;
 
 /**
  * Forgiving aliases normalized (after trim + lowercase) to a curated code, so
  * a natural value like "Hindi" or "multilingual" is accepted rather than
  * rejected. Mirrors the alias treatment stt_provider gets in the config
- * schema (openai/whisper -> openai-whisper).
+ * schema (openai/whisper -> openai-whisper). Common alternate names map to
+ * the same code (mandarin -> zh, farsi -> fa, filipino -> tl).
  */
 const STT_LANGUAGE_ALIASES: Record<
   string,
   (typeof VALID_STT_LANGUAGES)[number]
 > = {
+  arabic: "ar",
+  belarusian: "be",
+  bengali: "bn",
+  bangla: "bn",
+  bosnian: "bs",
+  bulgarian: "bg",
+  catalan: "ca",
+  chinese: "zh",
+  mandarin: "zh",
+  croatian: "hr",
+  czech: "cs",
+  danish: "da",
+  dutch: "nl",
   english: "en",
-  spanish: "es",
+  estonian: "et",
+  finnish: "fi",
   french: "fr",
   german: "de",
+  greek: "el",
+  gujarati: "gu",
+  hebrew: "he",
   hindi: "hi",
-  russian: "ru",
-  portuguese: "pt",
-  japanese: "ja",
+  hungarian: "hu",
+  indonesian: "id",
   italian: "it",
-  dutch: "nl",
+  japanese: "ja",
+  kannada: "kn",
+  korean: "ko",
+  latvian: "lv",
+  lithuanian: "lt",
+  macedonian: "mk",
+  malay: "ms",
+  marathi: "mr",
+  norwegian: "no",
+  persian: "fa",
+  farsi: "fa",
+  polish: "pl",
+  portuguese: "pt",
+  romanian: "ro",
+  russian: "ru",
+  serbian: "sr",
+  slovak: "sk",
+  slovenian: "sl",
+  spanish: "es",
+  swedish: "sv",
+  tagalog: "tl",
+  filipino: "tl",
+  tamil: "ta",
+  telugu: "te",
+  thai: "th",
+  turkish: "tr",
+  ukrainian: "uk",
+  vietnamese: "vi",
   multilingual: "multi",
   auto: "multi",
   mixed: "multi",
@@ -196,9 +247,7 @@ function validateSetting(
       if (typeof value !== "string") {
         return {
           ok: false,
-          error: `stt_language must be one of: ${VALID_STT_LANGUAGES.join(
-            ", ",
-          )} (language names like "hindi" and "multilingual" are also accepted)`,
+          error: STT_LANGUAGE_ERROR,
         };
       }
       const normalized = value.trim().toLowerCase();
@@ -206,9 +255,7 @@ function validateSetting(
       if (!(VALID_STT_LANGUAGES as readonly string[]).includes(coerced)) {
         return {
           ok: false,
-          error: `stt_language must be one of: ${VALID_STT_LANGUAGES.join(
-            ", ",
-          )} (language names like "hindi" and "multilingual" are also accepted)`,
+          error: STT_LANGUAGE_ERROR,
         };
       }
       return { ok: true, coerced };

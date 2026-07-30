@@ -28,12 +28,9 @@ export interface DeepgramProviderOptions {
 
 /**
  * Deepgram nova-3's `multi` (code-switching) roster: the languages the model
- * can follow across a single utterance. This is the daemon's one source of
- * truth for the curated spoken-language codes offered in settings surfaces
- * (the settings skill derives its valid set from it, plus `"multi"` itself);
- * the web catalog (`clients/web/src/lib/stt/language-catalog.ts`) mirrors it
- * and a parity test pins the two together. Extending it requires verifying
- * nova-3 monolingual support in Deepgram's docs first.
+ * can follow across a single utterance. A model property, separate from the
+ * monolingual roster below: nova-3 transcribes many more languages one at a
+ * time than it can switch between mid-utterance.
  */
 export const DEEPGRAM_MULTI_LANGUAGE_CODES = [
   "en",
@@ -46,6 +43,70 @@ export const DEEPGRAM_MULTI_LANGUAGE_CODES = [
   "ja",
   "it",
   "nl",
+] as const;
+
+/**
+ * The verified Deepgram nova-3 monolingual roster (base language codes only,
+ * per Deepgram's models-languages-overview documentation). This is the
+ * daemon's one source of truth for the curated spoken-language codes offered
+ * in settings surfaces (the settings skill derives its valid set from it,
+ * plus `"multi"` itself); the web catalog
+ * (`clients/web/src/lib/stt/language-catalog.ts`) mirrors it and a parity
+ * test pins the two together. Extending it requires verifying nova-3
+ * monolingual support in Deepgram's docs first. Regional variants (e.g.
+ * "en-US") stay out: `services.stt.language` accepts any non-empty string,
+ * so they remain expressible as custom values.
+ */
+export const DEEPGRAM_NOVA3_MONOLINGUAL_CODES = [
+  "ar",
+  "be",
+  "bg",
+  "bn",
+  "bs",
+  "ca",
+  "cs",
+  "da",
+  "de",
+  "el",
+  "en",
+  "es",
+  "et",
+  "fa",
+  "fi",
+  "fr",
+  "gu",
+  "he",
+  "hi",
+  "hr",
+  "hu",
+  "id",
+  "it",
+  "ja",
+  "kn",
+  "ko",
+  "lt",
+  "lv",
+  "mk",
+  "mr",
+  "ms",
+  "nl",
+  "no",
+  "pl",
+  "pt",
+  "ro",
+  "ru",
+  "sk",
+  "sl",
+  "sr",
+  "sv",
+  "ta",
+  "te",
+  "th",
+  "tl",
+  "tr",
+  "uk",
+  "vi",
+  "zh",
 ] as const;
 
 /**

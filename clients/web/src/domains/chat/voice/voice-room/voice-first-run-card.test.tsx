@@ -270,7 +270,10 @@ describe("VoiceFirstRunCard", () => {
   describe("listening language row", () => {
     const ROW_LABEL = "Listening language";
 
-    /** The language dropdown's option rows, in render order. */
+    /**
+     * Open the language sub-view through the row and return the picker's
+     * option rows, in render order (Featured first, then A-Z).
+     */
     function languageOptions(getByLabelText: (label: string) => HTMLElement) {
       fireEvent.click(getByLabelText(ROW_LABEL));
       return Array.from(
@@ -305,11 +308,78 @@ describe("VoiceFirstRunCard", () => {
       );
 
       const options = languageOptions(getByLabelText);
-      // The suggestion sits directly after the current (default) value and
-      // carries the annotation; the rest of the catalog is unshuffled.
+      // The Featured group pins the current (default) value first with the
+      // annotated suggestion beside it; the rest of the catalog follows A-Z.
       expect(options[0]?.textContent).toContain("English (default)");
       expect(options[1]?.textContent).toContain("Multilingual");
       expect(options[1]?.textContent).toContain("Suggested");
+    });
+
+    test("the row opens the language sub-view in place: one dialog, no stack", () => {
+      stubLocale("hi-IN");
+      sttLanguageSelection = { ...sttLanguageSelection, available: true };
+      const { getByLabelText, baseElement } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByLabelText(ROW_LABEL));
+      expect(dialogTitle()).toBe("Listening language");
+      expect(baseElement.querySelectorAll('[role="dialog"]').length).toBe(1);
+      // The shared picker's search field is the sub-view's first control.
+      expect(document.querySelector('input[role="combobox"]')).not.toBeNull();
+    });
+
+    test("Escape in the language sub-view returns to the intro, not a dismiss", () => {
+      stubLocale("hi-IN");
+      sttLanguageSelection = { ...sttLanguageSelection, available: true };
+      const onDismiss = mock(() => {});
+      const { getByLabelText, getByText } = render(
+        <VoiceFirstRunCard
+          assistantId="asst_test"
+          onStart={() => {}}
+          onDismiss={onDismiss}
+        />,
+      );
+
+      fireEvent.click(getByLabelText(ROW_LABEL));
+      expect(dialogTitle()).toBe("Listening language");
+      fireEvent.keyDown(document.activeElement ?? document.body, {
+        key: "Escape",
+      });
+      // Back on the intro with the card still open and un-consumed.
+      expect(getByText("Start talking")).toBeTruthy();
+      expect(onDismiss).not.toHaveBeenCalled();
+      expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
+    });
+
+    test("picking Tamil from search calls selectLanguage with its code", () => {
+      stubLocale("hi-IN");
+      const selectLanguage = mock((_code: string) => {});
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        selectLanguage,
+      };
+      const { getByLabelText, getByText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByLabelText(ROW_LABEL));
+      const search = document.querySelector<HTMLInputElement>(
+        'input[role="combobox"]',
+      );
+      expect(search).not.toBeNull();
+      fireEvent.change(search!, { target: { value: "tamil" } });
+      const options = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      );
+      expect(options).toHaveLength(1);
+      fireEvent.click(options[0]!);
+
+      expect(selectLanguage).toHaveBeenCalledTimes(1);
+      expect(selectLanguage).toHaveBeenCalledWith("ta");
+      // The pick returns to the intro (hot-applies; nothing else to do).
+      expect(getByText("Start talking")).toBeTruthy();
     });
 
     test("a pick writes the language; merely rendering writes nothing", () => {

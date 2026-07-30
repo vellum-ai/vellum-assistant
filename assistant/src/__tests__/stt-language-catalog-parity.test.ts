@@ -2,15 +2,20 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { DEEPGRAM_MULTI_LANGUAGE_CODES } from "../providers/speech-to-text/deepgram.js";
+import {
+  DEEPGRAM_MULTI_LANGUAGE_CODES,
+  DEEPGRAM_NOVA3_MONOLINGUAL_CODES,
+} from "../providers/speech-to-text/deepgram.js";
 
 /**
  * The daemon owns the curated spoken-language roster in
- * `DEEPGRAM_MULTI_LANGUAGE_CODES` (nova-3's `multi` code-switching roster);
- * the settings skill derives its valid set from it. The web settings catalog
- * (`clients/web/src/lib/stt/language-catalog.ts`) holds a second copy for its
- * pickers. Copies drift silently, and a stale catalog would offer a language
- * the daemon rejects (or hide one it accepts), so pin the two together here
+ * `DEEPGRAM_NOVA3_MONOLINGUAL_CODES` (the verified nova-3 monolingual
+ * roster); the settings skill derives its valid set from it. The web
+ * settings catalog (`clients/web/src/lib/stt/language-catalog.ts`) holds a
+ * second copy for its pickers, split into the `multi` code-switching roster
+ * (offered everywhere) and `extended` entries (nova-3 providers only).
+ * Copies drift silently, and a stale catalog would offer a language the
+ * daemon rejects (or hide one it accepts), so pin the two together here
  * rather than trusting comments to hold the line. Mirrors the pattern in
  * `slack-required-scopes-mirror.test.ts` (that check cannot live in the web
  * package alone: web tests cannot see this package's roster).
@@ -47,15 +52,26 @@ function stringConstant(source: string, name: string): string {
   return match[1];
 }
 
-// The catalog's literal `code: "xx"` entries. The English-default and
-// Multilingual rows reference the sentinel constants instead of literals, so
-// this yields exactly the monolingual, non-default codes.
-const webMonolingualCodes = [
+// The catalog's entries are flat object literals; the English-default and
+// Multilingual rows reference the sentinel constants instead of `code`
+// string literals, so parsing per-object and keeping only literal codes
+// yields exactly the monolingual entries, with their `extended` marker.
+const webMonolingualEntries = [
   ...arrayTextAfter(
     WEB_CATALOG_SOURCE,
     "export const STT_LANGUAGES: readonly SttLanguageOption[] = [",
-  ).matchAll(/code:\s*"([^"]+)"/g),
-].map((m) => m[1]);
+  ).matchAll(/\{[^}]*\}/g),
+]
+  .map((m) => m[0])
+  .flatMap((objectText) => {
+    const code = objectText.match(/code:\s*"([^"]+)"/);
+    if (!code) {
+      return [];
+    }
+    return [{ code: code[1], extended: /extended:\s*true/.test(objectText) }];
+  });
+
+const webMonolingualCodes = webMonolingualEntries.map((entry) => entry.code);
 
 const webMultiCode = stringConstant(WEB_CATALOG_SOURCE, "STT_MULTI_CODE");
 const webDefaultCode = stringConstant(
@@ -81,17 +97,35 @@ describe("web STT language catalog stays in sync with the daemon roster", () => 
   test("the catalog offers exactly the daemon roster (English via the default row)", () => {
     // The web catalog represents English with the default sentinel row rather
     // than a literal "en" entry, so the daemon roster minus "en" is the
-    // expected monolingual set.
-    const expected = DEEPGRAM_MULTI_LANGUAGE_CODES.filter(
+    // expected monolingual set. A code added on either side alone fails here.
+    const expected = DEEPGRAM_NOVA3_MONOLINGUAL_CODES.filter(
       (code) => code !== "en",
     ).sort();
     expect([...webMonolingualCodes].sort()).toEqual(expected);
   });
 
-  test("the catalog never lists a code the daemon roster lacks", () => {
-    const daemonCodes: readonly string[] = DEEPGRAM_MULTI_LANGUAGE_CODES;
+  test("the multi code-switching roster is a subset of the monolingual roster", () => {
+    // "multi" is a mode of nova-3, so every language it can switch between
+    // must also be offered monolingually.
+    const monolingual: readonly string[] = DEEPGRAM_NOVA3_MONOLINGUAL_CODES;
     expect(
-      webMonolingualCodes.filter((code) => !daemonCodes.includes(code)),
+      DEEPGRAM_MULTI_LANGUAGE_CODES.filter(
+        (code) => !monolingual.includes(code),
+      ),
     ).toEqual([]);
+  });
+
+  test("the catalog's non-extended entries are exactly the multi roster", () => {
+    // Entries without `extended: true` are what non-nova-3 providers (xai)
+    // are offered, and what the Multilingual description enumerates: pinned
+    // to the daemon's multi roster so neither side can drift alone.
+    const expected = DEEPGRAM_MULTI_LANGUAGE_CODES.filter(
+      (code) => code !== "en",
+    ).sort();
+    const nonExtended = webMonolingualEntries
+      .filter((entry) => !entry.extended)
+      .map((entry) => entry.code)
+      .sort();
+    expect(nonExtended).toEqual(expected);
   });
 });

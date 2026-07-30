@@ -4,26 +4,23 @@ import {
   ArrowLeft,
   AudioLines,
   Captions,
+  ChevronDown,
   Languages,
   MicOff,
   Settings,
 } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
-import {
-  Dropdown,
-  type DropdownOption,
-} from "@vellumai/design-library/components/dropdown";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { SttLanguagePicker } from "@/components/speech/stt-language-picker";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 import { VoiceList } from "@/components/speech/voice-list";
 import { VoiceProvidersNote } from "@/components/speech/voice-providers-note";
 import {
-  sttLanguageLabel,
-  sttLanguageOptionsFor,
+  sttLanguageLabelForCode,
   suggestedLanguageForLocale,
 } from "@/lib/stt/language-catalog";
 import { MANAGED_VOICE_CREDITS_NOTE } from "@/lib/tts/managed-voice-catalog";
@@ -87,57 +84,11 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 const AVATAR_SIZE = 44;
 
 /**
- * Options for the listening-language dropdown: the shared catalog for the
- * configured provider, with the locale-suggested code annotated "Suggested"
- * and moved directly after the current value, so the smart default is the
- * next thing the eye lands on without reshuffling the rest of the catalog.
- * The annotation uses the option `suffix` affordance rather than the label,
- * so the trigger keeps reading as a plain value once picked.
+ * Which view the card is showing: the welcome content, the optional voice
+ * settings reached from it, or the listening-language picker reached from
+ * the intro's language row.
  */
-function listeningLanguageOptions(
-  currentCode: string,
-  configuredProviderId: string,
-  suggestedCode: string,
-): DropdownOption<string>[] {
-  const options: DropdownOption<string>[] = sttLanguageOptionsFor(
-    currentCode,
-    configuredProviderId,
-  ).map((l) => ({
-    value: l.code,
-    label: sttLanguageLabel(l),
-    // The design-library Dropdown has no visible per-option description
-    // line, so the copy rides the hover tooltip.
-    tooltip: l.description,
-  }));
-  // The suggestion can be absent (a language-selectable provider whose
-  // adapter drops "multi"); the row still offers the catalog, just with
-  // nothing to headline.
-  const suggestedIndex = options.findIndex((o) => o.value === suggestedCode);
-  if (suggestedIndex === -1 || suggestedCode === currentCode) {
-    return options;
-  }
-  const [suggested] = options.splice(suggestedIndex, 1);
-  const annotated: DropdownOption<string> = {
-    ...suggested!,
-    suffix: (
-      <span className="text-label-small-default text-[var(--content-tertiary)]">
-        Suggested
-      </span>
-    ),
-  };
-  // `sttLanguageOptionsFor` guarantees the current code is represented (a
-  // synthetic "(custom)" entry covers out-of-catalog values), so this index
-  // always resolves.
-  const currentIndex = options.findIndex((o) => o.value === currentCode);
-  options.splice(currentIndex + 1, 0, annotated);
-  return options;
-}
-
-/**
- * Which view the card is showing: the welcome content, or the optional voice
- * settings reached from it.
- */
-type FirstRunView = "intro" | "settings";
+type FirstRunView = "intro" | "settings" | "language";
 
 export interface VoiceFirstRunCardProps {
   /** Assistant whose avatar anchors the card; `null` renders the "V" fallback. */
@@ -297,18 +248,28 @@ export function VoiceFirstRunCard({
                       Listening language
                     </span>
                   </span>
-                  <Dropdown
-                    size="compact"
-                    value={languageCode}
-                    onChange={selectLanguage}
-                    options={listeningLanguageOptions(
-                      languageCode,
-                      configuredProviderId,
-                      suggestedCode,
-                    )}
+                  {/* A trigger row into the language sub-view (the card's
+                      one-dialog pattern, like the Voices view), styled like
+                      a compact dropdown trigger. The picker itself carries
+                      the "Suggested" annotation on the locale suggestion. */}
+                  <button
+                    type="button"
                     aria-label="Listening language"
-                    className="min-w-44"
-                  />
+                    aria-haspopup="dialog"
+                    onClick={() => setView("language")}
+                    className="flex h-7 min-w-44 items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-2.5 text-left text-body-small-default text-[var(--content-default)] transition-colors focus:outline-none"
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {sttLanguageLabelForCode(
+                        languageCode,
+                        configuredProviderId,
+                      )}
+                    </span>
+                    <ChevronDown
+                      aria-hidden
+                      className="h-3 w-3 shrink-0 text-[var(--content-tertiary)]"
+                    />
+                  </button>
                 </div>
               )}
             </Modal.Body>
@@ -348,6 +309,39 @@ export function VoiceFirstRunCard({
             onBack={backToIntro}
             startBlocked={languageSelecting}
           />
+        )}
+
+        {/* The listening-language sub-view: the shared search-first picker
+            hosted in this one dialog (no stacked modal), mirroring the
+            Voices view. A pick hot-applies and returns to the intro, whose
+            Start already waits out the in-flight write; Escape and the back
+            arrow return to the intro too (never a cancel). */}
+        {view === "language" && (
+          <>
+            <Modal.Header>
+              <div className="flex items-center gap-2">
+                <BackButton onClick={backToIntro} />
+                <div className="flex min-w-0 flex-col">
+                  <Modal.Title className="leading-tight">
+                    Listening language
+                  </Modal.Title>
+                  <Modal.Description>
+                    Applies from your next spoken turn.
+                  </Modal.Description>
+                </div>
+              </div>
+            </Modal.Header>
+            <Modal.Body>
+              <SttLanguagePicker
+                currentCode={languageCode}
+                configuredProviderId={configuredProviderId}
+                suggestedCode={suggestedCode}
+                selectLanguage={selectLanguage}
+                selecting={languageSelecting}
+                onDone={backToIntro}
+              />
+            </Modal.Body>
+          </>
         )}
       </Modal.Content>
     </Modal.Root>

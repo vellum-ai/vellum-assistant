@@ -655,6 +655,33 @@ describe("voice_config_update - stt_language", () => {
     expect((readConfig().services as any)?.stt?.language).toBe("multi");
   });
 
+  test("normalizes extended-roster language names (tamil, korean, mandarin)", async () => {
+    // A few of the nova-3 monolingual roster's aliases, including an
+    // alternate name mapping (mandarin -> zh alongside chinese -> zh).
+    for (const [name, code] of [
+      ["tamil", "ta"],
+      ["Korean", "ko"],
+      ["mandarin", "zh"],
+    ] as const) {
+      const result = await run(
+        { setting: "stt_language", value: name },
+        makeContext(),
+      );
+      expect(result.isError).toBe(false);
+      expect((readConfig().services as any)?.stt?.language).toBe(code);
+    }
+  });
+
+  test("accepts an extended-roster code directly", async () => {
+    const result = await run(
+      { setting: "stt_language", value: "vi" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect((readConfig().services as any)?.stt?.language).toBe("vi");
+  });
+
   test("accepts multi directly", async () => {
     const result = await run(
       { setting: "stt_language", value: "multi" },
