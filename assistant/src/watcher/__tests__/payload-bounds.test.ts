@@ -13,6 +13,7 @@ import {
   WATCHER_EVENT_PAYLOAD_MAX_CHARS,
   WATCHER_PAYLOAD_FIELD_COUNT_MAX,
   WATCHER_PAYLOAD_KEY_MAX_CHARS,
+  WATCHER_PAYLOAD_ROW_MAX_CHARS,
   WATCHER_PAYLOAD_TEXT_MAX_CHARS,
 } from "../constants.js";
 import {
@@ -97,6 +98,74 @@ describe("capPayloadForStorage", () => {
     expect(
       JSON.stringify(capPayloadForStorage({ nested: deep })).length,
     ).toBeLessThan(200);
+  });
+
+  test("the serialized row stays under its ceiling at the maximum permitted shape", () => {
+    // Per-node caps multiply: 100 fields, each an object of 100 strings at the
+    // text cap, is the largest shape they permit on their own, and it
+    // serializes to 50,089,791 characters. The row needs a ceiling of its own.
+    const hostile: Record<string, unknown> = {};
+    for (let i = 0; i < WATCHER_PAYLOAD_FIELD_COUNT_MAX; i++) {
+      const inner: Record<string, string> = {};
+      for (let j = 0; j < WATCHER_PAYLOAD_FIELD_COUNT_MAX; j++) {
+        inner[`f${j}`] = "A".repeat(WATCHER_PAYLOAD_TEXT_MAX_CHARS);
+      }
+      hostile[`g${i}`] = inner;
+    }
+
+    const capped = capPayloadForStorage(hostile);
+    const stored = JSON.stringify(capped);
+
+    expect(stored.length).toBeLessThanOrEqual(WATCHER_PAYLOAD_ROW_MAX_CHARS);
+    // Bounded by sharing the ceiling out, not by dropping the tail: the last
+    // field is present alongside the first.
+    expect(Object.keys(capped)).toHaveLength(WATCHER_PAYLOAD_FIELD_COUNT_MAX);
+    expect(capped).toHaveProperty("g0");
+    expect(capped).toHaveProperty(`g${WATCHER_PAYLOAD_FIELD_COUNT_MAX - 1}`);
+  });
+
+  test("the ceiling holds for a payload with no long string to trim", () => {
+    // Numbers are individually tiny, so a wide, deep tree of them is bounded by
+    // neither the text cap nor the field caps.
+    const build = (depth: number): unknown => {
+      if (depth === 0) {
+        return Array.from({ length: 40 }, (_, i) => i * 1_234_567);
+      }
+      const out: Record<string, unknown> = {};
+      for (let i = 0; i < 12; i++) {
+        out[`n${i}`] = build(depth - 1);
+      }
+      return out;
+    };
+
+    const stored = JSON.stringify(
+      capPayloadForStorage(build(5) as Record<string, unknown>),
+    );
+
+    expect(stored.length).toBeLessThanOrEqual(WATCHER_PAYLOAD_ROW_MAX_CHARS);
+  });
+
+  test("a realistic row is left alone by the ceiling", () => {
+    // The ceiling sits far above anything a provider really sends, so it must
+    // not be reachable by an ordinary event: a 100-person meeting keeps every
+    // attendee address intact, not a trimmed prefix of one.
+    const calendar = {
+      ...calendarPayload(),
+      description: "D".repeat(4_000),
+      attendees: Array.from({ length: 100 }, (_, i) => ({
+        email: `person${i}.longsurname@subdomain.example.com`,
+        responseStatus: "needsAction",
+      })),
+    };
+
+    const capped = capPayloadForStorage(calendar);
+
+    expect(JSON.stringify(capped).length).toBeLessThanOrEqual(
+      WATCHER_PAYLOAD_ROW_MAX_CHARS,
+    );
+    expect(capped.attendees).toEqual(calendar.attendees);
+    expect(capped.htmlLink).toBe(calendar.htmlLink);
+    expect(String(capped.description)).toHaveLength(4_000);
   });
 
   test("an own __proto__ key stays a field instead of reparenting the payload", () => {

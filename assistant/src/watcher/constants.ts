@@ -63,3 +63,18 @@ export const WATCHER_PAYLOAD_TEXT_MAX_CHARS = 5_000;
 export const WATCHER_PAYLOAD_FIELD_COUNT_MAX = 100;
 export const WATCHER_PAYLOAD_KEY_MAX_CHARS = 100;
 export const WATCHER_PAYLOAD_NESTING_MAX_DEPTH = 6;
+
+/**
+ * Ceiling on one serialized `watcher_events.payload_json` row.
+ *
+ * The caps above bound each node on its own, and per-node bounds multiply: at
+ * their maximum, 100 fields of 100 strings at the text cap, they permit a
+ * 50,089,791-character row. So the row needs a ceiling of its own, and the caps
+ * above become the shape within it rather than the whole bound.
+ *
+ * 64,000 is roughly four times the largest realistic row (a calendar event with
+ * an oversized description and location plus a 100-person attendee list
+ * measures 16,347), so nothing real is touched, and it is small enough that a
+ * watcher cannot turn one event into a database problem.
+ */
+export const WATCHER_PAYLOAD_ROW_MAX_CHARS = 64_000;

@@ -25,6 +25,7 @@ import {
   WATCHER_PAYLOAD_FIELD_COUNT_MAX,
   WATCHER_PAYLOAD_KEY_MAX_CHARS,
   WATCHER_PAYLOAD_NESTING_MAX_DEPTH,
+  WATCHER_PAYLOAD_ROW_MAX_CHARS,
   WATCHER_PAYLOAD_TEXT_MAX_CHARS,
 } from "./constants.js";
 
@@ -41,14 +42,49 @@ const ELIDED = "[...elided]";
  * result is bounded by the shape of the caps rather than by the provider's
  * good behaviour.
  *
- * Structure is preserved: this shortens values, it never changes their types,
- * so downstream readers of `payload_json` keep working. `sequence/reply-matcher.ts`
- * reads `payload.from` and `payload.threadId`, both far under the cap.
+ * Those caps bound each node, and per-node bounds multiply, so the serialized
+ * row is bounded separately by {@link WATCHER_PAYLOAD_ROW_MAX_CHARS}.
+ *
+ * Structure is preserved for any payload under that ceiling: this shortens
+ * values, it never changes their types, so downstream readers of `payload_json`
+ * keep working. `sequence/reply-matcher.ts` reads `payload.from` and
+ * `payload.threadId`, both far under the caps. A payload over the ceiling is
+ * reshaped to fit, which can turn a nested object into JSON text.
  */
 export function capPayloadForStorage(
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
-  return capRecord(payload, 0);
+  const capped = capRecord(payload, 0);
+  const serialized = JSON.stringify(capped);
+  if (serialized.length <= WATCHER_PAYLOAD_ROW_MAX_CHARS) {
+    return capped;
+  }
+
+  // Per-node caps multiply, so they bound each field without bounding the row.
+  // Only a row that actually exceeds the ceiling is reshaped, which keeps this
+  // invisible to every realistic payload: a calendar event with a 100-person
+  // attendee list measures 10,499 characters and is returned above untouched.
+  //
+  // The reshaping is the render pass at the row ceiling, rather than a second
+  // copy of the same reasoning: it shares the budget exactly, so short fields
+  // keep everything and only the greedy ones are trimmed. It costs fidelity a
+  // stored row would otherwise keep (a nested object comes back as JSON text,
+  // fence sequences come back escaped), which is the right trade for a payload
+  // this far past the ceiling.
+  try {
+    const bounded: unknown = JSON.parse(
+      capPayloadForRender(serialized, WATCHER_PAYLOAD_ROW_MAX_CHARS),
+    );
+    if (bounded !== null && typeof bounded === "object") {
+      return capRecord(bounded, 0);
+    }
+  } catch {
+    // Fall through to the marker.
+  }
+
+  return {
+    [ELIDED]: `payload exceeded ${WATCHER_PAYLOAD_ROW_MAX_CHARS} characters`,
+  };
 }
 
 /**
@@ -71,11 +107,9 @@ function capRecord(value: object, depth: number): Record<string, unknown> {
   const capped: Record<string, unknown> = {};
   const taken = new Set<string>();
   const entries = Object.entries(value);
+  const kept = entries.slice(0, WATCHER_PAYLOAD_FIELD_COUNT_MAX);
 
-  for (const [rawKey, entry] of entries.slice(
-    0,
-    WATCHER_PAYLOAD_FIELD_COUNT_MAX,
-  )) {
+  for (const [rawKey, entry] of kept) {
     const key = disambiguate(
       truncate(rawKey, WATCHER_PAYLOAD_KEY_MAX_CHARS),
       taken,
@@ -84,8 +118,8 @@ function capRecord(value: object, depth: number): Record<string, unknown> {
     define(capped, key, capValue(entry, depth + 1));
   }
 
-  if (entries.length > WATCHER_PAYLOAD_FIELD_COUNT_MAX) {
-    const dropped = entries.length - WATCHER_PAYLOAD_FIELD_COUNT_MAX;
+  const dropped = entries.length - kept.length;
+  if (dropped > 0) {
     define(capped, disambiguate(ELIDED, taken), `${dropped} more field(s)`);
   }
   return capped;
@@ -108,7 +142,7 @@ function capValue(value: unknown, depth: number): unknown {
 
   if (value === null || typeof value !== "object") {
     // Numbers, booleans, undefined. A JSON number is at most a couple dozen
-    // characters, so these carry no flooding risk.
+    // characters, so these carry no flooding risk on their own.
     return value;
   }
 
