@@ -88,9 +88,10 @@ export interface UseChangeTiersResult {
   currentKnown: boolean;
   /**
    * The assistant the server provisions against, from the same onboarding
-   * payload `current` reads. Null while that payload is absent, or when the org
-   * names no primary; callers fall back to the active assistant, which is how
-   * the provisioning takeover resolves its own target.
+   * payload `current` reads, and only when that payload is trustworthy: it
+   * carries `currentKnown`'s gate for the same reason the tiers do. Null when
+   * the org names no primary or the read cannot be trusted, so callers must
+   * decide for themselves whether an unknown target is safe to guess at.
    */
   primaryAssistantId: string | null;
 }
@@ -358,6 +359,12 @@ export function useChangeTiers({
     eligible,
     currentReady,
     currentKnown,
-    primaryAssistantId: onboardingQuery.data?.primary_assistant_id ?? null,
+    // Only from a payload we trust. This names the pod a caller will read tier
+    // values off, and a stale payload can name the org's previous primary while
+    // the takeover resolves the current one from its own read, which would
+    // describe two different machines as one change.
+    primaryAssistantId: currentKnown
+      ? (onboardingQuery.data?.primary_assistant_id ?? null)
+      : null,
   };
 }

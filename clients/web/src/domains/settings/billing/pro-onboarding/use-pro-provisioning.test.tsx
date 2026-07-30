@@ -284,11 +284,17 @@ let onLayoutCommit: (() => void) | null = null;
 function Probe({
   open = true,
   canLowerResources = false,
+  verdictRecheckMs,
 }: {
   open?: boolean;
   canLowerResources?: boolean;
+  verdictRecheckMs?: number;
 }) {
-  const result = useProProvisioning({ open, canLowerResources });
+  const result = useProProvisioning({
+    open,
+    canLowerResources,
+    verdictRecheckMs,
+  });
   useLayoutEffect(() => {
     onLayoutCommit?.();
   });
@@ -304,10 +310,18 @@ function makeClient() {
   });
 }
 
-function renderProbe(client = makeClient(), canLowerResources = false) {
+function renderProbe(
+  client = makeClient(),
+  canLowerResources = false,
+  verdictRecheckMs?: number,
+) {
   const ui = (open = true) => (
     <QueryClientProvider client={client}>
-      <Probe open={open} canLowerResources={canLowerResources} />
+      <Probe
+        open={open}
+        canLowerResources={canLowerResources}
+        verdictRecheckMs={verdictRecheckMs}
+      />
     </QueryClientProvider>
   );
   const view = render(ui());
@@ -1016,6 +1030,34 @@ describe("useProProvisioning", () => {
     await waitFor(() => expect(latest!.state).toBe("DONE"), {
       timeout: 5000,
     });
+  }, 20_000);
+
+  test("re-asks the reconcile when a downgrade's rollout was never observed", async () => {
+    // The polls can miss a rollout entirely: it finishes between them, or they
+    // error while the pod restarts. A downgrade meets its targets from the
+    // first render, so with no marker watched there is nothing left that can
+    // complete it, and the wait would run to the stall clock on a change that
+    // already succeeded. The server checks marker and targets together, so
+    // asking it again is the only terminal answer available.
+    const client = makeClient();
+    subscriptionPlanId = "pro";
+    ensureResponse = makeEnsureResponse("in_progress");
+    operationalStatusResponse = makeOperationalStatus("active");
+    assistantResponse = makeAssistant("large", 50);
+    renderProbe(client, true, 50);
+
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+    const callsBefore = ensureCalls;
+
+    // The rollout has since finished server-side; nobody here ever saw it.
+    ensureResponse = makeEnsureResponse("already_done");
+
+    await waitFor(() => expect(ensureCalls).toBeGreaterThan(callsBefore), {
+      timeout: 5000,
+    });
+    await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
   }, 20_000);
 
   test("a marker cached before this open is not evidence for this change", async () => {

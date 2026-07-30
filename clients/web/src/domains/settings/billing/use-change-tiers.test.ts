@@ -270,6 +270,24 @@ describe("useChangeTiers", () => {
     expect(result.current.primaryAssistantId).toBe("assistant-7");
   });
 
+  test("reports no primary assistant from a payload it cannot trust", async () => {
+    // The primary names the pod a caller reads tier values off, so a stale
+    // payload can point at the org's previous primary while the takeover
+    // resolves the current one, describing two machines as one change.
+    onboardingFixture = onboarding({ primary_assistant_id: "assistant-7" });
+    const { result, client } = setup();
+    expect(result.current.primaryAssistantId).toBe("assistant-7");
+
+    act(() => {
+      client.setQueryData(ONBOARDING_KEY, onboardingFixture, {
+        updatedAt: Date.now() - 60_000,
+      });
+    });
+
+    await waitFor(() => expect(result.current.currentKnown).toBe(false));
+    expect(result.current.primaryAssistantId).toBeNull();
+  });
+
   test("reports no primary assistant while the payload is absent", () => {
     // Callers fall back to the active assistant here, which is how the
     // provisioning takeover resolves its own target.

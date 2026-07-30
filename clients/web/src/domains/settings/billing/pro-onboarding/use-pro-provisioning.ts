@@ -73,6 +73,7 @@ import {
   PRO_POLL_INTERVAL_MS,
   PRO_POLL_TIMEOUT_MS,
   PROVISION_ESCAPE_MS,
+  PROVISION_VERDICT_RECHECK_MS,
 } from "./utils";
 
 const ACTUALS_POLL_INTERVAL_MS = 2000;
@@ -116,6 +117,8 @@ export interface UseProProvisioningOptions {
    * Absent reads as false, which is what post-checkout onboarding always is.
    */
   canLowerResources?: boolean;
+  /** Test hook: how often to re-ask a verdict-only wait for a terminal answer. */
+  verdictRecheckMs?: number;
 }
 
 export interface ProProvisioningResult {
@@ -200,6 +203,7 @@ export interface ProProvisioningResult {
 export function useProProvisioning({
   open,
   canLowerResources = false,
+  verdictRecheckMs = PROVISION_VERDICT_RECHECK_MS,
 }: UseProProvisioningOptions): ProProvisioningResult {
   const queryClient = useQueryClient();
   // Every query here is org-scoped (needs the Vellum-Organization-Id header).
@@ -867,6 +871,33 @@ export function useProProvisioning({
     const t = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
     return () => clearInterval(t);
   }, [open, proConfirmed, isTerminal]);
+
+  // Re-ask the reconcile while a change that can lower the ceilings waits on a
+  // verdict that only says a rollout began. Such a change meets its targets
+  // from the first render, so the marker is the one thing that can complete it,
+  // and the 2s polls can miss a rollout entirely if it finishes between them or
+  // if they error while the pod restarts. The server checks the marker and the
+  // targets together, so re-asking is the only terminal answer available; the
+  // alternative is a spinner running to the stall clock on a change that
+  // already succeeded. A marker we did watch needs none of this.
+  const awaitingVerdictWithoutMarker =
+    !targetsProveNoop &&
+    (serverVerdict === "started" || serverVerdict === "in_progress") &&
+    !(sawOperation && sawOperationMatchesAssistant);
+  useEffect(() => {
+    if (!open || !proConfirmed || isTerminal || !awaitingVerdictWithoutMarker) {
+      return;
+    }
+    const t = setInterval(() => runEnsureProvisioned("auto"), verdictRecheckMs);
+    return () => clearInterval(t);
+  }, [
+    open,
+    proConfirmed,
+    isTerminal,
+    awaitingVerdictWithoutMarker,
+    verdictRecheckMs,
+    runEnsureProvisioned,
+  ]);
 
   return {
     state,

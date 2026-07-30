@@ -25,6 +25,14 @@ export const PROVISION_PHASE_MIN_MS = 900;
  * wasn't visible to the reconcile yet. One retry only.
  */
 export const ENSURE_PROVISIONED_RACE_RETRY_MS = 2_000;
+/**
+ * How often to re-ask the reconcile while a change that can lower the ceilings
+ * waits under a provisional verdict with no marker of its own observed. The
+ * server checks the marker and the targets together, so its answer is the only
+ * terminal one available when the polls never caught the rollout; without a
+ * re-ask that wait runs to the stall clock on a change that already succeeded.
+ */
+export const PROVISION_VERDICT_RECHECK_MS = 10_000;
 
 const ONBOARDING_MACHINE_DRF_FIELD_KEYS = [
   "machine_size",
