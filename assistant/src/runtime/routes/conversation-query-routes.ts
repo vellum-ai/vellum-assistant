@@ -1646,6 +1646,11 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
       written.source = "managed";
     }
   }
+  // A SET can create `services.stt` with a leaf like `language` and no
+  // `provider`, which SttServiceSchema requires whenever the block exists;
+  // the same seeding that guards PATCH keeps this write's persisted block
+  // schema-valid.
+  seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "set");
   // A `memory.v2` substrate tunable whose `memory.substrate` twin is set does

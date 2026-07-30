@@ -1587,6 +1587,41 @@ describe("sparse services.stt patch provider seeding", () => {
     expect(savedServices().stt).toBeUndefined();
     expect(savedServices().tts).toEqual({ provider: "elevenlabs" });
   });
+
+  test("a config_set language write onto a sparse config seeds the provider", async () => {
+    // The CLI leaf-write path (`assistant config set services.stt.language`)
+    // creates the stt block via setNestedValue; the same seed that guards
+    // PATCH keeps its persisted block schema-valid.
+    const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+    const effectiveProvider = getConfig().services.stt.provider;
+
+    await configSetRoute.handler({
+      body: { path: "services.stt.language", value: "hi" },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.language).toBe("hi");
+    expect(stt.provider).toBe(effectiveProvider);
+    const parsed = getConfig().services;
+    expect(parsed.stt.language).toBe("hi");
+    expect(savedServices().tts).toEqual({ provider: "elevenlabs" });
+  });
+
+  test("a config_set onto a config with a provider leaves it untouched", async () => {
+    rawConfigFixture = {
+      services: { stt: { provider: "xai" }, tts: { provider: "elevenlabs" } },
+    };
+    seedRawConfig();
+    const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
+    await configSetRoute.handler({
+      body: { path: "services.stt.language", value: "hi" },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.provider).toBe("xai");
+    expect(stt.language).toBe("hi");
+  });
 });
 
 describe("config invariant flag enrichment", () => {
