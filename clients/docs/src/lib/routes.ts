@@ -1,7 +1,7 @@
 /**
  * URL registry for the docs app: only what docs pages consume.
- * Internal paths are cast `as Route` (the legal pages land in later PRs of
- * this migration); app destinations are cross-app absolute URLs.
+ * Internal paths are cast `as Route` because they point at pages outside the
+ * generated typedRoutes union; app destinations are cross-app absolute URLs.
  */
 
 import type { Route } from "next";
