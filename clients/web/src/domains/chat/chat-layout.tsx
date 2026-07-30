@@ -332,6 +332,11 @@ export function ChatLayout({
   const railFocusAnimationsRef = useRef<Animation[]>([]);
   const prevChatFocusRef = useRef(chatFocusActive);
   useEffect(() => {
+    // Snapshot before the null check: focus flips that land while the aside
+    // is absent must still be recorded, so a later remount settles into the
+    // current state instead of replaying the missed transition.
+    const prev = prevChatFocusRef.current;
+    prevChatFocusRef.current = chatFocusActive;
     if (!sideMenuAside) {
       // Drop animations that target the departed node so a remount
       // reinitializes from scratch.
@@ -342,8 +347,6 @@ export function ChatLayout({
       return;
     }
     const aside = sideMenuAside;
-    const prev = prevChatFocusRef.current;
-    prevChatFocusRef.current = chatFocusActive;
     if (prev === chatFocusActive) {
       if (chatFocusActive && railFocusAnimationsRef.current.length === 0) {
         // Mounted (or remounted) while already focused: hold the hidden
