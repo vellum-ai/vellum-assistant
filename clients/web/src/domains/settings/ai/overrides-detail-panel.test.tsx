@@ -55,9 +55,15 @@ const CONFIG = {
         provider: "anthropic",
         model: "claude-fable-5",
       },
+      quality: {
+        label: "Quality",
+        provider: "anthropic",
+        model: "claude-opus-5",
+      },
     },
-    profileOrder: ["my-byok"],
+    profileOrder: ["my-byok", "quality"],
     activeProfile: null,
+    advisorProfile: "quality",
     callSites: {},
   },
 };
@@ -161,7 +167,8 @@ describe("OverridesDetailPanel - apply to all", () => {
     // Before a profile is chosen the apply button is inert.
     expect(getButton("Apply to all").disabled).toBe(true);
 
-    // The apply-all dropdown is the only combobox while no override is on.
+    // With no override toggled on, the only comboboxes are the apply-all
+    // dropdown and the Advisor row's - and apply-all renders first.
     const trigger = document.querySelector<HTMLElement>(
       'button[role="combobox"]',
     );
@@ -184,5 +191,107 @@ describe("OverridesDetailPanel - apply to all", () => {
       heartbeatAgent: { profile: "my-byok", provider: null, model: null },
     });
     expect("mainAgent" in body.llm.callSites).toBe(false);
+  });
+
+  test("apply-to-all leaves the advisor selection alone", async () => {
+    render(
+      <Wrapper>
+        <OverridesDetailPanel assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(renderedText()).toContain("Use one profile for all actions");
+    });
+
+    const trigger = document.querySelector<HTMLElement>(
+      'button[role="combobox"]',
+    );
+    if (!trigger) {
+      throw new Error("expected the apply-all dropdown trigger");
+    }
+    pickOption(trigger, "My BYOK");
+    fireEvent.click(getButton("Apply to all"));
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as { llm: Record<string, unknown> };
+    expect("advisorProfile" in body.llm).toBe(false);
+  });
+});
+
+describe("OverridesDetailPanel - advisor", () => {
+  test("renders the advisor row seeded from llm.advisorProfile", async () => {
+    render(
+      <Wrapper>
+        <OverridesDetailPanel assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(renderedText()).toContain("Advisor");
+    });
+    expect(renderedText()).toContain("second opinion");
+    // Seeded selection is visible in the row's dropdown trigger.
+    const triggers = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    );
+    expect(triggers.some((t) => t.textContent?.includes("Quality"))).toBe(true);
+  });
+
+  test("the advisor row offers no off state", async () => {
+    render(
+      <Wrapper>
+        <OverridesDetailPanel assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(renderedText()).toContain("Advisor");
+    });
+
+    const advisorTrigger = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    ).find((t) => t.textContent?.includes("Quality"));
+    if (!advisorTrigger) {
+      throw new Error("expected the advisor dropdown trigger");
+    }
+    fireEvent.click(advisorTrigger);
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim());
+    expect(optionLabels).toEqual(["My BYOK", "Quality"]);
+  });
+
+  test("changing the advisor PATCHes llm.advisorProfile alongside callSites", async () => {
+    render(
+      <Wrapper>
+        <OverridesDetailPanel assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(renderedText()).toContain("Advisor");
+    });
+
+    const advisorTrigger = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    ).find((t) => t.textContent?.includes("Quality"));
+    if (!advisorTrigger) {
+      throw new Error("expected the advisor dropdown trigger");
+    }
+    pickOption(advisorTrigger, "My BYOK");
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as {
+      llm: { advisorProfile: string; callSites: Record<string, unknown> };
+    };
+    expect(body.llm.advisorProfile).toBe("my-byok");
+    // No call site was touched, so every gated entry clears to null.
+    expect(body.llm.callSites).toEqual({
+      workflowLeaf: null,
+      heartbeatAgent: null,
+    });
   });
 });
