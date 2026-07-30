@@ -172,6 +172,7 @@ public class MainActivity extends BridgeActivity {
 
     private static final class SelfHostedWebViewClient extends BridgeWebViewClient {
         private final MainActivity activity;
+        private String mainFrameUrl;
         private boolean mainFrameFailed;
 
         SelfHostedWebViewClient(Bridge bridge, MainActivity activity) {
@@ -181,6 +182,7 @@ public class MainActivity extends BridgeActivity {
 
         @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+            mainFrameUrl = url;
             mainFrameFailed = false;
             super.onPageStarted(view, url, favicon);
         }
@@ -216,7 +218,9 @@ public class MainActivity extends BridgeActivity {
         @Override
         public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
             super.onReceivedSslError(view, handler, error);
-            fail(error.getUrl());
+            if (SelfHostedServer.samePage(error.getUrl(), mainFrameUrl)) {
+                fail(error.getUrl());
+            }
         }
 
         private void fail(String url) {

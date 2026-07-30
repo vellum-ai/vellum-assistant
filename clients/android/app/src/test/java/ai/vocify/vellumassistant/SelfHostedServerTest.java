@@ -70,6 +70,12 @@ public class SelfHostedServerTest {
         URI pairPage = URI.create("https://example.com/tenant/assistant/pair#device_code=device-code");
 
         assertTrue(SelfHostedServer.samePage(pairPage, "https://example.com:443/tenant/assistant/pair"));
+        assertTrue(
+            SelfHostedServer.samePage(
+                "https://example.com/tenant/assistant/pair#device_code=device-code",
+                "https://example.com:443/tenant/assistant/pair"
+            )
+        );
         assertFalse(SelfHostedServer.samePage(pairPage, "https://example.com/other/assistant/pair"));
     }
 

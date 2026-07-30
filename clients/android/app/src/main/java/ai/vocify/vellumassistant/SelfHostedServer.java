@@ -129,6 +129,10 @@ final class SelfHostedServer {
             && normalizePath(expected.getPath()).equals(normalizePath(actual.getPath()));
     }
 
+    static boolean samePage(String expectedUrl, String actualUrl) {
+        return samePage(validateNavigationUrl(expectedUrl), actualUrl);
+    }
+
     static CapConfig overrideCapacitorConfig(Context context, URI server) throws IOException, JSONException {
         String source = readAsset(context, CONFIG_FILE);
         JSONObject root = new JSONObject(source);
