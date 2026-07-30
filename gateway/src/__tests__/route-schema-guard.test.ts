@@ -21,6 +21,10 @@ const ROUTE_PATH_CONSTANTS: Record<string, string> = {
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
+  // A regex rather than a literal, shared with the WebSocket upgrade branch
+  // so the two halves of the plugin surface cannot disagree. Given here in
+  // the converted form the extractor would have produced from it inline.
+  PLUGIN_WEBHOOK_PATH_PATTERN: "/webhooks/plugins/{param1}/{param2}",
 };
 
 /**

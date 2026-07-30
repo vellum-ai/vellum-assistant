@@ -53,6 +53,9 @@ describe("isConnectionCompatibleWithModel", () => {
 
   test("oauth_subscription connection is compatible with a Codex model", () => {
     const conn = { auth: oauthAuth };
+    expect(isConnectionCompatibleWithModel(conn, "gpt-5.6-sol")).toBe(true);
+    expect(isConnectionCompatibleWithModel(conn, "gpt-5.6-terra")).toBe(true);
+    expect(isConnectionCompatibleWithModel(conn, "gpt-5.6-luna")).toBe(true);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.5")).toBe(true);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.4")).toBe(true);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.4-mini")).toBe(true);

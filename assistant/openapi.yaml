@@ -14833,6 +14833,25 @@ paths:
                     properties:
                       resolved_endpoint:
                         type: string
+                      resolved_url:
+                        type: string
+                      model_id:
+                        type: string
+                      connection_name:
+                        type: string
+                      http_status:
+                        type: number
+                      upstream_error_body:
+                        type: string
+                      upstream_error_body_state:
+                        type: string
+                        enum:
+                          - captured
+                          - empty
+                          - truncated
+                          - unavailable
+                      upstream_error_body_bytes:
+                        type: number
                     additionalProperties: false
                 required:
                   - response
@@ -22640,6 +22659,33 @@ paths:
                   - disconnected
                   - previousBaseUrl
                 additionalProperties: false
+  /v1/platform/plans:
+    get:
+      operationId: platform_plans_get
+      summary: Get the plan catalog with pricing
+      description:
+        "Fetches the platform plan catalog: base and pro plans with pricing (in cents), machine/storage/credit
+        tiers, and packages."
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plans:
+                    type: array
+                    items:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
+                required:
+                  - plans
+                additionalProperties: false
   /v1/platform/status:
     get:
       operationId: platform_status_get
@@ -22691,6 +22737,91 @@ paths:
                   - available
                   - organizationId
                   - userId
+                additionalProperties: false
+  /v1/platform/subscription:
+    get:
+      operationId: platform_subscription_get
+      summary: Get the organization's current plan and subscription state
+      description:
+        Fetches the org's plan (base or pro), subscription status, renewal/period-end dates, cancellation state,
+        selected credit tier, package, and plan-gated entitlements from the platform.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  planId:
+                    type: string
+                    enum:
+                      - base
+                      - pro
+                  status:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  renewalDate:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  currentPeriodEnd:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  cancelAtPeriodEnd:
+                    type: boolean
+                  cancelAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  selectedCreditTier:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  package:
+                    anyOf:
+                      - type: object
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          version:
+                            type: number
+                          customized:
+                            type: boolean
+                        required:
+                          - key
+                          - name
+                          - version
+                          - customized
+                        additionalProperties: false
+                      - type: "null"
+                  entitlements:
+                    type: object
+                    properties:
+                      managedEmail:
+                        type: boolean
+                      phoneNumber:
+                        type: boolean
+                    required:
+                      - managedEmail
+                      - phoneNumber
+                    additionalProperties: false
+                required:
+                  - planId
+                  - status
+                  - renewalDate
+                  - currentPeriodEnd
+                  - cancelAtPeriodEnd
+                  - cancelAt
+                  - selectedCreditTier
+                  - package
+                  - entitlements
                 additionalProperties: false
   /v1/playground/seed-conversation:
     post:

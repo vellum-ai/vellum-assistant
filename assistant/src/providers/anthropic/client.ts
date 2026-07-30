@@ -17,6 +17,7 @@ import {
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
 } from "../placeholder-sentinels.js";
+import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -1346,6 +1347,7 @@ export class AnthropicProvider implements Provider {
 
       let response: Anthropic.Message;
       try {
+        recordProviderRequestDiagnostics({ model_id: params.model });
         const requestHeaders = {
           ...this.requestHeaders,
           ...(usageAttributionHeaders ?? {}),

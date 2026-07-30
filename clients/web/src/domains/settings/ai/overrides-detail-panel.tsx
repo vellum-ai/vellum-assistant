@@ -1,5 +1,5 @@
 import { Loader2, Search } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -29,11 +29,11 @@ import type {
   ConfigLlmCallsitesGetResponse,
 } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { DetailShell } from "@/components/detail-shell";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
-import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 
 // ---------------------------------------------------------------------------
@@ -44,59 +44,22 @@ type CallSiteCatalog = ConfigLlmCallsitesGetResponse;
 type CallSiteEntry = CallSiteCatalog["callSites"][number];
 type CallSiteDomain = CallSiteCatalog["domains"][number];
 
-export interface CallSiteOverridesModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  assistantId: string;
-}
-
-// ---------------------------------------------------------------------------
-// CallSiteOverridesModal
-// ---------------------------------------------------------------------------
-
-export function CallSiteOverridesModal({
-  isOpen,
-  onClose,
-  assistantId,
-}: CallSiteOverridesModalProps) {
-  const savingRef = useRef(false);
-  return (
-    <Modal.Root
-      open={isOpen}
-      onOpenChange={(next) => {
-        if (!next && !savingRef.current) {
-          onClose();
-        }
-      }}
-    >
-      {isOpen ? (
-        <CallSiteOverridesModalInner
-          assistantId={assistantId}
-          onClose={onClose}
-          onSavingChange={(s) => {
-            savingRef.current = s;
-          }}
-        />
-      ) : null}
-    </Modal.Root>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Inner component (only mounted when open to reset state on close)
-// ---------------------------------------------------------------------------
-
-interface InnerProps {
+export interface OverridesDetailPanelProps {
   assistantId: string;
   onClose: () => void;
-  onSavingChange?: (isSaving: boolean) => void;
 }
 
-function CallSiteOverridesModalInner({
+/**
+ * Sidepanel host for the Action Overrides editor (the Overrides section's
+ * Manage action): search, apply-to-all, and per-call-site rows grouped by
+ * domain in the scrollable body, with Save / Reset pinned in the
+ * DetailShell footer so a long catalog never hides the actions. Hosts
+ * remount the panel per open so draft state resets.
+ */
+export function OverridesDetailPanel({
   assistantId,
   onClose,
-  onSavingChange,
-}: InnerProps) {
+}: OverridesDetailPanelProps) {
   const queryClient = useQueryClient();
 
   const { data: daemonConfig } = useQuery({
@@ -344,7 +307,6 @@ function CallSiteOverridesModalInner({
 
   const handleSave = useCallback(async () => {
     setSaving(true);
-    onSavingChange?.(true);
     try {
       const patch: Record<string, CallSiteOverrideDraft | null> = {};
       for (const id of Object.keys(drafts)) {
@@ -368,13 +330,11 @@ function CallSiteOverridesModalInner({
       captureError(error, { context: "call_site_overrides_save" });
     } finally {
       setSaving(false);
-      onSavingChange?.(false);
     }
-  }, [drafts, onClose, configMutation, onSavingChange, assistantId]);
+  }, [drafts, onClose, configMutation, assistantId]);
 
   const handleReset = useCallback(async () => {
     setSaving(true);
-    onSavingChange?.(true);
     try {
       const resetPatch: Record<string, null> = {};
       for (const id of Object.keys(drafts)) {
@@ -391,25 +351,51 @@ function CallSiteOverridesModalInner({
       captureError(error, { context: "call_site_overrides_reset" });
     } finally {
       setSaving(false);
-      onSavingChange?.(false);
     }
-  }, [drafts, onClose, configMutation, onSavingChange, assistantId]);
+  }, [drafts, onClose, configMutation, assistantId]);
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
-  return (
-    <Modal.Content size="lg" hideCloseButton>
-      <Modal.Header>
-        <Modal.Title>Action Overrides</Modal.Title>
-        <Modal.Description>
-          Customize which model profile specific actions should use. Uses your
-          default profile if no override is set.
-        </Modal.Description>
-      </Modal.Header>
+  const footer = (
+    <div className="flex items-center justify-end gap-2">
+      {hasAnyPersistedOverride && (
+        <Button
+          variant="outlined"
+          size="compact"
+          onClick={() => setShowResetConfirmation(true)}
+          disabled={saving || !isSeeded}
+          tintColor="var(--system-negative-strong)"
+          className="mr-auto"
+        >
+          Reset to Defaults
+        </Button>
+      )}
+      <Button
+        variant="primary"
+        size="compact"
+        onClick={() => void handleSave()}
+        disabled={!hasUnsavedDrafts || hasValidationError || saving}
+      >
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+      </Button>
+    </div>
+  );
 
-      <Modal.Body>
+  return (
+    <DetailShell
+      title="Action Overrides"
+      closeVariant="outlined"
+      onClose={onClose}
+      footer={footer}
+    >
+      <p className="mb-4 text-body-medium-lighter text-[var(--content-tertiary)]">
+        Customize which model profile specific actions should use. Uses your
+        default profile if no override is set.
+      </p>
+
+      <div>
         {/* Search */}
         <div className="mb-4">
           <Input
@@ -530,38 +516,8 @@ function CallSiteOverridesModalInner({
             )}
           </div>
         )}
-      </Modal.Body>
+      </div>
 
-      <Modal.Footer>
-        {hasAnyPersistedOverride && (
-          <Button
-            variant="outlined"
-            size="compact"
-            onClick={() => setShowResetConfirmation(true)}
-            disabled={saving || !isSeeded}
-            tintColor="var(--system-negative-strong)"
-            className="mr-auto"
-          >
-            Reset to Defaults
-          </Button>
-        )}
-        <Button
-          variant="outlined"
-          size="compact"
-          onClick={onClose}
-          disabled={saving}
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          size="compact"
-          onClick={() => void handleSave()}
-          disabled={!hasUnsavedDrafts || hasValidationError || saving}
-        >
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
-        </Button>
-      </Modal.Footer>
 
       <ConfirmDialog
         open={showResetConfirmation}
@@ -575,6 +531,6 @@ function CallSiteOverridesModalInner({
         }}
         onCancel={() => setShowResetConfirmation(false)}
       />
-    </Modal.Content>
+    </DetailShell>
   );
 }

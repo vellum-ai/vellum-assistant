@@ -109,7 +109,6 @@ export function RootLayout() {
   useEffect(() => {
     void setMenuPlatformSession(hasPlatformSession);
   }, [hasPlatformSession]);
-  useClientFeatureFlagSync(!isSessionInitializing);
   useAssistantLifecycle({
     sessionStatus,
     hasPlatformSession,
@@ -127,6 +126,7 @@ export function RootLayout() {
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
+  useClientFeatureFlagSync(!isSessionInitializing, isAssistantActive);
   // Hydrate the assistant identity store (name + version) at the app root so
   // the name is ready on every authenticated route — chat, settings, logs —
   // and the Electron window title / tray / About panel (published below by
@@ -152,7 +152,7 @@ export function RootLayout() {
   useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
   // Publish the avatar accent as `--avatar-accent` so chat loading shimmers
   // (and any future accent-tinted UI) can read it from plain CSS.
-  useAvatarAccentVar(avatar.components, avatar.traits);
+  useAvatarAccentVar(avatar.components, avatar.traits, avatar.customImageUrl);
 
   // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
   // the live connection status to the menu-bar dot. Both no-op off Electron.

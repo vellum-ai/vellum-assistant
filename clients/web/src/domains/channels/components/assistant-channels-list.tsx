@@ -42,14 +42,14 @@ const POLICY_CONFIRMATIONS: Partial<
   no_one: {
     title: "Block all messages?",
     message:
-      "Setting this channel to “No one” hard-denies every inbound message — including messages from you.\n\nYou can reverse this at any time.",
+      "Setting this channel to “No one” hard-denies every inbound message, including messages from you.\n\nYou can reverse this at any time.",
     confirmLabel: "Block all",
     destructive: true,
   },
   any_contact: {
     title: "Allow any contact?",
     message:
-      "“Any contact” admits every matched contact in this channel — including pending, unverified ones — not just your verified contacts.\n\nBest for channels consisting of only people you already trust.",
+      "“Any contact” admits every matched contact in this channel (including pending, unverified ones), not just your verified contacts.\n\nBest for channels consisting of only people you already trust.",
     confirmLabel: "Allow any contact",
   },
   strangers: {

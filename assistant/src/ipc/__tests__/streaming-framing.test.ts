@@ -4,7 +4,10 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { IpcFrameReader, type StreamCallbacks } from "../ipc-framing.js";
+import {
+  IpcFrameReader,
+  type StreamCallbacks,
+} from "@vellumai/ipc-server-utils";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -348,7 +348,9 @@ type EngineResult =
     }
   | { status: "failed"; reason: string; replyText: string }
   | { status: "no_match" };
-type RedeemVoiceEngineFn = (params: unknown) => Promise<
+type RedeemVoiceEngineFn = (
+  params: unknown,
+) => Promise<
   | { status: "redeemed" | "already_member"; outcome: EngineOutcome }
   | { status: "failed"; reason: "invalid_or_expired" }
 >;
@@ -380,9 +382,8 @@ mock.module("../verification/invite-redemption.js", () => ({
     null,
 }));
 
-const { createContactsControlPlaneProxyHandler } = await import(
-  "../http/routes/contacts-control-plane-proxy.js"
-);
+const { createContactsControlPlaneProxyHandler } =
+  await import("../http/routes/contacts-control-plane-proxy.js");
 
 // The delete-contact guard reads the guardian role from the gateway DB (source
 // of truth), so the delete tests below run against a real in-memory gateway DB.
@@ -403,8 +404,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
-    defaultAssistantId: undefined,
-    unmappedPolicy: "reject",
     port: 7830,
     runtimeProxyRequireAuth: true,
     shutdownDrainMs: 5000,

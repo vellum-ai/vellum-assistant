@@ -3,14 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 
 import { featureFlagsClientFlagValuesRetrieve } from "@/generated/api/sdk.gen";
 import type { ClientFeatureFlagsResponse } from "@/generated/api/types.gen";
-import { assertHasResponse } from "@/utils/api-errors";
+import { assertHasResponse, toApiError } from "@/utils/api-errors";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   CLIENT_FLAG_DEFAULTS,
   CLIENT_STRING_FLAG_DEFAULTS,
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
-import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
+import { useClientFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
 import { featureFlagsClientFlagValuesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
@@ -24,17 +24,20 @@ interface ScopedClientFlagValues {
   flags: ClientFeatureFlagsResponse["flags"];
 }
 
-async function fetchClientFlagValues(): Promise<ScopedClientFlagValues> {
+async function fetchClientFlagValues(
+  signal?: AbortSignal,
+): Promise<ScopedClientFlagValues> {
   // Stamp the request with the scope it goes out under. The response is applied
   // from a passive effect, by which point the identity may have moved on, and
   // the stamp is what lets the store tell whose answer it is holding.
   const scopeKey = useClientFeatureFlagStore.getState().scopeKey;
   const { data, error, response } = await featureFlagsClientFlagValuesRetrieve({
     throwOnError: false,
+    signal,
   });
   assertHasResponse(response, error, "Failed to fetch client feature flags");
   if (!response.ok || !data) {
-    throw new Error(`Failed to fetch client feature flags: ${response.status}`);
+    throw toApiError(error, response);
   }
   return { scopeKey, flags: data.flags };
 }
@@ -56,8 +59,11 @@ function mapFlags(serverFlags: Record<string, boolean | string>): {
   return { boolFlags, stringFlags };
 }
 
-export function useClientFeatureFlagSync(enabled: boolean) {
-  const freshness = useFlagQueryFreshness();
+export function useClientFeatureFlagSync(
+  enabled: boolean,
+  hasSyncTransport = false,
+) {
+  const freshness = useClientFlagQueryFreshness(hasSyncTransport);
   // The client-flag endpoint evaluates against the signed-in user + org, so an
   // authenticated request without `Vellum-Organization-Id` is rejected. The org
   // store hydrates asynchronously after auth, so an authenticated cold load can
@@ -71,10 +77,16 @@ export function useClientFeatureFlagSync(enabled: boolean) {
   const shouldFetch = modeAllowsFetch && orgReadiness === "ready";
   const { data, isError } = useQuery({
     queryKey: featureFlagsClientFlagValuesRetrieveQueryKey(),
-    queryFn: fetchClientFlagValues,
+    queryFn: ({ signal }) => fetchClientFlagValues(signal),
     enabled: shouldFetch,
+    // Push-capable sessions with an attached sync transport load once per
+    // identity-scoped query cache. Older assistants and surfaces without that
+    // transport retain their polling fallback.
     ...freshness,
-    retry: 1,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    // Inherit the app-wide status-aware retry predicate and exponential delay.
+    // It retries transient network/5xx failures and never retries a 429/4xx.
   });
 
   useEffect(() => {

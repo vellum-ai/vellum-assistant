@@ -31,6 +31,7 @@ import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item"
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
+import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
 import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
@@ -112,6 +113,7 @@ function SearchButton() {
       iconOnly={<Search />}
       aria-label="Search (⌘K)"
       title="Search (⌘K)"
+      className={NATIVE_IOS_BARE_ICON_BUTTON}
       onClick={handleClick}
     />
   );
@@ -406,6 +408,7 @@ export function AssistantSideMenu({
                 variant="ghost"
                 iconOnly={<X />}
                 aria-label="Close navigation"
+                className={NATIVE_IOS_BARE_ICON_BUTTON}
                 onClick={() => onClose?.()}
               />
               <SearchButton />

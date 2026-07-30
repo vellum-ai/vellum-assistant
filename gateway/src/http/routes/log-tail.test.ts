@@ -63,7 +63,6 @@ function makeReq(url: string): Request {
 function makeConfig(dir: string | undefined): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir, retentionDays: 30 },
     maxAttachmentBytes: {
@@ -81,12 +80,15 @@ function makeConfig(dir: string | undefined): GatewayConfig {
     runtimeProxyRequireAuth: true,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "default",
     trustProxy: false,
   } as GatewayConfig;
 }
 
-function makeLogLine(level: number, msg: string, extras?: Record<string, unknown>): string {
+function makeLogLine(
+  level: number,
+  msg: string,
+  extras?: Record<string, unknown>,
+): string {
   return JSON.stringify({ level, msg, time: Date.now(), ...extras });
 }
 
@@ -142,8 +144,13 @@ describe("log-tail handler", () => {
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
-    const res = await handler(makeReq("http://localhost:7830/v1/logs/tail?n=3"));
-    const body = await res.json() as { lines: { msg: string }[]; truncated: boolean };
+    const res = await handler(
+      makeReq("http://localhost:7830/v1/logs/tail?n=3"),
+    );
+    const body = (await res.json()) as {
+      lines: { msg: string }[];
+      truncated: boolean;
+    };
 
     expect(body.truncated).toBe(true);
     expect(body.lines).toHaveLength(3);
@@ -166,8 +173,13 @@ describe("log-tail handler", () => {
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
-    const res = await handler(makeReq("http://localhost:7830/v1/logs/tail?level=error"));
-    const body = await res.json() as { lines: { msg: string }[]; truncated: boolean };
+    const res = await handler(
+      makeReq("http://localhost:7830/v1/logs/tail?level=error"),
+    );
+    const body = (await res.json()) as {
+      lines: { msg: string }[];
+      truncated: boolean;
+    };
 
     expect(body.lines).toHaveLength(2);
     const msgs = body.lines.map((l) => l.msg);
@@ -189,8 +201,13 @@ describe("log-tail handler", () => {
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
-    const res = await handler(makeReq("http://localhost:7830/v1/logs/tail?module=mcp"));
-    const body = await res.json() as { lines: { msg: string; module: string }[]; truncated: boolean };
+    const res = await handler(
+      makeReq("http://localhost:7830/v1/logs/tail?module=mcp"),
+    );
+    const body = (await res.json()) as {
+      lines: { msg: string; module: string }[];
+      truncated: boolean;
+    };
 
     expect(body.lines).toHaveLength(2);
     for (const line of body.lines) {
@@ -201,17 +218,16 @@ describe("log-tail handler", () => {
   test("malformed JSON lines are silently skipped", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "gw-log-tail-test-"));
 
-    const lines = [
-      "not json",
-      makeLogLine(30, "valid entry"),
-      "{broken json",
-    ];
+    const lines = ["not json", makeLogLine(30, "valid entry"), "{broken json"];
     writeFileSync(join(tmpDir, "gateway-2026-05-04.jsonl"), lines.join("\n"));
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
     const res = await handler(makeReq("http://localhost:7830/v1/logs/tail"));
-    const body = await res.json() as { lines: { msg: string }[]; truncated: boolean };
+    const body = (await res.json()) as {
+      lines: { msg: string }[];
+      truncated: boolean;
+    };
 
     expect(body.lines).toHaveLength(1);
     expect(body.lines[0].msg).toBe("valid entry");
@@ -230,8 +246,10 @@ describe("log-tail handler", () => {
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
-    const res = await handler(makeReq("http://localhost:7830/v1/logs/tail?n=2"));
-    const body = await res.json() as { lines: unknown[]; truncated: boolean };
+    const res = await handler(
+      makeReq("http://localhost:7830/v1/logs/tail?n=2"),
+    );
+    const body = (await res.json()) as { lines: unknown[]; truncated: boolean };
 
     expect(body.lines).toHaveLength(2);
     expect(body.truncated).toBe(true);
@@ -249,8 +267,10 @@ describe("log-tail handler", () => {
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
-    const res = await handler(makeReq("http://localhost:7830/v1/logs/tail?n=10"));
-    const body = await res.json() as { lines: unknown[]; truncated: boolean };
+    const res = await handler(
+      makeReq("http://localhost:7830/v1/logs/tail?n=10"),
+    );
+    const body = (await res.json()) as { lines: unknown[]; truncated: boolean };
 
     expect(body.lines).toHaveLength(3);
     expect(body.truncated).toBe(false);
@@ -265,16 +285,27 @@ describe("log-tail handler", () => {
       makeLogLine(30, "yesterday 2"),
       makeLogLine(30, "yesterday 3"),
     ];
-    writeFileSync(join(tmpDir, "gateway-2026-05-03.jsonl"), yesterdayLines.join("\n"));
+    writeFileSync(
+      join(tmpDir, "gateway-2026-05-03.jsonl"),
+      yesterdayLines.join("\n"),
+    );
 
     // Today file: 1 entry
     const todayLines = [makeLogLine(30, "today 1")];
-    writeFileSync(join(tmpDir, "gateway-2026-05-04.jsonl"), todayLines.join("\n"));
+    writeFileSync(
+      join(tmpDir, "gateway-2026-05-04.jsonl"),
+      todayLines.join("\n"),
+    );
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
-    const res = await handler(makeReq("http://localhost:7830/v1/logs/tail?n=3"));
-    const body = await res.json() as { lines: { msg: string }[]; truncated: boolean };
+    const res = await handler(
+      makeReq("http://localhost:7830/v1/logs/tail?n=3"),
+    );
+    const body = (await res.json()) as {
+      lines: { msg: string }[];
+      truncated: boolean;
+    };
 
     expect(body.lines).toHaveLength(3);
     // Should span both files — newest-first collection, then reversed to chronological
@@ -297,14 +328,19 @@ describe("log-tail handler", () => {
   test("n=1001 in querystring → returns successfully (clamped to 1000)", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "gw-log-tail-test-"));
 
-    writeFileSync(join(tmpDir, "gateway-2026-05-04.jsonl"), makeLogLine(30, "entry"));
+    writeFileSync(
+      join(tmpDir, "gateway-2026-05-04.jsonl"),
+      makeLogLine(30, "entry"),
+    );
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
-    const res = await handler(makeReq("http://localhost:7830/v1/logs/tail?n=1001"));
+    const res = await handler(
+      makeReq("http://localhost:7830/v1/logs/tail?n=1001"),
+    );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as { lines: unknown[]; truncated: boolean };
+    const body = (await res.json()) as { lines: unknown[]; truncated: boolean };
     expect(body.lines).toHaveLength(1);
   });
 
@@ -313,10 +349,12 @@ describe("log-tail handler", () => {
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
-    const res = await handler(makeReq("http://localhost:7830/v1/logs/tail?level=INVALID"));
+    const res = await handler(
+      makeReq("http://localhost:7830/v1/logs/tail?level=INVALID"),
+    );
 
     expect(res.status).toBe(400);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toBe("Invalid level");
   });
 
@@ -350,10 +388,12 @@ describe("log-tail handler", () => {
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
-    const res = await handler(makeReq("http://localhost:7830/v1/logs/tail?n=10"));
+    const res = await handler(
+      makeReq("http://localhost:7830/v1/logs/tail?n=10"),
+    );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as {
+    const body = (await res.json()) as {
       lines: Array<{ msg: string; level: number }>;
       truncated: boolean;
     };
@@ -376,7 +416,7 @@ describe("log-tail handler", () => {
       join(tmpDir, "gateway-2026-05-04.log"),
       [
         "[12:43:31.348] ERROR (gateway/5597 on host): [runtime-proxy] Upstream returned error",
-        "    method: \"POST\"",
+        '    method: "POST"',
         "    status: 502",
         "",
       ].join("\n"),
@@ -388,10 +428,12 @@ describe("log-tail handler", () => {
 
     const config = makeConfig(tmpDir);
     const handler = createLogTailHandler(config);
-    const res = await handler(makeReq("http://localhost:7830/v1/logs/tail?n=10"));
+    const res = await handler(
+      makeReq("http://localhost:7830/v1/logs/tail?n=10"),
+    );
 
     expect(res.status).toBe(200);
-    const body = await res.json() as {
+    const body = (await res.json()) as {
       lines: Array<{ msg: string }>;
     };
     expect(body.lines).toHaveLength(1);
