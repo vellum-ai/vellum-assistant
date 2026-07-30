@@ -30,7 +30,11 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
 // faking `isNativeIOS`) so the controller's lifecycle wiring is asserted
 // directly; the bridge's own off-native/skew behavior is pinned by
 // `runtime/native-audio-session.test.ts`.
-type InterruptionEvent = { type: "began" | "ended" };
+type InterruptionEvent = {
+  type: "began" | "ended";
+  reason?: "default" | "builtInMicMuted" | "routeDisconnected" | "unknown";
+  resumed?: boolean;
+};
 const activateVoiceAudioSession = mock(async () => true);
 const deactivateVoiceAudioSession = mock(async () => undefined);
 const unsubscribeInterruptions = mock(() => undefined);
@@ -423,12 +427,12 @@ describe("native audio session", () => {
     expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
   });
 
-  test("an interruption ends the active session", async () => {
+  test("a `default` interruption ends the active session", async () => {
     const h = renderPersistentController();
     await startListeningViaStarter(h);
 
     await act(async () => {
-      emitInterruption({ type: "began" });
+      emitInterruption({ type: "began", reason: "default" });
       await Promise.resolve();
     });
 
@@ -437,6 +441,45 @@ describe("native audio session", () => {
     expect(h.lastClient().ended).toBe(true);
     expect(useLiveVoiceStore.getState().state).toBe("idle");
     expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
+  });
+
+  // The regression this whole distinction exists for: every interruption used
+  // to end the session, so unplugging headphones mid-conversation killed it.
+  test.each([
+    ["routeDisconnected"],
+    ["builtInMicMuted"],
+    ["unknown"],
+  ] as const)(
+    "a `%s` interruption keeps the session running",
+    async (reason) => {
+      const h = renderPersistentController();
+      await startListeningViaStarter(h);
+
+      await act(async () => {
+        emitInterruption({ type: "began", reason });
+        await Promise.resolve();
+      });
+
+      expect(h.lastClient().ended).toBe(false);
+      expect(useLiveVoiceStore.getState().state).toBe("listening");
+      expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
+    },
+  );
+
+  // A shell built before reasons were forwarded sends none. Ending is the
+  // destructive move, so an absent reason is not enough to justify it.
+  test("an interruption with no reason keeps the session running", async () => {
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+
+    await act(async () => {
+      emitInterruption({ type: "began" });
+      await Promise.resolve();
+    });
+
+    expect(h.lastClient().ended).toBe(false);
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
   });
 
   test("an interruption ending does not resume or disturb the session", async () => {
@@ -456,8 +499,10 @@ describe("native audio session", () => {
   test("an interruption with no session running is a no-op", async () => {
     const h = renderPersistentController();
 
+    // `default` specifically, so this exercises the "is a session running"
+    // guard rather than short-circuiting on the reason check above it.
     await act(async () => {
-      emitInterruption({ type: "began" });
+      emitInterruption({ type: "began", reason: "default" });
       await Promise.resolve();
     });
 

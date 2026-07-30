@@ -124,10 +124,22 @@ function useNativeAudioSessionLifecycle(): void {
 
     const unsubscribeInterruptions = subscribeVoiceAudioInterruptions(
       (event) => {
-        // A phone call or Siri has taken the mic. End the session rather than
-        // leave it "listening" into a dead input. No auto-resume on `ended` —
-        // the user restarts explicitly.
         if (event.type !== "began") {
+          return;
+        }
+        // Only `default` means the microphone actually went away (a phone
+        // call, Siri, another app). End that session rather than leave it
+        // "listening" into a dead input. No auto-resume on `ended`: the user
+        // restarts explicitly.
+        //
+        // Every other reason interrupts without taking the input: headphones
+        // unplugged, an iPad's Smart Folio closing. Those keep running, and
+        // the native side reactivates the audio session on `ended` so what
+        // they keep is live. `unknown` (an unrecognized reason, or a shell
+        // that sends none) is deliberately on the keep side: ending is the
+        // destructive move, so it needs the platform to have actually said
+        // the input is gone.
+        if (event.reason !== "default") {
           return;
         }
         if (!isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {

@@ -162,25 +162,98 @@ public class VoiceAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // MARK: - System events
 
-    /// Forward an audio-session interruption (an incoming phone call, Siri,
-    /// another app taking the session) to JS as `voiceAudioInterruption`
-    /// `{ type: "began" | "ended" }`.
+    /// Forward an audio-session interruption to JS as `voiceAudioInterruption`
+    /// `{ type: "began" | "ended", reason?, resumed? }`.
     ///
-    /// Apple's `.shouldResume` option is deliberately not forwarded: the web
-    /// side ends the session on `began` and the user restarts explicitly, so
-    /// there is never anything to resume.
+    /// ## Why `reason` is carried
+    ///
+    /// Not every interruption means the microphone is gone for good, and the
+    /// web side has to tell them apart before it decides whether to end a
+    /// running session. Unplugging headphones (`routeDisconnected`) and an
+    /// iPad's Smart Folio closing (`builtInMicMuted`) both interrupt, and
+    /// neither is a reason to tear down a conversation the user is having.
+    /// Only `default` ("another session was activated": a phone call, Siri, or
+    /// another app) actually takes the input away.
+    ///
+    /// The raw strings match the TypeScript union in
+    /// `clients/web/src/runtime/native-audio-session.ts`; the two must change
+    /// together, in the same way as the phase enum documented in
+    /// `clients/ios/docs/NATIVE_VOICE.md` § "The two enums that must change
+    /// together". Unlike that one, this enum originates *here*: it mirrors
+    /// `AVAudioSession.InterruptionReason`, so the native side is the source of
+    /// truth and the web side must tolerate a reason it does not recognize.
+    ///
+    /// **There is no reason code for "the app was backgrounded" on iOS.**
+    /// `AVAudioSessionInterruptionReasonSceneWasBackgrounded` exists but is
+    /// declared inside `#if TARGET_OS_VISION`, and `appWasSuspended` has not
+    /// been delivered since iOS 16. So a background transition either raises no
+    /// interruption at all (the intended behavior, given `UIBackgroundModes:
+    /// audio` and an active session) or arrives indistinguishable from
+    /// `default`. That question can only be settled on a handset.
+    ///
+    /// ## Why `ended` reactivates
+    ///
+    /// An interruption deactivates our session. Nothing else ever calls
+    /// `setActive(true)` again, so before this a session that survived an
+    /// interruption was left running against dead audio, which is why ending
+    /// on every interruption was survivable in the first place. Now that the
+    /// web side keeps a session through a route change, the session it keeps
+    /// has to be live.
+    ///
+    /// Reactivation is gated on our own configuration still being installed
+    /// rather than on a "do we hold it" flag: `activate`/`deactivate` arrive on
+    /// Capacitor's queue while notifications arrive on an arbitrary thread, and
+    /// reading the category is race-free where a shared flag would not be.
     @objc private func handleInterruption(_ notification: Notification) {
         guard let raw = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: raw)
         else { return }
 
+        var payload: [String: Any] = ["type": type == .began ? "began" : "ended"]
+        if let rawReason = notification.userInfo?[AVAudioSessionInterruptionReasonKey] as? UInt {
+            payload["reason"] = Self.name(
+                for: AVAudioSession.InterruptionReason(rawValue: rawReason)
+            )
+        }
+        if type == .ended {
+            payload["resumed"] = Self.reactivateIfStillConfigured()
+        }
+
         // `notifyListeners` walks the plugin's `eventListeners` dictionary,
         // which JS mutates on the main thread via `addListener`/
         // `removeListener`. `AVAudioSession` posts its notifications on an
         // arbitrary thread, so hop to main before touching it.
-        let payload = ["type": type == .began ? "began" : "ended"]
         DispatchQueue.main.async { [weak self] in
             self?.notifyListeners(Self.interruptionEvent, data: payload)
+        }
+    }
+
+    /// Wire name for an interruption reason. `nil` and any case added by a
+    /// future OS both become `"unknown"`, which the web side treats as
+    /// "not provably a takeover" and therefore does not end a session on.
+    private static func name(for reason: AVAudioSession.InterruptionReason?) -> String {
+        switch reason {
+        case .default: return "default"
+        case .builtInMicMuted: return "builtInMicMuted"
+        case .routeDisconnected: return "routeDisconnected"
+        default: return "unknown"
+        }
+    }
+
+    /// Reactivate the session if it is still configured the way ``activate``
+    /// left it, returning whether it is live afterwards. A session the user
+    /// ended during the interruption has been reset by ``deactivate`` and is
+    /// deliberately not revived here.
+    private static func reactivateIfStillConfigured() -> Bool {
+        let session = AVAudioSession.sharedInstance()
+        guard session.category == .playAndRecord, session.mode == .voiceChat else {
+            return false
+        }
+        do {
+            try session.setActive(true)
+            return true
+        } catch {
+            return false
         }
     }
 }
