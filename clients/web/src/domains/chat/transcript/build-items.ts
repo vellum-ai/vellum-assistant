@@ -13,7 +13,7 @@ import type {
   PendingContactRequestItem,
   TranscriptItem,
 } from "@/domains/chat/transcript/types";
-import { isCreditsExhaustedCategory } from "@/domains/chat/utils/error-classification";
+import { isCreditsExhaustedProviderError } from "@/domains/chat/utils/error-classification";
 
 export interface BuildTranscriptItemsInput {
   messages: DisplayMessage[];
@@ -151,9 +151,12 @@ export function buildTranscriptItems(
     // Persisted credits-exhausted provider-error rows render as the friendly
     // upsell card instead of a plain persona bubble. The row itself stays in
     // `messages` (history and the LLM context keep the text); only its
-    // transcript rendering is substituted. Provider errors of any other
-    // category, and untagged rows, keep the normal message rendering.
-    if (isCreditsExhaustedCategory(message.providerError?.category)) {
+    // transcript rendering is substituted. Classification is shared with the
+    // live composer banner (`isCreditsExhaustedProviderError`), so a bare
+    // `PROVIDER_BILLING` code with no category substitutes too. Provider
+    // errors of any other category, and untagged rows, keep the normal
+    // message rendering.
+    if (isCreditsExhaustedProviderError(message.providerError)) {
       items.push(toCreditsUpsellItem(message));
       continue;
     }

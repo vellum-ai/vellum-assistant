@@ -1,7 +1,9 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, useState } from "react";
 
 import { useNavigate } from "react-router";
 
+import { LazyBoundary } from "@/components/lazy-boundary";
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
 import {
   resolveCreditPaywallCta,
@@ -12,6 +14,7 @@ import {
   useBillingCtaExperimentArm,
 } from "@/hooks/use-billing-cta-experiment";
 import { useIsFreePlan } from "@/hooks/use-is-free-plan";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 
 // Lazy for the same reason as the composer-banner mount in
@@ -55,13 +58,39 @@ export function CreditsUpsellCard() {
   const navigate = useNavigate();
   const [showAddCredits, setShowAddCredits] = useState(false);
 
+  // Managed credits are platform-hosted billing, so the card follows the
+  // platform-hosted gate (like `MaintenanceModeBanner` and the billing
+  // settings tab): "full" renders the real CTA, "disabled" renders the login
+  // treatment, "gated" renders nothing. The gate also keys the subscription
+  // fetch inside `useIsFreePlan` — without a platform session `useIsOrgReady`
+  // still reports ready, so an ungated fetch would fire unauthenticated.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
   const billingCtaArm = useBillingCtaExperimentArm();
-  const isFreePlan = useIsFreePlan(true);
+  const isFreePlan = useIsFreePlan(platformGate === "full");
   const mode = resolveCreditPaywallCta({
     isUpgradeArm: isBillingCtaUpgradeArm(billingCtaArm),
     isFreePlan,
   });
   const copy = COPY[mode];
+
+  if (platformGate === "gated") {
+    // Self-hosted active assistant: managed-credits billing has no meaning
+    // here, and every recovery action the card could offer targets the
+    // platform. (Credits-exhausted rows are only persisted by managed
+    // billing, so this state is a defensive rail, not a normal path.)
+    return null;
+  }
+
+  if (platformGate === "disabled") {
+    // Platform reachable but no platform session (e.g. it expired): the
+    // add-credits / view-plans CTAs cannot complete a billing request, so
+    // offer the shared login affordance instead of a dead-end CTA.
+    return (
+      <PlatformLoginNotice className="mx-auto max-w-[calc(100%-24px)]">
+        Log in to the Vellum platform to add credits.
+      </PlatformLoginNotice>
+    );
+  }
 
   return (
     <>
@@ -79,12 +108,12 @@ export function CreditsUpsellCard() {
         detached={true}
       />
       {showAddCredits ? (
-        <Suspense fallback={null}>
+        <LazyBoundary>
           <AddCreditsModal
             open={showAddCredits}
             onOpenChange={setShowAddCredits}
           />
-        </Suspense>
+        </LazyBoundary>
       ) : null}
     </>
   );

@@ -97,6 +97,57 @@ describe("mergeAdjacentAssistantMessages · happy path", () => {
   });
 });
 
+describe("mergeAdjacentAssistantMessages · standalone rows", () => {
+  test("provider-error rows never fold, in either direction", () => {
+    // Mirrors the daemon's `isStandaloneAssistantRow`: a fold keeps only the
+    // survivor's metadata, so it would drop the donor's providerError marker
+    // or absorb real assistant text into the marked row.
+    const messages = [
+      makeAssistant({
+        id: "a-1",
+        ...textBody("real answer "),
+        timestamp: 1000,
+      }),
+      makeAssistant({
+        id: "err-1",
+        ...textBody("Your credits ran out."),
+        timestamp: 1010,
+        providerError: {
+          code: "PROVIDER_BILLING",
+          category: "credits_exhausted",
+        },
+      }),
+      makeAssistant({
+        id: "a-2",
+        ...textBody("later answer"),
+        timestamp: 1020,
+      }),
+    ];
+    const result = mergeAdjacentAssistantMessages(messages);
+    expect(result.map((m) => m.id)).toEqual(["a-1", "err-1", "a-2"]);
+    expect(result[1]!.providerError).toEqual({
+      code: "PROVIDER_BILLING",
+      category: "credits_exhausted",
+    });
+  });
+
+  test("system-card rows never fold, in either direction", () => {
+    const messages = [
+      makeAssistant({ id: "a-1", ...textBody("speech "), timestamp: 1000 }),
+      makeAssistant({
+        id: "card-1",
+        ...textBody("Context compacted."),
+        timestamp: 1010,
+        isSystemCard: true,
+      }),
+      makeAssistant({ id: "a-2", ...textBody("more speech"), timestamp: 1020 }),
+    ];
+    const result = mergeAdjacentAssistantMessages(messages);
+    expect(result.map((m) => m.id)).toEqual(["a-1", "card-1", "a-2"]);
+    expect(result[1]!.isSystemCard).toBe(true);
+  });
+});
+
 describe("mergeAdjacentAssistantMessages · referential stability", () => {
   test("returns the input array (by reference) when no adjacent pair exists", () => {
     const messages = [

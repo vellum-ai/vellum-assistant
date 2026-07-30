@@ -7,6 +7,7 @@ import type {
   TranscriptItem,
 } from "@/domains/chat/transcript/types";
 
+import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function makeMessage(
   overrides: Omit<DisplayMessage, "id"> & { id?: string },
@@ -652,7 +653,10 @@ describe("buildTranscriptItems", () => {
       id: "m2",
       role: "assistant",
       ...textBody("I hit a snag: your credits ran out."),
-      providerError: { code: "PROVIDER_BILLING", category: "credits_exhausted" },
+      providerError: {
+        code: "PROVIDER_BILLING",
+        category: "credits_exhausted",
+      },
     });
 
     const items = buildTranscriptItems({
@@ -662,6 +666,89 @@ describe("buildTranscriptItems", () => {
 
     expect(items).toHaveLength(2);
     expect(items[0]).toEqual({ kind: "message", key: "m1", message: user });
+    expect(items[1]).toEqual({
+      kind: "creditsUpsell",
+      key: "credits-upsell-m2",
+      messageId: "m2",
+    });
+    expectDistinctNonEmptyKeys(items);
+  });
+
+  test("code-only provider-error rows (no category) substitute the card too", () => {
+    // The daemon builds `providerError` with each field conditional on being
+    // a string, so a persisted row can carry a bare PROVIDER_BILLING code.
+    // The substitution shares `isCreditsExhaustedProviderError` with the live
+    // composer banner, which accepts that shape as managed credits.
+    const errorRow = makeMessage({
+      id: "m1",
+      role: "assistant",
+      ...textBody("I hit a snag: your credits ran out."),
+      providerError: { code: "PROVIDER_BILLING" },
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [errorRow],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toEqual({
+      kind: "creditsUpsell",
+      key: "credits-upsell-m1",
+      messageId: "m1",
+    });
+  });
+
+  test("empty provider-error markers (no code, no category) keep the normal message rendering", () => {
+    const errorRow = makeMessage({
+      id: "m1",
+      role: "assistant",
+      ...textBody("Something went wrong."),
+      providerError: {},
+    });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [errorRow],
+    });
+
+    expect(items).toHaveLength(1);
+    expect((items[0] as MessageItem).message).toBe(errorRow);
+  });
+
+  test("adjacent assistant + provider-error rows survive the client fold and still substitute the card", () => {
+    // The history-pagination fold must treat provider-error rows as
+    // standalone (mirroring the daemon's `isStandaloneAssistantRow`); a fold
+    // would drop the marker and with it the card.
+    const assistant = makeMessage({
+      id: "m1",
+      role: "assistant",
+      ...textBody("Partial answer before the failure."),
+    });
+    const errorRow = makeMessage({
+      id: "m2",
+      role: "assistant",
+      ...textBody("I hit a snag: your credits ran out."),
+      providerError: {
+        code: "PROVIDER_BILLING",
+        category: "credits_exhausted",
+      },
+    });
+
+    const folded = mergeAdjacentAssistantMessages([assistant, errorRow]);
+    expect(folded).toHaveLength(2);
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: folded,
+    });
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toEqual({
+      kind: "message",
+      key: "m1",
+      message: assistant,
+    });
     expect(items[1]).toEqual({
       kind: "creditsUpsell",
       key: "credits-upsell-m2",
