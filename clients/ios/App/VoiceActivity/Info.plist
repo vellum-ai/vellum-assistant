@@ -9,8 +9,8 @@
 	     extension omits it, and the failure lands at the altool step long
 	     after the archive has built and signed. Distinct from CFBundleName
 	     below, which XcodeGen derives from the target name and so reads
-	     "VoiceActivity Dev" — a build-system identifier, not something to
-	     show a user. This is the name that appears in the widget gallery,
+	     "VoiceActivity Dev", a build-system identifier rather than
+	     something to show a user. This is the name that appears in the widget gallery,
 	     so it tracks the containing app's display name per environment. -->
 	<key>CFBundleDisplayName</key>
 	<string>$(BUNDLE_DISPLAY_NAME)</string>
