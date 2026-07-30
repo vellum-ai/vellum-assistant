@@ -1,8 +1,6 @@
 import type { ReactNode } from "react";
 
 import "./globals.css";
-// TODO(docs-app-phase-1 PR 5): move this import into the docs layout once it
-// exists; imported here temporarily so the placeholder page exercises it.
 import "./docs/docs-theme.css";
 
 /* Pre-hydration theme bootstrap. Mirrors the key precedence of the assistant
