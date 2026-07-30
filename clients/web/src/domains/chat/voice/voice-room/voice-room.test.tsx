@@ -490,24 +490,46 @@ describe("VoiceRoom: placement variants", () => {
 // portals it out of the layout, so unlike the desktop panel it cannot inherit
 // that edge from the DOM and is positioned against a measured header height.
 describe("VoiceRoom: mobile sheet", () => {
-  /** Stand in for the real header so the sheet has an edge to rest below. */
-  function mountHeader(height: number) {
+  /**
+   * Stand in for the real header so the sheet has an edge to rest below.
+   * `top` defaults non-zero because that is the real case: `root-layout.tsx`
+   * pads the app shell above the header by the notch inset, and stacks the iOS
+   * keyboard offset on top of that.
+   */
+  function mountHeader({ top = 47, height = 96 } = {}) {
     const header = document.createElement("div");
     header.setAttribute("data-slot", "chat-layout-header");
     header.getBoundingClientRect = () =>
-      ({ height, width: 390, top: 0, left: 0 }) as DOMRect;
+      ({ height, width: 390, top, left: 0, bottom: top + height }) as DOMRect;
     document.body.appendChild(header);
     return () => header.remove();
   }
 
-  test("renders as a dialog whose top rests at the header's bottom edge", () => {
-    const removeHeader = mountHeader(96);
+  test("rests at the header's bottom edge, not its height", () => {
+    // The sheet is `fixed` against the viewport, so the offset has to be the
+    // header's bottom in viewport coordinates. Positioning by height alone
+    // puts it above the notch inset and overlaps the header it should sit
+    // under, and the gap widens when the iOS keyboard shifts the shell down.
+    const removeHeader = mountHeader({ top: 47, height: 96 });
     startOwnedSession("listening");
     render(<VoiceRoom variant="sheet" />);
 
     const sheet = screen.getByRole("dialog", { name: "Voice session" });
     expect(sheet.getAttribute("data-slot")).toBe("bottom-sheet-content");
-    expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("96px");
+    expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
+    removeHeader();
+  });
+
+  test("a header flush to the viewport top offsets by its height", () => {
+    const removeHeader = mountHeader({ top: 0, height: 96 });
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    expect(
+      screen
+        .getByRole("dialog", { name: "Voice session" })
+        .style.getPropertyValue("--voice-sheet-top"),
+    ).toBe("96px");
     removeHeader();
   });
 
@@ -515,7 +537,7 @@ describe("VoiceRoom: mobile sheet", () => {
     // The room is a surface, not sheet content: a color fill inset by the
     // primitive's default `px-4 pt-4` would leave a frame of sheet background
     // around it.
-    const removeHeader = mountHeader(96);
+    const removeHeader = mountHeader();
     startOwnedSession("listening");
     const { container } = render(<VoiceRoom variant="sheet" />);
 
@@ -531,7 +553,7 @@ describe("VoiceRoom: mobile sheet", () => {
   test("the room fills the sheet without declaring a second dialog", () => {
     // Radix's content element is the dialog. A nested role + label inside it
     // would announce the room twice.
-    const removeHeader = mountHeader(96);
+    const removeHeader = mountHeader();
     startOwnedSession("listening");
     render(<VoiceRoom variant="sheet" />);
 
@@ -553,7 +575,7 @@ describe("VoiceRoom: mobile sheet", () => {
   test("Escape minimizes exactly once, and does not end the session", () => {
     // Radix owns Escape for the sheet, so the room's own window handler stands
     // down. Both firing would be two minimizes for one keypress.
-    const removeHeader = mountHeader(96);
+    const removeHeader = mountHeader();
     startOwnedSession("listening");
     render(<VoiceRoom variant="sheet" />);
 

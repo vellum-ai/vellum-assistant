@@ -27,7 +27,7 @@
  * - `"sheet"` (mobile): a `BottomSheet` that slides up and rests below the
  *   thread header, the mobile counterpart of the inset panel. Radix portals it
  *   out of the layout and positions it `fixed`, so it is told where the header
- *   ends ({@link useChatHeaderHeight}) rather than inheriting that edge from
+ *   ends ({@link useChatHeaderBottom}) rather than inheriting that edge from
  *   the DOM. Modal, because Radix makes it so.
  * - `"fullscreen"`: `fixed inset-0` over the whole viewport, modal, with
  *   safe-area padding for notched iOS shells. No longer mounted by the chat
@@ -92,7 +92,7 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import { useActiveConnectSurface } from "./use-active-connect-surface";
-import { useChatHeaderHeight } from "./use-chat-header-height";
+import { useChatHeaderBottom } from "./use-chat-header-bottom";
 import { toRoomLocal, useRoomBox } from "./use-room-box";
 import { resolveWaveAccentHex } from "./wave-accent";
 
@@ -166,11 +166,11 @@ export function VoiceRoom({
  * and the session keeps running behind the composer's voice bar.
  */
 function VoiceRoomSheet({
-  headerHeight,
+  headerBottom,
   children,
 }: {
-  /** Where the sheet's top edge rests. See {@link useChatHeaderHeight}. */
-  headerHeight: number;
+  /** Where the sheet's top edge rests. See {@link useChatHeaderBottom}. */
+  headerBottom: number;
   children: ReactNode;
 }) {
   return (
@@ -184,7 +184,7 @@ function VoiceRoomSheet({
         // the bottom edge.
         className="top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0"
         style={
-          { "--voice-sheet-top": `${headerHeight}px` } as CSSProperties
+          { "--voice-sheet-top": `${headerBottom}px` } as CSSProperties
         }
         aria-label="Voice session"
         // The room narrates itself through its own live region; a description
@@ -231,9 +231,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // The room's own rectangle. Everything in the look lays out against this, not
   // the window. As an inset panel they differ (see the module docstring).
   const { ref: roomRef, box } = useRoomBox();
-  // Where the mobile sheet's top edge rests. Measured for every variant (hooks
+  // Where the mobile sheet's top edge rests: the header's bottom in viewport
+  // coordinates, since the sheet is `fixed`. Measured for every variant (hooks
   // cannot be conditional) but only read by the sheet.
-  const headerHeight = useChatHeaderHeight();
+  const headerBottom = useChatHeaderBottom();
   // The entry origin is a viewport point; the look lays out in room-local
   // space. Fullscreen's offset is zero, which makes this a no-op there.
   const localEntryOrigin = toRoomLocal(entryOrigin, box);
@@ -625,7 +626,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   );
 
   return sheet ? (
-    <VoiceRoomSheet headerHeight={headerHeight}>{body}</VoiceRoomSheet>
+    <VoiceRoomSheet headerBottom={headerBottom}>{body}</VoiceRoomSheet>
   ) : (
     body
   );
