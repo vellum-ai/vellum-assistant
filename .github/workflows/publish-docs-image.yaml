@@ -18,6 +18,7 @@ on:
       - 'package.json'
       - 'bun.lock'
       - 'patches/**'
+      - '.dockerignore'
       - '.github/workflows/publish-docs-image.yaml'
   workflow_dispatch:
     inputs:
@@ -30,6 +31,11 @@ on:
           - dev
           - staging
           - production
+
+# Serialize publishes per environment so an older build cannot finish last
+# and overwrite the mutable `latest` tag from a newer commit.
+concurrency:
+  group: publish-docs-image-${{ inputs.environment || 'dev' }}
 
 env:
   DOCS_IMAGE_NAME: sandbox-images/docs-site
