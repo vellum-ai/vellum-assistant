@@ -1045,6 +1045,19 @@ else
     echo -e "${YELLOW}⚠️  bun not found — skipping generic-examples check${NC}"
 fi
 
+# --- Em-dash rule check ---
+# Enforces AGENTS.md "Em Dashes" on the lines this commit adds. Existing text
+# is deliberately untouched. See scripts/check-em-dashes.ts.
+if [ -x "$GE_BUN" ]; then
+    echo "🔍 Checking em-dash rule..."
+    if ! "$GE_BUN" scripts/check-em-dashes.ts; then
+        exit 1
+    fi
+    echo "✅ Em-dash rule OK"
+else
+    echo -e "${YELLOW}⚠️  bun not found — skipping em-dash check${NC}"
+fi
+
 # --- Prettier & Lint checks for assistant, cli, gateway, and web ---
 # When files in these directories are staged, run prettier --check and eslint
 # on the staged files to catch formatting and lint issues before commit.

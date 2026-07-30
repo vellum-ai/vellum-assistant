@@ -146,6 +146,8 @@ This covers everything you write: user-facing copy, code comments, documentation
 
 Existing text is not swept retroactively. Fix em dashes on lines you are already changing and leave the rest alone.
 
+**Enforcement:** the pre-commit hook runs `scripts/check-em-dashes.ts` against the lines your commit adds, and the commit-msg hook runs it against the message itself. Only added lines are scanned, which is what keeps the no-retroactive-sweep promise. Generated output, lockfiles, and this file are exempt. Inline suppression: `em-dashes:ignore-next-line - reason: <why>` on the line above, or `em-dashes:ignore-line` on the line itself - for the rare case where the character is the subject rather than the punctuation.
+
 ## Control-Flow Braces
 
 Wrap every `if` / `else` / `for` / `while` / `do…while` body in braces, even a single-statement one-liner. Braces make control flow easy to scan — the block boundary is explicit — and close a common footgun: a second line added under a braceless condition reads as if it sits inside the branch but runs unconditionally. The ESLint `curly` rule enforces this at `error` in both `assistant/` and `clients/web/`; it is fully auto-fixable with `eslint --fix`.

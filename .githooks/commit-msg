@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Generic-examples scan for commit messages.
+# Writing-rule scans for commit messages.
 #
-# Mirrors the pre-commit hook's check, but against the message text in $1
-# (the path git passes to a commit-msg hook). See scripts/check-generic-examples.ts.
+# Mirrors the pre-commit hook's checks, but against the message text in $1
+# (the path git passes to a commit-msg hook). Both rules cover commit messages
+# explicitly. See scripts/check-generic-examples.ts and scripts/check-em-dashes.ts.
 
 set -euo pipefail
 
@@ -14,4 +15,5 @@ if [ ! -x "$GE_BUN" ]; then
   exit 0
 fi
 
-exec "$GE_BUN" "$REPO/scripts/check-generic-examples.ts" --commit-msg "$1"
+"$GE_BUN" "$REPO/scripts/check-generic-examples.ts" --commit-msg "$1"
+exec "$GE_BUN" "$REPO/scripts/check-em-dashes.ts" --commit-msg "$1"

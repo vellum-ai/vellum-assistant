@@ -24,6 +24,15 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { execSync } from "node:child_process";
 
+import {
+  getDiff,
+  isSuppressed as isSuppressedBy,
+  parseCommitMessage,
+  parseUnifiedDiff,
+  shouldSkipFile as shouldSkipSharedFile,
+  type AddedLine,
+} from "./lib/staged-text-scan";
+
 type Severity = "BLOCK" | "WARN";
 
 interface Pattern {
@@ -118,176 +127,25 @@ function loadPrivatePatterns(): Pattern[] {
   return patterns;
 }
 
-// -------- Diff parsing --------
+// -------- Files this rule additionally skips --------
 
-interface AddedLine {
-  file: string;
-  line: number;
-  content: string;
-  /** Line immediately preceding this one in the new file (for suppression lookup). */
-  previousContent: string;
-}
-
+/**
+ * On top of the shared skips (lockfiles, generated output, snapshots): the
+ * rule's own machinery, whose patterns and fixtures necessarily contain the
+ * shapes it matches on.
+ */
 const SKIP_FILE_PATTERNS: RegExp[] = [
   /^scripts\/generic-examples\//,
   /^scripts\/check-generic-examples\.ts$/,
   /^\.githooks\/(pre-commit|commit-msg)$/,
-  /\.lock$/,
-  /\.lockb$/,
-  /package-lock\.json$/,
-  /yarn\.lock$/,
-  /bun\.lock$/,
-  /^CHANGELOG/,
-  /\.snap$/,
-  /node_modules\//,
 ];
 
 function shouldSkipFile(file: string): boolean {
-  return SKIP_FILE_PATTERNS.some((p) => p.test(file));
+  return shouldSkipSharedFile(file, SKIP_FILE_PATTERNS);
 }
-
-function parseUnifiedDiff(diff: string): AddedLine[] {
-  const added: AddedLine[] = [];
-  let currentFile = "";
-  let currentNewLine = 0;
-  // Track context lines so we can populate previousContent for each add.
-  const recentContentByFile = new Map<string, Map<number, string>>();
-
-  const lines = diff.split("\n");
-  for (const raw of lines) {
-    if (raw.startsWith("+++ ")) {
-      // "+++ b/path/to/file" or "+++ /dev/null"
-      const m = raw.match(/^\+\+\+ b\/(.+)$/);
-      currentFile = m ? m[1] : "";
-      if (currentFile && !recentContentByFile.has(currentFile)) {
-        recentContentByFile.set(currentFile, new Map());
-      }
-      continue;
-    }
-    if (raw.startsWith("@@")) {
-      const m = raw.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-      if (m) currentNewLine = parseInt(m[1], 10);
-      continue;
-    }
-    if (!currentFile) continue;
-
-    if (raw.startsWith("+") && !raw.startsWith("+++")) {
-      const content = raw.slice(1);
-      const map = recentContentByFile.get(currentFile)!;
-      const previousContent = map.get(currentNewLine - 1) ?? "";
-      map.set(currentNewLine, content);
-      added.push({
-        file: currentFile,
-        line: currentNewLine,
-        content,
-        previousContent,
-      });
-      currentNewLine++;
-    } else if (raw.startsWith("-") && !raw.startsWith("---")) {
-      // Removed line — does not advance new-file counter.
-    } else if (raw.startsWith(" ")) {
-      // Context line — record for suppression lookup, advance counter.
-      recentContentByFile.get(currentFile)!.set(currentNewLine, raw.slice(1));
-      currentNewLine++;
-    }
-  }
-  return added;
-}
-
-// -------- Commit-message parsing --------
-
-// Git inserts this scissors line via `git commit --verbose` (and friends);
-// everything below it is dropped before the commit is recorded.
-const COMMIT_MSG_SCISSORS = "# ------------------------ >8 ------------------------";
-
-// `verbatim` and `whitespace` cleanup modes keep `#` lines in the recorded
-// commit message, so we cannot blindly skip them — quoted real data in `#`
-// comments would slip through the scan. `default`/`strip`/`scissors` drop
-// them, so skipping avoids false positives on git editor template text.
-const DROPS_HASH_LINES: ReadonlySet<string> = new Set([
-  "default",
-  "strip",
-  "scissors",
-]);
-
-function getCommitCleanupMode(): string {
-  try {
-    const value = execSync("git config --get commit.cleanup", {
-      stdio: ["pipe", "pipe", "ignore"],
-    })
-      .toString()
-      .trim();
-    return value || "default";
-  } catch {
-    return "default";
-  }
-}
-
-function parseCommitMessage(
-  text: string,
-  cleanupMode: string = getCommitCleanupMode(),
-): AddedLine[] {
-  const result: AddedLine[] = [];
-  const lines = text.split("\n");
-  const dropsHashLines = DROPS_HASH_LINES.has(cleanupMode);
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
-    // The scissors line and everything below it are added by `git commit -v`
-    // and dropped before the commit is recorded regardless of cleanup mode —
-    // that region holds the verbose diff (passed to `commit-msg` but never
-    // part of the recorded message), so scanning it would produce false
-    // positives on staged code rather than commit text.
-    if (raw === COMMIT_MSG_SCISSORS) break;
-    // `#` comment lines are dropped under `default`/`strip`/`scissors` but
-    // kept verbatim under `verbatim`/`whitespace`, so gate skipping on mode.
-    if (dropsHashLines && raw.startsWith("#")) continue;
-    // No previousContent tracking: prior-line suppression markers in commit
-    // messages would survive into the recorded message (odd UX). Same-line
-    // `generic-examples:ignore-line` still works via isSuppressed().
-    result.push({
-      file: "(commit message)",
-      line: i + 1,
-      content: raw,
-      previousContent: "",
-    });
-  }
-  return result;
-}
-
-function getDiff(mode: "staged" | "ci"): string {
-  if (mode === "staged") {
-    return execSync("git diff --cached --unified=1 --no-color", {
-      maxBuffer: 64 * 1024 * 1024,
-    }).toString();
-  }
-  // CI mode: diff the PR range. Prefer GitHub Actions env, fall back to
-  // merge-base with origin/main.
-  const base =
-    process.env.GITHUB_BASE_REF ??
-    execSync("git merge-base HEAD origin/main", {
-      maxBuffer: 1024 * 1024,
-    })
-      .toString()
-      .trim();
-  const baseRef = process.env.GITHUB_BASE_REF
-    ? `origin/${process.env.GITHUB_BASE_REF}`
-    : base;
-  return execSync(
-    `git diff ${baseRef}...HEAD --unified=1 --no-color`,
-    {
-      maxBuffer: 64 * 1024 * 1024,
-    },
-  ).toString();
-}
-
-// -------- Suppression --------
 
 function isSuppressed(line: AddedLine): boolean {
-  if (line.content.includes("generic-examples:ignore-line")) return true;
-  if (line.previousContent.includes("generic-examples:ignore-next-line")) {
-    return true;
-  }
-  return false;
+  return isSuppressedBy(line, "generic-examples");
 }
 
 // -------- Matching --------
