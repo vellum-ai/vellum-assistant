@@ -85,6 +85,56 @@ describe("extractDocsPageFromHtml", () => {
     expect(setupChunks.length).toBe(1);
   });
 
+  test("scopes standalone heading chunks to their own heading block", () => {
+    const html = `
+      <div class="docs-main">
+        <div class="docs-breadcrumb">Docs / Guides</div>
+        <h1>Guides</h1>
+        <div class="docs-prose">
+          <h2 id="install">Install</h2>
+          <p>Download the installer bundle.</p>
+          <h2 id="uninstall">Uninstall</h2>
+          <p>Remove the zamboni directory.</p>
+        </div>
+      </div>
+    `;
+
+    const extracted = extractDocsPageFromHtml("/docs/guides", html);
+
+    const installChunk = extracted.chunks.find((chunk) => chunk.sectionId === "install");
+    const uninstallChunk = extracted.chunks.find((chunk) => chunk.sectionId === "uninstall");
+
+    expect(installChunk?.body).toContain("installer bundle");
+    expect(installChunk?.body).not.toContain("zamboni");
+    expect(uninstallChunk?.body).toContain("zamboni");
+    expect(uninstallChunk?.body).not.toContain("installer bundle");
+  });
+
+  test("preserves spaces between adjacent elements", () => {
+    const html = `
+      <div class="docs-main">
+        <div class="docs-breadcrumb">Docs / Features</div>
+        <h1>Features</h1>
+        <div class="docs-prose">
+          <section id="list">
+            <h2 id="list">List</h2>
+            <ul><li>Alpha</li><li>Beta</li></ul>
+          </section>
+        </div>
+      </div>
+    `;
+
+    const extracted = extractDocsPageFromHtml("/docs/features", html);
+
+    const sectionChunk = extracted.chunks.find((chunk) => chunk.sectionId === "list");
+    expect(sectionChunk?.body).toContain("Alpha Beta");
+    expect(sectionChunk?.body).not.toContain("AlphaBeta");
+
+    const pageChunk = extracted.chunks.find((chunk) => chunk.sectionId === null);
+    expect(pageChunk?.body).toContain("Alpha Beta");
+    expect(pageChunk?.body).not.toContain("AlphaBeta");
+  });
+
   test("creates fallback page chunk when headings are missing", () => {
     const html = `
       <div class="docs-main">

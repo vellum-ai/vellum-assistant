@@ -1,4 +1,4 @@
-import { load } from "cheerio";
+import { load, type Cheerio, type CheerioAPI } from "cheerio";
 
 import type { DocsSearchChunk } from "@/lib/docs/search/types";
 import { normalizeText, uniqueTokens } from "@/lib/docs/search/text";
@@ -7,6 +7,26 @@ export interface ExtractedDocsPage {
   pageTitle: string;
   breadcrumb: string;
   chunks: DocsSearchChunk[];
+}
+
+// Cheerio<AnyNode> derived without importing domhandler, which is not a direct dependency.
+type NodeSelection = ReturnType<Cheerio<never>["contents"]>;
+
+// Cheerio's .text() concatenates adjacent elements without separators, fusing tokens
+// like <li>Alpha</li><li>Beta</li> into "AlphaBeta". Insert element boundaries as spaces
+// on a detached clone so extracted text keeps one token per word.
+function elementText($: CheerioAPI, selection: NodeSelection): string {
+  const parts: string[] = [];
+
+  selection.each((_, node) => {
+    const clone = $(node).clone();
+    clone.find("*").each((_, descendant) => {
+      $(descendant).before(" ").after(" ");
+    });
+    parts.push(clone.text());
+  });
+
+  return normalizeText(parts.join(" "));
 }
 
 function cleanSectionBody(sectionText: string, headingText: string): string {
@@ -73,8 +93,8 @@ export function extractDocsPageFromHtml(route: string, html: string): ExtractedD
   const $ = load(html);
   const main = $(".docs-main").first();
 
-  const pageTitle = normalizeText(main.find("h1").first().text()) || "Docs";
-  const breadcrumb = normalizeText(main.find(".docs-breadcrumb").first().text()) || "Docs";
+  const pageTitle = elementText($, main.find("h1").first()) || "Docs";
+  const breadcrumb = elementText($, main.find(".docs-breadcrumb").first()) || "Docs";
 
   const proseRoot = main.find(".docs-prose").first();
   const chunks: DocsSearchChunk[] = [];
@@ -89,10 +109,10 @@ export function extractDocsPageFromHtml(route: string, html: string): ExtractedD
     }
 
     const headingEl = section.find("h2[id], h3[id]").first();
-    const headingText = normalizeText(headingEl.text()) || sectionId;
+    const headingText = elementText($, headingEl) || sectionId;
     const tagName = headingEl.get(0)?.tagName?.toLowerCase();
     const headingLevel: 1 | 2 | 3 = tagName === "h3" ? 3 : 2;
-    const body = cleanSectionBody(section.text(), headingText);
+    const body = cleanSectionBody(elementText($, section), headingText);
 
     if (!body) {
       return;
@@ -120,11 +140,15 @@ export function extractDocsPageFromHtml(route: string, html: string): ExtractedD
       return;
     }
 
-    const headingText = normalizeText(heading.text()) || sectionId;
+    const headingText = elementText($, heading) || sectionId;
     const headingLevel: 1 | 2 | 3 = heading.get(0)?.tagName?.toLowerCase() === "h3" ? 3 : 2;
 
-    const block = heading.closest("section").length > 0 ? heading.closest("section") : heading.parent();
-    const body = cleanSectionBody(block.text(), headingText);
+    const parentSection = heading.closest("section");
+    const block =
+      parentSection.length > 0
+        ? parentSection
+        : heading.add(heading.nextUntil("h1, h2, h3, h4, section"));
+    const body = cleanSectionBody(elementText($, block), headingText);
 
     if (!body) {
       return;
@@ -145,7 +169,7 @@ export function extractDocsPageFromHtml(route: string, html: string): ExtractedD
     seenIds.add(sectionId);
   });
 
-  const pageBody = normalizeText(proseRoot.text());
+  const pageBody = elementText($, proseRoot);
   if (pageBody) {
     chunks.unshift(
       makeChunk({
