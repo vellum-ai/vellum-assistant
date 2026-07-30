@@ -253,6 +253,10 @@ describe("docs proxy UTM/click-ID capture", () => {
     ["https://www.google.co.uk/", "google", "organic"],
     ["https://notgoogle.com/", "notgoogle.com", "referral"],
     ["https://x.com.example.org/", "x.com.example.org", "referral"],
+    ["https://google.example.org/", "google.example.org", "referral"],
+    ["https://mail.google.example.org/", "mail.google.example.org", "referral"],
+    ["https://copilot.bing.com/", "copilot", "geo"],
+    ["https://copilot.microsoft.com/", "copilot", "geo"],
   ])(
     "referrer %s classifies as source=%s medium=%s",
     (referrer, source, medium) => {

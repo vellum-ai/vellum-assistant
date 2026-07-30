@@ -145,10 +145,13 @@ function hostMatchesAny(host: string, domains: readonly string[]): boolean {
 }
 
 // Google search spans ccTLDs (google.com, google.co.uk, google.de, ...), so a
-// suffix match against a fixed domain can't cover it. Match the "google" label
-// at a dot boundary followed by at most two trailing labels, which rejects
-// lookalikes (notgoogle.com) and embedded brands (google.com.evil.org).
-const GOOGLE_SEARCH_HOST = /(^|\.)google\.[a-z]{2,}(\.[a-z]{2,})?$/;
+// suffix match against a fixed domain can't cover it. Require "google" to be
+// the registrable label: the suffix must be a bare TLD (com, de, fr, ...) or a
+// known second-level country form (co.uk, com.au, ...). This rejects
+// lookalikes (notgoogle.com), embedded brands (google.com.evil.org), and
+// third-party registrable domains carrying a google label (google.example.org).
+const GOOGLE_SEARCH_HOST =
+  /(^|\.)google\.(com|[a-z]{2}|(co|com)\.[a-z]{2})$/;
 
 function inferUTMFromReferrer(
   request: NextRequest,
@@ -228,7 +231,9 @@ function inferUTMFromReferrer(
   } else if (hostMatches(host, "gemini.google.com")) {
     source = "gemini";
     medium = "geo";
-  } else if (hostMatches(host, "copilot.microsoft.com")) {
+  } else if (
+    hostMatchesAny(host, ["copilot.microsoft.com", "copilot.bing.com"])
+  ) {
     source = "copilot";
     medium = "geo";
   } else if (hostMatches(host, "grok.com")) {
