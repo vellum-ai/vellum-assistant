@@ -24,6 +24,7 @@ import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
+import { stripeScaleDigits } from "@vellumai/service-contracts/stripe-currency";
 
 const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [], has_more: false };
 
@@ -44,49 +45,6 @@ function statusTone(status: string | null): TagTone {
     default:
       return "neutral";
   }
-}
-
-/**
- * These sets follow Stripe's amount scaling rules
- * (https://docs.stripe.com/currencies), not ISO 4217 metadata. Notably,
- * Stripe keeps two-decimal scaling for ISK, HUF, TWD, and UGX for backward
- * compatibility even though ISO treats them as zero-decimal, so those codes
- * are deliberately absent from the zero-decimal set.
- */
-const STRIPE_ZERO_DECIMAL_CURRENCIES = new Set([
-  "BIF",
-  "CLP",
-  "DJF",
-  "GNF",
-  "JPY",
-  "KMF",
-  "KRW",
-  "MGA",
-  "PYG",
-  "RWF",
-  "VND",
-  "VUV",
-  "XAF",
-  "XOF",
-  "XPF",
-]);
-
-const STRIPE_THREE_DECIMAL_CURRENCIES = new Set([
-  "BHD",
-  "JOD",
-  "KWD",
-  "OMR",
-  "TND",
-]);
-
-function stripeScaleDigits(currencyCode: string): number {
-  if (STRIPE_ZERO_DECIMAL_CURRENCIES.has(currencyCode)) {
-    return 0;
-  }
-  if (STRIPE_THREE_DECIMAL_CURRENCIES.has(currencyCode)) {
-    return 3;
-  }
-  return 2;
 }
 
 /**
