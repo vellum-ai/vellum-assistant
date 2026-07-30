@@ -36,9 +36,9 @@ import {
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
-import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useConnectivityState } from "@/hooks/use-connectivity-state";
 import { useNetworkStatus } from "@/hooks/use-network-status";
+import { useResumeGrace } from "@/hooks/use-resume-grace";
 import { isCliWakeableAssistant } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { isElectron } from "@/runtime/is-electron";
@@ -64,25 +64,6 @@ interface BannerConfig {
 }
 
 const LOCAL_WAKE_SETTLING_MS = 60_000;
-
-// Window after an `app.resume` (tab foreground, network back) during which a
-// transient `unreachable` reading or status-query error is treated as a
-// still-waking assistant rather than a hard failure. On resume from
-// background the first status probe frequently reads `unreachable` (pod
-// idle-slept, or the probe raced the pod waking) before settling to
-// `active`, and the background poll timers were throttled so the
-// `wasRecentlyActive` / `wasRecentlySleeping` suppression never observed the
-// preceding reading. Matches the `wasRecentlyActive` clear window.
-let resumeGraceMs = 15_000;
-
-/**
- * Override the resume grace window. Test-only seam so specs can exercise the
- * auto-clear without real-time waits; never call from production code.
- * @internal
- */
-export function __setResumeGraceMsForTesting(ms: number): void {
-  resumeGraceMs = ms;
-}
 
 export type StatusBannerPlacement = "web" | "electron";
 
@@ -625,32 +606,9 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // client. On resume the first status probe often reads `unreachable`
   // before settling, and because background poll timers were throttled the
   // `wasRecentlyActive` / `wasRecentlySleeping` suppression never observed
-  // the preceding reading. Arm a short grace window on every `app.resume`
-  // so a transient `unreachable` reads as "waking" instead of an error.
-  const [resumeGraceUntil, setResumeGraceUntil] = useState<number | null>(
-    null,
-  );
-  useBusSubscription("app.resume", () => {
-    setResumeGraceUntil(Date.now() + resumeGraceMs);
-  });
-  // Auto-clear when the window elapses so a genuinely unreachable assistant
-  // still surfaces the real error + Doctor action. Keyed on the deadline so a
-  // later resume re-arms the timer instead of being collapsed into the first.
-  useEffect(() => {
-    if (resumeGraceUntil === null) {
-      return;
-    }
-    const remaining = resumeGraceUntil - Date.now();
-    if (remaining <= 0) {
-      setResumeGraceUntil(null);
-      return;
-    }
-    const timeout = setTimeout(() => {
-      setResumeGraceUntil(null);
-    }, remaining);
-    return () => clearTimeout(timeout);
-  }, [resumeGraceUntil]);
-  const isResumeGraceActive = resumeGraceUntil !== null;
+  // the preceding reading. The status query also refetches when the network
+  // comes back, so the window covers the `"online"` signal too.
+  const isResumeGraceActive = useResumeGrace({ includeOnlineSignal: true });
 
   // Suppress the brief "crash_loop" flash during a restart. The pod bounce
   // bumps the container restart counter, which the platform can briefly

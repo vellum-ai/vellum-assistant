@@ -26,6 +26,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { useResumeGrace } from "@/hooks/use-resume-grace";
 import {
   extractWirePendingAcpConnect,
   extractWirePendingConfirmation,
@@ -507,29 +508,41 @@ export function useConversationHistory({
 
   // -------------------------------------------------------------------------
   // Surface TanStack Query errors.
+  //
+  // An initial-page failure inside the resume grace window is held back: the
+  // focus manager refetches history the moment the client returns to the
+  // foreground, and that first request often fails transiently against a
+  // still-waking pod. It is still reported as a warning, and the blocking
+  // error surfaces once the window expires and the query is still in error.
   // -------------------------------------------------------------------------
+  const isResumeGraceActive = useResumeGrace();
   useEffect(() => {
     if (!pagination.isError || !pagination.error) {
       return;
     }
 
     const isOlderPageError = pagination.isSuccess;
+    const isHeldBack = !isOlderPageError && isResumeGraceActive;
     captureError(pagination.error, {
       context: isOlderPageError
         ? "conversation_history_older_page"
         : "conversation_history_initial",
+      level: isHeldBack ? "warning" : undefined,
     });
 
     if (!isOlderPageError) {
       setIsLoadingHistory(false);
-      setError({
-        message: "Failed to load conversation history. Please try again.",
-      });
+      if (!isHeldBack) {
+        setError({
+          message: "Failed to load conversation history. Please try again.",
+        });
+      }
     }
   }, [
     pagination.isError,
     pagination.isSuccess,
     pagination.error,
+    isResumeGraceActive,
     setIsLoadingHistory,
     setError,
   ]);

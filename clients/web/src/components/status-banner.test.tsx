@@ -18,6 +18,7 @@ import {
 import { type ComponentType, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { __setResumeGraceMsForTesting } from "@/hooks/use-resume-grace";
 import { __resetForTesting, publish } from "@/lib/event-bus";
 
 let isNativePlatformMock = false;
@@ -80,7 +81,7 @@ let StatusBanner: ComponentType<{
   className?: string;
   placement?: "web" | "electron";
 }>;
-let setResumeGraceMs: (ms: number) => void;
+const setResumeGraceMs = __setResumeGraceMsForTesting;
 const DEFAULT_RESUME_GRACE_MS = 15_000;
 
 mock.module("@/runtime/native-auth", () => ({
@@ -208,9 +209,7 @@ mock.module("@vellumai/design-library/components/button", () => ({
 }));
 
 beforeAll(async () => {
-  const mod = await import("@/components/status-banner");
-  StatusBanner = mod.StatusBanner;
-  setResumeGraceMs = mod.__setResumeGraceMsForTesting;
+  ({ StatusBanner } = await import("@/components/status-banner"));
 });
 
 beforeEach(() => {
