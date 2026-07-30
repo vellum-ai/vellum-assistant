@@ -388,14 +388,17 @@ export function ChatLayout({
       ];
     } else {
       // Reveal: a back-ease so the rail lands with a slight bounce. The
-      // hidden rail's inner menu keeps its full layout width, so scrollWidth
-      // gives the landing width up front; no fill, so the wrapper returns to
-      // shrink-wrapping the nav the moment the animation ends.
+      // landing width comes from state, not DOM measurement: skipping the
+      // tour un-forces a collapsed rail in this same commit, so the nav's
+      // measured width still reads expanded while it is already collapsing
+      // to 48px. No fill, so the wrapper returns to shrink-wrapping the nav
+      // the moment the animation ends.
+      const targetWidth = effectiveCollapsed ? 48 : sidebarWidth;
       railFocusAnimationsRef.current = [
         aside.animate(
           [
             { width: fromWidth, marginRight: fromMargin },
-            { width: `${aside.scrollWidth}px`, marginRight: "0px" },
+            { width: `${targetWidth}px`, marginRight: "0px" },
           ],
           { duration: 550, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
         ),
@@ -405,7 +408,7 @@ export function ChatLayout({
         }),
       ];
     }
-  }, [chatFocusActive, sideMenuAside]);
+  }, [chatFocusActive, sideMenuAside, effectiveCollapsed, sidebarWidth]);
 
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
