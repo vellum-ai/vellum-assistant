@@ -27,11 +27,13 @@ afterEach(() => {
   document.body.style.pointerEvents = "";
 });
 
-async function openMenu() {
+async function openMenu(expectedItems = 2) {
   const user = userEvent.setup();
   const trigger = screen.getByRole("button", { name: "File actions" });
   await user.click(trigger);
-  await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(2));
+  await waitFor(() =>
+    expect(screen.getAllByRole("menuitem").length).toBe(expectedItems),
+  );
   return user;
 }
 
@@ -141,6 +143,62 @@ describe("LocalFileMenu", () => {
         .getByRole("menuitem", { name: "Go to file" })
         .getAttribute("data-disabled"),
     ).toBeNull();
+  });
+
+  test("Picture in Picture is absent without a handler", async () => {
+    render(
+      <LocalFileMenu
+        workspacePath="scratch/report.pdf"
+        filename="report.pdf"
+        assistantId="asst-1"
+      />,
+    );
+
+    await openMenu();
+
+    expect(
+      screen.queryByRole("menuitem", { name: "Picture in Picture" }),
+    ).toBeNull();
+  });
+
+  test("Picture in Picture runs its handler", async () => {
+    const onPictureInPicture = mock(() => {});
+    render(
+      <LocalFileMenu
+        workspacePath="media/clip.mp4"
+        filename="clip.mp4"
+        assistantId="asst-1"
+        onPictureInPicture={onPictureInPicture}
+      />,
+    );
+
+    const user = await openMenu(3);
+    await user.click(
+      screen.getByRole("menuitem", { name: "Picture in Picture" }),
+    );
+
+    expect(onPictureInPicture).toHaveBeenCalledTimes(1);
+  });
+
+  test("Picture in Picture stays enabled for an unavailable file", async () => {
+    // It acts on the loaded video element, not on bytes read from disk.
+    const onPictureInPicture = mock(() => {});
+    render(
+      <LocalFileMenu
+        workspacePath={null}
+        filename="clip.mp4"
+        assistantId="asst-1"
+        disabled
+        onPictureInPicture={onPictureInPicture}
+      />,
+    );
+
+    const user = await openMenu(3);
+    const item = screen.getByRole("menuitem", { name: "Picture in Picture" });
+    expect(item.getAttribute("data-disabled")).toBeNull();
+
+    await user.click(item);
+    expect(onPictureInPicture).toHaveBeenCalledTimes(1);
   });
 
   test("the trigger opens on Enter", async () => {

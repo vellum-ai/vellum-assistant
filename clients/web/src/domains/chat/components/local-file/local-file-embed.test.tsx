@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
@@ -128,7 +129,25 @@ afterEach(() => {
   // Radix locks body pointer events while a menu is open; a test that
   // leaves one open must not disable pointers for the next one.
   document.body.style.pointerEvents = "";
+  delete (document as { pictureInPictureEnabled?: boolean })
+    .pictureInPictureEnabled;
 });
+
+/** happy-dom has no Picture in Picture API, so stand one in. */
+function enablePictureInPicture() {
+  Object.defineProperty(document, "pictureInPictureEnabled", {
+    configurable: true,
+    value: true,
+  });
+}
+
+async function openFileActions() {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "File actions" }));
+  await waitFor(() =>
+    expect(screen.getAllByRole("menuitem").length).toBeGreaterThan(0),
+  );
+}
 
 describe("LocalFileEmbed media", () => {
   test("image bytes render an inline image from an object URL", async () => {
@@ -200,6 +219,70 @@ describe("LocalFileEmbed media", () => {
 
     const preview = await waitFor(() => screen.getByTestId("pdf-preview"));
     expect(preview.getAttribute("data-url")?.startsWith("blob:")).toBe(true);
+    expect(preview.parentElement?.getAttribute("class")).toContain(
+      "max-h-[420px]",
+    );
+  });
+
+  test("a pdf embed frames the preview with a header naming the file", async () => {
+    serve = serveFile({
+      bytes: bytesOf("%PDF-1.7\n%stub"),
+      contentType: "application/pdf",
+      size: 4096,
+    });
+
+    renderEmbed("vellum://workspace/reports/q3.pdf", "Q3 report");
+
+    await waitFor(() => expect(screen.getByTestId("pdf-preview")).toBeTruthy());
+    expect(screen.getByText("Q3 report")).toBeTruthy();
+    // The filename differs from the alt text, so it shows as secondary text.
+    expect(screen.getByText("q3.pdf")).toBeTruthy();
+    expect(screen.getByText("4.0 KB")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "File actions" })).toBeTruthy();
+  });
+
+  test("a video's menu offers Picture in Picture", async () => {
+    enablePictureInPicture();
+    serve = serveFile({
+      bytes: OPAQUE_BYTES,
+      contentType: "application/octet-stream",
+    });
+
+    const { container } = renderEmbed(
+      "vellum://workspace/media/clip.mp4",
+      "a clip",
+    );
+
+    await waitFor(() =>
+      expect(container.querySelector("video")).not.toBeNull(),
+    );
+    await openFileActions();
+
+    expect(
+      screen.getByRole("menuitem", { name: "Picture in Picture" }),
+    ).toBeTruthy();
+  });
+
+  test("an audio menu has no Picture in Picture", async () => {
+    enablePictureInPicture();
+    serve = serveFile({
+      bytes: OPAQUE_BYTES,
+      contentType: "application/octet-stream",
+    });
+
+    const { container } = renderEmbed(
+      "vellum://workspace/media/clip.mp3",
+      "a recording",
+    );
+
+    await waitFor(() =>
+      expect(container.querySelector("audio")).not.toBeNull(),
+    );
+    await openFileActions();
+
+    expect(
+      screen.queryByRole("menuitem", { name: "Picture in Picture" }),
+    ).toBeNull();
   });
 
   test("every media variant carries the file actions menu", async () => {

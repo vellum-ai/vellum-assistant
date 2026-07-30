@@ -1,12 +1,18 @@
 /**
  * Overflow menu for a local file rendered in the chat transcript: reveal the
- * file in the workspace browser, or download its bytes.
+ * file in the workspace browser, pop a video out into Picture in Picture, or
+ * download its bytes.
  *
  * The trigger swallows its own click and Enter/Space so opening the menu never
  * also activates the card or media it sits on.
  */
 
-import { Download, Ellipsis, ExternalLink } from "lucide-react";
+import {
+  Download,
+  Ellipsis,
+  ExternalLink,
+  PictureInPicture2,
+} from "lucide-react";
 import { useCallback } from "react";
 import type { KeyboardEvent, MouseEvent } from "react";
 
@@ -21,6 +27,12 @@ export interface LocalFileMenuProps {
   assistantId?: string;
   /** True when the file is missing or otherwise unavailable. */
   disabled?: boolean;
+  /**
+   * Supplied only by video embeds in a browser that supports Picture in
+   * Picture. It acts on the already-loaded element, so it stays enabled even
+   * when the file itself is unavailable.
+   */
+  onPictureInPicture?: () => void;
   className?: string;
 }
 
@@ -29,6 +41,7 @@ export function LocalFileMenu({
   filename,
   assistantId,
   disabled,
+  onPictureInPicture,
   className,
 }: LocalFileMenuProps) {
   const isDisabled = disabled === true || workspacePath === null;
@@ -82,6 +95,15 @@ export function LocalFileMenu({
         >
           Go to file
         </Menu.Item>
+        {onPictureInPicture !== undefined && (
+          <Menu.Item
+            leftIcon={<PictureInPicture2 size={14} />}
+            onSelect={onPictureInPicture}
+            className="whitespace-nowrap"
+          >
+            Picture in Picture
+          </Menu.Item>
+        )}
         <Menu.Item
           leftIcon={<Download size={14} />}
           disabled={isDisabled || !assistantId}
