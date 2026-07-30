@@ -41,6 +41,7 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getScheduleUsageSummaries } from "../../schedule/schedule-usage-store.js";
+import { buildWakeScheduleOptions } from "../../schedule/wake-schedule-options.js";
 import { initializeTools } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { normalizeCapabilityManifest } from "../../workflows/capabilities.js";
@@ -1104,15 +1105,9 @@ async function handleRunScheduleNow(id: string) {
     }
     const { wakeAgentForOpportunity } = await import("../agent-wake.js");
     try {
-      await wakeAgentForOpportunity({
-        conversationId: schedule.wakeConversationId,
-        hint: schedule.message,
-        source: "defer",
-        persistTriggerAsEvent: true,
-        ...(schedule.inferenceProfile
-          ? { forceOverrideProfile: schedule.inferenceProfile }
-          : {}),
-      });
+      await wakeAgentForOpportunity(
+        buildWakeScheduleOptions(schedule, schedule.wakeConversationId),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err, jobId: schedule.id }, "Manual wake execution failed");

@@ -16,17 +16,17 @@
  * still-set flags here at boot; the monitor clears them a few seconds later.
  *
  * Each resume runs under the conversation's reconstructed resting trust (see
- * {@link recoverRestingTrustContext}); conversations whose trust can't be
- * rebuilt from persisted state are cleared but left un-resumed.
+ * `recoverRestingTrustContext` in `conversation-resting-trust.ts`);
+ * conversations whose trust can't be rebuilt from persisted state are cleared
+ * but left un-resumed.
  */
 
 import {
-  getConversationOriginChannel,
   incrementProcessingResumeAttempts,
   listInterruptedConversations,
 } from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
-import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "./trust-context.js";
+import { recoverRestingTrustContext } from "./conversation-resting-trust.js";
 import type { TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("interrupted-turns");
@@ -73,33 +73,6 @@ export interface InterruptedTurnReconciliation {
    * gateway verdict is not stored). Their stale flag is still cleared.
    */
   trustUnrecoverable: string[];
-}
-
-/**
- * Rebuild the trust context an interrupted conversation must resume under, or
- * `null` when it can't be recovered.
- *
- * Only the guardian's own local conversations are recoverable at rest: a
- * remote-channel turn's trust class is stamped per inbound message from the
- * gateway verdict and never persisted, so it cannot be reconstructed here.
- * Local conversations — `originChannel` unset (a desktop/web/CLI turn that
- * never carried a channel message) or the internal `vellum` channel — belong
- * to the guardian owner, so they resume under
- * {@link INTERNAL_GUARDIAN_TRUST_CONTEXT}: the trust class `loadFromDb` needs
- * to rehydrate their guardian-provenance history instead of filtering it to
- * empty. Any other origin returns `null` so the caller skips the resume rather
- * than run the turn under a fabricated context — which would either grant a
- * low-trust turn guardian capability or bury the reply under `unknown`
- * provenance.
- */
-function recoverRestingTrustContext(
-  conversationId: string,
-): TrustContext | null {
-  const originChannel = getConversationOriginChannel(conversationId);
-  if (originChannel === null || originChannel === "vellum") {
-    return INTERNAL_GUARDIAN_TRUST_CONTEXT;
-  }
-  return null;
 }
 
 /**

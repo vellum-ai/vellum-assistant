@@ -16,6 +16,11 @@ mock.module("../daemon/process-message.js", () => ({
   processMessage: mockProcessMessage,
 }));
 
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
+import {
+  createConversation,
+  setConversationOriginChannelIfUnset,
+} from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
@@ -51,7 +56,8 @@ describe("scheduler wake mode", () => {
   });
 
   test("wake schedule calls wakeAgentForOpportunity with correct args", async () => {
-    // GIVEN a one-shot wake schedule with a conversation ID
+    // GIVEN a one-shot wake schedule targeting a local conversation
+    createConversation({ id: "conv-xyz" });
     const schedule = await createSchedule({
       name: "Wake Test",
       message: "Check back on this",
@@ -64,17 +70,49 @@ describe("scheduler wake mode", () => {
     // WHEN the scheduler fires
     await runDueSchedulesOnce();
 
-    // THEN wakeAgentForOpportunity is called with the correct arguments
+    // THEN wakeAgentForOpportunity is called with the correct arguments,
+    // including the conversation's guardian resting trust. Without it the
+    // resumed turn resolves the fail-closed `unknown` class and every
+    // sensitive tool it deferred mid-task is denied (LUM-2929).
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledWith({
       conversationId: "conv-xyz",
       hint: "Check back on this",
       source: "defer",
       persistTriggerAsEvent: true,
+      trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     });
 
     // AND processMessage is never called (wake mode doesn't use it)
     expect(mockProcessMessage).not.toHaveBeenCalled();
+  });
+
+  test("a wake on a remote-channel conversation carries no elevated trust", async () => {
+    // GIVEN a wake schedule whose target conversation originated on a remote
+    // channel, so no resting trust can be reconstructed for it
+    createConversation({ id: "conv-telegram" });
+    setConversationOriginChannelIfUnset("conv-telegram", "telegram");
+    const schedule = await createSchedule({
+      name: "Remote Wake",
+      message: "Follow up",
+      mode: "wake",
+      wakeConversationId: "conv-telegram",
+      nextRunAt: Date.now() - 1000,
+    });
+    forceScheduleDue(schedule.id);
+
+    // WHEN the scheduler fires
+    await runDueSchedulesOnce();
+
+    // THEN the wake runs with no trust context at all, so the turn resolves the
+    // fail-closed `unknown` class and sensitive tools stay denied
+    expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
+    expect(mockWakeAgentForOpportunity).toHaveBeenCalledWith({
+      conversationId: "conv-telegram",
+      hint: "Follow up",
+      source: "defer",
+      persistTriggerAsEvent: true,
+    });
   });
 
   test("missing wakeConversationId logs warning and completes (not fails)", async () => {
