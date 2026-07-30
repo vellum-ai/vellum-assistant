@@ -34,6 +34,14 @@ const meta: Meta<NavSectionStoryArgs> = {
   title: "Components/CollapsibleNavSection",
   parameters: {
     layout: "padded",
+    /* NOTE: section headers and rows carry `max-md:` variants for the mobile
+       drawer — 16px type, 46px rows instead of 14px/30px. Those key off the
+       *viewport*, and the Docs canvas iframe runs ~300px narrower than the
+       browser window, so on a window under roughly 1070px these stories render
+       the mobile drawer's metrics while still showing the `rail` variant — a
+       combination the app never ships. Pinning a viewport needs
+       `@storybook/addon-viewport`, which isn't installed; tracked in LUM-2921.
+       Until then, read these at a wide window. */
   },
   argTypes: {
     label: { control: "text" },
