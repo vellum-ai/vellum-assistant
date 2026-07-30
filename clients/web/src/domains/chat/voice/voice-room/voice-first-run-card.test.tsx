@@ -351,6 +351,9 @@ describe("VoiceFirstRunCard", () => {
         'input[role="combobox"]',
       );
       expect(search).not.toBeNull();
+      // With text in the search field the stakes are highest: Escape must
+      // discard at most the query, never the whole card.
+      fireEvent.change(search!, { target: { value: "tam" } });
       fireEvent.keyDown(search!, { key: "Escape" });
       // Back on the intro with the card still open and un-consumed.
       expect(getByText("Start talking")).toBeTruthy();

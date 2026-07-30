@@ -141,13 +141,25 @@ export function VoiceFirstRunCard({
     <Modal.Root
       open
       onOpenChange={(next) => {
-        // Escape / backdrop / ✕ all route through here; treat any close as a
-        // cancel so the first run stays un-consumed. Inert when locked (those
-        // affordances are removed / prevented below), so `onDismiss` only fires
-        // on the dismissible (web) path.
-        if (!next) {
-          onDismiss?.();
+        if (next) {
+          return;
         }
+        // Radix escape / backdrop / ✕ all route through here. In a sub-view a
+        // close request means "back to the intro", mirroring `onEscapeKeyDown`
+        // below; because this callback is the authoritative guard, the
+        // routing holds regardless of which environment's listener fires
+        // first (the document-level one and the React-tree one order
+        // differently across DOM runtimes). `open` is controlled, so ignoring
+        // the request costs nothing.
+        if (view !== "intro") {
+          backToIntro();
+          return;
+        }
+        // On the intro a close is a plain cancel: the first run stays
+        // un-consumed. Inert when locked (those affordances are removed /
+        // prevented below), so `onDismiss` only fires on the dismissible
+        // (web) path.
+        onDismiss?.();
       }}
     >
       <Modal.Content
@@ -174,12 +186,15 @@ export function VoiceFirstRunCard({
         }
         onKeyDown={
           // Belt to `onEscapeKeyDown`'s suspenders: Radix delivers Escape via
-          // a document-level listener whose dispatch varies across DOM
-          // environments, so the content also catches the key in the React
-          // tree. Sub-views route back to the intro deterministically (a
-          // half-typed picker search must never fall through to a dismiss);
-          // `preventDefault` keeps the dialog's own dismiss from firing when
-          // both paths run, and running both is idempotent.
+          // a document-level listener that some DOM environments never fire,
+          // so the content also catches the key in the React tree; without
+          // this a sub-view Escape can go entirely unhandled and the card
+          // sticks. Escape in a sub-view thus has three possible paths
+          // (`onOpenChange`, `onEscapeKeyDown`, this handler); any subset may
+          // fire in any order, and each one routes to `backToIntro`, which is
+          // a no-op when the intro is already showing, so the outcome is the
+          // same whichever subset runs. A dismiss cannot slip through
+          // regardless: `onOpenChange` above is the authoritative guard.
           view !== "intro"
             ? (event) => {
                 if (event.key === "Escape") {
