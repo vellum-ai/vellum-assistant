@@ -13719,13 +13719,17 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending bash request ID
                 stdout:
                   type: string
                 stderr:
                   type: string
                 exitCode:
-                  type: number
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                  description: Process exit status, or null when terminated by a signal
                 timedOut:
                   type: boolean
               required:
@@ -13888,6 +13892,7 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending CU request ID
                 axTree:
                   type: string
@@ -13955,6 +13960,7 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending request ID to resolve
                 content:
                   type: string

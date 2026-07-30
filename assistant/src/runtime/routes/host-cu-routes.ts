@@ -20,17 +20,37 @@ import {
   ForbiddenError,
   NotFoundError,
 } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+/**
+ * Body of `POST /v1/host-cu-result`, declared as the route's `requestBody` and
+ * parsed by the handler, so the OpenAPI contract and the runtime check are one
+ * schema rather than two hand-kept copies.
+ *
+ * Unknown keys are stripped rather than rejected, so a desktop client that
+ * reports a newer observation field still resolves its pending request.
+ */
+const HostCuResultBodySchema = z.object({
+  requestId: z.string().min(1).describe("Pending CU request ID"),
+  axTree: z.string().describe("Accessibility tree").optional(),
+  axDiff: z.string().describe("Accessibility tree diff").optional(),
+  screenshot: z.string().describe("Base64 screenshot").optional(),
+  screenshotWidthPx: z.number().optional(),
+  screenshotHeightPx: z.number().optional(),
+  screenWidthPt: z.number().optional(),
+  screenHeightPt: z.number().optional(),
+  executionResult: z.string().optional(),
+  executionError: z.string().optional(),
+  secondaryWindows: z.string().optional(),
+  userGuidance: z.string().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // POST /v1/host-cu-result
 // ---------------------------------------------------------------------------
 
 async function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
-  if (!body || typeof body !== "object") {
-    throw new BadRequestError("Request body is required");
-  }
-
   const {
     requestId,
     axTree,
@@ -44,24 +64,7 @@ async function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
     executionError,
     secondaryWindows,
     userGuidance,
-  } = body as {
-    requestId?: string;
-    axTree?: string;
-    axDiff?: string;
-    screenshot?: string;
-    screenshotWidthPx?: number;
-    screenshotHeightPx?: number;
-    screenWidthPt?: number;
-    screenHeightPt?: number;
-    executionResult?: string;
-    executionError?: string;
-    secondaryWindows?: string;
-    userGuidance?: string;
-  };
-
-  if (!requestId || typeof requestId !== "string") {
-    throw new BadRequestError("requestId is required");
-  }
+  } = parseBody(HostCuResultBodySchema, body);
 
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
@@ -152,20 +155,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Submit host CU result",
     description: "Resolve a pending host computer-use request by requestId.",
     tags: ["host"],
-    requestBody: z.object({
-      requestId: z.string().describe("Pending CU request ID"),
-      axTree: z.string().describe("Accessibility tree").optional(),
-      axDiff: z.string().describe("Accessibility tree diff").optional(),
-      screenshot: z.string().describe("Base64 screenshot").optional(),
-      screenshotWidthPx: z.number().optional(),
-      screenshotHeightPx: z.number().optional(),
-      screenWidthPt: z.number().optional(),
-      screenHeightPt: z.number().optional(),
-      executionResult: z.string().optional(),
-      executionError: z.string().optional(),
-      secondaryWindows: z.string().optional(),
-      userGuidance: z.string().optional(),
-    }),
+    requestBody: HostCuResultBodySchema,
     responseBody: z.object({
       accepted: z.boolean(),
     }),
