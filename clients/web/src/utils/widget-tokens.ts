@@ -147,7 +147,8 @@ export const WIDGET_TOKEN_PROPERTIES: readonly string[] = [
  * defaults.
  */
 const WIDGET_BASE_STYLES =
-  "html,body{margin:0;background:transparent;color:var(--content-default);" +
+  "html{margin:0}" +
+  "body{margin:0;padding:6px 10px;background:transparent;color:var(--content-default);" +
   "font-family:var(--font-sans);font-size:16px;line-height:1.6}" +
   "*,*::before,*::after{box-sizing:border-box}";
 

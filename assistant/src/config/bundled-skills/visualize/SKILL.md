@@ -86,10 +86,17 @@ Always quote attribute values. An unquoted multi-token class (`class=row-box hit
 Include this rule verbatim whenever you use the sr-only heading:
 
 ```css
-.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 ```
 
-The container is about 680px wide and display block. Your content fills it — no wrapper div needed. Add padding: 0.5rem 0 to the first element if you want vertical breathing room. Keep the outer background transparent; the host supplies the chat background.
+The container gives you about 660px of usable width and insets all content 6px from the top and bottom edges and 10px from the sides, so nothing you draw can touch the frame's rounded corners. That inset is a floor, not comfortable spacing: rows that hold controls (a footer with back and next, a tab strip, a slider row) carry their own padding of at least 8px on the crowded sides, and never use negative margins to fight the inset. Add padding: 0.5rem 0 to the first element if you want more vertical breathing room. Keep the outer background transparent; the host supplies the chat background.
 
 ## Design tokens
 
@@ -129,12 +136,14 @@ Author every ramp value once, against the LIGHT reading: light fill, mid border,
 It only inverts as a unit if fill and text come from the same ramp, so always use a matched triple:
 
 ```css
-background: var(--color-forest-100); border-color: var(--color-forest-600); color: var(--color-forest-900);
+background: var(--color-forest-100);
+border-color: var(--color-forest-600);
+color: var(--color-forest-900);
 ```
 
 Title text on a tinted fill uses the 900 stop; secondary text on that fill uses 800. Never put --content-default (which flips to its own counterpart) on a ramp fill (which mirrors) — the two move independently and one of the modes loses the text.
 
-The reverse is the more common mistake and is rejected outright: text sitting directly on the page background — every SVG label, axis tick, node title, and paragraph outside a tinted fill — uses --content-* and never a ramp stop. The mirror pairs a ramp against itself, not against the page, so a bare ramp label has no reliable contrast: --color-forest-100 as text is invisible on the light page and mirrors to near-black in dark mode, and a bare --color-forest-900 label swaps from dark ink to a light tint between the two. The validator flags a dark ramp stop used as a text colour when the matching light stop is not painted right there — on the same element, in the same style rule, or on the group immediately around the label — and the converse case. A pill using that palette elsewhere in the fragment does not cover a bare label.
+The reverse is the more common mistake and is rejected outright: text sitting directly on the page background — every SVG label, axis tick, node title, and paragraph outside a tinted fill — uses --content-\* and never a ramp stop. The mirror pairs a ramp against itself, not against the page, so a bare ramp label has no reliable contrast: --color-forest-100 as text is invisible on the light page and mirrors to near-black in dark mode, and a bare --color-forest-900 label swaps from dark ink to a light tint between the two. The validator flags a dark ramp stop used as a text colour when the matching light stop is not painted right there — on the same element, in the same style rule, or on the group immediately around the label — and the converse case. A pill using that palette elsewhere in the fragment does not cover a bare label.
 
 Never hardcode a colour for text, background, border, or SVG fill or stroke. Every colour comes from a variable above — hex literals (#2563eb), rgb(), rgba(), hsl(), and oklch() are rejected outright. Only transparent and currentColor are allowed as literal colour keywords.
 
@@ -176,7 +185,12 @@ Round every number that reaches the screen. Floating-point math leaks artefacts 
 A global function is available inside the frame:
 
 ```html
-<button class="btn" onclick="sendPrompt('Show me the same breakdown for last quarter')">Compare last quarter &#8599;</button>
+<button
+  class="btn"
+  onclick="sendPrompt('Show me the same breakdown for last quarter')"
+>
+  Compare last quarter &#8599;
+</button>
 ```
 
 It sends text to the chat as though the user typed it, and you answer it on the next turn. Use it for anything that needs you to think. Do not use it for filtering, sorting, toggling, or recomputing — do those in local JS so they are instant.
@@ -211,23 +225,58 @@ Shared by diagrams and charts. There is no diagram or charting library and no pr
 ```html
 <svg width="100%" viewBox="0 0 680 320" role="img">
   <title>How a request moves through the gateway</title>
-  <desc>Three boxes left to right: client, gateway, service, connected by arrows.</desc>
+  <desc>
+    Three boxes left to right: client, gateway, service, connected by arrows.
+  </desc>
   <style>
-    text{font-family:var(--font-sans)}
-    .th{font-size:14px;font-weight:500;fill:var(--content-strong)}
-    .ts{font-size:12px;fill:var(--content-secondary)}
-    .box rect{fill:var(--surface-lift);stroke:var(--border-element);stroke-width:1}
-    .arr{stroke:var(--border-element);stroke-width:1;fill:none}
+    text {
+      font-family: var(--font-sans);
+    }
+    .th {
+      font-size: 14px;
+      font-weight: 500;
+      fill: var(--content-strong);
+    }
+    .ts {
+      font-size: 12px;
+      fill: var(--content-secondary);
+    }
+    .box rect {
+      fill: var(--surface-lift);
+      stroke: var(--border-element);
+      stroke-width: 1;
+    }
+    .arr {
+      stroke: var(--border-element);
+      stroke-width: 1;
+      fill: none;
+    }
   </style>
   <defs>
-    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <marker
+      id="a"
+      viewBox="0 0 10 10"
+      refX="8"
+      refY="5"
+      markerWidth="6"
+      markerHeight="6"
+      orient="auto-start-reverse"
+    >
+      <path
+        d="M2 1L8 5L2 9"
+        fill="none"
+        stroke="context-stroke"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
     </marker>
   </defs>
 </svg>
 ```
 
 Coordinates
+
 - The 680 in the viewBox is load-bearing. It matches the container width, so one SVG unit is one CSS pixel and every width calculation holds. If the content is naturally narrow, keep the viewBox width at 680 and centre the content — never shrink the viewBox to hug it.
 - Height: after laying out, take the lowest point of any shape or text baseline and add 24. Do not guess and do not leave a band of empty space at the bottom.
 - Never use a negative coordinate. Everything sits inside x 0 to 680.
@@ -236,6 +285,7 @@ Coordinates
 - No filters, no gradients, no second marker. One arrowhead marker in defs is the whole of defs; context-stroke makes it inherit its line's colour.
 
 Text
+
 - Every text element needs dominant-baseline="central" and a y at the centre of the slot it sits in. Without it, y is the baseline and the glyphs ride about 4px high.
 - Only two sizes: 14px for titles and region labels, 12px for subtitles, legends, and axis labels.
 - SVG text never wraps. A line break needs an explicit tspan with x and dy="1.2em". If a label needs wrapping it is too long — shorten it.
@@ -244,6 +294,7 @@ Text
 - Estimate rendered width before placing anything: 14px weight 500 is about 8px per character, 12px weight 400 about 6.5px. A box is max(title chars times 8, subtitle chars times 6.5) + 32 wide. A 100px box holds a 9-character subtitle, not "files, APIs, streams" (20 characters, needs 162px).
 
 Strokes and shapes
+
 - Any path or polyline used as a line must carry fill="none". SVG defaults to a black fill, so an unfilled connector renders as a large black blob.
 - Strokes are 1px for structure, gridlines, and axes; 2px for a chart line. Thicker reads as noise at this scale.
 - Rounding: rx="2" bars, rx="4" default node, rx="8" emphasised node, rx="12" to rx="16" containers. An rx at or above half the height makes a pill — deliberate only.
@@ -258,9 +309,22 @@ State: one state object, one render function, event handlers that mutate state a
 Controls are unstyled. Nothing is pre-styled in the sandbox — no form reset, no button theme. Style them yourself in the style block, and keep it short:
 
 ```css
-.btn{padding:6px 12px;border-radius:var(--radius-md);border:1px solid var(--border-element);background:transparent;font:400 13px var(--font-sans);color:var(--content-default);cursor:pointer}
-.btn:hover{background:var(--surface-hover)}
-input[type=range]{accent-color:var(--system-positive-strong);width:100%}
+.btn {
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-element);
+  background: transparent;
+  font: 400 13px var(--font-sans);
+  color: var(--content-default);
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--surface-hover);
+}
+input[type="range"] {
+  accent-color: var(--system-positive-strong);
+  width: 100%;
+}
 ```
 
 - Selected state goes on aria-pressed (segmented controls, steppers) or aria-selected (tabs), and the style keys off that attribute. Never track selection in a class alone.
@@ -271,14 +335,33 @@ input[type=range]{accent-color:var(--system-positive-strong);width:100%}
 Tables. A static table is better as markdown in your reply. A table belongs in a fragment only when it is the object being shown or when its rows change as the user interacts.
 
 ```css
-table.d{width:100%;border-collapse:collapse;font:400 12px var(--font-mono);table-layout:fixed}
-table.d th{text-align:left;font-weight:500;font-size:11px;color:var(--content-secondary);padding:5px 8px;border-bottom:1px solid var(--border-base)}
-table.d td{padding:5px 8px;color:var(--content-default);border-bottom:1px solid var(--border-base);overflow:hidden;text-overflow:ellipsis}
+table.d {
+  width: 100%;
+  border-collapse: collapse;
+  font: 400 12px var(--font-mono);
+  table-layout: fixed;
+}
+table.d th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--content-secondary);
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-base);
+}
+table.d td {
+  padding: 5px 8px;
+  color: var(--content-default);
+  border-bottom: 1px solid var(--border-base);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 ```
 
 table-layout:fixed plus overflow hidden is what keeps a wide table inside 680px. Six columns is the practical ceiling; past that, drop columns rather than letting the table scroll.
 
 Layout
+
 - Grids: repeat(auto-fit, minmax(160px, 1fr)) with gap 12px. Use minmax(0, 1fr) rather than 1fr for explicit columns, otherwise a wide child pushes the column past the container.
 - Panel: background var(--surface-sunken), 1px solid var(--border-subtle), border-radius var(--radius-lg), padding 1rem 1.25rem — the same hairline a tile needs, for the same reason.
 - Keep the whole thing on one screen. If it needs scrolling it is two visuals.
