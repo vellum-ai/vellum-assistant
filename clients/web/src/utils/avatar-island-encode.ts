@@ -103,6 +103,10 @@ function toBase64(bytes: Uint8Array): string {
 export async function encodeAvatarForIsland(
   render: AvatarRender,
   maxBytes: number = ISLAND_AVATAR_MAX_BYTES,
+  // Injected rather than mocked at the module boundary: `mock.module` replaces
+  // the whole of `avatar-raster`, which silently strips `coverCropSquare` from
+  // every test file that shares the process.
+  rasterize: typeof rasterizeAvatar = rasterizeAvatar,
 ): Promise<string | null> {
   if (render.kind === "none") {
     return null;
@@ -112,7 +116,7 @@ export async function encodeAvatarForIsland(
   for (const candidate of CANDIDATES) {
     let bytes: Uint8Array | null;
     try {
-      bytes = await rasterizeAvatar(
+      bytes = await rasterize(
         src,
         candidate.size,
         candidate.type,

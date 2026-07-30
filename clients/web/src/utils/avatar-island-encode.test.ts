@@ -2,13 +2,22 @@
  * Tests for `encodeAvatarForIsland` — fitting the assistant avatar inside
  * ActivityKit's payload ceiling.
  *
- * `rasterizeAvatar` is stubbed at the module boundary: it needs a canvas, and
- * what matters here is the ladder's decision-making, not the pixels. The stub
- * reports a byte size per (size, type) so each test can describe an avatar
- * that compresses well or badly and assert which rung it lands on.
+ * The rasterizer is injected rather than stubbed with `mock.module`: it needs a
+ * canvas, and what matters here is the ladder's decision-making, not the
+ * pixels. Injection also keeps the stub local — mocking the module would
+ * replace the whole of `avatar-raster` for every test file sharing the process,
+ * stripping `coverCropSquare` out from under `avatar-raster.test.ts`.
+ *
+ * The stub reports a byte size per (size, type) so each test can describe an
+ * avatar that compresses well or badly and assert which rung it lands on.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
+
+import {
+  encodeAvatarForIsland,
+  ISLAND_AVATAR_MAX_BYTES,
+} from "@/utils/avatar-island-encode";
 
 /** Recorded rasterize attempts, in order, so the ladder's walk is assertable. */
 let attempts: Array<{ size: number; type: string; quality?: number }> = [];
@@ -17,25 +26,24 @@ let byteSizes: Record<string, number> = {};
 /** When set, the stub throws instead of returning, as an undrawable source does. */
 let throwOnDraw = false;
 
-mock.module("@/utils/avatar-raster", () => ({
-  rasterizeAvatar: async (
-    _src: string,
-    size: number,
-    type: string,
-    quality?: number,
-  ) => {
-    attempts.push({ size, type, quality });
-    if (throwOnDraw) {
-      throw new Error("source failed to load");
-    }
-    const bytes = byteSizes[`${size}:${type}`];
-    return bytes === undefined ? null : new Uint8Array(bytes);
-  },
-}));
+/** Stands in for the canvas rasterizer, recording each attempt. */
+const rasterize = async (
+  _src: string,
+  size: number,
+  type: string,
+  quality?: number,
+): Promise<Uint8Array | null> => {
+  attempts.push({ size, type, quality });
+  if (throwOnDraw) {
+    throw new Error("source failed to load");
+  }
+  const bytes = byteSizes[`${size}:${type}`];
+  return bytes === undefined ? null : new Uint8Array(bytes);
+};
 
-const { encodeAvatarForIsland, ISLAND_AVATAR_MAX_BYTES } = await import(
-  "@/utils/avatar-island-encode"
-);
+/** `encodeAvatarForIsland` with the stub wired in at its default budget. */
+const encode = (render: Parameters<typeof encodeAvatarForIsland>[0]) =>
+  encodeAvatarForIsland(render, ISLAND_AVATAR_MAX_BYTES, rasterize as never);
 
 const CHARACTER = {
   kind: "character" as const,
@@ -52,7 +60,7 @@ beforeEach(() => {
 
 describe("encodeAvatarForIsland", () => {
   test("returns null for an assistant with no avatar, without rasterizing", async () => {
-    expect(await encodeAvatarForIsland({ kind: "none" })).toBeNull();
+    expect(await encode({ kind: "none" })).toBeNull();
     expect(attempts).toHaveLength(0);
   });
 
@@ -61,7 +69,7 @@ describe("encodeAvatarForIsland", () => {
   test("takes the largest PNG when it already fits", async () => {
     byteSizes["128:image/png"] = 900;
 
-    expect(await encodeAvatarForIsland(CHARACTER)).not.toBeNull();
+    expect(await encode(CHARACTER)).not.toBeNull();
     expect(attempts).toEqual([{ size: 128, type: "image/png", quality: undefined }]);
   });
 
@@ -74,7 +82,7 @@ describe("encodeAvatarForIsland", () => {
     byteSizes["48:image/png"] = 2419;
     byteSizes["40:image/png"] = 1997;
 
-    expect(await encodeAvatarForIsland(CHARACTER)).not.toBeNull();
+    expect(await encode(CHARACTER)).not.toBeNull();
     expect(attempts.map((a) => a.size)).toEqual([128, 96, 64, 48, 40]);
   });
 
@@ -86,7 +94,7 @@ describe("encodeAvatarForIsland", () => {
     }
     byteSizes["64:image/jpeg"] = 1400;
 
-    expect(await encodeAvatarForIsland(IMAGE)).not.toBeNull();
+    expect(await encode(IMAGE)).not.toBeNull();
     expect(attempts.at(-1)).toEqual({
       size: 64,
       type: "image/jpeg",
@@ -104,7 +112,7 @@ describe("encodeAvatarForIsland", () => {
     byteSizes["48:image/png"] = 1900;
     byteSizes["64:image/jpeg"] = 400;
 
-    expect(await encodeAvatarForIsland(CHARACTER)).not.toBeNull();
+    expect(await encode(CHARACTER)).not.toBeNull();
     expect(attempts.at(-1)).toEqual({
       size: 48,
       type: "image/png",
@@ -121,14 +129,14 @@ describe("encodeAvatarForIsland", () => {
     byteSizes["64:image/jpeg"] = 99000;
     byteSizes["48:image/jpeg"] = 99000;
 
-    expect(await encodeAvatarForIsland(IMAGE)).toBeNull();
+    expect(await encode(IMAGE)).toBeNull();
     expect(attempts).toHaveLength(8);
   });
 
   test("accepts a payload exactly on the ceiling", async () => {
     byteSizes["128:image/png"] = ISLAND_AVATAR_MAX_BYTES;
 
-    expect(await encodeAvatarForIsland(CHARACTER)).not.toBeNull();
+    expect(await encode(CHARACTER)).not.toBeNull();
   });
 
   // An undrawable source fails identically at every size, so retrying the
@@ -136,7 +144,7 @@ describe("encodeAvatarForIsland", () => {
   test("gives up immediately when the source will not draw", async () => {
     throwOnDraw = true;
 
-    expect(await encodeAvatarForIsland(IMAGE)).toBeNull();
+    expect(await encode(IMAGE)).toBeNull();
     expect(attempts).toHaveLength(1);
   });
 
