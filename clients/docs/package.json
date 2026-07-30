@@ -3,8 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "bun run docs:search:index",
     "dev": "next dev --port 3005",
+    "prebuild": "bun run docs:search:index",
     "build": "next build",
+    "docs:search:index": "bun scripts/generate-docs-search-index.ts",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "bunx tsc --noEmit",
