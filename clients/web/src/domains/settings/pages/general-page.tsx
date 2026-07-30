@@ -319,7 +319,7 @@ export function GeneralPage() {
       {assistantSwitcher && isLocalClient() && (
         <DetailCard
           title="Switch Assistant"
-          subtitle="Choose which assistant this device connects to."
+          subtitle="Choose which assistant this device is connected to."
           accessory={
             <Button
               variant="outlined"
