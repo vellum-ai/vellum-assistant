@@ -34,7 +34,9 @@ interface PdfPreviewProps {
 }
 
 export function PdfPreview({ url, className }: PdfPreviewProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  // Spans with block/flex classes rather than divs: the preview also renders
+  // inline in chat markdown, where a div inside <p> is invalid HTML.
+  const containerRef = useRef<HTMLSpanElement>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -166,22 +168,24 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
+      <span className="flex items-center justify-center py-24">
         <Loader2 className="h-8 w-8 animate-spin text-white/70" />
-      </div>
+      </span>
     );
   }
 
   if (error) {
     return (
-      <div className="w-full max-w-sm rounded-lg border border-white/15 bg-white/[0.08] p-8 text-center">
-        <p className="text-body-medium-lighter text-white/80">{error}</p>
-      </div>
+      <span className="block w-full max-w-sm rounded-lg border border-white/15 bg-white/[0.08] p-8 text-center">
+        <span className="text-body-medium-lighter block text-white/80">
+          {error}
+        </span>
+      </span>
     );
   }
 
   return (
-    <div
+    <span
       ref={containerRef}
       className={`flex max-h-[80vh] flex-col items-center gap-2 overflow-y-auto rounded ${className ?? ""}`}
     >
@@ -194,6 +198,6 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
           style={{ height: "auto" }}
         />
       ))}
-    </div>
+    </span>
   );
 }
