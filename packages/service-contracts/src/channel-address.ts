@@ -23,11 +23,14 @@
  * capability annotations in `./channel-capabilities.js` are computed from the
  * schemas rather than restated in a table that could drift away from them.
  *
- * Coordinate values are canonical, not raw. Phone-shaped channels carry E.164,
- * and case-insensitive namespaces (email, A2A) carry lower case, matching what
- * the assistant's own inbound canonicalizer already produces. Two spellings of
- * one identity would give two projections of one peer, which would make the
- * projection ambiguous, so the schemas normalize rather than accept both.
+ * Coordinate values are canonical on the way out. Phone-shaped channels carry
+ * E.164 and case-insensitive namespaces (email, A2A) carry lower case, matching
+ * what the assistant's own inbound canonicalizer already produces. Two spellings
+ * of one identity would give two projections of one peer and make the projection
+ * ambiguous, so where a provider has more than one spelling the schema takes the
+ * provider-native form and normalizes it rather than picking a winner and
+ * rejecting the other. A WhatsApp `wa_id` arrives as bare digits and validates;
+ * it just comes back out with its `+`.
  */
 
 import { z } from "zod";
@@ -71,6 +74,24 @@ const e164 = () =>
     .string()
     .regex(/^\+\d{10,15}$/, "must be an E.164 phone number, e.g. +15555550123");
 
+/**
+ * A WhatsApp `wa_id`. Meta carries the sender as full international digits with
+ * no leading `+` (`messages[].from` and `contacts[].wa_id` on the Cloud API), so
+ * that is the spelling a producer actually holds. Both spellings are accepted
+ * and canonicalized to E.164 by prefixing the `+`, which is lossless because a
+ * `wa_id` is already a complete international number: unlike a national format
+ * there is no country to guess. The digit bounds mirror `normalizePhoneNumber`
+ * in the assistant so the two agree on what counts as a phone-shaped identity.
+ */
+const waId = () =>
+  z
+    .string()
+    .regex(
+      /^\+?\d{10,15}$/,
+      "must be a WhatsApp wa_id, e.g. 15555550188 or +15555550188",
+    )
+    .transform((value) => (value.startsWith("+") ? value : `+${value}`));
+
 /** A decimal identifier of bounded width (Telegram user ids, Discord snowflakes). */
 const decimalId = (maxDigits: number) =>
   z
@@ -78,14 +99,33 @@ const decimalId = (maxDigits: number) =>
     .regex(new RegExp(`^\\d{1,${maxDigits}}$`), "must be decimal digits");
 
 /**
- * A Slack object id: an uppercase type letter followed by uppercase
- * alphanumerics (`T…` workspace, `E…` enterprise grid, `U…`/`W…` user).
+ * Slack object ids carry a type prefix, and the prefix is what says which kind
+ * of object an id names. Validating it per field is the difference between a
+ * schema that rejects a malformed address and one that only rejects a malformed
+ * string: a workspace scope holding a user id is exactly the kind of swap a
+ * contract exists to catch.
  */
-const slackId = () =>
-  z
-    .string()
-    .max(MAX_COORDINATE_LENGTH)
-    .regex(/^[A-Z][A-Z0-9]{2,}$/, "must be a Slack object id, e.g. T0123ABCD");
+const slackObjectId = (pattern: RegExp, message: string) =>
+  z.string().max(MAX_COORDINATE_LENGTH).regex(pattern, message);
+
+const slackTeamId = () =>
+  slackObjectId(
+    /^T[A-Z0-9]{2,}$/,
+    "must be a Slack workspace id, e.g. T0123ABCD",
+  );
+
+const slackEnterpriseId = () =>
+  slackObjectId(
+    /^E[A-Z0-9]{2,}$/,
+    "must be a Slack Enterprise Grid org id, e.g. E0123ABCD",
+  );
+
+/** `U…` on a standalone workspace, `W…` for an Enterprise Grid org user. */
+const slackUserId = () =>
+  slackObjectId(
+    /^[UW][A-Z0-9]{2,}$/,
+    "must be a Slack user id, e.g. U0123ABCD",
+  );
 
 // ---------------------------------------------------------------------------
 // Per-channel address variants
@@ -138,13 +178,13 @@ export const SlackChannelAddressSchema = z.strictObject({
   channel: z.literal("slack"),
   scope: z.strictObject({
     /** Workspace id (`T…`). */
-    teamId: slackId(),
+    teamId: slackTeamId(),
     /** Enterprise Grid organization id (`E…`), on grid installations only. */
-    enterpriseId: slackId().optional(),
+    enterpriseId: slackEnterpriseId().optional(),
   }),
   coordinates: z.strictObject({
     /** Slack user id (`U…`, or `W…` on grid). */
-    userId: slackId(),
+    userId: slackUserId(),
   }),
 });
 
@@ -173,8 +213,8 @@ export const WhatsAppChannelAddressSchema = z.strictObject({
     businessPhoneNumberId: decimalId(32),
   }),
   coordinates: z.strictObject({
-    /** Sender's WhatsApp number in E.164. */
-    waId: e164(),
+    /** Sender's `wa_id`, canonicalized to E.164. */
+    waId: waId(),
   }),
 });
 
@@ -309,7 +349,9 @@ export function formatChannelAddress(address: ChannelAddress): string {
     for (const [key, value] of Object.entries(canonical.scope).sort(byKey)) {
       // Optional scope coordinates (Slack's enterprise id off grid) are absent
       // rather than empty, and an absent field is simply not projected.
-      if (typeof value !== "string") continue;
+      if (typeof value !== "string") {
+        continue;
+      }
       fields.push(
         `${SCOPE_PREFIX}${key}${VALUE_SEPARATOR}${encodeURIComponent(value)}`,
       );
@@ -343,9 +385,16 @@ export function safeParseChannelAddress(text: string): ChannelAddress | null {
     return null;
   }
 
-  const scope: Record<string, string> = {};
-  const coordinates: Record<string, string> = {};
-  let scoped = false;
+  // Field names come off an untrusted string, so they are accumulated in maps
+  // rather than assigned onto object literals. Writing a decoded name straight
+  // onto `{}` goes through `Object.prototype`, where `__proto__` is an accessor
+  // rather than a key: the field would vanish instead of becoming an own
+  // property, hiding it from both the duplicate check below and the schema's
+  // unknown-key rejection, so a tampered projection would parse as clean. A map
+  // key is just a key, and `Object.fromEntries` defines own properties without
+  // consulting a setter, so every decoded name reaches validation.
+  const scope = new Map<string, string>();
+  const coordinates = new Map<string, string>();
 
   for (const field of body.split(FIELD_SEPARATOR)) {
     const assignment = field.indexOf(VALUE_SEPARATOR);
@@ -365,18 +414,17 @@ export function safeParseChannelAddress(text: string): ChannelAddress | null {
     const isScope = rawKey.startsWith(SCOPE_PREFIX);
     const key = isScope ? rawKey.slice(SCOPE_PREFIX.length) : rawKey;
     const target = isScope ? scope : coordinates;
-    if (key.length === 0 || Object.hasOwn(target, key)) {
+    if (key.length === 0 || target.has(key)) {
       return null;
     }
 
-    target[key] = value;
-    scoped ||= isScope;
+    target.set(key, value);
   }
 
   const result = ChannelAddressSchema.safeParse({
     channel,
-    ...(scoped ? { scope } : {}),
-    coordinates,
+    ...(scope.size > 0 ? { scope: Object.fromEntries(scope) } : {}),
+    coordinates: Object.fromEntries(coordinates),
   });
   return result.success ? result.data : null;
 }

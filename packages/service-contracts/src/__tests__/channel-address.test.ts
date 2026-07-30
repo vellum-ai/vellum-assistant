@@ -192,6 +192,42 @@ describe("ChannelAddress variants", () => {
     }
   });
 
+  test("slack: a workspace scope will not hold some other object's id", () => {
+    for (const teamId of ["U0123ABCD", "E0123ABCD", "C0123ABCD", "B0123ABCD"]) {
+      expect(
+        ChannelAddressSchema.safeParse({
+          channel: "slack",
+          scope: { teamId },
+          coordinates: { userId: "U0123ABCD" },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  test("slack: an enterprise scope will not hold a workspace or user id", () => {
+    for (const enterpriseId of ["T0123ABCD", "U0123ABCD", "W0123ABCD"]) {
+      expect(
+        ChannelAddressSchema.safeParse({
+          channel: "slack",
+          scope: { teamId: "T0123ABCD", enterpriseId },
+          coordinates: { userId: "U0123ABCD" },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  test("slack: a user coordinate will not hold a workspace, channel, or bot id", () => {
+    for (const userId of ["T0123ABCD", "E0123ABCD", "C0123ABCD", "B0123ABCD"]) {
+      expect(
+        ChannelAddressSchema.safeParse({
+          channel: "slack",
+          scope: { teamId: "T0123ABCD" },
+          coordinates: { userId },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
   test("whatsapp: rejects an address with no business number scope", () => {
     expect(
       ChannelAddressSchema.safeParse({
@@ -201,7 +237,75 @@ describe("ChannelAddress variants", () => {
     ).toBe(false);
   });
 
-  test("phone-shaped coordinates must already be E.164", () => {
+  test("whatsapp: accepts the bare-digit wa_id Meta actually sends", () => {
+    // `messages[].from` / `contacts[].wa_id` on the Cloud API are full
+    // international digits with no `+`, which is what a producer holds.
+    expect(
+      ChannelAddressSchema.parse({
+        channel: "whatsapp",
+        scope: { businessPhoneNumberId: "109876543210987" },
+        coordinates: { waId: "15555550188" },
+      }),
+    ).toEqual({
+      channel: "whatsapp",
+      scope: { businessPhoneNumberId: "109876543210987" },
+      coordinates: { waId: "+15555550188" },
+    });
+  });
+
+  test("whatsapp: prefixing the country code needs no country to be guessed", () => {
+    // A national format would need a country guess; a wa_id never does, so a
+    // non-US number canonicalizes exactly as cleanly as a US one.
+    expect(
+      ChannelAddressSchema.parse({
+        channel: "whatsapp",
+        scope: { businessPhoneNumberId: "109876543210987" },
+        coordinates: { waId: "447700900123" },
+      }),
+    ).toEqual({
+      channel: "whatsapp",
+      scope: { businessPhoneNumberId: "109876543210987" },
+      coordinates: { waId: "+447700900123" },
+    });
+  });
+
+  test("whatsapp: both spellings land on one address and one projection", () => {
+    const bare = ChannelAddressSchema.parse({
+      channel: "whatsapp",
+      scope: { businessPhoneNumberId: "109876543210987" },
+      coordinates: { waId: "15555550188" },
+    });
+    const prefixed = ChannelAddressSchema.parse({
+      channel: "whatsapp",
+      scope: { businessPhoneNumberId: "109876543210987" },
+      coordinates: { waId: "+15555550188" },
+    });
+    expect(bare).toEqual(prefixed);
+    expect(formatChannelAddress(bare)).toBe(formatChannelAddress(prefixed));
+  });
+
+  test("whatsapp: still rejects anything that is not a full international number", () => {
+    for (const waId of [
+      "(555) 555-0123",
+      "+1-555-555-0123",
+      "+1",
+      "555012",
+      "not-a-number",
+      "++15555550188",
+    ]) {
+      expect(
+        ChannelAddressSchema.safeParse({
+          channel: "whatsapp",
+          scope: { businessPhoneNumberId: "109876543210987" },
+          coordinates: { waId },
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  test("phone coordinates must already be E.164", () => {
+    // Twilio hands over `From` with its `+`, so unlike a wa_id there is no
+    // second provider-native spelling to accept.
     for (const value of [
       "15555550123",
       "(555) 555-0123",
@@ -212,13 +316,6 @@ describe("ChannelAddress variants", () => {
         ChannelAddressSchema.safeParse({
           channel: "phone",
           coordinates: { e164: value },
-        }).success,
-      ).toBe(false);
-      expect(
-        ChannelAddressSchema.safeParse({
-          channel: "whatsapp",
-          scope: { businessPhoneNumberId: "109876543210987" },
-          coordinates: { waId: value },
         }).success,
       ).toBe(false);
     }
@@ -419,6 +516,43 @@ describe("projection parsing", () => {
     for (const text of malformed) {
       expect(safeParseChannelAddress(text)).toBeNull();
     }
+  });
+
+  test("a field named after a prototype member is rejected, not swallowed", () => {
+    // `__proto__` is an accessor on `Object.prototype`, so a parser that
+    // assigns decoded names onto a `{}` literal loses the field instead of
+    // keeping it, and a projection with junk appended parses as if it were
+    // clean. Every one of these carries an otherwise valid address.
+    for (const text of [
+      "telegram:userId=987654321;__proto__=x",
+      "telegram:userId=987654321;scope.__proto__=x",
+      "telegram:userId=987654321;constructor=x",
+      "telegram:userId=987654321;prototype=x",
+      "telegram:userId=987654321;toString=x",
+      "telegram:userId=987654321;hasOwnProperty=x",
+      "slack:scope.teamId=T0123ABCD;userId=U0123ABCD;__proto__=junk",
+      "slack:scope.__proto__=x;scope.teamId=T0123ABCD;userId=U0123ABCD",
+    ]) {
+      expect(safeParseChannelAddress(text)).toBeNull();
+    }
+  });
+
+  test("a repeated prototype-shaped field is caught like any other duplicate", () => {
+    for (const text of [
+      "telegram:__proto__=a;__proto__=b;userId=987654321",
+      "telegram:constructor=a;constructor=b;userId=987654321",
+      "slack:scope.__proto__=a;scope.__proto__=b;scope.teamId=T0123ABCD;userId=U0123ABCD",
+    ]) {
+      expect(safeParseChannelAddress(text)).toBeNull();
+    }
+  });
+
+  test("parsing never mutates Object.prototype", () => {
+    safeParseChannelAddress("telegram:userId=987654321;__proto__=polluted");
+    safeParseChannelAddress("telegram:__proto__=polluted;userId=987654321");
+    expect(Object.hasOwn(Object.prototype, "polluted")).toBe(false);
+    expect("polluted" in {}).toBe(false);
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
   });
 
   test("the throwing form does not echo the projection", () => {
