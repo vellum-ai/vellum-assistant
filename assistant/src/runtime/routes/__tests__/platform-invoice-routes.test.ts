@@ -154,6 +154,19 @@ describe("platform_invoices_list", () => {
     expect(err).toBeInstanceOf(InternalError);
     expect(err.message).toMatch(/HTTP 500/);
   });
+
+  test("rejects with BadRequestError carrying the detail on an upstream 400", async () => {
+    stubFetch(
+      () => new Response("Invalid starting_after cursor", { status: 400 }),
+    );
+
+    const err = await expectRejection(() =>
+      listHandler({ queryParams: { starting_after: "in_bogus" } }),
+    );
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect(err.message).toMatch(/Invalid starting_after cursor/);
+    expect(err.message).toMatch(/starting_after/);
+  });
 });
 
 describe("platform_invoices_get", () => {
@@ -215,6 +228,45 @@ describe("platform_invoices_get", () => {
       getHandler({ pathParams: { id: "in_never" } }),
     ).rejects.toBeInstanceOf(InternalError);
     expect(fetchCalls).toHaveLength(MAX_INVOICE_PAGES);
+  });
+
+  test("stops the cursor walk when the request abort signal fires", async () => {
+    const controller = new AbortController();
+    stubFetch(() => {
+      // Abort after the first page has been served; the handler must not
+      // fetch a second page.
+      controller.abort();
+      return jsonResponse({ invoices: [invoice("in_a")], has_more: true });
+    });
+
+    const err = await expectRejection(() =>
+      getHandler({
+        pathParams: { id: "in_never" },
+        abortSignal: controller.signal,
+      }),
+    );
+    expect(err).toBeInstanceOf(InternalError);
+    expect(err.message).toMatch(/aborted/);
+    expect(fetchCalls).toHaveLength(1);
+  });
+
+  test("threads the request abort signal into the page fetch", async () => {
+    const controller = new AbortController();
+    stubFetch(() =>
+      jsonResponse({ invoices: [invoice("in_target")], has_more: false }),
+    );
+
+    await getHandler({
+      pathParams: { id: "in_target" },
+      abortSignal: controller.signal,
+    });
+
+    // The fetch signal must be derived from the caller's signal: aborting
+    // the request aborts the in-flight platform fetch.
+    const fetchSignal = fetchCalls[0]!.init?.signal as AbortSignal;
+    expect(fetchSignal.aborted).toBe(false);
+    controller.abort();
+    expect(fetchSignal.aborted).toBe(true);
   });
 
   test("rejects with BadRequestError when the id path param is missing", async () => {

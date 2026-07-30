@@ -410,15 +410,31 @@ async function handlePlatformCredits(
   };
 }
 
+interface FetchPlatformJsonOptions {
+  /**
+   * Abort signal from the caller's request. Combined with the 10s
+   * per-request timeout so whichever fires first cancels the fetch.
+   */
+  signal?: AbortSignal;
+  /**
+   * When set, an upstream HTTP 400 is surfaced via this factory (typically a
+   * BadRequestError built from the response detail) instead of the generic
+   * InternalError, so user-correctable input errors (e.g. an invalid
+   * pagination cursor) keep their 400 status. Other statuses are unaffected.
+   */
+  onBadRequest?: (detail: string) => Error;
+}
+
 /**
  * GET a JSON resource from the platform using the assistant's stored platform
  * credentials. Throws UnprocessableEntityError when credentials are missing and
  * InternalError on transport / non-2xx failures; `label` names the resource in
- * those error messages.
+ * those error messages. See FetchPlatformJsonOptions for per-call overrides.
  */
 async function fetchPlatformJson(
   path: string,
   label: string,
+  options?: FetchPlatformJsonOptions,
 ): Promise<unknown> {
   const context = await resolvePlatformCallbackRegistrationContext();
 
@@ -429,6 +445,7 @@ async function fetchPlatformJson(
   }
 
   const url = `${context.platformBaseUrl}${path}`;
+  const timeout = AbortSignal.timeout(10_000);
   let response: Response;
   try {
     response = await fetch(url, {
@@ -437,7 +454,9 @@ async function fetchPlatformJson(
         Authorization: context.authHeader,
         Accept: "application/json",
       },
-      signal: AbortSignal.timeout(10_000),
+      signal: options?.signal
+        ? AbortSignal.any([options.signal, timeout])
+        : timeout,
     });
   } catch (err) {
     throw new InternalError(
@@ -447,6 +466,9 @@ async function fetchPlatformJson(
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
+    if (response.status === 400 && options?.onBadRequest) {
+      throw options.onBadRequest(detail);
+    }
     throw new InternalError(
       `Failed to fetch ${label} (HTTP ${response.status}): ${detail}`,
     );
@@ -519,25 +541,35 @@ async function handlePlatformPlans(
  */
 async function fetchPlatformInvoicesPage(
   startingAfter?: string,
+  signal?: AbortSignal,
 ): Promise<PlatformInvoicesListResponse> {
   let path = "/v1/organizations/billing/invoices/";
   if (startingAfter) {
     path += `?${new URLSearchParams({ starting_after: startingAfter })}`;
   }
-  return (await fetchPlatformJson(
-    path,
-    "invoices",
-  )) as PlatformInvoicesListResponse;
+  return (await fetchPlatformJson(path, "invoices", {
+    signal,
+    // The platform returns 400 for an invalid or expired starting_after
+    // cursor; keep that a client error instead of masking it as a 500.
+    onBadRequest: (detail) =>
+      new BadRequestError(
+        `Platform rejected the invoices request${detail ? `: ${detail}` : ""}. ` +
+          "If you passed starting_after, use the id of the last invoice from the previous page.",
+      ),
+  })) as PlatformInvoicesListResponse;
 }
 
 async function handlePlatformInvoicesList(
   args: RouteHandlerArgs,
 ): Promise<PlatformInvoicesListResponse> {
-  return await fetchPlatformInvoicesPage(args.queryParams?.starting_after);
+  return await fetchPlatformInvoicesPage(
+    args.queryParams?.starting_after,
+    args.abortSignal,
+  );
 }
 
 /**
- * Runaway guard for the invoices_get cursor walk — 25 pages is 2,500
+ * Runaway guard for the invoices_get cursor walk: 25 pages is 2,500
  * invoices at the platform's 100-per-page size.
  */
 const MAX_INVOICE_PAGES = 25;
@@ -554,7 +586,15 @@ async function handlePlatformInvoiceGet(
   // until the invoice turns up or the cursor is exhausted.
   let cursor: string | undefined;
   for (let pages = 0; pages < MAX_INVOICE_PAGES; pages++) {
-    const page = await fetchPlatformInvoicesPage(cursor);
+    // Stop walking pages once the caller has gone away (gateway IPC timeout,
+    // disconnected HTTP client). In-flight fetches are cancelled via the
+    // signal passed to fetchPlatformInvoicesPage.
+    if (args.abortSignal?.aborted) {
+      throw new InternalError(
+        `Invoice lookup for "${id}" aborted: caller disconnected`,
+      );
+    }
+    const page = await fetchPlatformInvoicesPage(cursor, args.abortSignal);
     const match = page.invoices.find((invoice) => invoice.id === id);
     if (match) {
       return match;
