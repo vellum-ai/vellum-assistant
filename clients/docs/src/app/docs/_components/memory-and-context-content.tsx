@@ -172,7 +172,7 @@ export function MemoryAndContextContent() {
                     Stable facts about you, your work, or the world
                   </td>
                   <td className="px-4 py-3 text-zinc-600">
-                    &ldquo;Marina works at Vellum as a GTM Engineer&rdquo;
+                    &ldquo;Alice works at Vellum as a GTM Engineer&rdquo;
                   </td>
                 </tr>
                 <tr>

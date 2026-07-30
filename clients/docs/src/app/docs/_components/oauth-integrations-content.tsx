@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -294,7 +293,7 @@ export function OauthIntegrationsContent() {
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             For more details on the credential vault and permissions model, see{" "}
             <Link
-              href={"/docs/trust-security/the-permissions-model" as Route}
+              href={"/docs/trust-security/the-permissions-model"}
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               The Permissions Model
@@ -372,7 +371,7 @@ export function OauthIntegrationsContent() {
             advanced cases where you bring your own API keys or enterprise OAuth apps. For
             details on credit denominations and usage, see the{" "}
             <Link
-              href={"/docs/pricing" as Route}
+              href={"/docs/pricing"}
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               pricing page
@@ -417,7 +416,7 @@ export function OauthIntegrationsContent() {
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             For more detailed troubleshooting steps, see the{" "}
             <Link
-              href={"/docs/help/common-issues" as Route}
+              href={"/docs/help/common-issues"}
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Common Issues

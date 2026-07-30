@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -84,7 +83,7 @@ export function HostingOptionsCloudHostingContent() {
               The default Anthropic Claude model on Vellum&apos;s
               credentials. You can{" "}
               <Link
-                href={"/docs/key-concepts/the-workspace" as Route}
+                href={"/docs/key-concepts/the-workspace"}
                 className="font-semibold text-emerald-700 underline hover:text-emerald-800"
               >
                 bring your own
@@ -95,7 +94,7 @@ export function HostingOptionsCloudHostingContent() {
             <li>
               The full{" "}
               <Link
-                href={"/docs/key-concepts/channels" as Route}
+                href={"/docs/key-concepts/channels"}
                 className="font-semibold text-emerald-700 underline hover:text-emerald-800"
               >
                 channel
@@ -106,7 +105,7 @@ export function HostingOptionsCloudHostingContent() {
             <li>
               Long-running infrastructure for{" "}
               <Link
-                href={"/docs/key-concepts/scheduling" as Route}
+                href={"/docs/key-concepts/scheduling"}
                 className="font-semibold text-emerald-700 underline hover:text-emerald-800"
               >
                 schedules, watchers, heartbeats, and subagents
@@ -116,7 +115,7 @@ export function HostingOptionsCloudHostingContent() {
             <li>
               An isolated{" "}
               <Link
-                href={"/docs/trust-security/privacy-and-data" as Route}
+                href={"/docs/trust-security/privacy-and-data"}
                 className="font-semibold text-emerald-700 underline hover:text-emerald-800"
               >
                 Credential Execution Service
@@ -127,7 +126,7 @@ export function HostingOptionsCloudHostingContent() {
             <li>
               The{" "}
               <Link
-                href={"/docs/key-concepts/memory-and-context" as Route}
+                href={"/docs/key-concepts/memory-and-context"}
                 className="font-semibold text-emerald-700 underline hover:text-emerald-800"
               >
                 long-term memory store
@@ -205,7 +204,7 @@ export function HostingOptionsCloudHostingContent() {
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             For the full breakdown, see{" "}
             <Link
-              href={"/docs/trust-security/privacy-and-data" as Route}
+              href={"/docs/trust-security/privacy-and-data"}
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
               Privacy and data
@@ -213,7 +212,7 @@ export function HostingOptionsCloudHostingContent() {
             . If keeping your data off third-party infrastructure is a
             hard requirement, look at{" "}
             <Link
-              href={"/docs/hosting-options/local-hosting" as Route}
+              href={"/docs/hosting-options/local-hosting"}
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
               local hosting
@@ -314,7 +313,7 @@ export function HostingOptionsCloudHostingContent() {
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             Look at{" "}
             <Link
-              href={"/docs/hosting-options/local-hosting" as Route}
+              href={"/docs/hosting-options/local-hosting"}
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
               local hosting
@@ -322,7 +321,7 @@ export function HostingOptionsCloudHostingContent() {
             instead if you need maximum data control or fully offline
             operation, or at{" "}
             <Link
-              href={"/docs/hosting-options/advanced-options" as Route}
+              href={"/docs/hosting-options/advanced-options"}
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
               advanced options
@@ -363,7 +362,7 @@ export function HostingOptionsCloudHostingContent() {
             <li>
               Optional: connect{" "}
               <Link
-                href={"/docs/key-concepts/channels" as Route}
+                href={"/docs/key-concepts/channels"}
                 className="font-semibold text-emerald-700 underline hover:text-emerald-800"
               >
                 channels

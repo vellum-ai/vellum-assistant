@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -81,14 +80,14 @@ export function DeveloperGuideGetStartedContent() {
             gateway in cloud mode, not exposed directly, so for raw API
             development you&apos;ll want a local install. See{" "}
             <Link
-              href={"/docs/hosting-options/cloud-hosting" as Route}
+              href={"/docs/hosting-options/cloud-hosting"}
               className={linkClass}
             >
               Cloud hosting
             </Link>{" "}
             and{" "}
             <Link
-              href={"/docs/hosting-options/local-hosting" as Route}
+              href={"/docs/hosting-options/local-hosting"}
               className={linkClass}
             >
               Local hosting
@@ -134,7 +133,7 @@ export function DeveloperGuideGetStartedContent() {
           <p className="mb-0 text-zinc-600">
             See{" "}
             <Link
-              href={"/docs/developer-guide/architecture" as Route}
+              href={"/docs/developer-guide/architecture"}
               className={linkClass}
             >
               Architecture
@@ -179,7 +178,7 @@ export function DeveloperGuideGetStartedContent() {
             For the full development loop, including parallel agents
             and the review pipeline, see{" "}
             <Link
-              href={"/docs/developer-guide/development-workflow" as Route}
+              href={"/docs/developer-guide/development-workflow"}
               className={linkClass}
             >
               Development Workflow
@@ -252,7 +251,7 @@ curl -X POST \\
               <code>Authorization: Bearer</code> header carrying a
               token signed by the gateway. See{" "}
               <Link
-                href={"/docs/developer-guide/security" as Route}
+                href={"/docs/developer-guide/security"}
                 className={linkClass}
               >
                 Security &amp; Permissions
@@ -278,7 +277,7 @@ curl -X POST \\
             <p className="mb-0 text-zinc-600">
               See{" "}
               <Link
-                href={"/docs/developer-guide/api" as Route}
+                href={"/docs/developer-guide/api"}
                 className={linkClass}
               >
                 API &amp; Communication
@@ -296,7 +295,7 @@ curl -X POST \\
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <Link
-                href={"/docs/developer-guide/architecture" as Route}
+                href={"/docs/developer-guide/architecture"}
                 className={linkClass}
               >
                 Architecture
@@ -306,7 +305,7 @@ curl -X POST \\
             </li>
             <li>
               <Link
-                href={"/docs/developer-guide/security" as Route}
+                href={"/docs/developer-guide/security"}
                 className={linkClass}
               >
                 Security &amp; Permissions
@@ -316,7 +315,7 @@ curl -X POST \\
             </li>
             <li>
               <Link
-                href={"/docs/developer-guide/features" as Route}
+                href={"/docs/developer-guide/features"}
                 className={linkClass}
               >
                 Features &amp; Capabilities
@@ -326,7 +325,7 @@ curl -X POST \\
             </li>
             <li>
               <Link
-                href={"/docs/developer-guide/api" as Route}
+                href={"/docs/developer-guide/api"}
                 className={linkClass}
               >
                 API &amp; Communication
@@ -335,7 +334,7 @@ curl -X POST \\
             </li>
             <li>
               <Link
-                href={"/docs/developer-guide/development-workflow" as Route}
+                href={"/docs/developer-guide/development-workflow"}
                 className={linkClass}
               >
                 Development Workflow

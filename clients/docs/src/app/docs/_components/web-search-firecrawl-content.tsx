@@ -1,4 +1,3 @@
-import type { Route } from "next";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
@@ -141,7 +140,7 @@ assistant config set services.web-fetch.provider firecrawl`}
               Tavily). The chain skips any provider without a key connected; if none are connected,
               the search returns an error. See the{" "}
               <Link
-                href={"/docs/key-concepts/web-search" as Route}
+                href={"/docs/key-concepts/web-search"}
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
                 Web Search
@@ -196,7 +195,7 @@ assistant config set services.web-fetch.provider firecrawl`}
             </li>
             <li>
               <Link
-                href={"/docs/key-concepts/web-search" as Route}
+                href={"/docs/key-concepts/web-search"}
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
                 Vellum Web Search reference

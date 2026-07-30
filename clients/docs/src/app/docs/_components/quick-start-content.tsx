@@ -1,6 +1,5 @@
 "use client";
 
-import type { Route } from "next";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 
@@ -118,7 +117,7 @@ export function QuickStartContent() {
             Telegram, Slack, email, and phone calls so your assistant
             can reach you outside of those first-party surfaces. See{" "}
             <Link
-              href={"/docs/key-concepts/channels" as Route}
+              href={"/docs/key-concepts/channels"}
               className={linkClass}
             >
               Channels
@@ -141,7 +140,7 @@ export function QuickStartContent() {
             </li>
             <li>
               <strong>Tell it about yourself.</strong> &ldquo;I&apos;m
-              Marina. I work in marketing, live in Brooklyn, and prefer
+              Alice. I work in marketing, live in Brooklyn, and prefer
               short, direct answers.&rdquo; That&apos;s the kind of
               context it folds into how it talks to you.
             </li>
@@ -219,7 +218,7 @@ export function QuickStartContent() {
             things you&apos;ve already approved. For the full picture,
             see{" "}
             <Link
-              href={"/docs/trust-security/the-permissions-model" as Route}
+              href={"/docs/trust-security/the-permissions-model"}
               className={linkClass}
             >
               The permissions model
@@ -245,7 +244,7 @@ export function QuickStartContent() {
             &ldquo;Forget what I told you about that project.&rdquo;
             See{" "}
             <Link
-              href={"/docs/key-concepts/memory-and-context" as Route}
+              href={"/docs/key-concepts/memory-and-context"}
               className={linkClass}
             >
               Memory &amp; Context
@@ -285,7 +284,7 @@ export function QuickStartContent() {
             verification handshake so only you can claim the
             connection. See{" "}
             <Link
-              href={"/docs/key-concepts/channels" as Route}
+              href={"/docs/key-concepts/channels"}
               className={linkClass}
             >
               Channels
@@ -301,7 +300,7 @@ export function QuickStartContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <Link
-                href={"/docs/key-concepts" as Route}
+                href={"/docs/key-concepts"}
                 className={linkClass}
               >
                 Key Concepts
@@ -311,7 +310,7 @@ export function QuickStartContent() {
             </li>
             <li>
               <Link
-                href={"/docs/getting-started/your-first-skill" as Route}
+                href={"/docs/getting-started/your-first-skill"}
                 className={linkClass}
               >
                 Your first skill
@@ -321,7 +320,7 @@ export function QuickStartContent() {
             </li>
             <li>
               <Link
-                href={"/docs/trust-security/security-best-practices" as Route}
+                href={"/docs/trust-security/security-best-practices"}
                 className={linkClass}
               >
                 Security best practices
@@ -331,7 +330,7 @@ export function QuickStartContent() {
             </li>
             <li>
               <Link
-                href={"/docs/help/faq" as Route}
+                href={"/docs/help/faq"}
                 className={linkClass}
               >
                 FAQ

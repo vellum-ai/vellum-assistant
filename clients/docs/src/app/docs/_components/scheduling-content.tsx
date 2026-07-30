@@ -110,8 +110,8 @@ export function SchedulingContent() {
                 &ldquo;Remind me to call the dentist tomorrow at 9am&rdquo;
               </li>
               <li>
-                &ldquo;Send Marina a follow-up email on Friday if she
-                hasn&apos;t replied&rdquo;
+                &ldquo;Send Alice a follow-up email on Friday if they
+                haven&apos;t replied&rdquo;
               </li>
               <li>
                 &ldquo;Check the deployment status in 30 minutes and let me
@@ -560,7 +560,7 @@ export function SchedulingContent() {
             </li>
             <li>
               <strong>Follow-up tracking</strong>: one-shot schedule set 3
-              days out, execute mode. &ldquo;If Marina hasn&apos;t replied by
+              days out, execute mode. &ldquo;If Alice hasn&apos;t replied by
               Thursday, draft a follow-up.&rdquo;
             </li>
             <li>
