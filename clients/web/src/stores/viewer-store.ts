@@ -400,6 +400,8 @@ export interface ViewerActions {
    * channel-setup.
    */
   closeActiveDetail: () => void;
+  /** Close the active overlay view, returning whether one was closed. */
+  closeActiveOverlay: () => boolean;
 
   // --- Tool detail ---
   openToolDetail: (payload: ToolDetailPayload) => void;
@@ -749,6 +751,40 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         return;
       default:
         return;
+    }
+  },
+
+  closeActiveOverlay: () => {
+    switch (get().mainView) {
+      case "document":
+        get().closeDocument();
+        return true;
+      case "subagent-detail":
+        get().closeSubagentDetail();
+        return true;
+      case "tool-detail":
+        get().closeToolDetail();
+        return true;
+      case "activity-steps":
+        get().closeActivitySteps();
+        return true;
+      case "workflow-detail":
+        get().closeWorkflowDetail();
+        return true;
+      case "acp-run-detail":
+        get().closeAcpRunDetail();
+        return true;
+      case "background-task-detail":
+        get().closeBackgroundTaskDetail();
+        return true;
+      case "skill-detail":
+        get().closeSkillDetail();
+        return true;
+      case "channel-setup":
+        get().closeChannelSetup();
+        return true;
+      default:
+        return false;
     }
   },
 

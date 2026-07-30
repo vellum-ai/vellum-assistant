@@ -596,6 +596,32 @@ describe("closeActiveDetail", () => {
   });
 });
 
+describe("closeActiveOverlay", () => {
+  it("closes a tool detail overlay and restores its prior view", () => {
+    getState().openToolDetail(SAMPLE_TOOL);
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeToolDetail).toBeNull();
+  });
+
+  it("closes a process detail overlay through its specific action", () => {
+    getState().openProcessDetail({ kind: "workflow", id: "run-1" });
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeWorkflowRunId).toBeNull();
+  });
+
+  it("returns false without changing a non-overlay view", () => {
+    useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
+
+    expect(getState().closeActiveOverlay()).toBe(false);
+    expect(getState().mainView).toBe("app");
+    expect(getState().activeAppId).toBe("app-1");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Tool detail
 // ---------------------------------------------------------------------------
