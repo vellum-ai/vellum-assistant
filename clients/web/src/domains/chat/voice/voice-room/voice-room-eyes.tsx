@@ -286,14 +286,15 @@ export function VoiceRoomColorLook({
   visual = "idle",
   getAmplitude,
   getResponseAmplitude,
-  respondingStyle = "rings",
+  respondingStyle = "waves",
   eyePlacement = "center",
   wavePlacement = "top",
   wavePalette = "tone",
   waveStyle = "fill",
   showStateCaption = true,
+  captionEmphasis = "hidden",
   entryOrigin = null,
-  waveEngine = "reactive",
+  waveEngine = "mesh",
   viewport,
 }: {
   look: VoiceRoomLook;
@@ -313,6 +314,8 @@ export function VoiceRoomColorLook({
   /** Show the state caption below the eyes. Off when the room's live captions
    *  are on — the transcript already names/fills that space. */
   showStateCaption?: boolean;
+  /** How prominent that caption is while audio flows. See {@link VoiceCaptionEmphasis}. */
+  captionEmphasis?: VoiceCaptionEmphasis;
   /** Viewport point the entrance grows from (the tapped control). Null → the
    *  fixed screen-center origin. */
   entryOrigin?: { x: number; y: number } | null;
@@ -480,6 +483,11 @@ export function VoiceRoomColorLook({
             exit={{ opacity: 0 }}
             transition={{ duration: reduce ? 0 : 0.3 }}
           >
+            <VoiceThinkingBand
+              engine={waveEngine}
+              palette={wavePalette}
+              waveStyle={waveStyle}
+            />
             <VoiceThinkingIndicator
               viewport={{ w, h }}
               eyesBottom={thinkingEyeBottom}
@@ -502,9 +510,11 @@ export function VoiceRoomColorLook({
           >
             <VoiceRespondingTreatment
               style={respondingStyle}
+              engine={waveEngine}
               getAmplitude={getResponseAmplitude ?? getAmplitude}
               waveStyle={waveStyle}
               wavePlacement={wavePlacement}
+              wavePalette={wavePalette}
               viewport={{ w, h }}
             />
           </motion.div>
@@ -534,7 +544,9 @@ export function VoiceRoomColorLook({
 
       {/* State caption in the room's lower zone (unless the live captions are
           on — the assistant transcript occupies that zone instead). */}
-      {showStateCaption ? <VoiceStateCaption visual={visual} /> : null}
+      {showStateCaption ? (
+        <VoiceStateCaption visual={visual} emphasis={captionEmphasis} />
+      ) : null}
     </>
   );
 }
@@ -558,23 +570,75 @@ export function VoiceRoomColorLook({
  * Both looks share this anchor, so the caption reads in the same place
  * regardless of avatar type.
  */
-export function VoiceStateCaption({ visual }: { visual: VoiceAvatarVisual }) {
+/**
+ * How loudly the room states the phase in words.
+ *
+ * The caption existed to name beats the visuals could not. Every phase now has
+ * a band of its own — the mic at the ceiling, the reply at the floor, and the
+ * hand-off sweeping between them — so the words were repeating what the screen
+ * already showed while competing with the transcript for the same lower zone.
+ * `hidden` (the default) drops the caption and lets the animation carry the
+ * state alone; `muted` keeps it as a small dim label; `full` is the original
+ * weight.
+ *
+ * Applies uniformly across phases. It did once exempt `thinking`, back when
+ * that state had nothing but a dot triad and dropping its caption would have
+ * left a still, silent room — {@link VoiceThinkingBand} is what removed the
+ * need for the exception.
+ */
+export type VoiceCaptionEmphasis = "full" | "muted" | "hidden";
+
+/** Scale + opacity applied to the caption per emphasis, while audio flows. */
+const CAPTION_EMPHASIS: Record<
+  VoiceCaptionEmphasis,
+  { scale: number; opacity: number } | null
+> = {
+  full: { scale: 1, opacity: 1 },
+  muted: { scale: 0.72, opacity: 0.55 },
+  hidden: null,
+};
+
+/**
+ * The thinking band's own envelope.
+ *
+ * No microphone and no TTS, so there is nothing to poll — but a flat zero would
+ * collapse the sheet to its idle floor and read as a dead band sliding down the
+ * screen. A slow swell gives the sweep something to carry. Module-level so its
+ * identity is stable and the mesh's draw loop never restarts.
+ */
+const THINKING_ENVELOPE = () =>
+  0.3 + 0.2 * Math.sin(performance.now() / 850);
+
+/** One full ceiling→floor pass of the thinking band, in seconds. */
+const THINKING_SWEEP_SEC = 3.4;
+
+export function VoiceStateCaption({
+  visual,
+  emphasis = "hidden",
+}: {
+  visual: VoiceAvatarVisual;
+  emphasis?: VoiceCaptionEmphasis;
+}) {
   const reduce = useReducedMotion();
   const label = EYE_STATE_CAPTION[visual];
+  const treatment = CAPTION_EMPHASIS[emphasis];
   return (
     <AnimatePresence mode="wait">
-      {label ? (
+      {label && treatment ? (
         <motion.div
           key={label}
           data-testid="voice-state-caption"
+          data-emphasis={emphasis}
           aria-hidden="true"
           className="pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2 text-center font-medium tracking-wide text-[var(--room-fg-muted,rgba(255,255,255,0.7))]"
           style={{
             bottom: VOICE_ROOM_LOWER_ZONE_BOTTOM,
-            fontSize: VOICE_ROOM_CAPTION_TEXT,
+            // Scale the type rather than transform the box, so the caption
+            // stays on the lower zone's baseline instead of drifting off it.
+            fontSize: `calc(${VOICE_ROOM_CAPTION_TEXT} * ${treatment.scale})`,
           }}
           initial={reduce ? false : { opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={{ opacity: treatment.opacity, y: 0 }}
           exit={reduce ? { opacity: 0 } : { opacity: 0, y: -6 }}
           transition={{ duration: reduce ? 0 : 0.28, ease: "easeOut" }}
         >
@@ -659,7 +723,22 @@ function VoiceThinkingIndicator({
  * - `pulse`    — the whole color field brightens gently on speech peaks.
  * All ride the TTS-output amplitude and tint from the room foreground tone.
  */
-export type VoiceRespondingStyle = "rings" | "halo" | "waveform" | "pulse";
+/**
+ * How the assistant's voice is drawn while it speaks.
+ *
+ * `waves` is the spatial counterpart to the listening band: the user's voice
+ * arrives from the ceiling, the assistant's answers from the floor, so the two
+ * halves of a turn own opposite edges of the room and the eyes sit on the axis
+ * between them. The rest are earlier sketches — `rings` and `halo` radiate from
+ * behind the eyes, `pulse` lightens the whole field, `waveform` reuses the
+ * listening band at whatever placement the room is already using.
+ */
+export type VoiceRespondingStyle =
+  | "waves"
+  | "rings"
+  | "halo"
+  | "waveform"
+  | "pulse";
 
 /**
  * Smoothed output-amplitude → `--resp-amp` on a ref, for the responding
@@ -703,17 +782,82 @@ function useRespondingAmp(getAmplitude?: () => number) {
   return ref;
 }
 
+/**
+ * The `thinking` band — the turn in transit.
+ *
+ * Listening owns the ceiling and responding owns the floor, which left the
+ * hand-off between them as the one beat with no band at all: shrunken eyes, a
+ * dot triad, and an otherwise empty room. Against two full-screen woven sheets
+ * that reads as the state having been forgotten.
+ *
+ * So thinking is drawn as the same sheet *travelling* from the user's edge to
+ * the assistant's, on a loop. That is not decoration chosen to fill the gap —
+ * it is what the state actually is. The user's turn has landed and the reply
+ * has not started, so the energy is between edges, and the room says so with
+ * the same vocabulary it uses either side of the beat. It also gives the phase
+ * a direction, so a long think reads as progress rather than as a hang.
+ *
+ * Dimmer than the audible bands on purpose: nothing is making sound here, and
+ * a sweep at full strength would claim more presence than either real voice.
+ */
+function VoiceThinkingBand({
+  engine,
+  palette,
+  waveStyle,
+}: {
+  engine: VoiceWaveEngine;
+  palette: VoiceWavePalette;
+  waveStyle: VoiceWaveStyle;
+}) {
+  const reduce = useReducedMotion();
+  return (
+    <motion.div
+      aria-hidden="true"
+      data-testid="voice-thinking-band"
+      className="pointer-events-none absolute inset-x-0"
+      style={{ height: "42%", opacity: 0.55 }}
+      initial={{ top: "-14%" }}
+      // Reduced motion parks it midway rather than sweeping: the state still
+      // reads as "between the two edges", just without the travel.
+      animate={reduce ? { top: "29%" } : { top: ["-14%", "72%"] }}
+      transition={
+        reduce
+          ? { duration: 0 }
+          : {
+              duration: THINKING_SWEEP_SEC,
+              repeat: Infinity,
+              ease: "easeInOut",
+            }
+      }
+    >
+      {/* `inline` fills the travelling box rather than anchoring to a screen
+          edge — the box is what carries the position here. */}
+      <WaveBand
+        engine={engine}
+        getAmplitude={THINKING_ENVELOPE}
+        waveStyle={waveStyle}
+        palette={palette}
+        placement="inline"
+      />
+    </motion.div>
+  );
+}
+
 function VoiceRespondingTreatment({
   style,
+  engine,
   getAmplitude,
   waveStyle,
   wavePlacement,
+  wavePalette,
   viewport,
 }: {
   style: VoiceRespondingStyle;
+  engine: VoiceWaveEngine;
   getAmplitude?: () => number;
   waveStyle: VoiceWaveStyle;
   wavePlacement: VoiceWavePlacement;
+  wavePalette: VoiceWavePalette;
   viewport: { w: number; h: number };
 }) {
   const ampRef = useRespondingAmp(getAmplitude);
@@ -722,10 +866,28 @@ function VoiceRespondingTreatment({
   // and resolve against the window) so proportions match app and Storybook.
   const M = Math.min(viewport.w, viewport.h);
 
+  if (style === "waves") {
+    // The mirror of listening: the same band, the same engine, anchored to the
+    // floor instead of the ceiling and fed the TTS output rather than the mic.
+    // Nothing about it is a different visual language — that is the point. The
+    // room says who is speaking by *where* the energy is, not by switching
+    // metaphors mid-turn.
+    return getAmplitude ? (
+      <WaveBand
+        engine={engine}
+        getAmplitude={getAmplitude}
+        waveStyle={waveStyle}
+        palette={wavePalette}
+        placement="bottom"
+      />
+    ) : null;
+  }
+
   if (style === "waveform") {
     // The assistant's own voice — reuse the centered band, output-driven.
     return getAmplitude ? (
-      <VoiceReactiveWaves
+      <WaveBand
+        engine={engine}
         getAmplitude={getAmplitude}
         waveStyle={waveStyle}
         palette="tone"
@@ -837,9 +999,12 @@ export function VoiceRespondingRings({
     <VoiceRespondingTreatment
       style="rings"
       getAmplitude={getAmplitude}
-      // waveStyle/wavePlacement are only read by the `waveform` style; inert here.
+      // engine/waveStyle/wavePlacement/wavePalette are only read by the band
+      // styles (`waves`, `waveform`); inert for the rings.
+      engine="reactive"
       waveStyle="fill"
       wavePlacement="top"
+      wavePalette="tone"
       viewport={viewport ?? measured}
     />
   );

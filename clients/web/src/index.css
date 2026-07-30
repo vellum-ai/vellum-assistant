@@ -983,6 +983,41 @@ body {
   }
 }
 
+/* Mesh band (voice-mesh-waves.tsx): the canvas already answers amplitude in its
+ * own geometry — the sheet expands and contracts as the envelope swells — so the
+ * container must NOT also translate or scale with `--voice-amp`. Two responses
+ * stacked on one signal read as the whole band bouncing up and down behind a
+ * sheet that is separately breathing, which is the tell that this is an effect
+ * rather than a picture of the voice. Keep the static anchoring (and the
+ * brightness, which composes fine); drop the movement. */
+.voice-listening-waves--mesh,
+.voice-listening-waves--mesh.voice-listening-waves--top,
+.voice-listening-waves--mesh.voice-listening-waves--inline {
+  transform: none;
+}
+/* The centered band still needs its own -50% or it drops half a band height;
+ * only the amplitude-driven scaleY comes off. */
+.voice-listening-waves--mesh.voice-listening-waves--center {
+  transform: translateY(-50%);
+}
+
+/* Push the two edge bands further out of frame than the filled band sits.
+ *
+ * The mesh centers its sheet inside whatever box it is given, so a band
+ * spanning 0–42% puts the weave's spine at 21% — close enough to the middle
+ * that it crowds the eyes and reads as two competing centerpieces. Hanging the
+ * box off the edge moves the spine to ~11% (and its mirror at ~89%), which
+ * both clears the eyes and lets the sheet run off the top and bottom of the
+ * screen rather than terminating inside it — the energy arrives from outside
+ * the room instead of starting at a visible boundary. The room's own
+ * `overflow-hidden` does the clipping. */
+.voice-listening-waves--mesh.voice-listening-waves--top {
+  top: -10%;
+}
+.voice-listening-waves--mesh.voice-listening-waves--bottom {
+  bottom: -10%;
+}
+
 /* Reactive band (voice-reactive-waves.tsx): the path geometry is rebuilt every
  * frame from a rolling history of the live amplitude, so the horizontal motion
  * *is* the signal scrolling by. The drift keyframe above would slide that

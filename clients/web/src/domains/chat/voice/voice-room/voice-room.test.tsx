@@ -88,8 +88,20 @@ mock.module("@/domains/chat/voice/voice-room/voice-avatar", () => ({
 // Stub the listening waves (rAF loop + per-frame SVG geometry) so the
 // room-chrome tests stay focused on wiring: we only assert the room mounts
 // them in the right phase, not how they animate.
+const waveStub = ({ placement }: { placement?: string }) => (
+  <div data-testid="listening-waves" data-placement={placement} />
+);
+// Both engines are stubbed: the room draws the mesh, but which engine is the
+// default is a design decision that has already changed once, and these tests
+// are about *where* the band lands, not which one draws it. `placement` is
+// surfaced so they can assert the room's spatial language — the user's voice
+// arrives at the ceiling, the assistant's answers from the floor.
+mock.module("@/domains/chat/voice/voice-room/voice-mesh-waves", () => ({
+  VoiceMeshWaves: waveStub,
+  MESH_INLINE_TUNING: {},
+}));
 mock.module("@/domains/chat/voice/voice-room/voice-reactive-waves", () => ({
-  VoiceReactiveWaves: () => <div data-testid="listening-waves" />,
+  VoiceReactiveWaves: waveStub,
 }));
 
 // The room resolves its look (color-with-eyes vs the ambient void) and the
@@ -171,6 +183,10 @@ mock.module("@/components/speech/use-stt-language-selection", () => ({
 // Imported after the mocks so the room picks up the mocked modules.
 const { VoiceRoom } =
   await import("@/domains/chat/voice/voice-room/voice-room");
+// The caption is exercised directly as well as through the room: the room
+// hides it, so its emphasis contract is only observable component-side.
+const { VoiceStateCaption } =
+  await import("@/domains/chat/voice/voice-room/voice-room-eyes");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
 const { attachSurface } =
@@ -638,7 +654,7 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
     expect(exitButton()).not.toBeNull();
   });
 
-  test("the color look shows no waveform outside listening", () => {
+  test("the color look answers from the floor while the assistant speaks", () => {
     mockAvatarData = {
       components: CHARACTER_COMPONENTS,
       traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
@@ -647,7 +663,41 @@ describe("VoiceRoom — looks (color-with-eyes vs ambient void)", () => {
     startOwnedSession("speaking");
     render(<VoiceRoom />);
     expect(eyes()).not.toBeNull();
-    expect(screen.queryByTestId("listening-waves")).toBeNull();
+    // Both halves of a turn use the same band; which edge it occupies is what
+    // says whose voice it is. Speaking answers from the bottom.
+    expect(screen.getByTestId("listening-waves").dataset.placement).toBe(
+      "bottom",
+    );
+  });
+
+  test("the color look gathers at the ceiling while the user speaks", () => {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
+      customImageUrl: null,
+    };
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(screen.getByTestId("listening-waves").dataset.placement).toBe("top");
+  });
+
+  test("the color look sweeps the band between edges while thinking", () => {
+    mockAvatarData = {
+      components: CHARACTER_COMPONENTS,
+      traits: { bodyShape: "sprout", eyeStyle: "curious", color: "green" },
+      customImageUrl: null,
+    };
+    startOwnedSession("thinking");
+    render(<VoiceRoom />);
+    // Thinking is the turn in transit: neither edge owns it, so the band
+    // travels between them rather than anchoring to the ceiling or the floor.
+    const band = screen.getByTestId("voice-thinking-band");
+    expect(band).toBeTruthy();
+    expect(
+      band.querySelector("[data-testid='listening-waves']")?.getAttribute(
+        "data-placement",
+      ),
+    ).toBe("inline");
   });
 
   test("a default character (no traits) gets first-component eyes", () => {
@@ -696,7 +746,7 @@ describe("VoiceRoom — state caption (shared across looks)", () => {
   }
 
   // The void look (custom-image / unresolved avatar) carries the centered
-  // avatar, not the eyes, but shares the same caption in the same beat.
+  // avatar, not the eyes, but shares the same caption beat.
   function renderVoidLook(state: LiveVoiceSessionState) {
     mockAvatarData = {
       components: CHARACTER_COMPONENTS,
@@ -707,37 +757,58 @@ describe("VoiceRoom — state caption (shared across looks)", () => {
     render(<VoiceRoom />);
   }
 
-  test("shows the state caption below the eyes by default (captions off)", () => {
+  // The room passes `captionEmphasis: "hidden"`, so nothing it can be told
+  // about transcripts will make a caption appear. The tests that used to
+  // exercise `showStateCaption` through the room have moved down to
+  // `VoiceStateCaption`, where the emphasis can be varied and the assertions
+  // still mean something — left here they would have passed unconditionally.
+  test("paints no caption by default — the bands carry the state", () => {
     renderCharacterLook("listening");
-    expect(caption()?.textContent).toBe("Listening");
-  });
-
-  test("stands the caption down when the assistant transcript is enabled", () => {
-    useVoicePrefsStore.setState({ showAssistantTranscript: true });
-    renderCharacterLook("speaking");
     expect(caption()).toBeNull();
   });
 
-  test("keeps the caption when only the user transcript is enabled", () => {
-    // The user transcript floats *above* the eyes, so it never fills the
-    // caption's lower space — enabling it alone must not blank the caption.
-    useVoicePrefsStore.setState({ showUserTranscript: true });
-    renderCharacterLook("listening");
-    expect(caption()?.textContent).toBe("Listening");
-  });
-
-  test("the void look shows the same caption below the custom avatar (parity)", () => {
+  test("paints no caption in the void look either", () => {
     renderVoidLook("speaking");
-    // Void look — the centered avatar, not the eyes — still names the beat.
     expect(screen.getByTestId("voice-avatar")).toBeTruthy();
     expect(screen.queryByTestId("voice-room-eyes")).toBeNull();
-    expect(caption()?.textContent).toBe("Speaking");
+    expect(caption()).toBeNull();
+  });
+});
+
+describe("VoiceStateCaption — emphasis", () => {
+  const caption = () => screen.queryByTestId("voice-state-caption");
+
+  test("hidden paints nothing", () => {
+    render(<VoiceStateCaption visual="listening" emphasis="hidden" />);
+    expect(caption()).toBeNull();
   });
 
-  test("the void look stands its caption down for the assistant transcript too", () => {
-    useVoicePrefsStore.setState({ showAssistantTranscript: true });
-    renderVoidLook("speaking");
+  test("muted keeps the label, quietly", () => {
+    render(<VoiceStateCaption visual="listening" emphasis="muted" />);
+    expect(caption()?.textContent).toBe("Listening");
+    expect(caption()?.dataset.emphasis).toBe("muted");
+  });
+
+  test("full keeps the original weight", () => {
+    render(<VoiceStateCaption visual="responding" emphasis="full" />);
+    expect(caption()?.textContent).toBe("Speaking");
+    expect(caption()?.dataset.emphasis).toBe("full");
+  });
+
+  test("emphasis applies uniformly across phases", () => {
+    // `thinking` was once exempt, back when it had nothing but a dot triad and
+    // dropping its caption left a still, silent room. The transit band is what
+    // removed the need for that exception.
+    render(<VoiceStateCaption visual="thinking" emphasis="hidden" />);
     expect(caption()).toBeNull();
+  });
+
+  test("names no beat for the states that have no label", () => {
+    for (const visual of ["idle", "reconnecting"] as const) {
+      cleanup();
+      render(<VoiceStateCaption visual={visual} emphasis="full" />);
+      expect(caption()).toBeNull();
+    }
   });
 });
 

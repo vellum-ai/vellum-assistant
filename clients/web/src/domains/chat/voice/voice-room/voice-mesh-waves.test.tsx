@@ -15,7 +15,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { cleanup, render, waitFor } from "@testing-library/react";
 
-import { VoiceMeshWaves } from "./voice-mesh-waves";
+import {
+  DEFAULT_MESH_TUNING,
+  VoiceMeshWaves,
+  meshDisplacement,
+} from "./voice-mesh-waves";
 
 /** Every y coordinate the component drew, per render pass. */
 interface Recorder {
@@ -184,5 +188,106 @@ describe("VoiceMeshWaves", () => {
         Number(host.style.getPropertyValue("--voice-amp")),
       ).toBeGreaterThan(0);
     });
+  });
+});
+
+/**
+ * The weave's shape, tested through `meshDisplacement` rather than the canvas.
+ *
+ * The property at issue — that the pinches where depth lines converge into a
+ * "twist" travel across the band rather than sitting in fixed spots — only
+ * shows up when averaged over ten-odd seconds of motion, which a component
+ * test cannot wait for. Against the pure function it is a few milliseconds.
+ */
+describe("meshDisplacement", () => {
+  /**
+   * Spread of the sheet across depth at each x: the pinches are its minima.
+   * This is the same quantity the canvas draws, minus the pixel scaling.
+   */
+  function spreadProfile(timeSec: number, samples = 96, lines = 92): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < samples; i++) {
+      const u = i / (samples - 1);
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let line = 0; line < lines; line++) {
+        const depth = line / (lines - 1);
+        // A flat envelope, so the only thing that can move the pinches is the
+        // wave math itself — not the amplitude history scrolling underneath.
+        const swirl = u * 0.4 * DEFAULT_MESH_TUNING.swirl;
+        const v = meshDisplacement(
+          u,
+          depth,
+          timeSec,
+          swirl,
+          DEFAULT_MESH_TUNING,
+        );
+        const y = (depth - 0.5) * DEFAULT_MESH_TUNING.spread -
+          DEFAULT_MESH_TUNING.displace * v;
+        if (y < lo) {lo = y;}
+        if (y > hi) {hi = y;}
+      }
+      out.push(hi - lo);
+    }
+    return out;
+  }
+
+  /**
+   * How much persistent structure survives averaging the profile over
+   * `seconds` of motion, as a coefficient of variation.
+   *
+   * Pinned pinches keep their dips through the average, so this stays high;
+   * travelling pinches smear the average flat, so it drops.
+   */
+  function persistentStructure(seconds: number): number {
+    const samples = 96;
+    const acc = new Array<number>(samples).fill(0);
+    let frames = 0;
+    for (let t = 0; t < seconds; t += 0.05) {
+      const profile = spreadProfile(t, samples);
+      for (let i = 0; i < samples; i++) {
+        acc[i] += profile[i];
+      }
+      frames++;
+    }
+    const avg = acc.map((v) => v / frames);
+    const mean = avg.reduce((a, b) => a + b, 0) / samples;
+    const variance =
+      avg.reduce((a, b) => a + (b - mean) ** 2, 0) / samples;
+    return Math.sqrt(variance) / mean;
+  }
+
+  test("the twists do not stay in the same place", () => {
+    // Measured over the window a viewer actually perceives. The original
+    // counter-propagating formula scored ~0.22 here — deep dips at fixed x,
+    // which is exactly the "why are the twists always in the same spot"
+    // report. Co-propagating the two ripples plus the slow wander takes it
+    // to ~0.06. The threshold sits well below the old value and well above
+    // the new one, so it fails if either mechanism is removed.
+    expect(persistentStructure(12)).toBeLessThan(0.12);
+  });
+
+  test("the sheet still has real structure at any instant", () => {
+    // The flatness above must come from the pattern *moving*, not from the
+    // sheet having been smoothed into a featureless tube.
+    const profile = spreadProfile(3.2);
+    const mean = profile.reduce((a, b) => a + b, 0) / profile.length;
+    const range = Math.max(...profile) - Math.min(...profile);
+    expect(range / mean).toBeGreaterThan(0.3);
+  });
+
+  test("stays within its normalized range", () => {
+    for (let t = 0; t < 6; t += 0.37) {
+      for (let i = 0; i <= 10; i++) {
+        const v = meshDisplacement(
+          i / 10,
+          0.5,
+          t,
+          1.2,
+          DEFAULT_MESH_TUNING,
+        );
+        expect(Math.abs(v)).toBeLessThanOrEqual(1.0001);
+      }
+    }
   });
 });

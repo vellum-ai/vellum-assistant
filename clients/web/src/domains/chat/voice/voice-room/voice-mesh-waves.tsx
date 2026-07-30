@@ -31,7 +31,7 @@
  * resolved from the same CSS custom properties in JS instead.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { createAmplitudeSmoother } from "./voice-motion";
 import { createAmplitudeHistory } from "./voice-amplitude-history";
@@ -41,40 +41,170 @@ import type {
 } from "./voice-listening-waves";
 
 /**
- * Depth lines in the sheet. The woven look needs enough of them that adjacent
- * curves read as a surface rather than as separate strokes; below ~30 it looks
- * like a stack of lines, and past ~60 the added density is invisible but the
- * per-frame cost is not.
+ * The knobs that decide what the sheet looks like.
+ *
+ * These are exposed rather than baked in because the woven look is genuinely
+ * sensitive to their ratios — `spread` vs `displace` in particular is the
+ * difference between a folded ribbon and a flat stack of parallel lines — and
+ * that is a judgement call best made by looking, not by reasoning. See the
+ * `MESH_PRESETS` in the stories for the ones worth comparing.
  */
-const LINES = 46;
-
-/** Horizontal samples per line. Straight segments at this density read smooth. */
-const SAMPLES = 96;
-
-/** Samples of amplitude history retained, and how fast the terrain scrolls. */
-const HISTORY_SIZE = 96;
-const HISTORY_PERIOD_MS = 34;
+export interface VoiceMeshTuning {
+  /**
+   * Depth lines in the sheet. Enough that adjacent curves read as a surface
+   * rather than as separate strokes; below ~30 it looks like a stack of lines,
+   * and past ~90 the added density is invisible but the per-frame cost is not.
+   */
+  lines: number;
+  /** Horizontal samples per line. Straight segments at this density read smooth. */
+  samples: number;
+  /**
+   * How far the sheet's near and far edges sit apart, as a fraction of the band
+   * height. Small values make the curves nearly coincide so they only separate
+   * where the phase shift pulls them apart — that is what reads as a bundle of
+   * filaments rather than as ruled lines.
+   */
+  spread: number;
+  /** Peak vertical displacement, as a fraction of the band height. */
+  displace: number;
+  /**
+   * Phase offset between the near and far edges of the sheet, in radians. The
+   * whole trick: around half a turn the far edge rides the opposite part of the
+   * wave from the near edge, so the sheet twists and the curves cross. At 0
+   * they move as one and the mesh collapses into a single fat line.
+   */
+  depthPhase: number;
+  /** Cycles across the band for the two ripples. Lower = broader lobes. */
+  cyclesA: number;
+  cyclesB: number;
+  /** How fast the weave travels, in radians per second. */
+  driftSpeed: number;
+  /**
+   * Speed of the second ripple as a fraction of the first. Both travel the
+   * *same* direction — that is deliberate. Counter-propagating waves form a
+   * standing pattern whose nodes oscillate around fixed centres, which is what
+   * made the twists appear pinned to the same few spots. Same direction at
+   * different speeds gives a beat that translates instead.
+   */
+  driftRatioB: number;
+  /**
+   * How strongly the amplitude history warps the weave's phase along x.
+   *
+   * Phase accumulates as a running total of the envelope, so where the voice
+   * was loud the phase advances faster and the weave bunches tighter. That
+   * makes the twists land where the speech was — and because the history
+   * scrolls left, they travel with it. Without this, the audio only scales the
+   * sheet's height and the *structure* is a fixed formula, which is what reads
+   * as static however much the sheet swells.
+   */
+  swirl: number;
+  /**
+   * Amplitude and rate of a slow phase wander applied to each ripple.
+   *
+   * Belt and braces for silence: with no audio there is no swirl, so this keeps
+   * the interference pattern sliding rather than settling into one pose. Two
+   * incommensurate rates, so it does not visibly loop.
+   */
+  wander: number;
+  wanderHzA: number;
+  wanderHzB: number;
+  /** Stroke alpha at the far and near edges — the sheet's depth cue. */
+  alphaFar: number;
+  alphaNear: number;
+  /** Displacement floor, so the sheet still breathes through silence. */
+  idleEnvelope: number;
+  /** Samples of amplitude history retained, and how fast the terrain scrolls. */
+  historySize: number;
+  historyPeriodMs: number;
+}
 
 /**
- * How far the sheet's near and far edges sit apart, as a fraction of the band
- * height. The sheet is thin relative to its displacement — that is what makes
- * it read as a ribbon seen nearly edge-on rather than as a landscape.
+ * The "dense" tuning: many lines at low alpha, with the sheet's edges close
+ * enough together that the curves nearly coincide. That combination is what
+ * makes the weave *resolve* — at the original 46 lines and 0.3 spread the
+ * curves read as ruled lines at different heights (a stack) before they read
+ * as one folded surface.
  */
-const SHEET_SPREAD = 0.3;
-
-/** Peak vertical displacement of the ribbon, as a fraction of the band height. */
-const DISPLACE = 0.34;
+export const DEFAULT_MESH_TUNING: VoiceMeshTuning = {
+  lines: 92,
+  samples: 96,
+  spread: 0.12,
+  displace: 0.4,
+  depthPhase: Math.PI * 1.7,
+  cyclesA: 1.6,
+  cyclesB: 2.7,
+  driftSpeed: 0.9,
+  driftRatioB: 0.55,
+  swirl: 5.5,
+  wander: 0.9,
+  wanderHzA: 0.037,
+  wanderHzB: 0.023,
+  alphaFar: 0.035,
+  alphaNear: 0.13,
+  idleEnvelope: 0.13,
+  historySize: 96,
+  historyPeriodMs: 34,
+};
 
 /**
- * Phase offset between the near and far edges of the sheet, in radians. This is
- * the whole trick: at ~half a turn the far edge is riding the opposite part of
- * the wave from the near edge, so the sheet twists and the curves cross. At 0
- * they would move as one and the mesh would collapse into a single fat line.
+ * Strip-height override for the inline surfaces (the composer's voice bar).
+ *
+ * The room gives the sheet hundreds of pixels; the composer strip gives it
+ * about 24. At the room's 92 lines that is a quarter-pixel of separation each,
+ * so the weave collapses into a solid smear and every line's individual alpha
+ * stacks into a flat block. Fewer lines with more separation and more alpha
+ * each keeps it legible as a woven ribbon at strip height — the same
+ * accommodation `WAVE_LAYERS_INLINE` makes for the filled band.
  */
-const DEPTH_PHASE = Math.PI * 1.7;
+export const MESH_INLINE_TUNING: Partial<VoiceMeshTuning> = {
+  lines: 26,
+  spread: 0.18,
+  displace: 0.62,
+  alphaFar: 0.1,
+  alphaNear: 0.34,
+};
 
-/** Idle displacement floor, so the sheet still breathes through silence. */
-const IDLE_ENVELOPE = 0.13;
+/**
+ * The sheet's normalized vertical displacement at one point, in roughly −1..1.
+ *
+ * Pure and exported so the weave's behaviour can be tested directly rather than
+ * by rendering seconds of canvas: the property that matters — that the pinches
+ * where depth lines converge *travel* rather than sit in fixed spots — is only
+ * visible when averaged over ten-odd seconds, which is not something a
+ * component test can afford to wait for.
+ *
+ * `swirl` is the phase already accumulated from the amplitude history up to
+ * this x (see {@link VoiceMeshTuning.swirl}); the caller computes it once per
+ * frame for the whole band rather than per line.
+ */
+export function meshDisplacement(
+  u: number,
+  depth: number,
+  timeSec: number,
+  swirl: number,
+  config: VoiceMeshTuning,
+): number {
+  const phase = timeSec * config.driftSpeed + depth * config.depthPhase;
+  const wanderA =
+    config.wander * Math.sin(timeSec * config.wanderHzA * Math.PI * 2);
+  const wanderB =
+    config.wander * Math.sin(timeSec * config.wanderHzB * Math.PI * 2 + 1.9);
+  // Both ripples travel the same direction at different speeds, so their beat
+  // — and every pinch in it — translates across the band. Counter-propagating
+  // them (the first cut) made a standing pattern whose nodes only oscillated
+  // around fixed centres, which is what read as static.
+  return (
+    0.6 *
+      Math.sin(u * Math.PI * 2 * config.cyclesA + phase + swirl + wanderA) +
+    0.4 *
+      Math.sin(
+        u * Math.PI * 2 * config.cyclesB +
+          phase * config.driftRatioB +
+          swirl * 1.6 +
+          wanderB,
+      )
+  );
+}
 
 /** Fixed cyan for the `aurora` palette — matches the filled band's accent. */
 const AURORA_HEX = "#22D3EE";
@@ -135,11 +265,14 @@ export function VoiceMeshWaves({
   getAmplitude,
   palette = "aurora",
   placement = "bottom",
+  tuning,
 }: {
   /** Amplitude source (0–1), polled in a rAF loop. */
   getAmplitude: () => number;
   palette?: VoiceWavePalette;
   placement?: VoiceWavePlacement;
+  /** Overrides on {@link DEFAULT_MESH_TUNING}. */
+  tuning?: Partial<VoiceMeshTuning>;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -147,6 +280,14 @@ export function VoiceMeshWaves({
   useEffect(() => {
     getAmplitudeRef.current = getAmplitude;
   }, [getAmplitude]);
+
+  // Serialized, so a caller passing a fresh object literal every render does
+  // not tear down and restart the draw loop 60 times a second.
+  const tuningKey = JSON.stringify(tuning ?? {});
+  const config = useMemo(
+    () => ({ ...DEFAULT_MESH_TUNING, ...(JSON.parse(tuningKey) as Partial<VoiceMeshTuning>) }),
+    [tuningKey],
+  );
 
   useEffect(() => {
     const host = hostRef.current;
@@ -186,10 +327,13 @@ export function VoiceMeshWaves({
 
     const smoother = createAmplitudeSmoother({ attackMs: 80, releaseMs: 350 });
     const history = createAmplitudeHistory({
-      size: HISTORY_SIZE,
-      periodMs: HISTORY_PERIOD_MS,
+      size: config.historySize,
+      periodMs: config.historyPeriodMs,
     });
-    const envelope = new Float32Array(HISTORY_SIZE);
+    const envelope = new Float32Array(config.historySize);
+    // Phase warp accumulated along x from the envelope — see `swirl`. Held
+    // alongside the envelope so it is rebuilt once per frame, not per line.
+    const warp = new Float32Array(config.historySize);
 
     const draw = (timeSec: number) => {
       ctx.clearRect(0, 0, width, height);
@@ -202,32 +346,44 @@ export function VoiceMeshWaves({
       // The sheet hangs from the middle of the band; placement CSS decides
       // where the band itself sits on screen.
       const centerY = height / 2;
-      const spreadPx = height * SHEET_SPREAD;
-      const displacePx = height * DISPLACE;
+      const spreadPx = height * config.spread;
+      const displacePx = height * config.displace;
+      const alphaSpan = config.alphaNear - config.alphaFar;
+      const lastSample = config.historySize - 1;
+      // Running total of the envelope, normalized to its own length so `swirl`
+      // means the same thing whatever the history size: loud stretches advance
+      // the phase faster, so the weave bunches where the voice was.
+      let running = 0;
+      for (let i = 0; i < config.historySize; i++) {
+        running += envelope[i];
+        warp[i] = (running / config.historySize) * config.swirl;
+      }
       const [r, g, b] = stroke;
 
-      for (let line = 0; line < LINES; line++) {
+      for (let line = 0; line < config.lines; line++) {
         // 0 = far edge of the sheet, 1 = near edge.
-        const depth = line / (LINES - 1);
+        const depth = config.lines > 1 ? line / (config.lines - 1) : 0.5;
         const baseY = centerY + (depth - 0.5) * spreadPx;
-        const phase = timeSec * 0.9 + depth * DEPTH_PHASE;
         // Near lines read brighter, so the sheet has a front and a back
         // instead of looking like a flat stack.
-        ctx.strokeStyle = `rgba(${r},${g},${b},${(0.07 + depth * 0.16).toFixed(3)})`;
+        ctx.strokeStyle = `rgba(${r},${g},${b},${(config.alphaFar + depth * alphaSpan).toFixed(3)})`;
         ctx.beginPath();
 
-        for (let i = 0; i < SAMPLES; i++) {
-          const u = i / (SAMPLES - 1);
+        for (let i = 0; i < config.samples; i++) {
+          const u = i / (config.samples - 1);
           const x = u * width;
           // Envelope from the amplitude history: what was said, scrolling left.
-          const amp =
-            envelope[Math.min(HISTORY_SIZE - 1, Math.round(u * (HISTORY_SIZE - 1)))];
-          const gain = IDLE_ENVELOPE + amp * (1 - IDLE_ENVELOPE);
-          // Two ripples at different rates, counter-rotating through depth, so
-          // the sheet interferes with itself rather than rippling uniformly.
-          const wave =
-            0.6 * Math.sin(u * Math.PI * 2 * 1.6 + phase) +
-            0.4 * Math.sin(u * Math.PI * 2 * 2.7 - phase * 1.25);
+          const sample = Math.min(lastSample, Math.round(u * lastSample));
+          const amp = envelope[sample];
+          const gain = config.idleEnvelope + amp * (1 - config.idleEnvelope);
+          // Phase warp from what was said up to this point along the band.
+          const wave = meshDisplacement(
+            u,
+            depth,
+            timeSec,
+            warp[sample],
+            config,
+          );
           const y = baseY - gain * displacePx * wave;
           if (i === 0) {
             ctx.moveTo(x, y);
@@ -274,7 +430,7 @@ export function VoiceMeshWaves({
       cancelAnimationFrame(raf);
       observer.disconnect();
     };
-  }, [palette]);
+  }, [palette, config]);
 
   const className = [
     "voice-listening-waves",

@@ -47,11 +47,13 @@ import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live
 import {
   VoiceRoomColorLook,
   resolveVoiceRoomLook,
+  type VoiceCaptionEmphasis,
+  type VoiceRespondingStyle,
   type VoiceWaveEngine,
 } from "./voice-room-eyes";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
 import type { VoiceWavePalette, VoiceWaveStyle } from "./voice-listening-waves";
-import { VoiceMeshWaves } from "./voice-mesh-waves";
+import { VoiceMeshWaves, type VoiceMeshTuning } from "./voice-mesh-waves";
 
 // ---------------------------------------------------------------------------
 // Amplitude drivers
@@ -243,6 +245,8 @@ interface SceneArgs {
   colorId: string;
   eyeStyle: string;
   bodyShape: string;
+  respondingStyle: VoiceRespondingStyle;
+  captionEmphasis: VoiceCaptionEmphasis;
 }
 
 /** The room's color look in a measured frame, driven by the selected source. */
@@ -303,7 +307,11 @@ function RoomFrame({
           waveEngine={args.engine}
           waveStyle={args.waveStyle}
           wavePalette={args.wavePalette}
-          wavePlacement="bottom"
+          // Listening arrives from the ceiling; the responding band answers
+          // from the floor (see `respondingStyle: "waves"`).
+          wavePlacement="top"
+          respondingStyle={args.respondingStyle}
+          captionEmphasis={args.captionEmphasis}
           eyePlacement="center"
           viewport={size}
         />
@@ -351,12 +359,14 @@ const defaultArgs: SceneArgs = {
   visual: "listening",
   driver: "speech",
   amplitude: 0.5,
-  engine: "reactive",
+  engine: "mesh",
   waveStyle: "fill",
   wavePalette: "tone",
   colorId: "green",
   eyeStyle: BUNDLED_COMPONENTS.eyeStyles[0]?.id ?? "grumpy",
   bodyShape: "blob",
+  respondingStyle: "waves",
+  captionEmphasis: "muted",
 };
 
 const argTypes = {
@@ -396,6 +406,24 @@ const argTypes = {
   bodyShape: {
     options: BUNDLED_COMPONENTS.bodyShapes.map((b) => b.id),
     control: { type: "select" as const },
+  },
+  captionEmphasis: {
+    options: ["muted", "hidden", "full"] satisfies VoiceCaptionEmphasis[],
+    control: { type: "inline-radio" as const },
+    description:
+      "How prominent the state caption is while audio flows. Only affects listening/responding — thinking always keeps its caption.",
+  },
+  respondingStyle: {
+    options: [
+      "waves",
+      "rings",
+      "halo",
+      "waveform",
+      "pulse",
+    ] satisfies VoiceRespondingStyle[],
+    control: { type: "inline-radio" as const },
+    description:
+      "waves = the band answering from the floor (the mirror of listening); the rest are the earlier radiate-from-the-eyes sketches.",
   },
 };
 
@@ -636,6 +664,12 @@ export const States: Story = {
  * voice; on `silence` it settles to a slow resting breath rather than
  * flat-lining, so the surface never looks switched off.
  *
+ * The band itself no longer travels: the shared placement CSS used to
+ * translate the whole container on `--voice-amp`, which stacked a second
+ * response on the same signal and read as the sheet bouncing behind its own
+ * breathing. The mesh opts out of that (`--mesh` in `index.css`), so all the
+ * vertical motion you see is the geometry answering the audio.
+ *
  * `wavePalette` retints it: `aurora` is the reference cyan, `accent` takes the
  * avatar's hue, `tone` follows the room foreground.
  */
@@ -670,6 +704,238 @@ function MeshShowcaseScene(args: SceneArgs) {
           palette={args.wavePalette}
           placement="center"
         />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mesh variants
+// ---------------------------------------------------------------------------
+
+/**
+ * Tuning sketches for the mesh, each pulling on a different reason the default
+ * can read as flat. The names describe the intent, not the numbers.
+ */
+const MESH_PRESETS: {
+  name: string;
+  note: string;
+  tuning: Partial<VoiceMeshTuning>;
+}[] = [
+  {
+    name: "dense (current default)",
+    note: "92 lines at low alpha, edges close together — what the rooms and the composer bar now use",
+    tuning: {},
+  },
+  {
+    name: "filament",
+    note: "edges closer still, so the curves separate only where the twist pulls them apart",
+    tuning: { spread: 0.06, displace: 0.42, alphaNear: 0.18 },
+  },
+  {
+    name: "broad lobes",
+    note: "fewer cycles, so the sheet makes big sweeping swells instead of busy ripple",
+    tuning: { cyclesA: 0.8, cyclesB: 1.5 },
+  },
+  {
+    name: "hard twist",
+    note: "a full turn across depth, so the sheet folds through itself more than once",
+    tuning: { depthPhase: Math.PI * 3.1 },
+  },
+  {
+    name: "slack",
+    note: "slower drift and a softer floor — calmer at rest, more of a swell on speech",
+    tuning: { driftSpeed: 0.42, idleEnvelope: 0.07, cyclesA: 1.1, cyclesB: 1.9 },
+  },
+  {
+    name: "original (46 lines)",
+    note: "the first tuning, for reference — reads as ruled lines at different heights, not one surface",
+    tuning: {
+      lines: 46,
+      spread: 0.3,
+      displace: 0.34,
+      alphaFar: 0.07,
+      alphaNear: 0.23,
+    },
+  },
+];
+
+/** One mesh preset on black, labelled. */
+function MeshPresetCell({
+  name,
+  note,
+  tuning,
+  palette,
+  getAmplitude,
+}: {
+  name: string;
+  note: string;
+  tuning: Partial<VoiceMeshTuning>;
+  palette: VoiceWavePalette;
+  getAmplitude: () => number;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[13px] font-medium text-white/70">{name}</span>
+      <span className="text-[11px] leading-snug text-white/40">{note}</span>
+      <div
+        className="relative mt-1 overflow-hidden rounded-lg bg-black"
+        style={{ height: 260 }}
+      >
+        <VoiceMeshWaves
+          getAmplitude={getAmplitude}
+          palette={palette}
+          placement="center"
+          tuning={tuning}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MeshVariantsScene(args: SceneArgs) {
+  const { getAmplitude, micError } = useDriver(args.driver, args.amplitude);
+  return (
+    <div>
+      <DriverBar
+        driver={args.driver}
+        getAmplitude={getAmplitude}
+        micError={micError}
+      />
+      <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">
+        {MESH_PRESETS.map((preset) => (
+          <MeshPresetCell
+            key={preset.name}
+            {...preset}
+            palette={args.wavePalette}
+            getAmplitude={getAmplitude}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Six tunings of the mesh on one shared amplitude source, so the differences
+ * are the tuning alone.
+ *
+ * The knob that matters most is `spread` versus `displace`. The default keeps
+ * the sheet's near and far edges 30% of the band apart, which is enough that
+ * the curves read as *ruled lines at different heights* — a stack — before
+ * they read as one folded surface. Pulling `spread` down toward ~0.08 makes
+ * the curves nearly coincide, so the only thing separating them is the phase
+ * twist, and the bundle starts behaving like the filaments in the reference.
+ * Everything else here is secondary: line count and alpha decide whether the
+ * weave resolves or reads as individual strokes, and the cycle counts decide
+ * whether it makes broad lobes or busy ripple.
+ */
+export const MeshVariants: Story = {
+  name: "Mesh — Variants",
+  args: { ...defaultArgs, wavePalette: "aurora" },
+  render: (args) => <MeshVariantsScene {...args} />,
+};
+
+/**
+ * The spatial split, in one frame per phase: the user's voice arrives from the
+ * **ceiling** while listening, the assistant's answers from the **floor** while
+ * responding, and the eyes sit on the axis between them.
+ *
+ * The argument for it is that the room then says *who is speaking* by where the
+ * energy is, using one visual language throughout — where the earlier `rings`
+ * treatment answered the listening band with a different metaphor entirely
+ * (concentric circles from behind the eyes), so a turn changing hands also
+ * changed the vocabulary. Flip `respondingStyle` to `rings` to compare.
+ */
+export const TopBottomSplit: Story = {
+  name: "Placement — Top / Bottom Split",
+  args: { ...defaultArgs, driver: "speech" },
+  render: (args) => <TopBottomSplitScene {...args} />,
+};
+
+function TopBottomSplitScene(args: SceneArgs) {
+  const { getAmplitude, micError } = useDriver(args.driver, args.amplitude);
+  return (
+    <div>
+      <DriverBar
+        driver={args.driver}
+        getAmplitude={getAmplitude}
+        micError={micError}
+      />
+      <div className="grid gap-4 lg:grid-cols-2">
+        {(
+          [
+            ["listening", "user speaking — band at the ceiling"],
+            ["responding", "assistant speaking — band at the floor"],
+          ] as const
+        ).map(([visual, label]) => (
+          <div key={visual} className="flex flex-col gap-2">
+            <span className="text-[13px] font-medium text-white/60">
+              {label}
+            </span>
+            <RoomFrame
+              args={{ ...args, visual }}
+              getAmplitude={getAmplitude}
+              className="rounded-xl"
+              style={{ height: 520 }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The three answers to "how loud should the words be while the visuals are
+ * already talking", side by side in the listening state.
+ *
+ * The caption was written when the band was a fixed silhouette that could not
+ * indicate anything on its own. Now that it visibly answers the microphone,
+ * "Listening" is naming something the screen is already showing — and it sits
+ * in the same lower zone the live transcript wants.
+ *
+ * - **muted** (default) — kept as a small dim label. Still legible if you look
+ *   for it, no longer competing with the animation or the transcript.
+ * - **hidden** — gone entirely while audio flows; the animation carries the
+ *   state alone. The most honest to "nobody reads UI copy", and the one to
+ *   pick if the band reads unambiguously on its own.
+ * - **full** — the original weight, for comparison.
+ *
+ * `thinking` is deliberately exempt in every mode: it has no audio and no band,
+ * so dropping its caption would leave a still, silent room with nothing saying
+ * that work is happening. Scrub `visual` to `thinking` to confirm.
+ */
+export const CaptionEmphasis: Story = {
+  name: "Caption — Emphasis",
+  args: { ...defaultArgs, visual: "listening" },
+  render: (args) => <CaptionEmphasisScene {...args} />,
+};
+
+function CaptionEmphasisScene(args: SceneArgs) {
+  const { getAmplitude, micError } = useDriver(args.driver, args.amplitude);
+  return (
+    <div>
+      <DriverBar
+        driver={args.driver}
+        getAmplitude={getAmplitude}
+        micError={micError}
+      />
+      <div className="grid gap-4 lg:grid-cols-3">
+        {(["muted", "hidden", "full"] as const).map((captionEmphasis) => (
+          <div key={captionEmphasis} className="flex flex-col gap-2">
+            <span className="text-[13px] font-medium text-white/60">
+              {captionEmphasis}
+              {captionEmphasis === "muted" ? " (default)" : ""}
+            </span>
+            <RoomFrame
+              args={{ ...args, captionEmphasis }}
+              getAmplitude={getAmplitude}
+              className="rounded-xl"
+              style={{ height: 460 }}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );
