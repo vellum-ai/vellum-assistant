@@ -47,6 +47,10 @@ export const fetchReleases = cache(async (): Promise<ApiRelease[]> => {
       // manually keeps the backend from redirecting insecure requests.
       headers: { "X-Forwarded-Proto": "https" },
       next: { revalidate: 60 },
+      // Bound the request so a stalled upstream hits the empty-list fallback
+      // instead of holding the dynamic releases render for the runtime's
+      // default network timeout.
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
       console.error(
