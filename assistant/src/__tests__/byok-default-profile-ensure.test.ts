@@ -537,10 +537,8 @@ describe("ensureByokDefaultProfiles", () => {
   });
 
   test("a re-enabled hatch stub is deleted", () => {
-    // The status toggle is the only writable field on a managed stub; the
-    // enable only meant something while the stub-vs-active split existed,
-    // and the bare key resolves active post-conversion, so deletion
-    // preserves the user's intent while dropping the stale suffixed label.
+    // The bare key resolves active post-conversion, so deleting the
+    // re-enabled stub preserves the enable.
     writeConfig({
       llm: {
         defaultProvider: { provider: "anthropic" },
@@ -822,12 +820,9 @@ describe("ensureByokDefaultProfiles", () => {
 
   test("a real vellum-default workspace with re-enabled stubs and mixed connection stamps converts (specimen shape)", () => {
     // Mirrors a live 2026-07 workspace: hatched BYOK anthropic, later
-    // platform-connected (vellum default), all three hatch stubs re-enabled
-    // through the UI (status "active", two carrying the migration-097
-    // thinking stamp), the onboarding-authored copy stamped with the bare
-    // "anthropic" connection while the seeded copies carry
-    // "anthropic-personal", an unrelated managed os-beta overlay, and call
-    // sites pinned at custom-balanced.
+    // platform-connected, stubs re-enabled through the UI, the
+    // onboarding-authored copy stamped with the bare "anthropic" connection,
+    // and call sites pinned at custom-balanced.
     writeConfig({
       llm: {
         defaultProvider: { provider: "vellum", connectionName: "vellum" },
@@ -943,10 +938,8 @@ describe("ensureByokDefaultProfiles", () => {
   });
 
   test("a custom copy for a different BYOK provider than the current default is kept", () => {
-    // A copy the user re-provisioned to another provider (standard model,
-    // template tuning) is indistinguishable from a hatch copy for that
-    // provider, so on a BYOK default only copies matching the default
-    // provider are positively hatch-written.
+    // A re-provisioned copy is indistinguishable from a hatch copy for that
+    // provider, so only copies matching the default provider convert.
     writeConfig({
       llm: {
         defaultProvider: { provider: "openai" },
@@ -963,8 +956,8 @@ describe("ensureByokDefaultProfiles", () => {
   });
 
   test("a vellum default keeps a singleton copy (incomplete set is not hatch provenance)", () => {
-    // With two copies deleted through the profile routes, a lone surviving
-    // copy is trivially uniform; the complete-set requirement keeps it.
+    // A lone surviving copy is trivially uniform; the complete-set
+    // requirement keeps it.
     const config = uneditedByokConfig();
     const llmConfig = config.llm as Record<string, unknown>;
     llmConfig.defaultProvider = { provider: "vellum" };
@@ -986,9 +979,8 @@ describe("ensureByokDefaultProfiles", () => {
   });
 
   test("a vellum default keeps all copies when one was re-provisioned to another provider", () => {
-    // Provider uniformity across the set is the hatch-provenance signal on
-    // a vellum default; a re-provisioned copy breaks it and conservatively
-    // keeps the whole set. The stubs still delete.
+    // A re-provisioned copy breaks provider uniformity and keeps the whole
+    // set; the stubs still delete.
     const config = uneditedByokConfig();
     const llmConfig = config.llm as Record<string, unknown>;
     llmConfig.defaultProvider = { provider: "vellum" };
@@ -1012,9 +1004,7 @@ describe("ensureByokDefaultProfiles", () => {
   });
 
   test("the pre-#39516 onboarding bare-provider connection stamp converts", () => {
-    // Old web onboarding created the connection as `name: "anthropic"` and
-    // stamped that onto the copy it authored, while daemon seeding wrote
-    // `anthropic-personal` on its copies; both are machinery-written.
+    // Pre-#39516 web onboarding stamped the bare connection name.
     writeConfig({
       llm: {
         defaultProvider: { provider: "anthropic" },
@@ -1036,9 +1026,7 @@ describe("ensureByokDefaultProfiles", () => {
   });
 
   test("a copy for an endpoint-supplied provider is kept even when body-identical to the template", () => {
-    // Legacy onboarding wrote copies for providers outside
-    // DEFAULT_PROVIDER_CHOICES; their connection can carry a base URL the
-    // bare key cannot recover, so they must never retire.
+    // Its connection can carry a base URL the bare key cannot recover.
     const body = hatchBody("balanced", "anthropic") as Record<string, unknown>;
     writeConfig({
       llm: {
@@ -1060,9 +1048,6 @@ describe("ensureByokDefaultProfiles", () => {
   });
 
   test("a copy disable wins over a re-enabled hatch stub on the same key", () => {
-    // Contradictory overlays: the stub arm deletes the re-enabled stub, so
-    // the disable carried off the copy (the rail dispatch actually used)
-    // lands on the bare key.
     const config = uneditedByokConfig();
     const profileMap = (config.llm as Record<string, unknown>)
       .profiles as Record<string, Record<string, unknown>>;
@@ -1088,9 +1073,8 @@ describe("ensureByokDefaultProfiles", () => {
   });
 
   test("a copy pointing at a non-conventional connection is kept", () => {
-    // Any connection reference other than `<provider>-personal`, the bare
-    // provider name, or absence could be an explicit selection among several
-    // keys; retiring the copy could silently switch which key gets billed.
+    // A non-conventional reference could be an explicit selection among
+    // several keys; retiring it could switch which key gets billed.
     writeConfig({
       llm: {
         defaultProvider: { provider: "anthropic" },

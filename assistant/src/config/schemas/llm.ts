@@ -79,7 +79,7 @@ export const DEFAULT_PROVIDER_CHOICES: readonly LLMProvider[] = [
   ]),
 ];
 
-export function isDefaultProviderChoice(value: string): boolean {
+export function isDefaultProviderChoice(value: string): value is LLMProvider {
   return (DEFAULT_PROVIDER_CHOICES as readonly string[]).includes(value);
 }
 
