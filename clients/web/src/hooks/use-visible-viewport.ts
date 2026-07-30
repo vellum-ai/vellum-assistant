@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { subscribeNativeKeyboardHeight } from "@/runtime/native-keyboard-events";
+import { subscribeNativeKeyboardHeight } from "@/runtime/native-keyboard";
 
 /**
  * Threshold (in px) below which an `innerHeight − visualViewport.height` delta
@@ -62,44 +62,76 @@ function isPortrait(): boolean {
 }
 let lastIsPortrait: boolean = isPortrait();
 
-// Keyboard height reported by `@capacitor/keyboard` at the leading edge of the
-// show animation, or `0` when nothing is anticipated.
-//
-// The plugin defers its own web view frame resize until the keyboard animation
-// duration plus 0.2s has elapsed, so `visualViewport` keeps reporting the
-// full-height, keyboard-free state for most of a second while the keyboard is
-// already sliding up. Reporting the anticipated height bridges that gap: layout
-// follows the keyboard as it animates, and the derived measurement takes back
-// over the moment the native resize lands.
+// Keyboard height announced by `@capacitor/keyboard` at the leading edge of the
+// show animation, or `0` when nothing is anticipated. The plugin's own web view
+// frame resize lands well after that (see `docs/CAPACITOR.md` § "Linking a
+// plugin runs its native `load()`"), so reporting the announced height keeps
+// layout with the keyboard until the measurement can take over.
 let anticipatedKeyboardHeight = 0;
 
-// Number of mounted `useVisibleViewport` consumers. Anticipation only retires
-// against a measurement that catches up to it, so a consumer that unmounts
-// between `keyboardWillShow` and `keyboardWillHide` would strand a height that
-// no later read can clear: the next mount measures a restored, keyboard-free
-// viewport and never satisfies the retire condition. Clearing once the count
-// reaches zero closes that. Anything above zero has a live consumer whose
-// layout depends on the value, so it must survive.
-let subscriberCount = 0;
+// State updaters of the mounted `useVisibleViewport` consumers. One native
+// subscription feeds all of them, so the listener count stays flat as the shell
+// and the mobile overlays each mount their own copy of the hook, and a repeated
+// cleanup (React StrictMode's double effect invocation) cannot unbalance an
+// idempotent `Set.delete`.
+const viewportUpdaters = new Set<() => void>();
+let unsubscribeNativeKeyboard: (() => void) | null = null;
 
 /**
  * Record the keyboard height the native shell is about to animate to.
  *
  * `0` clears anticipation, which is what a keyboard dismissal reports: the
  * native hide resize is near-instant, so the derived measurement drives the
- * restore on its own.
+ * restore on its own. Anything that is not a positive, finite number clears it
+ * too: a `NaN` stored here fails every later comparison, so it would both
+ * strand anticipation for the rest of the session and reach layout as
+ * `"NaNpx"`.
  */
 export function setAnticipatedKeyboardHeight(keyboardHeight: number): void {
-  anticipatedKeyboardHeight = keyboardHeight;
+  anticipatedKeyboardHeight =
+    Number.isFinite(keyboardHeight) && keyboardHeight > 0 ? keyboardHeight : 0;
 }
 
 /**
- * Reset the anticipation state (the pending height and the subscriber count
- * that retires it) so unit tests don't leak module state into each other.
+ * Register a mounted consumer's state updater, returning its deregistration.
+ * The first registration opens the native keyboard subscription; the last
+ * deregistration closes it and drops any anticipation it left behind, which
+ * with `RootLayout` mounting the hook for the app's lifetime is teardown.
+ */
+function addViewportUpdater(update: () => void): () => void {
+  viewportUpdaters.add(update);
+  if (!unsubscribeNativeKeyboard) {
+    unsubscribeNativeKeyboard = subscribeNativeKeyboardHeight(
+      (keyboardHeight) => {
+        setAnticipatedKeyboardHeight(keyboardHeight);
+        for (const notify of viewportUpdaters) {
+          notify();
+        }
+      },
+    );
+  }
+
+  return () => {
+    viewportUpdaters.delete(update);
+    if (viewportUpdaters.size > 0) {
+      return;
+    }
+    unsubscribeNativeKeyboard?.();
+    unsubscribeNativeKeyboard = null;
+    anticipatedKeyboardHeight = 0;
+  };
+}
+
+/**
+ * Reset the anticipation state (the pending height and the consumer registry
+ * that owns the native subscription) so unit tests don't leak module state into
+ * each other.
  */
 export function __resetKeyboardAnticipationForTests(): void {
   anticipatedKeyboardHeight = 0;
-  subscriberCount = 0;
+  viewportUpdaters.clear();
+  unsubscribeNativeKeyboard?.();
+  unsubscribeNativeKeyboard = null;
 }
 
 /**
@@ -121,6 +153,9 @@ export function readVisibleViewport(): VisibleViewport | null {
   if (currentIsPortrait !== lastIsPortrait) {
     lastIsPortrait = currentIsPortrait;
     referenceInnerHeight = window.innerHeight;
+    // Rebasing the reference invalidates any height announced against the old
+    // one, so anticipation goes with it rather than outliving its baseline.
+    anticipatedKeyboardHeight = 0;
   }
 
   // Update the reference whenever the viewport grows (keyboard dismissed,
@@ -139,19 +174,29 @@ export function readVisibleViewport(): VisibleViewport | null {
   const offsetTop = isZoomed ? 0 : vv.offsetTop;
   const offsetLeft = isZoomed ? 0 : vv.offsetLeft;
 
-  // The deferred native frame resize has landed once the derived height
-  // catches up, so anticipation retires and the measurement takes over.
-  if (
-    anticipatedKeyboardHeight > 0 &&
-    derivedKeyboardHeight >= anticipatedKeyboardHeight
-  ) {
+  // Any real shrink means the deferred native frame resize has landed, so the
+  // measurement is authoritative from here on. It can land shorter than the
+  // announced height (in iPad Stage Manager the plugin measures the keyboard's
+  // overlap in screen coordinates while the frame shrinks against window
+  // bounds), so waiting for it to reach that height would strand anticipation
+  // for the whole keyboard session.
+  if (anticipatedKeyboardHeight > 0 && derivedKeyboardHeight > 0) {
     anticipatedKeyboardHeight = 0;
   }
 
-  // A pinch-zoomed viewport reports no keyboard at all, anticipated or not.
-  if (!isZoomed && anticipatedKeyboardHeight > 0) {
+  // A pinch-zoomed viewport reports no keyboard at all, anticipated or not, and
+  // a reference no taller than the announced keyboard describes no visible
+  // region: both defer to the measurement rather than sizing the shell to a
+  // height CSS would reject.
+  const anticipatedVisibleHeight =
+    referenceInnerHeight - anticipatedKeyboardHeight;
+  if (
+    !isZoomed &&
+    anticipatedKeyboardHeight > 0 &&
+    anticipatedVisibleHeight > 0
+  ) {
     return {
-      height: referenceInnerHeight - anticipatedKeyboardHeight,
+      height: anticipatedVisibleHeight,
       keyboardHeight: anticipatedKeyboardHeight,
       offsetTop,
       offsetLeft,
@@ -178,11 +223,10 @@ export function readVisibleViewport(): VisibleViewport | null {
  * approach in `readVisibleViewport` handles both cases — see the module-level
  * comment above it.
  *
- * On the native iOS shell the plugin defers that frame resize until well after
- * the keyboard animation has started, so the hook also subscribes to the
- * plugin's own `keyboardWillShow` height and reports it until the deferred
- * resize lands. Off that shell the subscription attaches no listeners and the
- * derived measurement is the only source.
+ * On the native iOS shell the hook also subscribes to the keyboard height the
+ * plugin announces, and reports it until the plugin's own deferred resize
+ * lands. Off that shell the subscription attaches no listeners and the derived
+ * measurement is the only source.
  *
  * Returns `null` in browsers that lack the API; callers should fall back to
  * `100dvh` (and no transform) in that case.
@@ -206,22 +250,12 @@ export function useVisibleViewport(): VisibleViewport | null {
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
     window.addEventListener("resize", update);
-    const unsubscribe = subscribeNativeKeyboardHeight((keyboardHeight) => {
-      setAnticipatedKeyboardHeight(keyboardHeight);
-      update();
-    });
-    subscriberCount += 1;
+    const removeUpdater = addViewportUpdater(update);
     return () => {
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
-      unsubscribe();
-      // Clamped so an unpaired cleanup can never drive the count negative and
-      // strand a genuine last unmount above zero.
-      subscriberCount = Math.max(0, subscriberCount - 1);
-      if (subscriberCount === 0) {
-        anticipatedKeyboardHeight = 0;
-      }
+      removeUpdater();
     };
   }, []);
 

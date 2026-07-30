@@ -46,7 +46,9 @@ Capacitor calls every linked plugin's `load()` at bridge init, before any JS imp
 - Sets `hideFormAccessoryBar = YES` with no config gate (`Keyboard.m:187`). That is the mechanism that hides the input accessory bar (prev/next chevrons plus Done) above the iOS keyboard in this shell. The `setAccessoryBarVisible({ isVisible: false })` call in [`src/runtime/native-keyboard.ts`](../src/runtime/native-keyboard.ts) only states the same intent explicitly and pins it against an upstream default change.
 - Removes `WKWebView`'s own keyboard-avoidance observers, unsubscribing the web view from the `UIKeyboardWillShow`, `UIKeyboardWillHide`, and keyboard frame-change notifications (`Keyboard.m:196-199`), and substitutes a web view frame resize the plugin drives itself. On show, that resize is deferred by the keyboard animation duration plus `0.2` seconds (`Keyboard.m:256-257`); on hide it runs at `delay:0.01` (`Keyboard.m:214`). So `visualViewport` learns the keyboard height well after the system animation has started.
 
-[`useVisibleViewport`](../src/hooks/use-visible-viewport.ts) bridges that gap by listening for the plugin's `keyboardWillShow` window event, which reports the keyboard height at the leading edge of the animation instead of after the deferred resize.
+[`useVisibleViewport`](../src/hooks/use-visible-viewport.ts) bridges that gap through [`subscribeNativeKeyboardHeight`](../src/runtime/native-keyboard.ts), which registers a `keyboardWillShow` plugin listener and so reports the keyboard height at the leading edge of the animation instead of after the deferred resize.
+
+Register these through `Keyboard.addListener`, not the same-named `window` events the bridge also dispatches: `cap.createEvent` builds those with `document.createEvent('Events')` and copies each payload key straight onto the event object, so `event.detail` is always `undefined` and a `detail.keyboardHeight` read silently yields `0`.
 
 ---
 
