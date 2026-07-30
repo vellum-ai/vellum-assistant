@@ -233,6 +233,36 @@ export async function submitContactMerge(
 }
 
 /**
+ * Cancel a pending contact-merge prompt. Relays `confirmed: false` to the
+ * daemon via the gateway so the pending CLI call unblocks immediately
+ * instead of waiting for the 5-minute timeout.
+ */
+export async function cancelContactMerge(
+  assistantId: string,
+  requestId: string,
+): Promise<SubmitSecretResponseResult> {
+  try {
+    const { error, response } = await assistantContactsPromptSubmit({
+      path: { assistant_id: assistantId },
+      body: { requestId, mode: "merge", confirmed: false },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to cancel contact merge");
+    if (!response.ok) {
+      const msg = extractErrorMessage(error, response);
+      return { ok: false, status: response.status, error: msg };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      error: err instanceof Error ? err.message : "Something went wrong.",
+    };
+  }
+}
+
+/**
  * Submit a response to a `question_request` event emitted by the daemon's
  * `ask_user_question` tool. Fire-and-forget, mirroring `submitConfirmation`:
  * the daemon resolves the awaiting tool call on its side and pushes any

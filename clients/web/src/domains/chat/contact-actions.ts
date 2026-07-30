@@ -13,7 +13,7 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
-import { submitContactPrompt, submitContactMerge } from "@/domains/chat/api/interactions";
+import { submitContactPrompt, submitContactMerge, cancelContactMerge } from "@/domains/chat/api/interactions";
 import type { SubmitSecretResponseResult } from "@/domains/chat/api/interactions";
 
 /**
@@ -98,12 +98,28 @@ export async function handleContactMergeConfirm(): Promise<void> {
 
 /**
  * Cancel the contact prompt — dismisses local state and ends the turn.
- * Applies to both address-entry and merge-confirmation prompts; neither
- * mode notifies the gateway/daemon on cancel (the pending prompt times out
- * server-side if never resolved).
+ * For merge-confirmation prompts, also relays `confirmed: false` to the
+ * daemon via the gateway so the pending CLI call unblocks immediately
+ * instead of waiting for the 5-minute timeout. Address-entry prompts keep
+ * the existing behaviour (local dismiss only; server-side timeout handles it).
  */
-export function handleContactPromptCancel(): void {
+export async function handleContactPromptCancel(): Promise<void> {
+  const { pendingContactRequest } = useInteractionStore.getState();
+  const isMerge = pendingContactRequest?.mode === "merge";
+
   useInteractionStore.getState().dismissContactRequest();
+
+  if (isMerge && pendingContactRequest) {
+    const ctx = useStreamStore.getState().streamContext;
+    if (ctx) {
+      // Fire-and-forget — best-effort cancel relay. The local dismiss already
+      // happened; this just wakes up the waiting CLI sooner.
+      void cancelContactMerge(ctx.assistantId, pendingContactRequest.requestId).catch((err) => {
+        captureError(err, { context: "cancel_contact_merge" });
+      });
+    }
+  }
+
   endTurn({
     conversationId: useConversationStore.getState().activeConversationId,
     reason: "error",

@@ -74,6 +74,7 @@ function resolveChannelId(
 interface ContactPromptSubmitBody {
   requestId: string;
   mode?: "merge";
+  confirmed?: boolean;
   address?: string;
   channelType?: string;
   role?: "guardian" | "trusted-contact" | "unknown";
@@ -113,9 +114,12 @@ export async function handleContactPromptSubmit(
 
   // Merge-confirmation mode: no contact/channel write happens here. The
   // daemon performs the merge itself once it sees `confirmed: true` — see
-  // module docstring.
+  // module docstring. A `confirmed: false` (guardian clicked Cancel) is
+  // relayed so the daemon can unblock the pending prompt immediately
+  // instead of waiting for the 5-minute timeout.
   if (mode === "merge") {
-    return await confirmContactPromptMerge(requestId);
+    const confirmed = body.confirmed !== false;
+    return await confirmContactPromptMerge(requestId, confirmed);
   }
 
   if (!address || typeof address !== "string") {
@@ -430,14 +434,19 @@ async function channelResolutionError(requestId: string): Promise<Response> {
 }
 
 /**
- * Relay a merge-confirmation to the daemon. No contact/channel write happens
- * here — the daemon performs the merge itself (via the same relay a
- * CLI-initiated `contacts/merge` uses) once it sees `confirmed: true`.
+ * Relay a merge-confirmation (or cancellation) to the daemon. No
+ * contact/channel write happens here — the daemon performs the merge itself
+ * (via the same relay a CLI-initiated `contacts/merge` uses) once it sees
+ * `confirmed: true`. A `confirmed: false` resolves the pending prompt as
+ * cancelled so the CLI doesn't wait for the timeout.
  */
-async function confirmContactPromptMerge(requestId: string): Promise<Response> {
+async function confirmContactPromptMerge(
+  requestId: string,
+  confirmed: boolean,
+): Promise<Response> {
   try {
     const ipcResult = await ipcCallAssistant("resolve_contact_prompt", {
-      body: { requestId, confirmed: true },
+      body: { requestId, confirmed },
     });
     if ((ipcResult as { resolved?: boolean }).resolved === false) {
       log.warn(
@@ -448,7 +457,7 @@ async function confirmContactPromptMerge(requestId: string): Promise<Response> {
   } catch (err) {
     log.warn(
       { err, requestId },
-      "contact-prompt-submit: resolve_contact_prompt IPC failed for merge confirm — CLI may time out",
+      "contact-prompt-submit: resolve_contact_prompt IPC failed for merge — CLI may time out",
     );
   }
 

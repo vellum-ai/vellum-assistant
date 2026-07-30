@@ -104,7 +104,12 @@ async function resolveContactPrompt({
   if (pending.merge) {
     if (error) {
       pending.resolve({ ok: false, error });
-    } else if (confirmed === false) {
+    } else if (confirmed !== true) {
+      // Treat anything other than an explicit confirmation (undefined from
+      // a legacy client, false from a cancel, etc.) as a rejection. This
+      // prevents an older client that doesn't understand merge mode from
+      // accidentally approving a destructive merge via the address-entry
+      // submit path.
       pending.resolve({ ok: false, error: "Merge cancelled by guardian" });
     } else {
       const { keepId, mergeId } = pending.merge;

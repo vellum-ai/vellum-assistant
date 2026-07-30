@@ -62,7 +62,7 @@ export interface PendingContactRequestState {
   label?: string;
   description?: string;
   role?: string;
-  /** When "merge", this is a merge-confirmation prompt, not an address entry. */
+}
   mode?: "merge";
   /** Contact id to keep (surviving). Merge mode only. */
   keepId?: string;

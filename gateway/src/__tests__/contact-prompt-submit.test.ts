@@ -913,6 +913,27 @@ describe("handleContactPromptSubmit", () => {
       const ipcCall = resolveCall(ipcMock);
       expect(ipcCall.body).toEqual({ requestId: "req-merge-2", confirmed: true });
     });
+
+    test("confirmed:false relays a cancellation to resolve_contact_prompt", async () => {
+      const res = await handleContactPromptSubmit(
+        makeRequest({
+          requestId: "req-merge-cancel",
+          mode: "merge",
+          confirmed: false,
+        }),
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.accepted).toBe(true);
+
+      expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
+      const ipcCall = resolveCall(ipcMock);
+      expect(ipcCall.body).toEqual({
+        requestId: "req-merge-cancel",
+        confirmed: false,
+      });
+    });
   });
 
   test("guardian bind — existing guardian, read-back miss still emits (committed bind, no rollback)", async () => {

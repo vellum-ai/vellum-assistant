@@ -165,6 +165,32 @@ describe("contacts/prompt merge mode", () => {
     expect(ipcCalls.some((c) => c.method === "merge_contacts")).toBe(false);
   });
 
+  test("undefined confirmed (legacy client) does NOT trigger a merge", async () => {
+    const promptPromise = promptRoute.handler({
+      body: { mergeKeepId: "keep-1", mergeDiscardId: "discard-1" },
+    }) as Promise<{ ok: boolean; error?: string }>;
+
+    await flush();
+    const requestId = broadcastCalls[0].requestId as string;
+
+    // Simulate a legacy client that doesn't send `confirmed` — it POSTs
+    // an address-entry payload. The daemon must NOT merge.
+    await resolveRoute.handler({
+      body: {
+        requestId,
+        contactId: "c1",
+        channelId: "ch1",
+        channelType: "email",
+        address: "user@example.com",
+      },
+    });
+
+    const result = await promptPromise;
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+    expect(ipcCalls.some((c) => c.method === "merge_contacts")).toBe(false);
+  });
+
   test("a merge_contacts relay failure resolves ok:false with the error message", async () => {
     mergeError = new Error("Cannot merge away a guardian contact.");
 

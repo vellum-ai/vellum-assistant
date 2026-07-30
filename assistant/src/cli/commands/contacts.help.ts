@@ -98,9 +98,9 @@ Examples:
           description: "Placeholder text for the address input field",
         },
         {
-          flags: "--default-value <address>",
+          flags: "--default-value <value>",
           description:
-            "Suggested address to pre-fill the input with (user can edit before submitting)",
+            "Suggested default address to pre-fill the input (e.g. a known email). User can edit before submitting.",
         },
         {
           flags: "--role <role>",
