@@ -5,7 +5,7 @@ import {
   ExternalLink,
   Loader2,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
 
@@ -28,6 +28,10 @@ import { Typography } from "@vellumai/design-library/components/typography";
 const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [], has_more: false };
 
 const INITIAL_VISIBLE = 4;
+
+// The footer's text-link affordances stay muted rather than link-colored.
+const FOOTER_LINK_CLASS =
+  "text-body-small-default [--vbtn-fg:var(--content-tertiary)] hover:[--vbtn-fg:var(--content-secondary)]";
 
 function statusTone(status: string | null): TagTone {
   switch (status) {
@@ -81,6 +85,9 @@ export function InvoicesTable() {
   // (window focus, reconnect), which should stay silent: the table still
   // shows cached data and the user never asked for more.
   const [pageLoadFailed, setPageLoadFailed] = useState(false);
+  // Bumped when the section toggles; a page fetch that started before the
+  // bump must not write pageLoadFailed after the toggle already cleared it.
+  const loadAttemptRef = useRef(0);
 
   const invoicesQuery = useInfiniteQuery({
     // The table hides behind the Show invoices toggle, so don't fetch
@@ -135,16 +142,24 @@ export function InvoicesTable() {
   function loadMore(): void {
     // fetchNextPage() resolves with the query result rather than rejecting,
     // so read isError from it to keep pageLoadFailed in sync.
-    void invoicesQuery
-      .fetchNextPage()
-      .then((result) => setPageLoadFailed(result.isError));
+    const attempt = loadAttemptRef.current;
+    void invoicesQuery.fetchNextPage().then((result) => {
+      if (attempt !== loadAttemptRef.current) {
+        return;
+      }
+      setPageLoadFailed(result.isError);
+    });
   }
 
   function retryLoadMore(): void {
     // refetch() recomputes every cached page's cursor, healing a stale
     // starting_after, then fetchNextPage() fetches the page the user asked
     // for (a no-op if the refreshed pages already exhaust the list).
+    const attempt = loadAttemptRef.current;
     void invoicesQuery.refetch().then((result) => {
+      if (attempt !== loadAttemptRef.current) {
+        return;
+      }
       if (result.isError) {
         setPageLoadFailed(true);
         return;
@@ -226,6 +241,9 @@ export function InvoicesTable() {
               onClick={() => {
                 // Collapsing abandons a failed page load; re-expanding
                 // refetches, so a stale banner would sit over fresh data.
+                // The bump also stops in-flight page fetches from writing
+                // pageLoadFailed after this reset.
+                loadAttemptRef.current += 1;
                 setPageLoadFailed(false);
                 setExpanded((v) => !v);
               }}
@@ -345,30 +363,32 @@ export function InvoicesTable() {
             {(hasHiddenRows || showLoadMore || showLoadMoreError) && (
               <div className="flex flex-wrap items-center gap-4 self-start">
                 {hasHiddenRows && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="link"
                     onClick={() => setShowAll((v) => !v)}
-                    className="text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
+                    className={FOOTER_LINK_CLASS}
                     data-testid="invoices-show-more"
                   >
                     {showAll
                       ? "Show less"
                       : `Show more (${invoices.length - INITIAL_VISIBLE} more)`}
-                  </button>
+                  </Button>
                 )}
                 {showLoadMore && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="link"
                     onClick={loadMore}
                     disabled={invoicesQuery.isFetchingNextPage}
-                    className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+                    leftIcon={
+                      invoicesQuery.isFetchingNextPage && (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      )
+                    }
+                    className={FOOTER_LINK_CLASS}
                     data-testid="invoices-load-more"
                   >
-                    {invoicesQuery.isFetchingNextPage && (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    )}
                     Load more
-                  </button>
+                  </Button>
                 )}
                 {showLoadMoreError && (
                   <div
@@ -382,18 +402,20 @@ export function InvoicesTable() {
                     >
                       Failed to load more invoices.
                     </Typography>
-                    <button
-                      type="button"
+                    <Button
+                      variant="link"
                       onClick={retryLoadMore}
                       disabled={retryInFlight}
-                      className="flex items-center gap-2 text-body-small-default text-[var(--content-tertiary)] underline transition-colors hover:text-[var(--content-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
+                      leftIcon={
+                        retryInFlight && (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        )
+                      }
+                      className={FOOTER_LINK_CLASS}
                       data-testid="invoices-load-more-retry"
                     >
-                      {retryInFlight && (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      )}
                       Retry
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>

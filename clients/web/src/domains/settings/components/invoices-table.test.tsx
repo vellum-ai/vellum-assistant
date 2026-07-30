@@ -17,14 +17,19 @@ let nextPages: Record<string, InvoiceListResponse>;
 let nextPageErrorStatus: number | null;
 // When set, cursor-less (first page) requests fail with this HTTP status.
 let firstPageErrorStatus: number | null;
+// When set, ?starting_after= requests stall until this promise resolves.
+let nextPageGate: Promise<void> | null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
-  organizationsBillingInvoicesRetrieve: (options?: {
+  organizationsBillingInvoicesRetrieve: async (options?: {
     query?: { starting_after?: string };
   }) => {
     listRetrieveCalls.push(options?.query);
     const cursor = options?.query?.starting_after;
+    if (cursor && nextPageGate) {
+      await nextPageGate;
+    }
     if (cursor && nextPageErrorStatus !== null) {
       return Promise.resolve({
         data: undefined,
@@ -108,6 +113,7 @@ beforeEach(() => {
   nextPages = {};
   nextPageErrorStatus = null;
   firstPageErrorStatus = null;
+  nextPageGate = null;
 });
 
 afterEach(() => {
@@ -254,6 +260,29 @@ describe("InvoicesTable pagination", () => {
     );
     expect(queryByTestId("invoices-load-more")).toBeNull();
     expect(getByTestId("invoices-load-more-retry")).not.toBeNull();
+  });
+
+  test("a page failure resolving after collapse does not resurrect the error", async () => {
+    seedTwoPages();
+    nextPageErrorStatus = 400;
+    let releaseNextPage: () => void = () => {};
+    nextPageGate = new Promise((resolve) => {
+      releaseNextPage = resolve;
+    });
+    const { getByTestId, queryByTestId } = await openTable({ showAll: true });
+
+    fireEvent.click(getByTestId("invoices-load-more"));
+    fireEvent.click(getByTestId("invoices-toggle"));
+    expect(queryByTestId("invoices-table")).toBeNull();
+
+    releaseNextPage();
+    nextPageGate = null;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    fireEvent.click(getByTestId("invoices-toggle"));
+    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
+    expect(queryByTestId("invoices-load-more-error")).toBeNull();
+    expect(queryByTestId("invoices-load-more")).not.toBeNull();
   });
 
   test("collapsing and re-expanding clears the inline error", async () => {
