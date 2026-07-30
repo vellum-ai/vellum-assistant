@@ -21,6 +21,7 @@ import {
   type ConversationListContextValue,
 } from "@/domains/chat/components/conversation-list-context";
 import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
+import { SidebarListContextMenu } from "@/domains/chat/components/sidebar-list-context-menu";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import {
   GroupActionsMenu,
@@ -80,6 +81,12 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onUnarchiveConversation?: (conversation: Conversation) => void;
   onMarkConversationUnread?: (conversation: Conversation) => void;
   onMarkConversationRead?: (conversation: Conversation) => void;
+  /**
+   * Create a new, empty custom group — the sidebar's own "New group…", as
+   * opposed to {@link AssistantSideMenuProps.onCreateGroupInto}, which creates
+   * a group around an existing conversation. Omit to drop the affordance.
+   */
+  onCreateGroup?: () => void;
   onRenameGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
   onMarkAllReadInGroup?: (conversations: Conversation[]) => void;
@@ -172,6 +179,7 @@ export function AssistantSideMenu({
   onMarkConversationUnread,
   onMarkConversationRead,
   conversationGroups,
+  onCreateGroup,
   onRenameGroup,
   onDeleteGroup,
   onMarkAllReadInGroup,
@@ -528,7 +536,7 @@ export function AssistantSideMenu({
               ))}
             </div>
           ) : (
-            <>
+            <SidebarListContextMenu onCreateGroup={onCreateGroup}>
               {/* Pinned, Chats, and the channel sections share one accordion
                   root, so its gap governs every section boundary uniformly.
                   Their open state lives in two storage buckets (Pinned/Chats
@@ -627,7 +635,7 @@ export function AssistantSideMenu({
                   </CollapsibleNavSection.Root>
                 </>
               ) : null}
-            </>
+            </SidebarListContextMenu>
           )}
         </SideMenu.Body>
 
