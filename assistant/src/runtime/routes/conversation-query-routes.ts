@@ -113,6 +113,7 @@ import {
   resolvePricingForUsage,
   usesAnthropicPricingRules,
 } from "../../util/pricing.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import {
   BadRequestError,
   ForbiddenError,
@@ -2127,16 +2128,24 @@ function resolveQueuedMessageConversationId({
     : undefined;
 }
 
-function handleDeleteQueuedMessage(args: RouteHandlerArgs) {
+async function handleDeleteQueuedMessage(args: RouteHandlerArgs) {
   const { pathParams = {}, headers = {} } = args;
   const conversationId = resolveQueuedMessageConversationId(args);
   if (!conversationId) {
     throw new BadRequestError("Missing required parameter: conversationId");
   }
+  // Verified caller identity. Both adapters derive this header from the auth
+  // context, never from a caller-supplied one. Normalize it exactly as the
+  // send path does before comparing against the principal recorded at
+  // enqueue, or the two disagree: `resolveActorPrincipalIdForLocalGuardian`
+  // translates the synthetic `dev-bypass` principal to the real local
+  // guardian under `DISABLE_HTTP_AUTH=true` (a no-op for real JWT
+  // principals), and every sibling handler in this layer trims first.
+  const actorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
+    headers["x-vellum-actor-principal-id"]?.trim() || undefined,
+  );
   const result = deleteQueuedMessage(conversationId, pathParams.id ?? "", {
-    // Verified caller identity. Both adapters derive this header from the
-    // auth context, never from a caller-supplied one.
-    actorPrincipalId: headers["x-vellum-actor-principal-id"] || undefined,
+    actorPrincipalId,
   });
   if (result.removed) {
     return { ok: true, conversationId, requestId: pathParams.id };

@@ -12,6 +12,17 @@ interface ConfirmQueuedMessageDeletionParams {
   setOptimisticSends: (
     updater: (prev: DisplayMessage[]) => DisplayMessage[],
   ) => void;
+  /**
+   * Local bookkeeping for a confirmed cancellation. Retire correlation state
+   * here, but do NOT touch the turn store's queued count: the daemon answers
+   * a successful DELETE with a hub-wide `message_queued_deleted`, and
+   * `handleMessageQueuedDeleted` decrements on that. The count tracks every
+   * queued message in the conversation, not just this client's, because
+   * `handleMessageQueued` increments for every `message_queued` regardless of
+   * origin; a local decrement here would double-count the one cancellation
+   * this client happened to issue and drop the queued indicator while other
+   * messages are still waiting.
+   */
   onDeleted: () => void;
 }
 

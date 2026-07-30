@@ -47,7 +47,6 @@ export function handleMessageQueued(
         setOptimisticSends: ctx.setOptimisticSends,
         onDeleted: () => {
           ctx.popRequestIdMapping(requestId);
-          ctx.turnActions.deleteQueuedMessage();
         },
       });
     }
@@ -102,6 +101,14 @@ export function handleMessageRequeued(
   );
 }
 
+/**
+ * The single decrement for a cancelled queued message, on every device
+ * including the one that issued the DELETE. It is unconditional to mirror
+ * `handleMessageQueued`, which increments for every `message_queued` before it
+ * knows whether this client originated the send: the count tracks the
+ * conversation's queue, not this client's share of it, so gating either side
+ * on a local mapping would desync passive devices.
+ */
 export function handleMessageQueuedDeleted(
   event: MessageQueuedDeletedEvent,
   ctx: StreamHandlerContext,
