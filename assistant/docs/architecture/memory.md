@@ -107,11 +107,14 @@ graph LR
 
 ### Ingestion tracks and provenance
 
-Two user-facing flows feed the ingest route, chosen by corpus size:
+Two user-facing flows feed the ingest route, chosen by the shape of the
+source material rather than its size:
 
 - **Distilled import** (`skills/assistant-migration`): memory exported from
   another assistant is parsed, creator-reviewed, and shaped into concept
-  pages. The input is already distilled, so everything becomes pages.
+  pages. The input is already distilled, so everything approved becomes
+  pages; assistant exports route here regardless of size because they need
+  candidate parsing and creator review.
 - **Large-corpus skim** (`skills/memory-corpus-ingest`): the raw dataset
   (recording archives, document dumps) is cold-stored under a workspace
   imports directory and never enters the memory corpus. Only a small map of
