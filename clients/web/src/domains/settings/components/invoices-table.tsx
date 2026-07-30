@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useRef, useState } from "react";
 
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 
 import { organizationsBillingInvoicesRetrieveInfiniteQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import {
@@ -88,6 +88,7 @@ export function InvoicesTable() {
   // Bumped when the section toggles; a page fetch that started before the
   // bump must not write pageLoadFailed after the toggle already cleared it.
   const loadAttemptRef = useRef(0);
+  const queryClient = useQueryClient();
 
   const invoicesQuery = useInfiniteQuery({
     // The table hides behind the Show invoices toggle, so don't fetch
@@ -242,9 +243,16 @@ export function InvoicesTable() {
                 // Collapsing abandons a failed page load; re-expanding
                 // refetches, so a stale banner would sit over fresh data.
                 // The bump also stops in-flight page fetches from writing
-                // pageLoadFailed after this reset.
+                // pageLoadFailed after this reset, and cancelling on collapse
+                // keeps an abandoned page fetch from failing after re-expand
+                // and resurrecting the banner via isFetchNextPageError.
                 loadAttemptRef.current += 1;
                 setPageLoadFailed(false);
+                if (expanded) {
+                  void queryClient.cancelQueries({
+                    queryKey: organizationsBillingInvoicesRetrieveInfiniteQueryKey(),
+                  });
+                }
                 setExpanded((v) => !v);
               }}
               data-testid="invoices-toggle"

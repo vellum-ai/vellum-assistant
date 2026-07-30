@@ -262,6 +262,29 @@ describe("InvoicesTable pagination", () => {
     expect(getByTestId("invoices-load-more-retry")).not.toBeNull();
   });
 
+  test("a page failure resolving after re-expand does not resurrect the error", async () => {
+    seedTwoPages();
+    nextPageErrorStatus = 400;
+    let releaseNextPage: () => void = () => {};
+    nextPageGate = new Promise((resolve) => {
+      releaseNextPage = resolve;
+    });
+    const { getByTestId, queryByTestId } = await openTable({ showAll: true });
+
+    fireEvent.click(getByTestId("invoices-load-more"));
+    fireEvent.click(getByTestId("invoices-toggle"));
+    expect(queryByTestId("invoices-table")).toBeNull();
+    fireEvent.click(getByTestId("invoices-toggle"));
+    await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
+
+    releaseNextPage();
+    nextPageGate = null;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(queryByTestId("invoices-load-more-error")).toBeNull();
+    expect(queryByTestId("invoices-load-more")).not.toBeNull();
+  });
+
   test("a page failure resolving after collapse does not resurrect the error", async () => {
     seedTwoPages();
     nextPageErrorStatus = 400;
@@ -277,7 +300,7 @@ describe("InvoicesTable pagination", () => {
 
     releaseNextPage();
     nextPageGate = null;
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     fireEvent.click(getByTestId("invoices-toggle"));
     await waitFor(() => expect(queryByTestId("invoices-table")).not.toBeNull());
