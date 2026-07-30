@@ -434,7 +434,7 @@ describe("ensureByokDefaultProfiles", () => {
     expectSecondRunNoop();
   });
 
-  test("a copy renamed to the visible managed label converts and the carried stub survives", () => {
+  test("a copy renamed exactly to the hatch-stub label converts with the label dropped", () => {
     const config = uneditedByokConfig();
     const profileMap = (config.llm as Record<string, unknown>)
       .profiles as Record<string, Record<string, unknown>>;
@@ -447,12 +447,11 @@ describe("ensureByokDefaultProfiles", () => {
     ensureByokDefaultProfiles(workspaceDir);
 
     expect(profiles()["custom-balanced"]).toBeUndefined();
-    expect(profiles().balanced).toEqual({
-      source: "managed",
-      label: "Balanced (Managed)",
-    });
+    // Carrying the label would reproduce the hatch-stub shape, so it is
+    // dropped; with no other overlay state no stub is written.
+    expect(profiles().balanced).toBeUndefined();
+    expect(llm().activeProfile).toBe("balanced");
     expectSecondRunNoop();
-    // Third run: the carried stub is never mistaken for a hatch stub.
     expectSecondRunNoop();
   });
 
@@ -482,7 +481,6 @@ describe("ensureByokDefaultProfiles", () => {
       llm: {
         defaultProvider: { provider: "anthropic" },
         profiles: {
-          balanced: { source: "managed", label: "Balanced (Managed)" },
           "quality-optimized": {
             source: "managed",
             status: "active",
@@ -496,6 +494,47 @@ describe("ensureByokDefaultProfiles", () => {
     ensureByokDefaultProfiles(workspaceDir);
 
     expect(readFileSync(configPath(), "utf-8")).toBe(before);
+  });
+
+  test("a label-only hatch stub with no status key is deleted", () => {
+    // Installs that predate #30367's status seeding got only the label
+    // rewrite, and migration 126 thinned them to { source, label }.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: {
+          balanced: { source: "managed", label: "Balanced (Managed)" },
+          "cost-optimized": { source: "managed", label: "Speed (Managed)" },
+        },
+      },
+    });
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles().balanced).toBeUndefined();
+    expect(profiles()["cost-optimized"]).toBeUndefined();
+    expectSecondRunNoop();
+  });
+
+  test("a user disable on the retired copy lands on the bare key past a label-only stub", () => {
+    const config = uneditedByokConfig();
+    const profileMap = (config.llm as Record<string, unknown>)
+      .profiles as Record<string, Record<string, unknown>>;
+    profileMap.balanced = { source: "managed", label: "Balanced (Managed)" };
+    profileMap["custom-balanced"] = {
+      ...profileMap["custom-balanced"],
+      status: "disabled",
+    };
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-balanced"]).toBeUndefined();
+    expect(profiles().balanced).toEqual({
+      source: "managed",
+      status: "disabled",
+    });
+    expectSecondRunNoop();
   });
 
   test("a disabled copy converts and carries the status onto a thin stub", () => {

@@ -40,10 +40,11 @@ const log = getLogger("byok-default-profile-ensure");
 // profile each boot, the model is accepted from the current intent resolution
 // or a git-verified historical era (`HISTORICAL_INTENT_MODELS`), and `label`/
 // `status` are user overlay state: a rename or disable survives conversion
-// as a thin managed stub on the bare key. `llm.advisorProfile` and
-// `llm.activeProfile` are re-validated in the same write because
-// `seedInferenceProfiles` runs earlier in boot and judged the pre-conversion
-// state.
+// as a thin managed stub on the bare key (except a rename colliding with
+// the frozen hatch-stub label, which is dropped at the carry arm).
+// `llm.advisorProfile` and `llm.activeProfile` are re-validated in the same
+// write because `seedInferenceProfiles` runs earlier in boot and judged the
+// pre-conversion state.
 //
 // This is a boot ensure pass rather than a workspace migration because
 // "unedited" is judged against the live catalog: the comparison template is
@@ -58,14 +59,19 @@ const log = getLogger("byok-default-profile-ensure");
 // stub or copy was removed.
 
 /**
- * The exact stub shape BYOK hatches wrote on each default key: thin (only
- * the workspace-owned overlay fields), `source: "managed"`,
- * `status: "disabled"`, and the frozen per-key label. Deletion requires the
- * full shape — a thin managed entry differing in any of these fields (a
- * re-enabled stub, a guard-side edit on the bare key, or label/status
- * carried off a retired copy by this pass) is indistinguishable from user
- * overlay state and stays. A managed-source entry with any other key (a
- * platform overlay body) is not a stub and is likewise left alone.
+ * The exact stub shapes BYOK hatching left on each default key: thin (only
+ * the workspace-owned overlay fields), `source: "managed"`, the frozen
+ * per-key label, and either `status: "disabled"` (seeded at hatch, #30367)
+ * or no `status` key at all (installs that already existed when #30367
+ * landed got only the label rewrite; migration 126 thinned those bodies to
+ * `{ source, label }`). Deletion requires the full shape: a thin managed
+ * entry differing in any other way (a re-enabled stub with
+ * `status: "active"`, a guard-side edit on the bare key, or a non-frozen
+ * label or status carried off a retired copy by this pass) is user overlay
+ * state and stays. The carry arm below never writes a stub matching this
+ * shape, so a match is always hatch-written. A managed-source entry with
+ * any other key (a platform overlay body) is not a stub and is likewise
+ * left alone.
  */
 const STUB_ONLY_KEYS = new Set(["source", "status", "label"]);
 const HATCH_STUB_LABELS: Record<DefaultProfileKey, string> = {
@@ -81,7 +87,7 @@ function isHatchStub(
   return (
     entry.source === "managed" &&
     Object.keys(entry).every((k) => STUB_ONLY_KEYS.has(k)) &&
-    entry.status === "disabled" &&
+    (!("status" in entry) || entry.status === "disabled") &&
     entry.label === HATCH_STUB_LABELS[key]
   );
 }
@@ -198,8 +204,9 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
 
   // Deleting a hatch stub makes the default key resolve active from the
   // default provider's catalog column (and drops the stub's suffixed label).
-  // Only the exact frozen hatch shape is provably hatch-written; anything
-  // else (including a stub the user re-enabled through the guard) stays.
+  // Only the exact frozen hatch shapes are classified hatch-written;
+  // anything else (including a stub the user re-enabled through the guard)
+  // stays.
   for (const key of DEFAULT_PROFILE_KEYS) {
     const entry = readObject(profiles[key]);
     if (entry === null || !isHatchStub(key, entry)) {
@@ -231,13 +238,17 @@ export function ensureByokDefaultProfiles(workspaceDir: string): void {
     delete profiles[name];
     if (overlay !== null && readObject(profiles[key]) === null) {
       const stub: Record<string, unknown> = { source: "managed", ...overlay };
-      // A carried label that reproduces the exact hatch-stub shape would be
-      // deleted by the stub arm on the next boot; the disable is the half
-      // worth keeping, so only the colliding label is dropped.
+      // A carried label that reproduces the hatch-stub shape is
+      // indistinguishable from a genuine hatch stub and would be deleted by
+      // the stub arm on the next boot, so the colliding label is never
+      // carried. A carried disable survives as a label-less stub; a
+      // rename-only collision leaves no overlay worth writing.
       if (isHatchStub(key, stub)) {
         delete stub.label;
       }
-      profiles[key] = stub;
+      if (Object.keys(stub).length > 1) {
+        profiles[key] = stub;
+      }
     }
     retired.set(name, key);
     changed = true;
