@@ -219,9 +219,16 @@ function avatarModeFor(
 function TakeoverAvatar({
   assistantId,
   mode,
+  downsizing = false,
 }: {
   assistantId?: string | null;
   mode: AvatarMode;
+  /**
+   * Run the resolve in reverse: start at the grown size and settle into the
+   * resting one. A plan that steps down should not end on a creature standing
+   * taller than it started, which reads as the opposite of what happened.
+   */
+  downsizing?: boolean;
 }) {
   // `useTakeoverSurface` owns which assistant the takeover draws and when its
   // avatar is safe to draw, so the creature and the paint around it can never
@@ -239,7 +246,7 @@ function TakeoverAvatar({
   return (
     <div
       aria-hidden
-      className={`provision-avatar-evolve relative z-10 flex flex-col items-center${AVATAR_MODE_CLASS[activeMode]}`}
+      className={`provision-avatar-evolve relative z-10 flex flex-col items-center${AVATAR_MODE_CLASS[activeMode]}${downsizing ? " is-downsizing" : ""}`}
       style={
         {
           "--provision-avatar-size": `${size}px`,
@@ -371,22 +378,29 @@ function DimensionChip({
               />
             </>
           )}
-          <span>{to}</span>
-          {done ? (
-            <Check
-              data-testid="chip-check"
-              className="h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]"
-              aria-hidden="true"
-            />
-          ) : (
-            pending && (
-              <Loader2
-                data-testid="chip-spinner"
-                className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--content-tertiary)] motion-reduce:animate-none"
+          {/* The destination and its progress mark travel as one item. The row
+           * wraps so a long value can break instead of clipping the chip, and
+           * without this the mark is what wraps: it is the last and smallest
+           * thing on the line, so it lands alone underneath and reads as
+           * belonging to nothing. */}
+          <span className="inline-flex items-center gap-1.5">
+            <span>{to}</span>
+            {done ? (
+              <Check
+                data-testid="chip-check"
+                className="h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]"
                 aria-hidden="true"
               />
-            )
-          )}
+            ) : (
+              pending && (
+                <Loader2
+                  data-testid="chip-spinner"
+                  className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--content-tertiary)] motion-reduce:animate-none"
+                  aria-hidden="true"
+                />
+              )
+            )}
+          </span>
           {status && <span className="sr-only">{status}</span>}
         </span>
       </div>
@@ -671,6 +685,9 @@ export function ProvisioningState({
       <TakeoverAvatar
         assistantId={assistantId}
         mode={avatarModeFor(heldState, softWaiting)}
+        // Only a known step down inverts the motion. A move whose direction
+        // nobody knows must not claim one, so it keeps the resolve it has.
+        downsizing={direction === "downgrade"}
       />
       {/* Keyed so each phase replays the entrance instead of swapping its copy
           in place. WAITING and RESIZING render identical copy, so they share a

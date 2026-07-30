@@ -452,6 +452,34 @@ describe("per-chip progress", () => {
     ).toBeTruthy();
   });
 
+  test("the progress mark shares a line with the value it belongs to", () => {
+    // The value row wraps so a long value can break rather than clip the chip,
+    // and the mark is the last and smallest thing on that line, so it is what
+    // wraps: it lands alone underneath and reads as belonging to nothing. It
+    // has to travel with the destination value as one item.
+    const { getByTestId } = renderState({
+      state: "WAITING",
+      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+      targets: { machineSize: "large", storageGib: null },
+      fromSnapshot: { machineSize: "small", storageGib: null },
+      landed: { machine: false, storage: false },
+    });
+
+    for (const [chipId, markId] of [
+      ["chip-credits", "chip-check"],
+      ["chip-machine", "chip-spinner"],
+    ] as const) {
+      const chip = getByTestId(chipId);
+      const mark = within(chip).getByTestId(markId);
+      const group = mark.parentElement;
+      // The wrapping row is the grandparent once the mark sits in its group.
+      expect(group?.className).toContain("inline-flex");
+      expect(group?.className).not.toContain("flex-wrap");
+      // The destination value is inside that same unwrappable group.
+      expect(group?.textContent).not.toBe("");
+    }
+  });
+
   test("stalled keeps each chip on its own dimension's state", () => {
     const { getByTestId } = renderState({
       state: "STALLED",
@@ -1116,6 +1144,30 @@ describe("takeover avatar mode", () => {
       }
     });
   }
+
+  test("a downgrade inverts the resolve, and only a known one does", () => {
+    // The stage reserves the grown height either way, so the step down waits at
+    // that size and settles into the resting one. Ending taller than it started
+    // would read as the opposite of the change the user just made.
+    const down = renderState({
+      state: "DONE",
+      direction: "downgrade",
+      assistantId: "primary-assistant",
+    });
+    expect(modeClasses(down.container)).toContain("is-downsizing");
+    cleanup();
+
+    // A move with no knowable direction must not claim one.
+    for (const direction of ["upgrade", "change", undefined] as const) {
+      const view = renderState({
+        state: "DONE",
+        direction,
+        assistantId: "primary-assistant",
+      });
+      expect(modeClasses(view.container)).not.toContain("is-downsizing");
+      cleanup();
+    }
+  });
 
   test("withholds the avatar until its query settles", () => {
     // `components ?? fallback` synthesizes traits from the first bundled entry

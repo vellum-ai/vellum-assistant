@@ -368,6 +368,44 @@ body {
   animation: provision-grow-shadow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
 }
 
+/* A plan that steps down runs the same choreography backwards: the creature
+ * waits at the grown size and settles into the resting one, so it ends smaller
+ * than it began. The stage already reserves the grown height, so nothing around
+ * it moves and both directions cost the same layout. */
+.provision-avatar-evolve.is-downsizing .provision-avatar-current {
+  transform: scale(var(--provision-avatar-growth));
+}
+
+.provision-avatar-evolve.is-downsizing .provision-avatar-shadow {
+  transform: scaleX(1.16);
+}
+
+/* The settle dips past the resting size and comes back, so the weight reads as
+ * landing rather than deflating. */
+@keyframes provision-shrink {
+  0% { transform: scale(var(--provision-avatar-growth)); }
+  22% { transform: scale(calc(var(--provision-avatar-growth) * 1.02)); }
+  62% { transform: scale(1.06); }
+  84% { transform: scale(0.97) scaleY(0.95); }
+  100% { transform: scale(1); }
+}
+
+/* The shadow gathers in under the creature as it comes down. */
+@keyframes provision-shrink-shadow {
+  0% { transform: scaleX(1.16); opacity: 1; }
+  62% { transform: scaleX(1.04); opacity: 0.72; }
+  84% { transform: scaleX(1.06); opacity: 0.95; }
+  100% { transform: scaleX(1); opacity: 0.85; }
+}
+
+.provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-current {
+  animation: provision-shrink 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
+}
+
+.provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-shadow {
+  animation: provision-shrink-shadow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
+}
+
 /* The creature fades in over the placeholder as soon as something is drawable:
  * the live query settling, or the stash captured at the Stripe hand-off. The
  * stage has already reserved its height, so this fades in place with nothing
@@ -465,6 +503,17 @@ body {
   .provision-avatar-evolve.is-evolved .provision-avatar-shadow {
     animation: none;
     transform: scaleX(1.16);
+  }
+
+  /* Both endpoints still hold for a step down; only the travel is dropped. */
+  .provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-current {
+    animation: none;
+    transform: scale(1);
+  }
+
+  .provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-shadow {
+    animation: none;
+    transform: scaleX(1);
   }
 
   /* The stalled tilt stays — it reports a state rather than animating one. */
