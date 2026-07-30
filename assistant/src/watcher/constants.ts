@@ -20,7 +20,7 @@ export const WATCHER_JOB_TIMEOUT_MS = 15 * 60 * 1000;
  * Provider payloads have no length ceiling of their own (a Linear comment body or
  * a calendar description is arbitrary-length), so the ceiling is imposed here.
  *
- * These are deliberately generous — Gmail snippets (~200 chars) and Outlook
+ * These are deliberately generous: Gmail snippets (~200 chars) and Outlook
  * `bodyPreview` (~255) never reach them; they bite only on genuinely long free
  * text, where truncation is preferable to letting one event crowd out the rest.
  */
