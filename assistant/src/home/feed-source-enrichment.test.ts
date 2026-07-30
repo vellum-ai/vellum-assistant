@@ -34,6 +34,13 @@ describe("classifyConversationSource", () => {
     expect(classifyConversationSource("home-feed")).toBe("user");
   });
 
+  it("classifies imported conversations ('import:<provider>') as user", () => {
+    expect(classifyConversationSource("import:chatgpt")).toBe("user");
+    expect(classifyConversationSource("import:claude")).toBe("user");
+    // Bare "import" without the prefix separator is not an import source.
+    expect(classifyConversationSource("import")).toBe("other");
+  });
+
   it("falls through to 'other' for unknown / paired-delivery / empty sources", () => {
     expect(classifyConversationSource("notification")).toBe("other");
     expect(classifyConversationSource("something-else")).toBe("other");
