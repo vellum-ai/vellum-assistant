@@ -622,7 +622,8 @@
           ]
         }
       },
-      "compatibility": "Designed for Vellum personal assistants"
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-29T23:59:49.000Z"
     },
     {
       "id": "notifications",
