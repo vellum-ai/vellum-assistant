@@ -38,6 +38,8 @@
  * advertise an action the user never needs.
  */
 
+import type { CSSProperties } from "react";
+
 import { Maximize2, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 
 import { Button, cn } from "@vellumai/design-library";
@@ -89,6 +91,12 @@ export interface VoiceComposerBarProps {
    */
   onExpand?: () => void;
   /**
+   * Whether the card's fill is a light color, from the same `toneForBg` read
+   * that paints it. Only the muted controls consult it: their red has to
+   * contrast with the fill rather than with the theme.
+   */
+  fillIsLight: boolean;
+  /**
    * Whether the block is the composer card's only content, which it is unless
    * the user opted into seeing their own words (the live transcript keeps the
    * textarea row above). Standing alone it owns the card's whole footprint and
@@ -113,6 +121,26 @@ const BLOCK_HEIGHT_CLASS = "h-[5.25rem]";
  * likely to be invisible on it as legible. The token fallbacks only apply if a
  * caller renders the block without the vars, which the composer never does.
  */
+/**
+ * Ink for a control that is currently *off* (mic muted, assistant muted).
+ *
+ * Not the negative theme token: that is a mid-tone red, and the block is
+ * painted an arbitrary avatar color, so the two can land close enough that the
+ * muted glyph disappears into the fill. This is the room's own choice instead,
+ * a pale red on dark fills and a deep one on light, which keeps "off" legible
+ * on every palette color.
+ *
+ * Applied as an inline style rather than another utility: it competes with the
+ * resting `--vbtn-fg` in {@link VOICE_CONTROL_CLASS}, and two
+ * arbitrary-property classes setting the same variable are ordered by
+ * Tailwind's own sort, not by the order they are passed in.
+ */
+function mutedInk(fillIsLight: boolean): CSSProperties {
+  return {
+    "--vbtn-fg": fillIsLight ? "#991B1B" : "#FCA5A5",
+  } as CSSProperties;
+}
+
 const VOICE_CONTROL_CLASS = [
   "[--vbtn-fg:var(--room-fg-muted,var(--content-secondary))]",
   "hover:[--vbtn-fg:var(--room-fg,var(--content-default))]",
@@ -129,6 +157,7 @@ export function VoiceComposerBar({
   onToggleOutputMute,
   onEnd,
   onExpand,
+  fillIsLight,
   standalone = false,
 }: VoiceComposerBarProps) {
   // Which voice the band is drawing, in the room's own terms: the user lifts a
@@ -190,10 +219,8 @@ export function VoiceComposerBar({
           aria-label={muted ? "Unmute microphone" : "Mute microphone"}
           aria-pressed={muted}
           tooltip={muted ? "Unmute microphone" : "Mute microphone"}
-          className={cn(
-            VOICE_CONTROL_CLASS,
-            muted && "[--vbtn-fg:var(--system-negative-strong)]",
-          )}
+          className={VOICE_CONTROL_CLASS}
+          style={muted ? mutedInk(fillIsLight) : undefined}
         />
       </div>
 
@@ -222,10 +249,8 @@ export function VoiceComposerBar({
           aria-label={outputMuted ? "Unmute assistant" : "Mute assistant"}
           aria-pressed={outputMuted}
           tooltip={outputMuted ? "Unmute assistant" : "Mute assistant"}
-          className={cn(
-            VOICE_CONTROL_CLASS,
-            outputMuted && "[--vbtn-fg:var(--system-negative-strong)]",
-          )}
+          className={VOICE_CONTROL_CLASS}
+          style={outputMuted ? mutedInk(fillIsLight) : undefined}
         />
         {onExpand ? (
           <Button

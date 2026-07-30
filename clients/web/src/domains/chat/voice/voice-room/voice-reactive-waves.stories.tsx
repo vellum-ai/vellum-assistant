@@ -529,6 +529,7 @@ function ComposerBarScene(args: SceneArgs) {
           onToggleMute={() => {}}
           outputMuted={false}
           onToggleOutputMute={() => {}}
+          fillIsLight={false}
           onEnd={() => {}}
           onExpand={() => {}}
           standalone

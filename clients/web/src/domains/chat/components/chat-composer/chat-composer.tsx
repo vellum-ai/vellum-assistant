@@ -1022,6 +1022,7 @@ export function ChatComposer({
                 getOutputAmplitude={getLiveVoiceOutputAmplitude}
                 muted={liveVoiceMuted}
                 onToggleMute={() => setLiveVoiceMuted(!liveVoiceMuted)}
+                fillIsLight={voiceCardTone?.isLight ?? false}
                 outputMuted={liveVoiceOutputMuted}
                 onToggleOutputMute={() =>
                   setLiveVoiceOutputMuted(!liveVoiceOutputMuted)

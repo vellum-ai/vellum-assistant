@@ -51,6 +51,7 @@ function renderBar(
     onEnd?: () => void;
     outputMuted?: boolean;
     onToggleOutputMute?: () => void;
+    fillIsLight?: boolean;
     onExpand?: () => void;
     standalone?: boolean;
   },
@@ -65,6 +66,7 @@ function renderBar(
       onEnd={overrides?.onEnd ?? (() => {})}
       outputMuted={overrides?.outputMuted ?? false}
       onToggleOutputMute={overrides?.onToggleOutputMute ?? (() => {})}
+      fillIsLight={overrides?.fillIsLight ?? false}
       onExpand={overrides?.onExpand}
       standalone={overrides?.standalone}
     />,
@@ -331,5 +333,39 @@ describe("VoiceComposerBar: the band", () => {
   test("a muted mic reads silent, not frozen", () => {
     renderBar("listening", { muted: true });
     expect(lastBandProps?.getAmplitude()).toBe(0);
+  });
+});
+
+describe("VoiceComposerBar: muted controls stay visible", () => {
+  test("a muted control inks itself against the fill, not the theme", () => {
+    // The negative token is a mid-tone red and the block is painted an
+    // arbitrary avatar color, so the two can land close enough that the muted
+    // glyph vanishes into the fill. Inline, so it beats the resting
+    // `--vbtn-fg` regardless of how Tailwind orders the two utilities.
+    renderBar("listening", { muted: true });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute microphone" })
+        .getAttribute("style") ?? "";
+    expect(style).toContain("--vbtn-fg");
+    expect(style.toUpperCase()).toContain("#FCA5A5");
+  });
+
+  test("a light fill gets the deep red instead of the pale one", () => {
+    renderBar("listening", { muted: true, fillIsLight: true });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute microphone" })
+        .getAttribute("style") ?? "";
+    expect(style.toUpperCase()).toContain("#991B1B");
+  });
+
+  test("a muted assistant inks itself the same way", () => {
+    renderBar("speaking", { outputMuted: true });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute assistant" })
+        .getAttribute("style") ?? "";
+    expect(style.toUpperCase()).toContain("#FCA5A5");
   });
 });
