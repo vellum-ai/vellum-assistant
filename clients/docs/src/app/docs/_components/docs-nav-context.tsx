@@ -3,6 +3,8 @@
 import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
+import { lockBodyScroll, unlockBodyScroll } from "@/app/docs/_components/body-scroll-lock";
+
 interface DocsNavContextValue {
   /** Whether the mobile nav DOM should be rendered */
   visible: boolean;
@@ -27,6 +29,7 @@ export function DocsNavProvider({ children }: { children: ReactNode }) {
   const [visible, setVisible] = useState(false);
   const [animating, setAnimating] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdsLockRef = useRef(false);
   const pathname = usePathname();
   const previousPathnameRef = useRef(pathname);
 
@@ -39,12 +42,20 @@ export function DocsNavProvider({ children }: { children: ReactNode }) {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setAnimating(true));
     });
-    document.body.style.overflow = "hidden";
+    if (!holdsLockRef.current) {
+      holdsLockRef.current = true;
+      lockBodyScroll();
+    }
   }, []);
 
   const close = useCallback(() => {
     setAnimating(false);
-    document.body.style.overflow = "";
+    // close() also fires on route/hash/breakpoint changes while the drawer is
+    // already closed; only release a lock this provider actually holds.
+    if (holdsLockRef.current) {
+      holdsLockRef.current = false;
+      unlockBodyScroll();
+    }
     timeoutRef.current = setTimeout(() => setVisible(false), 250);
   }, []);
 
@@ -86,7 +97,10 @@ export function DocsNavProvider({ children }: { children: ReactNode }) {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
-      document.body.style.overflow = "";
+      if (holdsLockRef.current) {
+        holdsLockRef.current = false;
+        unlockBodyScroll();
+      }
     };
   }, []);
 

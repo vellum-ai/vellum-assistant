@@ -15,6 +15,7 @@ import {
 
 import type { DocsSearchResponse, DocsSearchResult } from "@/lib/docs/search/types";
 import { tokenize } from "@/lib/docs/search/text";
+import { lockBodyScroll, unlockBodyScroll } from "@/app/docs/_components/body-scroll-lock";
 
 const MIN_QUERY_LENGTH = 2;
 const SPOTLIGHT_TRANSITION_MS = 220;
@@ -182,13 +183,9 @@ export function DocsSearch({ registerShortcut = true }: DocsSearchProps) {
       return;
     }
 
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
     return () => {
-      // Restore to unlocked rather than the captured value: when the spotlight
-      // opens from the mobile drawer (which holds its own body lock), the
-      // captured value is "hidden" and restoring it would leave scroll stuck
-      // after both close.
-      document.body.style.overflow = "";
+      unlockBodyScroll();
     };
   }, [spotlightMounted]);
 

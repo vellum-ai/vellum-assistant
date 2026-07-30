@@ -137,7 +137,7 @@ export function TheWorkspaceContent() {
             </ul>
             <div className="mb-4 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
               <pre className="font-[family-name:var(--font-dm-mono)] text-sm text-zinc-900">
-{`- Name: Gigi
+{`- Name: Bob
 - Emoji: 😏
 - Nature: AI familiar
 - Personality: Witty, sharp, slightly irreverent
