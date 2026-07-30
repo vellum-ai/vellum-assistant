@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
 import "./globals.css";
-import "./docs/docs-theme.css";
 
 /* Pre-hydration theme bootstrap. Mirrors the key precedence of the assistant
  * SPA's clients/web/public/theme-init.js (`device:theme` first, then the
