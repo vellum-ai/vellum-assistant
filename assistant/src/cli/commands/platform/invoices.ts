@@ -24,28 +24,76 @@ interface PlatformInvoicesListResult {
 }
 
 /**
- * Amounts are in the currency's minor units; render as major units using the
- * currency's own minor-unit scale (2 for USD, 0 for JPY, 3 for BHD), e.g.
- * "USD 12.34". Unknown currency codes fall back to the raw minor-unit amount.
+ * These lists follow Stripe's amount scaling rules
+ * (https://docs.stripe.com/currencies), not ISO 4217 metadata. Notably,
+ * Stripe keeps two-decimal scaling for ISK, HUF, TWD, and UGX for backward
+ * compatibility even though ISO treats them as zero-decimal, so those codes
+ * are deliberately absent from the zero-decimal list.
+ */
+const STRIPE_ZERO_DECIMAL_CURRENCIES = new Set([
+  "BIF",
+  "CLP",
+  "DJF",
+  "GNF",
+  "JPY",
+  "KMF",
+  "KRW",
+  "MGA",
+  "PYG",
+  "RWF",
+  "VND",
+  "VUV",
+  "XAF",
+  "XOF",
+  "XPF",
+]);
+
+const STRIPE_THREE_DECIMAL_CURRENCIES = new Set([
+  "BHD",
+  "JOD",
+  "KWD",
+  "OMR",
+  "TND",
+]);
+
+function stripeScaleDigits(currencyCode: string): number {
+  if (STRIPE_ZERO_DECIMAL_CURRENCIES.has(currencyCode)) {
+    return 0;
+  }
+  if (STRIPE_THREE_DECIMAL_CURRENCIES.has(currencyCode)) {
+    return 3;
+  }
+  return 2;
+}
+
+/**
+ * Amounts are in Stripe's minor units; render as major units using Stripe's
+ * amount scaling rules (2 for USD, 0 for JPY, 3 for BHD), e.g. "USD 12.34".
+ * The display fraction digits are forced to match the same scale so Intl's
+ * ISO metadata cannot round Stripe's two-decimal special cases (ISK, HUF,
+ * TWD, UGX). Unknown currency codes fall back to the raw minor-unit amount.
  */
 function formatInvoiceAmount(
   amountMinorUnits: number,
   currency: string,
 ): string {
+  const code = currency.toUpperCase();
+  const digits = stripeScaleDigits(code);
   try {
     const formatter = new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: currency.toUpperCase(),
+      currency: code,
       currencyDisplay: "code",
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
     });
-    const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
     // Intl separates the code and number with U+00A0; use a plain space.
     return formatter
       .format(amountMinorUnits / 10 ** digits)
       .replace(/\u00a0/g, " ");
   } catch {
     // Intl.NumberFormat throws a RangeError on invalid currency codes.
-    return `${amountMinorUnits} ${currency.toUpperCase()} (minor units)`;
+    return `${amountMinorUnits} ${code} (minor units)`;
   }
 }
 

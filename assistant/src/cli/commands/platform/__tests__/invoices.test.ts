@@ -220,6 +220,17 @@ describe("assistant platform invoices get", () => {
     expect(out.join("")).toContain("Amount:  BHD 12.345");
   });
 
+  test("plain text mode keeps Stripe's two-decimal scaling for ISK despite ISO zero-decimal metadata", async () => {
+    mockResponse = {
+      ok: true,
+      result: { ...invoiceA, currency: "isk", amount_due: 500 },
+    };
+
+    const out = await runInvoices(["get", "in_a"]);
+
+    expect(out.join("")).toContain("Amount:  ISK 5.00");
+  });
+
   test("plain text mode falls back to raw minor units for invalid currency codes", async () => {
     mockResponse = {
       ok: true,
