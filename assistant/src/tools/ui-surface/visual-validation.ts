@@ -164,6 +164,145 @@ const FUNCTIONAL_COLOR_PATTERN =
 /** How many offending values a teaching error quotes back. */
 const MAX_QUOTED_PROBLEMS = 5;
 
+/** Every root `<svg …>` open tag. Nested `<svg>` is not a thing we author. */
+const SVG_OPEN_TAG_PATTERN = /<svg\b[^>]*>/gi;
+
+const VIEWBOX_ATTRIBUTE_PATTERN = /\bviewBox\s*=/i;
+
+/** A `width`/`height` attribute whose value is a bare or `px` pixel count. */
+const SVG_PIXEL_SIZE_PATTERN =
+  /\b(width|height)\s*=\s*["'](\d+(?:\.\d+)?)(px)?["']/gi;
+
+/**
+ * Widest an `<svg>` can be sized in pixels before it overruns the frame. The
+ * container gives a visual about 660px of usable width, and the drawing
+ * conventions lay out against a 680-unit canvas; anything past that is only
+ * safe as a viewBox, which scales.
+ */
+const MAX_SVG_PIXEL_SIZE = 680;
+
+/**
+ * The fix for an unscalable `<svg>`, quoted verbatim so the retry lands in one
+ * call rather than guessing at a smaller pixel width.
+ */
+const VIEWBOX_FIX =
+  'Give the root svg a viewBox="0 0 W H" (W and H are the drawing\'s own coordinate extent, W 680 by convention) plus width="100%", and remove any fixed pixel width and height. ' +
+  "A viewBox is what makes a drawing scale to whatever width the frame has; a pixel-sized svg keeps its size and is silently clipped at the right edge, with no scrollbar and nothing on screen to say content is missing.";
+
+/** `<rect>` open tags, the one shape whose extent is exact from its attributes. */
+const SVG_RECT_TAG_PATTERN = /<rect\b[^>]*>/gi;
+
+/** Numbers of a `viewBox="minX minY width height"` value. */
+const VIEWBOX_VALUE_PATTERN =
+  /\bviewBox\s*=\s*["']\s*(-?[\d.]+)[\s,]+(-?[\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i;
+
+/** Sub-pixel slack, so a rounded coordinate is not reported as an overrun. */
+const VIEWBOX_BOUNDS_TOLERANCE = 0.5;
+
+function numericAttribute(tag: string, name: string): number | undefined {
+  const match = new RegExp(`\\b${name}\\s*=\\s*["'](-?[\\d.]+)`, "i").exec(tag);
+  if (!match) {
+    return undefined;
+  }
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Shapes drawn outside their own `viewBox`. An SVG clips at the viewBox edge,
+ * so a node placed past it is not laid out badly, it is invisible. What a
+ * reader sees is a diagram whose last box is sliced off, with nothing to
+ * indicate more was drawn.
+ */
+function collectViewBoxOverrunProblems(html: string): string[] {
+  const overruns = new Set<string>();
+
+  for (const svg of html.matchAll(SVG_OPEN_TAG_PATTERN)) {
+    const box = VIEWBOX_VALUE_PATTERN.exec(svg[0]);
+    if (!box) {
+      continue;
+    }
+    const minX = Number(box[1]);
+    const minY = Number(box[2]);
+    const maxX = minX + Number(box[3]);
+    const maxY = minY + Number(box[4]);
+
+    const bodyStart = (svg.index ?? 0) + svg[0].length;
+    const closeIndex = html.indexOf("</svg", bodyStart);
+    const body = html.slice(
+      bodyStart,
+      closeIndex === -1 ? html.length : closeIndex,
+    );
+
+    for (const rect of body.matchAll(SVG_RECT_TAG_PATTERN)) {
+      const x = numericAttribute(rect[0], "x") ?? 0;
+      const y = numericAttribute(rect[0], "y") ?? 0;
+      const width = numericAttribute(rect[0], "width");
+      const height = numericAttribute(rect[0], "height");
+      if (width !== undefined && x + width > maxX + VIEWBOX_BOUNDS_TOLERANCE) {
+        overruns.add(
+          `x=${x} width=${width} ends at ${x + width}, past ${maxX}`,
+        );
+      }
+      if (
+        height !== undefined &&
+        y + height > maxY + VIEWBOX_BOUNDS_TOLERANCE
+      ) {
+        overruns.add(
+          `y=${y} height=${height} ends at ${y + height}, past ${maxY}`,
+        );
+      }
+    }
+  }
+
+  if (overruns.size === 0) {
+    return [];
+  }
+  return [
+    `Shapes drawn outside the viewBox: ${quote([...overruns])}. ` +
+      "An SVG clips at its viewBox edge, so these render sliced off or not at all, with nothing on screen to say " +
+      "content is missing. Either move the shapes back inside the box or widen the viewBox to cover them, " +
+      "and re-check the packing math: everything has to fit between the viewBox bounds, gaps included.",
+  ];
+}
+
+/**
+ * Problems with how an `<svg>` is sized. Without a `viewBox` the drawing has no
+ * intrinsic coordinate system to scale, so it renders at its literal size and
+ * the frame crops whatever does not fit.
+ */
+function collectSvgSizingProblems(html: string): string[] {
+  const problems: string[] = [];
+  const oversized: string[] = [];
+  let missingViewBox = false;
+
+  for (const match of html.matchAll(SVG_OPEN_TAG_PATTERN)) {
+    const tag = match[0];
+    if (VIEWBOX_ATTRIBUTE_PATTERN.test(tag)) {
+      continue;
+    }
+    missingViewBox = true;
+    for (const size of tag.matchAll(SVG_PIXEL_SIZE_PATTERN)) {
+      if (Number(size[2]) > MAX_SVG_PIXEL_SIZE) {
+        oversized.push(`${size[1]}="${size[2]}${size[3] ?? ""}"`);
+      }
+    }
+  }
+
+  if (missingViewBox) {
+    problems.push(`An <svg> element has no viewBox attribute. ${VIEWBOX_FIX}`);
+  }
+  if (oversized.length > 0) {
+    problems.push(
+      `An <svg> without a viewBox is sized past the ${MAX_SVG_PIXEL_SIZE}px the frame can show: ${quote(
+        oversized,
+      )}. Everything beyond that width is cropped away. ${VIEWBOX_FIX}`,
+    );
+  }
+
+  return problems;
+}
+
 /** Every ramp-token reference, with the palette and stop split out. */
 const RAMP_TOKEN_PATTERN = new RegExp(
   `--color-(${[...NEUTRAL_PALETTES, ...ACCENT_PALETTES].join(
@@ -584,6 +723,8 @@ export function validateVisualHtml(html: string): string[] {
     );
   }
 
+  problems.push(...collectSvgSizingProblems(html));
+  problems.push(...collectViewBoxOverrunProblems(html));
   problems.push(...collectRampContrastProblems(html));
 
   return problems;

@@ -30,8 +30,8 @@
  *    `lastIndexOf` to avoid hijacking when app JS contains literal close-tag
  *    sequences.
  * 6. **Widget bridge** — the reduced surface for inline visuals: an auto-height
- *    reporter and a `sendPrompt(text)` global, composed by
- *    `injectWidgetBridge()`. No fetch proxy, no `window.vellum` namespace.
+ *    reporter, a shrink-to-fit pass and a `sendPrompt(text)` global, composed
+ *    by `injectWidgetBridge()`. No fetch proxy, no `window.vellum` namespace.
  *
  * All sandboxed iframes that render untrusted HTML must use these utilities.
  * The storage polyfill is required even for non-interactive preview iframes.
@@ -212,6 +212,13 @@ export function buildLinkInterceptorScript(frameId: string): string {
  * the pass caused by the parent applying the previous report — settles instead
  * of oscillating.
  *
+ * The shrink-to-fit pass (see {@link buildWidgetWidthFitScript}) publishes the
+ * zoom it applied as `window.__vellumWidgetZoom`. Engines disagree on whether the
+ * box-metric properties of a zoomed element report layout or visual pixels, so
+ * the scaled metrics are compared against the bounding rect, which is always
+ * visual: whichever reading is the zoom-adjusted one wins the `Math.max` and
+ * the reported height is the space the frame actually needs.
+ *
  * @param frameId The iframe identifier, echoed back so the parent can reject
  *   messages from any other frame.
  */
@@ -223,9 +230,10 @@ export function buildWidgetHeightReporterScript(frameId: string): string {
   function measure() {
     var body = document.body;
     if (!body) return;
+    var zoom = window.__vellumWidgetZoom || 1;
     var height = Math.max(
-      body.scrollHeight,
-      body.offsetHeight,
+      Math.ceil(body.scrollHeight * zoom),
+      Math.ceil(body.offsetHeight * zoom),
       Math.ceil(body.getBoundingClientRect().height)
     );
     if (!height || Math.abs(height - lastHeight) < 2) return;
@@ -247,6 +255,74 @@ export function buildWidgetHeightReporterScript(frameId: string): string {
   }
   window.addEventListener('load', schedule);
   window.addEventListener('resize', schedule);
+  schedule();
+})();
+</script>`;
+}
+
+/**
+ * Smallest shrink-to-fit scale. Below this the safety net stops and lets the
+ * content clip: a diagram scaled past a third off is unreadable, which is a
+ * worse outcome than a clipped edge the user can still see is clipped.
+ */
+const WIDGET_MIN_FIT_SCALE = 0.7;
+
+/** Overflow under this many pixels is rounding, not a layout that spills. */
+const WIDGET_FIT_TOLERANCE_PX = 2;
+
+/**
+ * Build a `<script>` tag that scales a too-wide widget down until it fits.
+ *
+ * A fragment authored past the frame's width is clipped with no scrollbar and
+ * no other signal, so content simply disappears at the right edge. This is the
+ * safety net for that: when the body's scroll width overruns the viewport, the
+ * body is zoomed by the ratio that closes the gap.
+ *
+ * `zoom` rather than `transform: scale()` because zoom reflows: the body's box
+ * shrinks with its content, so the height reporter measures the scaled result
+ * instead of the pre-scale layout with a band of empty space under it. The
+ * applied factor is published on `window.__vellumWidgetZoom` for the reporter to
+ * read (see {@link buildWidgetHeightReporterScript}).
+ *
+ * Measurement resets any previous zoom first, so the natural width is read at
+ * 1 every time and repeated passes converge rather than compounding. It runs
+ * after first layout, after `load`, once fonts settle (a fallback face is
+ * usually wider than the real one), and on resize.
+ */
+export function buildWidgetWidthFitScript(): string {
+  return `<script>
+(function() {
+  var MIN_SCALE = ${WIDGET_MIN_FIT_SCALE};
+  var TOLERANCE = ${WIDGET_FIT_TOLERANCE_PX};
+  var scheduled = false;
+  window.__vellumWidgetZoom = 1;
+  function fit() {
+    var body = document.body;
+    if (!body) return;
+    if (window.__vellumWidgetZoom !== 1) {
+      body.style.zoom = '';
+      window.__vellumWidgetZoom = 1;
+    }
+    var available = document.documentElement.clientWidth;
+    var natural = body.scrollWidth;
+    if (!available || !natural) return;
+    if (natural - available <= TOLERANCE) return;
+    var scale = available / natural;
+    if (scale < MIN_SCALE) return;
+    window.__vellumWidgetZoom = scale;
+    body.style.zoom = String(scale);
+  }
+  function schedule() {
+    if (scheduled) return;
+    scheduled = true;
+    var run = function() { scheduled = false; fit(); };
+    if (typeof requestAnimationFrame === 'function') { requestAnimationFrame(run); } else { setTimeout(run, 16); }
+  }
+  window.addEventListener('load', schedule);
+  window.addEventListener('resize', schedule);
+  if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+    document.fonts.ready.then(schedule);
+  }
   schedule();
 })();
 </script>`;
@@ -300,7 +376,7 @@ export const WIDGET_CSP_META =
  * namespace — a visual is a self-contained illustration, not an app. It gets
  * a network-blocking CSP (first, so it governs every script and subresource
  * that follows), the storage polyfill, the shared link interceptor, the
- * height reporter and `sendPrompt`.
+ * shrink-to-fit pass, the height reporter and `sendPrompt`.
  *
  * @param head Markup prepended alongside the storage polyfill — the resolved
  *   design tokens and inlined brand fonts.
@@ -313,7 +389,8 @@ export function injectWidgetBridge(
   return prependScript(
     injectScript(
       html,
-      buildWidgetHeightReporterScript(frameId) +
+      buildWidgetWidthFitScript() +
+        buildWidgetHeightReporterScript(frameId) +
         buildWidgetPromptScript(frameId) +
         buildLinkInterceptorScript(frameId),
       // A visual is often a bare fragment (`<svg>…`, `<div>…`); the height

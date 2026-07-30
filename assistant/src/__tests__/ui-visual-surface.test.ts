@@ -415,6 +415,50 @@ describe("ui_show visual fragment guards", () => {
 });
 
 // ---------------------------------------------------------------------------
+// SVG sizing
+// ---------------------------------------------------------------------------
+
+describe("an svg that cannot scale to the frame", () => {
+  test("a root svg with no viewBox names the fix", () => {
+    const problems = validateVisualHtml(
+      '<svg width="900" height="400"><rect x="0" y="0" width="120" height="40" fill="var(--surface-lift)"/></svg>',
+    );
+
+    expect(problems.some((p) => p.includes("no viewBox attribute"))).toBe(true);
+    expect(problems.join(" ")).toContain('viewBox="0 0 W H"');
+    expect(problems.join(" ")).toContain('width="100%"');
+  });
+
+  test("a viewBox-less svg sized past the frame is flagged for its width", () => {
+    const problems = validateVisualHtml(
+      '<svg width="900" height="400"><rect x="0" y="0" width="120" height="40" fill="var(--surface-lift)"/></svg>',
+    );
+
+    const oversized = problems.find((p) => p.includes("sized past"));
+    expect(oversized).toBeDefined();
+    expect(oversized).toContain('width="900"');
+  });
+
+  test("a viewBox is enough: the pixel sizes are only read without one", () => {
+    expect(
+      validateVisualHtml(
+        '<svg width="100%" viewBox="0 0 680 340"><rect x="0" y="0" width="120" height="40" fill="var(--surface-lift)"/></svg>',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a shape drawn past the viewBox is reported with its overrun", () => {
+    const problems = validateVisualHtml(
+      '<svg width="100%" viewBox="0 0 680 340"><rect x="610" y="40" width="90" height="56" fill="var(--surface-lift)"/></svg>',
+    );
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("outside the viewBox");
+    expect(problems[0]).toContain("ends at 700, past 680");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Skill reference examples
 // ---------------------------------------------------------------------------
 

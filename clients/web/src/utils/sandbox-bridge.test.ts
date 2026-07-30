@@ -5,6 +5,7 @@ import {
   buildStoragePolyfill,
   buildWidgetHeightReporterScript,
   buildWidgetPromptScript,
+  buildWidgetWidthFitScript,
   injectBridge,
   injectScript,
   injectWidgetBridge,
@@ -371,10 +372,70 @@ describe("buildWidgetHeightReporterScript", () => {
     expect(out).not.toContain("documentElement");
   });
 
+  it("reports the post-zoom height whichever metric the engine scales", () => {
+    // A zoomed element's box-metric properties report layout pixels in some
+    // engines and visual pixels in others; the bounding rect is always visual.
+    // Scaling the metrics and taking the max lands on the visual height under
+    // either reading.
+    const out = buildWidgetHeightReporterScript(FRAME_ID);
+    expect(out).toContain("body.scrollHeight * zoom");
+    expect(out).toContain("body.offsetHeight * zoom");
+    expect(out).toContain("body.getBoundingClientRect().height");
+  });
+
   it("escapes a frame id that would break out of the script context", () => {
     const out = buildWidgetHeightReporterScript("</script><script>alert(1)");
     expect(out).toContain("<\\/script>");
     expect(out.indexOf("</script>")).toBe(out.lastIndexOf("</script>"));
+  });
+});
+
+describe("buildWidgetWidthFitScript", () => {
+  it("compares the body's scroll width against the frame viewport", () => {
+    const out = buildWidgetWidthFitScript();
+    expect(out).toContain("<script>");
+    expect(out).toContain("document.body");
+    expect(out).toContain("document.documentElement.clientWidth");
+    expect(out).toContain("body.scrollWidth");
+  });
+
+  it("scales with zoom, which reflows, rather than a transform", () => {
+    const out = buildWidgetWidthFitScript();
+    expect(out).toContain("body.style.zoom");
+    expect(out).not.toContain("transform");
+  });
+
+  it("tolerates rounding and stops scaling at the readability floor", () => {
+    const out = buildWidgetWidthFitScript();
+    expect(out).toContain("var MIN_SCALE = 0.7;");
+    expect(out).toContain("var TOLERANCE = 2;");
+    expect(out).toContain("if (scale < MIN_SCALE) return;");
+  });
+
+  it("re-measures at zoom 1 so repeated passes converge", () => {
+    const out = buildWidgetWidthFitScript();
+    expect(out).toContain("body.style.zoom = '';");
+  });
+
+  it("re-evaluates after layout, load, fonts and resize", () => {
+    const out = buildWidgetWidthFitScript();
+    expect(out).toContain("requestAnimationFrame");
+    expect(out).toContain("window.addEventListener('load', schedule)");
+    expect(out).toContain("window.addEventListener('resize', schedule)");
+    expect(out).toContain("document.fonts.ready.then(schedule)");
+  });
+
+  it("posts nothing to the parent, the zoom is frame-internal", () => {
+    const out = buildWidgetWidthFitScript();
+    expect(out).not.toContain("postMessage");
+    expect(out).not.toContain("frameId");
+  });
+
+  it("publishes the applied zoom for the height reporter to read", () => {
+    expect(buildWidgetWidthFitScript()).toContain("window.__vellumWidgetZoom");
+    expect(buildWidgetHeightReporterScript(FRAME_ID)).toContain(
+      "window.__vellumWidgetZoom",
+    );
   });
 });
 
@@ -434,6 +495,13 @@ describe("injectWidgetBridge", () => {
     expect(out).toContain("default-src 'none'");
     expect(cspIdx).toBeLessThan(out.indexOf("<script>"));
     expect(cspIdx).toBeLessThan(out.indexOf("<div>widget</div>"));
+  });
+
+  it("runs the shrink-to-fit pass ahead of the height reporter", () => {
+    const out = injectWidgetBridge("<svg></svg>", FRAME_ID);
+    const fitIdx = out.indexOf("window.__vellumWidgetZoom = 1");
+    expect(fitIdx).toBeGreaterThan(-1);
+    expect(fitIdx).toBeLessThan(out.indexOf("vellum_widget_height"));
   });
 
   it("omits the fetch proxy — a visual is not an app", () => {

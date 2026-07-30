@@ -213,7 +213,7 @@ An anchor with an https href works — clicks are intercepted and confirmed by t
 ## Complexity budget (hard limits)
 
 - Item and node subtitles: 5 words maximum. Detail belongs in your prose or behind sendPrompt.
-- One horizontal row: at most 4 items at full width. Five or more means shrink them, wrap to two rows, or split into two visuals.
+- One horizontal row: at most 4 items at full width, in SVG and in HTML alike. Five or more means wrapping to a second row or scaling the row down inside the viewBox, never squeezing a fifth in.
 - Ramps: 2 maximum.
 - Diagram nodes: 5 maximum. Beyond that, draw two diagrams with prose between them.
 - Over roughly 8000 characters means you are building too much.
@@ -221,6 +221,8 @@ An anchor with an https href works — clicks are intercepted and confirmed by t
 ## SVG mechanics
 
 Shared by diagrams and charts. There is no diagram or charting library and no preloaded SVG classes — define the handful of classes you need in a style block at the top of the SVG.
+
+Anything with nodes and arrows is one inline SVG carrying a viewBox and `width="100%"`. Never build one from a row of HTML divs with flex or grid: an SVG scales to whatever width the frame has, while an HTML row keeps its widths and is clipped at the right edge with no scrollbar and nothing on screen to say content is missing. The same goes for a fixed pixel `width` on the svg itself.
 
 ```html
 <svg width="100%" viewBox="0 0 680 320" role="img">
@@ -279,13 +281,14 @@ Coordinates
 
 - The 680 in the viewBox is load-bearing. It matches the container width, so one SVG unit is one CSS pixel and every width calculation holds. If the content is naturally narrow, keep the viewBox width at 680 and centre the content — never shrink the viewBox to hug it.
 - Height: after laying out, take the lowest point of any shape or text baseline and add 24. Do not guess and do not leave a band of empty space at the bottom.
-- Never use a negative coordinate. Everything sits inside x 0 to 680.
+- Never use a negative coordinate. Everything sits inside x 0 to 680, and inside the viewBox height: an SVG clips at the viewBox edge, so a shape drawn past it is not merely crowded, it is gone. Add up x + width for the rightmost shape before you place it and it is rejected if it lands past the box.
 - Background stays transparent. Do not wrap the SVG in a div with a background.
 - Exactly one svg element per fragment when the fragment is a drawing. If a first attempt is wrong, replace it entirely.
 - No filters, no gradients, no second marker. One arrowhead marker in defs is the whole of defs; context-stroke makes it inherit its line's colour.
 
 Text
 
+- A label lives in the same coordinate system as the boxes, so a collision you author is a collision on screen, and nothing reflows it out of the way. Place every label in clear space and check its estimated width against the shapes either side of it.
 - Every text element needs dominant-baseline="central" and a y at the centre of the slot it sits in. Without it, y is the baseline and the glyphs ride about 4px high.
 - Only two sizes: 14px for titles and region labels, 12px for subtitles, legends, and axis labels.
 - SVG text never wraps. A line break needs an explicit tspan with x and dy="1.2em". If a label needs wrapping it is too long — shorten it.
