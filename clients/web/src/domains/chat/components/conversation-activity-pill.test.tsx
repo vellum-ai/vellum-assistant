@@ -17,9 +17,12 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
-const { ConversationActivityPill, ACTIVITY_PILL_TESTID } = await import(
-  "@/domains/chat/components/conversation-activity-pill"
-);
+const {
+  ConversationActivityPill,
+  ACTIVITY_PILL_TESTID,
+  RUNNING_GROUP_TESTID,
+  COMPLETED_GROUP_TESTID,
+} = await import("@/domains/chat/components/conversation-activity-pill");
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
@@ -139,31 +142,56 @@ describe("ConversationActivityPill — when it renders", () => {
 });
 
 describe("ConversationActivityPill — trigger", () => {
-  test("counts only the running work while something is running", () => {
+  test("shows a running group and a finished group side by side", () => {
     spawnRunningSubagent("sa-1");
     spawnUnfetchedCompletedSubagent("sa-done");
 
     renderPill();
 
     const trigger = screen.getByTestId(ACTIVITY_PILL_TESTID);
+    // Both counts are named for assistive tech; the chips carry it visually.
     expect(trigger.getAttribute("aria-label")).toBe(
-      "Conversation activity, 1 running",
+      "Conversation activity, 1 running, 1 finished",
     );
-    expect(trigger.textContent).toContain("1 running");
+    expect(screen.getByTestId(RUNNING_GROUP_TESTID)).toBeTruthy();
+    expect(screen.getByTestId(COMPLETED_GROUP_TESTID)).toBeTruthy();
   });
 
-  test("reads as finished, not active, when only completed work remains", () => {
+  test("omits the finished group while everything is still running", () => {
+    spawnRunningSubagent("sa-1");
+
+    renderPill();
+
+    expect(screen.getByTestId(ACTIVITY_PILL_TESTID).getAttribute("aria-label"))
+      .toBe("Conversation activity, 1 running");
+    expect(screen.getByTestId(RUNNING_GROUP_TESTID)).toBeTruthy();
+    expect(screen.queryByTestId(COMPLETED_GROUP_TESTID)).toBeNull();
+  });
+
+  test("omits the running group, and its pulse, once everything has finished", () => {
     spawnUnfetchedCompletedSubagent("sa-done");
     spawnAcpRun("acp-done", CONV, true);
 
     renderPill();
 
-    const trigger = screen.getByTestId(ACTIVITY_PILL_TESTID);
-    expect(trigger.getAttribute("aria-label")).toBe(
-      "Conversation activity, 2 finished",
-    );
-    expect(trigger.textContent).toContain("2 sessions");
-    expect(trigger.textContent).not.toContain("running");
+    expect(screen.getByTestId(ACTIVITY_PILL_TESTID).getAttribute("aria-label"))
+      .toBe("Conversation activity, 2 finished");
+    expect(screen.queryByTestId(RUNNING_GROUP_TESTID)).toBeNull();
+    expect(screen.getByTestId(COMPLETED_GROUP_TESTID)).toBeTruthy();
+  });
+
+  test("mixes both kinds inside one status group rather than splitting by kind", () => {
+    // The running group holds an ACP run AND a subagent: grouping is by status,
+    // never by process kind.
+    spawnRunningSubagent("sa-live");
+    spawnAcpRun("acp-live");
+
+    renderPill();
+
+    const group = screen.getByTestId(RUNNING_GROUP_TESTID);
+    expect(group.querySelectorAll("img, svg").length).toBeGreaterThan(1);
+    expect(screen.getByTestId(ACTIVITY_PILL_TESTID).getAttribute("aria-label"))
+      .toBe("Conversation activity, 2 running");
   });
 });
 
@@ -242,11 +270,10 @@ describe("ConversationActivityPill — mobile", () => {
 
     renderPill();
     const trigger = screen.getByTestId(ACTIVITY_PILL_TESTID);
-    // Icon-only: the count rides the aria-label rather than visible text.
-    expect(trigger.textContent).not.toContain("running");
     expect(trigger.getAttribute("aria-label")).toBe(
       "Conversation activity, 1 running",
     );
+    expect(screen.getByTestId(RUNNING_GROUP_TESTID)).toBeTruthy();
 
     fireEvent.click(trigger);
     expect(screen.getByTestId("activity-row-sa-live")).toBeTruthy();

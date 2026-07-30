@@ -14,7 +14,7 @@
  * is the same ghost icon-only `Button` with the same glyph, which is all this
  * story needs it to be — it exists to occupy the cluster, not to be exercised.
  *
- * Only four states are covered. The per-status card matrix for subagents and ACP
+ * Six states are covered. The per-status card matrix for subagents and ACP
  * runs belongs to their component tests, not to a header story.
  */
 
@@ -91,6 +91,90 @@ function seedMixedActivity() {
   });
 }
 
+/** Finished work only — nothing running, everything still reopenable. */
+function seedCompletedActivity() {
+  for (const [i, label] of [
+    "slack-thread-audit",
+    "gateway-log-sweep",
+    "retry-policy-review",
+  ].entries()) {
+    const id = `sa-done-${i}`;
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: id,
+      label,
+      objective: label,
+      status: "completed",
+      conversationId: `${id}-child`,
+      parentConversationId: CONVERSATION_ID,
+      timestamp: T0 + i * 100,
+    });
+    useSubagentStore.getState().loadDetail({
+      subagentId: id,
+      events: [
+        { id: `${id}-e1`, type: "text", content: "Done", timestamp: T0 },
+      ],
+    });
+  }
+}
+
+/**
+ * Several of each kind running and finished at once — the case that shows the
+ * stacks overlapping, the `+N` remainder, and (the point) ACP brand marks and
+ * subagent avatars mixed inside the *same* stack. The groups are status groups,
+ * never per-kind ones.
+ */
+function seedManyMixedActivity() {
+  // Running: one ACP run alongside four subagents.
+  useAcpRunStore.getState().spawnRun({
+    acpSessionId: "acp-live",
+    agent: "claude",
+    parentConversationId: CONVERSATION_ID,
+    startedAt: T0,
+  });
+  useAcpRunStore.getState().receiveEvent({
+    acpSessionId: "acp-live",
+    event: {
+      seq: 1,
+      updateType: "tool_call",
+      toolCallId: "tc-1",
+      toolTitle: "Reading gateway restart logs",
+      toolStatus: "in_progress",
+    },
+  });
+  for (let i = 0; i < 4; i++) {
+    const id = `sa-live-${i}`;
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: id,
+      label: `researcher-${i}`,
+      objective: "",
+      status: "running",
+      conversationId: `${id}-child`,
+      parentConversationId: CONVERSATION_ID,
+      timestamp: T0 + 10 + i * 10,
+    });
+    useSubagentStore.getState().loadDetail({
+      subagentId: id,
+      events: [
+        { id: `${id}-e1`, type: "text", content: "Working", timestamp: T0 },
+      ],
+    });
+  }
+
+  // Finished: a settled ACP run alongside the finished subagents.
+  useAcpRunStore.getState().spawnRun({
+    acpSessionId: "acp-done",
+    agent: "claude",
+    parentConversationId: CONVERSATION_ID,
+    startedAt: T0 - 500,
+  });
+  useAcpRunStore.getState().setTerminal({
+    acpSessionId: "acp-done",
+    status: "completed",
+    completedAt: T0 - 100,
+  });
+  seedCompletedActivity();
+}
+
 function resetActivity() {
   useAcpRunStore.getState().reset();
   useSubagentStore.getState().reset();
@@ -123,10 +207,10 @@ function NotificationsStandIn() {
  * into whichever story renders next.
  */
 function Harness({
-  withActivity,
+  activity,
   isMobile,
 }: {
-  withActivity: boolean;
+  activity: "none" | "mixed" | "completed" | "many";
   isMobile: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -157,8 +241,12 @@ function Harness({
       }),
       { documents: [] },
     );
-    if (withActivity) {
+    if (activity === "mixed") {
       seedMixedActivity();
+    } else if (activity === "completed") {
+      seedCompletedActivity();
+    } else if (activity === "many") {
+      seedManyMixedActivity();
     }
     return true;
   });
@@ -270,7 +358,7 @@ type Story = StoryObj<typeof Harness>;
  * This is the baseline the control must not disturb.
  */
 export const DesktopBaseline: Story = {
-  args: { withActivity: false, isMobile: false },
+  args: { activity: "none", isMobile: false },
 };
 
 /**
@@ -279,7 +367,7 @@ export const DesktopBaseline: Story = {
  * reachable but doesn't inflate the count or make the header look busy.
  */
 export const DesktopMixedClosed: Story = {
-  args: { withActivity: true, isMobile: false },
+  args: { activity: "mixed", isMobile: false },
 };
 
 /**
@@ -288,8 +376,27 @@ export const DesktopMixedClosed: Story = {
  * detail viewer.
  */
 export const DesktopMixedOpen: Story = {
-  args: { withActivity: true, isMobile: false },
+  args: { activity: "mixed", isMobile: false },
   play: openActivityPanel,
+};
+
+/**
+ * Nothing running, three finished subagents. The trigger drops the pulsing dots
+ * and the primary tint, keeping the green check and its stack — finished work
+ * stays reachable without the header claiming anything is in progress.
+ */
+export const DesktopCompletedClosed: Story = {
+  args: { activity: "completed", isMobile: false },
+};
+
+/**
+ * Five running and four finished, both mixing ACP runs with subagents. Shows the
+ * chips overlapping inside each stack, the `+N` remainder past three, and the
+ * point that the two groups are *status* groups — a Claude brand mark and a
+ * subagent avatar sit in the same stack.
+ */
+export const DesktopManyClosed: Story = {
+  args: { activity: "many", isMobile: false },
 };
 
 /**
@@ -297,7 +404,7 @@ export const DesktopMixedOpen: Story = {
  * Activity opens the bottom sheet rather than a popover.
  */
 export const MobileMixedOpen: Story = {
-  args: { withActivity: true, isMobile: true },
+  args: { activity: "mixed", isMobile: true },
   decorators: [
     (Story) => (
       <ForceMobile>
