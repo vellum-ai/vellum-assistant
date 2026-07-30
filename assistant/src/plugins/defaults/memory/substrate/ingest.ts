@@ -70,6 +70,18 @@ export interface IngestSummary {
 /** Hard cap on batch size; larger batches should be split by the caller. */
 export const MAX_INGEST_PAGES_PER_CALL = 200;
 
+/**
+ * Slug prefixes owned by synthetic capability entries. Mirrors
+ * `SKILL_SLUG_PREFIX` (`substrate/skill-store.ts`) and
+ * `CLI_COMMAND_SLUG_PREFIX` (`substrate/cli-command-store.ts`); the literals
+ * are duplicated here because importing those modules would pull the
+ * embedding-backend chain into every ingest caller (the page index lazy
+ * imports them for the same reason). The page index drops concept pages
+ * whose slugs collide with synthetic entries, so ingesting one would
+ * persist an unreachable file.
+ */
+const RESERVED_SLUG_PREFIXES = ["skills/", "cli-commands/"] as const;
+
 /** Thrown when the consolidation lock is held by another writer. */
 export class IngestLockedError extends Error {
   /** The lock file's holder payload (typically `<pid> <timestamp> <tag>`). */
@@ -161,6 +173,20 @@ export async function ingestPages(
       validateSlug(input.slug);
     } catch (err) {
       results.push(invalid(err instanceof Error ? err.message : String(err)));
+      continue;
+    }
+
+    const reservedPrefix = RESERVED_SLUG_PREFIXES.find((prefix) =>
+      input.slug.startsWith(prefix),
+    );
+    if (reservedPrefix !== undefined) {
+      results.push(
+        invalid(
+          `slug prefix "${reservedPrefix}" is reserved for synthetic ` +
+            `capability entries; a page written there would be dropped ` +
+            `from the index (synthetic entries win slug collisions)`,
+        ),
+      );
       continue;
     }
 

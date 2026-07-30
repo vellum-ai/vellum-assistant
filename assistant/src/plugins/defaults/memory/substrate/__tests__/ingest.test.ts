@@ -304,6 +304,23 @@ describe("ingestPages", () => {
     expect(page?.body.trim()).toBe("First occurrence.");
   });
 
+  test("slugs under synthetic capability prefixes are invalid, not written", async () => {
+    const summary = await ingestPages(workspace, [
+      { slug: "skills/browser", content: validPage("Shadowed skill page.") },
+      { slug: "cli-commands/memory", content: validPage("Shadowed CLI page.") },
+      { slug: "people/alice", content: validPage("Normal page.") },
+    ]);
+
+    expect(summary.written).toBe(1);
+    expect(summary.invalid).toBe(2);
+    expect(summary.results[0].action).toBe("invalid");
+    expect(summary.results[0].error).toContain("reserved for synthetic");
+    expect(summary.results[1].action).toBe("invalid");
+    expect(await readPage(workspace, "skills/browser")).toBeNull();
+    expect(await readPage(workspace, "cli-commands/memory")).toBeNull();
+    expect(await readPage(workspace, "people/alice")).not.toBeNull();
+  });
+
   test("missing source and unparseable origin_date produce warnings, not failures", async () => {
     const summary = await ingestPages(workspace, [
       { slug: "no-source", content: "---\nedges: []\n---\nNo provenance.\n" },
