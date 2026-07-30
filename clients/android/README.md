@@ -63,6 +63,17 @@ current Gradle flavor's `vellum_auth_host` resource. This mirrors the iOS
 target-level host guard and prevents a non-production shell from driving
 production SSO.
 
+## Biometric Session Recovery
+
+The `NativeBiometric` plugin implements the same Capacitor contract as iOS.
+It protects server-keyed session tokens with Android Keystore AES-GCM keys and
+requires an enrolled strong biometric to store, retrieve, or delete a token.
+Enrollment changes invalidate the key, remove the unusable ciphertext, and
+allow the web runtime to offer biometric setup again.
+
+Stored preferences contain only an encrypted payload and IV. The app disables
+Android backups, and token values are never written to logs or crash metadata.
+
 ## Structure
 
 ```
@@ -79,6 +90,8 @@ clients/
     │       ├── java/ai/vocify/vellumassistant/
     │       │   ├── MainActivity.java
     │       │   ├── NativeAuthPlugin.java
+    │       │   ├── NativeBiometricPlugin.java
+    │       │   ├── BiometricTokenStore.java
     │       │   └── WorkOSAuth.java
     │       └── res/              # Vellum icon, splash, colors, file paths
     ├── build.gradle
