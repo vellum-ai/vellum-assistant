@@ -509,6 +509,19 @@ describe("parseOriginDate", () => {
     expect(parseOriginDate("sometime last spring")).toBeNull();
     expect(parseOriginDate("")).toBeNull();
   });
+
+  test("rejects non-ISO shapes even when Date.parse would accept them", () => {
+    expect(parseOriginDate("03/04/2025")).toBeNull();
+    expect(parseOriginDate("Apr 3 2025")).toBeNull();
+    expect(parseOriginDate("2025-4-3")).toBeNull();
+  });
+
+  test("rejects impossible calendar dates instead of normalizing them", () => {
+    expect(parseOriginDate("2025-02-30")).toBeNull();
+    expect(parseOriginDate("2025-04-31")).toBeNull();
+    expect(parseOriginDate("2025-02-30T10:00:00Z")).toBeNull();
+    expect(parseOriginDate("2024-02-29")).toBe(Date.parse("2024-02-29"));
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -44,15 +44,31 @@ Tell the user what will happen: the raw files move into the workspace, a bounded
 
 Land the raw files under an imports directory in the workspace, one directory per source:
 
+Screen for credentials BEFORE copying: an arbitrary corpus can carry secret
+material, and anything landed under `imports/` becomes reachable by workspace
+tools, backups, and retrieval flows.
+
 ```bash
 cd "$VELLUM_WORKSPACE_DIR"
+# 1. Screen the source for secret-bearing files; review every hit with the
+#    user before deciding what to exclude.
+find /path/to/raw-corpus \( -name '.env*' -o -name '*.key' -o -name '*.pem' \
+  -o -name '*credential*' -o -name '*secret*' -o -name 'cookies*' \
+  -o -path '*tokens*' -o -path '*oauth*' \) -print
+rg -l -i "api[_-]?key|access[_-]?token|BEGIN [A-Z ]*PRIVATE KEY" /path/to/raw-corpus | head -20
+
+# 2. Copy with secret-bearing paths excluded (rsync exclusions mirror the hits
+#    confirmed above; extend the list with whatever the screen found).
 mkdir -p imports/<source>
-cp -R /path/to/raw-corpus/. imports/<source>/
+rsync -a --exclude='.env*' --exclude='*.key' --exclude='*.pem' \
+  --exclude='tokens/' --exclude='oauth/' --exclude='cookies*' \
+  /path/to/raw-corpus/ imports/<source>/
 ```
 
 Rules:
 
 - **Never place raw corpus files under `memory/`.** The cold store is `imports/<source>/`; the map is the only thing that enters memory.
+- **Never land credentials in the cold store.** Exclude secret-bearing files during the copy; if the content screen finds embedded live tokens inside otherwise-wanted files, pause and resolve them with the user before landing those files.
 - Treat the cold store as read-only once landed. The map pages and the drill-in skill both point at these paths; moving files later breaks every pointer.
 - If the corpus is huge, check free disk space first and copy in batches. Prefer copy over move until the user confirms the original can be released.
 
