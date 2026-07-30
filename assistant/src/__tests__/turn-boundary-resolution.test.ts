@@ -4,6 +4,8 @@ import {
   addMessage,
   createConversation,
   getAssistantMessageIdsInTurn,
+  PROVIDER_ERROR_MESSAGE_KIND,
+  SYSTEM_CARD_MESSAGE_KIND,
 } from "../persistence/conversation-crud.js";
 import { getDb, getLogsDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -153,5 +155,56 @@ describe("getAssistantMessageIdsInTurn", () => {
     // Query first turn → should only include a1
     const firstTurnResult = getAssistantMessageIdsInTurn(a1.id);
     expect(firstTurnResult).toEqual([a1.id]);
+  });
+
+  test("provider-error row after an assistant row: not grouped into the turn", async () => {
+    const conv = createConversation("provider-error-after");
+    await addMessage(conv.id, "user", "Do the thing", {
+      skipIndexing: true,
+    });
+    const a1 = await addMessage(conv.id, "assistant", "Partial progress...", {
+      skipIndexing: true,
+    });
+    const pe = await addMessage(conv.id, "assistant", "Provider failed.", {
+      skipIndexing: true,
+      metadata: { messageKind: PROVIDER_ERROR_MESSAGE_KIND },
+    });
+
+    expect(getAssistantMessageIdsInTurn(a1.id)).toEqual([a1.id]);
+    expect(getAssistantMessageIdsInTurn(pe.id)).toEqual([pe.id]);
+  });
+
+  test("assistant row after a provider-error row: earlier standalone row excluded", async () => {
+    const conv = createConversation("provider-error-before");
+    await addMessage(conv.id, "user", "Do the thing", {
+      skipIndexing: true,
+    });
+    const pe = await addMessage(conv.id, "assistant", "Provider failed.", {
+      skipIndexing: true,
+      metadata: { messageKind: PROVIDER_ERROR_MESSAGE_KIND },
+    });
+    const a1 = await addMessage(conv.id, "assistant", "Recovered reply", {
+      skipIndexing: true,
+    });
+
+    expect(getAssistantMessageIdsInTurn(a1.id)).toEqual([a1.id]);
+    expect(getAssistantMessageIdsInTurn(pe.id)).toEqual([pe.id]);
+  });
+
+  test("system card adjacent to an assistant row: not grouped into the turn", async () => {
+    const conv = createConversation("system-card-adjacent");
+    await addMessage(conv.id, "user", "Summarize please", {
+      skipIndexing: true,
+    });
+    const a1 = await addMessage(conv.id, "assistant", "Working on it...", {
+      skipIndexing: true,
+    });
+    const card = await addMessage(conv.id, "assistant", "Compacted.", {
+      skipIndexing: true,
+      metadata: { messageKind: SYSTEM_CARD_MESSAGE_KIND },
+    });
+
+    expect(getAssistantMessageIdsInTurn(a1.id)).toEqual([a1.id]);
+    expect(getAssistantMessageIdsInTurn(card.id)).toEqual([card.id]);
   });
 });
