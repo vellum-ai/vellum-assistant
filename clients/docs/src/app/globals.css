@@ -1,0 +1,7 @@
+@import "tailwindcss";
+@import "@vellumai/design-library/tokens.css";
+
+/* tokens.css already declares `@custom-variant dark` keyed on [data-theme=dark].
+ * docs-theme.css (ported from the platform repo) keys off the `.dark` class
+ * instead, so expose a class-keyed variant under a separate name. */
+@custom-variant dark-class (&:where(.dark, .dark *));
