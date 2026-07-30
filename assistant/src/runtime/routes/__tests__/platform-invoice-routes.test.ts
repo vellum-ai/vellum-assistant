@@ -166,7 +166,9 @@ describe("platform_invoices_list", () => {
     );
     expect(err).toBeInstanceOf(BadRequestError);
     expect(err.message).toMatch(/Invalid starting_after cursor/);
-    expect(err.message).toMatch(/starting_after/);
+    expect(err.message).toMatch(
+      /use the id of the last invoice from the previous page/,
+    );
   });
 });
 
@@ -329,6 +331,24 @@ describe("platform_invoices_get", () => {
     expect(fetchSignal.aborted).toBe(false);
     controller.abort();
     expect(fetchSignal.aborted).toBe(true);
+  });
+
+  test("rejects with InternalError, not BadRequestError, on a 400 mid-walk", async () => {
+    stubFetch((_url, callIndex) =>
+      callIndex === 0
+        ? jsonResponse({ invoices: [invoice("in_a")], has_more: true })
+        : new Response("Invalid starting_after cursor", { status: 400 }),
+    );
+
+    const err = await expectRejection(() =>
+      getHandler({ pathParams: { id: "in_never" } }),
+    );
+    // The walk's cursor is internally generated, so an upstream 400 is an
+    // internal failure rather than a caller input error.
+    expect(err).not.toBeInstanceOf(BadRequestError);
+    expect(err).toBeInstanceOf(InternalError);
+    expect(err.message).toMatch(/HTTP 400/);
+    expect(fetchCalls).toHaveLength(2);
   });
 
   test("rejects with BadRequestError when the id path param is missing", async () => {

@@ -426,12 +426,12 @@ interface FetchPlatformJsonOptions {
    */
   timeoutMs?: number;
   /**
-   * When set, an upstream HTTP 400 is surfaced via this factory (typically a
-   * BadRequestError built from the response detail) instead of the generic
-   * InternalError, so user-correctable input errors (e.g. an invalid
-   * pagination cursor) keep their 400 status. Other statuses are unaffected.
+   * When set, an upstream HTTP 400 is surfaced as a BadRequestError combining
+   * the response detail with this hint, so caller-correctable input errors
+   * (e.g. an invalid pagination cursor) keep their 400 status. When unset, a
+   * 400 falls through to the generic InternalError path.
    */
-  onBadRequest?: (detail: string) => Error;
+  badRequestHint?: string;
 }
 
 /**
@@ -477,8 +477,11 @@ async function fetchPlatformJson(
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    if (response.status === 400 && options?.onBadRequest) {
-      throw options.onBadRequest(detail);
+    if (response.status === 400 && options?.badRequestHint) {
+      throw new BadRequestError(
+        `Platform rejected the ${label} request${detail ? `: ${detail}` : ""}. ` +
+          options.badRequestHint,
+      );
     }
     throw new InternalError(
       `Failed to fetch ${label} (HTTP ${response.status}): ${detail}`,
@@ -551,34 +554,31 @@ async function handlePlatformPlans(
  * to fetch the next (older) page.
  */
 async function fetchPlatformInvoicesPage(
-  startingAfter?: string,
-  signal?: AbortSignal,
-  timeoutMs?: number,
+  startingAfter: string | undefined,
+  options?: FetchPlatformJsonOptions,
 ): Promise<PlatformInvoicesListResponse> {
   let path = "/v1/organizations/billing/invoices/";
   if (startingAfter) {
     path += `?${new URLSearchParams({ starting_after: startingAfter })}`;
   }
-  return (await fetchPlatformJson(path, "invoices", {
-    signal,
-    timeoutMs,
-    // The platform returns 400 for an invalid or expired starting_after
-    // cursor; keep that a client error instead of masking it as a 500.
-    onBadRequest: (detail) =>
-      new BadRequestError(
-        `Platform rejected the invoices request${detail ? `: ${detail}` : ""}. ` +
-          "If you passed starting_after, use the id of the last invoice from the previous page.",
-      ),
-  })) as PlatformInvoicesListResponse;
+  return (await fetchPlatformJson(
+    path,
+    "invoices",
+    options,
+  )) as PlatformInvoicesListResponse;
 }
 
 async function handlePlatformInvoicesList(
   args: RouteHandlerArgs,
 ): Promise<PlatformInvoicesListResponse> {
-  return await fetchPlatformInvoicesPage(
-    args.queryParams?.starting_after,
-    args.abortSignal,
-  );
+  return await fetchPlatformInvoicesPage(args.queryParams?.starting_after, {
+    signal: args.abortSignal,
+    // The platform returns 400 for an invalid or expired starting_after
+    // cursor. The cursor is caller-supplied here, so keep that a client
+    // error instead of masking it as a 500.
+    badRequestHint:
+      "If you passed starting_after, use the id of the last invoice from the previous page.",
+  });
 }
 
 /**
@@ -631,11 +631,12 @@ async function handlePlatformInvoiceGet(
     // started just under the deadline cannot run the walk past it.
     let page: PlatformInvoicesListResponse;
     try {
-      page = await fetchPlatformInvoicesPage(
-        cursor,
-        args.abortSignal,
-        Math.min(PLATFORM_FETCH_TIMEOUT_MS, remainingMs),
-      );
+      // No badRequestHint: the cursor is internally generated, so an
+      // upstream 400 here is an internal failure, not a caller input error.
+      page = await fetchPlatformInvoicesPage(cursor, {
+        signal: args.abortSignal,
+        timeoutMs: Math.min(PLATFORM_FETCH_TIMEOUT_MS, remainingMs),
+      });
     } catch (err) {
       // A fetch cancelled by the deadline remainder should read as the
       // walk's aggregate timeout, not a generic network failure.
