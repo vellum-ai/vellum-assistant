@@ -55,7 +55,7 @@ export const OS_BETA_PROFILE_KEY = "os-beta";
  * platform-managed column (routed through the single `vellum` connection to
  * an underlying provider per profile); the rest are BYOK columns whose
  * models resolve per provider via `resolveModelIntent`. The full set of
- * providers that can back `llm.defaultProvider` is wider — see
+ * providers that can back `llm.defaultProvider` is wider, see
  * `DEFAULT_PROVIDER_CHOICES` in `schemas/llm.ts`.
  *
  * Lives in this import-free module rather than `default-profile-catalog.ts`

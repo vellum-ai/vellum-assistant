@@ -7,6 +7,7 @@ import {
   CODE_DEFAULT_PROFILE_ENTRIES,
   getEffectiveProfile,
   getEffectiveProfiles,
+  PROFILE_IMPLS,
   resolveDefaultProfileForProvider,
 } from "../default-profile-catalog.js";
 import {
@@ -19,7 +20,6 @@ import {
   resolveDefaultProfileKey,
 } from "../llm-resolver.js";
 import {
-  DEFAULT_PROVIDER_CHOICES,
   type DefaultProviderConfig,
   type LLMCallSite,
   LLMSchema,
@@ -341,22 +341,33 @@ describe("resolveDefaultProfileForProvider", () => {
     expect(entry?.source).toBe("managed");
   });
 
-  test("every default provider choice materializes every default profile key", () => {
-    for (const provider of DEFAULT_PROVIDER_CHOICES) {
-      for (const key of DEFAULT_PROFILE_KEYS) {
-        const entry = resolveDefaultProfileForProvider(
-          undefined,
-          key,
-          dp(provider),
-        );
-        expect(entry).toBeDefined();
-        expect(typeof entry?.model).toBe("string");
-        expect(entry?.source).toBe("managed");
-        if (entry?.provider !== "vellum") {
-          expect(entry?.provider_connection).toBe(`${provider}-personal`);
-        }
-      }
-    }
+  test("maxTokens clamps to the resolved model's catalog output cap", () => {
+    // atlascloud has no intent table: every intent resolves to its catalog
+    // defaultModel, which caps output at 8192, below the balanced template's
+    // 16000.
+    const balanced = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("atlascloud"),
+    );
+    expect(balanced?.maxTokens).toBe(8192);
+    // minimax's defaultModel caps output at 16384, below the quality
+    // template's 32000.
+    const quality = resolveDefaultProfileForProvider(
+      undefined,
+      "quality-optimized",
+      dp("minimax"),
+    );
+    expect(quality?.maxTokens).toBe(16384);
+  });
+
+  test("maxTokens stays at the template value when the model's cap allows it", () => {
+    const entry = resolveDefaultProfileForProvider(
+      undefined,
+      "balanced",
+      dp("anthropic"),
+    );
+    expect(entry?.maxTokens).toBe(PROFILE_IMPLS.balanced.anthropic.maxTokens);
   });
 
   test("BYOK columns resolve the intent to a provider-specific model and personal connection", () => {

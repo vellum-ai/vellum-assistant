@@ -2171,6 +2171,16 @@ export function isModelInCatalog(provider: string, modelId: string): boolean {
   return entry?.models.some((m) => m.id === modelId) ?? false;
 }
 
+/** The `maxOutputTokens` declared for a (provider, model) catalog entry, if any. */
+export function catalogMaxOutputTokens(
+  provider: string,
+  modelId: string,
+): number | undefined {
+  return PROVIDER_CATALOG.find((p) => p.id === provider)?.models.find(
+    (m) => m.id === modelId,
+  )?.maxOutputTokens;
+}
+
 /**
  * Model IDs (across all catalog providers) flagged
  * `supportsPromptCacheBreakpoints`. Consumed by the OpenAI Responses

@@ -1,5 +1,8 @@
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
-import { isModelInCatalog } from "../providers/model-catalog.js";
+import {
+  catalogMaxOutputTokens,
+  isModelInCatalog,
+} from "../providers/model-catalog.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
 import type { ModelIntent } from "../providers/types.js";
 import { getManagedUpstream } from "../providers/vellum-model-routing.js";
@@ -524,14 +527,35 @@ function defaultProfileBodyForProvider(
   const impl = isDefaultProfileProvider(provider)
     ? PROFILE_IMPLS[name][provider]
     : { ...BYOK_PROFILE_IMPLS[name], provider };
-  return {
+  return clampMaxTokensToModelCap({
     ...materializeProfile(
       impl,
       impl.provider,
       resolveDefaultConnectionName(defaultProvider),
     ),
     source: "managed",
-  };
+  });
+}
+
+/**
+ * Clamp a code-owned default body's `maxTokens` to the resolved model's
+ * catalog `maxOutputTokens`. The shared BYOK templates request one token
+ * budget per intent, but the model a provider resolves can allow less
+ * (e.g. atlascloud caps output at 8192 while the balanced template asks for
+ * 16000), and an over-cap request is rejected upstream. The `vellum` column
+ * is exempt by construction: "vellum" is not a catalog provider, so the
+ * lookup misses and the hand-validated managed pins pass through untouched.
+ * User-authored profiles never reach this path.
+ */
+function clampMaxTokensToModelCap(body: ProfileEntry): ProfileEntry {
+  if (body.provider == null || body.model == null || body.maxTokens == null) {
+    return body;
+  }
+  const cap = catalogMaxOutputTokens(body.provider, body.model);
+  if (cap == null || body.maxTokens <= cap) {
+    return body;
+  }
+  return { ...body, maxTokens: cap };
 }
 
 /**
