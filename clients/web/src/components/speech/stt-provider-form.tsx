@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { ChevronDown, TriangleAlert } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -33,6 +33,7 @@ import {
   STT_PROVIDERS,
 } from "@/lib/provider-catalogs";
 import { sttLanguageLabelForCode } from "@/lib/stt/language-catalog";
+import { SelectTriggerRow } from "@/components/speech/select-trigger-row";
 import { SttLanguagePickerModal } from "@/components/speech/stt-language-picker-modal";
 import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 
@@ -390,21 +391,12 @@ export function SttProviderForm({
           {/* A trigger row (current value + chevron) opening the shared
               search-first picker: mirrors the Dropdown trigger's field
               styling so the form reads uniformly, but opens a dialog. */}
-          <button
-            type="button"
+          <SelectTriggerRow
             aria-label="Spoken language"
             aria-haspopup="dialog"
             onClick={() => setLanguagePickerOpen(true)}
-            className="flex h-9 w-full items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-3 text-left text-body-medium-lighter text-[var(--content-default)] transition-colors focus:outline-none"
-          >
-            <span className="min-w-0 flex-1 truncate">
-              {sttLanguageLabelForCode(languageCode, languageProviderId)}
-            </span>
-            <ChevronDown
-              aria-hidden
-              className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
-            />
-          </button>
+            value={sttLanguageLabelForCode(languageCode, languageProviderId)}
+          />
           <p className="text-body-small-default text-[var(--content-tertiary)]">
             Applies from your next spoken turn.
           </p>

@@ -117,12 +117,13 @@ export const DEEPGRAM_NOVA3_MONOLINGUAL_CODES = [
  * way).
  *
  * - Unset returns `{}`: the adapter passes no `language` param, which
- *   Deepgram decodes as English (NOT auto-detection).
- * - A normal code returns `{ language }` and keeps the caller's default
- *   model.
- * - `"multi"` (code-switching) requires nova-3: the default models of the
- *   batch and realtime adapters reject `language=multi`, so that value
- *   also pins `model: "nova-3"`.
+ *   Deepgram decodes as English (NOT auto-detection), and the caller's
+ *   default model stays in effect.
+ * - Any configured language pins `model: "nova-3"` alongside it. The
+ *   rosters above are verified against nova-3 (and `"multi"` is a
+ *   nova-3-only feature); the adapters' default nova-2 supports only a
+ *   subset of them, so one uniform rule keeps every explicitly configured
+ *   language on the model the roster is verified for.
  */
 export function deepgramLanguageOptions(language: string | undefined): {
   model?: string;
@@ -131,9 +132,7 @@ export function deepgramLanguageOptions(language: string | undefined): {
   if (!language) {
     return {};
   }
-  return language === "multi"
-    ? { model: "nova-3", language: "multi" }
-    : { language };
+  return { model: "nova-3", language };
 }
 
 // ---------------------------------------------------------------------------

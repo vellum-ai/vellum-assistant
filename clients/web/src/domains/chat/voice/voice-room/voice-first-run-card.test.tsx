@@ -343,9 +343,15 @@ describe("VoiceFirstRunCard", () => {
 
       fireEvent.click(getByLabelText(ROW_LABEL));
       expect(dialogTitle()).toBe("Listening language");
-      fireEvent.keyDown(document.activeElement ?? document.body, {
-        key: "Escape",
-      });
+      // Dispatch on the picker's search field, the element that holds focus
+      // in the sub-view: keying off a queried in-dialog target (the file's
+      // selector convention for the search field) keeps the test independent
+      // of environment-specific autofocus timing.
+      const search = document.querySelector<HTMLInputElement>(
+        'input[role="combobox"]',
+      );
+      expect(search).not.toBeNull();
+      fireEvent.keyDown(search!, { key: "Escape" });
       // Back on the intro with the card still open and un-consumed.
       expect(getByText("Start talking")).toBeTruthy();
       expect(onDismiss).not.toHaveBeenCalled();

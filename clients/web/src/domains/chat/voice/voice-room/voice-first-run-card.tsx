@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   AudioLines,
   Captions,
-  ChevronDown,
   Languages,
   MicOff,
   Settings,
@@ -14,6 +13,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { SelectTriggerRow } from "@/components/speech/select-trigger-row";
 import { SttLanguagePicker } from "@/components/speech/stt-language-picker";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
@@ -172,6 +172,24 @@ export function VoiceFirstRunCard({
               ? (event) => event.preventDefault()
               : undefined
         }
+        onKeyDown={
+          // Belt to `onEscapeKeyDown`'s suspenders: Radix delivers Escape via
+          // a document-level listener whose dispatch varies across DOM
+          // environments, so the content also catches the key in the React
+          // tree. Sub-views route back to the intro deterministically (a
+          // half-typed picker search must never fall through to a dismiss);
+          // `preventDefault` keeps the dialog's own dismiss from firing when
+          // both paths run, and running both is idempotent.
+          view !== "intro"
+            ? (event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  backToIntro();
+                }
+              }
+            : undefined
+        }
         onInteractOutside={
           nonDismissible ? (event) => event.preventDefault() : undefined
         }
@@ -252,24 +270,16 @@ export function VoiceFirstRunCard({
                       one-dialog pattern, like the Voices view), styled like
                       a compact dropdown trigger. The picker itself carries
                       the "Suggested" annotation on the locale suggestion. */}
-                  <button
-                    type="button"
+                  <SelectTriggerRow
+                    size="compact"
                     aria-label="Listening language"
                     aria-haspopup="dialog"
                     onClick={() => setView("language")}
-                    className="flex h-7 min-w-44 items-center gap-2 rounded-md border border-[var(--field-border)] bg-[var(--field-bg)] px-2.5 text-left text-body-small-default text-[var(--content-default)] transition-colors focus:outline-none"
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {sttLanguageLabelForCode(
-                        languageCode,
-                        configuredProviderId,
-                      )}
-                    </span>
-                    <ChevronDown
-                      aria-hidden
-                      className="h-3 w-3 shrink-0 text-[var(--content-tertiary)]"
-                    />
-                  </button>
+                    value={sttLanguageLabelForCode(
+                      languageCode,
+                      configuredProviderId,
+                    )}
+                  />
                 </div>
               )}
             </Modal.Body>
