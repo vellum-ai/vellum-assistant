@@ -78,7 +78,9 @@ mock.module("@google/genai", () => ({
         };
       },
       list: async () => {
-        if (listShouldThrow) throw listShouldThrow;
+        if (listShouldThrow) {
+          throw listShouldThrow;
+        }
         return { models: [] };
       },
     };
