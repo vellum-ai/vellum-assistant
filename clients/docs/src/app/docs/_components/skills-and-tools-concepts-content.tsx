@@ -27,7 +27,7 @@ export function SkillsAndToolsConceptsContent() {
 
         <div className="mb-12 overflow-hidden rounded-xl border border-stone-200 bg-white dark:border-moss-600/50 dark:bg-moss-700">
           <Image
-            src="/docs-skills-list.png"
+            src="/docs/docs-skills-list.webp"
             alt="The Skills tab on the About your assistant screen, showing the list of installed skills with icons, descriptions, and category filters in the sidebar"
             width={3584}
             height={2094}

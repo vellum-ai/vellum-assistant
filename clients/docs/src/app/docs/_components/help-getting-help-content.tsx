@@ -62,7 +62,7 @@ export function HelpGettingHelpContent() {
           </p>
           <div className="mb-6 overflow-hidden rounded-xl border border-zinc-200 bg-white">
             <Image
-              src="/docs-share-feedback-macos.png"
+              src="/docs/docs-share-feedback-macos.webp"
               alt="The Vellum desktop app's Help menu opened from the macOS menu bar, showing Documentation, Discord Community, and Share Feedback items with Share Feedback highlighted."
               width={962}
               height={360}
@@ -81,7 +81,7 @@ export function HelpGettingHelpContent() {
           </p>
           <div className="mb-6 overflow-hidden rounded-xl border border-zinc-200 bg-white">
             <Image
-              src="/docs-share-feedback-web.png"
+              src="/docs/docs-share-feedback-web.webp"
               alt="The Vellum web app's user menu opened in the top-right corner, showing Theme, credits, Earn credits, Settings, Usage, Share Feedback (highlighted), Admin, and Log Out items."
               width={622}
               height={774}
