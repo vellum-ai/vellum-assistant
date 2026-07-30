@@ -478,8 +478,9 @@ function readNowContext(): string | null {
 function buildSituationalContext(): string {
   const now = readNowContext();
   const at = new Date();
-  // Clock time matters, not just the date: fresh cards carry absolute
-  // `updated <time>` stamps, and hour-grain windows ("while I was asleep",
+  // Clock time matters, not just the date: fresh cards carry `dated <time>`
+  // stamps (effective recency, so imports show their content's chronology
+  // rather than write time), and hour-grain windows ("while I was asleep",
   // "this morning") are only computable against a current-time anchor —
   // measured on a state-recall turn, the anchor alone moved selection more
   // than prompt steering did.

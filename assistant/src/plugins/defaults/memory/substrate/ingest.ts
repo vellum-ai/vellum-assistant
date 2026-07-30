@@ -28,6 +28,7 @@ import {
   releaseLock,
   tryAcquireLock,
 } from "./consolidation-lock.js";
+import { parseOriginDate } from "./page-index.js";
 import {
   listPages,
   parsePageContent,
@@ -103,8 +104,12 @@ const REINDEX_JOB_TYPES: readonly MemoryJobType[] = [
  *      error string: validation is per-page and loud, never a silent drop
  *      (see the `.strict()` incident documented on
  *      `ConceptPageFrontmatterSchema` for what silent dropping cost).
- *   3. Provenance warnings (non-blocking): missing `source` frontmatter, and
- *      an `origin_date` that `Date.parse` cannot read.
+ *   3. Non-blocking warnings: missing `source` frontmatter, an `origin_date`
+ *      that `parseOriginDate` cannot read (the same parser recency ranking
+ *      uses, so a warned date is exactly one the fresh lane ignores), and a
+ *      frontmatter `slug` that differs from the storage slug (links and
+ *      `main:` references resolve against storage slugs, so a mismatch is
+ *      almost always a staging typo).
  *   4. Collision against on-disk slugs: `skipped_exists` unless
  *      `opts.overwrite`. The snapshot backing this check is taken under the
  *      consolidation lock, so a page committed by another writer between
@@ -185,10 +190,20 @@ export async function ingestPages(
     }
     if (
       page.frontmatter.origin_date !== undefined &&
-      Number.isNaN(Date.parse(page.frontmatter.origin_date))
+      parseOriginDate(page.frontmatter.origin_date) === null
     ) {
       warnings.push(
         `unparseable \`origin_date\`: ${page.frontmatter.origin_date}`,
+      );
+    }
+    if (
+      page.frontmatter.slug !== undefined &&
+      page.frontmatter.slug !== input.slug
+    ) {
+      warnings.push(
+        `frontmatter \`slug\` (${page.frontmatter.slug}) differs from the ` +
+          `storage slug (${input.slug}); links and \`main:\` references ` +
+          `resolve against storage slugs`,
       );
     }
 

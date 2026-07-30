@@ -11,7 +11,8 @@
  *   - Lock held by a live PID: IngestLockedError, zero writes, zero enqueues.
  *   - Batch over the cap: RangeError.
  *   - In-batch duplicate slug: later occurrence `invalid`.
- *   - Provenance warnings: missing `source`, unparseable `origin_date`.
+ *   - Non-blocking warnings: missing `source`, unparseable `origin_date`,
+ *     frontmatter `slug` differing from the storage slug.
  *   - Under-lock collision snapshot: a page committed between validation and
  *     the write phase is skipped, and `listPages` runs after `tryAcquireLock`.
  *   - Partial write failure: the reindex fan-out still runs for committed
@@ -317,6 +318,32 @@ describe("ingestPages", () => {
     expect(summary.invalid).toBe(0);
     expect(summary.results[0].warnings.join(" ")).toContain("source");
     expect(summary.results[1].warnings.join(" ")).toContain("origin_date");
+  });
+
+  test("frontmatter slug differing from the storage slug warns without blocking the write", async () => {
+    const summary = await ingestPages(workspace, [
+      {
+        slug: "people/alice",
+        content:
+          "---\nsource: import:chatgpt\norigin_date: 2025-03-14\nslug: people/alicia\n---\nBody.\n",
+      },
+      {
+        slug: "people/bob",
+        content:
+          "---\nsource: import:chatgpt\norigin_date: 2025-03-14\nslug: people/bob\n---\nBody.\n",
+      },
+    ]);
+
+    expect(summary.written).toBe(2);
+    expect(summary.invalid).toBe(0);
+    const mismatch = summary.results[0].warnings.join(" ");
+    expect(mismatch).toContain("people/alicia");
+    expect(mismatch).toContain("people/alice");
+    expect(mismatch).toContain("storage slug");
+    // A matching frontmatter slug stays silent.
+    expect(summary.results[1].warnings).toEqual([]);
+    // The page lands under the storage slug regardless of the warning.
+    expect(await listPages(workspace)).toEqual(["people/alice", "people/bob"]);
   });
 
   test("a pending reindex job of the same type suppresses its duplicate enqueue", async () => {

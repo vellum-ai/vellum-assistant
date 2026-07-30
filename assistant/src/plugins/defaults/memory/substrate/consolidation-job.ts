@@ -314,7 +314,7 @@ export async function memoryV2ConsolidateJob(
 
   // Step 1: acquire lock. Bails immediately if another consolidation is
   // already in flight — the next scheduled run can pick up where we leave off.
-  const holder = tryAcquireLock(lockPath);
+  const holder = tryAcquireLock(lockPath, "consolidation");
   if (holder !== null) {
     log.warn({ lockPath, holder }, "consolidation skipped: lock already held");
     return { kind: "locked", holder };

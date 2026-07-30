@@ -72,8 +72,8 @@ export interface PageIndexEntry {
    */
   modifiedAt: number;
   /**
-   * Effective recency in epoch ms: `Date.parse(frontmatter.origin_date)` when
-   * that field is present and parseable (pre-epoch dates yield zero or
+   * Effective recency in epoch ms: `parseOriginDate(frontmatter.origin_date)`
+   * when that field is present and parseable (pre-epoch dates yield zero or
    * negative values and are kept), else the file mtime; `null` for synthetic
    * entries (skills, CLI commands), which have no recency signal. Imported or
    * backfilled pages carry the date their content is about, so recency-ranked
@@ -304,15 +304,26 @@ export async function getPageIndex(workspaceDir: string): Promise<PageIndex> {
 }
 
 /**
- * Effective recency for a real concept page: the parsed `origin_date`
- * frontmatter (ISO 8601 date or datetime) when present and parseable, else
- * the file mtime. Any finite parse result is accepted; dates at or before
- * 1970-01-01 yield zero or negative epoch ms and are valid chronology. An
- * offset-less ISO datetime (e.g. `2026-06-10T14:23:00`) is read as UTC so
- * identical pages rank at the same instant on hosts in different timezones
- * (bare `Date.parse` would apply the host's local offset). An unparseable
- * value degrades to mtime rather than dropping the page from recency
- * ranking.
+ * Parse an `origin_date` frontmatter value (ISO 8601 date or datetime) into
+ * epoch ms, or `null` when the value is unparseable. Any finite parse result
+ * is accepted; dates at or before 1970-01-01 yield zero or negative epoch ms
+ * and are valid chronology. An offset-less ISO datetime (e.g.
+ * `2026-06-10T14:23:00`) is read as UTC so identical pages rank at the same
+ * instant on hosts in different timezones (bare `Date.parse` would apply the
+ * host's local offset). The single `origin_date` parser: `resolveFreshAt`
+ * and the ingest provenance warning (`substrate/ingest.ts`) both call it, so
+ * a value that warns at ingest is exactly a value recency ranking ignores.
+ */
+export function parseOriginDate(value: string): number | null {
+  const parsed = Date.parse(normalizeOffsetlessIsoToUtc(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Effective recency for a real concept page: `parseOriginDate` over the
+ * `origin_date` frontmatter when present and parseable, else the file mtime.
+ * An unparseable value degrades to mtime rather than dropping the page from
+ * recency ranking.
  */
 function resolveFreshAt(
   originDate: string | undefined,
@@ -321,8 +332,7 @@ function resolveFreshAt(
   if (originDate === undefined) {
     return mtimeMs;
   }
-  const parsed = Date.parse(normalizeOffsetlessIsoToUtc(originDate));
-  return Number.isFinite(parsed) ? parsed : mtimeMs;
+  return parseOriginDate(originDate) ?? mtimeMs;
 }
 
 /**
