@@ -48,8 +48,12 @@ mock.module("../page-store.js", () => ({
   },
 }));
 
-const { getPageIndex, invalidatePageIndex, partitionPageIndex } =
-  await import("../page-index.js");
+const {
+  getPageIndex,
+  invalidatePageIndex,
+  parseOriginDate,
+  partitionPageIndex,
+} = await import("../page-index.js");
 const { writePage } = await import("../page-store.js");
 const { invalidateEdgeIndex } = await import("../edge-index.js");
 
@@ -471,6 +475,39 @@ describe("getPageIndex", () => {
       "skills/calendar",
     ]);
     expect(idx.bySlug.get("skills/browser")?.summary).toBe("Seeded browser.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseOriginDate — the shared origin_date parser
+// ---------------------------------------------------------------------------
+
+describe("parseOriginDate", () => {
+  test("parses an ISO date to epoch ms", () => {
+    expect(parseOriginDate("2019-03-05")).toBe(Date.parse("2019-03-05"));
+  });
+
+  test("keeps a pre-epoch date as its negative parsed epoch", () => {
+    const parsed = parseOriginDate("1969-07-20");
+    expect(parsed).toBe(Date.parse("1969-07-20"));
+    expect(parsed).toBeLessThan(0);
+  });
+
+  test("reads an offset-less ISO datetime as UTC", () => {
+    expect(parseOriginDate("2019-06-10T14:23:00")).toBe(
+      Date.parse("2019-06-10T14:23:00Z"),
+    );
+  });
+
+  test("preserves an explicit offset", () => {
+    expect(parseOriginDate("2019-06-10T14:23:00+02:00")).toBe(
+      Date.parse("2019-06-10T12:23:00Z"),
+    );
+  });
+
+  test("returns null for an unparseable value", () => {
+    expect(parseOriginDate("sometime last spring")).toBeNull();
+    expect(parseOriginDate("")).toBeNull();
   });
 });
 

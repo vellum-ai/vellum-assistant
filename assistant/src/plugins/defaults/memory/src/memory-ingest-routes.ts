@@ -97,9 +97,9 @@ export async function handleMemoryIngest(
         `Memory ingest rejected: consolidation lock held by ${err.holder}. Retry after the current writer finishes.`,
       );
     }
-    if (err instanceof RangeError) {
-      throw new BadRequestError(err.message);
-    }
+    // No RangeError mapping: the schema's `.max(MAX_INGEST_PAGES_PER_CALL)`
+    // rejects oversized batches in `parseBody` before `ingestPages` runs, so
+    // its internal cap guard is unreachable on this path.
     throw err;
   }
 }
