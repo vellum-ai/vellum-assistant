@@ -20,6 +20,7 @@ import {
   ConversationListProvider,
   type ConversationListContextValue,
 } from "@/domains/chat/components/conversation-list-context";
+import { SidebarListContextMenu } from "@/domains/chat/components/sidebar-list-context-menu";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
@@ -78,6 +79,12 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onUnarchiveConversation?: (conversation: Conversation) => void;
   onMarkConversationUnread?: (conversation: Conversation) => void;
   onMarkConversationRead?: (conversation: Conversation) => void;
+  /**
+   * Create a new, empty custom group - the sidebar's own "New group…", as
+   * opposed to {@link AssistantSideMenuProps.onCreateGroupInto}, which creates
+   * a group around an existing conversation. Omit to drop the affordance.
+   */
+  onCreateGroup?: () => void;
   onRenameGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
   onMarkAllReadInGroup?: (conversations: Conversation[]) => void;
@@ -177,6 +184,7 @@ export function AssistantSideMenu({
   onMarkConversationUnread,
   onMarkConversationRead,
   conversationGroups,
+  onCreateGroup,
   onRenameGroup,
   onDeleteGroup,
   onMarkAllReadInGroup,
@@ -442,7 +450,7 @@ export function AssistantSideMenu({
         variant={variant}
         width={width}
         onWidthChange={onWidthChange}
-        className="relative h-full"
+        className="relative h-full border-0"
       >
         <SideMenu.Header>
           {variant === "overlay" ? (
@@ -520,35 +528,41 @@ export function AssistantSideMenu({
               ))}
             </div>
           ) : (
-            /* Every section - Pinned, Chats, channels, custom groups - shares
-               one accordion root, so its gap is the only thing between any
-               two of them and the spacing is uniform by construction. Their
-               open state lives in three storage buckets with different
-               defaults (Pinned/Chats open); `use-sidebar-state` merges and
-               re-splits it. New Chat lives in the assistant cluster above,
-               not as a section-header action. */
-            <CollapsibleNavSection.Root
-              type="multiple"
-              className="gap-3"
-              value={sidebar.effectiveOpenSections}
-              onValueChange={sidebar.onOpenSectionsChange}
-            >
-              {/* No dividers between sections. A custom group is a peer of
-                  Pinned, Chats, and a channel section, not a different class
-                  of thing, so nothing here may hint at a grouping the user
-                  didn't create - they order these however they like. The
-                  header's own indent (SIDEBAR_SECTION_INDENT) is what marks
-                  where a section starts. */}
-              {sidebar.sections.map((section, index) => (
-                <SidebarSectionItem
-                  key={section.key}
-                  section={section}
-                  groupMenu={sectionMenu(section, index)}
-                  drag={sectionDragFor(section)}
-                  collapsedIndicator={collapsedActivityDot(section.all)}
-                />
-              ))}
-            </CollapsibleNavSection.Root>
+            /* Right-clicking the list (including the empty space below the
+               last section) creates a group, so the affordance covers the
+               whole scrollport rather than any one section. */
+            <SidebarListContextMenu onCreateGroup={onCreateGroup}>
+              {/* Every section - Pinned, Chats, channels, custom groups -
+                  shares one accordion root, so its gap is the only thing
+                  between any two of them and the spacing is uniform by
+                  construction. Their open state lives in three storage buckets
+                  with different defaults (Pinned/Chats open);
+                  `use-sidebar-state` merges and re-splits it. New Chat lives in
+                  the assistant cluster above, not as a section-header
+                  action. */}
+              <CollapsibleNavSection.Root
+                type="multiple"
+                className="gap-3"
+                value={sidebar.effectiveOpenSections}
+                onValueChange={sidebar.onOpenSectionsChange}
+              >
+                {/* No dividers between sections. A custom group is a peer of
+                    Pinned, Chats, and a channel section, not a different class
+                    of thing, so nothing here may hint at a grouping the user
+                    didn't create - they order these however they like. The
+                    header's own indent (SIDEBAR_SECTION_INDENT) is what marks
+                    where a section starts. */}
+                {sidebar.sections.map((section, index) => (
+                  <SidebarSectionItem
+                    key={section.key}
+                    section={section}
+                    groupMenu={sectionMenu(section, index)}
+                    drag={sectionDragFor(section)}
+                    collapsedIndicator={collapsedActivityDot(section.all)}
+                  />
+                ))}
+              </CollapsibleNavSection.Root>
+            </SidebarListContextMenu>
           )}
         </SideMenu.Body>
 

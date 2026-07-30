@@ -16,11 +16,13 @@ import {
   mock,
   test,
 } from "bun:test";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import {
+  assistantsOperationalStatusDetailReadQueryKey,
+  assistantsRetrieveQueryKey,
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
@@ -117,6 +119,23 @@ function makeOperationalStatus(
   } as OperationalStatus;
 }
 
+/** A settled state carrying an in-flight resize marker for one dimension. */
+function makeResizeOperationStatus(
+  operation: "resize_machine" | "resize_storage",
+): OperationalStatus {
+  return {
+    ...makeOperationalStatus("active"),
+    active_operation: {
+      operation,
+      operation_id: "op-1",
+      phase: "waiting_for_ready",
+      started_at: "2026-08-01T00:00:00Z",
+      updated_at: "2026-08-01T00:00:00Z",
+      target: {},
+    },
+  } as OperationalStatus;
+}
+
 let subscriptionPlanId: SubscriptionResponse["plan_id"] = "base";
 let onboardingResponse = makeOnboarding();
 let assistantResponse = makeAssistant("small", 10);
@@ -127,6 +146,8 @@ let assistantEndpointsFail = false;
 let onboardingFails = false;
 /** Holds the onboarding fetch in flight so isFetching can be observed. */
 let onboardingGate: Deferred | null = null;
+/** Holds the operational-status fetch in flight, mid-poll. */
+let operationalStatusGate: Deferred | null = null;
 let assistantCalls = 0;
 let assistantByIdCalls = 0;
 let operationalStatusCalls = 0;
@@ -214,15 +235,18 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
-  assistantsOperationalStatusDetailRead: () => {
+  assistantsOperationalStatusDetailRead: async () => {
     operationalStatusCalls += 1;
     if (assistantEndpointsFail) {
-      return Promise.reject(new Error("502 Bad Gateway"));
+      throw new Error("502 Bad Gateway");
     }
-    return Promise.resolve({
-      data: operationalStatusResponse,
-      response: { ok: true },
-    });
+    // Read at request time, so a gated fetch answers with the reading the
+    // server held when it started rather than one written while it was out.
+    const data = operationalStatusResponse;
+    if (operationalStatusGate) {
+      await operationalStatusGate.promise;
+    }
+    return { data, response: { ok: true } };
   },
   organizationsBillingSubscriptionOnboardingEnsureProvisionedCreate: () => {
     ensureCalls += 1;
@@ -250,8 +274,30 @@ const { useProProvisioning } = await import("./use-pro-provisioning");
 
 let latest: ProProvisioningResult | null = null;
 
-function Probe({ open = true }: { open?: boolean }) {
-  const result = useProProvisioning({ open });
+/**
+ * Run from the probe's layout effect, which fires after a render commits and
+ * before the hook's passive effects. The seam a test needs to start a request
+ * inside that window; it clears itself when it has fired.
+ */
+let onLayoutCommit: (() => void) | null = null;
+
+function Probe({
+  open = true,
+  canLowerResources = false,
+  verdictRecheckMs,
+}: {
+  open?: boolean;
+  canLowerResources?: boolean;
+  verdictRecheckMs?: number;
+}) {
+  const result = useProProvisioning({
+    open,
+    canLowerResources,
+    verdictRecheckMs,
+  });
+  useLayoutEffect(() => {
+    onLayoutCommit?.();
+  });
   useEffect(() => {
     latest = result;
   });
@@ -264,10 +310,18 @@ function makeClient() {
   });
 }
 
-function renderProbe(client = makeClient()) {
+function renderProbe(
+  client = makeClient(),
+  canLowerResources = false,
+  verdictRecheckMs?: number,
+) {
   const ui = (open = true) => (
     <QueryClientProvider client={client}>
-      <Probe open={open} />
+      <Probe
+        open={open}
+        canLowerResources={canLowerResources}
+        verdictRecheckMs={verdictRecheckMs}
+      />
     </QueryClientProvider>
   );
   const view = render(ui());
@@ -281,6 +335,41 @@ function renderProbe(client = makeClient()) {
 
 async function refetchAll(client: QueryClient) {
   await client.invalidateQueries();
+}
+
+/**
+ * Write to the cache and let the notification reach React. The query cache
+ * schedules its notifications on a timer, so an `act` that only drains
+ * microtasks can return before the render the write implies has happened.
+ */
+async function commitCacheWrite(write: () => void) {
+  await act(async () => {
+    write();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+const ASSISTANT_QUERY_KEY = assistantsRetrieveQueryKey({
+  path: { id: "assistant-1" },
+});
+const STATUS_QUERY_KEY = assistantsOperationalStatusDetailReadQueryKey({
+  path: { id: "assistant-1" },
+});
+
+/**
+ * Take operational-status readings until `check` passes. A landed flag holds
+ * its dimension pending until the status has been read since that dimension met
+ * its target, and terminal states stop the hook's own poll, so the readings are
+ * taken by hand rather than waited out.
+ */
+async function waitForLanded(client: QueryClient, check: () => void) {
+  await waitFor(
+    async () => {
+      await client.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
+      check();
+    },
+    { timeout: 5000 },
+  );
 }
 
 /** Drive the hook from a fresh mount to a confirmed-pro RESIZING state. */
@@ -309,6 +398,7 @@ beforeEach(() => {
   assistantEndpointsFail = false;
   onboardingFails = false;
   onboardingGate = null;
+  operationalStatusGate = null;
   assistantCalls = 0;
   assistantByIdCalls = 0;
   operationalStatusCalls = 0;
@@ -322,6 +412,7 @@ beforeEach(() => {
   pendingEnsures = [];
   dateNowOffsetMs = 0;
   latest = null;
+  onLayoutCommit = null;
 });
 
 afterEach(() => {
@@ -941,6 +1032,163 @@ describe("useProProvisioning", () => {
     });
   }, 20_000);
 
+  test("re-asks the reconcile when a downgrade's rollout was never observed", async () => {
+    // The polls can miss a rollout entirely: it finishes between them, or they
+    // error while the pod restarts. A downgrade meets its targets from the
+    // first render, so with no marker watched there is nothing left that can
+    // complete it, and the wait would run to the stall clock on a change that
+    // already succeeded. The server checks marker and targets together, so
+    // asking it again is the only terminal answer available.
+    const client = makeClient();
+    subscriptionPlanId = "pro";
+    ensureResponse = makeEnsureResponse("in_progress");
+    operationalStatusResponse = makeOperationalStatus("active");
+    assistantResponse = makeAssistant("large", 50);
+    renderProbe(client, true, 50);
+
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+    const callsBefore = ensureCalls;
+
+    // The rollout has since finished server-side; nobody here ever saw it.
+    ensureResponse = makeEnsureResponse("already_done");
+
+    await waitFor(() => expect(ensureCalls).toBeGreaterThan(callsBefore), {
+      timeout: 5000,
+    });
+    await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
+  }, 20_000);
+
+  test("a marker cached before this open is not evidence for this change", async () => {
+    // The lifecycle poller shares this query key, so the cache can already hold
+    // a marker from an earlier resize on this same assistant. Adopting it would
+    // let a finished resize vouch for one that has not started.
+    const client = makeClient();
+    client.setQueryData(
+      STATUS_QUERY_KEY,
+      makeResizeOperationStatus("resize_machine"),
+      { updatedAt: realDateNow() - 60_000 },
+    );
+    subscriptionPlanId = "pro";
+    // Every fresh read reports no operation at all, so the only marker that
+    // ever existed is the cached one.
+    operationalStatusResponse = makeOperationalStatus("active");
+    assistantResponse = makeAssistant("large", 50);
+    renderProbe(client, true);
+
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+      timeout: 5000,
+    });
+    await refetchAll(client);
+    await refetchAll(client);
+
+    expect(latest!.state).not.toBe("DONE");
+    expect(latest!.state).not.toBe("NOT_APPLICABLE");
+  }, 20_000);
+
+  test("readings taken while closed do not qualify the next open", async () => {
+    // The cache subscription outlives the takeover and the lifecycle poller
+    // keeps this query warm, so readings can keep landing after a close. If
+    // those counted, the next open would treat a cached marker as watched.
+    const client = makeClient();
+    subscriptionPlanId = "pro";
+    operationalStatusResponse = makeOperationalStatus("active");
+    assistantResponse = makeAssistant("large", 50);
+    const { setOpen } = renderProbe(client, true);
+
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+      timeout: 5000,
+    });
+    await refetchAll(client);
+    await act(async () => setOpen(false));
+
+    // The takeover's own query is disabled while closed, but the lifecycle
+    // poller holds the same key and keeps reading. Model that other consumer
+    // directly: it catches a resize belonging to something else entirely and
+    // leaves the marker in the shared cache.
+    await act(async () => {
+      await client.fetchQuery({
+        queryKey: STATUS_QUERY_KEY,
+        queryFn: () => makeResizeOperationStatus("resize_machine"),
+      });
+    });
+
+    await act(async () => setOpen(true));
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-1"), {
+      timeout: 5000,
+    });
+
+    // The reopened takeover has watched nothing yet, so the cached marker is
+    // not its evidence and it cannot complete off a later healthy reading.
+    operationalStatusResponse = makeOperationalStatus("active");
+    await refetchAll(client);
+    expect(latest!.state).not.toBe("DONE");
+    expect(latest!.state).not.toBe("NOT_APPLICABLE");
+  }, 20_000);
+
+  test("a marker watched on the fallback assistant is not evidence for the primary", async () => {
+    // Under a change that can lower the ceilings, a watched marker is the only
+    // evidence the completion gate accepts, so an unkeyed latch would let the
+    // fallback assistant's unrelated resize complete the primary's downsize.
+    const client = makeClient();
+    // Hold the on-open refetch so the stale cached primary (A) is tracked
+    // first, then re-keys to the fresh one (B).
+    const gate = makeDeferred();
+    onboardingGate = gate;
+    client.setQueryData(
+      organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+      { ...makeOnboarding(), primary_assistant_id: "assistant-A" },
+      { updatedAt: realDateNow() - 60_000 },
+    );
+    subscriptionPlanId = "pro";
+    onboardingResponse = {
+      ...makeOnboarding(),
+      primary_assistant_id: "assistant-B",
+    };
+    // The fence holds the stale primary off, so the active assistant is the
+    // tracked fallback. It is mid-resize; the primary B sits at the targets with
+    // no marker of its own, which is what a pre-marker downgrade looks like.
+    operationalStatusResponse = makeOperationalStatus("resizing_machine");
+    assistantResponse = {
+      ...makeAssistant("large", 50),
+      id: "assistant-active",
+    };
+    assistantsById["assistant-A"] = {
+      ...makeAssistant("large", 50),
+      id: "assistant-A",
+    };
+    assistantsById["assistant-B"] = {
+      ...makeAssistant("large", 50),
+      id: "assistant-B",
+    };
+    renderProbe(client, true);
+
+    // Latch the marker while the fallback is the tracked assistant.
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-active"), {
+      timeout: 5000,
+    });
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+
+    // Re-key to the primary, whose own status carries no operation at all.
+    operationalStatusResponse = makeOperationalStatus("active");
+    await act(async () => {
+      gate.resolve();
+      await gate.promise;
+    });
+    await waitFor(() => expect(latest!.assistantId).toBe("assistant-B"), {
+      timeout: 5000,
+    });
+    await refetchAll(client);
+
+    // The fallback's marker belongs to another assistant, so it cannot stand in
+    // as the primary's rollout evidence and the wait holds.
+    expect(latest!.state).not.toBe("DONE");
+    expect(latest!.state).not.toBe("NOT_APPLICABLE");
+  }, 20_000);
+
   test("assistantId changing mid-open re-captures the snapshot against the new assistant", async () => {
     subscriptionPlanId = "pro";
     onboardingResponse = {
@@ -1302,5 +1550,324 @@ describe("useProProvisioning — ensure-provisioned reconcile", () => {
       timeout: 5000,
     });
     expect(latest!.kickError).toBeNull();
+  }, 20_000);
+});
+
+describe("useProProvisioning presentation signals", () => {
+  test("machineFloor is null before onboarding lands and for a real tier", async () => {
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    expect(latest!.machineFloor).toBeNull();
+
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
+    expect(latest!.targets).toEqual({ machineSize: "large", storageGib: 50 });
+    expect(latest!.machineFloor).toBeNull();
+  });
+
+  test("machineFloor is small when the package carries no machine tier", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = { ...makeOnboarding(), max_machine_tier: null };
+    renderProbe();
+
+    await waitFor(() => expect(latest!.machineFloor).toBe("small"), {
+      timeout: 5000,
+    });
+    // The floor is display only, so it never becomes a machine target.
+    expect(latest!.targets).toEqual({ machineSize: null, storageGib: 50 });
+  });
+
+  test("landed flips per dimension as each target is met", async () => {
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("WAITING"), {
+      timeout: 5000,
+    });
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // The machine lands first while storage is still growing.
+    assistantResponse = makeAssistant("large", 10);
+    await refetchAll(client);
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: false });
+    });
+
+    assistantResponse = makeAssistant("large", 50);
+    await refetchAll(client);
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: true });
+    });
+  }, 20_000);
+
+  test("an in-flight machine resize holds machine pending while storage lands", async () => {
+    const { client } = renderProbe();
+    await reachResizing(client);
+
+    // The platform persists both effective sizes at resize acceptance, so the
+    // actuals meet the targets while the pod is still restarting. Only the
+    // machine marker is in flight, so storage may land ahead of it.
+    assistantResponse = makeAssistant("large", 50);
+    await refetchAll(client);
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: false, storage: true });
+    });
+    expect(latest!.state).toBe("RESIZING");
+
+    operationalStatusResponse = makeOperationalStatus("active");
+    await refetchAll(client);
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: true });
+    });
+  }, 20_000);
+
+  test("an active resize_storage operation holds only the storage flag", async () => {
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    subscriptionPlanId = "pro";
+    assistantResponse = makeAssistant("large", 50);
+    operationalStatusResponse = makeResizeOperationStatus("resize_storage");
+    await refetchAll(client);
+
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: false });
+    });
+  }, 20_000);
+
+  test("the machine floor holds machine pending until the assistant downsizes", async () => {
+    subscriptionPlanId = "pro";
+    onboardingResponse = { ...makeOnboarding(), max_machine_tier: null };
+    // Still above the floor the package settles at: the displayed downsize has
+    // not happened, and the null machine target cannot catch that on its own.
+    assistantResponse = makeAssistant("medium", 50);
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.machineFloor).toBe("small"), {
+      timeout: 5000,
+    });
+    // Storage landing proves readings are being taken since the actuals, so
+    // the floor is the only thing still holding the machine flag.
+    await waitForLanded(client, () => {
+      expect(latest!.landed.storage).toBe(true);
+    });
+    expect(latest!.landed.machine).toBe(false);
+
+    assistantResponse = makeAssistant("small", 50);
+    await refetchAll(client);
+    await waitForLanded(client, () => {
+      expect(latest!.landed.machine).toBe(true);
+    });
+  }, 20_000);
+
+  test("a lower machine target holds machine pending until the pod downsizes", async () => {
+    subscriptionPlanId = "pro";
+    // Ultra to Super: the package buys a medium machine while the pod is still
+    // large, so the displayed change is a downsize. Grow-only target semantics
+    // read that as met on arrival.
+    onboardingResponse = { ...makeOnboarding(), max_machine_tier: "medium" };
+    assistantResponse = makeAssistant("large", 50);
+    const { client } = renderProbe();
+
+    await waitFor(
+      () =>
+        expect(latest!.targets).toEqual({
+          machineSize: "medium",
+          storageGib: 50,
+        }),
+      { timeout: 5000 },
+    );
+    // Storage landing proves readings are being taken since the actuals, so the
+    // outstanding downsize is the only thing still holding the machine flag.
+    await waitForLanded(client, () => {
+      expect(latest!.landed.storage).toBe(true);
+    });
+    expect(latest!.landed.machine).toBe(false);
+
+    assistantResponse = makeAssistant("medium", 50);
+    await refetchAll(client);
+    await waitForLanded(client, () => {
+      expect(latest!.landed.machine).toBe(true);
+    });
+  }, 20_000);
+
+  test("the same machine target growing is still judged as growth", async () => {
+    subscriptionPlanId = "pro";
+    // Same target, opposite direction: the pod starts below it, so the flag
+    // must keep the grow-only comparison rather than flip to a downsize one.
+    onboardingResponse = { ...makeOnboarding(), max_machine_tier: "medium" };
+    assistantResponse = makeAssistant("small", 50);
+    const { client } = renderProbe();
+
+    await waitForLanded(client, () => {
+      expect(latest!.landed.storage).toBe(true);
+    });
+    expect(latest!.landed.machine).toBe(false);
+
+    assistantResponse = makeAssistant("medium", 50);
+    await refetchAll(client);
+    await waitForLanded(client, () => {
+      expect(latest!.landed.machine).toBe(true);
+    });
+  }, 20_000);
+
+  test("a landed flag waits for a status reading taken after the actuals", async () => {
+    // `started` queues the resize on a worker, so the status query can still be
+    // holding its pre-resize reading when the assistant poll lands the
+    // persisted target sizes.
+    ensureResponse = makeEnsureResponse("started");
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+
+    // Only the assistant query advances here, so nothing has read the world
+    // since the sizes it reports and no flag may land off them.
+    assistantResponse = makeAssistant("large", 50);
+    act(() => {
+      client.setQueryData(ASSISTANT_QUERY_KEY, assistantResponse);
+    });
+    expect(latest!.state).toBe("RESIZING");
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // The reading that settles the flow settles the flags with it.
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: true });
+    });
+    expect(latest!.state).toBe("DONE");
+  }, 20_000);
+
+  test("a status fetch already out when a dimension meets its target does not land it", async () => {
+    // `started` queues the resize on a worker, so the status query can be out
+    // with its pre-resize reading when the assistant poll lands the persisted
+    // target sizes.
+    ensureResponse = makeEnsureResponse("started");
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // A status fetch goes out carrying the pre-resize reading, and is still out
+    // when the assistant poll reports the persisted target sizes.
+    const gate = makeDeferred();
+    operationalStatusGate = gate;
+    act(() => {
+      void client.invalidateQueries({ queryKey: STATUS_QUERY_KEY });
+    });
+    await waitFor(() =>
+      expect(client.getQueryState(STATUS_QUERY_KEY)?.fetchStatus).toBe(
+        "fetching",
+      ),
+    );
+
+    assistantResponse = makeAssistant("large", 50);
+    await commitCacheWrite(() => {
+      client.setQueryData(ASSISTANT_QUERY_KEY, assistantResponse);
+    });
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // The clock moves on before that fetch answers, so its result stores
+    // strictly after the dimensions read met: it postdates them in wall-clock
+    // terms, though it observed the world before them. It may not land
+    // anything.
+    dateNowOffsetMs += 50;
+    operationalStatusGate = null;
+    await act(async () => {
+      gate.resolve();
+      await gate.promise;
+    });
+    // The terminal gate compares storage times without the fence and so takes
+    // that reading, which is the asymmetry the flags are stricter than. Waiting
+    // for it also proves the reading was fully absorbed before the flags are
+    // asserted to have ignored it.
+    await waitFor(() => expect(latest!.state).toBe("DONE"), { timeout: 5000 });
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // The first fetch that starts after them does land them.
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: true });
+    });
+  }, 20_000);
+
+  test("a status refetch starting between the render and the effect does not land a dimension", async () => {
+    // The window a render-time reading cannot see: the hook renders with the
+    // status query idle, a refetch goes out, and only then does the latch
+    // effect run. That request still read the world before the resize marker,
+    // so it may not land anything however late its answer is stored.
+    ensureResponse = makeEnsureResponse("started");
+    const { client } = renderProbe();
+
+    await waitFor(() => expect(latest!.state).toBe("CONFIRMING"));
+    subscriptionPlanId = "pro";
+    await refetchAll(client);
+    await waitFor(() => expect(latest!.state).toBe("RESIZING"), {
+      timeout: 5000,
+    });
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // Settle the status poll first: the window under test is a request that
+    // begins after the render, not one already running when it starts.
+    await act(async () => {
+      await client.refetchQueries({ queryKey: STATUS_QUERY_KEY });
+    });
+    expect(client.getQueryState(STATUS_QUERY_KEY)?.fetchStatus).toBe("idle");
+
+    // Held open so the request is unambiguously still out when the latch
+    // effect runs.
+    const gate = makeDeferred();
+    operationalStatusGate = gate;
+    onLayoutCommit = () => {
+      const assistant = client.getQueryData(ASSISTANT_QUERY_KEY) as
+        Assistant | undefined;
+      // Only the commit that first carries the target sizes: that is the
+      // render whose passive effect takes the latch.
+      if (assistant?.machine_size !== "large") {
+        return;
+      }
+      onLayoutCommit = null;
+      void client.refetchQueries({ queryKey: STATUS_QUERY_KEY });
+    };
+
+    assistantResponse = makeAssistant("large", 50);
+    await commitCacheWrite(() => {
+      client.setQueryData(ASSISTANT_QUERY_KEY, assistantResponse);
+    });
+    expect(client.getQueryState(STATUS_QUERY_KEY)?.fetchStatus).toBe(
+      "fetching",
+    );
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // It answers after the dimensions read met, which is what a fence built on
+    // storage times would take.
+    dateNowOffsetMs += 50;
+    operationalStatusGate = null;
+    await act(async () => {
+      gate.resolve();
+      await gate.promise;
+    });
+    await waitFor(() =>
+      expect(client.getQueryState(STATUS_QUERY_KEY)?.fetchStatus).toBe("idle"),
+    );
+    expect(latest!.landed).toEqual({ machine: false, storage: false });
+
+    // A reading that starts after the latch does land them.
+    await waitForLanded(client, () => {
+      expect(latest!.landed).toEqual({ machine: true, storage: true });
+    });
   }, 20_000);
 });

@@ -154,6 +154,20 @@ mock.module("@/domains/chat/surface-actions", () => ({
   handleSurfaceAction: handleSurfaceActionSpy,
 }));
 
+// The settings gear calls this hook at mount (hoisted above its picker so
+// the serialized write chain survives close/reopen), which would pull the
+// daemon React Query graph into every room render. Stubbed as unavailable;
+// its behavior is covered in voice-room-settings-menu.test.tsx.
+mock.module("@/components/speech/use-stt-language-selection", () => ({
+  useSttLanguageSelection: () => ({
+    available: false,
+    currentCode: "",
+    configuredProviderId: "vellum",
+    selectLanguage: () => {},
+    selecting: false,
+  }),
+}));
+
 // Imported after the mocks so the room picks up the mocked modules.
 const { VoiceRoom } =
   await import("@/domains/chat/voice/voice-room/voice-room");

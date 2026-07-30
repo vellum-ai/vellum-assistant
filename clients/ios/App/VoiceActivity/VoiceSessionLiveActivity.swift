@@ -30,15 +30,17 @@ struct VoiceSessionLiveActivity: Widget {
             VoiceSessionLockScreenView(
                 assistantName: context.attributes.assistantName,
                 state: context.state,
-                isStale: context.isStale
+                isStale: context.isStale,
+                avatarImageData: context.attributes.avatarImageData
             )
             .widgetURL(VoiceModeDeepLink.resume.url())
         } dynamicIsland: { context in
             let state = context.state
             let label = state.displayLabel(isStale: context.isStale)
+            let avatar = context.attributes.avatarImageData
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    VoiceAccentBadge(accent: state.accentColor)
+                    VoiceAccentBadge(accent: state.accentColor, avatarImageData: avatar)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     // Nothing to say when unmuted: an always-present mic glyph
@@ -57,14 +59,14 @@ struct VoiceSessionLiveActivity: Widget {
                     )
                 }
             } compactLeading: {
-                VoiceAccentGlyph(accent: state.accentColor, scale: .small)
+                VoiceCompactIdentity(accent: state.accentColor, avatarImageData: avatar)
             } compactTrailing: {
                 // The tightest slot there is. It still shows the passed label,
                 // truncated — substituting a shorter native string here is
                 // precisely the fossilization this design avoids.
                 VoiceSessionText(text: label, font: .caption2, color: .secondary)
             } minimal: {
-                VoiceAccentGlyph(accent: state.accentColor, scale: .small)
+                VoiceCompactIdentity(accent: state.accentColor, avatarImageData: avatar)
             }
             .widgetURL(VoiceModeDeepLink.resume.url())
             .keylineTint(state.accentColor)

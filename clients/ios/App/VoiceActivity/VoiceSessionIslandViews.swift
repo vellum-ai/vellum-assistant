@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Shared building blocks for the live-voice Live Activity.
 //
@@ -67,20 +68,86 @@ struct VoiceAccentGlyph: View {
     }
 }
 
-/// The accent glyph as a filled badge, for the roomier Lock Screen and
-/// expanded layouts.
+/// The assistant's avatar at a given size.
 ///
-/// The glyph is black or white by the accent's own luminance so it is legible
-/// on any avatar color, and the hairline border is `.primary` so the badge's
-/// edge reads against a light *and* a dark Lock Screen.
-struct VoiceAccentBadge: View {
-    let accent: Color
+/// Takes an already-decoded image so each slot decides its own fallback: the
+/// roomy layouts substitute an accent-filled badge, the tight ones a bare
+/// glyph. Decoding is the only image work done here, because the bytes arrive
+/// already sized and encoded from the web side, and a Live Activity cannot
+/// fetch or resize anything at render time.
+///
+/// **Deliberately neither cropped to a circle nor bordered.** A character
+/// avatar is a shaped creature on a transparent background whose silhouette
+/// runs out to the edges of its square, so a circular mask cuts the edges off
+/// and a ring drawn around it frames empty space. `scaledToFit` keeps the whole
+/// silhouette, and the alpha the PNG rungs preserve is what lets it sit
+/// directly on the island.
+///
+/// The cost is a custom *uploaded* avatar, which is square and would look
+/// tidier masked. Distinguishing them would mean sending the avatar kind across
+/// the bridge; the shaped creature is the default and the common case, so it
+/// wins the single treatment until that is worth the plumbing.
+struct VoiceAvatarImage: View {
+    let image: UIImage
+    var diameter: CGFloat
 
     var body: some View {
-        VoiceAccentGlyph(accent: accent.contrastingForeground)
-            .frame(width: 34, height: 34)
-            .background(accent, in: Circle())
-            .overlay(Circle().strokeBorder(Color.primary.opacity(0.2), lineWidth: 1))
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFit()
+            .frame(width: diameter, height: diameter)
+            .accessibilityHidden(true)
+    }
+}
+
+/// Decode the avatar attribute, or `nil` when there is none and when the bytes
+/// do not form an image. A payload that fails to decode is treated exactly
+/// like an absent one: the slot falls back to its accent treatment rather than
+/// rendering a gap.
+func voiceAvatarImage(_ data: Data?) -> UIImage? {
+    guard let data else { return nil }
+    return UIImage(data: data)
+}
+
+/// The assistant's avatar for the roomier Lock Screen and expanded layouts,
+/// falling back to the accent glyph as a filled badge.
+///
+/// In the fallback the glyph is black or white by the accent's own luminance
+/// so it is legible on any avatar color, and the hairline border is `.primary`
+/// so the badge's edge reads against a light *and* a dark Lock Screen.
+struct VoiceAccentBadge: View {
+    let accent: Color
+    var avatarImageData: Data?
+
+    var body: some View {
+        if let image = voiceAvatarImage(avatarImageData) {
+            VoiceAvatarImage(image: image, diameter: 34)
+        } else {
+            VoiceAccentGlyph(accent: accent.contrastingForeground)
+                .frame(width: 34, height: 34)
+                .background(accent, in: Circle())
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.2), lineWidth: 1))
+        }
+    }
+}
+
+/// The identity mark for the two tightest slots, the compact leading and the
+/// minimal presentation: the avatar if there is one, the accent waveform if
+/// not.
+///
+/// Sized rather than left to the slot because these are the only presentations
+/// iOS renders inline with the status bar, where an unconstrained image would
+/// be laid out against the whole island rather than its own corner.
+struct VoiceCompactIdentity: View {
+    let accent: Color
+    var avatarImageData: Data?
+
+    var body: some View {
+        if let image = voiceAvatarImage(avatarImageData) {
+            VoiceAvatarImage(image: image, diameter: 20)
+        } else {
+            VoiceAccentGlyph(accent: accent, scale: .small)
+        }
     }
 }
 
@@ -131,10 +198,11 @@ struct VoiceSessionLockScreenView: View {
     /// Whether ActivityKit considers this content out of date; drops the phase
     /// label. See `ContentState.displayLabel(isStale:)`.
     let isStale: Bool
+    var avatarImageData: Data?
 
     var body: some View {
         HStack(spacing: 12) {
-            VoiceAccentBadge(accent: state.accentColor)
+            VoiceAccentBadge(accent: state.accentColor, avatarImageData: avatarImageData)
             VStack(alignment: .leading, spacing: 2) {
                 VoiceSessionText(text: assistantName, font: .headline)
                 VoiceSessionText(text: state.displayLabel(isStale: isStale), color: .secondary)

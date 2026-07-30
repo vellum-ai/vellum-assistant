@@ -7,6 +7,7 @@ import {
 import type { ProPackage } from "@/domains/settings/billing/package-types";
 import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
+import { creditTierKeyUsd } from "@/lib/billing/credit-tiers";
 import {
   creditRowLabel,
   formatDollars,
@@ -115,7 +116,8 @@ export function currentTierRows(
   // here as it does in the tier picker; the raw key only as a last resort.
   const machine = current.machineTier
     ? (MACHINE_TIER_LABEL[current.machineTier] ??
-      proPlan.machine_tiers.find((t) => t.tier === current.machineTier)?.label ??
+      proPlan.machine_tiers.find((t) => t.tier === current.machineTier)
+        ?.label ??
       current.machineTier)
     : STANDARD_MACHINE_LABEL;
   const rows = [`${machine} Machine`];
@@ -130,9 +132,9 @@ export function currentTierRows(
     // A held/deprecated tier absent from the catalog has no structured amount,
     // so it falls back to the tier key (credits_<usd>) and the paid bundle
     // still shows instead of being silently dropped.
-    const catalogUsd = findCreditTier(proPlan, current.creditTier)?.credits_usd;
-    const keyUsd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
-    const usd = catalogUsd ?? (keyUsd != null ? Number(keyUsd) : null);
+    const usd =
+      findCreditTier(proPlan, current.creditTier)?.credits_usd ??
+      creditTierKeyUsd(current.creditTier);
     // Credits refresh every month, unlike the machine and storage rows, which
     // are standing capacity. A bundle whose amount can't be resolved at all
     // stays generic rather than claiming a cadence for an unknown quantity.

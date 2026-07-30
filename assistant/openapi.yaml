@@ -6126,6 +6126,9 @@ paths:
                 placeholder:
                   description: Placeholder text for the address input field.
                   type: string
+                defaultValue:
+                  description: Suggested address to pre-fill the input with (e.g. a known email). The user can edit it before submitting.
+                  type: string
                 label:
                   description: Display label shown in the prompt UI.
                   type: string
@@ -8264,7 +8267,10 @@ paths:
     post:
       operationId: conversations_import_post
       summary: Import conversations
-      description: Import conversations from a standard JSON payload.
+      description:
+        Import conversations from a standard JSON payload. Created conversations record a provenance source of
+        `import:<provider>` derived from the `sourceKey` prefix (e.g. `chatgpt:abc123` -> `import:chatgpt`), or
+        `import:unknown` when no prefix is present.
       tags:
         - conversations
       requestBody:
@@ -13716,13 +13722,17 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending bash request ID
                 stdout:
                   type: string
                 stderr:
                   type: string
                 exitCode:
-                  type: number
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                  description: Process exit status, or null when terminated by a signal
                 timedOut:
                   type: boolean
               required:
@@ -13885,6 +13895,7 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending CU request ID
                 axTree:
                   type: string
@@ -13952,6 +13963,7 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending request ID to resolve
                 content:
                   type: string
@@ -17741,6 +17753,88 @@ paths:
                   - gate
                   - confident
                   - notes
+                additionalProperties: false
+  /v1/memory/ingest:
+    post:
+      operationId: memory_ingest_post
+      summary:
+        Batch-ingest fully-formed concept pages directly into memory/concepts/ (bypassing the consolidation buffer) and
+        enqueue reindex jobs
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pages:
+                  minItems: 1
+                  maxItems: 200
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      slug:
+                        type: string
+                      content:
+                        type: string
+                    required:
+                      - slug
+                      - content
+                dryRun:
+                  type: boolean
+                overwrite:
+                  type: boolean
+              required:
+                - pages
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        action:
+                          type: string
+                          enum:
+                            - written
+                            - skipped_exists
+                            - invalid
+                        warnings:
+                          type: array
+                          items:
+                            type: string
+                        error:
+                          type: string
+                      required:
+                        - slug
+                        - action
+                        - warnings
+                      additionalProperties: false
+                  written:
+                    type: number
+                  skipped:
+                    type: number
+                  invalid:
+                    type: number
+                  dryRun:
+                    type: boolean
+                required:
+                  - results
+                  - written
+                  - skipped
+                  - invalid
+                  - dryRun
                 additionalProperties: false
   /v1/memory/remember:
     post:
@@ -29433,6 +29527,11 @@ paths:
                           type: string
                         conversationStreamingMode:
                           type: string
+                        languageSelection:
+                          type: string
+                          enum:
+                            - manual
+                            - auto
                         credentialsGuide:
                           type: string
                       required:

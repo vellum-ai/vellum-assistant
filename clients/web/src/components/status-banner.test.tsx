@@ -726,7 +726,8 @@ describe("StatusBanner", () => {
       expect(html).toContain('data-tone="neutral"');
       expect(html).toContain("bg-[var(--surface-active)]");
       expect(html).toContain("items-center");
-      expect(html).toContain("[&amp;_[data-slot=button]]:uppercase");
+      expect(html).toContain("[&amp;_[data-slot=button]]:text-body-small-default");
+      expect(html).not.toContain("[&amp;_[data-slot=button]]:uppercase");
       expect(html).not.toContain(
         "[&amp;_[data-slot=button]]:hover:bg-[color-mix(in_srgb,var(--status-banner-action-color)_12%,transparent)]",
       );

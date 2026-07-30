@@ -108,7 +108,7 @@ function renderCurrentLine(fields: Record<string, unknown>): string | null {
  *
  * ```
  * # memory/concepts/<slug>.md
- * [lane: fresh · updated 2026-06-10 14:23]
+ * [lane: fresh · dated 2026-06-10 14:23]
  * <head section verbatim>
  *
  * [sections: §… · §…]

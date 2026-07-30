@@ -492,11 +492,17 @@ export function ChatLayout({
   // The move-to-group menu's "New group…" item and the group actions menu's
   // "Rename" open the shared NameInputDialog through the request store; the
   // GroupNameDialogFromStore connector (mounted below) performs the
-  // create-then-move / rename on submit. "New group…" is the only
-  // group-creation entry point — there is no standalone create button.
+  // create-then-move / rename on submit. Two entry points reach it: a
+  // conversation's "New group…" (creates the group, then files that
+  // conversation into it) and the sidebar's own right-click "New group…"
+  // (creates an empty one).
   const handleRequestCreateGroup = useCallback(
     (conversation: Conversation) =>
       useGroupNameRequestStore.getState().requestCreateGroup(conversation),
+    [],
+  );
+  const handleRequestCreateEmptyGroup = useCallback(
+    () => useGroupNameRequestStore.getState().requestCreateGroup(),
     [],
   );
   const handleRequestRenameGroup = useCallback(
@@ -798,6 +804,7 @@ export function ChatLayout({
       onUnarchiveConversation={handleUnarchiveConversation}
       onMarkConversationUnread={handleMarkConversationUnread}
       onMarkConversationRead={handleMarkConversationRead}
+      onCreateGroup={handleRequestCreateEmptyGroup}
       onRenameGroup={handleRequestRenameGroup}
       onDeleteGroup={handleDeleteGroup}
       onMarkAllReadInGroup={handleMarkAllReadInGroup}

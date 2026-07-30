@@ -24,11 +24,11 @@ describe("renderCard — annotation line", () => {
     const card = renderCard(
       "page-a",
       PAGE,
-      "[lane: fresh · updated 2026-06-10 14:23 UTC]",
+      "[lane: fresh · dated 2026-06-10 14:23 UTC]",
     );
     expect(
       card.startsWith(
-        "# memory/concepts/page-a.md\n[lane: fresh · updated 2026-06-10 14:23 UTC]\nLead paragraph for page a.",
+        "# memory/concepts/page-a.md\n[lane: fresh · dated 2026-06-10 14:23 UTC]\nLead paragraph for page a.",
       ),
     ).toBe(true);
     expect(card).toContain("[sections: §Alpha]");

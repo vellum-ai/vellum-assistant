@@ -27,7 +27,10 @@ import {
   type GuardianRequestStatus,
   listGuardianRequestDeliveries,
 } from "../channels/gateway-guardian-requests.js";
-import { completeSurfaceAndNotify } from "../daemon/conversation-surfaces.js";
+import {
+  completeSurfaceAndNotify,
+  markSurfaceCompleted,
+} from "../daemon/conversation-surfaces.js";
 import { withdrawSlackApprovalCard } from "../messaging/providers/slack/withdraw.js";
 import { approvalCardSurfaceId } from "../notifications/approval-card-data.js";
 import {
@@ -78,10 +81,11 @@ export interface WithdrawGuardianCardsParams {
   /**
    * Channel the decision originated on, when applicable.
    *
-   * The acting in-app client completes its own card optimistically, so the
-   * in-app card is skipped when the decision originated in-app; it is withdrawn
-   * here only when the decision came from another surface. Omit (e.g. the expiry
-   * sweep) to withdraw every surface.
+   * Only the in-app card's `ui_surface_complete` broadcast is origin-sensitive:
+   * an in-app decision is already on screen with the resolver's own reply text,
+   * so re-broadcasting the canonical status label would overwrite it mid-session.
+   * The persisted completion is written regardless of origin. Omit (e.g. the
+   * expiry sweep) to broadcast on every surface.
    */
   originChannel?: string;
   /**
@@ -145,8 +149,17 @@ export async function withdrawGuardianRequestCards(
 
 /**
  * Withdraw the in-app approval card so it stops offering live actions while
- * keeping its content. Skipped when the decision originated in-app — the acting
- * client already completed the card itself.
+ * keeping its content.
+ *
+ * The completion is always persisted onto the card's `ui_surface` block. The
+ * acting client's optimistic completion is in-memory only, so without this write
+ * the conversation's history still carries an undecided card and re-entering the
+ * conversation re-renders the raw button group (LUM-2919).
+ *
+ * The `ui_surface_complete` broadcast is the only origin-sensitive half: when the
+ * decision came from in-app, the acting client is already showing the resolver's
+ * guardian-facing reply, and broadcasting the canonical status label back would
+ * replace that richer summary mid-session.
  */
 function withdrawVellumCard(
   request: WithdrawableGuardianRequest,
@@ -155,9 +168,6 @@ function withdrawVellumCard(
   originChannel: string | undefined,
   decidedAction: ApprovalAction | undefined,
 ): void {
-  if (originChannel === "vellum") {
-    return;
-  }
   if (!delivery.destinationConversationId) {
     return;
   }
@@ -165,10 +175,19 @@ function withdrawVellumCard(
   if (!surfaceId) {
     return;
   }
+  const summary = resolveStatusLabel(status, decidedAction);
+  if (originChannel === "vellum") {
+    markSurfaceCompleted(
+      { conversationId: delivery.destinationConversationId },
+      surfaceId,
+      summary,
+    );
+    return;
+  }
   completeSurfaceAndNotify(
     delivery.destinationConversationId,
     surfaceId,
-    resolveStatusLabel(status, decidedAction),
+    summary,
   );
 }
 

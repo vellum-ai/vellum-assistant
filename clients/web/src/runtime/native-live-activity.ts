@@ -63,6 +63,17 @@ export interface VoiceLiveActivityContent {
 /** {@link VoiceLiveActivityContent} plus the fields fixed for the activity's lifetime. */
 export interface VoiceLiveActivityStart extends VoiceLiveActivityContent {
   assistantName: string;
+  /**
+   * The assistant's avatar as base64 PNG or JPEG, sized to fit ActivityKit's
+   * payload ceiling by `encodeAvatarForIsland`. Omitted when there is no
+   * avatar or none small enough, which the island renders as its accent glyph.
+   *
+   * An attribute rather than content: it is fixed for the activity's lifetime,
+   * so it is sent once at `start` and never re-sent. Pushing image bytes
+   * through `update` would burn the ActivityKit update budget this module's
+   * caller works to stay inside.
+   */
+  avatarBase64?: string;
 }
 
 interface VoiceLiveActivityPlugin {

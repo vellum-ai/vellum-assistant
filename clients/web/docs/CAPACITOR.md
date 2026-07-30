@@ -150,21 +150,25 @@ This is a rule, not a caveat. The iOS app is a `server.url` shell: it bundles no
 
 Three things follow from the rule:
 
-- **Pick a fallback the caller can proceed with.** `activateVoiceAudioSession()` resolves `false`, `endVoiceLiveActivity()` resolves `undefined`. There is no error branch to write, and no call site may treat a `false` as a reason not to start a session.
+- **Pick a fallback the caller can proceed with.** `startVoiceLiveActivity()` resolves `false`, `endVoiceLiveActivity()` resolves `undefined`. There is no error branch to write, and no call site may treat a `false` as a reason not to start a session.
 - **Fire and forget at the call site.** A bare `void` is enough: because every export in these modules goes through `callNativeVoice`, none of them can reject, so there is no rejection for a call site to handle. A hung or failed bridge call must never delay a voice session.
 - **Destructure the plugin inline inside `invoke`.** The lazy-import rule at the top of this document applies verbatim: only the *result* may cross the `async` boundary, never the plugin Proxy.
 
-**No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` and `activateVoiceAudioSession()` resolving `false` already cover every reason there is no native side — off-iOS, an older shell, and (for Live Activities) the user having switched them off in Settings. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
+**No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` already covers every reason there is no native side: off-iOS, an older shell, and the user having switched Live Activities off in Settings. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
 
 ### The background-audio contract
 
-**Read § "Full-duplex TTS must render through a MediaStream track" before you touch any of this.** That section warns against reconfiguring the shared `AVAudioSession` around microphone capture, and `VoiceAudioSession` is the one plugin in the tree that does it. What keeps the two compatible is that activation happens exactly once, at a session's leading edge, and is never re-asserted mid-session — the re-assert under a live capture unit was the prime suspect when this pattern shipped as #39331 and produced **no capture at all** on device, reverted in #39345.
+**Read § "Full-duplex TTS must render through a MediaStream track" before you touch any of this.** That section warns against reconfiguring the shared `AVAudioSession` around microphone capture. `VoiceAudioSession` is the one plugin in the tree that can do it, and **nothing calls it any more**: `activateVoiceAudioSession()` has no production caller, by the decision recorded below. The bridge function and the native plugin both remain, so reintroducing activation is one line away and must not be taken casually.
 
-That history is the reason this is device-only territory. A change here that looks obviously correct and passes in the Simulator is precisely the failure mode that already shipped once.
+That history is the reason this is device-only territory. A change here that looks obviously correct and passes in the Simulator is precisely the failure mode that has now shipped twice.
 
 **Echo cancellation does not depend on this.** It used to be the argument for `.voiceChat`; since #39347 it comes from WebKit's own voice-processing unit, reached by routing TTS through a `MediaStreamAudioDestinationNode`. So if this plugin ever has to go, AEC does not go with it.
 
-What is genuinely still open is **background audio**. `UIBackgroundModes: audio` in `clients/ios/App/App/Info.plist`, plus an active `.playAndRecord` / `.voiceChat` session, buys:
+**The rule: the web layer does not activate an audio session.** Settled the hard way, because the pattern broke live voice on a handset twice. First as #39331 (no capture at all, reverted in #39345), then again when it returned in #39306, where a session died roughly 60ms after its WebSocket opened while the Simulator sustained one normally against the same backend. The second failure went unattributed for a day because every #39306 upload was rejected by App Store Connect until #39556, so the plugin had never actually run on a device. `useNativeAudioSessionLifecycle` now only subscribes to interruptions; it never calls `activate`. Do not reintroduce the activation without a device test, and note that a green Simulator run is not one.
+
+The `VoiceAudioSession` plugin stays in the shell: its interruption reporting listens to `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri taking the input from WebKit's session, which is unrelated to owning a session ourselves.
+
+What is genuinely still open is **background audio**, and note that the list below describes what an active session *would* buy. None of it is in effect today, because nothing activates one. `UIBackgroundModes: audio` in `clients/ios/App/App/Info.plist`, plus an active `.playAndRecord` / `.voiceChat` session, would buy:
 
 - audio keeps playing while the app is backgrounded or the screen is locked;
 - the mic route survives backgrounding;

@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const completeSurfaceAndNotify = mock(() => {});
+const markSurfaceCompleted = mock(() => {});
 mock.module("../daemon/conversation-surfaces.js", () => ({
   completeSurfaceAndNotify,
+  markSurfaceCompleted,
 }));
 
 const withdrawSlackApprovalCard = mock(
@@ -56,6 +58,7 @@ describe("withdrawGuardianRequestCards", () => {
   beforeEach(() => {
     bridgeState.reset();
     completeSurfaceAndNotify.mockClear();
+    markSurfaceCompleted.mockClear();
     withdrawSlackApprovalCard.mockClear();
   });
 
@@ -81,7 +84,7 @@ describe("withdrawGuardianRequestCards", () => {
     );
   });
 
-  test("skips the in-app card when the decision originated in-app", async () => {
+  test("persists the in-app card's completion without broadcasting when the decision originated in-app", async () => {
     const req = makeRequest();
     bridgeState.seedDelivery({
       requestId: req.id,
@@ -95,8 +98,40 @@ describe("withdrawGuardianRequestCards", () => {
       originChannel: "vellum",
     });
 
-    // The acting in-app client already completed its own card optimistically.
+    // The acting client's optimistic completion is in-memory only, so the
+    // terminal state still has to reach history or a re-entry re-renders the
+    // undecided button group (LUM-2919).
+    expect(markSurfaceCompleted).toHaveBeenCalledTimes(1);
+    expect(markSurfaceCompleted).toHaveBeenCalledWith(
+      { conversationId: "conv-1" },
+      `access-request-${req.id}`,
+      "Approved",
+    );
+    // No broadcast: it would replace the resolver's reply text already on
+    // screen with the canonical status label.
     expect(completeSurfaceAndNotify).not.toHaveBeenCalled();
+  });
+
+  test("persists a park decided in-app under its neutral label", async () => {
+    const req = makeRequest();
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "vellum",
+      destinationConversationId: "conv-1",
+    });
+
+    await withdrawGuardianRequestCards({
+      request: req,
+      status: "denied",
+      originChannel: "vellum",
+      decidedAction: "leave_unverified",
+    });
+
+    expect(markSurfaceCompleted).toHaveBeenCalledWith(
+      { conversationId: "conv-1" },
+      `access-request-${req.id}`,
+      "Left unverified",
+    );
   });
 
   test("withdraws the Slack card with decider and decision time", async () => {

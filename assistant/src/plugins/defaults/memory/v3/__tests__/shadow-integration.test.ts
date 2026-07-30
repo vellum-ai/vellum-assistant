@@ -173,6 +173,7 @@ function makeEntries(): PageIndexEntry[] {
     edges: [],
     leaves: [],
     modifiedAt: 0,
+    freshAt: null,
   }));
 }
 
