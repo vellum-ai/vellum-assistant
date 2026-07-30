@@ -78,17 +78,23 @@ export const fetchReleases = cache(async (): Promise<ApiRelease[]> => {
   }
 });
 
+// Single source for the "Month Year" release label, shared by the month
+// grouping below, the sidebar's current-month default, and the page title
+// so the labels never diverge.
+export function monthLabel(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 export function groupApiReleasesByMonth(releases: ApiRelease[]) {
   const groups: { month: string; releases: ApiRelease[] }[] = [];
   const monthMap = new Map<string, ApiRelease[]>();
 
   for (const release of releases) {
-    const d = new Date(release.released_at);
-    const label = d.toLocaleDateString("en-US", {
-      month: "long",
-      year: "numeric",
-      timeZone: "UTC",
-    });
+    const label = monthLabel(new Date(release.released_at));
     if (!monthMap.has(label)) {
       monthMap.set(label, []);
       groups.push({ month: label, releases: monthMap.get(label)! });
