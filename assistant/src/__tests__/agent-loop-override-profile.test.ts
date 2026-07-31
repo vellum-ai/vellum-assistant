@@ -276,9 +276,9 @@ import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routin
 // Connection-aware resolver path: satisfy
 // `tryResolveProviderForConnectionName` lookups so resolveDefaultProvider
 // returns a usable provider for any connection name the winning profile
-// references. The managed connection must be the platform-auth sentinel row —
-// a managed profile routing through anything else is rejected as a
-// user-owned collision; other names behave as personal anthropic connections.
+// references. The managed connection must be the platform-auth sentinel row:
+// a managed profile routing through anything else resolves to the platform
+// instead. Other names behave as personal anthropic connections.
 mock.module("../providers/inference/connections.js", () => ({
   getConnection: (_db: unknown, name: string) =>
     name === VELLUM_MANAGED_CONNECTION_NAME

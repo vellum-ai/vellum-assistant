@@ -123,7 +123,7 @@ export async function tryResolveProviderForConnectionName(
   }
   // A `vellum`-identity route ignores a user-owned row claiming the canonical
   // name. Boot seeding refuses to overwrite such a row, so these installs have
-  // no canonical row at all — but they are platform installs (a managed
+  // no canonical row at all, but they are platform installs (a managed
   // profile only resolves when `llm.defaultProvider` is `vellum`), so the
   // route belongs on platform auth, not on whatever credentials that row
   // happens to carry. The row keeps serving any profile that names it.
@@ -244,7 +244,7 @@ async function resolveThroughPlatform(
   }
   log.info(
     { upstream, model },
-    "Vellum-managed route resolved through platform auth — a user-owned connection claims the canonical connection name",
+    "Vellum-managed route resolved through platform auth: a user-owned connection claims the canonical connection name",
   );
   try {
     return await resolveProviderFromConnection(

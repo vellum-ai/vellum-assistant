@@ -138,7 +138,7 @@ describe("vellum connection mismatch handling", () => {
 /**
  * Boot seeding leaves a user-owned row claiming the `vellum` name in place, so
  * an install can have no canonical row at all. A managed profile only resolves
- * on a platform install, so its route is platform auth — never the credentials
+ * on a platform install, so its route is platform auth, never the credentials
  * that row happens to carry, and never an error over the name collision.
  */
 describe("user-owned connection claiming the vellum name", () => {

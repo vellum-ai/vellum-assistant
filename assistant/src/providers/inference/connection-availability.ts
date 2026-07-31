@@ -131,7 +131,7 @@ export async function computeConnectionAvailability(
   }
   // A managed route whose canonical row is claimed by a user-owned connection
   // dispatches through platform auth and never touches that row, so the
-  // platform's own status is the answer — not the row's. Scoped to the
+  // platform's own status is the answer, not the row's. Scoped to the
   // canonical name: a managed default explicitly pinned to some other row is a
   // real misconfiguration and still reads as a mismatch below.
   if (
