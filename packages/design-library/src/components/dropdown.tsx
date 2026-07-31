@@ -74,9 +74,18 @@ export interface DropdownProps<T extends string> {
  * @deprecated Use `Select` instead. `Dropdown` hand-rolls its own positioning,
  * keyboard navigation, outside-click handling and focus management; `Select`
  * is a thin wrapper over Radix Select, which is what every other overlay in
- * this package already uses. The two render identically, and `Select`'s props
- * are a drop-in match apart from options no longer being allowed an
- * empty-string `value` (use `placeholder`, or a real sentinel).
+ * this package already uses. The two render identically.
+ *
+ * Two behaviour differences to check before moving a call site, not just one:
+ *
+ * 1. **Re-selecting the current value does not call `onChange`.** `Dropdown`
+ *    fires on every click; `Select` reports changes, so choosing the option
+ *    that is already selected is silent. A call site that treats the click
+ *    itself as a signal (pinning an inherited default, re-triggering a fetch,
+ *    marking a form dirty) needs a local change, not just an import swap. At
+ *    least one caller depends on this today. Tracked on LUM-2959.
+ * 2. **Options may not carry an empty-string `value`**, which Radix reserves
+ *    to mean "cleared". Use `placeholder`, or a real sentinel.
  *
  * Migrating also fixes two defects this component still has: the menu cannot
  * flip upward, so a trigger low in the viewport opens below the fold, and it

@@ -145,7 +145,28 @@ export function Select<T extends string>({
       // value, leaving the trigger showing a stale choice. Radix already
       // treats "" as the placeholder state.
       value={value}
-      onValueChange={(next) => onChange(next as T)}
+      // Radix hands back a plain `string`, but `onChange` promises callers a
+      // narrowed `T`. Look the value up in `selectableOptions` and forward the
+      // matched option's own `value`, so the type is earned at the runtime
+      // boundary rather than asserted across it.
+      onValueChange={(next) => {
+        const matched = selectableOptions.find(
+          (option) => option.value === next,
+        );
+        if (!matched) {
+          // Radix only emits values belonging to mounted items, so this is
+          // unreachable in practice. Staying silent rather than forwarding an
+          // unvalidated string keeps the callback's contract honest.
+          if (process.env.NODE_ENV !== "production") {
+            // eslint-disable-next-line no-console
+            console.error(
+              `Select: ignoring a change to "${next}", which matches no option.`,
+            );
+          }
+          return;
+        }
+        onChange(matched.value);
+      }}
       disabled={disabled}
       name={name}
     >
