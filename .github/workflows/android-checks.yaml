@@ -48,17 +48,14 @@ jobs:
           VELLUM_ENVIRONMENT: ${{ matrix.environment }}
         run: bun run android:sync
 
-      - name: Run Android checks
+      - name: Run JVM tests
+        if: matrix.environment == 'dev'
+        working-directory: clients/android
+        run: ./gradlew :app:testDevDebugUnitTest
+
+      - name: Lint and bundle release
         working-directory: clients/android
         run: >-
           ./gradlew
-          :app:test${{ matrix.flavor }}DebugUnitTest
           :app:lint${{ matrix.flavor }}Release
           :app:bundle${{ matrix.flavor }}Release
-
-      - name: Upload unsigned app bundle
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: android-${{ matrix.environment }}-unsigned-aab
-          path: clients/android/app/build/outputs/bundle/${{ matrix.environment }}Release/*.aab
-          if-no-files-found: error

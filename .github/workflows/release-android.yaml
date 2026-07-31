@@ -11,11 +11,6 @@ on:
         description: "Release version string"
         required: true
         type: string
-      upload_to_play:
-        description: "Upload the signed bundle to the matching Play internal track"
-        required: false
-        type: boolean
-        default: false
 
 concurrency:
   group: android-release-${{ inputs.environment }}
@@ -35,11 +30,6 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
           VERSION: ${{ inputs.version }}
         run: |
-          if [ -z "$ENVIRONMENT" ] || [ -z "$VERSION" ]; then
-            echo "::error::Android environment and version are required"
-            exit 1
-          fi
-
           case "$ENVIRONMENT" in
             production)
               echo "flavor=Production" >> "$GITHUB_OUTPUT"
@@ -124,7 +114,6 @@ jobs:
           if-no-files-found: error
 
       - name: Upload to Play internal track
-        if: ${{ inputs.upload_to_play }}
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}

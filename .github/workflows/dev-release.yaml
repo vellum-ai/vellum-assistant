@@ -2206,8 +2206,6 @@ jobs:
       version: ${{ needs.compute-version.outputs.version }}
     secrets: inherit
 
-  # Android releases always go to the Play internal track. Production-track
-  # promotion remains a separate manual operation in Play Console.
   release-android:
     needs: [compute-version, register-release, build-chrome-extension]
     if: vars.ANDROID_RELEASE_ENABLED == 'true'
@@ -2215,7 +2213,6 @@ jobs:
     with:
       environment: dev
       version: ${{ needs.compute-version.outputs.version }}
-      upload_to_play: true
     secrets: inherit
 
   # ── Slack notification (first failure only) ──────────────────────────

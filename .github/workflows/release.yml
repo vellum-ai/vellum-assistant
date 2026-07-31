@@ -2687,8 +2687,6 @@ jobs:
       notify_slack: false
     secrets: inherit
 
-  # Android releases always go to the Play internal track. Production-track
-  # promotion remains a separate manual operation in Play Console.
   release-android:
     needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
     if: >-
@@ -2710,7 +2708,6 @@ jobs:
     with:
       environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
       version: ${{ needs.extract-version.outputs.version }}
-      upload_to_play: true
     secrets: inherit
 
   # ci-assistant runs lint/typecheck/test for the assistant service. It also

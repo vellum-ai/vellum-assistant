@@ -51,18 +51,8 @@ For local development, pick the `devDebug` variant in Android Studio. If you
 sync a different `VELLUM_ENVIRONMENT`, build the matching flavor so the WebView
 origin and native auth host agree.
 
-The launcher and splash colors distinguish installed environments:
-
-| Flavor | Launcher and splash color |
-|--------|---------------------------|
-| `production` | Vellum green |
-| `staging` | Orange |
-| `dev` | Blue |
-
-Adaptive, round, and monochrome launcher icons are included. The Android theme
-handles transparent system bars, display cutouts, rotation, and keyboard
-resizing. Target SDK 36 supplies platform edge-to-edge behavior on Android 15
-and later without disabling `adjustResize` on older devices.
+Launcher and splash colors also distinguish production, staging, and dev
+installs.
 
 ## Native Auth
 
@@ -122,9 +112,7 @@ cd clients/android
 ./gradlew :app:assembleDevDebug
 ```
 
-CI syncs each environment, runs its JVM tests and lint checks, and produces an
-unsigned release AAB for every flavor. Unsigned release bundles are build
-artifacts only and cannot be uploaded to Play.
+CI runs JVM tests once, then syncs, lints, and bundles every flavor.
 
 ## Versions and Signing
 
@@ -146,37 +134,14 @@ unsigned when no signing input is supplied. Supplying only part of the signing
 set fails during Gradle configuration so a release cannot silently use the
 wrong identity.
 
-To make a local signed bundle, sync the matching environment and pass the
-complete signing set without saving it in the repository. Export the two
-password variables in your shell before running the Gradle command.
-
-```bash
-cd clients/web
-VELLUM_ENVIRONMENT=dev bun run android:sync
-
-cd ../android
-VELLUM_ANDROID_VERSION_CODE=123 \
-VELLUM_ANDROID_VERSION_NAME=1.2.3 \
-VELLUM_ANDROID_REQUIRE_SIGNING=true \
-VELLUM_ANDROID_KEYSTORE_PATH=/absolute/path/upload.jks \
-VELLUM_ANDROID_KEY_ALIAS='<key-alias>' \
-./gradlew :app:bundleDevRelease
-```
-
 Release builds enable resource shrinking and R8 optimization. Capacitor plugin
 annotations and methods are retained by `app/proguard-rules.pro`.
 
 ## Google Play Internal Releases
 
 `.github/workflows/release-android.yaml` is the reusable Android release
-workflow. It selects the flavor and package from its environment input,
-restores the upload key in a temporary path, builds a signed AAB, and retains
-the AAB as an artifact. When `upload_to_play` is enabled, it uploads only to
-that app's Play `internal` track.
-
-The dev and standard release orchestrators call this workflow. A production
-flavor build still lands on the internal track. Promoting it to a production
-track is a separate manual action and is not performed by GitHub Actions.
+workflow. It builds a signed AAB, retains it as an artifact, and uploads it to
+the matching Play internal track. Production-track promotion remains manual.
 
 Configure these environment-scoped GitHub secrets independently for `dev`,
 `staging`, and `production`:
@@ -209,18 +174,8 @@ Complete the following setup before enabling internal-track uploads:
    upload a completed release.
 4. Grant the release service account permission to publish to each app's
    internal track, then configure the environment-scoped secrets above.
-5. Record each Play signing SHA-256 certificate fingerprint for the Digital
-   Asset Links rollout. The upload key fingerprint is not interchangeable with
-   the Play signing fingerprint.
-6. Create internal tester groups and verify that testers can install all three
-   package IDs side by side.
-7. Complete each Play listing, privacy policy, Data Safety form, content rating,
+5. Complete each Play listing, privacy policy, Data Safety form, content rating,
    and the declarations required for microphone permissions.
-8. Review app access instructions and release notes before any wider rollout.
 
-After setup, verify an internal-track install on a physical device. Confirm the
-package ID, display name, icon color, splash color, web origin, authentication
-callback, version name, and version code all match the chosen environment. On
-Android 11 through 14, rotate the device and open the keyboard to confirm that
-the composer remains visible. Smoke-test authentication, file sharing, and the
-file provider from the shrunk release AAB.
+Before wider rollout, test the internal-track AAB on a physical device and
+verify its identity, web origin, authentication, keyboard, and file sharing.

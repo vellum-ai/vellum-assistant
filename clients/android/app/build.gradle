@@ -22,15 +22,11 @@ def signingValues = [
     keyAlias: buildText('VELLUM_ANDROID_KEY_ALIAS'),
     keyPassword: buildValue('VELLUM_ANDROID_KEY_PASSWORD'),
 ]
-def configuredSigningValues = signingValues.values().count { !it.isEmpty() }
 def requireSigning = buildText('VELLUM_ANDROID_REQUIRE_SIGNING', 'false').toBoolean()
-if (configuredSigningValues > 0 && configuredSigningValues < signingValues.size()) {
-    throw new GradleException('Android signing requires keystore path, store password, key alias, and key password')
+def signingConfigured = signingValues.values().every { !it.isEmpty() }
+if (!signingConfigured && (requireSigning || signingValues.values().any { !it.isEmpty() })) {
+    throw new GradleException('Android signing inputs are incomplete')
 }
-if (requireSigning && configuredSigningValues != signingValues.size()) {
-    throw new GradleException('VELLUM_ANDROID_REQUIRE_SIGNING is set but Android signing inputs are incomplete')
-}
-def signingConfigured = configuredSigningValues == signingValues.size()
 
 android {
     namespace = "ai.vocify.vellumassistant"
