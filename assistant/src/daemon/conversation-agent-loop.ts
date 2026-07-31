@@ -139,10 +139,12 @@ const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
  * (`managedBalanceClassification` in conversation-error.ts) keeps its
  * `userMessage` context-neutral because it also feeds the non-terminal
  * memory-v3 degraded notice, where a normal reply still follows; here the
- * turn truly ends with no reply, so first-person copy is accurate.
+ * turn truly ends with no reply, so first-person copy is accurate. Phrased
+ * about the past failure, not the current balance, because the row stays in
+ * the transcript (and renders as a plain bubble) after the balance recovers.
  */
 const OUT_OF_CREDITS_ASSISTANT_REPLY =
-  "You're out of credits, so I can't reply right now. Add credits in Settings → Billing and we can pick up where we left off.";
+  "I couldn't reply because you ran out of credits. Add credits in Settings → Billing and we can pick up where we left off.";
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
