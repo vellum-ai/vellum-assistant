@@ -55,6 +55,7 @@ import {
 import { bootstrapLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { listAssistants } from "@/assistant/api";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
+import { unregisterLiveActivityPushToken } from "@/domains/chat/voice/live-voice/live-activity-push-registration";
 import { unregisterFromRemotePush } from "@/runtime/push-registration";
 import {
   fetchConsent,
@@ -1084,6 +1085,10 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // session — the platform delete is authenticated by the still-valid
     // session cookie. No-ops off native iOS. Best-effort: never blocks logout.
     await unregisterFromRemotePush();
+    // Same window, same reason: a Live Activity registered for a voice session
+    // outlives the session that owns it unless something retires it, and after
+    // logout there is no authenticated request left that could.
+    await unregisterLiveActivityPushToken();
     try {
       await allauthLogout();
     } finally {

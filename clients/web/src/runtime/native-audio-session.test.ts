@@ -26,6 +26,12 @@ let handlers: Handler[] = [];
 
 const activate = mock(async () => ({ activated: true }));
 const deactivate = mock(async () => undefined);
+const defaultDescribe = async () => ({
+  category: "AVAudioSessionCategoryPlayAndRecord",
+  mode: "AVAudioSessionModeVoiceChat",
+  outputs: ["Speaker"],
+});
+const describeSession = mock(defaultDescribe);
 const remove = mock(async () => undefined);
 
 // Registration is async on the real bridge, so the handle only lands a
@@ -40,12 +46,18 @@ const defaultAddListener = (
 const addListener = mock(defaultAddListener);
 
 mock.module("@capacitor/core", () => ({
-  registerPlugin: () => ({ activate, deactivate, addListener }),
+  registerPlugin: () => ({
+    activate,
+    deactivate,
+    describe: describeSession,
+    addListener,
+  }),
 }));
 
 const {
   activateVoiceAudioSession,
   deactivateVoiceAudioSession,
+  describeVoiceAudioSession,
   subscribeVoiceAudioInterruptions,
 } = await import("@/runtime/native-audio-session");
 
@@ -56,6 +68,8 @@ beforeEach(() => {
   activate.mockImplementation(async () => ({ activated: true }));
   deactivate.mockClear();
   deactivate.mockImplementation(async () => undefined);
+  describeSession.mockClear();
+  describeSession.mockImplementation(defaultDescribe);
   remove.mockClear();
   addListener.mockClear();
   addListener.mockImplementation(defaultAddListener);
@@ -78,6 +92,11 @@ describe("off the iOS shell", () => {
   test("deactivate resolves without touching the bridge", async () => {
     expect(await deactivateVoiceAudioSession()).toBeUndefined();
     expect(deactivate).not.toHaveBeenCalled();
+  });
+
+  test("describe resolves null without touching the bridge", async () => {
+    expect(await describeVoiceAudioSession()).toBeNull();
+    expect(describeSession).not.toHaveBeenCalled();
   });
 
   test("subscribing registers nothing and unsubscribing is safe", () => {
@@ -103,6 +122,29 @@ describe("with the plugin present", () => {
   test("deactivate calls through", async () => {
     await deactivateVoiceAudioSession();
     expect(deactivate).toHaveBeenCalledTimes(1);
+  });
+
+  test("describe reads the session back without configuring it", async () => {
+    const description = await describeVoiceAudioSession();
+
+    expect(description).toMatchObject({
+      category: "AVAudioSessionCategoryPlayAndRecord",
+      mode: "AVAudioSessionModeVoiceChat",
+      outputs: ["Speaker"],
+    });
+    // Reading the category back is the only sanctioned way to test a belief
+    // about the shared session: activating one underneath WebKit's live
+    // capture unit has broken live voice on a handset twice.
+    expect(activate).not.toHaveBeenCalled();
+    expect(deactivate).not.toHaveBeenCalled();
+  });
+
+  test("describe resolves null when an older shell has no such method", async () => {
+    describeSession.mockImplementation(async () => {
+      throw new Error("not implemented");
+    });
+
+    expect(await describeVoiceAudioSession()).toBeNull();
   });
 
   test("interruption events reach the handler until unsubscribed", async () => {

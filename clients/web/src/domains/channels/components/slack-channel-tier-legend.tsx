@@ -14,22 +14,27 @@ import type { RiskThreshold } from "@/utils/threshold-presets";
  * the owner. The per-level lines are the whole key (LUM-2905); the card
  * header carries the Trust Rules pointer.
  *
- * Grounded in what a channel cell can actually delegate
+ * Both lines lead with the ask, so the only thing that differs between levels
+ * is the exception clause and the levels stay comparable at a glance.
+ *
+ * The exception is grounded in what a channel cell can actually delegate
  * (`assistant/src/tools/tool-approval-handler.ts` → `isChannelLiftable`): only
  * non-executing side effects in the assistant's own workspace (reads, public
- * `web_fetch`, and ordinary in-workspace file writes). "Takes notes" describes
- * those writes without implying documents: the document tools run on the host
- * and stay on the capability floor.
+ * `web_fetch`, and ordinary in-workspace file writes). "Saving files in its
+ * own workspace" is the wording the global Conservative preset already uses
+ * (`utils/threshold-presets.ts`), so both surfaces name the delegated work the
+ * same way; the workspace scope is what keeps it from reading as document
+ * authoring, since the document tools run on the host and stay on the
+ * capability floor.
  *
  * The capability floor (code, the owner's computer or accounts, unvetted
- * skills always escalate) compresses to "asks first for anything bigger":
- * accurate without the inventory, and it keeps the two lines the same weight:
- * both name what runs on its own, then that everything else asks.
+ * skills always escalate) needs no inventory here: "asks before anything
+ * beyond ..." already covers everything the exception does not name.
  */
 function tierDescription(tier: RiskThreshold): string {
   return tier === "none"
-    ? "Replies, but asks first for anything else, even a web search."
-    : "Looks things up and takes notes on its own; asks first for anything bigger.";
+    ? "Asks before every action, even a web search."
+    : "Asks before anything beyond looking things up and saving files in its own workspace.";
 }
 
 export interface SlackChannelTierLegendProps {
