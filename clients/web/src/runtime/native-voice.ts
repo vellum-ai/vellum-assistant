@@ -38,9 +38,7 @@ export async function callNativeVoice<T>(
   }
 }
 
-interface NativeVoiceListenerHandle {
-  remove(): Promise<void>;
-}
+type NativeVoiceListenerHandle = { remove(): Promise<void> };
 
 export function subscribeNativeVoiceListener(
   register: () => Promise<NativeVoiceListenerHandle>,
@@ -53,29 +51,26 @@ export function subscribeNativeVoiceListener(
   let handle: NativeVoiceListenerHandle | null = null;
   let cancelled = false;
 
-  let registration: Promise<NativeVoiceListenerHandle>;
   try {
-    registration = register();
+    void register().then(
+      (registered) => {
+        if (cancelled) {
+          void registered.remove();
+        } else {
+          handle = registered;
+        }
+      },
+      (err: unknown) => {
+        console.debug(`[${failureContext}] listener unavailable:`, err);
+      },
+    );
   } catch (err) {
     console.debug(`[${failureContext}] listener unavailable:`, err);
     return () => undefined;
   }
 
-  registration
-    .then((registered) => {
-      if (cancelled) {
-        void registered.remove();
-        return;
-      }
-      handle = registered;
-    })
-    .catch((err: unknown) => {
-      console.debug(`[${failureContext}] listener unavailable:`, err);
-    });
-
   return () => {
     cancelled = true;
     void handle?.remove();
-    handle = null;
   };
 }

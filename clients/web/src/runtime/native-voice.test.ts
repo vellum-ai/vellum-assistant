@@ -10,15 +10,6 @@ mock.module("@/runtime/platform-detection", () => ({
 
 import { callNativeVoice } from "@/runtime/native-voice";
 
-// ---------------------------------------------------------------------------
-// `callNativeVoice` is the skew-safe seam every native voice bridge call goes
-// through. The iOS shell ships through App Store review while this bundle
-// deploys continuously (`clients/ios/README.md` § "Web content delivery"), so
-// an arbitrarily old shell can host this bundle and the plugin may simply not
-// be there. The contract these tests pin: the helper never throws and never
-// rejects, so a missing bridge degrades to a working voice session.
-// ---------------------------------------------------------------------------
-
 describe("callNativeVoice", () => {
   test("returns the fallback off-native without invoking the bridge", async () => {
     onNativeMobile = false;

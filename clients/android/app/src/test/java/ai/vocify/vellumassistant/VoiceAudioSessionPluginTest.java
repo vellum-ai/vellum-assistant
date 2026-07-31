@@ -11,7 +11,6 @@ public class VoiceAudioSessionPluginTest {
     public void permanentFocusLossBeginsFocusLossInterruption() {
         VoiceAudioSessionPlugin.FocusEvent event =
             VoiceAudioSessionPlugin.FocusEvent.fromFocusChange(AudioManager.AUDIOFOCUS_LOSS);
-
         assertEquals("began", event.type);
         assertEquals("focus-loss", event.reason);
     }
@@ -26,7 +25,6 @@ public class VoiceAudioSessionPluginTest {
             VoiceAudioSessionPlugin.FocusEvent.fromFocusChange(
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
             );
-
         assertEquals("began", transientEvent.type);
         assertEquals("interruption", transientEvent.reason);
         assertNull(duckingEvent);
@@ -36,13 +34,15 @@ public class VoiceAudioSessionPluginTest {
     public void focusGainEndsWithResumeReason() {
         VoiceAudioSessionPlugin.FocusEvent event =
             VoiceAudioSessionPlugin.FocusEvent.fromFocusChange(AudioManager.AUDIOFOCUS_GAIN);
-
         assertEquals("ended", event.type);
         assertEquals("resume", event.reason);
     }
 
     @Test
-    public void unknownFocusChangesAreIgnored() {
-        assertNull(VoiceAudioSessionPlugin.FocusEvent.fromFocusChange(42));
+    public void routeChangesUseTheSharedInterruptionPayload() {
+        VoiceAudioSessionPlugin.FocusEvent event =
+            VoiceAudioSessionPlugin.FocusEvent.routeChange();
+        assertEquals("began", event.type);
+        assertEquals("route-change", event.reason);
     }
 }

@@ -31,7 +31,7 @@ import {
  */
 export interface VoiceAudioInterruptionEvent {
   type: "began" | "ended";
-  reason?: "interruption" | "focus-loss" | "resume";
+  reason?: "interruption" | "focus-loss" | "route-change" | "resume";
 }
 
 interface VoiceAudioSessionPlugin {
@@ -80,9 +80,9 @@ export async function deactivateVoiceAudioSession(): Promise<void> {
 /**
  * Subscribe to native interruption, focus, and resume events.
  *
- * Consumers should end the voice session on `type: "began"` — the mic is gone,
- * and a session that silently keeps "listening" into a dead input is worse than
- * one that ends. Do NOT auto-resume on `ended`: the user restarts explicitly.
+ * Consumers should end the voice session on `type: "began"` unless the reason
+ * is `route-change`. Route changes preserve the live media tracks. Do not
+ * auto-resume on `ended`; the user restarts explicitly.
  *
  * Registration is asynchronous, so an unsubscribe that beats it removes the
  * handle on arrival rather than leaking it.

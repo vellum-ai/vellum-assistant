@@ -109,9 +109,10 @@ are disabled, and token values are never written to logs or crash metadata.
 
 The `VoiceAudioSession` plugin requests transient voice-communication audio
 focus while a live voice session is active. Calls and competing media produce
-the same interruption payload used by iOS. Duckable audio and device-route
-changes do not end the voice session. Focus is released when voice ends or the
-activity closes so interrupted media can resume.
+the same interruption payload used by iOS. Wired and Bluetooth changes emit a
+nonfatal route-change payload, and duckable audio does not end the voice
+session. Focus is released when voice ends or the activity closes so
+interrupted media can resume.
 
 Microphone capture and the voice socket remain in the foreground WebView. No
 microphone foreground service is used. Physical-device background validation

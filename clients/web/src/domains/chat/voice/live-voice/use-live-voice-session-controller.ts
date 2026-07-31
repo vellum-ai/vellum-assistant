@@ -70,19 +70,21 @@ function useNativeAudioSessionLifecycle(): void {
     let wantsAudioFocus = false;
     let hasAudioFocus = false;
     let reconcilingAudioFocus = false;
+    let reconcileRequested = false;
+    let lastSettledState = useLiveVoiceStore.getState().state;
 
     const reconcileAudioFocus = async (): Promise<void> => {
       if (reconcilingAudioFocus) {
+        reconcileRequested = true;
         return;
       }
       reconcilingAudioFocus = true;
-      let activationFailed = false;
+      reconcileRequested = false;
       try {
         while (wantsAudioFocus !== hasAudioFocus) {
           if (wantsAudioFocus) {
             hasAudioFocus = await activateVoiceAudioSession();
             if (!hasAudioFocus) {
-              activationFailed = true;
               return;
             }
           } else {
@@ -92,17 +94,23 @@ function useNativeAudioSessionLifecycle(): void {
         }
       } finally {
         reconcilingAudioFocus = false;
-        if (!activationFailed && wantsAudioFocus !== hasAudioFocus) {
+        if (reconcileRequested && wantsAudioFocus !== hasAudioFocus) {
           void reconcileAudioFocus();
         }
       }
     };
 
     const syncAudioFocus = (): void => {
+      const settledState = useLiveVoiceStore.getState().state;
+      const stateChanged = settledState !== lastSettledState;
+      lastSettledState = settledState;
       const nextWantsAudioFocus = isLiveVoiceSessionActive(
-        useLiveVoiceStore.getState().state,
+        settledState,
       );
-      if (nextWantsAudioFocus === wantsAudioFocus) {
+      if (
+        nextWantsAudioFocus === wantsAudioFocus &&
+        (!stateChanged || hasAudioFocus)
+      ) {
         return;
       }
       wantsAudioFocus = nextWantsAudioFocus;
@@ -122,7 +130,7 @@ function useNativeAudioSessionLifecycle(): void {
         // A phone call or Siri has taken the mic. End the session rather than
         // leave it "listening" into a dead input. No auto-resume on `ended`:
         // the user restarts explicitly.
-        if (event.type !== "began") {
+        if (event.type !== "began" || event.reason === "route-change") {
           return;
         }
         if (!isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {

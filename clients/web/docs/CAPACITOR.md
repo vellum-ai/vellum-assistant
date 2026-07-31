@@ -143,7 +143,7 @@ References:
 
 ## Native voice bridge
 
-Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives entirely under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus and uses the same optional status contract.
+Live voice is a web feature with native accessories. The session, including mic capture, the velay socket, TTS playback, and every user-facing string, lives entirely under `src/domains/chat/voice/live-voice/`. iOS adds interruption reporting, a Dynamic Island and Lock Screen presence, and App Intents. Android adds foreground audio focus. Its status surface is not implemented, so `VoiceLiveActivity` remains iOS-only.
 
 The shell registers **four** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) — count them there, not from prose:
 
@@ -167,10 +167,10 @@ This is a rule, not a caveat. The iOS app is a `server.url` shell: it bundles no
 Three things follow from the rule:
 
 - **Pick a fallback the caller can proceed with.** `startVoiceLiveActivity()` resolves `false`, `endVoiceLiveActivity()` resolves `undefined`. There is no error branch to write, and no call site may treat a `false` as a reason not to start a session.
-- **Fire and forget at the call site.** A bare `void` is enough because every export resolves a safe fallback. A hung or failed bridge call must never delay a voice session.
+- **Fire and forget at the call site.** A bare `void` is enough: because every export in these modules goes through `callNativeVoice`, none of them can reject, so there is no rejection for a call site to handle. A hung or failed bridge call must never delay a voice session.
 - **Destructure the plugin inline inside `invoke`.** The lazy-import rule at the top of this document applies verbatim: only the *result* may cross the `async` boundary, never the plugin Proxy.
 
-**No capability probes.** Neither voice plugin exposes an `isAvailable`. `startVoiceLiveActivity()` resolving `false` covers every reason the status surface is absent: a browser, an older shell, or a disabled platform surface. A probe that can itself be absent only moves the problem.
+**No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` already covers every reason there is no native side: off-iOS, an older shell, and the user having switched Live Activities off in Settings. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
 
 ### The background-audio contract
 
@@ -184,7 +184,7 @@ That history is the reason this is device-only territory. A change here that loo
 
 Android's `useNativeAudioSessionLifecycle` calls `activateVoiceAudioSession()` to request transient audio focus for the foreground WebView. It does not move capture into native code or claim screen-lock or app-switching support.
 
-The iOS `VoiceAudioSession` plugin stays in the shell because its interruption reporting listens to `AVAudioSession.sharedInstance()`. It still hears a phone call or Siri taking the input from WebKit's session without activating the session itself.
+The `VoiceAudioSession` plugin stays in the shell: its interruption reporting listens to `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri taking the input from WebKit's session, which is unrelated to owning a session ourselves.
 
 What is genuinely still open on iOS is **background audio**. The list below describes what an active iOS session *would* buy. None of it is in effect today because iOS never activates one. `UIBackgroundModes: audio` in `clients/ios/App/App/Info.plist`, plus an active `.playAndRecord` / `.voiceChat` session, would buy:
 
@@ -248,10 +248,8 @@ session around microphone capture. Changing the active session underneath
 WebKit can leave its live capture unit detached from the microphone.
 
 The iOS `VoiceAudioSession` plugin can perform that reconfiguration, but its
-`activate` method has no production caller. Android implements the same bridge
-contract by requesting audio focus without changing the WebView's audio mode or
-capture path. See § "Native voice bridge" and "The background-audio contract"
-before changing either implementation.
+`activate` method has no production caller. Android only requests audio focus;
+it does not change the WebView audio mode or capture path.
 
 Direct `AudioContext.destination` playback is not supplied to WebKit's capture
 unit as far-end audio for acoustic echo cancellation. On Capacitor iOS, route

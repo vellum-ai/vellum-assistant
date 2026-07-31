@@ -2,6 +2,8 @@ package ai.vocify.vellumassistant;
 
 import android.content.Context;
 import android.media.AudioAttributes;
+import android.media.AudioDeviceCallback;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.os.Build;
@@ -19,9 +21,22 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
     private static final String FAILURE_CODE = "AUDIO_SESSION_FAILED";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final AudioDeviceCallback deviceCallback = new AudioDeviceCallback() {
+        @Override
+        public void onAudioDevicesAdded(AudioDeviceInfo[] addedDevices) {
+            emitRouteChange(addedDevices);
+        }
+
+        @Override
+        public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) {
+            emitRouteChange(removedDevices);
+        }
+    };
     private AudioFocusRequest focusRequest;
     private AudioManager audioManager;
     private boolean active;
+    private boolean deviceCallbackRegistered;
+    private boolean routeCallbacksReady;
 
     @Override
     public void load() {
@@ -79,6 +94,9 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
                 return;
             }
             active = true;
+            audioManager.registerAudioDeviceCallback(deviceCallback, mainHandler);
+            deviceCallbackRegistered = true;
+            mainHandler.post(() -> routeCallbacksReady = active && deviceCallbackRegistered);
             call.resolve(activationResult(true));
         } catch (RuntimeException exception) {
             releaseAudioFocus();
@@ -100,6 +118,7 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
 
     @SuppressWarnings("deprecation")
     private void releaseAudioFocus() {
+        stopRouteMonitoring();
         if (audioManager == null) {
             active = false;
             return;
@@ -124,8 +143,38 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
         }
         if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
             active = false;
+            stopRouteMonitoring();
         }
         notifyListeners(EVENT_NAME, event.toJSObject());
+    }
+
+    private void emitRouteChange(AudioDeviceInfo[] devices) {
+        if (!active || !routeCallbacksReady) {
+            return;
+        }
+        for (AudioDeviceInfo device : devices) {
+            if (isCommunicationRoute(device.getType())) {
+                notifyListeners(EVENT_NAME, FocusEvent.routeChange().toJSObject());
+                return;
+            }
+        }
+    }
+
+    private static boolean isCommunicationRoute(int type) {
+        return type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+            type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+            type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+            type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+            type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+            type == AudioDeviceInfo.TYPE_HEARING_AID;
+    }
+
+    private void stopRouteMonitoring() {
+        if (audioManager != null && deviceCallbackRegistered) {
+            audioManager.unregisterAudioDeviceCallback(deviceCallback);
+        }
+        deviceCallbackRegistered = false;
+        routeCallbacksReady = false;
     }
 
     private void runOnMainThread(Runnable action) {
@@ -149,6 +198,10 @@ public class VoiceAudioSessionPlugin extends Plugin implements AudioManager.OnAu
         private FocusEvent(String type, String reason) {
             this.type = type;
             this.reason = reason;
+        }
+
+        static FocusEvent routeChange() {
+            return new FocusEvent("began", "route-change");
         }
 
         static FocusEvent fromFocusChange(int focusChange) {

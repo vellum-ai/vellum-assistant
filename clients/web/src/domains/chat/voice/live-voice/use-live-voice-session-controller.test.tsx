@@ -30,7 +30,10 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
 // faking `isNativeIOS`) so the controller's lifecycle wiring is asserted
 // directly; the bridge's own off-native/skew behavior is pinned by
 // `runtime/native-audio-session.test.ts`.
-type InterruptionEvent = { type: "began" | "ended" };
+type InterruptionEvent = {
+  type: "began" | "ended";
+  reason?: "interruption" | "focus-loss" | "route-change" | "resume";
+};
 let onNativeAndroid = false;
 let onNativeIOS = false;
 const activateVoiceAudioSession = mock(async () => true);
@@ -407,6 +410,39 @@ describe("native audio session", () => {
     });
 
     expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("Android retries denied focus on a later active phase", async () => {
+    onNativeAndroid = true;
+    activateVoiceAudioSession
+      .mockImplementationOnce(async () => false)
+      .mockImplementation(async () => true);
+    renderPersistentController();
+
+    await act(async () => {
+      useLiveVoiceStore.getState().starter?.start("assistant-1", "conv-1");
+      await Promise.resolve();
+    });
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      useLiveVoiceStore.getState().setState("listening");
+      await Promise.resolve();
+    });
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(2);
+  });
+
+  test("Android route changes do not end the session", async () => {
+    onNativeAndroid = true;
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+
+    act(() => {
+      emitInterruption({ type: "began", reason: "route-change" });
+    });
+
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(h.lastClient().closed).toBe(false);
   });
 
   test("Android releases focus after a native interruption ends voice", async () => {
