@@ -79,22 +79,59 @@ afterEach(() => {
 
 describe("worker ownership classification", () => {
   const alive = () => true;
+  // Whether PID 1 is an assistant daemon (exec'd as PID 1) or an init process.
+  const PID1_IS_INIT = false;
+  const PID1_IS_DAEMON = true;
 
   test("a worker parented to us is ours to reclaim", () => {
-    expect(classifyWorkerOwnership({ pid: 100, ppid: 42 }, 42, alive)).toBe(
-      "reclaim",
-    );
+    expect(
+      classifyWorkerOwnership({ pid: 100, ppid: 42 }, 42, alive, PID1_IS_INIT),
+    ).toBe("reclaim");
   });
 
   test("a worker reparented to init is an orphan", () => {
-    expect(classifyWorkerOwnership({ pid: 100, ppid: 1 }, 42, alive)).toBe(
-      "orphan",
-    );
+    expect(
+      classifyWorkerOwnership({ pid: 100, ppid: 1 }, 42, alive, PID1_IS_INIT),
+    ).toBe("orphan");
   });
 
   test("a worker whose owner is gone is an orphan", () => {
     expect(
-      classifyWorkerOwnership({ pid: 100, ppid: 999 }, 42, () => false),
+      classifyWorkerOwnership(
+        { pid: 100, ppid: 999 },
+        42,
+        () => false,
+        PID1_IS_INIT,
+      ),
+    ).toBe("orphan");
+  });
+
+  /**
+   * Where `docker-entrypoint.sh` execs the daemon, PID 1 is that daemon and a
+   * worker parented to it belongs to a live sibling. A memory-worker process
+   * sweeping alongside must leave it running.
+   */
+  test("a worker parented to a PID 1 daemon belongs to that daemon", () => {
+    expect(
+      classifyWorkerOwnership({ pid: 100, ppid: 1 }, 42, alive, PID1_IS_DAEMON),
+    ).toBe("foreign");
+  });
+
+  test("a daemon running as PID 1 still reclaims its own workers", () => {
+    // Its children match selfPid, which is checked before the PID 1 branch.
+    expect(
+      classifyWorkerOwnership({ pid: 100, ppid: 1 }, 1, alive, PID1_IS_DAEMON),
+    ).toBe("reclaim");
+  });
+
+  /**
+   * Under `docker run --init` the container is still containerized but PID 1 is
+   * docker-init, so a worker reparented there was abandoned and must stay
+   * reclaimable. Deployment shape alone cannot answer this; what PID 1 is can.
+   */
+  test("a worker reparented to an init PID 1 stays reclaimable", () => {
+    expect(
+      classifyWorkerOwnership({ pid: 100, ppid: 1 }, 42, alive, PID1_IS_INIT),
     ).toBe("orphan");
   });
 
@@ -105,9 +142,9 @@ describe("worker ownership classification", () => {
    * spawn, which is the ping-pong in the incident timeline.
    */
   test("a worker owned by another live process is left alone", () => {
-    expect(classifyWorkerOwnership({ pid: 100, ppid: 999 }, 42, alive)).toBe(
-      "foreign",
-    );
+    expect(
+      classifyWorkerOwnership({ pid: 100, ppid: 999 }, 42, alive, PID1_IS_INIT),
+    ).toBe("foreign");
   });
 });
 
@@ -118,7 +155,7 @@ describe("worker process enumeration", () => {
     writeFileSync(scriptPath, "setTimeout(() => {}, 60_000);\n");
 
     const proc = Bun.spawn({
-      cmd: [process.execPath, scriptPath],
+      cmd: [process.execPath, scriptPath, "test-model", "cache-dir"],
       stdout: "ignore",
       stderr: "ignore",
     });
@@ -133,9 +170,9 @@ describe("worker process enumeration", () => {
 
     // Ownership of a child of ours must resolve to "reclaim", which is what
     // lets a spawn reap a worker the instance had lost track of.
-    expect(classifyWorkerOwnership(match!, process.pid, () => true)).toBe(
-      "reclaim",
-    );
+    expect(
+      classifyWorkerOwnership(match!, process.pid, () => true, false),
+    ).toBe("reclaim");
   });
 
   test("does not match another workspace's worker path", () => {
@@ -356,7 +393,7 @@ describe("termination that cannot be confirmed", () => {
     writeFileSync(scriptPath, "setTimeout(() => {}, 60_000);\n");
 
     const proc = Bun.spawn({
-      cmd: [process.execPath, scriptPath],
+      cmd: [process.execPath, scriptPath, "test-model", "cache-dir"],
       stdout: "ignore",
       stderr: "ignore",
     });
@@ -393,7 +430,7 @@ describe("reclaiming before spawning a replacement", () => {
     writeFileSync(scriptPath, "setTimeout(() => {}, 60_000);\n");
 
     const proc = Bun.spawn({
-      cmd: [process.execPath, scriptPath],
+      cmd: [process.execPath, scriptPath, "test-model", "cache-dir"],
       stdout: "ignore",
       stderr: "ignore",
     });
@@ -418,7 +455,7 @@ describe("reclaiming before spawning a replacement", () => {
     );
 
     const proc = Bun.spawn({
-      cmd: [process.execPath, scriptPath],
+      cmd: [process.execPath, scriptPath, "test-model", "cache-dir"],
       stdout: "ignore",
       stderr: "ignore",
     });
@@ -443,7 +480,7 @@ describe("reclaiming before spawning a replacement", () => {
     writeFileSync(
       launcher,
       `import { spawn } from "node:child_process";
-spawn(process.execPath, [${JSON.stringify(scriptPath)}], { stdio: "ignore" });
+spawn(process.execPath, [${JSON.stringify(scriptPath)}, "test-model", "cache-dir"], { stdio: "ignore" });
 setTimeout(() => {}, 60_000);\n`,
     );
     const parent = Bun.spawn({
@@ -661,7 +698,7 @@ describe("audit regressions", () => {
     writeFileSync(scriptPath, "setTimeout(() => {}, 60_000);\n");
 
     const proc = Bun.spawn({
-      cmd: [process.execPath, scriptPath],
+      cmd: [process.execPath, scriptPath, "test-model", "cache-dir"],
       stdout: "ignore",
       stderr: "ignore",
     });
@@ -691,5 +728,28 @@ describe("audit regressions", () => {
 
     expect(backend.stdoutReaderActive).toBe(false);
     expect(backend.initGuard.active).toBe(false);
+  });
+});
+
+describe("model matching", () => {
+  test("a worker for a longer model name is not matched by a shorter one", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "embed-worker-model-"));
+    const scriptPath = join(dir, "embed-worker.mjs");
+    writeFileSync(scriptPath, "setTimeout(() => {}, 60_000);\n");
+
+    const proc = Bun.spawn({
+      cmd: [process.execPath, scriptPath, "foo/bar-small-v2", "cache-dir"],
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    spawned.push(proc);
+    await Bun.sleep(400);
+
+    // The worker script path is shared by every local model, so only the model
+    // argv token separates one backend's worker from another's in one process.
+    expect(listWorkerProcesses(scriptPath, "foo/bar-small")).toEqual([]);
+    expect(
+      listWorkerProcesses(scriptPath, "foo/bar-small-v2").map((w) => w.pid),
+    ).toEqual([proc.pid]);
   });
 });

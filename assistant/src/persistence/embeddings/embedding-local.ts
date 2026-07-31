@@ -67,14 +67,6 @@ function clearModelCache(): void {
 /** How long a worker gets to exit after each signal before we escalate. */
 const WORKER_TERMINATE_GRACE_MS = 2_000;
 
-/**
- * Worst-case time to tear down one worker: the SIGTERM wait plus the SIGKILL
- * wait. Exported so a caller that bounds its own shutdown (the standalone
- * memory-worker process) can budget above this instead of guessing, which
- * would otherwise exit before disposal could finish on the slow path.
- */
-export const WORKER_TEARDOWN_BUDGET_MS = WORKER_TERMINATE_GRACE_MS * 2;
-
 /** Poll interval while waiting for a worker we hold no handle for to exit. */
 const WORKER_EXIT_POLL_MS = 50;
 
@@ -117,6 +109,14 @@ interface WorkerProcess {
  * - `foreign`: owned by another live process. The memory-worker process runs
  *   its own backend against this same workspace and is entitled to its own
  *   worker; signalling it is what made the two replace each other in a loop.
+ *
+ * A parent of PID 1 is ambiguous, and resolving it wrongly in either direction
+ * costs something real. `docker-entrypoint.sh` execs the daemon, so PID 1 can
+ * BE the daemon and its child a healthy sibling's worker. Under `docker run
+ * --init`, and on any host, PID 1 is an init process instead, so the same
+ * parentage means the owner died and the worker needs reclaiming. Callers
+ * therefore pass what PID 1 actually is rather than inferring it from whether
+ * the deployment is containerized, which is true in both container shapes.
  */
 export type WorkerOwnership = "reclaim" | "orphan" | "foreign";
 
@@ -124,14 +124,51 @@ export function classifyWorkerOwnership(
   worker: WorkerProcess,
   selfPid: number,
   isOwnerAlive: (pid: number) => boolean,
+  pid1OwnsWorkers: boolean,
 ): WorkerOwnership {
   if (worker.ppid === selfPid) {
     return "reclaim";
   }
-  if (worker.ppid <= 1 || !isOwnerAlive(worker.ppid)) {
+  if (worker.ppid <= 1) {
+    return pid1OwnsWorkers ? "foreign" : "orphan";
+  }
+  if (!isOwnerAlive(worker.ppid)) {
     return "orphan";
   }
   return "foreign";
+}
+
+/** Entrypoint the daemon is exec'd with, including inside a container. */
+const DAEMON_ENTRYPOINT_MARKER = "daemon/main";
+
+/**
+ * Whether PID 1 is an assistant daemon rather than an init process.
+ *
+ * True only where the daemon was exec'd as PID 1 (`docker-entrypoint.sh`),
+ * which is what makes a worker parented to 1 a live sibling's rather than an
+ * orphan. Under `docker run --init` PID 1 is docker-init and under launchd or
+ * systemd it is the system init, so both answer false and PID-1 orphans stay
+ * reclaimable. Unreadable means false, which keeps the reclaiming behaviour.
+ */
+function pid1OwnsEmbedWorkers(): boolean {
+  if (process.pid === 1) {
+    return true;
+  }
+  let cmd: string;
+  try {
+    cmd = readFileSync("/proc/1/cmdline", "utf8").split("\0").join(" ");
+  } catch {
+    const result = Bun.spawnSync({
+      cmd: ["ps", "-ww", "-p", "1", "-o", "command="],
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    if (result.exitCode !== 0) {
+      return false;
+    }
+    cmd = new TextDecoder().decode(result.stdout);
+  }
+  return cmd.includes(DAEMON_ENTRYPOINT_MARKER);
 }
 
 /** Enumerate `(pid, ppid, rawCommand)` rows from Linux `/proc`. */
@@ -206,7 +243,10 @@ function listProcessRowsFromPs(): { pid: number; ppid: number; cmd: string }[] {
  * read for matching only, never stored or logged: process arguments can carry
  * secrets (see the redaction note in `util/process-tree.ts`).
  */
-export function listWorkerProcesses(workerPath: string): WorkerProcess[] {
+export function listWorkerProcesses(
+  workerPath: string,
+  model?: string,
+): WorkerProcess[] {
   let rows: { pid: number; ppid: number; cmd: string }[];
   try {
     rows = listProcessRowsFromProc();
@@ -214,7 +254,14 @@ export function listWorkerProcesses(workerPath: string): WorkerProcess[] {
     rows = listProcessRowsFromPs();
   }
   return rows
-    .filter((r) => r.cmd.includes(workerPath))
+    .filter(
+      (r) =>
+        r.cmd.includes(workerPath) &&
+        // An argv token, not a substring: `foo/bar-small` must not match a
+        // `foo/bar-small-v2` worker, or a backend for the shorter name would
+        // reclaim the longer one's live worker. Model names carry no spaces.
+        (!model || r.cmd.split(/\s+/).includes(model)),
+    )
     .map((r) => ({ pid: r.pid, ppid: r.ppid }));
 }
 
@@ -327,9 +374,8 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       // an escaping EPIPE reaches the daemon's `unhandledRejection` handler,
       // which tears down the whole process (JARVIS-1125).
       //
-      // The guard covers `write`, not just `flush`. Both are synchronous on
-      // Bun's FileSink, and `write` is the call that actually raises the broken
-      // pipe, so wrapping `flush` alone (as this did) never caught it.
+      // The guard covers `write` as well as `flush`: both are synchronous on
+      // Bun's FileSink, and `write` is the call that raises the broken pipe.
       try {
         proc.stdin.write(JSON.stringify({ id, texts }) + "\n");
         proc.stdin.flush();
@@ -481,10 +527,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       await this.waitForReady();
     } catch (err) {
       // Startup failed. Release ownership through the same bounded path every
-      // other teardown uses: a worker wedged in native ONNX ignores SIGTERM,
-      // and the bare `await proc.exited` this used to do would hang here
-      // forever, leaving the init guard holding a promise that never settles
-      // and every later embed waiting on it.
+      // other teardown uses: a worker wedged in native ONNX ignores SIGTERM, so
+      // an unbounded wait here would leave the init guard holding a promise
+      // that never settles and every later embed queued behind it.
       this.workerProc = null;
       this.stdoutReaderActive = false;
       // A partial line from the dead worker would otherwise be prepended to the
@@ -686,7 +731,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       return false;
     }
     const stillListed = this.workerPath
-      ? listWorkerProcesses(this.workerPath).some((w) => w.pid === pid)
+      ? listWorkerProcesses(this.workerPath, this.model).some(
+          (w) => w.pid === pid,
+        )
       : isProcessAlive(pid);
     if (!stillListed) {
       log.info(
@@ -714,12 +761,16 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   ): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      if (!listWorkerProcesses(workerPath).some((w) => w.pid === pid)) {
+      if (
+        !listWorkerProcesses(workerPath, this.model).some((w) => w.pid === pid)
+      ) {
         return true;
       }
       await Bun.sleep(WORKER_EXIT_POLL_MS);
     }
-    return !listWorkerProcesses(workerPath).some((w) => w.pid === pid);
+    return !listWorkerProcesses(workerPath, this.model).some(
+      (w) => w.pid === pid,
+    );
   }
 
   private readyResolve: (() => void) | null = null;
@@ -882,7 +933,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    * generations, not just the single entry a PID file can hold.
    */
   private async reclaimOwnedWorkers(workerPath: string): Promise<void> {
-    for (const worker of listWorkerProcesses(workerPath)) {
+    for (const worker of listWorkerProcesses(workerPath, this.model)) {
       // Never signal ourselves. This should not happen, since the worker is a
       // child process, but guard against logic bugs that would deadlock us.
       if (worker.pid === process.pid) {
@@ -893,6 +944,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         worker,
         process.pid,
         isProcessAlive,
+        pid1OwnsEmbedWorkers(),
       );
       if (ownership === "foreign") {
         continue;
@@ -1030,7 +1082,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     if (!this.workerPath) {
       return;
     }
-    for (const worker of listWorkerProcesses(this.workerPath)) {
+    for (const worker of listWorkerProcesses(this.workerPath, this.model)) {
       if (worker.ppid !== process.pid || worker.pid === proc?.pid) {
         continue;
       }
