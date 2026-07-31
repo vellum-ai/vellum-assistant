@@ -320,25 +320,34 @@ export async function emitNotificationSignal<TEventName extends string>(
 
     let decision = await evaluateSignal(signal, connectedChannels);
 
-    // Step 2.5a: High/critical urgency signals always get a system
-    // notification via the vellum channel, regardless of what the
-    // decision engine selected. This ensures macOS surfaces a banner
-    // even when the app is focused.
+    // Baseline for the re-persist check below. Captured before the policy
+    // steps (2.5a/2.5b/2.5c) so any of them replacing the decision triggers
+    // the re-persist and the stored row matches what is dispatched.
+    const prePolicyDecision = decision;
+
+    // Step 2.5a: High/critical urgency signals always get both the in-app
+    // system notification (vellum) and the remote push (platform),
+    // regardless of what the decision engine selected. macOS surfaces a
+    // banner even when the app is focused, and a suspended iOS device is
+    // only reachable via APNs.
     const urgency = signal.attentionHints.urgency;
     if (
       (urgency === "high" || urgency === "critical") &&
-      decision.shouldNotify &&
-      !decision.selectedChannels.includes("vellum")
+      decision.shouldNotify
     ) {
-      decision = {
-        ...decision,
-        selectedChannels: ["vellum", ...decision.selectedChannels],
-        reasoningSummary: `${decision.reasoningSummary} (vellum forced: ${urgency} urgency)`,
-      };
+      const forcedChannels: NotificationChannel[] = (
+        ["vellum", "platform"] as const
+      ).filter((channel) => !decision.selectedChannels.includes(channel));
+      if (forcedChannels.length > 0) {
+        decision = {
+          ...decision,
+          selectedChannels: [...forcedChannels, ...decision.selectedChannels],
+          reasoningSummary: `${decision.reasoningSummary} (${forcedChannels.join(", ")} forced: ${urgency} urgency)`,
+        };
+      }
     }
 
     // Step 2.5b: Enforce routing intent policy (fire-time guard)
-    const preEnforcementDecision = decision;
     decision = enforceRoutingIntent(
       decision,
       signal.routingIntent,
@@ -368,9 +377,10 @@ export async function emitNotificationSignal<TEventName extends string>(
       };
     }
 
-    // Re-persist the decision if routing intent enforcement changed it,
-    // so the stored decision row matches what is actually dispatched.
-    if (decision !== preEnforcementDecision && decision.persistedDecisionId) {
+    // Re-persist the decision if any policy step changed it (urgency channel
+    // forcing, routing intent enforcement, or the access-request vellum
+    // floor), so the stored decision row matches what is actually dispatched.
+    if (decision !== prePolicyDecision && decision.persistedDecisionId) {
       try {
         updateDecision(decision.persistedDecisionId, {
           selectedChannels: decision.selectedChannels,
@@ -384,7 +394,7 @@ export async function emitNotificationSignal<TEventName extends string>(
       } catch (err) {
         log.warn(
           { err, signalId },
-          "Failed to re-persist decision after routing intent enforcement",
+          "Failed to re-persist decision after policy enforcement",
         );
       }
     }
