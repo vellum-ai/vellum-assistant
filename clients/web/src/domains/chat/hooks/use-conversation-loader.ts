@@ -232,10 +232,11 @@ export function useConversationLoader({
   // A failure inside the resume grace window is held back: the focus manager
   // refetches the list the moment the client returns to the foreground, and
   // that first request often fails transiently against a still-waking pod.
-  // The banner surfaces once the window expires and the query is still in
-  // error with nothing cached to show.
+  // The list also carries TanStack Query's default reconnect refetch, so the
+  // window covers the `"online"` signal too. The banner surfaces once the
+  // window expires and the query is still in error with nothing cached.
   // -------------------------------------------------------------------------
-  const isResumeGraceActive = useResumeGrace();
+  const isResumeGraceActive = useResumeGrace({ includeOnlineSignal: true });
   const capturedListErrorRef = useRef<unknown>(null);
   useEffect(() => {
     if (assistantStateKind !== "active") {

@@ -152,6 +152,29 @@ describe("useConversationLoader resume grace on list-load errors", () => {
     });
   });
 
+  test("holds back the load-failed banner on a network-back resume", () => {
+    /**
+     * The list query carries TanStack Query's default reconnect refetch, so a
+     * network-back resume triggers the same first-request-against-a-waking-pod
+     * failure as a foreground resume and must be held back too.
+     */
+
+    // GIVEN a mounted loader with no cached conversation list
+    const { rerender } = renderLoader();
+
+    // AND the browser reports the network came back
+    act(() => {
+      publish("app.resume", { signal: "online" });
+    });
+
+    // WHEN the reconnect refetch errors transiently
+    listError = new ApiError(503, "boom");
+    rerender();
+
+    // THEN no load-failed banner is raised
+    expect(currentErrorCode()).toBeNull();
+  });
+
   test("raises the load-failed banner immediately without a resume", () => {
     /**
      * The grace window is armed only by a resume, so an ordinary bootstrap
