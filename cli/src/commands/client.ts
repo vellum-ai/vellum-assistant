@@ -16,12 +16,11 @@ import {
   GATEWAY_PORT,
   type Species,
 } from "../lib/constants";
+import { normalizeRuntimeUrl } from "../lib/runtime-url";
 import {
-  loadGuardianToken,
-  refreshGuardianToken,
-  guardianTokenDueForRenewal,
-} from "../lib/guardian-token";
-import { normalizeRuntimeUrl, trustedRefreshUrl } from "../lib/runtime-url";
+  loadGuardianSessionAccessToken,
+  resolveFreshBearerToken,
+} from "../lib/guardian-session-auth.js";
 import {
   CLI_INTERFACE_ID,
   WEB_INTERFACE_ID,
@@ -255,7 +254,7 @@ export function parseArgs(): ParsedArgs {
     ? bearerTokenOverride
     : cloud === "vellum"
       ? undefined
-      : (loadGuardianToken(entry?.assistantId ?? "")?.accessToken ?? undefined);
+      : loadGuardianSessionAccessToken(entry?.assistantId ?? "");
 
   let interfaceId: SupportedInterface = CLI_INTERFACE_ID;
 
@@ -1275,48 +1274,7 @@ async function runViteDevServer(
   });
 }
 
-/**
- * Return a possibly-refreshed bearer token for the TUI's startup auth.
- *
- * Only a STORED guardian token is refreshable: platform session auth
- * (`cloud === "vellum"`) and ephemeral `--token` overrides (whose token won't
- * match the store) are left untouched, as is a token that's still fresh. When
- * the stored token has passed its `refreshAfter` (or expiry) and a refresh
- * token is available, refresh once via the concurrency-safe refreshGuardianToken
- * and use the rotated access token. Falls back to the existing token if refresh
- * isn't possible/fails — the session still starts (same as before).
- */
-export async function resolveFreshBearerToken(
-  runtimeUrl: string,
-  assistantId: string,
-  bearerToken: string | undefined,
-  cloud: string | undefined,
-): Promise<string | undefined> {
-  if (cloud === "vellum" || !bearerToken || !assistantId) return bearerToken;
-
-  const stored = loadGuardianToken(assistantId);
-  // Refresh only the stored token (an ephemeral --token won't match), and only
-  // when a refresh credential is present.
-  if (!stored || stored.accessToken !== bearerToken || !stored.refreshToken) {
-    return bearerToken;
-  }
-
-  // Only refresh once the stored token is actually due for renewal.
-  if (!guardianTokenDueForRenewal(stored)) return bearerToken;
-
-  // SECURITY: bind the refresh to the entry's persisted URL. `--url`/`-u` can
-  // override `runtimeUrl` while still reusing this stored guardian token, so a
-  // poisoned/attacker URL must not receive the long-lived refreshToken +
-  // deviceId. Refresh only when the URL is one of the entry's persisted URLs,
-  // and send to the trusted persisted URL — not the caller-supplied one.
-  const lookup = lookupAssistantByIdentifier(assistantId);
-  if (lookup.status !== "found") return bearerToken;
-  const refreshUrl = trustedRefreshUrl(lookup.entry, runtimeUrl);
-  if (!refreshUrl) return bearerToken;
-
-  const refreshed = await refreshGuardianToken(refreshUrl, assistantId);
-  return refreshed?.accessToken ?? bearerToken;
-}
+export { resolveFreshBearerToken };
 
 export async function client(): Promise<void> {
   const {

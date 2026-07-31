@@ -16,6 +16,9 @@ import {
   fetchAssistantDetail,
   fetchUpgradeInProgress,
   getPlatformUrl,
+  invalidateOrgIdCache,
+  LiveVoiceTokenMintError,
+  mintLiveVoiceToken,
   readPlatformToken,
   savePlatformToken,
 } from "../lib/platform-client.js";
@@ -123,15 +126,18 @@ describe("platform-client token path is env-scoped", () => {
 describe("getPlatformUrl resolution order", () => {
   let tempLockDir: string;
   let savedLockDir: string | undefined;
+  let savedXdg: string | undefined;
   let savedEnv: string | undefined;
   let savedPlatformUrl: string | undefined;
 
   beforeEach(() => {
     savedLockDir = process.env.VELLUM_LOCKFILE_DIR;
+    savedXdg = process.env.XDG_CONFIG_HOME;
     savedEnv = process.env.VELLUM_ENVIRONMENT;
     savedPlatformUrl = process.env.VELLUM_PLATFORM_URL;
     tempLockDir = mkdtempSync(join(tmpdir(), "cli-platform-url-test-"));
     process.env.VELLUM_LOCKFILE_DIR = tempLockDir;
+    process.env.XDG_CONFIG_HOME = tempLockDir;
     delete process.env.VELLUM_ENVIRONMENT;
     delete process.env.VELLUM_PLATFORM_URL;
   });
@@ -141,6 +147,11 @@ describe("getPlatformUrl resolution order", () => {
       delete process.env.VELLUM_LOCKFILE_DIR;
     } else {
       process.env.VELLUM_LOCKFILE_DIR = savedLockDir;
+    }
+    if (savedXdg === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = savedXdg;
     }
     if (savedEnv === undefined) {
       delete process.env.VELLUM_ENVIRONMENT;
@@ -315,5 +326,124 @@ describe("fetchAssistantDetail / fetchUpgradeInProgress", () => {
     expect(
       await fetchUpgradeInProgress(TOKEN, ASSISTANT_ID, PLATFORM_URL),
     ).toBeNull();
+  });
+});
+
+describe("mintLiveVoiceToken", () => {
+  const SESSION_TOKEN = "session-token-value";
+  const ASSISTANT_ID = "11111111-2222-3333-4444-555555555555";
+  const PLATFORM_URL = "https://platform.example.com";
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    invalidateOrgIdCache(SESSION_TOKEN, PLATFORM_URL);
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    invalidateOrgIdCache(SESSION_TOKEN, PLATFORM_URL);
+  });
+
+  test("mints with session and organization headers", async () => {
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    globalThis.fetch = mock(
+      async (url: RequestInfo | URL, init?: RequestInit) => {
+        requests.push({ url: String(url), init });
+        if (String(url).endsWith("/v1/organizations/")) {
+          return Response.json({
+            results: [{ id: "org-abc", name: "Example Organization" }],
+          });
+        }
+        return Response.json({
+          token: "minted-token",
+          expiresAt,
+        });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const result = await mintLiveVoiceToken(
+      SESSION_TOKEN,
+      ASSISTANT_ID,
+      PLATFORM_URL,
+    );
+
+    expect(result).toEqual({
+      token: "minted-token",
+      expiresAt,
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.url).toBe(`${PLATFORM_URL}/v1/auth/live-voice-token/`);
+    expect(requests[1]?.init?.method).toBe("POST");
+    const headers = new Headers(requests[1]?.init?.headers);
+    expect(headers.get("X-Session-Token")).toBe(SESSION_TOKEN);
+    expect(headers.get("Vellum-Organization-Id")).toBe("org-abc");
+    expect(headers.get("Authorization")).toBeNull();
+    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
+      assistantId: ASSISTANT_ID,
+    });
+  });
+
+  test("rejects platform API keys before making a request", async () => {
+    const fetchMock = mock(async () => Response.json({}));
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    await expect(
+      mintLiveVoiceToken("vak_example", ASSISTANT_ID, PLATFORM_URL),
+    ).rejects.toMatchObject({
+      name: "LiveVoiceTokenMintError",
+      code: "api_key_unsupported",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("rejects malformed token responses without exposing the token", async () => {
+    globalThis.fetch = mock(async (url: RequestInfo | URL) => {
+      if (String(url).endsWith("/v1/organizations/")) {
+        return Response.json({
+          results: [{ id: "org-abc", name: "Example Organization" }],
+        });
+      }
+      return Response.json({
+        token: "secret-minted-token",
+        expiresAt: 123,
+      });
+    }) as unknown as typeof globalThis.fetch;
+
+    try {
+      await mintLiveVoiceToken(SESSION_TOKEN, ASSISTANT_ID, PLATFORM_URL);
+      throw new Error("Expected token minting to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(LiveVoiceTokenMintError);
+      expect((error as LiveVoiceTokenMintError).code).toBe(
+        "malformed_response",
+      );
+      expect(String(error)).not.toContain("secret-minted-token");
+      expect(String(error)).not.toContain(SESSION_TOKEN);
+    }
+  });
+
+  test("does not include platform error bodies or credentials in errors", async () => {
+    globalThis.fetch = mock(async (url: RequestInfo | URL) => {
+      if (String(url).endsWith("/v1/organizations/")) {
+        return Response.json({
+          results: [{ id: "org-abc", name: "Example Organization" }],
+        });
+      }
+      return Response.json(
+        { detail: "secret-response-value" },
+        { status: 503 },
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    try {
+      await mintLiveVoiceToken(SESSION_TOKEN, ASSISTANT_ID, PLATFORM_URL);
+      throw new Error("Expected token minting to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(LiveVoiceTokenMintError);
+      expect((error as LiveVoiceTokenMintError).status).toBe(503);
+      expect(String(error)).not.toContain("secret-response-value");
+      expect(String(error)).not.toContain(SESSION_TOKEN);
+    }
   });
 });

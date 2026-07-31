@@ -82,6 +82,33 @@ export function clearPlatformToken(): void {
 
 const VAK_PREFIX = "vak_";
 
+export interface LiveVoiceToken {
+  token: string;
+  expiresAt: string;
+}
+
+export type LiveVoiceTokenMintErrorCode =
+  | "api_key_unsupported"
+  | "authentication_failed"
+  | "request_failed"
+  | "malformed_response";
+
+export class LiveVoiceTokenMintError extends Error {
+  readonly code: LiveVoiceTokenMintErrorCode;
+  readonly status: number | undefined;
+
+  constructor(
+    code: LiveVoiceTokenMintErrorCode,
+    message: string,
+    status?: number,
+  ) {
+    super(message);
+    this.name = "LiveVoiceTokenMintError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
 /**
  * Sync helper – returns only the token-based auth header.
  *
@@ -185,6 +212,92 @@ export async function authHeaders(
     }
     throw new Error(`Failed to fetch organization: ${msg}`);
   }
+}
+
+function isLiveVoiceToken(value: unknown): value is LiveVoiceToken {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  const expiresAt =
+    typeof candidate.expiresAt === "string"
+      ? Date.parse(candidate.expiresAt)
+      : Number.NaN;
+  return (
+    typeof candidate.token === "string" &&
+    candidate.token.length > 0 &&
+    !/\s/.test(candidate.token) &&
+    Number.isFinite(expiresAt) &&
+    expiresAt > Date.now()
+  );
+}
+
+/**
+ * Mint an assistant-scoped, short-lived token for a managed live-voice
+ * WebSocket. The endpoint accepts user sessions and deliberately rejects
+ * platform API keys.
+ */
+export async function mintLiveVoiceToken(
+  sessionToken: string,
+  assistantId: string,
+  platformUrl?: string,
+): Promise<LiveVoiceToken> {
+  if (sessionToken.startsWith(VAK_PREFIX)) {
+    throw new LiveVoiceTokenMintError(
+      "api_key_unsupported",
+      "Live voice for a managed assistant requires a Vellum user session. Run 'vellum login'.",
+    );
+  }
+
+  let headers: Record<string, string>;
+  try {
+    headers = await authHeaders(sessionToken, platformUrl);
+  } catch {
+    throw new LiveVoiceTokenMintError(
+      "authentication_failed",
+      "Live-voice authentication failed. Run 'vellum login' to refresh.",
+    );
+  }
+
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  let response: Response;
+  try {
+    response = await loopbackSafeFetch(
+      `${resolvedUrl}/v1/auth/live-voice-token/`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ assistantId }),
+        signal: AbortSignal.timeout(PLATFORM_FETCH_TIMEOUT_MS),
+      },
+    );
+  } catch {
+    throw new LiveVoiceTokenMintError(
+      "request_failed",
+      "The live-voice token request could not reach the Vellum platform.",
+    );
+  }
+
+  if (!response.ok) {
+    const authenticationFailure =
+      response.status === 401 || response.status === 403;
+    throw new LiveVoiceTokenMintError(
+      authenticationFailure ? "authentication_failed" : "request_failed",
+      authenticationFailure
+        ? "Live-voice authentication failed. Run 'vellum login' to refresh."
+        : `The Vellum platform could not mint a live-voice token (HTTP ${response.status}).`,
+      response.status,
+    );
+  }
+
+  const body: unknown = await response.json().catch(() => null);
+  if (!isLiveVoiceToken(body)) {
+    throw new LiveVoiceTokenMintError(
+      "malformed_response",
+      "The Vellum platform returned a malformed live-voice token response.",
+    );
+  }
+  return body;
 }
 
 export interface HatchedAssistant {
