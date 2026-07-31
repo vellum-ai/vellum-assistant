@@ -467,3 +467,177 @@ describe("access-request vellum floor", () => {
     expect(dispatched.reasoningSummary).not.toContain("vellum forced");
   });
 });
+
+describe("high/critical urgency channel force", () => {
+  beforeEach(() => {
+    evaluateSignalMock.mockReset();
+    enforceRoutingIntentMock.mockReset();
+    updateDecisionMock.mockReset();
+    runDeterministicChecksMock.mockReset();
+    createEventMock.mockReset();
+    updateEventDedupeKeyMock.mockReset();
+    dispatchDecisionMock.mockReset();
+    createEventMock.mockReturnValue({ id: "evt-1" });
+    runDeterministicChecksMock.mockResolvedValue({ passed: true });
+    dispatchDecisionMock.mockResolvedValue({
+      dispatched: true,
+      reason: "ok",
+      deliveryResults: [],
+    });
+    enforceRoutingIntentMock.mockImplementation(
+      (decision: unknown) => decision,
+    );
+  });
+
+  function makeDecision(overrides: Record<string, unknown>) {
+    return {
+      shouldNotify: true,
+      selectedChannels: ["telegram"],
+      reasoningSummary: "LLM selected telegram only",
+      renderedCopy: {},
+      dedupeKey: "dedupe-urg-1",
+      confidence: 0.9,
+      fallbackUsed: false,
+      persistedDecisionId: "dec-urg-1",
+      ...overrides,
+    };
+  }
+
+  function emitWithUrgency(urgency: "low" | "medium" | "high" | "critical") {
+    return emitNotificationSignal({
+      sourceEventName: "schedule.notify",
+      sourceChannel: "scheduler",
+      sourceContextId: "rem-urg-1",
+      attentionHints: {
+        requiresAction: true,
+        urgency,
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: { reminderId: "rem-urg-1" },
+    });
+  }
+
+  test("forces vellum and platform onto a high-urgency decision missing both", async () => {
+    evaluateSignalMock.mockResolvedValue(makeDecision({}));
+
+    const result = await emitWithUrgency("high");
+
+    expect(result.dispatched).toBe(true);
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      selectedChannels: string[];
+      reasoningSummary: string;
+    };
+    expect(dispatched.selectedChannels).toContain("vellum");
+    expect(dispatched.selectedChannels).toContain("platform");
+    expect(dispatched.selectedChannels).toContain("telegram");
+    expect(dispatched.reasoningSummary).toContain(
+      "(vellum, platform forced: high urgency)",
+    );
+  });
+
+  test("forces only the missing channel when the other is already selected", async () => {
+    evaluateSignalMock.mockResolvedValue(
+      makeDecision({ selectedChannels: ["vellum"] }),
+    );
+
+    await emitWithUrgency("critical");
+
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      selectedChannels: string[];
+      reasoningSummary: string;
+    };
+    expect(dispatched.selectedChannels).toEqual(["platform", "vellum"]);
+    expect(dispatched.reasoningSummary).toContain(
+      "(platform forced: critical urgency)",
+    );
+  });
+
+  test("leaves a high-urgency decision untouched when both channels are already selected", async () => {
+    evaluateSignalMock.mockResolvedValue(
+      makeDecision({ selectedChannels: ["vellum", "platform"] }),
+    );
+
+    await emitWithUrgency("high");
+
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      selectedChannels: string[];
+      reasoningSummary: string;
+    };
+    expect(dispatched.selectedChannels).toEqual(["vellum", "platform"]);
+    expect(dispatched.reasoningSummary).not.toContain("forced");
+  });
+
+  test("leaves medium and low urgency selections untouched", async () => {
+    for (const urgency of ["medium", "low"] as const) {
+      dispatchDecisionMock.mockClear();
+      evaluateSignalMock.mockResolvedValue(makeDecision({}));
+
+      await emitWithUrgency(urgency);
+
+      const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+        selectedChannels: string[];
+        reasoningSummary: string;
+      };
+      expect(dispatched.selectedChannels).toEqual(["telegram"]);
+      expect(dispatched.reasoningSummary).not.toContain("forced");
+    }
+  });
+
+  test("does not force channels when the decision suppresses the notification", async () => {
+    evaluateSignalMock.mockResolvedValue(
+      makeDecision({ shouldNotify: false, selectedChannels: [] }),
+    );
+
+    await emitWithUrgency("high");
+
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      shouldNotify: boolean;
+      selectedChannels: string[];
+      reasoningSummary: string;
+    };
+    expect(dispatched.shouldNotify).toBe(false);
+    expect(dispatched.selectedChannels).toEqual([]);
+    expect(dispatched.reasoningSummary).not.toContain("forced");
+  });
+
+  test("routing-intent enforcement runs after the force-add and can cap channels", async () => {
+    evaluateSignalMock.mockResolvedValue(makeDecision({}));
+    // single_channel enforcement caps the selection to the source channel.
+    enforceRoutingIntentMock.mockImplementation(
+      (decision: { selectedChannels: string[] }) => ({
+        ...decision,
+        selectedChannels: ["telegram"],
+      }),
+    );
+
+    await emitNotificationSignal({
+      sourceEventName: "schedule.notify",
+      sourceChannel: "scheduler",
+      sourceContextId: "rem-urg-2",
+      routingIntent: "single_channel",
+      attentionHints: {
+        requiresAction: true,
+        urgency: "high",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: { reminderId: "rem-urg-2" },
+    });
+
+    // Enforcement sees the force-added channels...
+    const enforcedInput = enforceRoutingIntentMock.mock.calls[0][0] as {
+      selectedChannels: string[];
+    };
+    expect(enforcedInput.selectedChannels).toEqual([
+      "vellum",
+      "platform",
+      "telegram",
+    ]);
+    // ...and its cap wins over the force-add.
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      selectedChannels: string[];
+    };
+    expect(dispatched.selectedChannels).toEqual(["telegram"]);
+  });
+});
