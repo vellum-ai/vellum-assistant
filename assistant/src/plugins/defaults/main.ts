@@ -149,3 +149,34 @@ export function getDefaultPluginRouteRoots(): {
   }
   return roots;
 }
+
+/**
+ * Enumerate default plugins that ship a `skills/` directory, keyed by their
+ * plugin name (`default-<directory-name>`, e.g. `default-platform-hosted`).
+ * Each `skillsDir` holds the plugin's resident skills at `<id>/SKILL.md`, the
+ * same layout an installed plugin uses under
+ * `<workspaceDir>/plugins/<name>/skills/`.
+ *
+ * That name is the key a default plugin's `.disabled` sentinel and per-chat
+ * scoping are keyed by, so a caller gates a root's skills with
+ * `isPluginDisabled(pluginName)`.
+ */
+export function getDefaultPluginSkillRoots(): {
+  pluginName: string;
+  skillsDir: string;
+}[] {
+  const roots: { pluginName: string; skillsDir: string }[] = [];
+  for (const entry of readdirSync(DEFAULTS_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const skillsDir = join(DEFAULTS_DIR, entry.name, "skills");
+    if (existsSync(skillsDir) && statSync(skillsDir).isDirectory()) {
+      roots.push({
+        pluginName: DEFAULT_PLUGIN_NAMESPACE_PREFIX + entry.name,
+        skillsDir,
+      });
+    }
+  }
+  return roots;
+}

@@ -40,16 +40,6 @@ const commandForItem = (item: CommandPaletteItemData): VellumCommand | null => {
       return { kind: "openLibrary" };
     case "action-intelligence":
       return { kind: "openIdentity" };
-    case "action-back":
-      return { kind: "navigateBack" };
-    case "action-forward":
-      return { kind: "navigateForward" };
-    case "action-zoom-in":
-      return { kind: "zoomIn" };
-    case "action-zoom-out":
-      return { kind: "zoomOut" };
-    case "action-actual-size":
-      return { kind: "actualSize" };
     default:
       if (item.id.startsWith("conv-")) {
         return {
@@ -158,6 +148,7 @@ export function CommandPaletteWindowPage() {
         onClose={commandPalette.close}
         query={commandPalette.query}
         onQueryChange={commandPalette.setQuery}
+        highlightTokens={commandPalette.searchTokens}
         selectedIndex={commandPalette.selectedIndex}
         sections={mergedSections}
         isSearching={commandPalette.isSearching}

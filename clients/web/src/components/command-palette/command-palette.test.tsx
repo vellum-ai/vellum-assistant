@@ -77,6 +77,166 @@ describe("CommandPalette", () => {
     expect(selected.className).toContain("text-sm");
   });
 
+  test("renders search results as a two-line row with title and snippet", () => {
+    render(
+      <CommandPalette
+        isOpen
+        surface="window"
+        onClose={() => undefined}
+        query="alpha"
+        onQueryChange={() => undefined}
+        selectedIndex={0}
+        sections={[
+          {
+            id: "search-conversations",
+            label: "Conversations",
+            items: [
+              {
+                id: "search-conv-c1",
+                title: "Trip planning",
+                snippet: "…we compared alpha and beta itineraries…",
+              },
+            ],
+          },
+        ]}
+        onKeyDown={() => undefined}
+      />,
+    );
+
+    const row = screen.getByRole("option");
+    expect(row.className).not.toContain("h-10");
+    expect(row.textContent).toContain("Trip planning");
+    expect(row.textContent).toContain("we compared alpha and beta");
+  });
+
+  test("highlights via the server term when the input contains search filters", () => {
+    render(
+      <CommandPalette
+        isOpen
+        surface="window"
+        onClose={() => undefined}
+        query="is:archived alpha"
+        onQueryChange={() => undefined}
+        highlightTokens={["alpha"]}
+        selectedIndex={0}
+        sections={[
+          {
+            id: "search-conversations",
+            label: "Conversations",
+            items: [
+              {
+                id: "search-conv-c1",
+                title: "Trip planning",
+                snippet: "…we compared alpha and beta itineraries…",
+              },
+            ],
+          },
+        ]}
+        onKeyDown={() => undefined}
+      />,
+    );
+
+    const row = screen.getByRole("option");
+    const highlight = row.querySelector("span.font-medium");
+    expect(highlight?.textContent).toBe("alpha");
+  });
+
+  test("highlights each token independently for multi-token queries", () => {
+    render(
+      <CommandPalette
+        isOpen
+        surface="window"
+        onClose={() => undefined}
+        query="alpha beta"
+        onQueryChange={() => undefined}
+        highlightTokens={["alpha", "beta"]}
+        selectedIndex={0}
+        sections={[
+          {
+            id: "search-conversations",
+            label: "Conversations",
+            items: [
+              {
+                id: "search-conv-c1",
+                title: "Trip planning",
+                snippet: "…we compared alpha and beta itineraries…",
+              },
+            ],
+          },
+        ]}
+        onKeyDown={() => undefined}
+      />,
+    );
+
+    const row = screen.getByRole("option");
+    const highlights = [...row.querySelectorAll("span.font-medium")];
+    expect(highlights.map((el) => el.textContent)).toEqual(["alpha", "beta"]);
+  });
+
+  test("does not highlight token substrings inside larger words", () => {
+    render(
+      <CommandPalette
+        isOpen
+        surface="window"
+        onClose={() => undefined}
+        query="alpha art"
+        onQueryChange={() => undefined}
+        highlightTokens={["alpha", "art"]}
+        selectedIndex={0}
+        sections={[
+          {
+            id: "search-conversations",
+            label: "Conversations",
+            items: [
+              {
+                id: "search-conv-c1",
+                title: "Trip planning",
+                snippet: "party starts before alpha",
+              },
+            ],
+          },
+        ]}
+        onKeyDown={() => undefined}
+      />,
+    );
+
+    const row = screen.getByRole("option");
+    const highlights = [...row.querySelectorAll("span.font-medium")];
+    expect(highlights.map((el) => el.textContent)).toEqual(["alpha"]);
+  });
+
+  test("keeps highlight offsets aligned when lowercasing changes string length", () => {
+    render(
+      <CommandPalette
+        isOpen
+        surface="window"
+        onClose={() => undefined}
+        query="alpha"
+        onQueryChange={() => undefined}
+        highlightTokens={["alpha"]}
+        selectedIndex={0}
+        sections={[
+          {
+            id: "search-conversations",
+            label: "Conversations",
+            items: [
+              {
+                id: "search-conv-c1",
+                title: "Travel notes",
+                snippet: "İstanbul alpha itinerary",
+              },
+            ],
+          },
+        ]}
+        onKeyDown={() => undefined}
+      />,
+    );
+
+    const row = screen.getByRole("option");
+    const highlight = row.querySelector("span.font-medium");
+    expect(highlight?.textContent).toBe("alpha");
+  });
+
   test("renders nothing while closed outside the iOS shell", () => {
     isMobileRef.value = true;
     nativeIOSRef.value = false;

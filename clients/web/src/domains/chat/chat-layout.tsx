@@ -1124,12 +1124,13 @@ export function ChatLayout({
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
-      {/* Live-voice room, mobile: still a full-viewport takeover, so it mounts
-          at layout scope next to the other full-viewport overlays rather than
-          inside `<main>` (JARVIS-1383 turns this into a bottom sheet). The
-          desktop room is the inset panel mounted inside `<main>` above; the two
-          mounts are mutually exclusive, so the room never double-mounts. */}
-      {isMobile ? <VoiceRoom variant="fullscreen" /> : null}
+      {/* Live-voice room, mobile: a bottom sheet that slides up and rests below
+          the thread header, the mobile counterpart of the desktop inset panel.
+          It portals out of the layout, so it mounts here rather than inside
+          `<main>`. The desktop room is the inset panel mounted inside `<main>`
+          above; the two mounts are mutually exclusive, so the room never
+          double-mounts. */}
+      {isMobile ? <VoiceRoom variant="sheet" /> : null}
       {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}
@@ -1151,6 +1152,7 @@ export function ChatLayout({
             onClose={commandPalette.close}
             query={commandPalette.query}
             onQueryChange={commandPalette.setQuery}
+            highlightTokens={commandPalette.searchTokens}
             selectedIndex={commandPalette.selectedIndex}
             sections={mergedSections}
             isSearching={commandPalette.isSearching}
