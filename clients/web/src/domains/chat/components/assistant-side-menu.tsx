@@ -641,8 +641,8 @@ export function AssistantSideMenu({
                   .slice(sidebar.curatedSectionCount)
                   .map(renderSection)}
               </CollapsibleNavSection.Root>
-              {/* The All view's remainder: no header, no channel buckets, and
-                  no "Show more" - it just keeps going as the user scrolls. */}
+              {/* The All view's remainder: one headerless list, scrolling
+                  against the sidebar body it already fills. */}
               {sidebar.viewMode === "all" && bodyElement ? (
                 <ConversationRowList
                   items={sidebar.flatList}

@@ -1,9 +1,9 @@
 /**
  * The sidebar's All / Grouped view switch.
  *
- * Sits directly above the list it governs, below Pinned and the custom
- * groups, which it does not affect: those stay put in either view, so putting
- * the switch under them is what makes its scope legible.
+ * Leads the sidebar and sticks to the top of the scrollport, so the choice is
+ * reachable from anywhere in a list that can run tens of thousands of pixels
+ * tall.
  */
 
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
@@ -12,7 +12,7 @@ import type { SidebarViewMode } from "@/domains/chat/utils/sidebar-view-mode";
 
 const VIEW_MODE_ITEMS: { value: SidebarViewMode; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "grouped", label: "Grouped" },
+  { value: "grouped", label: "Groups" },
 ];
 
 export interface SidebarViewModeToggleProps {
@@ -39,7 +39,7 @@ export function SidebarViewModeToggle({
        own:
        `sm` for a rail-dense row height, and its default full width, which
        splits evenly between the segments - so the halves stay equal whatever
-       the labels say, and "Grouped" gets no bigger a target than "All". */
+       the labels say, and "Groups" gets no bigger a target than "All". */
     <div
       className="sticky -top-3 z-20 -mt-3 bg-[var(--surface-overlay)] max-md:-top-4 max-md:-mt-4"
     >

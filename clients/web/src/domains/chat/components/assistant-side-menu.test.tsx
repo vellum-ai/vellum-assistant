@@ -298,7 +298,7 @@ describe("AssistantSideMenu · All view", () => {
 
     expect(html).toContain('aria-label="Conversation list view"');
     expect(html).toContain(">All<");
-    expect(html).toContain(">Grouped<");
+    expect(html).toContain(">Groups<");
   });
 
   test("the collapsed rail reaches the flat list through a Chats icon", () => {

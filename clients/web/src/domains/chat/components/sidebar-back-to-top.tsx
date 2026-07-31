@@ -5,10 +5,9 @@
  * of thousands of pixels. Getting back to the view switch and the pinned rows
  * should not be a scroll marathon.
  *
- * Sticky rather than absolutely positioned: as the last thing in the
- * scrollport it rides the bottom edge while there is more list below, then
- * settles into the flow at the end, so it never needs to know about the
- * footer or the overlay's floating pills.
+ * Sticky rather than absolutely positioned, so it rides the bottom edge of
+ * the scrollport without needing to know about the footer or the overlay's
+ * floating pills.
  *
  * Visibility is a prop rather than conditional mounting so the pill can fade,
  * and while hidden it stops taking pointer events and leaves the tab order.
