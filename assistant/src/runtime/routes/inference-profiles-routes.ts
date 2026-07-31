@@ -38,10 +38,7 @@ import {
   resolveRoutingIdentity,
 } from "../../providers/connection-resolution.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
-import {
-  computeConnectionAvailability,
-  vellumConnectionAvailability,
-} from "../../providers/inference/connection-availability.js";
+import { computeConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
 import { isModelInCatalog } from "../../providers/model-catalog.js";
 import { VELLUM_MANAGED_PROVIDER } from "../../providers/vellum-model-routing.js";
@@ -228,22 +225,16 @@ async function profileAvailability(
       if (!identity) {
         return null;
       }
-      const availability = await computeConnectionAvailability(
-        identity.expectedProvider,
+      // The managed sentinel is judged as itself, not as the derived upstream:
+      // its route is platform auth whatever row holds the canonical name.
+      // `chatgpt` rows genuinely store the upstream as their provider, so they
+      // keep judging against it.
+      return computeConnectionAvailability(
+        provider === VELLUM_MANAGED_PROVIDER
+          ? provider
+          : identity.expectedProvider,
         identity.connectionName,
       );
-      // A managed route whose row cannot serve it falls back to platform auth
-      // at dispatch (the canonical row can be claimed by a user-owned
-      // connection), so the platform's own status is the honest answer. For
-      // the canonical row this is what `computeConnectionAvailability` just
-      // returned, so re-reporting it changes nothing.
-      if (
-        availability.status !== "ok" &&
-        provider === VELLUM_MANAGED_PROVIDER
-      ) {
-        return vellumConnectionAvailability();
-      }
-      return availability;
     } catch (err) {
       return {
         status: "provider_mismatch",

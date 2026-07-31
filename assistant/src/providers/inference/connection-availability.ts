@@ -18,6 +18,7 @@ import { resolveManagedProxyContext } from "../platform-proxy/context.js";
 import {
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_MANAGED_CONNECTION_NAME,
   VELLUM_MANAGED_PROVIDER,
 } from "../vellum-model-routing.js";
 import { getConnection } from "./connections.js";
@@ -127,6 +128,17 @@ export async function computeConnectionAvailability(
       return vellumConnectionAvailability();
     }
     return vellumManagedMismatch(resolvedConnectionName, provider);
+  }
+  // A managed route whose canonical row is claimed by a user-owned connection
+  // dispatches through platform auth and never touches that row, so the
+  // platform's own status is the answer — not the row's. Scoped to the
+  // canonical name: a managed default explicitly pinned to some other row is a
+  // real misconfiguration and still reads as a mismatch below.
+  if (
+    provider === VELLUM_MANAGED_PROVIDER &&
+    resolvedConnectionName === VELLUM_MANAGED_CONNECTION_NAME
+  ) {
+    return vellumConnectionAvailability();
   }
   if (connection.provider !== provider) {
     return {
