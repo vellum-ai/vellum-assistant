@@ -65,6 +65,7 @@ import { and, asc, gt, ne, notInArray } from "drizzle-orm";
 import type { AssistantConfig } from "../../../config/types.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../../persistence/auto-analysis-constants.js";
 import { getConversationRecentProvenanceTrustClass } from "../../../persistence/conversation-crud.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../persistence/conversation-types.js";
 import { getDb } from "../../../persistence/db-connection.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import {
@@ -77,7 +78,6 @@ import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounti
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./substrate/constants.js";
 
 const log = getLogger("memory-retrospective-sweep");
 

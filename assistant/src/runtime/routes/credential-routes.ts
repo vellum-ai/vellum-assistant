@@ -22,7 +22,6 @@ import {
   assertAcpCredentialFormat,
 } from "../../acp/acp-credentials.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
-import { getConfig } from "../../config/loader.js";
 import {
   fetchManagedCatalog,
   type ManagedCredentialDescriptor,
@@ -319,10 +318,7 @@ async function handleCredentialsReveal({ body, headers }: RouteHandlerArgs) {
   }
 
   const forChat = (body as { forChat?: unknown }).forChat === true;
-  if (
-    forChat &&
-    !isAssistantFeatureFlagEnabled("chat-credential-reveal", getConfig())
-  ) {
+  if (forChat && !isAssistantFeatureFlagEnabled("chat-credential-reveal")) {
     throw new BadRequestError(
       "--for-chat requires the chat-credential-reveal feature flag",
     );

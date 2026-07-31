@@ -156,7 +156,7 @@ const HOST_TIER_IMPORT_ALLOWLIST: readonly HostTierImportExemption[] = [
   { path: "src/runtime/routes/consolidation-routes.ts", tiers: ["substrate"] },
   {
     path: "src/runtime/routes/conversation-query-routes.ts",
-    tiers: ["substrate", "v2", "v3"],
+    tiers: ["v2", "v3"],
   },
   { path: "src/runtime/routes/global-search-routes.ts", tiers: ["v1"] },
   { path: "src/runtime/routes/secret-routes.ts", tiers: ["substrate"] },

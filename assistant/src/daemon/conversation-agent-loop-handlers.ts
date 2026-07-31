@@ -637,7 +637,7 @@ export function createEventHandlerState(): EventHandlerState {
 async function chatRevealCandidates(
   state: EventHandlerState,
 ): Promise<readonly ResolvedRevealCandidate[] | undefined> {
-  if (!isAssistantFeatureFlagEnabled("chat-credential-reveal", getConfig())) {
+  if (!isAssistantFeatureFlagEnabled("chat-credential-reveal")) {
     return undefined;
   }
   return resolvedRevealCandidatesForState(state);

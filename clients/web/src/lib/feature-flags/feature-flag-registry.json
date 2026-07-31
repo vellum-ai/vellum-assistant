@@ -356,6 +356,14 @@
       "label": "Marketing Pricing Takeover",
       "description": "Gates the marketing pricing takeover page (www.vellum.ai/pricing) and the `/assistant/checkout?package=<slug>` deep link its package CTAs target. One flag covers both halves of the funnel so they can never be enabled independently and strand a CTA. When off, the checkout deep link redirects to the in-app plans takeover.",
       "defaultEnabled": false
+    },
+    {
+      "id": "assistant-reply-push",
+      "scope": "assistant",
+      "key": "assistant-reply-push",
+      "label": "Assistant Reply Push",
+      "description": "Gates the `chat.assistant_reply` push notification the assistant sends at the end of a user-initiated turn whose reply the user has not seen. On by default; turn it off to silence the push without disabling the rest of the notification pipeline.",
+      "defaultEnabled": true
     }
   ]
 }
