@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, renderHook } from "@testing-library/react";
 
+import { withRejectedWrites } from "./rejected-writes.test-helper";
 import {
+  clearStorageOverrides,
   createKeyedStorageAccessor,
   createRecordStorageAccessor,
   createStorageAccessor,
@@ -14,6 +16,9 @@ beforeEach(() => {
 
 afterEach(() => {
   localStorage.clear();
+  // Accessors are module singletons, so a value held after a rejected write
+  // outlives the test that set it. Logout clears these for the same reason.
+  clearStorageOverrides();
 });
 
 // ---------------------------------------------------------------------------
@@ -208,34 +213,22 @@ describe("createKeyedStorageAccessor", () => {
     // all make setItem throw. The value still has to reach the UI, or the
     // control bound to it reads as broken rather than merely unsaved.
     test("holds the value and notifies when storage rejects the write", () => {
-      const setItem = localStorage.setItem.bind(localStorage);
-      localStorage.setItem = () => {
-        throw new Error("QuotaExceededError");
-      };
+      const { result } = renderHook(() => keyed.useValue("asst-1"));
+      expect(result.current).toBe("");
 
-      try {
-        const { result } = renderHook(() => keyed.useValue("asst-1"));
-        expect(result.current).toBe("");
-
+      withRejectedWrites(() => {
         act(() => keyed.save("asst-1", "conv-abc"));
+      });
 
-        expect(result.current).toBe("conv-abc");
-        expect(keyed.load("asst-1")).toBe("conv-abc");
-      } finally {
-        localStorage.setItem = setItem;
-      }
+      // Nothing was persisted, so both reads can only be served in memory.
+      expect(localStorage.getItem("vellum:lastConvo:asst-1")).toBeNull();
+      expect(result.current).toBe("conv-abc");
+      expect(keyed.load("asst-1")).toBe("conv-abc");
     });
 
     test("a later successful write drops the in-memory value", () => {
-      const setItem = localStorage.setItem.bind(localStorage);
-      localStorage.setItem = () => {
-        throw new Error("QuotaExceededError");
-      };
-      try {
-        keyed.save("asst-1", "conv-abc");
-      } finally {
-        localStorage.setItem = setItem;
-      }
+      withRejectedWrites(() => keyed.save("asst-1", "conv-abc"));
+      expect(keyed.load("asst-1")).toBe("conv-abc");
 
       keyed.save("asst-1", "conv-xyz");
 
@@ -243,6 +236,20 @@ describe("createKeyedStorageAccessor", () => {
       // Reading past the override, not through a stale copy of it.
       localStorage.setItem("vellum:lastConvo:asst-1", "conv-external");
       expect(keyed.load("asst-1")).toBe("conv-external");
+    });
+
+    // An override is user state living outside localStorage, so the logout
+    // sweep cannot reach it by removing keys: the value never became one.
+    // Without an explicit clear it would be read by whoever logs in next in
+    // the same tab.
+    test("clearStorageOverrides drops a value the logout sweep cannot see", () => {
+      withRejectedWrites(() => keyed.save("asst-1", "conv-abc"));
+      expect(keyed.load("asst-1")).toBe("conv-abc");
+      expect(localStorage.getItem("vellum:lastConvo:asst-1")).toBeNull();
+
+      clearStorageOverrides();
+
+      expect(keyed.load("asst-1")).toBe("");
     });
 
     test("a mutated load() result does not corrupt the snapshot", () => {

@@ -144,10 +144,11 @@ function readRaw(key: string): string | null {
  */
 function createOverrides<T>() {
   const overrides = new Map<string, T>();
-  return {
+  const store = {
     has: (id: string) => overrides.has(id),
     get: (id: string) => overrides.get(id) as T,
     drop: (id: string) => overrides.delete(id),
+    clear: () => overrides.clear(),
     /** Write through to storage, holding the value in memory if it bounces. */
     write(id: string, key: string, value: T, serialized: string): void {
       if (setLocalSetting(key, serialized)) {
@@ -158,6 +159,32 @@ function createOverrides<T>() {
       notifySettingChange(key, serialized);
     },
   };
+  overrideStores.push(store);
+  return store;
+}
+
+/**
+ * Every override map, so logout can reach all of them.
+ *
+ * Accessors are module-level singletons created at import time, so this grows
+ * once per accessor and never shrinks.
+ */
+const overrideStores: { clear: () => void }[] = [];
+
+/**
+ * Drop every value held in memory on behalf of a rejected write.
+ *
+ * These values are user-scoped but live outside `localStorage`, so the logout
+ * sweep cannot see them: it removes keys, and an override is precisely the
+ * value that never became one. Without this, a preference set on a device that
+ * refuses writes would outlive the session that set it and be read by whoever
+ * logs in next in the same tab, which is the same trap
+ * `clearTakeoverAvatarStash` exists to close for the avatar mirror.
+ */
+export function clearStorageOverrides(): void {
+  for (const store of overrideStores) {
+    store.clear();
+  }
 }
 
 /** The single entity id a static-key accessor stores its override under. */

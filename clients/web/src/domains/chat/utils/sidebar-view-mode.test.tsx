@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, renderHook } from "@testing-library/react";
 
+import { clearStorageOverrides } from "@/utils/typed-storage";
+import { withRejectedWrites } from "@/utils/rejected-writes.test-helper";
 import {
   DEFAULT_SIDEBAR_VIEW_MODE,
   loadViewMode,
@@ -13,6 +15,9 @@ const KEY = (assistantId: string) =>
 
 afterEach(() => {
   localStorage.clear();
+  // Accessors are module singletons, so a value held after a rejected write
+  // outlives the test that set it. Logout clears these for the same reason.
+  clearStorageOverrides();
 });
 
 describe("sidebar view mode storage", () => {
@@ -71,21 +76,16 @@ describe("useViewMode", () => {
   // The switch still has to move: an unsaved choice is tolerable, a control
   // that ignores clicks is not.
   test("still switches when storage rejects the write", () => {
-    const setItem = localStorage.setItem.bind(localStorage);
-    localStorage.setItem = () => {
-      throw new Error("QuotaExceededError");
-    };
+    const { result } = renderHook(() => useViewMode("asst-1"));
+    expect(result.current).toBe("all");
 
-    try {
-      const { result } = renderHook(() => useViewMode("asst-1"));
-      expect(result.current).toBe("all");
-
+    withRejectedWrites(() => {
       act(() => saveViewMode("asst-1", "grouped"));
+    });
 
-      expect(result.current).toBe("grouped");
-    } finally {
-      localStorage.setItem = setItem;
-    }
+    // The switch moved even though nothing reached storage.
+    expect(localStorage.getItem("vellum:sidebar-view-mode:asst-1")).toBeNull();
+    expect(result.current).toBe("grouped");
   });
 
   test("follows the key when the assistant changes", () => {
