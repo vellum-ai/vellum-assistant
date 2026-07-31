@@ -3,12 +3,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { PlatformSessionStatus } from "@/stores/session-status";
 
 // Mode predicates that select whether the load runs.
-let mockIsLocalMode = false;
+let mockIsLocalClient = false;
 let mockIsRemoteGatewayMode = false;
 let mockIsGatewayAuthEnabled = false;
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => mockIsLocalMode,
+  isLocalClient: () => mockIsLocalClient,
   isRemoteGatewayMode: () => mockIsRemoteGatewayMode,
 }));
 
@@ -99,7 +99,7 @@ const tick = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
-  mockIsLocalMode = false;
+  mockIsLocalClient = false;
   mockIsRemoteGatewayMode = false;
   mockIsGatewayAuthEnabled = false;
   mockListAssistantsResult = { ok: true, status: 200, data: [] };
@@ -173,7 +173,7 @@ describe("setupPlatformAssistantsSync", () => {
 
 describe("reloadPlatformAssistants", () => {
   test("early-returns in local mode without touching the resolved store", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
 
     await reloadPlatformAssistants();
 

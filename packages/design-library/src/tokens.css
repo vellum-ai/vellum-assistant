@@ -127,7 +127,25 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+}
 
+/* ---------------------------------------------------------------------------
+ * Palette ramps — `static` so every step is emitted to `:root`.
+ *
+ * Tailwind tree-shakes a plain `@theme` block: a variable survives into the
+ * generated `:root` only when some utility references it, which leaves most
+ * ramp steps undeclared at runtime. Sandboxed widget iframes read these
+ * properties off `getComputedStyle(document.documentElement)` and re-emit them
+ * inside the frame (`clients/web/src/utils/widget-tokens.ts`), so a step that
+ * is not declared resolves to nothing and the widget's `fill`/`color`
+ * declaration is dropped. `static` opts this block out of tree-shaking so the
+ * full vocabulary exists whether or not a utility happens to use it.
+ *
+ * `inline` is kept alongside so utilities still emit the literal value rather
+ * than a `var()` reference, matching the rest of the bridge.
+ * https://tailwindcss.com/docs/theme#using-static-values
+ * --------------------------------------------------------------------------- */
+@theme static inline {
   /* Moss (cool neutral — synced with macOS Figma tokens) */
   --color-moss-950: #111214;
   --color-moss-900: #17191C;
@@ -204,7 +222,9 @@
   --color-amber-300: #FCE9A0;
   --color-amber-200: #FCF3DD;
   --color-amber-100: #FDF8EE;
+}
 
+@theme inline {
   /* Font tokens — DM Sans across the board, matching the Swift macOS
    * client's VFont (TypographyTokens.swift). */
   --font-sans: "DM Sans", system-ui, sans-serif;
@@ -332,7 +352,7 @@
   --aux-white: #FFFFFF;
 
   /* Shadow */
-  --shadow-popover: 0 1px 3px 0 rgba(0, 0, 0, 0.10), 0 4px 12px 0 rgba(0, 0, 0, 0.10);
+  --shadow-popover: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 3px 15px 0 rgba(0, 0, 0, 0.07);
 
   /* Derived */
   --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);

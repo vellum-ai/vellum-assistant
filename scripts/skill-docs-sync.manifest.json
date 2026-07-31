@@ -7,7 +7,7 @@
     },
     "app-builder": {
       "docsSlug": "app-builder",
-      "sha256": "82ab8a81fa9de5041cedb6da0db05cda4eb406c695838ef8b7e8beeeaa0b58c8"
+      "sha256": "508c965aaa2ef2fc289c807dc28257c410651211e4da0ab10d046276b53abf65"
     },
     "computer-use": {
       "docsSlug": "computer-use",
@@ -55,7 +55,7 @@
     },
     "subagent": {
       "docsSlug": "subagent",
-      "sha256": "c6c75fd2b200c09f7c12b60a87846ffbc6b8021723532f2d4b13bdd87c4683b2"
+      "sha256": "1cd366034e38c879310468f603dc79725da7d6b8d02da9dc66cfefcbebffa293"
     },
     "transcribe": {
       "docsSlug": "transcribe",

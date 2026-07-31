@@ -9,13 +9,10 @@
  * calling {@link startVoiceLiveActivity} twice updates the running one instead
  * of stacking a second island.
  *
- * **Skew contract.** The iOS shell ships through App Store review while this
- * bundle deploys continuously (`clients/ios/README.md` § "Web content
- * delivery"), so an arbitrarily old shell may host this bundle with no such
- * plugin compiled in. Every call therefore goes through {@link callNativeVoice},
- * which returns the fallback off-iOS and on any bridge failure. A Live Activity
- * is a flourish: nothing here may throw, block, or otherwise reach a voice
- * session.
+ * **Skew contract.** An installed mobile shell may not include this plugin.
+ * Every call therefore returns its fallback off iOS and goes through
+ * {@link callNativeVoice} on iOS. The status surface is optional and must never
+ * block or end a voice session.
  *
  * That fallback also covers the case where the user has turned Live Activities
  * off for the app in iOS Settings — the plugin reports that as
@@ -30,7 +27,11 @@
 import { registerPlugin } from "@capacitor/core";
 
 import type { ActiveLiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { callNativeVoice } from "@/runtime/native-voice";
+import {
+  callNativeVoice,
+  subscribeNativeVoiceListener,
+} from "@/runtime/native-voice";
+import { isNativeIOS } from "@/runtime/platform-detection";
 
 /** The mutable half of the activity — everything that can change mid-session. */
 export interface VoiceLiveActivityContent {
@@ -76,19 +77,39 @@ export interface VoiceLiveActivityStart extends VoiceLiveActivityContent {
   avatarBase64?: string;
 }
 
+/** The `liveActivityPushToken` event payload. */
+export interface VoiceLiveActivityPushToken {
+  /** APNs device token for the running activity, hex-encoded. */
+  token: string;
+}
+
 interface VoiceLiveActivityPlugin {
   start(options: VoiceLiveActivityStart): Promise<{ started: boolean }>;
   update(content: VoiceLiveActivityContent): Promise<void>;
   end(): Promise<void>;
+  addListener(
+    eventName: "liveActivityPushToken",
+    handler: (event: VoiceLiveActivityPushToken) => void,
+  ): Promise<{ remove(): Promise<void> }>;
 }
 
 const VoiceLiveActivity =
   registerPlugin<VoiceLiveActivityPlugin>("VoiceLiveActivity");
 
+async function callVoiceLiveActivity<T>(
+  invoke: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  if (!isNativeIOS()) {
+    return fallback;
+  }
+  return callNativeVoice(invoke, fallback);
+}
+
 /**
  * Show a Live Activity for a session that just became active. Resolves whether
- * one is now running — `false` off-iOS, on a shell without the plugin, and when
- * the user has disabled Live Activities for the app in Settings.
+ * one is now running. Returns `false` off iOS, on a shell without
+ * the plugin, and when the user has disabled the platform status surface.
  *
  * Safe to call when one is already running: the plugin updates it rather than
  * requesting a second island. Pair every call with {@link endVoiceLiveActivity}
@@ -98,7 +119,7 @@ const VoiceLiveActivity =
 export async function startVoiceLiveActivity(
   options: VoiceLiveActivityStart,
 ): Promise<boolean> {
-  return callNativeVoice(async () => {
+  return callVoiceLiveActivity(async () => {
     // Only the result crosses this `async` boundary, never `VoiceLiveActivity`
     // itself: per `docs/CAPACITOR.md` § "Capacitor plugins must be destructured
     // inline", a plugin Proxy in a Promise-resolution context dispatches a
@@ -111,8 +132,8 @@ export async function startVoiceLiveActivity(
 }
 
 /**
- * Push new content to the running activity. A no-op when none is running, and
- * off-iOS, and on an older shell. Never throws.
+ * Push new content to the running activity. A no-op when none is running,
+ * off iOS, and on an older shell. Never throws.
  *
  * ActivityKit rate-limits updates, so callers must push only on an actual
  * {@link VoiceLiveActivityContent} change — never on high-frequency store
@@ -121,17 +142,48 @@ export async function startVoiceLiveActivity(
 export async function updateVoiceLiveActivity(
   content: VoiceLiveActivityContent,
 ): Promise<void> {
-  return callNativeVoice(async () => {
+  return callVoiceLiveActivity(async () => {
     await VoiceLiveActivity.update(content);
   }, undefined);
 }
 
 /**
  * Dismiss the Live Activity at the end of a session. A no-op when none is
- * running, and off-iOS, and on an older shell. Never throws.
+ * running, off iOS, and on an older shell. Never throws.
  */
 export async function endVoiceLiveActivity(): Promise<void> {
-  return callNativeVoice(async () => {
+  return callVoiceLiveActivity(async () => {
     await VoiceLiveActivity.end();
   }, undefined);
+}
+
+/**
+ * Subscribe to the ActivityKit push token for the running activity, returning
+ * an unsubscribe.
+ *
+ * The token is what lets the *server* update the island. Every local push in
+ * this module originates on the JS main thread, which WebKit throttles and
+ * eventually suspends once the app is backgrounded — the only state in which
+ * the island is ever on screen. Registering this token with the platform gives
+ * the session a second path to the same activity, one that does not need this
+ * web view to be running at all.
+ *
+ * Fires more than once: iOS may rotate a token mid-activity, and each value
+ * invalidates the last, so treat every event as "re-register this".
+ *
+ * `addListener` is one of the few property names the Capacitor plugin Proxy
+ * does not trap into a fabricated native method, so calling it on a shell
+ * without the plugin is safe — it simply never fires, which is the correct
+ * degradation for a shell too old to mint a token.
+ */
+export function subscribeVoiceLiveActivityPushToken(
+  handler: (event: VoiceLiveActivityPushToken) => void,
+): () => void {
+  if (!isNativeIOS()) {
+    return () => undefined;
+  }
+  return subscribeNativeVoiceListener(
+    () => VoiceLiveActivity.addListener("liveActivityPushToken", handler),
+    "native-live-activity",
+  );
 }

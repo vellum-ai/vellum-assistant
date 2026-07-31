@@ -62,6 +62,7 @@ mock.module("@/domains/chat/hooks/use-thread-suggestions", () => ({
   useThreadSuggestions: () => ({ featured: [FEATURED], groups: [] }),
 }));
 
+import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import type { UseChatEmptyStateParams } from "@/domains/chat/hooks/use-chat-empty-state";
 
@@ -83,10 +84,28 @@ function baseParams(
 
 beforeEach(() => {
   flagRef.value = false;
+  useLiveVoiceStore.getState().reset();
 });
 
 afterEach(() => {
   cleanup();
+});
+
+describe("useChatEmptyState composerPeekSlot", () => {
+  test("renders the peek on an idle empty conversation", () => {
+    const { result } = renderHook(() => useChatEmptyState(baseParams()));
+    expect(result.current.composerPeekSlot).not.toBeUndefined();
+  });
+
+  test("drops the peek while a live-voice session is active", () => {
+    // The peek is anchored to the composer's input rect, which a session
+    // replaces with the voice surface. It is also a `fixed` full-viewport
+    // portal, so on mobile its top-of-screen avatar dangles into the band
+    // above the voice sheet: the strip the sheet leaves to the thread header.
+    useLiveVoiceStore.setState({ state: "listening" });
+    const { result } = renderHook(() => useChatEmptyState(baseParams()));
+    expect(result.current.composerPeekSlot).toBeUndefined();
+  });
 });
 
 describe("useChatEmptyState startersSlot", () => {

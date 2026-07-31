@@ -7,6 +7,14 @@
  * `im` chat type. That decision is centralized here so every call site
  * answers it identically — a DM that one filter recognizes and another does
  * not is silently dropped.
+ *
+ * Multi-person IMs (`mpim`) are a second, distinct direct-like kind: like a
+ * DM, every message in one is addressed to its participants, so admission
+ * must not require an @-mention or a tracked thread. Unlike a DM, an MPIM is
+ * multi-party, so it keeps its own `mpim` chat type end to end rather than
+ * being flattened into `im`. The daemon already branches on that value
+ * (group-chat etiquette in `isGroupChatType`, and the `private`
+ * permission-matrix cell in `mapChatTypeToConversationType`).
  */
 
 /**
@@ -32,4 +40,22 @@ export function isSlackDmChannel(
     channelType === "im" ||
     (typeof channelId === "string" && channelId.startsWith("D"))
   );
+}
+
+/**
+ * True when a Slack conversation is a multi-person IM (group DM).
+ *
+ * Unlike {@link isSlackDmChannel} there is **no id-prefix fallback**. The
+ * documented prefix for an MPIM is `G`, but `G` is shared with private
+ * channels, and modern workspaces mint MPIMs with a plain `C` prefix
+ * (verified: `C0BMU5X5FEU` reports `is_mpim: true, is_channel: true`). An id
+ * alone therefore proves nothing in either direction, so this predicate reads
+ * only the explicit `channel_type` discriminator.
+ *
+ * `channel_type` is present on `message` events but absent from reaction and
+ * interactive payloads, so reaction admission cannot use this predicate on its
+ * own: it composes it with the observed-kind cache in `user-directory.ts`.
+ */
+export function isSlackMpimChannel(channelType?: string): boolean {
+  return channelType === "mpim";
 }

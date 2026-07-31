@@ -55,6 +55,15 @@ describe("getEffectiveProfiles", () => {
     }
   });
 
+  test("the managed Balanced profile routes GPT-5.6 Luna through OpenAI", () => {
+    const balanced = CODE_DEFAULT_PROFILE_ENTRIES.balanced;
+    expect(balanced.model).toBe("gpt-5.6-luna");
+    expect(resolveRoutingIdentity(balanced.provider, balanced.model)).toEqual({
+      connectionName: "vellum",
+      expectedProvider: "openai",
+    });
+  });
+
   test("the managed Quality profile routes GPT-5.6 Sol through OpenAI", () => {
     const quality = CODE_DEFAULT_PROFILE_ENTRIES["quality-optimized"];
     expect(quality.model).toBe("gpt-5.6-sol");

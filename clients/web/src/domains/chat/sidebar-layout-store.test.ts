@@ -241,4 +241,7 @@ describe("SidebarLayoutStore - independent lazy-section activation", () => {
     expect(state.backgroundActivated).toBe(false);
     expect(state.scheduledActivated).toBe(false);
   });
+
+  // The view mode is deliberately not held here: it reads from storage
+  // directly so it survives the first paint. See sidebar-view-mode.test.ts.
 });

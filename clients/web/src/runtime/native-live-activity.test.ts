@@ -15,24 +15,31 @@ import type {
   VoiceLiveActivityStart,
 } from "@/runtime/native-live-activity";
 
+let onNativeAndroid = false;
 let onNativeIOS = false;
 
 mock.module("@/runtime/platform-detection", () => ({
+  isNativeAndroid: () => onNativeAndroid,
   isNativeIOS: () => onNativeIOS,
+  isNativeMobile: () => onNativeAndroid || onNativeIOS,
 }));
 
 const start = mock(async () => ({ started: true }));
 const update = mock(async () => undefined);
 const end = mock(async () => undefined);
+const addListener = mock(async () => ({
+  remove: async () => undefined,
+}));
 
 mock.module("@capacitor/core", () => ({
-  registerPlugin: () => ({ start, update, end }),
+  registerPlugin: () => ({ start, update, end, addListener }),
 }));
 
 const {
   startVoiceLiveActivity,
   updateVoiceLiveActivity,
   endVoiceLiveActivity,
+  subscribeVoiceLiveActivityPushToken,
 } = await import("@/runtime/native-live-activity");
 
 const content: VoiceLiveActivityContent = {
@@ -49,6 +56,7 @@ const startOptions: VoiceLiveActivityStart = {
 };
 
 beforeEach(() => {
+  onNativeAndroid = false;
   onNativeIOS = true;
   start.mockClear();
   start.mockImplementation(async () => ({ started: true }));
@@ -56,13 +64,14 @@ beforeEach(() => {
   update.mockImplementation(async () => undefined);
   end.mockClear();
   end.mockImplementation(async () => undefined);
+  addListener.mockClear();
 });
 
 // ---------------------------------------------------------------------------
 // Off-native — the browser and Electron paths
 // ---------------------------------------------------------------------------
 
-describe("off the iOS shell", () => {
+describe("outside a native mobile shell", () => {
   beforeEach(() => {
     onNativeIOS = false;
   });
@@ -81,6 +90,17 @@ describe("off the iOS shell", () => {
     expect(await endVoiceLiveActivity()).toBeUndefined();
     expect(end).not.toHaveBeenCalled();
   });
+});
+
+test("Android does not dispatch to the ActivityKit bridge", async () => {
+  onNativeAndroid = true;
+  onNativeIOS = false;
+
+  expect(await startVoiceLiveActivity(startOptions)).toBe(false);
+  expect(start).not.toHaveBeenCalled();
+  const unsubscribe = subscribeVoiceLiveActivityPushToken(() => undefined);
+  expect(addListener).not.toHaveBeenCalled();
+  unsubscribe();
 });
 
 // ---------------------------------------------------------------------------

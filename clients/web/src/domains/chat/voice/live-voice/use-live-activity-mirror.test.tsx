@@ -43,6 +43,29 @@ const updateVoiceLiveActivity = mock(
 );
 const endVoiceLiveActivity = mock(async (): Promise<void> => undefined);
 
+// The ActivityKit push token and its platform registration — the path that
+// keeps the island updating once iOS suspends this web layer. Held here so a
+// test can hand the mirror a token and assert what it registers.
+let emitPushToken: ((event: { token: string }) => void) | null = null;
+const subscribeVoiceLiveActivityPushToken = mock(
+  (handler: (event: { token: string }) => void): (() => void) => {
+    emitPushToken = handler;
+    return () => {
+      emitPushToken = null;
+    };
+  },
+);
+const registerLiveActivityPushToken = mock(
+  async (
+    _token: string,
+    _assistantId: string,
+    _conversationId: string,
+  ): Promise<void> => undefined,
+);
+const unregisterLiveActivityPushToken = mock(
+  async (): Promise<void> => undefined,
+);
+
 // Holds the avatar encode open so a phase change can land between `start`
 // being requested and the bridge actually being called. Stubbed rather than
 // delegating to the real encoder: the real one needs a canvas, and importing
@@ -72,21 +95,26 @@ mock.module("@/runtime/native-live-activity", () => ({
   startVoiceLiveActivity,
   updateVoiceLiveActivity,
   endVoiceLiveActivity,
+  subscribeVoiceLiveActivityPushToken,
 }));
 
-const { useLiveActivityMirror } = await import(
-  "@/domains/chat/voice/live-voice/use-live-activity-mirror"
+mock.module(
+  "@/domains/chat/voice/live-voice/live-activity-push-registration",
+  () => ({
+    registerLiveActivityPushToken,
+    unregisterLiveActivityPushToken,
+  }),
 );
-const { useLiveVoiceStore } = await import(
-  "@/domains/chat/voice/live-voice/live-voice-store"
-);
+
+const { useLiveActivityMirror } =
+  await import("@/domains/chat/voice/live-voice/use-live-activity-mirror");
+const { useLiveVoiceStore } =
+  await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useAvatarAccentVar } = await import("@/hooks/use-avatar-accent-var");
-const { useAssistantIdentityStore } = await import(
-  "@/stores/assistant-identity-store"
-);
-const { BUNDLED_COMPONENTS } = await import(
-  "@/utils/avatar-bundled-components"
-);
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
+const { BUNDLED_COMPONENTS } =
+  await import("@/utils/avatar-bundled-components");
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -157,6 +185,10 @@ beforeEach(() => {
   updateVoiceLiveActivity.mockImplementation(async () => {});
   endVoiceLiveActivity.mockClear();
   endVoiceLiveActivity.mockImplementation(async () => {});
+  subscribeVoiceLiveActivityPushToken.mockClear();
+  registerLiveActivityPushToken.mockClear();
+  unregisterLiveActivityPushToken.mockClear();
+  emitPushToken = null;
 });
 
 afterEach(() => {
@@ -576,5 +608,130 @@ describe("a bridge with nothing behind it", () => {
     expect(updateVoiceLiveActivity).toHaveBeenCalledTimes(1);
     expect(endVoiceLiveActivity).toHaveBeenCalledTimes(1);
     expect(useLiveVoiceStore.getState().state).toBe("idle");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Push-token registration
+// ---------------------------------------------------------------------------
+
+// The local push path above runs on a JS main thread iOS suspends once the app
+// is backgrounded — which is the only state the island is ever seen in.
+// Registering the activity's ActivityKit token is what gives the same activity
+// a driver that does not need this web layer to be running.
+describe("registering the activity for server-driven updates", () => {
+  /** Hand the mirror a token the way ActivityKit does, after `start`. */
+  async function emitToken(token: string): Promise<void> {
+    await act(async () => {
+      emitPushToken?.({ token });
+    });
+  }
+
+  test("registers the token against the running session", async () => {
+    renderMirror();
+    await settled(() => {
+      useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+      useLiveVoiceStore.getState().setState("listening");
+    });
+
+    await emitToken("token-abc");
+
+    expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(1);
+    expect(registerLiveActivityPushToken.mock.calls.at(-1)).toEqual([
+      "token-abc",
+      "assistant-1",
+      "conv-1",
+    ]);
+  });
+
+  // A session started from a draft has no conversation id until the server's
+  // `ready` assigns one. Registering against nothing and never revisiting it
+  // would leave the activity addressable by no one.
+  test("waits for the conversation id, then registers", async () => {
+    renderMirror();
+    await setPhase("connecting");
+
+    await emitToken("token-abc");
+    expect(registerLiveActivityPushToken).not.toHaveBeenCalled();
+
+    await settled(() => {
+      useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-9");
+    });
+
+    expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(1);
+    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[2]).toBe("conv-9");
+  });
+
+  // iOS reissues tokens mid-activity and each value invalidates the last, so a
+  // rotation the platform never hears about leaves it pushing at a token APNs
+  // has stopped honouring.
+  test("re-registers when the token rotates", async () => {
+    renderMirror();
+    await settled(() => {
+      useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+      useLiveVoiceStore.getState().setState("listening");
+    });
+
+    await emitToken("token-abc");
+    await emitToken("token-def");
+
+    expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(2);
+    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toBe(
+      "token-def",
+    );
+  });
+
+  test("a phase change alone does not re-register", async () => {
+    renderMirror();
+    await settled(() => {
+      useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+      useLiveVoiceStore.getState().setState("listening");
+    });
+    await emitToken("token-abc");
+    registerLiveActivityPushToken.mockClear();
+
+    await setPhase("thinking");
+    await setPhase("speaking");
+
+    expect(registerLiveActivityPushToken).not.toHaveBeenCalled();
+  });
+
+  // A registration that outlives its activity lets the platform push a phase
+  // at an island that no longer exists.
+  test("retires the registration when the session ends", async () => {
+    renderMirror();
+    await settled(() => {
+      useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+      useLiveVoiceStore.getState().setState("listening");
+    });
+    await emitToken("token-abc");
+
+    await setPhase("idle");
+
+    expect(unregisterLiveActivityPushToken).toHaveBeenCalledTimes(1);
+  });
+
+  test("retires the registration when the mirror unmounts", async () => {
+    const view = renderMirror();
+    await settled(() => {
+      useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+      useLiveVoiceStore.getState().setState("listening");
+    });
+    await emitToken("token-abc");
+
+    await act(async () => {
+      view.unmount();
+    });
+
+    expect(unregisterLiveActivityPushToken).toHaveBeenCalledTimes(1);
+  });
+
+  test("no session means nothing is registered", async () => {
+    renderMirror();
+    await settled();
+
+    await emitToken("token-abc");
+
+    expect(registerLiveActivityPushToken).not.toHaveBeenCalled();
   });
 });

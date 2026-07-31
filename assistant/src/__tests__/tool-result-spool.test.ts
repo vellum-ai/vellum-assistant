@@ -293,10 +293,11 @@ describe("AgentLoop result-time spooling", () => {
 
   test("spools the raw output even when it exceeds the post-tool-use truncation budget", async () => {
     // maxInputTokens of 10k gives the default truncate plugin a 12k-char
-    // budget (0.3 share × 4 chars/token). The spool must run before that
-    // hook, so the file holds all 20k chars of raw output rather than the
-    // hook's tail-dropped copy — otherwise the omitted tail is unrecoverable.
-    const HUGE = "z".repeat(20_000);
+    // budget (0.3 share × 4 chars/token); HUGE exceeds both that budget and
+    // the spool threshold. The spool must run before that hook, so the file
+    // holds the full raw output rather than the hook's tail-dropped copy;
+    // otherwise the omitted tail is unrecoverable.
+    const HUGE = "z".repeat(THRESHOLD_CHARS + 5_000);
     const { provider } = createMockProvider([
       toolUseResponse("tu_1", "fetch_transcript", {}),
       textResponse("Done."),

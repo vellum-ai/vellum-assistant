@@ -1067,7 +1067,7 @@ describe("code-owned default profiles — wire view and write normalization", ()
     });
     const response = (await getRoute.handler({})) as Record<string, any>;
     const wireBalanced = response.llm.profiles.balanced;
-    expect(wireBalanced.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(wireBalanced.model).toBe("gpt-5.6-luna");
     expect(wireBalanced.provider).toBe("vellum");
     expect(wireBalanced.provider_connection).toBeUndefined();
     expect(wireBalanced.status).toBe("disabled");
@@ -1314,9 +1314,7 @@ describe("code-owned default profiles — echoes over stale on-disk bodies", () 
     });
     const response = (await getRoute.handler({})) as Record<string, any>;
     // The wire view serves catalog content, not the stale body.
-    expect(response.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
+    expect(response.llm.profiles.balanced.model).toBe("gpt-5.6-luna");
     const result = await patchRoute.handler({
       body: { llm: { profiles: response.llm.profiles } },
     });

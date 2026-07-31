@@ -7,7 +7,10 @@
  * handled locally by the daemon.
  */
 
-import { coerceSurfaceDataRecord } from "../../api/surfaces.js";
+import {
+  coerceSurfaceDataRecord,
+  normalizeVisualShowData,
+} from "../../api/surfaces.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { isWeakOpenModel } from "../../providers/weak-open-model.js";
 import type {
@@ -22,6 +25,7 @@ import {
   UI_SHOW_TYPE_DOCS,
   uiShowTeachingError,
 } from "./surface-shape-docs.js";
+import { validateVisualHtml } from "./visual-validation.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -57,6 +61,13 @@ function proxyExecute(toolName: string) {
           : EMPTY_DYNAMIC_PAGE_HTML_HINT,
         isError: true,
       };
+    }
+
+    if (toolName === "ui_show" && input.surface_type === "visual") {
+      const visualError = visualTeachingError(input);
+      if (visualError !== null) {
+        return { content: visualError, isError: true };
+      }
     }
 
     if (toolName === "ui_show" && isDynamicPageAppSubstitute(input)) {
@@ -195,6 +206,33 @@ function isSubstantialInteractiveHtml(input: Record<string, unknown>): boolean {
     return false;
   }
   return html.length > 2000 && INTERACTIVE_HTML_RE.test(html);
+}
+
+/**
+ * Teaching error for a `visual` ui_show whose fragment would not render as
+ * intended, or null when it is sound. The checks run before proxying because
+ * the sandbox fails silently: an external resource never loads and an
+ * unknown `var()` resolves to nothing, so the user sees a blank or unthemed
+ * widget while the model believes it rendered.
+ */
+function visualTeachingError(input: Record<string, unknown>): string | null {
+  const { html } = normalizeVisualShowData(
+    input,
+    coerceSurfaceDataRecord(input.data),
+  );
+  if (html.trim().length === 0) {
+    return "Error: ui_show visual requires a non-empty HTML fragment in `data.html`. The surface was not displayed because no markup was provided — the user would see a blank box. Resend ui_show with the complete self-contained fragment in `data.html`.";
+  }
+
+  const problems = validateVisualHtml(html);
+  if (problems.length === 0) {
+    return null;
+  }
+  return (
+    "Error: ui_show visual was not displayed — the fragment does not meet the sandbox contract:\n" +
+    problems.map((problem) => `- ${problem}`).join("\n") +
+    "\nFix every item above and call ui_show again."
+  );
 }
 
 function collectRoutingText(input: Record<string, unknown>): string[] {

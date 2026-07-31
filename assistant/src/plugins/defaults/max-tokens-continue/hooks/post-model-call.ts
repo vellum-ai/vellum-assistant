@@ -28,9 +28,16 @@
  *   empty remainder leaves nothing to resume from, so the hook lets the turn
  *   end rather than pushing an empty assistant message the provider would
  *   reject.
+ *
+ * The nudge is chosen from the shape of the truncated reply. A reply that
+ * emitted partial output resumes it; a reply that spent the whole budget
+ * inside thinking and emitted nothing gets told so explicitly, because a
+ * generic "continue where you stopped" lets the model resume drafting in
+ * thought and stall the same way on every resume.
  */
 
 import {
+  type ContentBlock,
   type HookFunction,
   INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
   isMaxTokensStopReason,
@@ -50,6 +57,35 @@ export const MAX_TOKENS_CONTINUE_NUDGE_TEXT =
   "<system_notice>Your previous response was cut off because it reached the maximum output length. Continue exactly where you stopped — do not repeat content you already sent and do not start over." +
   INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
   "</system_notice>";
+
+/**
+ * Continuation nudge for a reply that reached the output limit having emitted
+ * only thinking. Shown to the LLM, not the user.
+ */
+export const MAX_TOKENS_THINKING_ONLY_NUDGE_TEXT =
+  "<system_notice>Your previous response spent its entire output budget inside thinking and emitted nothing: no tool call, no text. Do not resume planning and do not restate the plan. Produce the tool call or the reply text now, composing any remaining content directly in the output instead of in thought." +
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
+  "</system_notice>";
+
+/**
+ * Whether the truncated reply is thinking and nothing else: at least one
+ * thinking block, and no block carrying output (a tool call, non-empty text,
+ * or any other emitted content).
+ */
+function isThinkingOnlyStall(content: ContentBlock[]): boolean {
+  let sawThinking = false;
+  for (const block of content) {
+    if (block.type === "thinking" || block.type === "redacted_thinking") {
+      sawThinking = true;
+      continue;
+    }
+    if (block.type === "text" && block.text.trim().length === 0) {
+      continue;
+    }
+    return false;
+  }
+  return sawThinking;
+}
 
 const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   if (ctx.error) {
@@ -75,6 +111,7 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
     return;
   }
 
+  const thinkingOnly = isThinkingOnlyStall(ctx.content);
   consumeMaxTokensContinueBudget(ctx.conversationId);
   ctx.messages.push({
     role: "assistant",
@@ -82,11 +119,22 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   });
   ctx.messages.push({
     role: "user",
-    content: [{ type: "text", text: MAX_TOKENS_CONTINUE_NUDGE_TEXT }],
+    content: [
+      {
+        type: "text",
+        text: thinkingOnly
+          ? MAX_TOKENS_THINKING_ONLY_NUDGE_TEXT
+          : MAX_TOKENS_CONTINUE_NUDGE_TEXT,
+      },
+    ],
   });
   ctx.decision = "continue";
   ctx.logger.warn(
-    { plugin: "max-tokens-continue", conversationId: ctx.conversationId },
+    {
+      plugin: "max-tokens-continue",
+      conversationId: ctx.conversationId,
+      thinkingOnly,
+    },
     "Turn truncated at the output token limit — auto-continuing",
   );
 };

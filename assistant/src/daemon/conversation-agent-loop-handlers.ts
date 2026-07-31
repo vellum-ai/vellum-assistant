@@ -488,6 +488,14 @@ export interface EventHandlerState {
    */
   readonly stagedRevealIdentities: Set<string>;
   /**
+   * `ui_show` tool calls whose streaming input has already been classified
+   * for a surface placeholder (see {@link handleInputJsonDelta}). Holds both
+   * outcomes, the ones that emitted `ui_surface_pending` and the ones whose
+   * prefix proved they are not a `visual`, so the scan runs once per call
+   * rather than on every delta.
+   */
+  readonly surfacePendingScannedToolUseIds: Set<string>;
+  /**
    * In-flight priming of {@link liveRevealGuardEntries}. The dispatcher
    * awaits this before processing a `text_delta` (and before the
    * end-of-message guard flush) so a fast reveal echo can never race the
@@ -606,6 +614,7 @@ export function createEventHandlerState(): EventHandlerState {
     candidateRemintAuthorities: [],
     forChatMintWatermark: currentForChatMintWatermark(),
     stagedRevealIdentities: new Set(),
+    surfacePendingScannedToolUseIds: new Set(),
     liveRevealGuardPriming: undefined,
   };
 }
@@ -628,7 +637,7 @@ export function createEventHandlerState(): EventHandlerState {
 async function chatRevealCandidates(
   state: EventHandlerState,
 ): Promise<readonly ResolvedRevealCandidate[] | undefined> {
-  if (!isAssistantFeatureFlagEnabled("chat-credential-reveal", getConfig())) {
+  if (!isAssistantFeatureFlagEnabled("chat-credential-reveal")) {
     return undefined;
   }
   return resolvedRevealCandidatesForState(state);
@@ -1169,6 +1178,25 @@ function schedulePartialFlush(
 // tools the client discards it (extractCodePreview only handles app tools),
 // so we skip forwarding entirely to avoid transport/decode overhead.
 const APP_TOOL_NAMES = new Set(["app_create"]);
+
+// ── Surface Placeholder Detection ────────────────────────────────────
+// A `visual` ui_show streams the longest tool input the model produces, and
+// nothing is on screen while it does: the ui_show chip is suppressed because
+// the surface renders in its place, and the surface only exists once the call
+// closes. Sniffing `surface_type` off the accumulated prefix lets the client
+// hold a placeholder for that gap. The input itself is never forwarded: the
+// fragment is large and the client has no use for a partial one.
+const UI_SHOW_TOOL_NAME = "ui_show";
+
+/**
+ * How much of the accumulated input the surface-type sniff reads. `ui_show`
+ * declares `surface_type` first, so a real one lands in the first few dozen
+ * characters; past this window the call is classified as "not a visual" and
+ * never re-scanned.
+ */
+const SURFACE_TYPE_SCAN_CHARS = 400;
+
+const VISUAL_SURFACE_TYPE_PATTERN = /"surface_type"\s*:\s*"visual"/;
 const MAX_TOKENS_CONTINUE_PROMPT =
   "Continue from where you stopped. Do not repeat content you've already sent.";
 const MAX_TOKENS_SURFACE_COMPLETION_SUMMARY = "Continue";
@@ -1734,11 +1762,48 @@ function handleToolOutputChunk(
   });
 }
 
+/**
+ * Announce a still-streaming `ui_show` that is going to produce a `visual`
+ * surface, so the client can hold a placeholder for it.
+ *
+ * Runs at most once per tool call: the first delta whose prefix matches emits,
+ * and a call whose prefix grows past the scan window without matching is
+ * recorded as classified so later deltas cost nothing.
+ */
+function announcePendingVisualSurface(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+  event: Extract<AgentEvent, { type: "input_json_delta" }>,
+): void {
+  if (state.surfacePendingScannedToolUseIds.has(event.toolUseId)) {
+    return;
+  }
+  const prefix = event.accumulatedJson.slice(0, SURFACE_TYPE_SCAN_CHARS);
+  if (!VISUAL_SURFACE_TYPE_PATTERN.test(prefix)) {
+    if (event.accumulatedJson.length >= SURFACE_TYPE_SCAN_CHARS) {
+      state.surfacePendingScannedToolUseIds.add(event.toolUseId);
+    }
+    return;
+  }
+  state.surfacePendingScannedToolUseIds.add(event.toolUseId);
+  deps.onEvent({
+    type: "ui_surface_pending",
+    surfaceType: "visual",
+    conversationId: deps.ctx.conversationId,
+    toolUseId: event.toolUseId,
+    messageId: state.lastAssistantMessageId,
+  });
+}
+
 export function handleInputJsonDelta(
   state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "input_json_delta" }>,
 ): void {
+  if (event.toolName === UI_SHOW_TOOL_NAME) {
+    announcePendingVisualSurface(state, deps, event);
+    return;
+  }
   // Only forward input deltas for app tools — the client only uses this
   // stream for app_create code previews. Non-app tools would send large
   // cumulative JSON on every delta with no benefit.

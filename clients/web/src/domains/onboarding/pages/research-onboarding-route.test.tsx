@@ -141,7 +141,7 @@ mock.module("@/lib/auth/gateway-session", () => ({
 }));
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => false,
+  isLocalClient: () => false,
 }));
 
 // The real module builds its destinations from `routes` at import time, and the

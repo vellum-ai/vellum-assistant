@@ -43,8 +43,13 @@ import {
 import { getRenderedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { getIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import {
+  registerLiveActivityPushToken,
+  unregisterLiveActivityPushToken,
+} from "@/domains/chat/voice/live-voice/live-activity-push-registration";
+import {
   endVoiceLiveActivity,
   startVoiceLiveActivity,
+  subscribeVoiceLiveActivityPushToken,
   updateVoiceLiveActivity,
   type VoiceLiveActivityContent,
   type VoiceLiveActivityStart,
@@ -98,8 +103,10 @@ function toActivityContent(
  * per avatar (republished only when the avatar itself changes), so identity
  * comparison is enough and there is nothing to invalidate.
  */
-let encodedAvatar: { source: AvatarRender | null; base64: string | null } | null =
-  null;
+let encodedAvatar: {
+  source: AvatarRender | null;
+  base64: string | null;
+} | null = null;
 
 /** The island avatar for the current assistant, encoding it on first use. */
 async function islandAvatarBase64(): Promise<string | undefined> {
@@ -173,6 +180,52 @@ export function useLiveActivityMirror(): void {
      * can tell whether the session it was starting is still the current one.
      */
     let generation = 0;
+    /**
+     * The newest ActivityKit push token, or `null` before one arrives.
+     *
+     * It shows up some time *after* `start` resolves and can be reissued
+     * mid-activity, so it is state rather than something `start` could return.
+     */
+    let pushToken: string | null = null;
+    /**
+     * What was last registered with the platform, as `token:assistant:
+     * conversation`.
+     *
+     * All three matter and none of them is stable: the token rotates, and a
+     * session started from a draft has no conversation id until the server's
+     * `ready` assigns one — registering against `null` and never revisiting it
+     * would leave the activity addressable by nothing. Comparing the triple
+     * re-registers when any part moves and stays quiet when none does.
+     */
+    let registeredKey: string | null = null;
+
+    /**
+     * Register the running activity with the platform once the token and the
+     * session's identity are both known.
+     *
+     * This is what lets the island keep updating after iOS suspends this web
+     * view — see `live-activity-push-registration.ts`.
+     */
+    const syncPushRegistration = (session: LiveVoiceState): void => {
+      const { assistantId, conversationId } = session;
+      if (
+        pushToken === null ||
+        assistantId === null ||
+        conversationId === null
+      ) {
+        return;
+      }
+      const key = `${pushToken}:${assistantId}:${conversationId}`;
+      if (key === registeredKey) {
+        return;
+      }
+      registeredKey = key;
+      void registerLiveActivityPushToken(
+        pushToken,
+        assistantId,
+        conversationId,
+      );
+    };
 
     const sync = (session: LiveVoiceState): void => {
       const content = toActivityContent(session);
@@ -183,9 +236,17 @@ export function useLiveActivityMirror(): void {
         }
         pushed = null;
         generation += 1;
+        // Dropped before the token is retired: the registration outlives the
+        // activity otherwise, and the platform would push a phase at an island
+        // that no longer exists.
+        pushToken = null;
+        registeredKey = null;
+        void unregisterLiveActivityPushToken();
         void endVoiceLiveActivity();
         return;
       }
+
+      syncPushRegistration(session);
 
       if (pushed === null) {
         pushed = content;
@@ -225,13 +286,26 @@ export function useLiveActivityMirror(): void {
     // running one rather than stacking a second island.
     sync(useLiveVoiceStore.getState());
     const unsubscribe = subscribeSettledLiveVoiceState(sync);
+    // Subscribed for the mirror's whole lifetime rather than per activity: the
+    // token can arrive before the next settled state does, and a listener
+    // attached per `start` would miss it.
+    const unsubscribeToken = subscribeVoiceLiveActivityPushToken(
+      ({ token }) => {
+        pushToken = token;
+        syncPushRegistration(useLiveVoiceStore.getState());
+      },
+    );
 
     return () => {
       unsubscribe();
+      unsubscribeToken();
       // An activity that outlives its mirror sits on the Lock Screen showing a
       // phase nothing is driving.
       if (pushed !== null) {
         pushed = null;
+        pushToken = null;
+        registeredKey = null;
+        void unregisterLiveActivityPushToken();
         void endVoiceLiveActivity();
       }
     };

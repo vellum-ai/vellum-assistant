@@ -50,7 +50,7 @@ export const LLMProvider = z
     "chatgpt",
   ])
   .meta({ id: "LLMProvider" });
-type LLMProvider = z.infer<typeof LLMProvider>;
+export type LLMProvider = z.infer<typeof LLMProvider>;
 
 /**
  * Providers that can back `llm.defaultProvider`: the named columns of the
@@ -79,8 +79,19 @@ export const DEFAULT_PROVIDER_CHOICES: readonly LLMProvider[] = [
   ]),
 ];
 
-export function isDefaultProviderChoice(value: string): boolean {
+export function isDefaultProviderChoice(value: string): value is LLMProvider {
   return (DEFAULT_PROVIDER_CHOICES as readonly string[]).includes(value);
+}
+
+/**
+ * Default-provider choices whose profiles materialize from the shared BYOK
+ * templates: every choice except the `vellum` routing identity, whose
+ * defaults are pinned managed models.
+ */
+export function isByokDefaultProviderChoice(
+  value: string,
+): value is LLMProvider {
+  return value !== "vellum" && isDefaultProviderChoice(value);
 }
 
 const DefaultProviderEnum = z.enum(

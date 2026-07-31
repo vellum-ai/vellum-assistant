@@ -87,12 +87,15 @@ import {
   getMessageById,
 } from "../../persistence/conversation-crud.js";
 import { getConversationByKey } from "../../persistence/conversation-key-store.js";
+import {
+  type ConversationKind,
+  resolveConversationKind,
+} from "../../persistence/conversation-types.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";
 import { type LogRow } from "../../persistence/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/substrate/constants.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/v2/activation-log-store.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
 import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
@@ -113,7 +116,13 @@ import {
   resolvePricingForUsage,
   usesAnthropicPricingRules,
 } from "../../util/pricing.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
+import {
+  BadRequestError,
+  ForbiddenError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
 import {
   type LlmContextSummary,
   normalizeLlmContextPayloads,
@@ -1960,28 +1969,6 @@ function handleGetMessageContent({
   return result;
 }
 
-type ConversationKind =
-  | "user"
-  | "background"
-  | "background_memory_consolidation"
-  | "scheduled";
-
-function resolveConversationKind(
-  source: string,
-  conversationType: string,
-): ConversationKind {
-  if (source === MEMORY_V2_CONSOLIDATION_SOURCE) {
-    return "background_memory_consolidation";
-  }
-  if (conversationType === "background") {
-    return "background";
-  }
-  if (conversationType === "scheduled") {
-    return "scheduled";
-  }
-  return "user";
-}
-
 async function handleGetLlmContext({
   pathParams = {},
   queryParams = {},
@@ -2156,18 +2143,35 @@ function resolveQueuedMessageConversationId({
     : undefined;
 }
 
-function handleDeleteQueuedMessage(args: RouteHandlerArgs) {
-  const { pathParams = {} } = args;
+async function handleDeleteQueuedMessage(args: RouteHandlerArgs) {
+  const { pathParams = {}, headers = {} } = args;
   const conversationId = resolveQueuedMessageConversationId(args);
   if (!conversationId) {
     throw new BadRequestError("Missing required parameter: conversationId");
   }
-  const result = deleteQueuedMessage(conversationId, pathParams.id ?? "");
+  // Verified caller identity. Both adapters derive this header from the auth
+  // context, never from a caller-supplied one. Normalize it exactly as the
+  // send path does before comparing against the principal recorded at
+  // enqueue, or the two disagree: `resolveActorPrincipalIdForLocalGuardian`
+  // translates the synthetic `dev-bypass` principal to the real local
+  // guardian under `DISABLE_HTTP_AUTH=true` (a no-op for real JWT
+  // principals), and every sibling handler in this layer trims first.
+  const actorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
+    headers["x-vellum-actor-principal-id"]?.trim() || undefined,
+  );
+  const result = deleteQueuedMessage(conversationId, pathParams.id ?? "", {
+    actorPrincipalId,
+  });
   if (result.removed) {
     return { ok: true, conversationId, requestId: pathParams.id };
   }
   if (result.reason === "conversation_not_found") {
     throw new NotFoundError("Conversation not found");
+  }
+  if (result.reason === "forbidden") {
+    throw new ForbiddenError(
+      "Queued message was sent by a different user and cannot be cancelled here",
+    );
   }
   throw new NotFoundError("Queued message not found");
 }
@@ -2514,7 +2518,8 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Delete a queued message",
     description:
-      "Remove a pending message from the conversation queue before it is processed.",
+      "Remove a pending message from the conversation queue before it is processed. " +
+      "Broadcasts `message_queued_deleted` so every client can close out the pending row.",
     tags: ["messages"],
     queryParams: [
       {
@@ -2524,6 +2529,15 @@ export const ROUTES: RouteDefinition[] = [
         description: "Conversation ID (required)",
       },
     ],
+    additionalResponses: {
+      "403": {
+        description:
+          "The queued message was enqueued by a different actor principal.",
+      },
+      "404": {
+        description: "Conversation or queued message not found.",
+      },
+    },
     handler: handleDeleteQueuedMessage,
   },
   {

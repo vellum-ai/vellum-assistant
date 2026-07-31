@@ -315,7 +315,8 @@ export function TagAutocompleteInput({
       values.length > 0
     ) {
       removeChip(values[values.length - 1]!);
-    } else if (e.key === "Escape") {
+    } else if (e.key === "Escape" && showList) {
+      e.preventDefault();
       setOpen(false);
     }
   }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 
 // Replace one surface renderer with a component that always throws so we can
 // assert the boundary contains the failure. Declared before importing
@@ -58,5 +59,53 @@ describe("SurfaceRouter error boundary", () => {
     expect(getByRole("alert").textContent).toContain("My App");
     // …while the sibling copy_block surface renders normally.
     expect(getByText("still here")).toBeTruthy();
+  });
+});
+
+describe("SurfaceRouter — visual surfaces", () => {
+  test("routes surfaceType \"visual\" to the sandboxed widget iframe", () => {
+    const { container } = render(
+      // VisualSurface relays widget prompts through useNavigate.
+      <MemoryRouter>
+        <SurfaceRouter
+          surface={makeSurface({
+            surfaceId: "surface-visual",
+            surfaceType: "visual",
+            title: "Star schema",
+            data: { html: "<div>widget</div>", height: 240 },
+          })}
+          onAction={() => {}}
+        />
+      </MemoryRouter>,
+    );
+
+    const iframe = container.querySelector("iframe");
+    expect(iframe).toBeTruthy();
+    expect(iframe?.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    );
+    expect(iframe?.getAttribute("title")).toBe("Star schema");
+    expect(iframe?.getAttribute("srcdoc")).toContain("<div>widget</div>");
+    // Falls through to the generic unsupported-surface card only for unknown types.
+    expect(container.textContent).not.toContain("Unsupported surface type");
+  });
+
+  test("renders nothing rather than crashing when a visual carries no HTML", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <SurfaceRouter
+          surface={makeSurface({
+            surfaceId: "surface-visual-empty",
+            surfaceType: "visual",
+            data: {},
+          })}
+          onAction={() => {}}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(container.querySelector("iframe")).toBeNull();
+    // Not the error boundary — the surface degrades on its own.
+    expect(container.querySelector("[role='alert']")).toBeNull();
   });
 });

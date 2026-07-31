@@ -1,0 +1,1218 @@
+/* Prevent macOS elastic overscroll from revealing the body background
+   behind the docs shell (the header and content have different colors).
+   overflow-x: hidden clips any content that bleeds past the viewport. */
+html:has(.docs-shell) {
+  overscroll-behavior: none;
+  overflow-x: hidden;
+}
+
+.docs-shell {
+  --docs-bg: #ffffff;
+  --docs-sidebar-bg: #ffffff;
+  --docs-surface: var(--color-stone-50, #F6F5F4);
+  --docs-surface-strong: #ffffff;
+  --docs-border: var(--color-stone-200, #E9E6E2);
+  --docs-border-strong: var(--color-moss-200, #CFCCC9);
+  --docs-text: var(--color-stone-900, #17191C);
+  --docs-text-muted: var(--color-stone-700, #5A6672);
+  --docs-text-subtle: var(--color-stone-600, #71808E);
+  --docs-accent: #059669;
+  --docs-accent-strong: #047857;
+  --docs-accent-soft: #ECFDF5;
+  --docs-overlay: rgba(23, 25, 28, 0.32);
+  background: var(--docs-bg);
+  color: var(--docs-text);
+}
+
+.dark .docs-shell {
+  --docs-bg: var(--color-moss-950, #111214);
+  --docs-sidebar-bg: var(--color-moss-900, #17191C);
+  --docs-surface: var(--color-moss-700, #24292E);
+  --docs-surface-strong: var(--color-moss-700, #24292E);
+  --docs-border: var(--color-moss-600, #2D3339);
+  --docs-border-strong: var(--color-moss-500, #444D56);
+  --docs-text: var(--color-moss-50, #F6F5F4);
+  --docs-text-muted: var(--color-moss-100, #E5E7EB);
+  --docs-text-subtle: var(--color-moss-300, #B0B6BD);
+  --docs-accent: #34D399;
+  --docs-accent-strong: #6EE7B7;
+  --docs-accent-soft: rgba(16, 185, 129, 0.15);
+  --docs-overlay: rgba(0, 0, 0, 0.52);
+}
+
+.docs-shell .docs-layout {
+  width: 100%;
+}
+
+.docs-shell .docs-header {
+  border-color: var(--docs-border);
+  background: var(--docs-surface-strong);
+}
+
+.docs-shell .docs-brand-area {
+  border-color: var(--docs-border);
+}
+
+.docs-shell .docs-brand-area img {
+  filter: brightness(0) saturate(100%) invert(38%) sepia(15%) saturate(900%) hue-rotate(73deg) brightness(95%) contrast(88%);
+}
+
+.dark .docs-shell .docs-brand-area img {
+  filter: brightness(0) saturate(100%) invert(73%) sepia(8%) saturate(400%) hue-rotate(73deg) brightness(95%) contrast(88%);
+}
+
+.docs-shell .docs-header-link {
+  color: var(--docs-text-muted);
+}
+
+.docs-shell .docs-header-link:hover {
+  color: var(--docs-text);
+}
+
+.docs-shell .docs-header-link-active {
+  color: var(--docs-accent) !important;
+}
+
+/* Tavily-style tabs row: thin border-top divider, accent underline beneath
+   the active tab. Sits below the brand+search+CTA row in the header. */
+.docs-shell .docs-header-tabs {
+  background: var(--docs-surface-strong);
+  border-color: var(--docs-border);
+}
+
+.docs-shell .docs-header-tabs .docs-header-link {
+  position: relative;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+}
+
+.docs-shell .docs-header-tabs .docs-header-link-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--docs-accent);
+}
+
+/* Header search input — shrinks to fit a comfortable max width in the middle
+   of the top row. */
+.docs-shell .docs-header-search .docs-search-trigger {
+  width: 100%;
+}
+
+.docs-shell .docs-main {
+  max-width: 900px;
+}
+
+.docs-shell .docs-breadcrumb {
+  color: var(--docs-text-subtle);
+}
+
+.docs-shell .docs-eyebrow {
+  color: var(--docs-accent);
+}
+
+.docs-shell .docs-title {
+  color: var(--docs-text);
+  font-family: "DM Sans", sans-serif;
+}
+
+/* H2/H3 inside docs match H1: DM Sans + bold + tight tracking.
+   Defined outside @layer to beat .marketing-root h2/h3 in marketing.css
+   which sets font-weight 600. Specificity (0,2,1) beats (0,1,1) so this
+   wins without !important. */
+.docs-shell .docs-prose h2,
+.docs-shell .docs-prose h3 {
+  font-family: "DM Sans", sans-serif;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+}
+
+.docs-shell .docs-subtitle {
+  color: var(--docs-text-muted);
+}
+
+.docs-shell .docs-prose {
+  color: var(--docs-text-muted);
+}
+
+.docs-shell .docs-prose p {
+  font-size: 1.06rem;
+  line-height: 1.85;
+}
+
+/* Default typography for bare h2/h3/ul/ol/li/p inside docs-prose.
+   Wrapped in :where() AND nested in @layer base so per-element Tailwind
+   utilities (e.g. SectionHeading's mb-4 mt-0 text-3xl, or a page's
+   own text-base) reliably win. Without the layer wrap, these rules
+   were unlayered and Tailwind utilities (which live in @layer utilities)
+   could not override them regardless of :where() specificity. */
+@layer base {
+  :where(.docs-shell .docs-prose p) {
+    margin-bottom: 1rem;
+  }
+
+  :where(.docs-shell .docs-prose h2) {
+    margin-top: 2.75rem;
+    margin-bottom: 1rem;
+    font-family: "DM Sans", sans-serif;
+    font-size: 1.875rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    color: var(--docs-text);
+  }
+
+  :where(.docs-shell .docs-prose h3) {
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    font-family: "DM Sans", sans-serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--docs-text);
+  }
+
+  :where(.docs-shell .docs-prose h2:first-child),
+  :where(.docs-shell .docs-prose h3:first-child) {
+    margin-top: 0;
+  }
+
+  :where(.docs-shell .docs-prose ul) {
+    list-style-type: disc;
+    padding-left: 1.5rem;
+    margin-top: 0.5rem;
+    margin-bottom: 1.25rem;
+  }
+
+  :where(.docs-shell .docs-prose ol) {
+    list-style-type: decimal;
+    padding-left: 1.5rem;
+    margin-top: 0.5rem;
+    margin-bottom: 1.25rem;
+  }
+
+  :where(.docs-shell .docs-prose li) {
+    font-size: 1.06rem;
+    line-height: 1.7;
+    margin-bottom: 0.4rem;
+  }
+
+  :where(.docs-shell .docs-prose li > p) {
+    margin-bottom: 0.4rem;
+  }
+
+  :where(.docs-shell .docs-prose li::marker) {
+    color: var(--docs-text-muted);
+  }
+}
+
+.docs-shell .docs-main strong {
+  color: var(--docs-text) !important;
+  font-weight: 600;
+}
+
+.docs-shell .docs-main a {
+  color: var(--docs-accent) !important;
+  text-decoration-color: rgba(39, 126, 65, 0.42) !important;
+  text-underline-offset: 3px;
+}
+
+.docs-shell .docs-main a:hover {
+  color: var(--docs-accent-strong) !important;
+  text-decoration-color: rgba(27, 94, 48, 0.62) !important;
+}
+
+.docs-shell .docs-main code {
+  border: 1px solid var(--docs-border);
+  background: var(--docs-sidebar-bg);
+  color: var(--docs-text);
+}
+
+.docs-shell .docs-main pre {
+  border: 1px solid var(--docs-border) !important;
+  background: var(--docs-surface) !important;
+}
+
+/* Suppress double border when pre is inside an already-bordered container */
+.docs-shell .docs-main div[class*="border"] > pre {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.docs-shell .docs-main pre code {
+  border: 0;
+  background: transparent;
+  color: var(--docs-text);
+}
+
+.docs-shell .docs-main table {
+  border-color: var(--docs-border);
+}
+
+.docs-shell .docs-main table thead tr,
+.docs-shell .docs-main table tbody tr {
+  background: transparent !important;
+}
+
+.docs-shell .docs-main table th {
+  border-bottom: 1px solid var(--docs-border-strong);
+  color: var(--docs-text-muted);
+}
+
+.docs-shell .docs-main table td {
+  border-bottom: 1px solid var(--docs-border);
+}
+
+.docs-shell .docs-main :is(dl > div, section > div.rounded-xl, article) {
+  border-color: var(--docs-border);
+  background: var(--docs-surface);
+}
+
+.docs-shell .docs-home-principle {
+  border: 1px solid var(--docs-border);
+  border-radius: 12px;
+  background: var(--docs-surface);
+  padding: 1rem 1.1rem;
+}
+
+/* The CollapsibleSection's h3 sits inside a flex button row with a chevron.
+   The :where(.docs-prose h3) defaults below would otherwise add 2rem of
+   margin-top, breaking the centered chevron+title alignment. Override with
+   real specificity so the row stays compact and centered. */
+.docs-shell .docs-home-principle h3 {
+  margin: 0;
+  padding: 0;
+}
+
+.docs-shell .docs-home-principle p {
+  font-size: 0.98rem;
+  line-height: 1.75;
+}
+
+.docs-nav-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.docs-nav-card {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.15rem 1.25rem;
+  background: var(--docs-surface);
+  border: 1px solid var(--docs-border);
+  border-radius: 12px;
+  text-decoration: none !important;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.docs-nav-card:hover {
+  border-color: var(--docs-border-strong);
+  box-shadow: 0 4px 16px rgba(34, 34, 30, 0.06);
+}
+
+.docs-nav-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.docs-nav-card-title {
+  font-weight: 600;
+  font-size: 1.02rem;
+  color: var(--docs-text) !important;
+}
+
+.docs-nav-card-desc {
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--docs-text-muted) !important;
+}
+
+.docs-nav-card-arrow {
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  color: var(--docs-accent) !important;
+  transition: transform 0.18s ease;
+}
+
+.docs-nav-card:hover .docs-nav-card-arrow {
+  transform: translateX(3px);
+}
+
+.docs-shell .docs-nav-panel {
+  border-color: var(--docs-border);
+  background: var(--docs-sidebar-bg);
+}
+
+/* Tavily-style section dividers in the sidebar. Each NavSection sits in its
+   own group; the first one in the list has no top spacing, every following
+   one gets a soft top divider plus breathing room. */
+.docs-shell .docs-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.docs-shell .docs-nav-section + .docs-nav-section,
+.docs-shell .docs-nav-list > li + .docs-nav-section {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--docs-border);
+}
+
+.docs-shell .docs-nav-section-label {
+  color: var(--docs-text);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.docs-shell .docs-nav-section-label:hover {
+  color: var(--docs-text);
+}
+
+.docs-shell .docs-nav-section-label-active {
+  color: var(--docs-accent);
+}
+
+.docs-shell .docs-nav-link-active {
+  background: var(--docs-accent-soft);
+  color: var(--docs-accent);
+}
+
+.docs-shell .docs-nav-link-active .docs-nav-link-icon,
+.docs-shell .docs-nav-link-active .docs-nav-link-icon svg {
+  color: var(--docs-accent);
+}
+
+.docs-shell .docs-nav-link-inactive {
+  color: var(--docs-text-muted);
+}
+
+.docs-shell .docs-nav-link-inactive .docs-nav-link-icon,
+.docs-shell .docs-nav-link-inactive .docs-nav-link-icon svg {
+  color: var(--docs-text-subtle);
+}
+
+.docs-shell .docs-nav-link-inactive:hover {
+  color: var(--docs-text);
+  background: var(--docs-surface-strong);
+}
+
+.docs-shell .docs-nav-link-inactive:hover .docs-nav-link-icon,
+.docs-shell .docs-nav-link-inactive:hover .docs-nav-link-icon svg {
+  color: var(--docs-text);
+}
+
+.docs-shell .docs-nav-link-active:focus-visible,
+.docs-shell .docs-nav-link-inactive:focus-visible {
+  outline: 2px solid var(--docs-accent);
+  outline-offset: -2px;
+}
+
+.docs-shell .docs-nav-mobile-trigger {
+  border-color: var(--docs-border);
+  background: var(--docs-surface-strong);
+  color: var(--docs-text-muted);
+}
+
+.docs-shell .docs-nav-overlay {
+  background: var(--docs-overlay);
+}
+
+.docs-shell .docs-nav-close {
+  color: var(--docs-text-subtle);
+}
+
+.docs-shell .docs-nav-close:hover {
+  color: var(--docs-text);
+  background: var(--docs-surface-strong);
+}
+
+.docs-shell .docs-search {
+  position: relative;
+}
+
+.docs-shell .docs-search-trigger {
+  width: 100%;
+  border: 1px solid var(--docs-border);
+  background: var(--docs-surface-strong);
+  color: var(--docs-text);
+  border-radius: 10px;
+  padding: 9px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+}
+
+.docs-shell .docs-search-trigger:hover {
+  border-color: var(--docs-border-strong);
+  box-shadow: 0 6px 18px rgba(34, 34, 30, 0.07);
+}
+
+.docs-shell .docs-search-trigger:focus-visible {
+  outline: 0;
+  border-color: var(--docs-accent);
+  box-shadow: 0 0 0 3px rgba(39, 126, 65, 0.2);
+}
+
+.docs-shell .docs-search-icon {
+  color: var(--docs-text-subtle);
+  flex: 0 0 auto;
+}
+
+.docs-shell .docs-search-trigger-text {
+  color: var(--docs-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  flex: 1;
+}
+
+.docs-shell .docs-search-shortcut {
+  margin-left: auto;
+  border: 1px solid var(--docs-border);
+  color: var(--docs-text-subtle);
+  background: var(--docs-surface);
+  border-radius: 6px;
+  font-size: 0.68rem;
+  line-height: 1;
+  padding: 4px 6px;
+  letter-spacing: 0.04em;
+}
+
+.docs-shell .docs-search-spotlight-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: rgba(28, 31, 38, 0.36);
+  backdrop-filter: blur(5px) saturate(110%);
+  -webkit-backdrop-filter: blur(5px) saturate(110%);
+  padding: 1rem;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.docs-shell .docs-search-spotlight {
+  width: min(760px, calc(100vw - 2rem));
+  margin-top: clamp(6vh, 10vh, 12vh);
+  border: 1px solid var(--docs-border-strong);
+  background: var(--docs-surface-strong);
+  border-radius: 18px;
+  box-shadow:
+    0 28px 68px rgba(25, 25, 25, 0.25),
+    0 4px 14px rgba(25, 25, 25, 0.09);
+  overflow: hidden;
+  transform: translateY(16px) scale(0.97);
+  opacity: 0;
+  transition:
+    transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 200ms ease;
+}
+
+.docs-shell .docs-search-spotlight-overlay.is-open {
+  opacity: 1;
+}
+
+.docs-shell .docs-search-spotlight.is-open {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+.docs-shell .docs-search-spotlight-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--docs-border);
+  padding: 17px 18px 16px;
+  background: linear-gradient(180deg, var(--docs-surface) 0%, var(--docs-surface-strong) 100%);
+}
+
+.docs-shell .docs-search-spotlight-icon {
+  color: var(--docs-text-subtle);
+  flex: 0 0 auto;
+}
+
+.docs-shell .docs-search-spotlight-input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--docs-text);
+  font-size: clamp(1.05rem, 1.55vw, 1.45rem);
+  line-height: 1.2;
+  font-weight: 540;
+}
+
+.docs-shell .docs-search-spotlight-input::placeholder {
+  color: var(--docs-text-subtle);
+}
+
+.docs-shell .docs-search-spotlight-input:focus {
+  outline: none;
+}
+
+.docs-shell .docs-search-esc {
+  flex: 0 0 auto;
+  border: 1px solid var(--docs-border-strong);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--docs-text-subtle);
+  background: var(--docs-surface);
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.docs-shell .docs-search-esc:hover {
+  border-color: var(--docs-border);
+  color: var(--docs-text);
+}
+
+.docs-shell .docs-search-spotlight-results {
+  max-height: min(66vh, 590px);
+  overflow-y: auto;
+  padding: 6px 7px 7px;
+}
+
+.docs-shell .docs-search-status {
+  padding: 12px 13px;
+  color: var(--docs-text-muted);
+  font-size: 0.86rem;
+  font-weight: 510;
+}
+
+.docs-shell .docs-search-suggestions {
+  padding: 4px 0;
+}
+
+.docs-shell .docs-search-suggestions-label {
+  color: var(--docs-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 13px;
+}
+
+.docs-shell .docs-search-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.docs-shell .docs-search-item-wrapper {
+  margin: 0;
+  padding: 0;
+}
+
+.docs-shell .docs-search-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  border-radius: 11px;
+  padding: 11px 12px;
+  cursor: pointer;
+  transition: background-color 150ms ease, transform 150ms ease;
+}
+
+.docs-shell .docs-search-suggestion-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.docs-shell .docs-search-suggestion-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--docs-accent-strong);
+  background: var(--docs-accent-soft);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.docs-shell .docs-search-item.is-active,
+.docs-shell .docs-search-item:hover {
+  background: var(--docs-accent-soft);
+  transform: translateY(-1px);
+}
+
+.docs-shell .docs-search-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.docs-shell .docs-search-title {
+  color: var(--docs-text);
+  font-size: 0.95rem;
+  font-weight: 680;
+}
+
+.docs-shell .docs-search-page {
+  color: var(--docs-text-muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.docs-shell .docs-search-snippet {
+  color: var(--docs-text-muted);
+  font-size: 0.82rem;
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+.docs-shell .docs-search-snippet mark,
+.docs-shell .docs-search-title mark {
+  background: rgba(233, 242, 236, 0.95);
+  color: var(--docs-accent-strong);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+@media (max-width: 768px) {
+  .docs-shell .docs-search-spotlight {
+    width: calc(100vw - 1rem);
+    margin-top: 3vh;
+    border-radius: 12px;
+  }
+
+  .docs-shell .docs-search-spotlight-input-wrap {
+    padding: 12px;
+  }
+
+  .docs-shell .docs-search-spotlight-input {
+    font-size: 1rem;
+  }
+
+  .docs-shell .docs-search-page {
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-shell .docs-search-spotlight-overlay,
+  .docs-shell .docs-search-spotlight,
+  .docs-shell .docs-search-item {
+    transition: none;
+  }
+}
+
+/* Tailwind utility overrides scoped to docs pages */
+.docs-shell .text-zinc-900 {
+  color: var(--docs-text);
+}
+
+.docs-shell .text-zinc-800 {
+  color: var(--docs-text);
+}
+
+.docs-shell .text-zinc-700 {
+  color: var(--docs-text-muted);
+}
+
+.docs-shell .text-zinc-600,
+.docs-shell .text-zinc-500 {
+  color: var(--docs-text-muted);
+}
+
+.docs-shell .text-zinc-400 {
+  color: var(--docs-text-subtle);
+}
+
+.docs-shell .text-zinc-100 {
+  color: var(--docs-bg);
+}
+
+.docs-shell .border-zinc-300 {
+  border-color: var(--docs-border-strong);
+}
+
+.docs-shell .border-zinc-200 {
+  border-color: var(--docs-border);
+}
+
+.docs-shell .bg-zinc-50 {
+  background: var(--docs-surface);
+}
+
+.docs-shell table .bg-zinc-50,
+.docs-shell table [class*="bg-zinc"] {
+  background: transparent !important;
+}
+
+.docs-shell .bg-zinc-950 {
+  background: var(--docs-accent-strong);
+}
+
+.docs-shell .bg-zinc-950\/30 {
+  background: var(--docs-overlay);
+}
+
+.docs-shell .bg-white,
+.docs-shell .bg-white\/95 {
+  background: var(--docs-surface-strong);
+}
+
+.docs-shell .hover\:bg-zinc-100:hover {
+  background: var(--docs-surface-strong);
+}
+
+.docs-shell .hover\:text-zinc-900:hover {
+  color: var(--docs-text);
+}
+
+.docs-shell .bg-emerald-100 {
+  background: var(--docs-accent-soft);
+}
+
+.docs-shell .text-emerald-700,
+.docs-shell .text-emerald-600,
+.docs-shell .text-emerald-500 {
+  color: var(--docs-accent);
+}
+
+.docs-shell .border-emerald-500 {
+  border-color: var(--docs-accent);
+}
+
+/* Keep code text readable when legacy light-text utility classes are present. */
+.docs-shell .docs-main pre.text-zinc-100,
+.docs-shell .docs-main pre.text-stone-100,
+.docs-shell .docs-main pre .text-zinc-100,
+.docs-shell .docs-main pre .text-stone-100,
+.docs-shell .docs-main code.text-zinc-100,
+.docs-shell .docs-main code.text-stone-100 {
+  color: var(--docs-text) !important;
+}
+
+/* ── Theme picker ────────────────────────────────────────────────────── */
+
+.docs-theme-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--docs-border);
+  border-radius: 10px;
+  background: var(--docs-sidebar-bg);
+  padding: 3px;
+  gap: 1px;
+  transition: opacity 0.2s ease;
+}
+
+.docs-theme-picker:hover {
+  border-color: var(--docs-border-strong);
+}
+
+.docs-theme-picker-indicator {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: calc((100% - 6px - 2px) / 3);
+  height: calc(100% - 6px);
+  border-radius: 7px;
+  background: var(--docs-surface-strong);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.06),
+    0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 0;
+}
+
+.dark .docs-theme-picker-indicator {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.2),
+    0 0 0 0.5px rgba(255, 255, 255, 0.04);
+}
+
+.docs-theme-picker-option {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--docs-text-subtle);
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+
+.docs-theme-picker-option:hover {
+  color: var(--docs-text-muted);
+}
+
+.docs-theme-picker-option.is-active {
+  color: var(--docs-accent);
+}
+
+.docs-theme-picker-option:focus-visible {
+  outline: 2px solid var(--docs-accent);
+  outline-offset: -1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-theme-picker-indicator {
+    transition: none;
+  }
+}
+
+/* ── Nav CTA button ──────────────────────────────────────────────────── */
+
+.docs-nav-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  background: var(--docs-accent);
+  color: #fff !important;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 0;
+  transition: opacity 0.15s ease;
+}
+
+.docs-nav-cta:hover {
+  opacity: 0.88;
+}
+
+/* ── GitHub wordmark link in docs header ─────────────────────────────── */
+
+.docs-github-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  width: 32px;
+  text-decoration: none;
+  transition: opacity 0.15s ease;
+}
+
+.docs-github-logo {
+  height: 22px;
+  width: 22px;
+  display: block;
+}
+
+/* The wordmark is black-on-transparent. Invert in dark mode. */
+.dark .docs-github-logo {
+  filter: invert(1);
+}
+
+.docs-github-link:hover {
+  opacity: 0.7;
+}
+
+.docs-shell ~ footer.de-offgrid-footer {
+  display: none;
+}
+
+/* ── Privacy & Data — Security tier cards ────────────────────────────── */
+
+.docs-shell {
+  --privacy-secure: var(--color-forest-700, #516748);
+  --privacy-secure-soft: var(--color-forest-100, #edf2eb);
+  --privacy-secure-border: rgba(81, 103, 72, 0.22);
+  --privacy-context: var(--color-amber-700, #c97c10);
+  --privacy-context-soft: rgba(201, 124, 16, 0.08);
+  --privacy-context-border: rgba(201, 124, 16, 0.18);
+  --privacy-danger: var(--color-danger-600, #e86b40);
+}
+
+.dark .docs-shell {
+  --privacy-secure: var(--color-forest-400, #98a88f);
+  --privacy-secure-soft: rgba(152, 168, 143, 0.08);
+  --privacy-secure-border: rgba(152, 168, 143, 0.18);
+  --privacy-context: var(--color-amber-500, #fac426);
+  --privacy-context-soft: rgba(250, 196, 38, 0.06);
+  --privacy-context-border: rgba(250, 196, 38, 0.14);
+  --privacy-danger: var(--color-danger-400, #f9c0a2);
+}
+
+/* Tier legend pills */
+
+.docs-shell .privacy-tier-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 5px 13px;
+  border-radius: 100px;
+}
+
+.docs-shell .privacy-tier-pill--secure {
+  background: var(--privacy-secure-soft);
+  color: var(--privacy-secure);
+  border: 1px solid var(--privacy-secure-border);
+}
+
+.docs-shell .privacy-tier-pill--context {
+  background: var(--privacy-context-soft);
+  color: var(--privacy-context);
+  border: 1px solid var(--privacy-context-border);
+}
+
+/* Tier sub-heading */
+
+.docs-shell .privacy-tier-heading {
+  font-size: 0.7rem;
+  font-weight: 660;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--docs-text-subtle);
+  margin-bottom: 0.75rem;
+}
+
+/* Card grid */
+
+.docs-shell .privacy-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+@media (min-width: 640px) {
+  .docs-shell .privacy-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Individual card */
+
+.docs-shell .privacy-card {
+  position: relative;
+  border: 1px solid var(--docs-border);
+  border-radius: 14px;
+  padding: 1.1rem 1.25rem;
+  background: var(--docs-surface);
+  overflow: hidden;
+  transition:
+    border-color 0.22s ease,
+    transform 0.22s ease,
+    box-shadow 0.22s ease;
+  animation: privacyCardReveal 0.5s cubic-bezier(0.22, 0.68, 0.32, 1) both;
+}
+
+.docs-shell .privacy-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 3px 0 0 3px;
+}
+
+.docs-shell .privacy-card--secure::before {
+  background: var(--privacy-secure);
+}
+
+.docs-shell .privacy-card--context::before {
+  background: var(--privacy-context);
+}
+
+.docs-shell .privacy-card:hover {
+  border-color: var(--docs-border-strong);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+}
+
+.dark .docs-shell .privacy-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+}
+
+/* Staggered entrance */
+
+.docs-shell .privacy-card:nth-child(1) { animation-delay: 0s; }
+.docs-shell .privacy-card:nth-child(2) { animation-delay: 0.06s; }
+.docs-shell .privacy-card:nth-child(3) { animation-delay: 0.12s; }
+.docs-shell .privacy-card:nth-child(4) { animation-delay: 0.18s; }
+
+@keyframes privacyCardReveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Card internals */
+
+.docs-shell .privacy-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.docs-shell .privacy-card-icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.docs-shell .privacy-card-icon--secure {
+  color: var(--privacy-secure);
+}
+
+.docs-shell .privacy-card-icon--context {
+  color: var(--privacy-context);
+}
+
+.docs-shell .privacy-card-title {
+  font-weight: 640;
+  font-size: 0.95rem;
+  color: var(--docs-text);
+  line-height: 1.35;
+}
+
+.docs-shell .privacy-card-desc {
+  font-size: 0.82rem;
+  color: var(--docs-text-muted);
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+.docs-shell .privacy-card-path {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--docs-sidebar-bg);
+  border: 1px solid var(--docs-border);
+  color: var(--docs-text-muted);
+  font-family: var(--font-mono, "DM Mono", monospace);
+}
+
+.docs-shell .privacy-card-detail {
+  font-size: 0.78rem;
+  color: var(--docs-text-subtle);
+  margin-top: 8px;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+/* Callout box (replaces blockquote) */
+
+.docs-shell .privacy-callout {
+  position: relative;
+  border: none;
+  border-radius: 0;
+  padding: 1.15rem 1.25rem 1.15rem 3rem;
+  background: transparent;
+  margin: 1.5rem 0;
+}
+
+.docs-shell .privacy-callout::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--privacy-context);
+}
+
+.docs-shell .privacy-callout-icon {
+  position: absolute;
+  left: 0.9rem;
+  top: 1.25rem;
+  color: var(--privacy-context);
+}
+
+.docs-shell .privacy-callout p {
+  margin: 0 !important;
+  font-size: 0.92rem !important;
+  line-height: 1.75 !important;
+}
+
+/* Risk-level dots for permission section */
+
+.docs-shell .privacy-risk-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  position: relative;
+  top: -1px;
+}
+
+.docs-shell .privacy-risk-dot--low {
+  background: var(--privacy-secure);
+}
+
+.docs-shell .privacy-risk-dot--medium {
+  background: var(--privacy-context);
+}
+
+.docs-shell .privacy-risk-dot--high {
+  background: var(--privacy-danger);
+}
+
+/* Reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-shell .privacy-card {
+    animation: none;
+  }
+}
+
+/* Dark mode: brighten all dim Tailwind body text inside docs.
+   Inline classes like `text-zinc-600` / `text-stone-600` would otherwise
+   stay dark on the dark background. Force them to the docs-text-muted
+   variable so they inherit the dark-mode brightness. */
+.dark .docs-shell .docs-main .text-zinc-500,
+.dark .docs-shell .docs-main .text-zinc-600,
+.dark .docs-shell .docs-main .text-zinc-700,
+.dark .docs-shell .docs-main .text-zinc-800,
+.dark .docs-shell .docs-main .text-stone-500,
+.dark .docs-shell .docs-main .text-stone-600,
+.dark .docs-shell .docs-main .text-stone-700,
+.dark .docs-shell .docs-main .text-stone-800 {
+  color: var(--docs-text-muted) !important;
+}
+
+/* Also brighten the smaller-print labels (table headers, captions) so
+   they stay legible without becoming as bright as body text. */
+.dark .docs-shell .docs-main .text-zinc-400,
+.dark .docs-shell .docs-main .text-stone-400 {
+  color: var(--docs-text-subtle) !important;
+}

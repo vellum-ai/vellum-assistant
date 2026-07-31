@@ -21,6 +21,7 @@ import { SkillCreatedCard } from "@/domains/chat/components/surfaces/skill-creat
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { TableSurface } from "@/domains/chat/components/surfaces/table-surface";
 import { TaskPreferencesSurface } from "@/domains/chat/components/surfaces/task-preferences-surface";
+import { VisualSurface } from "@/domains/chat/components/surfaces/visual-surface";
 import { WorkResultSurface } from "@/domains/chat/components/surfaces/work-result-surface";
 
 export interface SurfaceRouterProps {
@@ -67,7 +68,7 @@ function SurfaceRouterInner({
       );
     }
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-[var(--system-positive-strong)] bg-[var(--system-positive-weak)] px-3 py-2 text-body-medium-lighter text-[var(--system-positive-strong)]">
+      <div className="flex items-center gap-2 rounded-lg bg-[var(--system-positive-weak)] px-3 py-2 text-body-medium-lighter text-[var(--system-positive-strong)]">
         <CheckCircle className="h-4 w-4 shrink-0" />
         {surface.completionSummary ?? surface.title ?? "Done"}
       </div>
@@ -120,6 +121,9 @@ function SurfaceRouterInner({
           onVellumLinkClick={onVellumLinkClick}
         />
       );
+
+    case "visual":
+      return <VisualSurface surface={surface} />;
 
     case "call_summary":
       return <CallSummarySurface surface={surface} onAction={onAction} />;

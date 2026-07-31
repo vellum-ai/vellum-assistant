@@ -13,6 +13,7 @@ import {
   isKnownSurfaceType,
   MODEL_INVOKABLE_SURFACE_TYPES,
   normalizeCopyBlockShowData,
+  normalizeVisualShowData,
   OAuthConnectSurfaceDataSchema,
   safeParseSurfaceData,
   SurfaceTypeSchema,
@@ -111,6 +112,16 @@ const ModelActionSchema = SurfaceActionSchema.extend({
 });
 
 const MAX_UNDO_DEPTH = 10;
+
+/**
+ * Pending surface types that do not hold the one-interactive-surface-at-a-time
+ * lock. Both render content the user reads rather than a question they must
+ * answer, so a live one must not block the next surface.
+ */
+const NON_BLOCKING_PENDING_SURFACE_TYPES = new Set<SurfaceType>([
+  "dynamic_page",
+  "visual",
+]);
 
 /**
  * Debounce window for persisting `ui_surface_update` data back to the
@@ -2992,9 +3003,9 @@ export async function surfaceProxyResolver(
     }
 
     // Every surface type parses through its canonical schema. Card,
-    // copy_block, and dynamic_page first run bespoke normalizers that
-    // recover fields the model placed at the top level of the tool input;
-    // the rest go straight through `safeParseSurfaceData`. Choice and
+    // copy_block, dynamic_page, and visual first run bespoke normalizers
+    // that recover fields the model placed at the top level of the tool
+    // input; the rest go straight through `safeParseSurfaceData`. Choice and
     // oauth_connect parse into named bindings so their content guards below
     // read typed data instead of re-narrowing the union.
     const cardData =
@@ -3026,7 +3037,12 @@ export async function surfaceProxyResolver(
                     surfaceType,
                     data: normalizeDynamicPageShowData(input, rawData),
                   }
-                : parseShowPairOrThrow(surfaceType, rawData);
+                : surfaceType === "visual"
+                  ? {
+                      surfaceType,
+                      data: normalizeVisualShowData(input, rawData),
+                    }
+                  : parseShowPairOrThrow(surfaceType, rawData);
     // Parse actions through the schema instead of typecasting raw model output.
     // The model may place actions inside `data` instead of the top-level
     // `actions` param — recover them so they aren't silently dropped.
@@ -3103,10 +3119,12 @@ export async function surfaceProxyResolver(
 
     // Only one non-persistent interactive surface at a time. If another
     // surface is already awaiting user input, reject this one so the LLM
-    // presents surfaces sequentially.
+    // presents surfaces sequentially. dynamic_page and visual are rendered
+    // content rather than a question posed to the user, so a pending one
+    // never blocks the next surface.
     if (awaitAction) {
       const hasExistingPending = [...ctx.pendingSurfaceActions.values()].some(
-        (entry) => entry.surfaceType !== "dynamic_page",
+        (entry) => !NON_BLOCKING_PENDING_SURFACE_TYPES.has(entry.surfaceType),
       );
       if (hasExistingPending) {
         return {
@@ -3213,6 +3231,15 @@ export async function surfaceProxyResolver(
         }),
         isError: false,
         yieldToUser: true,
+      };
+    }
+    if (surfaceType === "visual") {
+      return {
+        content: JSON.stringify({
+          surfaceId,
+          note: "The visual is now visible inline in the chat. Continue your response in prose and do not describe or restate what the visual shows. To replace it, call ui_dismiss with this surfaceId and show a new one.",
+        }),
+        isError: false,
       };
     }
     return { content: JSON.stringify({ surfaceId }), isError: false };

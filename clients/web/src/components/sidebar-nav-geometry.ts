@@ -37,3 +37,24 @@ export const SIDEBAR_CHIP_GAP = 6;
  * truncating. This nests the rows while leaving them close to the left edge.
  */
 export const SIDEBAR_SECTION_INDENT = 12;
+
+/**
+ * Tallest a single section's row list grows before it scrolls within itself.
+ *
+ * Without a cap, one busy section pushes every section under it off the
+ * screen, and the user has to collapse it to reach anything else. About nine
+ * desktop rows (30px each plus their 4px gap), which is enough to read a
+ * section as a list rather than a preview while still leaving room for its
+ * neighbours.
+ */
+export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
+
+/**
+ * Bounds for the Pinned section's user-adjustable height (dragging the rule
+ * under the curated block). Min fits two desktop rows (30px each) plus their
+ * 4px gap. Max stays a fixed constant rather than viewport-derived: the
+ * sidebar body scrolls, so an oversized section degrades to body scrolling
+ * the same way a long section list does today.
+ */
+export const SIDEBAR_SECTION_RESIZE_MIN_HEIGHT = 64;
+export const SIDEBAR_SECTION_RESIZE_MAX_HEIGHT = 600;

@@ -56,7 +56,9 @@ Orient yourself first (read the relevant files, understand the task), then consu
 - **When you get stuck or are weighing a change in direction.**
 - **Once before you declare the task done.**
 
-The consult is synchronous and read-only: spawning an `advisor` subagent BLOCKS until it returns guidance. It runs on a stronger model and inherits your full context, so it sees the task, your tool calls, and their results without you re-explaining. Give its guidance serious weight; only override it when primary-source evidence contradicts a specific claim — and say so when you do.
+The consult is synchronous and read-only: spawning an `advisor` subagent BLOCKS until it returns guidance. It runs on a stronger model and inherits your full context, so it sees the task, your tool calls, and their results without you re-explaining. It also receives a snapshot of your environment (the tools available to you this turn, the full skill catalog, and your workspace) so its guidance can point you at existing platform capabilities by name. Give its guidance serious weight; only override it when primary-source evidence contradicts a specific claim, and say so when you do.
+
+Beyond that snapshot, the advisor sees only what is in this conversation. It cannot read files, other conversations, or external systems on its own. If you want it to weigh specific evidence (a file's contents, a command's output, results gathered elsewhere), surface that evidence in the conversation or the spawn objective before consulting.
 
 Spawn the advisor **alone** — do NOT batch the consult in the same turn as other tool calls (especially file edits, shell commands, or anything destructive or expensive). Tool calls you issue in the same turn run concurrently with the consult, so they would execute before you see its guidance. Consult the advisor by itself, read its guidance, then act.
 

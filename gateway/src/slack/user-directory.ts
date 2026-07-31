@@ -25,6 +25,23 @@ interface SlackChannelInfo {
   name: string;
 }
 
+/**
+ * Whether a conversation is a multi-person IM.
+ *
+ * Kept in its own cache rather than folded into {@link SlackChannelInfo}
+ * because the two are populated from different sources: the name only ever
+ * comes from `conversations.info`, while the kind is usually learned for free
+ * from a `message` event's `channel_type` (see
+ * {@link recordSlackChannelKind}) and only falls back to the API.
+ *
+ * `unresolved` marks a short-lived failure marker rather than a real answer,
+ * so a failing lookup backs off instead of retrying on every event.
+ */
+interface SlackChannelKind {
+  isMpim: boolean;
+  unresolved?: boolean;
+}
+
 interface CacheEntry<T> {
   value: T;
   expiresAt: number;
@@ -34,6 +51,8 @@ const USER_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const USER_CACHE_MAX_SIZE = 500;
 const CHANNEL_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const CHANNEL_CACHE_MAX_SIZE = 500;
+/** Back-off window for a `conversations.info` lookup that failed. */
+const CHANNEL_KIND_FAILURE_TTL_MS = 60 * 1000; // 1 minute
 
 /**
  * In-memory LRU cache for Slack user info lookups.
@@ -42,6 +61,7 @@ const CHANNEL_CACHE_MAX_SIZE = 500;
  */
 const userInfoCache = new Map<string, CacheEntry<SlackUserInfo>>();
 const channelInfoCache = new Map<string, CacheEntry<SlackChannelInfo>>();
+const channelKindCache = new Map<string, CacheEntry<SlackChannelKind>>();
 
 /**
  * Deduplicates concurrent fetches for the same userId so only one
@@ -51,9 +71,9 @@ const inFlightUserFetches = new Map<
   string,
   Promise<SlackUserInfo | undefined>
 >();
-const inFlightChannelFetches = new Map<
+const inFlightConversationInfoFetches = new Map<
   string,
-  Promise<SlackChannelInfo | undefined>
+  Promise<SlackConversationInfo | undefined>
 >();
 
 function slackUserCacheKey(userId: string, botToken: string): string {
@@ -220,6 +240,113 @@ export async function resolveSlackUser(
   }
 }
 
+/** The projections of one `conversations.info` response that callers need. */
+interface SlackConversationInfo {
+  name?: string;
+  isMpim: boolean;
+}
+
+/**
+ * Record that a conversation's kind could not be resolved.
+ *
+ * Without this, a channel whose lookup keeps failing re-fires a background
+ * warm on every subsequent event in it, and under an HTTP 429 that loop is
+ * self-sustaining: rate limited, nothing cached, retry, still rate limited.
+ * The marker reads as "not a group DM" (fail closed, a Slack outage must not
+ * widen admission) and carries a short TTL so a transient failure self-heals
+ * without a restart. A later `channel_type` observation overwrites it with the
+ * truth immediately.
+ */
+function cacheUnresolvedChannelKind(cacheKey: string): void {
+  cacheSet(
+    channelKindCache,
+    cacheKey,
+    { isMpim: false, unresolved: true },
+    CHANNEL_KIND_FAILURE_TTL_MS,
+    CHANNEL_CACHE_MAX_SIZE,
+  );
+}
+
+/**
+ * Single `conversations.info` request shared by the name and kind resolvers.
+ *
+ * One in-flight map, so a name resolution on the normalization path and a kind
+ * warm on the admission path for the same channel cannot both hit Slack. Both
+ * caches are populated from the one response.
+ */
+async function fetchSlackConversationInfo(
+  channelId: string,
+  botToken: string,
+): Promise<SlackConversationInfo | undefined> {
+  const cacheKey = slackChannelCacheKey(channelId, botToken);
+  const existing = inFlightConversationInfoFetches.get(cacheKey);
+  if (existing) return existing;
+
+  const fetchPromise = (async (): Promise<
+    SlackConversationInfo | undefined
+  > => {
+    try {
+      const resp = await fetchImpl(
+        `https://slack.com/api/conversations.info?channel=${encodeURIComponent(channelId)}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${botToken}` },
+        },
+      );
+      if (!resp.ok) {
+        cacheUnresolvedChannelKind(cacheKey);
+        return undefined;
+      }
+
+      const data = (await resp.json()) as {
+        ok?: boolean;
+        channel?: {
+          name?: string;
+          name_normalized?: string;
+          is_mpim?: boolean;
+        };
+      };
+      if (!data.ok || !data.channel) {
+        cacheUnresolvedChannelKind(cacheKey);
+        return undefined;
+      }
+
+      const info: SlackConversationInfo = {
+        name: data.channel.name || data.channel.name_normalized,
+        isMpim: data.channel.is_mpim === true,
+      };
+
+      cacheSet(
+        channelKindCache,
+        cacheKey,
+        { isMpim: info.isMpim },
+        CHANNEL_CACHE_TTL_MS,
+        CHANNEL_CACHE_MAX_SIZE,
+      );
+      if (info.name) {
+        cacheSet(
+          channelInfoCache,
+          cacheKey,
+          { name: info.name },
+          CHANNEL_CACHE_TTL_MS,
+          CHANNEL_CACHE_MAX_SIZE,
+        );
+      }
+      return info;
+    } catch {
+      cacheUnresolvedChannelKind(cacheKey);
+      return undefined;
+    }
+  })();
+
+  inFlightConversationInfoFetches.set(cacheKey, fetchPromise);
+  try {
+    return await fetchPromise;
+  } finally {
+    inFlightConversationInfoFetches.delete(cacheKey);
+  }
+}
+
 /**
  * Resolve a Slack channel name via `conversations.info`.
  * Results are cached to avoid repeated API calls.
@@ -235,52 +362,93 @@ export async function resolveSlackChannel(
   const cached = cacheGet(channelInfoCache, cacheKey);
   if (cached) return cached;
 
-  const existing = inFlightChannelFetches.get(cacheKey);
-  if (existing) return existing;
+  const info = await fetchSlackConversationInfo(channelId, botToken);
+  return info?.name ? { name: info.name } : undefined;
+}
 
-  const fetchPromise = (async (): Promise<SlackChannelInfo | undefined> => {
-    try {
-      const resp = await fetchImpl(
-        `https://slack.com/api/conversations.info?channel=${encodeURIComponent(channelId)}`,
-        {
-          method: "GET",
-          headers: { Authorization: `Bearer ${botToken}` },
-        },
-      );
-      if (!resp.ok) return undefined;
-
-      const data = (await resp.json()) as {
-        ok?: boolean;
-        channel?: {
-          name?: string;
-          name_normalized?: string;
-        };
-      };
-      if (!data.ok || !data.channel) return undefined;
-
-      const name = data.channel.name || data.channel.name_normalized;
-      if (!name) return undefined;
-
-      const info: SlackChannelInfo = { name };
-      cacheSet(
-        channelInfoCache,
-        cacheKey,
-        info,
-        CHANNEL_CACHE_TTL_MS,
-        CHANNEL_CACHE_MAX_SIZE,
-      );
-      return info;
-    } catch {
-      return undefined;
-    }
-  })();
-
-  inFlightChannelFetches.set(cacheKey, fetchPromise);
-  try {
-    return await fetchPromise;
-  } finally {
-    inFlightChannelFetches.delete(cacheKey);
+/**
+ * Record what a `message` event's `channel_type` proves about a conversation.
+ *
+ * Message events carry `channel_type`; reaction and interactive payloads do
+ * not. Seeding the kind cache from the events that *do* carry it means the
+ * reaction path can classify a group DM synchronously, with no API call, from
+ * the moment any message has been seen in that conversation, including the
+ * bot's own outbound echo, which is what opens a bot-initiated MPIM in the
+ * first place.
+ *
+ * Only `mpim` and `im` are recorded, the two values that are always Slack's
+ * own word. `channel` / `group` are deliberately ignored: the reconnect replay
+ * path *synthesizes* `channel_type` for `conversations.history` messages
+ * (which carry none) and falls back to `"channel"`, so treating that value as
+ * evidence would let a replayed MPIM cache `isMpim: false` and re-break
+ * admission for the length of the TTL. A miss is harmless, it just falls
+ * through to the authoritative `conversations.info` warm, which caches the
+ * negative result too.
+ */
+export function recordSlackChannelKind(
+  channelId: string,
+  botToken: string,
+  channelType: string | undefined,
+): void {
+  if (channelType !== "mpim" && channelType !== "im") {
+    return;
   }
+  cacheSet(
+    channelKindCache,
+    slackChannelCacheKey(channelId, botToken),
+    { isMpim: channelType === "mpim" },
+    CHANNEL_CACHE_TTL_MS,
+    CHANNEL_CACHE_MAX_SIZE,
+  );
+}
+
+/**
+ * Resolve whether a conversation is a multi-person IM via
+ * `conversations.info`. Used to warm the cache for payloads that carry no
+ * `channel_type` of their own.
+ *
+ * Returns undefined on failure. Callers treat an unresolved kind as "not a
+ * group DM" so a Slack outage cannot widen admission.
+ */
+export async function resolveSlackChannelKind(
+  channelId: string,
+  botToken: string,
+): Promise<SlackChannelKind | undefined> {
+  const cacheKey = slackChannelCacheKey(channelId, botToken);
+  const cached = cacheGet(channelKindCache, cacheKey);
+  if (cached) return cached.unresolved ? undefined : cached;
+
+  const info = await fetchSlackConversationInfo(channelId, botToken);
+  return info ? { isMpim: info.isMpim } : undefined;
+}
+
+/**
+ * Cache-only group-DM check for the synchronous admission filter.
+ *
+ * Returns what is already known and never blocks; on a miss it fires a
+ * background `conversations.info` warm so the next event in that conversation
+ * is classified. Mirrors {@link resolveSlackUserSync}, which makes the same
+ * trade on the normalization path.
+ *
+ * A cached failure marker counts as known, which is what stops a channel whose
+ * lookup keeps failing from re-firing a warm on every event.
+ *
+ * Consequence worth naming: the very first reaction in an MPIM the gateway has
+ * never seen a message in (immediately after a gateway restart, on someone
+ * else's message) can still miss and be dropped, and is admitted from the next
+ * event onward.
+ */
+export function isKnownSlackMpimSync(
+  channelId: string,
+  botToken: string,
+): boolean {
+  const cacheKey = slackChannelCacheKey(channelId, botToken);
+  const cached = cacheGet(channelKindCache, cacheKey);
+  if (!cached && !inFlightConversationInfoFetches.has(cacheKey)) {
+    // Fire-and-forget: warm the cache for next time.
+    resolveSlackChannelKind(channelId, botToken).catch(() => {});
+  }
+  return cached?.isMpim === true;
 }
 
 /**
@@ -309,12 +477,13 @@ export function clearUserInfoCache(): void {
 /** Exported for testing — clears the channel info cache. */
 export function clearChannelInfoCache(): void {
   channelInfoCache.clear();
+  channelKindCache.clear();
 }
 
-/** Exported for testing — clears the in-flight fetch map. */
+/** Exported for testing. Clears the in-flight fetch maps. */
 export function clearInFlightFetches(): void {
   inFlightUserFetches.clear();
-  inFlightChannelFetches.clear();
+  inFlightConversationInfoFetches.clear();
 }
 
 /** Exported for testing — returns current cache size. */

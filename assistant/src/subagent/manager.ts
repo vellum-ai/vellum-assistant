@@ -392,9 +392,11 @@ export class SubagentManager {
     const { subagentId } = await this.setUpSubagent(config, parentSendToClient);
 
     // ── Kick off the agent loop (fire-and-forget) ───────────────────
-    this.runSubagent(subagentId, config.objective).catch((err) => {
-      log.error({ subagentId, err }, "Subagent run failed unexpectedly");
-    });
+    this.runSubagent(subagentId, config.requestText ?? config.objective).catch(
+      (err) => {
+        log.error({ subagentId, err }, "Subagent run failed unexpectedly");
+      },
+    );
 
     return subagentId;
   }
@@ -775,7 +777,10 @@ export class SubagentManager {
     }
 
     try {
-      const finalText = await this.runSubagent(subagentId, config.objective);
+      const finalText = await this.runSubagent(
+        subagentId,
+        config.requestText ?? config.objective,
+      );
       // Surface aborts as a rejection so the caller's timeout path is
       // observable — but carry the partial text on the error so a caller that
       // timed out a long generation (e.g. the advisor consult) can still

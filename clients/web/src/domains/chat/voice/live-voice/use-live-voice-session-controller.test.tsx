@@ -15,6 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import type { VoiceAudioInterruptionEvent } from "@/runtime/native-audio-session";
 
 // The default client factory in use-live-voice statically imports the real
 // LiveVoiceChannelClient, which pulls in connection.ts -> the generated SDK.
@@ -30,12 +31,16 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
 // faking `isNativeIOS`) so the controller's lifecycle wiring is asserted
 // directly; the bridge's own off-native/skew behavior is pinned by
 // `runtime/native-audio-session.test.ts`.
-type InterruptionEvent = { type: "began" | "ended" };
+type InterruptionEvent = VoiceAudioInterruptionEvent;
+let onNativeAndroid = false;
+let onNativeIOS = false;
 const activateVoiceAudioSession = mock(async () => true);
 const deactivateVoiceAudioSession = mock(async () => undefined);
 const unsubscribeInterruptions = mock(() => undefined);
 let interruptionHandlers: ((event: InterruptionEvent) => void)[] = [];
 
+// A whole-module mock, so every export the controller's import graph reaches
+// has to be present here or the module fails to load.
 mock.module("@/runtime/native-audio-session", () => ({
   activateVoiceAudioSession,
   deactivateVoiceAudioSession,
@@ -48,6 +53,12 @@ mock.module("@/runtime/native-audio-session", () => ({
       interruptionHandlers = interruptionHandlers.filter((h) => h !== handler);
     };
   },
+}));
+
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeAndroid: () => onNativeAndroid,
+  isNativeIOS: () => onNativeIOS,
+  isNativeMobile: () => onNativeAndroid || onNativeIOS,
 }));
 
 /** Deliver a native `AVAudioSession` interruption to every live subscriber. */
@@ -159,6 +170,8 @@ beforeEach(() => {
   useAssistantIdentityStore.setState({ assistantId: null, version: null });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
   interruptionHandlers = [];
+  onNativeAndroid = false;
+  onNativeIOS = false;
   activateVoiceAudioSession.mockClear();
   activateVoiceAudioSession.mockImplementation(async () => true);
   deactivateVoiceAudioSession.mockClear();
@@ -339,12 +352,18 @@ describe("native audio session", () => {
   // #39331 (no capture at all, reverted in #39345) and again in #39306, where
   // a session died ~60ms after its socket opened. Nothing may reintroduce it
   // without a device test, and the Simulator cannot provide one.
-  test("never activates an audio session of its own", async () => {
+  test("iOS never activates an audio session of its own", async () => {
+    onNativeIOS = true;
     const h = renderPersistentController();
     await startListeningViaStarter(h);
 
     // The churn a real turn produces, none of which may reach the bridge.
-    for (const phase of ["transcribing", "thinking", "speaking", "listening"] as const) {
+    for (const phase of [
+      "transcribing",
+      "thinking",
+      "speaking",
+      "listening",
+    ] as const) {
       await act(async () => {
         useLiveVoiceStore.getState().setState(phase);
         await Promise.resolve();
@@ -355,7 +374,8 @@ describe("native audio session", () => {
     expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
   });
 
-  test("never deactivates one either, through idle, failure or unmount", async () => {
+  test("iOS never deactivates one through idle, failure, or unmount", async () => {
+    onNativeIOS = true;
     const h = renderPersistentController();
     await startListeningViaStarter(h);
 
@@ -372,6 +392,71 @@ describe("native audio session", () => {
     });
 
     expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
+  });
+
+  test("Android holds audio focus for exactly the active session", async () => {
+    onNativeAndroid = true;
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      useLiveVoiceStore.getState().controls?.stop();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("Android caps denied focus retries per session", async () => {
+    onNativeAndroid = true;
+    const outcomes = [false, false, false, true];
+    activateVoiceAudioSession.mockImplementation(
+      async () => outcomes.shift() ?? true,
+    );
+    renderPersistentController();
+    await act(async () => {
+      useLiveVoiceStore.getState().starter?.start("assistant-1", "conv-1");
+      await Promise.resolve();
+    });
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
+    for (const phase of ["listening", "thinking", "speaking"] as const) {
+      await act(async () => {
+        useLiveVoiceStore.getState().setState(phase);
+        await Promise.resolve();
+      });
+    }
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(2);
+    for (const phase of ["idle", "connecting", "listening"] as const) {
+      await act(async () => {
+        useLiveVoiceStore.getState().setState(phase);
+        await Promise.resolve();
+      });
+    }
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(4);
+  });
+
+  test("Android route changes do not end the session", async () => {
+    onNativeAndroid = true;
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+    act(() => {
+      emitInterruption({ type: "began", reason: "route-change" });
+    });
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(h.lastClient().closed).toBe(false);
+  });
+
+  test("Android releases focus after a native interruption ends voice", async () => {
+    onNativeAndroid = true;
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+    await act(async () => {
+      emitInterruption({ type: "began" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(h.lastClient().ended).toBe(true);
+    expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
   });
 
   test("drops the interruption listener on unmount", async () => {
