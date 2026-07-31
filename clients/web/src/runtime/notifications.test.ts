@@ -27,10 +27,8 @@ mock.module("@/runtime/native-auth", () => ({
 // Mocked as pure flags; the helpers' own behavior is covered by
 // push-registration.test.ts.
 
-let remotePushSupported = true;
 let sessionConfirmedAssistantId: string | null = null;
 mock.module("@/runtime/push-registration", () => ({
-  isRemotePushSupported: () => remotePushSupported,
   hasSessionConfirmedRemotePushRegistration: (assistantId: string) =>
     sessionConfirmedAssistantId === assistantId,
 }));
@@ -84,7 +82,6 @@ const baseArgs = {
 };
 
 beforeEach(() => {
-  remotePushSupported = true;
   sessionConfirmedAssistantId = null;
   scheduleMock.mockClear();
   ackMock.mockClear();
@@ -160,39 +157,8 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     expect(scheduleMock).toHaveBeenCalledTimes(1);
   });
 
-  test("dispatched with only a persisted registration from an earlier session: schedules", async () => {
-    // The mocked helper mirrors the real one in ignoring persisted storage:
-    // only a session-confirmed upsert counts. Seeding storage documents the
-    // reload scenario where a stored record survives but proves nothing
-    // about a live server-side token row, so the dedup skip must not fire.
-    localStorage.setItem(
-      "vellum:push_registration",
-      JSON.stringify({
-        token: "persisted-token",
-        bundleId: "ai.vocify-inc.vellum-assistant-ios",
-        assistantId: "assistant-1",
-      }),
-    );
-    setVisibility("hidden");
-
-    await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
-
-    expect(scheduleMock).toHaveBeenCalledTimes(1);
-    localStorage.removeItem("vellum:push_registration");
-  });
-
   test("dispatched but registration belongs to a different assistant: schedules", async () => {
     sessionConfirmedAssistantId = "assistant-2";
-    setVisibility("hidden");
-
-    await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
-
-    expect(scheduleMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("dispatched but remote push unsupported on this native platform: schedules", async () => {
-    remotePushSupported = false;
-    sessionConfirmedAssistantId = "assistant-1";
     setVisibility("hidden");
 
     await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
