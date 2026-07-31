@@ -40,3 +40,51 @@ export function isChannelId(value: unknown): value is ChannelId {
     (CHANNEL_IDS as readonly string[]).includes(value)
   );
 }
+
+/**
+ * Canonical interface identifiers describe the client surface responsible for
+ * a turn. They are separate from channel IDs because a client surface and an
+ * external messaging transport answer different routing questions.
+ */
+export const INTERFACE_IDS = [
+  "macos",
+  "ios",
+  "cli",
+  "telegram",
+  "phone",
+  "web",
+  "whatsapp",
+  "slack",
+  "email",
+  "chrome-extension",
+  "a2a",
+  "discord",
+  "route",
+] as const;
+
+export type InterfaceId = (typeof INTERFACE_IDS)[number];
+
+const LEGACY_INTERFACE_ALIASES: Readonly<Record<string, InterfaceId>> = {
+  vellum: "web",
+};
+
+/**
+ * Returns true only for canonical interface identifiers. Use
+ * {@link parseInterfaceId} when legacy aliases should be normalized.
+ */
+export function isInterfaceId(value: unknown): value is InterfaceId {
+  return (
+    typeof value === "string" &&
+    (INTERFACE_IDS as readonly string[]).includes(value)
+  );
+}
+
+export function parseInterfaceId(value: unknown): InterfaceId | null {
+  if (isInterfaceId(value)) {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  return LEGACY_INTERFACE_ALIASES[value] ?? null;
+}
