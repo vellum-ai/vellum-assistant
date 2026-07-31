@@ -35,8 +35,8 @@ import {
   messagesGet,
   messagesPost,
 } from "@/generated/daemon/sdk.gen";
-import type { MessagesPostData } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { buildSideConversationMessageBody } from "@/lib/side-conversation-message";
 import { latestAssistantText } from "@/utils/latest-assistant-text";
 
 export {
@@ -91,17 +91,11 @@ export async function applyPersonality({
       return;
     }
 
-    const body: MessagesPostData["body"] = {
+    const body = buildSideConversationMessageBody({
       conversationId,
       content: buildPersonalityMessage(values, userName, assistantName),
-      sourceChannel: "vellum",
-      interface: "vellum",
-      // A machine signal the user never typed: hidden keeps the daemon from
-      // pushing this turn's reply to the user's phone, deep-linked into a
-      // thread archived a moment later.
-      hidden: true,
-      clientMessageId: crypto.randomUUID(),
-    };
+      transport: "vellum",
+    });
     const posted = await messagesPost({
       path: { assistant_id: assistantId },
       body,

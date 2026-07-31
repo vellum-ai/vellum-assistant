@@ -1,8 +1,6 @@
 /**
- * Pins the shape of the identity-rewrite send. The prompt is a
- * `<system-message>` the user never typed, so it posts hidden: the daemon's
- * reply-notification producer skips hidden-initiated turns, which keeps the
- * rewrite reply from pushing to a thread archived the moment it settles.
+ * Pins the shape of the identity-rewrite send: it goes out hidden (see
+ * `lib/side-conversation-message.ts`) and the side conversation is archived.
  *
  * NOTE: `bun mock.module` can leak across files. Run this file singly:
  *   bun test src/domains/intelligence/identity-actions/run-identity-rewrite.test.ts

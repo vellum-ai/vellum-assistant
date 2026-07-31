@@ -6,8 +6,8 @@
  * numbers). Kept separate from `apply-personality.test.ts` so the pure
  * message-builder tests stay free of module mocks.
  *
- * Also pins the shape of the rewrite send itself, which the daemon's
- * reply-notification gating reads.
+ * Also pins that the rewrite send goes out hidden (see
+ * `lib/side-conversation-message.ts`).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -62,9 +62,7 @@ beforeEach(() => {
 
 describe("applyPersonality rewrite prompt", () => {
   test("posts the rewrite prompt as a hidden machine signal", async () => {
-    // The prompt is a `<system-message>` the user never typed. Hidden keeps
-    // the daemon's reply-notification producer from pushing the rewrite reply
-    // to the user's phone, deep-linked into a thread archived a moment later.
+    // See `lib/side-conversation-message.ts` for why this posts hidden.
     await applyPersonality({
       awaitAssistantId: async () => "ast-1",
       values: {},

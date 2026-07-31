@@ -33,13 +33,10 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
-import type {
-  MessagesPostData,
-  PluginsSearchGetResponses,
-} from "@/generated/daemon/types.gen";
+import type { PluginsSearchGetResponses } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { buildSideConversationMessageBody } from "@/lib/side-conversation-message";
 import { latestAssistantText } from "@/utils/latest-assistant-text";
-import { detectClientOs } from "@/runtime/platform-detection";
 import {
   buildResearchPrompt,
   type AvailableCapability,
@@ -593,24 +590,13 @@ export function useResearchRunner(): UseResearchRunner {
           // Post the research prompt onto a conversation. Returns false on a
           // failed POST so the caller can settle "error".
           const postResearchPrompt = async (cid: string): Promise<boolean> => {
-            const body: MessagesPostData["body"] = {
+            const body = buildSideConversationMessageBody({
               conversationId: cid,
               content: buildResearchPrompt(subject, capabilities, {
                 includeSuggestions,
               }),
-              sourceChannel: "vellum",
-              // `interface` is the transport ("web"); the real OS travels in
-              // `clientOs` so the assistant's `client_os` context is correct
-              // for this onboarding side conversation too, without affecting
-              // transport/host-proxy gating (mirrors `chat/api/messages.ts`).
-              interface: "web",
-              clientOs: detectClientOs(),
-              // A machine signal the user never typed: hidden keeps the daemon
-              // from pushing this turn's reply to the user's phone,
-              // deep-linked into a thread archived once the results settle.
-              hidden: true,
-              clientMessageId: crypto.randomUUID(),
-            };
+              transport: "web",
+            });
             // Carry the browser timezone so any time-relative reasoning resolves
             // to the user's local clock. Mirrors `checkin-scheduler.ts`.
             try {

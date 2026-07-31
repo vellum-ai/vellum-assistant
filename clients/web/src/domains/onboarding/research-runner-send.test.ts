@@ -1,7 +1,7 @@
 /**
  * Tests for how the research runner opens its side conversation: the prompt is
- * posted as a hidden machine signal, and a resumed run re-posts only when the
- * turn never started.
+ * posted hidden (see `lib/side-conversation-message.ts`), and a resumed run
+ * re-posts only when the turn never started.
  *
  * Hidden rows are filtered out of `/messages`, so "did the prompt land?" reads
  * the turn's own state (still processing, or rows already produced) instead of
@@ -101,8 +101,6 @@ describe("research prompt send", () => {
       expect(postCalls).toHaveLength(1);
     });
     expect(postCalls[0]?.body.conversationId).toBe("conv-fresh");
-    // The daemon's reply-notification producer skips hidden-initiated turns,
-    // so the research reply never pushes to a thread the user cannot open.
     expect(postCalls[0]?.body.hidden).toBe(true);
 
     act(() => {
