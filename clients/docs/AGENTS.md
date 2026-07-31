@@ -52,7 +52,7 @@ Both run automatically via `predev`/`prebuild`. All outputs are gitignored. Next
 Docs content is synced **verbatim** from the platform repo's docs tree (`vellum-assistant-platform/web/src/app/(marketing)/docs`) — the platform source is canonical. Do not editorialize, re-style, or paraphrase during a sync; copy edits (terminology, style, factual corrections) must land in the platform source first and flow down through a sync. The only permitted deltas from the platform source are:
 
 - Mechanical transforms: `@/app/(marketing)/docs/` → `@/app/docs/` imports, `/docs`-prefixed WebP asset paths, cross-app links absolutized to `https://www.vellum.ai/...`, and `eslint --fix` output for this package's lint rules.
-- Placeholder-persona substitution required by the root `AGENTS.md` "Generic Examples" rule (this repo is public): real names in platform copy are replaced deterministically (`Marina` → `Alice`, `Becky` → `Bob`). Extend the substitution map if new real names appear upstream.
+- Placeholder-persona substitution required by the root `AGENTS.md` "Generic Examples" rule (this repo is public): real names in platform copy are replaced deterministically (`Marina` → `Alice`, `Sarah` → `Alice`, `Becky` → `Bob`). Extend the substitution map if new real names appear upstream.
 - The structural severances and shared-shell components listed under "Deviations from the platform source" below.
 
 Verify every sync with a fidelity audit: each file must be byte-identical to its platform source after the transforms above, and every exception must be individually explainable.

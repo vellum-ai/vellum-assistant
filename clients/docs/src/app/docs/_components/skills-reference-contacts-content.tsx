@@ -65,7 +65,7 @@ export function SkillsReferenceContactsContent() {
               <tbody className="[&>tr:nth-child(even)]:bg-zinc-50">
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Add Sarah as a contact&rdquo;
+                    &ldquo;Add Alice as a contact&rdquo;
                   </td>
                   <td className="px-3 py-2">
                     Creates a new contact entry
@@ -81,7 +81,7 @@ export function SkillsReferenceContactsContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Send Sarah an invite to connect on Telegram&rdquo;
+                    &ldquo;Send Alice an invite to connect on Telegram&rdquo;
                   </td>
                   <td className="px-3 py-2">
                     Generates a channel-specific invite link
@@ -97,7 +97,7 @@ export function SkillsReferenceContactsContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Make Sarah a trusted contact&rdquo;
+                    &ldquo;Make Alice a trusted contact&rdquo;
                   </td>
                   <td className="px-3 py-2">
                     Grants access control privileges

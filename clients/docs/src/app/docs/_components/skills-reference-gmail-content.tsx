@@ -82,7 +82,7 @@ export function SkillsReferenceGmailContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Draft a reply to Sarah&apos;s last email&rdquo;
+                    &ldquo;Draft a reply to Alice&apos;s last email&rdquo;
                   </td>
                   <td className="px-3 py-2">
                     Creates a draft response

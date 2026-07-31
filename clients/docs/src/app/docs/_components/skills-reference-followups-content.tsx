@@ -64,7 +64,7 @@ export function SkillsReferenceFollowupsContent() {
               <tbody className="[&>tr:nth-child(even)]:bg-zinc-50">
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Track my email to Sarah &mdash; I need a response by Friday&rdquo;
+                    &ldquo;Track my email to Alice &mdash; I need a response by Friday&rdquo;
                   </td>
                   <td className="px-3 py-2">
                     Creates a follow-up tracker
@@ -80,7 +80,7 @@ export function SkillsReferenceFollowupsContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Mark Sarah&apos;s response as received&rdquo;
+                    &ldquo;Mark Alice&apos;s response as received&rdquo;
                   </td>
                   <td className="px-3 py-2">
                     Resolves a follow-up

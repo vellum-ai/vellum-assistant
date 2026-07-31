@@ -169,7 +169,7 @@ export function QuickStartContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              &ldquo;Draft a follow-up email to Sarah about the launch
+              &ldquo;Draft a follow-up email to Alice about the launch
               meeting we had this morning.&rdquo;
             </li>
             <li>
