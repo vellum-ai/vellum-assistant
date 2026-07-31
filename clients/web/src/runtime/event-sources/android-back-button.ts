@@ -55,9 +55,20 @@ function dispatchEscape(target: EventTarget): KeyboardEvent {
   return event;
 }
 
+function getTopEscapeLayer(
+  layers: NodeListOf<HTMLElement>,
+): HTMLElement | null {
+  const active = document.activeElement;
+  const focusedLayer =
+    active instanceof Element
+      ? active.closest<HTMLElement>(OPEN_LAYER_SELECTOR)
+      : null;
+  return focusedLayer ?? layers.item(layers.length - 1);
+}
+
 async function dismissEscapeLayer(): Promise<boolean> {
   const layers = document.querySelectorAll<HTMLElement>(OPEN_LAYER_SELECTOR);
-  const layer = layers.item(layers.length - 1);
+  const layer = getTopEscapeLayer(layers);
   if (!layer) {
     const target = document.activeElement ?? document.body;
     return dispatchEscape(target).defaultPrevented;

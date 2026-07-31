@@ -239,6 +239,50 @@ describe("subscribeAndroidBackButtonSource", () => {
     window.removeEventListener("keydown", lowerHandler);
   });
 
+  test("closes a focused drawer above a later portaled voice sheet", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    const drawer = document.createElement("div");
+    drawer.setAttribute("role", "dialog");
+    drawer.dataset.state = "open";
+    const drawerButton = document.createElement("button");
+    drawer.append(drawerButton);
+    const voiceSheet = document.createElement("div");
+    voiceSheet.dataset.slot = "bottom-sheet-content";
+    voiceSheet.dataset.state = "open";
+    voiceSheet.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+      }
+    });
+    document.body.append(drawer, voiceSheet);
+    drawerButton.focus();
+
+    const drawerHandler = (event: KeyboardEvent) => {
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        drawer.contains(document.activeElement)
+      ) {
+        event.preventDefault();
+        drawer.remove();
+      }
+    };
+    document.addEventListener("keydown", drawerHandler);
+
+    subscribeAndroidBackButtonSource();
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(drawer.isConnected).toBe(false);
+    expect(voiceSheet.isConnected).toBe(true);
+    expect(historyBackSpy).not.toHaveBeenCalled();
+
+    document.removeEventListener("keydown", drawerHandler);
+    historyBackSpy.mockRestore();
+  });
+
   test("closes an active process overlay before changing history", async () => {
     const historyBackSpy = spyOn(window.history, "back").mockImplementation(
       () => undefined,
