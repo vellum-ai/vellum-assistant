@@ -263,6 +263,14 @@ export async function runAgentLoopImpl(
      */
     notifyUserMessageId?: string;
     /**
+     * True when this run's reply streams to the app and nowhere else, so the
+     * end-of-turn reply notification ignores the initiating row's
+     * channel/voice delivery markers (see
+     * `isReplyPushIneligibleUserMessage`). Set by the retry route, which
+     * re-runs a stored anchor row without its original delivery orchestration.
+     */
+    replyDeliveredInAppOnly?: boolean;
+    /**
      * LLM call-site identifier threaded into the per-call provider config.
      * Adapter callers (heartbeat, filing, scheduler, etc.) pass their own
      * call-site id so the resolver picks `llm.callSites.<id>`. When unset,
@@ -1562,6 +1570,9 @@ export async function runAgentLoopImpl(
       generationCompletedAt,
       turnCompleted,
       userMessageId: options?.notifyUserMessageId ?? userMessageId,
+      ...(options?.replyDeliveredInAppOnly
+        ? { replyDeliveredInAppOnly: true }
+        : {}),
     });
   } catch (err) {
     clearConversationNotices(ctx.conversationId);

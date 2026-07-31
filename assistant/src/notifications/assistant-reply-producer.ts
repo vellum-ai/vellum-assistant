@@ -74,6 +74,12 @@ export async function emitAssistantReplyNotification(params: {
    * prompt this reply answers.
    */
   userMessageId: string | undefined;
+  /**
+   * True when this turn's reply streams to the app and nowhere else, so the
+   * initiating row's channel and voice markers no longer describe where the
+   * reply lands. See {@link isReplyPushIneligibleUserMessage}.
+   */
+  replyDeliveredInAppOnly?: boolean;
   rlog: pino.Logger;
   /** Row the caller already holds; re-read when omitted. */
   conversation?: ConversationRow | null;
@@ -118,7 +124,11 @@ export async function emitAssistantReplyNotification(params: {
     const initiatingMetadata = readSuppressionMarkers(
       initiatingMessage.metadata,
     );
-    if (isReplyPushIneligibleUserMessage(initiatingMetadata)) {
+    if (
+      isReplyPushIneligibleUserMessage(initiatingMetadata, {
+        replyDeliveredInAppOnly: params.replyDeliveredInAppOnly,
+      })
+    ) {
       return;
     }
 

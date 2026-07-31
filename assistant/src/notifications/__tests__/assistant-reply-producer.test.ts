@@ -515,6 +515,64 @@ describe("emitAssistantReplyNotification", () => {
     expect(emitCalls).toHaveLength(1);
   });
 
+  // `replyDeliveredInAppOnly` turns (the retry route re-running a stored
+  // anchor) carry none of the anchor's delivery orchestration: nothing is
+  // posted back to the channel and no voice session speaks the reply, so the
+  // push is the user's only copy.
+  const OFF_APP_DELIVERY_CASES: Array<{ name: string; metadata: unknown }> = [
+    {
+      name: "a Slack anchor",
+      metadata: {
+        userMessageChannel: "slack",
+        assistantMessageChannel: "slack",
+      },
+    },
+    { name: "a Telegram anchor", metadata: { userMessageChannel: "telegram" } },
+    {
+      name: "a phone-call anchor",
+      metadata: { voiceSessionTurn: true, userMessageChannel: "phone" },
+    },
+    {
+      name: "an in-app live-voice anchor",
+      metadata: { voiceSessionTurn: true, userMessageChannel: "vellum" },
+    },
+  ];
+
+  for (const { name, metadata } of OFF_APP_DELIVERY_CASES) {
+    test(`emits for an app-only re-run of ${name}`, async () => {
+      initiatingRow = makeMessage({ metadata: JSON.stringify(metadata) });
+
+      await run({ replyDeliveredInAppOnly: true });
+
+      expect(emitCalls).toHaveLength(1);
+    });
+  }
+
+  // The row-shape reasons are properties of the anchor itself, so an app-only
+  // re-run does not reopen them.
+  const ROW_SHAPE_SUPPRESSION_CASES: Array<{
+    name: string;
+    metadata: unknown;
+  }> = [
+    { name: "automated", metadata: { automated: true } },
+    { name: "pointer-instruction", metadata: { pointerInstruction: true } },
+    { name: "hidden machine-signal", metadata: { hidden: true } },
+    {
+      name: "background-event",
+      metadata: { backgroundEventSource: "schedule" },
+    },
+  ];
+
+  for (const { name, metadata } of ROW_SHAPE_SUPPRESSION_CASES) {
+    test(`stays silent for an app-only re-run of a ${name} anchor`, async () => {
+      initiatingRow = makeMessage({ metadata: JSON.stringify(metadata) });
+
+      await run({ replyDeliveredInAppOnly: true });
+
+      expect(emitCalls).toHaveLength(0);
+    });
+  }
+
   test("reads the initiating row by the threaded id, not by scanning", async () => {
     await run();
 

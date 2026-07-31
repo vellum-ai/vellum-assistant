@@ -166,6 +166,23 @@ function isChannelOriginatedUserMessage(
 }
 
 /**
+ * True when the reply to this row reaches the user over the surface the row
+ * arrived on rather than the app: a messaging channel the finished reply is
+ * delivered back to, or a still-open voice session that speaks it aloud.
+ *
+ * Both reasons describe where a reply lands, not what the row is, so they hold
+ * only for a turn that keeps the row's original delivery orchestration.
+ */
+function isReplyDeliveredOffApp(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return (
+    isVoiceSessionUserMessage(metadata) ||
+    isChannelOriginatedUserMessage(metadata)
+  );
+}
+
+/**
  * True when a finished reply to this row must not raise a
  * `chat.assistant_reply` push. Five independent reasons, one predicate so the
  * producer's own gating and the batch-drain selection of the row it reads
@@ -183,15 +200,23 @@ function isChannelOriginatedUserMessage(
  *   generated only after the turn ends, and deletes them when validation fails
  *   so deterministic fallback copy takes their place. A push at turn end would
  *   already have carried the rejected text.
+ *
+ * `replyDeliveredInAppOnly` marks a turn whose reply streams to the app and
+ * nowhere else: `POST /conversations/:id/retry` re-runs the anchor row through
+ * the agent loop with no channel-delivery orchestration and no voice session
+ * attached, so the two delivery-surface reasons ({@link isReplyDeliveredOffApp})
+ * no longer describe it and suppressing the push would leave the user without a
+ * copy anywhere. The other three reasons are properties of the row itself and
+ * stand either way.
  */
 export function isReplyPushIneligibleUserMessage(
   metadata: Record<string, unknown> | undefined,
+  options?: { replyDeliveredInAppOnly?: boolean },
 ): boolean {
   return (
     metadata?.automated === true ||
     metadata?.pointerInstruction === true ||
     isEchoSuppressedUserMessage(metadata) ||
-    isVoiceSessionUserMessage(metadata) ||
-    isChannelOriginatedUserMessage(metadata)
+    (!options?.replyDeliveredInAppOnly && isReplyDeliveredOffApp(metadata))
   );
 }

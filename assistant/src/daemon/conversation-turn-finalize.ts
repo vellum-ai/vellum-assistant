@@ -153,6 +153,11 @@ export async function runDeferredTurnTail(params: {
   turnCompleted: boolean;
   /** Id of the row that opened this turn, for the notification producer. */
   userMessageId: string | undefined;
+  /**
+   * True when this turn's reply streams to the app and nowhere else, for the
+   * notification producer's delivery-surface gates.
+   */
+  replyDeliveredInAppOnly?: boolean;
 }): Promise<void> {
   const {
     ctx,
@@ -161,6 +166,7 @@ export async function runDeferredTurnTail(params: {
     generationCompletedAt,
     turnCompleted,
     userMessageId,
+    replyDeliveredInAppOnly,
   } = params;
   const tailStartedAt = Date.now();
 
@@ -196,6 +202,7 @@ export async function runDeferredTurnTail(params: {
       conversationId: ctx.conversationId,
       assistantMessageId: state.lastAssistantMessageId,
       userMessageId,
+      ...(replyDeliveredInAppOnly ? { replyDeliveredInAppOnly: true } : {}),
       rlog,
       conversation,
     });

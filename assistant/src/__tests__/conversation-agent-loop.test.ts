@@ -2345,6 +2345,50 @@ describe("session-agent-loop", () => {
         .calls[0] as unknown as [{ userMessageId: string | undefined }];
       expect(notifyCall[0].userMessageId).toBe("msg-user-prompt");
     });
+
+    test("threads the app-only delivery marker to the producer", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-8", () => {}, {
+        replyDeliveredInAppOnly: true,
+      });
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [{ replyDeliveredInAppOnly?: boolean }];
+      expect(notifyCall[0].replyDeliveredInAppOnly).toBe(true);
+    });
+
+    test("omits the app-only delivery marker for an ordinary turn", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-9", () => {});
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [Record<string, unknown>];
+      expect(notifyCall[0]).not.toHaveProperty("replyDeliveredInAppOnly");
+    });
   });
 
   describe("B3 pre-allocation: indexing + cleanup", () => {

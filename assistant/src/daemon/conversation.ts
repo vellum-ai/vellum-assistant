@@ -2476,6 +2476,12 @@ export class Conversation {
        * notification treats as the prompt this turn answers.
        */
       notifyUserMessageId?: string;
+      /**
+       * See {@link runAgentLoopImpl}: this run's reply streams to the app
+       * alone, so the reply notification ignores the initiating row's
+       * channel/voice delivery markers.
+       */
+      replyDeliveredInAppOnly?: boolean;
       callSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call

@@ -21,6 +21,7 @@ interface EmitCall {
   conversationId: string;
   assistantMessageId: string;
   userMessageId: string | undefined;
+  replyDeliveredInAppOnly?: boolean;
 }
 
 const emitCalls: EmitCall[] = [];
@@ -34,6 +35,9 @@ mock.module("../../notifications/assistant-reply-producer.js", () => ({
       conversationId: params.conversationId,
       assistantMessageId: params.assistantMessageId,
       userMessageId: params.userMessageId,
+      ...("replyDeliveredInAppOnly" in params
+        ? { replyDeliveredInAppOnly: params.replyDeliveredInAppOnly }
+        : {}),
     });
     trace.push("emit");
     if (producerBehavior === "reject") {
@@ -71,6 +75,7 @@ async function runTail(overrides: {
   lastAssistantMessageId?: string | undefined;
   deferredFinalizeEffects?: ReadonlyArray<() => Promise<void>>;
   userMessageId?: string | undefined;
+  replyDeliveredInAppOnly?: boolean;
 }): Promise<void> {
   await runDeferredTurnTail({
     ctx: { conversationId: CONVERSATION_ID, messages: [] },
@@ -87,6 +92,9 @@ async function runTail(overrides: {
     turnCompleted: overrides.turnCompleted,
     userMessageId:
       "userMessageId" in overrides ? overrides.userMessageId : USER_MESSAGE_ID,
+    ...(overrides.replyDeliveredInAppOnly
+      ? { replyDeliveredInAppOnly: true }
+      : {}),
   });
 }
 
@@ -107,6 +115,25 @@ describe("runDeferredTurnTail assistant-reply notification", () => {
         userMessageId: USER_MESSAGE_ID,
       },
     ]);
+  });
+
+  test("forwards the app-only delivery marker to the producer", async () => {
+    await runTail({ turnCompleted: true, replyDeliveredInAppOnly: true });
+
+    expect(emitCalls).toEqual([
+      {
+        conversationId: CONVERSATION_ID,
+        assistantMessageId: ASSISTANT_MESSAGE_ID,
+        userMessageId: USER_MESSAGE_ID,
+        replyDeliveredInAppOnly: true,
+      },
+    ]);
+  });
+
+  test("omits the app-only delivery marker for an ordinary turn", async () => {
+    await runTail({ turnCompleted: true });
+
+    expect(emitCalls[0]).not.toHaveProperty("replyDeliveredInAppOnly");
   });
 
   test("stays silent for a handed-off or cancelled turn", async () => {
