@@ -30,8 +30,10 @@
  *   ends ({@link useChatHeaderBottom}) rather than inheriting that edge from
  *   the DOM. Non-modal, so the header it rests below stays lit and usable,
  *   which takes suppressing several of Radix's modal reflexes: see
- *   {@link VoiceRoomSheet}. Because the slide IS its entrance, the look inside
- *   is painted rather than grown. See `voice-room-entrance.ts`.
+ *   {@link VoiceRoomSheet}. It portals into `RootLayout`'s `#viewport-overlays`
+ *   rather than the body, which is what keeps the surfaces the header opens
+ *   ON TOP of it: see {@link VoiceRoom}. Because the slide IS its entrance, the
+ *   look inside is painted rather than grown. See `voice-room-entrance.ts`.
  * - `"fullscreen"`: `fixed inset-0` over the whole viewport, modal, with
  *   safe-area padding for notched iOS shells. No longer mounted by the chat
  *   layout; kept as the variant a surface with no chrome to sit under would
@@ -78,7 +80,12 @@ import {
 } from "motion/react";
 import { Captions, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 
-import { BottomSheet, Tooltip, cn } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  PortalContainerProvider,
+  Tooltip,
+  cn,
+} from "@vellumai/design-library";
 
 import {
   endLiveVoiceSession,
@@ -153,6 +160,32 @@ const SESSION_CONTROL_NEUTRAL_CLASS =
 export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
 
 /**
+ * The mobile sheet's tier inside the app shell's stacking context, overriding
+ * the primitive's own `z-50`.
+ *
+ * The room rests below the thread header and leaves it usable, so everything
+ * that header opens has to land in front of the room: the navigation drawer
+ * (`z-40` in `chat-layout.tsx`) and, above that, the search palette (`z-50` in
+ * `command-palette.tsx`, which also has to clear the drawer it opens over).
+ * `z-30` is the shared tier for mobile surfaces that sit under the header, the
+ * same one `mobile-app-overlay.tsx` and `mobile-document-overlay.tsx` use.
+ *
+ * This only orders the sheet against the app's own chrome. Menus and sheets
+ * opened FROM the header (the conversation actions menu, the notifications
+ * bell) portal to the body, outside the shell's stacking context, so they clear
+ * the room by construction.
+ */
+const SHEET_LAYER = "z-30";
+
+/**
+ * Marks a `role="dialog"` element as belonging to the room, so the global
+ * Escape handler can tell the room's own dialog apart from one layered over it.
+ * Carried by whichever element is the dialog for the variant: the room's box
+ * under `fullscreen` / `content`, the sheet's Radix content under `sheet`.
+ */
+const ROOM_DIALOG_ATTR = "data-voice-room";
+
+/**
  * `BottomSheet.Content` with Motion attached, so `AnimatePresence` can play the
  * sheet's exit on the element Radix positions. The primitive forwards its ref
  * and spreads the rest onto Radix's content element, which is what
@@ -161,6 +194,46 @@ export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
  */
 const MotionBottomSheetContent = motion.create(BottomSheet.Content);
 
+/** `RootLayout`'s portal container, inside the app shell's isolation. */
+const OVERLAY_HOST_ID = "viewport-overlays";
+
+/**
+ * The element the mobile sheet portals into.
+ *
+ * `root-layout.tsx` wraps the whole app shell in `isolation: isolate`, so a
+ * sheet portaled to the body lands OUTSIDE that stacking context and paints
+ * above everything in it whatever z-index the app uses, including the two
+ * surfaces the header opens (the navigation drawer and the search palette).
+ * `#viewport-overlays` puts the room back inside the shell, where
+ * {@link SHEET_LAYER} orders it under both.
+ *
+ * Read synchronously on first render rather than only from an effect. The sheet
+ * mounts fresh whenever the layout crosses into mobile, and a live session can
+ * already be running at that moment (a desktop window narrowing mid-call): a
+ * null first value would open the room against the `document.body` fallback,
+ * reviving the stacking path this avoids, and then remount it into the host,
+ * restarting the slide-up. The effect covers the one case the synchronous read
+ * misses, the app's very first commit, where `RootLayout` mounts the container
+ * in the same pass. No session can be live that early, so the room never opens
+ * against the null.
+ */
+function useVoiceRoomPortalTarget(): HTMLElement | null {
+  const [target, setTarget] = useState<HTMLElement | null>(() =>
+    typeof document === "undefined"
+      ? null
+      : document.getElementById(OVERLAY_HOST_ID),
+  );
+
+  useEffect(() => {
+    if (target) {
+      return;
+    }
+    setTarget(document.getElementById(OVERLAY_HOST_ID));
+  }, [target]);
+
+  return target;
+}
+
 export function VoiceRoom({
   variant = "fullscreen",
 }: {
@@ -168,11 +241,20 @@ export function VoiceRoom({
   variant?: VoiceRoomVariant;
 }) {
   const visible = useIsVoiceRoomVisible();
+  const overlayTarget = useVoiceRoomPortalTarget();
 
-  return (
+  const room = (
     <AnimatePresence>
       {visible ? <VoiceRoomOverlay key="voice-room" variant={variant} /> : null}
     </AnimatePresence>
+  );
+
+  return variant === "sheet" ? (
+    <PortalContainerProvider container={overlayTarget}>
+      {room}
+    </PortalContainerProvider>
+  ) : (
+    room
   );
 }
 
@@ -226,7 +308,12 @@ function VoiceRoomSheet({
         // Override the primitive's default height band. The room is not a
         // menu sized to its rows; it fills everything between the header and
         // the bottom edge.
-        className="top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0"
+        className={cn(
+          "top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0",
+          SHEET_LAYER,
+        )}
+        // Marks the sheet as the room's own dialog. See {@link ROOM_DIALOG_ATTR}.
+        {...{ [ROOM_DIALOG_ATTR]: "" }}
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
         // Radix focuses the first focusable child on open, which here is the
@@ -359,10 +446,29 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const choreography = resolveVoiceRoomChoreography(variant, reduce === true);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        minimizeVoiceRoom();
+      if (event.key !== "Escape") {
+        return;
       }
+      // A dialog layered over the room owns the key while it holds focus. The
+      // navigation drawer and the search palette both sit above the room and
+      // close themselves on Escape without stopping propagation, so an
+      // unconditional minimize here dismisses two surfaces at once: the drawer
+      // closes and the room vanishes behind it.
+      //
+      // Keyed on the focused dialog rather than the event target, which is what
+      // keeps the unguarded behavior the room needs: the key still reaches us
+      // when the composer textarea holds focus as the room opens, since that is
+      // inside no dialog at all. The room's own dialog carries
+      // {@link ROOM_DIALOG_ATTR} in every variant, including the sheet, whose
+      // Radix content is the dialog and takes focus on open.
+      const active = document.activeElement;
+      const owner =
+        active instanceof Element ? active.closest(`[role="dialog"]`) : null;
+      if (owner && !owner.hasAttribute(ROOM_DIALOG_ATTR)) {
+        return;
+      }
+      event.preventDefault();
+      minimizeVoiceRoom();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -375,10 +481,12 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       ref={roomRef}
       className={cn(
         "z-50 flex items-center justify-center overflow-hidden",
-        // Every variant sits at z-50, the highest tier used inside the chat
-        // layout. `overflow-hidden` above is what clips the full-bleed
-        // color/wave layers to whatever radius the variant carries: the panel's
-        // corners on desktop, the sheet's top corners on mobile.
+        // z-50 orders the room's own box against the chat layout for the
+        // fullscreen and panel variants; under the sheet it is scoped to the
+        // sheet's stacking context, whose tier is {@link SHEET_LAYER}.
+        // `overflow-hidden` above is what clips the full-bleed color/wave
+        // layers to whatever radius the variant carries: the panel's corners on
+        // desktop, the sheet's top corners on mobile.
         fullscreen && "fixed inset-0",
         variant === "content" && "absolute inset-0 rounded-xl",
         // The sheet's own box is the Radix content element, which is already
@@ -392,6 +500,9 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       // The sheet's Radix content element is the dialog; a second `role` and
       // label nested inside it would announce the room twice.
       role={sheet ? undefined : "dialog"}
+      // Marks this box as the room's own dialog for the variants where it is
+      // one. See {@link ROOM_DIALOG_ATTR}; the sheet carries it on its content.
+      {...{ [ROOM_DIALOG_ATTR]: "" }}
       // Only the fullscreen room is modal by its own declaration. The content
       // variant deliberately leaves the header and sidenav usable, so claiming
       // the rest of the app is inert would be a lie to assistive tech; the

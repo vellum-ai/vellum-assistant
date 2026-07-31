@@ -697,6 +697,56 @@ describe("parseAssistantEvent", () => {
   });
 
   // ---------------------------------------------------------------------
+  // message_requeued (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses message_requeued with all required fields", () => {
+    const event = parseEvent({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 1,
+    });
+    expect(event).toEqual({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 1,
+    });
+  });
+
+  test("returns unknown message_requeued event when position is missing", () => {
+    const data = {
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_requeued",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("carries the optional clientMessageId on message_requeued", () => {
+    const event = parseEvent({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 2,
+      clientMessageId: "nonce-1",
+    });
+    expect(event).toEqual({
+      type: "message_requeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 2,
+      clientMessageId: "nonce-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // message_queued_deleted (schema-validated)
   // ---------------------------------------------------------------------
 

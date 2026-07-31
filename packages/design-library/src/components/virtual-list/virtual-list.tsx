@@ -63,6 +63,17 @@ export interface VirtualListProps<T> {
   initialTopMostItemIndex?: number | "LAST";
 
   // --- Layout ---
+  /**
+   * Scroll against an existing ancestor scrollport instead of rendering the
+   * list's own scroller. Use when the list is one band inside a surface that
+   * already scrolls (a sidebar, a settings pane) and a nested scrollbar would
+   * be wrong: the list then needs no bounded height of its own and grows with
+   * its content, while virtuoso still windows against the parent's viewport.
+   *
+   * Leave unset for a list that owns its scroll region; that path needs a
+   * bounded height on the wrapper, since virtuoso's scroller sizes to 100%.
+   */
+  customScrollParent?: HTMLElement;
   overscan?: number;
   increaseViewportBy?: number | { top: number; bottom: number };
   className?: string;
@@ -122,6 +133,7 @@ export function VirtualList<T>({
   startReached,
   endReached,
   initialTopMostItemIndex,
+  customScrollParent,
   overscan,
   increaseViewportBy,
   className,
@@ -187,6 +199,7 @@ export function VirtualList<T>({
       {...(resolvedInitialTopMostItemIndex !== undefined
         ? { initialTopMostItemIndex: resolvedInitialTopMostItemIndex }
         : {})}
+      {...(customScrollParent !== undefined ? { customScrollParent } : {})}
       {...(overscan !== undefined ? { overscan } : {})}
       {...(increaseViewportBy !== undefined ? { increaseViewportBy } : {})}
     />
