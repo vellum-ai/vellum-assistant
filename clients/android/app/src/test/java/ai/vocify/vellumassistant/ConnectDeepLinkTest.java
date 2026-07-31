@@ -25,6 +25,20 @@ public class ConnectDeepLinkTest {
     }
 
     @Test
+    public void preservesEscapedSeparatorsInPairingPrefixes() {
+        ConnectDeepLink connect = ConnectDeepLink.parse(
+            SCHEME + "://connect?url=https%3A%2F%2Fexample.com%2Ftenant%252Fabc&code=device-code",
+            SCHEME
+        );
+
+        assertEquals("https://example.com/tenant%2Fabc", connect.server().toASCIIString());
+        assertEquals(
+            "https://example.com/tenant%2Fabc/assistant/pair#device_code=device-code",
+            connect.pairPage().toASCIIString()
+        );
+    }
+
+    @Test
     public void encodesTheOneTimeCodeOnlyInThePairPageFragment() {
         ConnectDeepLink connect = ConnectDeepLink.parse(
             SCHEME + "://connect?url=https%3A%2F%2Fexample.com&code=code%20with%2Fsymbols",

@@ -17,6 +17,13 @@ public class SelfHostedServerTest {
     }
 
     @Test
+    public void preservesEscapedReservedCharactersAndDotSegments() {
+        URI server = SelfHostedServer.validate("https://example.com/tenant%2fabc/%2e%2E/");
+
+        assertEquals("https://example.com/tenant%2Fabc/%2E%2E", server.toASCIIString());
+    }
+
+    @Test
     public void rejectsCredentialsQueriesAndFragments() {
         assertNull(SelfHostedServer.validate("https://" + "user:credential@" + "example.com/assistant"));
         assertNull(SelfHostedServer.validate("https://example.com/assistant?code=secret"));
@@ -63,6 +70,14 @@ public class SelfHostedServerTest {
         assertTrue(SelfHostedServer.contains(server, "https://example.com/tenant/assistant/pair"));
         assertFalse(SelfHostedServer.contains(server, "https://example.com/tenant-other"));
         assertFalse(SelfHostedServer.contains(server, "https://other.example.com/tenant"));
+    }
+
+    @Test
+    public void keepsEscapedSeparatorsDistinctWhenMatchingPrefixes() {
+        URI server = SelfHostedServer.validate("https://example.com/tenant%2Fabc");
+
+        assertTrue(SelfHostedServer.contains(server, "https://example.com/tenant%2fabc/assistant/pair"));
+        assertFalse(SelfHostedServer.contains(server, "https://example.com/tenant/abc/assistant/pair"));
     }
 
     @Test

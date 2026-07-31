@@ -88,9 +88,9 @@ final class SelfHostedServer {
             return null;
         }
 
-        String path = normalizePath(parsed.normalize().getPath());
+        String path = normalizePath(parsed.normalize().getRawPath());
         try {
-            return new URI(scheme, null, host, parsed.getPort(), path, null, null);
+            return new URI(scheme + "://" + formatAuthority(host, parsed.getPort()) + path);
         } catch (URISyntaxException exception) {
             return null;
         }
@@ -111,8 +111,8 @@ final class SelfHostedServer {
             return false;
         }
 
-        String basePath = normalizePath(server.getPath());
-        String candidatePath = normalizePath(candidate.getPath());
+        String basePath = normalizePath(server.getRawPath());
+        String candidatePath = normalizePath(candidate.getRawPath());
         if (basePath.isEmpty()) {
             return true;
         }
@@ -126,7 +126,7 @@ final class SelfHostedServer {
             && expected.getScheme().equalsIgnoreCase(actual.getScheme())
             && expected.getHost().equalsIgnoreCase(actual.getHost())
             && effectivePort(expected) == effectivePort(actual)
-            && normalizePath(expected.getPath()).equals(normalizePath(actual.getPath()));
+            && normalizePath(expected.getRawPath()).equals(normalizePath(actual.getRawPath()));
     }
 
     static boolean samePage(String expectedUrl, String actualUrl) {
@@ -188,7 +188,21 @@ final class SelfHostedServer {
         while (normalized.endsWith("/") && normalized.length() > 1) {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
-        return normalized;
+        StringBuilder canonical = new StringBuilder(normalized.length());
+        for (int index = 0; index < normalized.length(); index++) {
+            char item = normalized.charAt(index);
+            canonical.append(item);
+            if (item == '%' && index + 2 < normalized.length()) {
+                canonical.append(Character.toUpperCase(normalized.charAt(++index)));
+                canonical.append(Character.toUpperCase(normalized.charAt(++index)));
+            }
+        }
+        return canonical.toString();
+    }
+
+    private static String formatAuthority(String host, int port) {
+        String authorityHost = host.indexOf(':') >= 0 && !host.startsWith("[") ? "[" + host + "]" : host;
+        return port >= 0 ? authorityHost + ":" + port : authorityHost;
     }
 
     private static boolean isLocalDevelopmentHost(String host) {
