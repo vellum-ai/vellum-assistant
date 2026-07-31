@@ -278,8 +278,9 @@ export interface PostLocalNotificationArgs {
   assistantId?: string;
   /**
    * True when the daemon confirmed the platform (APNs) channel accepted a
-   * remote push for this delivery. A hidden native app with an active push
-   * registration skips the local banner so the remote push is the only one.
+   * remote push for this delivery. A native app that is hidden at intent
+   * arrival with an active push registration skips the local banner so the
+   * remote push is the only one.
    */
   remotePushDispatched?: boolean;
 }
@@ -371,6 +372,10 @@ export async function postLocalNotification(
     return;
   }
 
+  // Snapshot before the awaits below: the remote-push dedup skip must see
+  // visibility at intent arrival, not after an async native-bridge gap.
+  const visibilityAtIntent = document.visibilityState;
+
   const permission = await ensureNotificationPermission();
   if (permission !== "granted") {
     if (args.assistantId && args.deliveryId) {
@@ -397,16 +402,18 @@ export async function postLocalNotification(
   if (isNativePlatform()) {
     // iOS suppresses remote pushes while the app is foregrounded (no
     // presentationOptions configured), so the local banner is the only
-    // foreground surface and must stay. When the app is hidden with an
-    // active APNs registration and a daemon-confirmed accepted push, the
-    // remote push will banner on its own; scheduling the local one too
-    // would double-notify during the SSE grace window after backgrounding.
+    // foreground surface. The banner is skipped only when the daemon
+    // confirmed an accepted remote push, this device holds an active APNs
+    // registration, and the app was hidden when the intent arrived; the
+    // remote push banners on its own there, and scheduling the local one
+    // too would double-notify during the SSE grace window after
+    // backgrounding.
     if (
       args.remotePushDispatched === true &&
       isRemotePushSupported() &&
       args.assistantId !== undefined &&
       hasActiveRemotePushRegistration(args.assistantId) &&
-      document.visibilityState === "hidden"
+      visibilityAtIntent === "hidden"
     ) {
       if (args.deliveryId) {
         await sendNotificationIntentAck(

@@ -1,9 +1,10 @@
 /**
  * `postLocalNotification` native-branch behavior, focused on the
- * remote-push dedup skip: a hidden Capacitor iOS app with an active APNs
- * registration and a daemon-confirmed accepted remote push must not also
- * schedule the local banner (the APNs banner covers it), while foreground
- * and old-daemon paths keep scheduling as before.
+ * remote-push dedup skip: the local banner is scheduled whenever
+ * `remotePushDispatched` is absent or false; it is skipped only when the
+ * daemon confirmed an accepted remote push, this device holds an active
+ * APNs registration, and the app was hidden when the intent arrived (the
+ * APNs banner covers that case).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -124,7 +125,25 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     ]);
   });
 
-  test("field absent (older daemon): schedules as before even when hidden", async () => {
+  test("visible at intent arrival, hidden after the permission await: schedules", async () => {
+    activeRegistrationAssistantId = "assistant-1";
+    setVisibility("visible");
+
+    // The call's synchronous prefix snapshots visibility, then suspends on
+    // the permission await; flipping to hidden while it is pending mimics
+    // the user backgrounding the app mid-await. The entry-time snapshot
+    // must win, so the local banner is still scheduled.
+    const pending = postLocalNotification({
+      ...baseArgs,
+      remotePushDispatched: true,
+    });
+    setVisibility("hidden");
+    await pending;
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("field absent (older daemon): schedules even when hidden", async () => {
     activeRegistrationAssistantId = "assistant-1";
     setVisibility("hidden");
 
