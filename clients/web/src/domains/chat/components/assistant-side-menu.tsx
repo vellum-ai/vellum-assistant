@@ -521,7 +521,7 @@ export function AssistantSideMenu({
                  inline padding below is applied. pt-14 on iOS clears the 40px
                  the floating icon row covers plus a 16px gap, so the first
                  row starts below the glyphs at rest. */
-                `-mx-4 gap-4 px-4 pt-3 pb-24 native-ios:pt-14 max-md:pt-4 ${NATIVE_IOS_LIST_TOP_FADE}`
+                `-mx-4 gap-4 px-4 pb-24 native-ios:pt-14 ${NATIVE_IOS_LIST_TOP_FADE}`
               : /* The collapsed rail tucks the group icons up under the
                  cluster separator (~12px to the first icon tile) so they
                  read as the next section, not a distant island. */
@@ -530,8 +530,10 @@ export function AssistantSideMenu({
                 : /* The scrollport spans the full rail so its scrollbar rides
                      the outer edge instead of cutting through the content, and
                      takes over the horizontal inset the root would have given
-                     it, so rows sit exactly where they did. */
-                  "-mx-4 gap-4 px-4 pt-3 max-md:pt-4"
+                     it, so rows sit exactly where they did. No top inset: the
+                     sticky view switch sits flush against the header, and any
+                     padding here would be a gap it has to cancel. */
+                  "-mx-4 gap-4 px-4"
           }
           style={
             variant === "overlay" && overlayBottomColumnHeight > 0
@@ -546,7 +548,19 @@ export function AssistantSideMenu({
               : undefined
           }
         >
-          {variant === "overlay" ? builtInNav : null}
+          {/* The overlay puts the assistant cluster at the top of the
+              scrollport rather than in a fixed header, so it owns the inset
+              that keeps it clear of the floating close and search glyphs. It
+              lives here rather than on the scrollport because the sticky view
+              switch sticks to the scrollport's content box: any padding there
+              would park the switch that far down and open a strip above it
+              for rows to scroll through. `gap-4` restates the body's own gap,
+              which wrapping these into one flex item would otherwise drop. */}
+          {variant === "overlay" ? (
+            <div className="flex flex-col gap-4 pt-3 max-md:pt-4">
+              {builtInNav}
+            </div>
+          ) : null}
           {isCollapsedRail ? (
             /* The rail shows the same sections in the same order, as icons.
                Nothing here is type-aware - order and labels come straight

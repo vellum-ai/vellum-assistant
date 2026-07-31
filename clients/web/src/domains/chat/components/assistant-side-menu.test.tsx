@@ -228,16 +228,19 @@ describe("AssistantSideMenu · All view", () => {
     }),
   ];
 
-  // The flat list is virtualized, and virtuoso renders no rows without real
-  // layout, so these assert the composition around it. What lands *in* the
-  // list is covered by `use-sidebar-state.test.tsx` (`flatList`).
+  // Short lists mount their rows directly, so this can assert what actually
+  // renders. The windowed path is covered below, where virtuoso emits no rows
+  // without real layout and only its presence can be asserted.
   test("drops the Chats and channel headers in favour of one flat list", () => {
     const html = renderMenu({ conversations });
 
     expect(html).not.toContain(">Chats<");
     expect(html).not.toContain(">Slack<");
     expect(html).toContain(">Pinned<");
-    expect(html).toContain('data-slot="virtual-list"');
+    expect(html).not.toContain('data-slot="virtual-list"');
+    // The channel conversation is in the flat list, not a channel section.
+    expect(html).toContain("Slack one");
+    expect(html).toContain("Recent one");
   });
 
   test("carries no 'Show more' affordance", () => {
@@ -306,6 +309,52 @@ describe("AssistantSideMenu · All view", () => {
 
     expect(html).toContain('aria-label="Chats"');
     expect(html).toContain('aria-label="Pinned"');
+  });
+});
+
+describe("AssistantSideMenu · scrollport top inset", () => {
+  // The sticky view switch sticks to the scrollport's *content* box, so the
+  // body carries no top padding: any there would park the switch that far
+  // down and open a strip above it for rows to scroll through. The overlay
+  // still needs the inset though, because its first body child is the
+  // assistant cluster rather than the switch, and without it the cluster
+  // collides with the floating close and search glyphs. So the inset moves
+  // onto the cluster rather than disappearing.
+  test("the rail's scrollport carries no top inset", () => {
+    const container = parse(
+      renderMenu({ conversations: [makeConversation({ conversationId: "r1" })] }),
+    );
+    const body = container.querySelector<HTMLElement>(
+      '[data-slot="side-menu-body"]',
+    );
+    if (!body) {
+      throw new Error("expected the side menu body");
+    }
+
+    expect(body.className).not.toContain("pt-3");
+    expect(body.className).not.toContain("pt-4");
+  });
+
+  test("the overlay's assistant cluster keeps its inset off the glyph row", () => {
+    const container = parse(
+      renderMenu({
+        conversations: [makeConversation({ conversationId: "r1" })],
+        variant: "overlay",
+      }),
+    );
+    const body = container.querySelector<HTMLElement>(
+      '[data-slot="side-menu-body"]',
+    );
+    if (!body) {
+      throw new Error("expected the side menu body");
+    }
+
+    // Not on the scrollport itself.
+    expect(body.className).not.toContain(" pt-3");
+    // On its first child, the assistant cluster.
+    const cluster = body.firstElementChild;
+    expect(cluster?.className).toContain("pt-3");
+    expect(cluster?.textContent).toContain("Your Assistant");
   });
 });
 
