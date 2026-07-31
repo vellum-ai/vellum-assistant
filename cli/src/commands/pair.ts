@@ -17,7 +17,7 @@ import qrcodeTerminal from "qrcode-terminal";
 
 import {
   buildRemoteWebPairingUrl,
-  normalizePublicBaseUrl,
+  normalizePairingBaseUrl,
   resolvePublicBaseUrl,
   tunnelProviderWebsiteName,
   type PublicBaseUrlRejection,
@@ -414,7 +414,7 @@ export async function pair(): Promise<void> {
 
     let publicBaseUrl: string;
     try {
-      publicBaseUrl = normalizePublicBaseUrl(advertisedUrl);
+      publicBaseUrl = normalizePairingBaseUrl(advertisedUrl);
     } catch {
       console.error(`Error: invalid --url value '${advertisedUrl}'.`);
       process.exit(1);

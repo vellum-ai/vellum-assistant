@@ -35,6 +35,21 @@ References:
 - `@capacitor/core` proxy `get` trap — [`global.ts` in `ionic-team/capacitor`](https://github.com/ionic-team/capacitor/blob/main/core/src/global.ts) (search `createPluginMethod`).
 - ECMAScript spec — [`PromiseResolveThenableJob`](https://tc39.es/ecma262/#sec-promiseresolvethenablejob) (the runtime hook this footgun rides on).
 
+### Linking a plugin runs its native `load()`
+
+Capacitor calls every linked plugin's `load()` at bridge init, before any JS imports it and whether or not `capacitor.config.ts` configures it. An iOS Capacitor plugin dependency is therefore never runtime-neutral, and "we only added the dependency, nothing imports it" says nothing about behavior.
+
+**Before adding an iOS Capacitor plugin dependency, read its native `load()` and account for every side effect it has.** A plugin is not dependency-only until that read says so.
+
+`@capacitor/keyboard` is the worked example. Its `load()`:
+
+- Sets `hideFormAccessoryBar = YES` with no config gate (`Keyboard.m:187`). That is the mechanism that hides the input accessory bar (prev/next chevrons plus Done) above the iOS keyboard in this shell. The `setAccessoryBarVisible({ isVisible: false })` call in [`src/runtime/native-keyboard.ts`](../src/runtime/native-keyboard.ts) only states the same intent explicitly and pins it against an upstream default change.
+- Removes `WKWebView`'s own keyboard-avoidance observers, unsubscribing the web view from the `UIKeyboardWillShow`, `UIKeyboardWillHide`, and keyboard frame-change notifications (`Keyboard.m:196-199`), and substitutes a web view frame resize the plugin drives itself. On show, that resize is deferred by the keyboard animation duration plus `0.2` seconds (`Keyboard.m:256-257`); on hide it runs at `delay:0.01` (`Keyboard.m:214`). So `visualViewport` learns the keyboard height well after the system animation has started.
+
+[`useVisibleViewport`](../src/hooks/use-visible-viewport.ts) bridges that gap through [`subscribeNativeKeyboardHeight`](../src/runtime/native-keyboard.ts), which registers a `keyboardWillShow` plugin listener and so reports the keyboard height at the leading edge of the animation instead of after the deferred resize.
+
+Register these through `Keyboard.addListener`, not the same-named `window` events the bridge also dispatches: `cap.createEvent` builds those with `document.createEvent('Events')` and copies each payload key straight onto the event object, so `event.detail` is always `undefined` and a `detail.keyboardHeight` read silently yields `0`.
+
 ---
 
 ## Native auth on iOS

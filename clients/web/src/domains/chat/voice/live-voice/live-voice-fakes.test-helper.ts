@@ -182,6 +182,12 @@ export class FakePlayer {
   prewarmCount = 0;
   resetPlaybackProgressCount = 0;
   isPlaying = false;
+  /**
+   * Assistant-mute the controller last pushed into the graph. The real player
+   * holds this flag itself, which is how a mute survives a reconnect onto a new
+   * graph, so the fake holds it too rather than counting calls only.
+   */
+  outputMuted = false;
   /** Progress the fake reports; tests set it to drive the store's provider. */
   playbackProgress: LiveVoicePlaybackProgress | null = null;
   private drainResolvers: Array<() => void> = [];
@@ -194,6 +200,9 @@ export class FakePlayer {
   }
   resetPlaybackProgress(): void {
     this.resetPlaybackProgressCount++;
+  }
+  setOutputMuted(muted: boolean): void {
+    this.outputMuted = muted;
   }
   enqueue(chunk: unknown): void {
     this.enqueued.push(chunk);
@@ -242,6 +251,7 @@ export function makeControlsSpies() {
     release: mock(() => {}),
     interrupt: mock(() => {}),
     setMuted: mock((_muted: boolean) => {}),
+    setOutputMuted: mock((_muted: boolean) => {}),
     updateConfig: mock(
       (_config: {
         silenceThresholdMs?: number;
