@@ -416,7 +416,7 @@ export async function postLocalNotification(
     // multi-device account a token pruned mid-session can still suppress
     // this banner while only another device received the push. Closing
     // that gap requires per-token dispatch results from the platform's
-    // dispatch endpoint, deferred as a cross-repo follow-up.
+    // dispatch endpoint.
     if (
       args.remotePushDispatched === true &&
       isRemotePushSupported() &&
