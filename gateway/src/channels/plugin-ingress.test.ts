@@ -92,11 +92,65 @@ describe("parsePluginIngressManifest", () => {
           path: "realtime",
           kind: "websocket",
           signer: "vellum",
+          handshake: "signed-headers" as const,
           description: "platform-signed events",
         },
       ],
     });
     expect(manifest.routes[0]!.signer).toBe("vellum");
+  });
+
+  it("defaults an undeclared handshake to the header scheme", () => {
+    // The safe default: a route only becomes openable by a bare URL when it
+    // says so, and the guardian approves a digest that records the choice.
+    const manifest = parsePluginIngressManifest(JSON.parse(VALID));
+    expect(manifest.routes[0]!.handshake).toBe("signed-headers");
+  });
+
+  it("accepts a signed-query handshake on a websocket route", () => {
+    const manifest = parsePluginIngressManifest({
+      routes: [
+        {
+          path: "realtime",
+          kind: "websocket",
+          handshake: "signed-query",
+          description: "a third party dials this with a URL and nothing else",
+        },
+      ],
+    });
+    expect(manifest.routes[0]!.handshake).toBe("signed-query");
+  });
+
+  it("rejects a signed-query handshake on an http route", () => {
+    // An HTTP request always has somewhere to put a header, so the weaker
+    // scheme would be bought for nothing.
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [
+          {
+            path: "hook",
+            kind: "http",
+            handshake: "signed-query",
+            description: "d",
+          },
+        ],
+      }),
+    ).toThrow(/only valid for websocket/);
+  });
+
+  it("rejects an unknown handshake", () => {
+    expect(() =>
+      parsePluginIngressManifest({
+        routes: [
+          {
+            path: "realtime",
+            kind: "websocket",
+            handshake: "none",
+            description: "x",
+          },
+        ],
+      }),
+    ).toThrow();
   });
 
   it("rejects an unknown signer", () => {

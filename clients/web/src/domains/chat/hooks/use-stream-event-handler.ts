@@ -59,6 +59,7 @@ import {
   handleMessageQueued,
   handleMessageDequeued,
   handleMessageQueuedDeleted,
+  handleMessageRequeued,
   handleMessageRequestComplete,
 } from "@/domains/chat/utils/stream-handlers/queue-handlers";
 import {
@@ -387,6 +388,9 @@ export function useStreamEventHandler(
           break;
         case "message_dequeued":
           handleMessageDequeued(event, ctx);
+          break;
+        case "message_requeued":
+          handleMessageRequeued(event, ctx);
           break;
         case "message_queued_deleted":
           handleMessageQueuedDeleted(event, ctx);

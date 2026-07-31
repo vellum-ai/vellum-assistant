@@ -19,6 +19,7 @@
     "./attachment-naming": "./src/attachment-naming.ts",
     "./redacted-credential": "./src/redacted-credential.ts",
     "./secret-detection": "./src/secret-detection.ts",
+    "./stripe-currency": "./src/stripe-currency.ts",
     "./error": "./src/error.ts"
   },
   "scripts": {

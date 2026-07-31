@@ -15,6 +15,14 @@ body {
   color: var(--content-default);
 }
 
+/* Capacitor iOS shell: the app shell shrinks ahead of the keyboard plugin's
+ * deferred web view resize, briefly exposing the canvas, which unpainted falls
+ * through (isOpaque = false) to the near-white native SurfaceOverlay backdrop.
+ * Gated because Electron's transparent floating windows need an unpainted canvas. */
+:root[data-native-platform="ios"] body {
+  background: var(--surface-base);
+}
+
 /* Electron prechat onboarding typography — mirror the lighter DM Sans (Swift
  * VFont) weights/sizes so the macOS Electron funnel matches the native Swift
  * client. Scoped via `.electron-prechat-type` (applied ONLY on Electron) so the

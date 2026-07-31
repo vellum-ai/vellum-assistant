@@ -8,6 +8,7 @@ import {
 
 import { Paperclip, X } from "lucide-react";
 
+import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
 import { useBannerVisibilityStore } from "@/stores/banner-visibility-store";
 import { QuestionPromptSlot } from "@/domains/chat/components/question-prompt-slot";
 import { StagedQuotesStrip } from "@/domains/chat/components/staged-quotes-strip";
@@ -172,6 +173,8 @@ export interface ChatBodyProps {
    * that viewport, and {@link belowFoldSlot} is placed below the fold. Used by
    * the new-thread suggestions library. When false, the empty state keeps the
    * default layout where the starters sit directly below the composer.
+   * While the soft keyboard is open the dock fades out (kept mounted so the
+   * centered group does not jump).
    */
   dockStartersToBottom?: boolean;
 
@@ -211,6 +214,7 @@ export function ChatBody({
   activeProcessOverlaysSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
+  const keyboardOpen = useKeyboardOpen();
   const bottomBannerOverlayRef = useRef<HTMLDivElement | null>(null);
   const [bottomBannerOverlayHeight, setBottomBannerOverlayHeight] = useState(0);
 
@@ -401,7 +405,15 @@ export function ChatBody({
             {renderComposerStack(null)}
           </div>
           {startersSlot && (
-            <div className="px-3 pb-3 sm:px-6">
+            // Faded rather than unmounted while the keyboard is open:
+            // unmounting would recenter the greeting + composer and jump the
+            // layout. `inert` (not just opacity/pointer-events) so the hidden
+            // dock also leaves the tab order and accessibility tree.
+            <div
+              data-slot="docked-starters"
+              inert={keyboardOpen || undefined}
+              className={`px-3 pb-3 sm:px-6 transition-opacity duration-150${keyboardOpen ? " pointer-events-none opacity-0" : ""}`}
+            >
               <div className="mx-auto max-w-[var(--chat-max-width)]">
                 {startersSlot}
               </div>

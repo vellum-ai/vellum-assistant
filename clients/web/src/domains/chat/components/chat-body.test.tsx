@@ -114,6 +114,11 @@ mock.module("@/domains/chat/components/question-prompt-slot", () => ({
   QuestionPromptSlot: () => <div data-testid="question-prompt-slot" />,
 }));
 
+let keyboardOpen = false;
+mock.module("@/hooks/use-keyboard-open", () => ({
+  useKeyboardOpen: () => keyboardOpen,
+}));
+
 // Import after mocks are registered.
 const { ChatBody } = await import("@/domains/chat/components/chat-body");
 
@@ -368,6 +373,69 @@ describe("ChatBody — startersSlot rendering", () => {
   test("omits starters when startersSlot is undefined", () => {
     const html = renderToStaticMarkup(<ChatBody {...withEmptyState()} />);
     expect(html).not.toContain("STARTER_CHIPS");
+  });
+});
+
+describe("ChatBody - docked starters hide while the keyboard is open", () => {
+  // The docked (mobile empty-state) suggestions row fades out while the soft
+  // keyboard is up, staying mounted so the centered greeting + composer keep
+  // their layout. Class assertions here are regression pins on the markup,
+  // not proof of the rendered layout.
+  const startersSlot = <div data-testid="starters">STARTER_CHIPS</div>;
+
+  const dockedProps = () =>
+    withEmptyState({ dockStartersToBottom: true, startersSlot });
+
+  const dockWrapper = (container: HTMLElement) =>
+    container.querySelector('[data-slot="docked-starters"]');
+
+  afterEach(() => {
+    keyboardOpen = false;
+    cleanup();
+  });
+
+  test("keyboard closed: the dock is visible, interactive, and not inert", () => {
+    keyboardOpen = false;
+    const { container } = render(<ChatBody {...dockedProps()} />);
+
+    const dock = dockWrapper(container);
+    expect(dock).not.toBeNull();
+    expect(dock?.className).not.toContain("opacity-0");
+    expect(dock?.className).not.toContain("pointer-events-none");
+    expect(dock?.hasAttribute("inert")).toBe(false);
+  });
+
+  test("keyboard open: the dock stays mounted but fades out and goes inert", () => {
+    keyboardOpen = true;
+    const { container } = render(<ChatBody {...dockedProps()} />);
+
+    const dock = dockWrapper(container);
+    expect(dock).not.toBeNull();
+    expect(container.innerHTML).toContain("STARTER_CHIPS");
+    expect(dock?.className).toContain("opacity-0");
+    expect(dock?.className).toContain("pointer-events-none");
+    expect(dock?.hasAttribute("inert")).toBe(true);
+  });
+
+  test("keyboard toggling flips the hidden treatment without unmounting", () => {
+    keyboardOpen = true;
+    const { container, rerender } = render(<ChatBody {...dockedProps()} />);
+    expect(dockWrapper(container)?.className).toContain("opacity-0");
+
+    keyboardOpen = false;
+    rerender(<ChatBody {...dockedProps()} />);
+    expect(dockWrapper(container)?.className).not.toContain("opacity-0");
+    expect(container.innerHTML).toContain("STARTER_CHIPS");
+  });
+
+  test("non-docked empty state keeps its starters untouched by keyboard state", () => {
+    keyboardOpen = true;
+    const { container } = render(
+      <ChatBody {...withEmptyState({ startersSlot })} />,
+    );
+
+    expect(container.innerHTML).toContain("STARTER_CHIPS");
+    expect(dockWrapper(container)).toBeNull();
   });
 });
 
