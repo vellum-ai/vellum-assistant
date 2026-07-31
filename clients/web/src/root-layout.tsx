@@ -6,11 +6,8 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
 import { useOpenUrlDirectives } from "@/hooks/use-open-url-directives";
 import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import {
-  useVisibleViewport,
-  KEYBOARD_OPEN_THRESHOLD_PX,
-} from "@/hooks/use-visible-viewport";
+import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
+import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-setup-close-notify";
@@ -96,7 +93,7 @@ const ShareFeedbackModal = lazy(() =>
  */
 export function RootLayout() {
   useAppTheme();
-  const isMobile = useIsMobile();
+  const keyboardOpen = useKeyboardOpen();
   const visibleViewport = useVisibleViewport();
 
   const location = useLocation();
@@ -156,7 +153,11 @@ export function RootLayout() {
   useAvatarAccentVar(avatar.components, avatar.traits, avatar.customImageUrl);
   // Publish the same avatar for the iOS Live Activity, which cannot fetch an
   // image at render time and needs the bytes to travel with the activity.
-  useIslandAvatarSource(avatar.customImageUrl, avatar.components, avatar.traits);
+  useIslandAvatarSource(
+    avatar.customImageUrl,
+    avatar.components,
+    avatar.traits,
+  );
 
   // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
   // the live connection status to the menu-bar dot. Both no-op off Electron.
@@ -283,11 +284,6 @@ export function RootLayout() {
     setRetirePending(false);
     setRetireId(null);
   };
-
-  const keyboardOpen =
-    isMobile &&
-    visibleViewport !== null &&
-    visibleViewport.keyboardHeight > KEYBOARD_OPEN_THRESHOLD_PX;
 
   // When the iOS keyboard opens, the system scrolls the layout viewport
   // down by `offsetTop` to keep the focused input visible. Size the outer
