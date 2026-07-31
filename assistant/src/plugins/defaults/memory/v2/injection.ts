@@ -383,7 +383,7 @@ async function finalizeInjection(args: {
   // the cached prefix — v2 is append-only, so a card attached once stays
   // visible until compaction evicts the turn and re-opens the slug.
   const selectedSet = new Set(selectedSlugs);
-  const pinnedSlugs = listAlwaysCandidateSkillSlugs().filter(
+  const pinnedSlugs = (await listAlwaysCandidateSkillSlugs()).filter(
     (slug) => !selectedSet.has(slug) && !everInjectedSet.has(slug),
   );
   const slugsToRender = [...selectedSlugs, ...pinnedSlugs];
