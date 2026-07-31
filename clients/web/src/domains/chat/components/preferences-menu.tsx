@@ -43,6 +43,13 @@ const ShareFeedbackModal = lazy(() =>
   })),
 );
 
+/**
+ * The trigger names the menu it opens, never the signed-in account. This is a
+ * settings entry point rather than a profile row, and the account's identity
+ * belongs on the Settings page the menu links to.
+ */
+const PREFERENCES_LABEL = "Preferences";
+
 export interface PreferencesMenuProps {
   assistantId?: string | null;
   assistantVersion?: string | null;
@@ -62,7 +69,6 @@ export function PreferencesMenu({
 }: PreferencesMenuProps) {
   const isAuthenticated = useIsAuthenticated();
   const isMobile = useIsMobile();
-  const user = useAuthStore.use.user();
   const [isOpen, setIsOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
@@ -72,19 +78,6 @@ export function PreferencesMenu({
 
   const closeMenu = () => setIsOpen(false);
 
-  // Only a platform account carries a real identity; the local gateway user is
-  // a synthetic placeholder whose "Local"/"User" name fields would otherwise
-  // render as a profile.
-  const account = user?.kind === "platform" ? user : null;
-
-  // Prefer the account's real name; fall back to username, then email, then the
-  // generic label so the trigger is never blank.
-  const displayName =
-    [account?.firstName, account?.lastName].filter(Boolean).join(" ").trim() ||
-    account?.username ||
-    account?.email ||
-    "Preferences";
-
   const trigger =
     triggerVariant === "pill" ? (
       /* Solid surface + shadow: the pill floats over the scrolling
@@ -92,19 +85,17 @@ export function PreferencesMenu({
       <Button
         variant="ghost"
         leftIcon={<CircleUser />}
-        aria-label={displayName}
-        title={displayName}
         className="h-10 w-full min-w-0 rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 shadow-[var(--shadow-lg)]"
       >
-        {/* A long name/email must not force the pill wider and overlap the
-            sibling New Chat pill, so truncate the visible label; the full
-            value stays available via aria-label/title. */}
-        <span className="min-w-0 truncate">{displayName}</span>
+        {/* `truncate` is belt-and-braces: the label is a fixed short string,
+            but the pill shares its row with New Chat and must never grow
+            wide enough to overlap it at narrow viewports. */}
+        <span className="min-w-0 truncate">{PREFERENCES_LABEL}</span>
       </Button>
     ) : (
       <SideMenu.Item
         icon={CircleUser}
-        label={displayName}
+        label={PREFERENCES_LABEL}
         trailingIcon={isOpen ? ChevronDown : ChevronUp}
         active={isOpen}
         data-tour-id="settings"
