@@ -314,7 +314,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const sheet = variant === "sheet";
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
         event.preventDefault();
         minimizeVoiceRoom();
       }

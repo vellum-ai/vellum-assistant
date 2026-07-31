@@ -189,7 +189,7 @@ export function ActiveOverlayShell({
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
         // Claim Escape so it dismisses only this dropdown, not also an
         // underlying side panel: `ChatContentLayout`'s window keydown handler
         // bails on `event.defaultPrevented`. The listener is attached only
