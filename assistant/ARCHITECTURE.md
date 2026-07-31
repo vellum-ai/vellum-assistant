@@ -683,26 +683,62 @@ The conversation streaming path degrades gracefully to the existing batch STT pa
 
 **Live voice channel boundary:**
 
-The local live voice channel uses a single gateway-authenticated WebSocket at `/v1/live-voice`. Native clients connect to the gateway route, the gateway validates an actor token, mints a gateway service token, and opens an upstream WebSocket to the assistant runtime route. Both text control frames and binary audio frames are proxied opaquely by `gateway/src/http/routes/live-voice-websocket.ts`; `gateway/src/index.ts` dispatches `open`, `message`, and `close` callbacks to that handler before the generic runtime proxy fallback.
+Live voice uses a single gateway-authenticated WebSocket at `/v1/live-voice`.
+Web, native, and CLI clients all reach the same assistant-owned session:
 
-The assistant runtime route lives in `src/runtime/http-server.ts`. It mirrors the STT streaming security posture: direct access must come from private-network peers/origins, and authenticated deployments require the gateway service token. The runtime parses JSON frames with `parseLiveVoiceClientTextFrame()`, parses binary frames with `parseLiveVoiceBinaryAudioFrame()`, and routes accepted sessions through `LiveVoiceSessionManager`. The V1 manager owns a single-active-session lock and returns a `busy` frame for concurrent sessions.
+- A directly reachable gateway validates guardian authentication when enabled,
+  mints a gateway service token, and opens an upstream WebSocket to the
+  assistant runtime route. A local assistant can use platform-managed speech
+  providers without changing this direct transport.
+- A Vellum-managed CLI client uses its platform login to mint a short-lived,
+  assistant-scoped live-voice token. It connects through the
+  environment-matched Velay host, which forwards the same gateway route. The
+  long-lived platform session token is not placed in the WebSocket URL.
+- The Linux CLI owns host microphone capture and speaker playback through
+  PipeWire. It sends binary 16 kHz mono PCM and receives JSON `tts_audio`
+  frames. Audio devices and processes remain outside the assistant runtime.
+
+Both text control frames and binary audio frames are proxied opaquely by
+`gateway/src/http/routes/live-voice-websocket.ts`; `gateway/src/index.ts`
+dispatches `open`, `message`, and `close` callbacks to that handler before the
+generic runtime proxy fallback.
+
+The assistant runtime route lives in `src/runtime/http-server.ts`. It mirrors the STT streaming security posture: direct access must come from private-network peers/origins, and authenticated deployments require the gateway service token. Each runtime or plugin transport creates a `createLiveVoiceConnection({ send })` adapter, feeds it inbound JSON or PCM, and calls `release()` on close. The adapter resolves the process-wide `LiveVoiceSessionManager`, so the runtime WebSocket and in-process plugin transports share the same single-active-session lock. The manager returns a `busy` frame for concurrent sessions.
+
+The CLI runs out of process and does not import the plugin API. It speaks the
+same shared wire contract through the gateway WebSocket, which reaches the same
+`LiveVoiceSession` and lock as every other caller.
 
 The assistant-side live voice module is intentionally bounded under `src/live-voice/`:
 
 | File                            | Boundary                                                                                                                                                    |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `protocol.ts`                   | Provider-agnostic client/server frame types, validation, binary audio parsing, and monotonic server-frame sequencing                                        |
+| `protocol.ts`                   | Assistant-owned strict client validation, binary audio parsing, sequencing, and compatibility exports over `@vellumai/service-contracts/live-voice`         |
+| `live-voice-connection.ts`      | Transport-neutral adapter shared by the runtime WebSocket and in-process plugins                                                                            |
 | `live-voice-session-manager.ts` | Single-active-session lock, session factory context, and dispatch/release lifecycle                                                                         |
 | `live-voice-session.ts`         | Session orchestration: streaming STT, push-to-talk release, voice turn bridge callbacks, assistant text deltas, TTS, archive, metrics, interrupt, and close |
 | `live-voice-tts.ts`             | Streaming TTS helper that resolves `services.tts`, requires `TtsProvider.synthesizeStream()`, and forwards audio chunks as `tts_audio` frames               |
 | `live-voice-archive.ts`         | Audio artifact creation/linking for user utterance and assistant response message IDs                                                                       |
 | `live-voice-metrics.ts`         | Per-session and per-turn latency snapshots emitted as `metrics` frames                                                                                      |
 
+Client-neutral audio constants and live-voice frame unions are owned by
+`@vellumai/service-contracts/live-voice`. The assistant keeps strict inbound
+validation and session sequencing. Web and CLI clients use the shared tolerant
+server-frame parser so a future frame type can be ignored during version skew.
+
 Live voice STT uses the same `resolveStreamingTranscriber()` path as conversation streaming. For V1 latency-sensitive behavior, the selected `services.stt.provider` must resolve to a `daemon-streaming` transcriber whose catalog entry has `conversationStreamingMode: "realtime-ws"` and usable credentials. Providers that only support batch or incremental-batch transcription remain valid for other voice surfaces, but do not satisfy live voice's streaming STT requirement.
 
 Live voice TTS uses `streamLiveVoiceTtsAudio()` and the configured `services.tts.provider`. The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Providers whose catalog entry advertises `supportsStreaming` (currently all four catalog providers: ElevenLabs, Fish Audio, Deepgram, and xAI) satisfy this requirement; a buffered-only provider would remain available for buffered message playback or other supported surfaces, but live voice reports a TTS error instead of silently falling back to buffered playback.
 
-V1 is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region routing, and p50/p95 latency guarantees are out of scope for this version. Metrics frames expose timing data for measurement, but the architecture does not promise a hard latency SLO.
+Managed speech providers, the `voiceFrontDoor` decision leg, main-agent
+handoff, persistence, streaming STT, and streaming TTS remain assistant-owned
+for every client topology. Clients never compose these provider calls
+themselves.
+
+Direct local gateways and Vellum-managed routing through Velay are implemented
+client paths. Docker and paired-remote CLI voice topologies, cross-region
+latency guarantees, and a hard p50/p95 SLO remain out of scope. Metrics frames
+expose timing data for measurement.
 
 **Client service-first boundary:**
 
