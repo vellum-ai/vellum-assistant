@@ -7,6 +7,7 @@ const runDeterministicChecksMock = mock();
 const createEventMock = mock();
 const updateEventDedupeKeyMock = mock();
 const dispatchDecisionMock = mock();
+const isPlatformClientConfiguredMock = mock();
 
 mock.module("../channels/config.js", () => ({
   getDeliverableChannels: () => ["vellum", "telegram"],
@@ -37,6 +38,12 @@ mock.module("../notifications/broadcaster.js", () => ({
     setOnConversationCreated(_fn: unknown) {}
   },
 }));
+
+// Capture the real enforcement before the module mock below replaces it:
+// the single_channel interplay tests exercise the genuine cap logic against
+// the urgency force-add's channel ordering.
+const { enforceRoutingIntent: realEnforceRoutingIntent } =
+  await import("../notifications/decision-engine.js");
 
 mock.module("../notifications/decision-engine.js", () => ({
   evaluateSignal: (...args: unknown[]) => evaluateSignalMock(...args),
@@ -78,27 +85,41 @@ mock.module("../notifications/runtime-dispatch.js", () => ({
   dispatchDecision: (...args: unknown[]) => dispatchDecisionMock(...args),
 }));
 
+mock.module("../platform/client.js", () => ({
+  // The adapter import graph needs the class symbol; nothing in these tests
+  // dispatches through it.
+  VellumPlatformClient: class {
+    static async create(): Promise<null> {
+      return null;
+    }
+  },
+  isPlatformClientConfigured: () => isPlatformClientConfiguredMock(),
+}));
+
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 
-describe("emitNotificationSignal routing intent re-persistence", () => {
-  beforeEach(() => {
-    evaluateSignalMock.mockReset();
-    enforceRoutingIntentMock.mockReset();
-    updateDecisionMock.mockReset();
-    runDeterministicChecksMock.mockReset();
-    createEventMock.mockReset();
-    updateEventDedupeKeyMock.mockReset();
-    dispatchDecisionMock.mockReset();
+beforeEach(() => {
+  evaluateSignalMock.mockReset();
+  enforceRoutingIntentMock.mockReset();
+  updateDecisionMock.mockReset();
+  runDeterministicChecksMock.mockReset();
+  createEventMock.mockReset();
+  updateEventDedupeKeyMock.mockReset();
+  dispatchDecisionMock.mockReset();
+  isPlatformClientConfiguredMock.mockReset();
 
-    createEventMock.mockReturnValue({ id: "evt-1" });
-    runDeterministicChecksMock.mockResolvedValue({ passed: true });
-    dispatchDecisionMock.mockResolvedValue({
-      dispatched: true,
-      reason: "ok",
-      deliveryResults: [],
-    });
+  createEventMock.mockReturnValue({ id: "evt-1" });
+  runDeterministicChecksMock.mockResolvedValue({ passed: true });
+  dispatchDecisionMock.mockResolvedValue({
+    dispatched: true,
+    reason: "ok",
+    deliveryResults: [],
   });
+  isPlatformClientConfiguredMock.mockResolvedValue(true);
+  enforceRoutingIntentMock.mockImplementation((decision: unknown) => decision);
+});
 
+describe("emitNotificationSignal routing intent re-persistence", () => {
   test("re-persists selectedChannels/reasoningSummary when enforcement changes the decision", async () => {
     const preDecision = {
       shouldNotify: true,
@@ -226,21 +247,6 @@ describe("emitNotificationSignal routing intent re-persistence", () => {
 });
 
 describe("emitNotificationSignal source-active pre-gate", () => {
-  beforeEach(() => {
-    evaluateSignalMock.mockReset();
-    runDeterministicChecksMock.mockReset();
-    createEventMock.mockReset();
-    dispatchDecisionMock.mockReset();
-
-    createEventMock.mockReturnValue({ id: "evt-src-active" });
-    runDeterministicChecksMock.mockResolvedValue({ passed: true });
-    dispatchDecisionMock.mockResolvedValue({
-      dispatched: true,
-      reason: "ok",
-      deliveryResults: [],
-    });
-  });
-
   test("suppresses visibleInSourceNow signals before the decision engine runs", async () => {
     const result = await emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.verification_sent",
@@ -294,23 +300,6 @@ describe("emitNotificationSignal source-active pre-gate", () => {
 });
 
 describe("access-request vellum floor", () => {
-  beforeEach(() => {
-    evaluateSignalMock.mockReset();
-    enforceRoutingIntentMock.mockReset();
-    updateDecisionMock.mockReset();
-    runDeterministicChecksMock.mockReset();
-    createEventMock.mockReset();
-    updateEventDedupeKeyMock.mockReset();
-    dispatchDecisionMock.mockReset();
-    createEventMock.mockReturnValue({ id: "evt-1" });
-    runDeterministicChecksMock.mockResolvedValue({ passed: true });
-    dispatchDecisionMock.mockResolvedValue({
-      dispatched: true,
-      reason: "ok",
-      deliveryResults: [],
-    });
-  });
-
   test("rescues a suppressed access-request decision onto the vellum channel", async () => {
     evaluateSignalMock.mockResolvedValue({
       shouldNotify: false,
@@ -469,26 +458,6 @@ describe("access-request vellum floor", () => {
 });
 
 describe("high/critical urgency channel force", () => {
-  beforeEach(() => {
-    evaluateSignalMock.mockReset();
-    enforceRoutingIntentMock.mockReset();
-    updateDecisionMock.mockReset();
-    runDeterministicChecksMock.mockReset();
-    createEventMock.mockReset();
-    updateEventDedupeKeyMock.mockReset();
-    dispatchDecisionMock.mockReset();
-    createEventMock.mockReturnValue({ id: "evt-1" });
-    runDeterministicChecksMock.mockResolvedValue({ passed: true });
-    dispatchDecisionMock.mockResolvedValue({
-      dispatched: true,
-      reason: "ok",
-      deliveryResults: [],
-    });
-    enforceRoutingIntentMock.mockImplementation(
-      (decision: unknown) => decision,
-    );
-  });
-
   function makeDecision(overrides: Record<string, unknown>) {
     return {
       shouldNotify: true,
@@ -546,7 +515,7 @@ describe("high/critical urgency channel force", () => {
     // row must still be synced to the dispatched channels.
     expect(updateDecisionMock).toHaveBeenCalledTimes(1);
     expect(updateDecisionMock).toHaveBeenCalledWith("dec-urg-1", {
-      selectedChannels: ["vellum", "platform", "telegram"],
+      selectedChannels: ["vellum", "telegram", "platform"],
       reasoningSummary:
         "LLM selected telegram only (vellum, platform forced: high urgency)",
       validationResults: {
@@ -568,7 +537,7 @@ describe("high/critical urgency channel force", () => {
       selectedChannels: string[];
       reasoningSummary: string;
     };
-    expect(dispatched.selectedChannels).toEqual(["platform", "vellum"]);
+    expect(dispatched.selectedChannels).toEqual(["vellum", "platform"]);
     expect(dispatched.reasoningSummary).toContain(
       "(platform forced: critical urgency)",
     );
@@ -653,13 +622,89 @@ describe("high/critical urgency channel force", () => {
     };
     expect(enforcedInput.selectedChannels).toEqual([
       "vellum",
-      "platform",
       "telegram",
+      "platform",
     ]);
     // ...and its cap wins over the force-add.
     const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
       selectedChannels: string[];
     };
     expect(dispatched.selectedChannels).toEqual(["telegram"]);
+  });
+
+  test("forces only vellum when the platform client is not configured", async () => {
+    isPlatformClientConfiguredMock.mockResolvedValue(false);
+    evaluateSignalMock.mockResolvedValue(makeDecision({}));
+
+    await emitWithUrgency("high");
+
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      selectedChannels: string[];
+      reasoningSummary: string;
+    };
+    expect(dispatched.selectedChannels).toEqual(["vellum", "telegram"]);
+    expect(dispatched.reasoningSummary).toContain(
+      "(vellum forced: high urgency)",
+    );
+  });
+
+  // Real single_channel enforcement caps to the source channel when it is
+  // connected, else to the FIRST selected channel. The force-add prepends
+  // vellum precisely so that fallback keeps the in-app banner; these tests
+  // run the genuine enforcement to pin the interplay.
+  describe("interplay with real single_channel enforcement", () => {
+    beforeEach(() => {
+      enforceRoutingIntentMock.mockImplementation(
+        realEnforceRoutingIntent as (...args: unknown[]) => unknown,
+      );
+    });
+
+    function emitHighUrgencySingleChannel(
+      sourceChannel: "watcher" | "assistant_tool",
+    ) {
+      return emitNotificationSignal({
+        sourceEventName: "watcher.escalation",
+        sourceChannel,
+        sourceContextId: "watch-1",
+        routingIntent: "single_channel",
+        attentionHints: {
+          requiresAction: true,
+          urgency: "high",
+          isAsyncBackground: false,
+          visibleInSourceNow: false,
+        },
+        contextPayload: {},
+      });
+    }
+
+    test("vellum survives the cap when the decision selected only vellum", async () => {
+      evaluateSignalMock.mockResolvedValue(
+        makeDecision({ selectedChannels: ["vellum"] }),
+      );
+
+      await emitHighUrgencySingleChannel("watcher");
+
+      // Force-add appends platform: ["vellum", "platform"]. The source
+      // channel is not connected, so the cap falls back to index 0.
+      const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+        selectedChannels: string[];
+      };
+      expect(dispatched.selectedChannels).toEqual(["vellum"]);
+    });
+
+    test("the cap picks the prepended vellum when the decision selected another channel", async () => {
+      evaluateSignalMock.mockResolvedValue(
+        makeDecision({ selectedChannels: ["telegram"] }),
+      );
+
+      await emitHighUrgencySingleChannel("assistant_tool");
+
+      // Force-add yields ["vellum", "telegram", "platform"]; the
+      // non-connected source channel makes the cap take index 0.
+      const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+        selectedChannels: string[];
+      };
+      expect(dispatched.selectedChannels).toEqual(["vellum"]);
+    });
   });
 });

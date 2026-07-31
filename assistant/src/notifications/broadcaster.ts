@@ -226,7 +226,13 @@ export type OnConversationCreatedFn = (
 ) => void | Promise<void>;
 export interface BroadcastDecisionOptions {
   onConversationCreated?: OnConversationCreatedFn;
+  /** Deadline override for tests; defaults to PLATFORM_OUTCOME_DEADLINE_MS. */
+  platformOutcomeDeadlineMs?: number;
 }
+
+// Cap on how long the deferred vellum send waits for the platform dispatch
+// outcome: a duplicate banner beats a late one.
+const PLATFORM_OUTCOME_DEADLINE_MS = 2_500;
 
 /**
  * A channel dispatch that is fully prepared (destination resolved, copy
@@ -336,7 +342,8 @@ export class NotificationBroadcaster {
     // eagerly, so the platform deep link keeps the vellum pairing carry), but
     // its adapter send is deferred until the platform adapter reports whether
     // the platform accepted a device push. Typical cost: one fast HTTP
-    // round-trip before the local banner goes out.
+    // round-trip before the local banner goes out, capped at
+    // PLATFORM_OUTCOME_DEADLINE_MS.
     let deferredVellumSend: PendingChannelDispatch | null = null;
     let platformRemotePushAccepted = false;
     const flushDeferredVellumSend = async (): Promise<void> => {
@@ -349,350 +356,427 @@ export class NotificationBroadcaster {
       await this.sendAndRecord(pending, signal, results);
     };
 
-    for (const channel of orderedChannels) {
-      // Platform sorts immediately after vellum, so once any other channel is
-      // reached the platform outcome is settled: flush the deferred vellum
-      // send now so the local banner is not held behind slower sends.
-      if (channel !== "vellum" && channel !== "platform") {
-        await flushDeferredVellumSend();
-      }
+    try {
+      for (const channel of orderedChannels) {
+        // Platform sorts immediately after vellum, so reaching any later
+        // channel means the platform outcome is settled (or the platform
+        // channel was skipped): flush the deferred vellum send now so the
+        // local banner is not held behind slower sends. On the vellum
+        // iteration itself this is a no-op -- vellum appears at most once in
+        // the decision's channels and sorts first, so nothing is deferred yet.
+        if (channel !== "platform") {
+          await flushDeferredVellumSend();
+        }
 
-      const adapter = this.adapters.get(channel);
-      if (!adapter) {
-        log.warn(
-          { channel, signalId: signal.signalId },
-          "No adapter registered for channel -- skipping",
-        );
-        results.push({
-          channel,
-          destination: "",
-          status: "skipped",
-          errorMessage: `No adapter for channel: ${channel}`,
-        });
-        continue;
-      }
-
-      const destination = destinations.get(channel);
-      if (!destination) {
-        log.warn(
-          { channel, signalId: signal.signalId },
-          "Could not resolve destination -- skipping",
-        );
-        results.push({
-          channel,
-          destination: "",
-          status: "skipped",
-          errorMessage: `Destination not resolved for channel: ${channel}`,
-        });
-        continue;
-      }
-
-      // Pull rendered copy from the decision; fall back to copy-composer if
-      // missing or effectively blank. The decision engine's LLM occasionally
-      // returns empty title/body strings that pass type-only validation, so
-      // treat copy with no usable content the same as missing copy.
-      let copy = decision.renderedCopy[channel];
-      if (!copy || (!copy.title?.trim() && !copy.body?.trim())) {
-        if (copy) {
+        const adapter = this.adapters.get(channel);
+        if (!adapter) {
           log.warn(
             { channel, signalId: signal.signalId },
-            "Decision copy has empty title and body — using fallback",
+            "No adapter registered for channel -- skipping",
           );
+          results.push({
+            channel,
+            destination: "",
+            status: "skipped",
+            errorMessage: `No adapter for channel: ${channel}`,
+          });
+          continue;
         }
-        if (!fallbackCopy) {
-          fallbackCopy = composeFallbackCopy(signal, decision.selectedChannels);
+
+        const destination = destinations.get(channel);
+        if (!destination) {
+          log.warn(
+            { channel, signalId: signal.signalId },
+            "Could not resolve destination -- skipping",
+          );
+          results.push({
+            channel,
+            destination: "",
+            status: "skipped",
+            errorMessage: `Destination not resolved for channel: ${channel}`,
+          });
+          continue;
         }
-        copy = fallbackCopy[channel];
-      }
 
-      // Fail closed: if neither the decision nor the fallback composer produced
-      // a usable body, skip the channel rather than leaking the raw event name
-      // as placeholder text. The pre-send `checkRenderedCopyQuality` only sees
-      // `decision.renderedCopy`, so this is the last guard before delivery.
-      if (!copy || !copy.body?.trim()) {
-        log.warn(
-          { channel, signalId: signal.signalId },
-          "No usable rendered copy available -- skipping channel to avoid leaking event name",
-        );
-        results.push({
-          channel,
-          destination: destination.endpoint ?? channel,
-          status: "skipped",
-          errorMessage: `No usable rendered copy for channel: ${channel}`,
-        });
-        continue;
-      }
-
-      // For tool_grant_request signals, prefer the deterministic template seed
-      // over LLM-generated prose. The enriched questionText is already concise
-      // and informative — LLM rewording just adds noise.
-      if (signal.contextPayload?.requestKind === "tool_grant_request") {
-        if (!fallbackCopy) {
-          fallbackCopy = composeFallbackCopy(signal, decision.selectedChannels);
-        }
-        const templateSeed = fallbackCopy[channel]?.conversationSeedMessage;
-        if (templateSeed) {
-          copy = { ...copy, conversationSeedMessage: templateSeed };
-        }
-      }
-
-      // Resolve the per-channel conversation action from the decision (default: start_new)
-      const conversationAction: ConversationAction | undefined =
-        decision.conversationActions?.[channel];
-
-      // Check for duplicate delivery BEFORE pairing to avoid side effects
-      // (e.g. appending seed messages to existing conversations) on retry paths
-      // where a delivery row already exists.
-      const persistedDecisionId = decision.persistedDecisionId;
-      const hasPersistedDecision = typeof persistedDecisionId === "string";
-      if (hasPersistedDecision) {
-        const existingDelivery = findDeliveryByDecisionAndChannel(
-          persistedDecisionId,
-          channel,
-        );
-        if (existingDelivery) {
-          // On retry paths the vellum row already exists, so the fresh-pairing
-          // carry below never runs — seed the platform deep-link carry from
-          // the duplicate row's conversation instead.
-          if (channel === "vellum" && existingDelivery.conversationId) {
-            vellumPairing = {
-              conversationId: existingDelivery.conversationId,
-              messageId: existingDelivery.messageId,
-            };
+        // Pull rendered copy from the decision; fall back to copy-composer if
+        // missing or effectively blank. The decision engine's LLM occasionally
+        // returns empty title/body strings that pass type-only validation, so
+        // treat copy with no usable content the same as missing copy.
+        let copy = decision.renderedCopy[channel];
+        if (!copy || (!copy.title?.trim() && !copy.body?.trim())) {
+          if (copy) {
+            log.warn(
+              { channel, signalId: signal.signalId },
+              "Decision copy has empty title and body -- using fallback",
+            );
           }
-          log.info(
-            {
-              channel,
-              signalId: signal.signalId,
-              existingDeliveryId: existingDelivery.id,
-            },
-            "Delivery already exists for this decision+channel — skipping duplicate",
+          // A policy-forced platform channel has no rendered copy of its own
+          // (the decision engine renders only the channels it selected). The
+          // push mirrors the in-app banner -- and the iOS dedup suppresses the
+          // vellum banner in its favor -- so reuse the vellum channel's
+          // rendered copy before falling back to deterministic templates.
+          const vellumCopy =
+            channel === "platform" ? decision.renderedCopy.vellum : undefined;
+          if (vellumCopy?.body?.trim()) {
+            copy = vellumCopy;
+          } else {
+            if (!fallbackCopy) {
+              fallbackCopy = composeFallbackCopy(
+                signal,
+                decision.selectedChannels,
+              );
+            }
+            copy = fallbackCopy[channel];
+          }
+        }
+
+        // Fail closed: if neither the decision nor the fallback composer produced
+        // a usable body, skip the channel rather than leaking the raw event name
+        // as placeholder text. The pre-send `checkRenderedCopyQuality` only sees
+        // `decision.renderedCopy`, so this is the last guard before delivery.
+        if (!copy || !copy.body?.trim()) {
+          log.warn(
+            { channel, signalId: signal.signalId },
+            "No usable rendered copy available -- skipping channel to avoid leaking event name",
           );
           results.push({
             channel,
             destination: destination.endpoint ?? channel,
             status: "skipped",
-            errorMessage: "Duplicate delivery skipped",
-            conversationId: existingDelivery.conversationId ?? undefined,
-            messageId: existingDelivery.messageId ?? undefined,
-            conversationStrategy:
-              existingDelivery.conversationStrategy ?? undefined,
+            errorMessage: `No usable rendered copy for channel: ${channel}`,
           });
           continue;
         }
-      }
 
-      // Pair the delivery with a conversation before sending, passing the conversation action
-      // and destination binding context for channel-scoped continuation
-      const pairing = await pairDeliveryWithConversation(
-        signal,
-        channel,
-        copy,
-        { conversationAction, bindingContext: destination.bindingContext },
-      );
-
-      if (channel === "vellum" && pairing.conversationId) {
-        vellumPairing = {
-          conversationId: pairing.conversationId,
-          messageId: pairing.messageId,
-        };
-      }
-
-      // For the vellum and platform channels, merge the conversationId into
-      // deep-link metadata so notification taps can navigate to the
-      // conversation. Prefer the channel's own pairing; platform (push_only,
-      // pairs nothing) takes this broadcast's vellum pairing; otherwise fall
-      // back to sourceContextId when it resolves to a real row. Sentinel
-      // context ids (job IDs, call session IDs, access-req-* strings) leave
-      // the deep link without a conversation, and the client opens the app to
-      // its default landing.
-      let deepLinkTarget = decision.deepLinkTarget;
-      if (channel === "vellum" || channel === "platform") {
-        const deepLinkPairing =
-          channel === "platform" && !pairing.conversationId
-            ? (vellumPairing ?? pairing)
-            : pairing;
-        const deepLinkConversationId =
-          deepLinkPairing.conversationId ??
-          resolveSourceConversationId(signal.sourceContextId) ??
-          resolveDeepLinkConversationId(signal.contextPayload);
-        if (deepLinkConversationId) {
-          deepLinkTarget = {
-            ...deepLinkTarget,
-            conversationId: deepLinkConversationId,
-          };
-          if (deepLinkPairing.messageId) {
-            deepLinkTarget = {
-              ...deepLinkTarget,
-              messageId: deepLinkPairing.messageId,
-            };
-          }
-        }
-      }
-
-      if (channel === "vellum" && pairing.conversationId) {
-        // Resolve guardian scoping for conversation-created events so clients
-        // can filter guardian-sensitive conversations the same way they filter
-        // guardian-sensitive notification intents.
-        const guardianPrincipalId =
-          typeof destination.metadata?.guardianPrincipalId === "string"
-            ? destination.metadata.guardianPrincipalId
-            : undefined;
-        const targetGuardianPrincipalId =
-          guardianPrincipalId &&
-          isGuardianSensitiveEvent(signal.sourceEventName)
-            ? guardianPrincipalId
-            : undefined;
-
-        const conversationTitle =
-          copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
-        const conversationSilent =
-          signal.attentionHints.urgency !== "high" &&
-          signal.attentionHints.urgency !== "critical";
-        const info: ConversationCreatedInfo = {
-          conversationId: pairing.conversationId,
-          title: conversationTitle,
-          sourceEventName: signal.sourceEventName,
-          targetGuardianPrincipalId,
-          groupId: signal.conversationMetadata?.groupId,
-          source: signal.conversationMetadata?.source,
-          silent: conversationSilent,
-        };
-
-        // The per-dispatch onConversationCreated callback fires whenever a vellum
-        // conversation is paired (new or reused) because callers like
-        // dispatchGuardianQuestion rely on it to create delivery bookkeeping
-        // rows before emitNotificationSignal() returns. A returned promise is
-        // awaited so those rows are durable before the client can learn of
-        // the conversation and act on its approval card.
-        if (options?.onConversationCreated) {
-          try {
-            await options.onConversationCreated(info);
-          } catch (err) {
-            log.error(
-              { err, signalId: signal.signalId },
-              "per-dispatch onConversationCreated callback failed — continuing broadcast",
+        // For tool_grant_request signals, prefer the deterministic template seed
+        // over LLM-generated prose. The enriched questionText is already concise
+        // and informative -- LLM rewording just adds noise.
+        if (signal.contextPayload?.requestKind === "tool_grant_request") {
+          if (!fallbackCopy) {
+            fallbackCopy = composeFallbackCopy(
+              signal,
+              decision.selectedChannels,
             );
           }
+          const templateSeed = fallbackCopy[channel]?.conversationSeedMessage;
+          if (templateSeed) {
+            copy = { ...copy, conversationSeedMessage: templateSeed };
+          }
         }
 
-        // Emit notification_conversation_created event only when a NEW
-        // conversation was actually created. Reusing an existing conversation
-        // should not fire the event — the client already knows about the
-        // conversation.
-        if (
-          pairing.createdNewConversation &&
-          pairing.strategy === "start_new_conversation"
-        ) {
-          if (this.onConversationCreated) {
-            try {
-              await this.onConversationCreated(info);
-            } catch (err) {
-              log.error(
-                { err, signalId: signal.signalId },
-                "onConversationCreated callback failed — continuing broadcast",
-              );
+        // Resolve the per-channel conversation action from the decision (default: start_new)
+        const conversationAction: ConversationAction | undefined =
+          decision.conversationActions?.[channel];
+
+        // Check for duplicate delivery BEFORE pairing to avoid side effects
+        // (e.g. appending seed messages to existing conversations) on retry paths
+        // where a delivery row already exists.
+        const persistedDecisionId = decision.persistedDecisionId;
+        const hasPersistedDecision = typeof persistedDecisionId === "string";
+        if (hasPersistedDecision) {
+          const existingDelivery = findDeliveryByDecisionAndChannel(
+            persistedDecisionId,
+            channel,
+          );
+          if (existingDelivery) {
+            // On retry paths the vellum row already exists, so the fresh-pairing
+            // carry below never runs -- seed the platform deep-link carry from
+            // the duplicate row's conversation instead.
+            if (channel === "vellum" && existingDelivery.conversationId) {
+              vellumPairing = {
+                conversationId: existingDelivery.conversationId,
+                messageId: existingDelivery.messageId,
+              };
+            }
+            log.info(
+              {
+                channel,
+                signalId: signal.signalId,
+                existingDeliveryId: existingDelivery.id,
+              },
+              "Delivery already exists for this decision+channel -- skipping duplicate",
+            );
+            results.push({
+              channel,
+              destination: destination.endpoint ?? channel,
+              status: "skipped",
+              errorMessage: "Duplicate delivery skipped",
+              conversationId: existingDelivery.conversationId ?? undefined,
+              messageId: existingDelivery.messageId ?? undefined,
+              conversationStrategy:
+                existingDelivery.conversationStrategy ?? undefined,
+            });
+            continue;
+          }
+        }
+
+        // Pair the delivery with a conversation before sending, passing the conversation action
+        // and destination binding context for channel-scoped continuation
+        const pairing = await pairDeliveryWithConversation(
+          signal,
+          channel,
+          copy,
+          { conversationAction, bindingContext: destination.bindingContext },
+        );
+
+        if (channel === "vellum" && pairing.conversationId) {
+          vellumPairing = {
+            conversationId: pairing.conversationId,
+            messageId: pairing.messageId,
+          };
+        }
+
+        // For the vellum and platform channels, merge the conversationId into
+        // deep-link metadata so notification taps can navigate to the
+        // conversation. Prefer the channel's own pairing; platform (push_only,
+        // pairs nothing) takes this broadcast's vellum pairing; otherwise fall
+        // back to sourceContextId when it resolves to a real row. Sentinel
+        // context ids (job IDs, call session IDs, access-req-* strings) leave
+        // the deep link without a conversation, and the client opens the app to
+        // its default landing.
+        let deepLinkTarget = decision.deepLinkTarget;
+        if (channel === "vellum" || channel === "platform") {
+          const deepLinkPairing =
+            channel === "platform" && !pairing.conversationId
+              ? (vellumPairing ?? pairing)
+              : pairing;
+          const deepLinkConversationId =
+            deepLinkPairing.conversationId ??
+            resolveSourceConversationId(signal.sourceContextId) ??
+            resolveDeepLinkConversationId(signal.contextPayload);
+          if (deepLinkConversationId) {
+            deepLinkTarget = {
+              ...deepLinkTarget,
+              conversationId: deepLinkConversationId,
+            };
+            if (deepLinkPairing.messageId) {
+              deepLinkTarget = {
+                ...deepLinkTarget,
+                messageId: deepLinkPairing.messageId,
+              };
             }
           }
         }
-      }
 
-      const deliveryId = uuid();
-      const destinationLabel = destination.endpoint ?? channel;
+        if (channel === "vellum" && pairing.conversationId) {
+          // Resolve guardian scoping for conversation-created events so clients
+          // can filter guardian-sensitive conversations the same way they filter
+          // guardian-sensitive notification intents.
+          const guardianPrincipalId =
+            typeof destination.metadata?.guardianPrincipalId === "string"
+              ? destination.metadata.guardianPrincipalId
+              : undefined;
+          const targetGuardianPrincipalId =
+            guardianPrincipalId &&
+            isGuardianSensitiveEvent(signal.sourceEventName)
+              ? guardianPrincipalId
+              : undefined;
 
-      const payload: ChannelDeliveryPayload = {
-        deliveryId,
-        sourceEventName: signal.sourceEventName,
-        copy,
-        deepLinkTarget,
-        contextPayload: signal.contextPayload,
-        urgency: signal.attentionHints.urgency,
-        approvalContext,
-        accessRequestContext,
-        toolApprovalSource,
-        // Starts false for vellum; the deferred-send flush overwrites it
-        // with the actual platform outcome when platform is also selected.
-        ...(channel === "vellum" ? { remotePushDispatched: false } : {}),
-      };
+          const conversationTitle =
+            copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
+          const conversationSilent =
+            signal.attentionHints.urgency !== "high" &&
+            signal.attentionHints.urgency !== "critical";
+          const info: ConversationCreatedInfo = {
+            conversationId: pairing.conversationId,
+            title: conversationTitle,
+            sourceEventName: signal.sourceEventName,
+            targetGuardianPrincipalId,
+            groupId: signal.conversationMetadata?.groupId,
+            source: signal.conversationMetadata?.source,
+            silent: conversationSilent,
+          };
 
-      // Compute conversation decision audit fields for the delivery record
-      const conversationAudit = {
-        conversationAction: conversationAction?.action ?? "start_new",
-        conversationTargetId:
-          conversationAction?.action === "reuse_existing"
-            ? conversationAction.conversationId
-            : undefined,
-        conversationFallbackUsed: pairing.conversationFallbackUsed,
-      };
+          // The per-dispatch onConversationCreated callback fires whenever a vellum
+          // conversation is paired (new or reused) because callers like
+          // dispatchGuardianQuestion rely on it to create delivery bookkeeping
+          // rows before emitNotificationSignal() returns. A returned promise is
+          // awaited so those rows are durable before the client can learn of
+          // the conversation and act on its approval card.
+          if (options?.onConversationCreated) {
+            try {
+              await options.onConversationCreated(info);
+            } catch (err) {
+              log.error(
+                { err, signalId: signal.signalId },
+                "per-dispatch onConversationCreated callback failed -- continuing broadcast",
+              );
+            }
+          }
 
-      try {
-        if (hasPersistedDecision) {
-          createDelivery({
-            id: deliveryId,
-            notificationDecisionId: persistedDecisionId,
+          // Emit notification_conversation_created event only when a NEW
+          // conversation was actually created. Reusing an existing conversation
+          // should not fire the event -- the client already knows about the
+          // conversation.
+          if (
+            pairing.createdNewConversation &&
+            pairing.strategy === "start_new_conversation"
+          ) {
+            if (this.onConversationCreated) {
+              try {
+                await this.onConversationCreated(info);
+              } catch (err) {
+                log.error(
+                  { err, signalId: signal.signalId },
+                  "onConversationCreated callback failed -- continuing broadcast",
+                );
+              }
+            }
+          }
+        }
+
+        const deliveryId = uuid();
+        const destinationLabel = destination.endpoint ?? channel;
+
+        const payload: ChannelDeliveryPayload = {
+          deliveryId,
+          sourceEventName: signal.sourceEventName,
+          copy,
+          deepLinkTarget,
+          contextPayload: signal.contextPayload,
+          urgency: signal.attentionHints.urgency,
+          approvalContext,
+          accessRequestContext,
+          toolApprovalSource,
+        };
+
+        // Compute conversation decision audit fields for the delivery record
+        const conversationAudit = {
+          conversationAction: conversationAction?.action ?? "start_new",
+          conversationTargetId:
+            conversationAction?.action === "reuse_existing"
+              ? conversationAction.conversationId
+              : undefined,
+          conversationFallbackUsed: pairing.conversationFallbackUsed,
+        };
+
+        try {
+          if (hasPersistedDecision) {
+            createDelivery({
+              id: deliveryId,
+              notificationDecisionId: persistedDecisionId,
+              channel,
+              destination: destinationLabel,
+              status: "pending",
+              attempt: 1,
+              renderedTitle: copy.title,
+              renderedBody: copy.body,
+              conversationId: pairing.conversationId ?? undefined,
+              messageId: pairing.messageId ?? undefined,
+              conversationStrategy: pairing.strategy,
+              ...conversationAudit,
+            });
+          } else {
+            log.warn(
+              { channel, signalId: signal.signalId },
+              "No persisted decision ID -- skipping delivery record creation",
+            );
+          }
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          log.error(
+            { err, channel, signalId: signal.signalId },
+            "Failed to create delivery record",
+          );
+          results.push({
             channel,
             destination: destinationLabel,
-            status: "pending",
-            attempt: 1,
-            renderedTitle: copy.title,
-            renderedBody: copy.body,
+            status: "failed",
+            errorMessage,
             conversationId: pairing.conversationId ?? undefined,
             messageId: pairing.messageId ?? undefined,
             conversationStrategy: pairing.strategy,
-            ...conversationAudit,
           });
-        } else {
-          log.warn(
-            { channel, signalId: signal.signalId },
-            "No persisted decision ID -- skipping delivery record creation",
-          );
+          continue;
         }
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        log.error(
-          { err, channel, signalId: signal.signalId },
-          "Failed to create delivery record",
-        );
-        results.push({
+
+        const dispatch: PendingChannelDispatch = {
+          adapter,
           channel,
-          destination: destinationLabel,
-          status: "failed",
-          errorMessage,
-          conversationId: pairing.conversationId ?? undefined,
-          messageId: pairing.messageId ?? undefined,
-          conversationStrategy: pairing.strategy,
-        });
-        continue;
-      }
+          destination,
+          payload,
+          deliveryId,
+          destinationLabel,
+          pairing,
+          hasPersistedDecision,
+        };
 
-      const dispatch: PendingChannelDispatch = {
-        adapter,
-        channel,
-        destination,
-        payload,
-        deliveryId,
-        destinationLabel,
-        pairing,
-        hasPersistedDecision,
-      };
+        if (channel === "vellum" && orderedChannels.includes("platform")) {
+          // The vellum intent carries remotePushDispatched, so its send waits
+          // for the platform outcome; everything else (pairing, events, the
+          // pending delivery row) already ran above.
+          deferredVellumSend = dispatch;
+          continue;
+        }
 
-      if (channel === "vellum" && orderedChannels.includes("platform")) {
-        // The vellum intent carries remotePushDispatched, so its send waits
-        // for the platform outcome; everything else (pairing, events, the
-        // pending delivery row) already ran above.
-        deferredVellumSend = dispatch;
-        continue;
-      }
+        if (channel === "platform" && deferredVellumSend) {
+          // The local banner is urgent: wait for the platform outcome only up
+          // to the deadline (a duplicate banner beats a late one). On expiry
+          // the vellum send flushes with remotePushDispatched=false while the
+          // dispatch keeps running, recording its delivery row when it
+          // settles; the late outcome cannot re-flush vellum.
+          const backgroundResults: NotificationDeliveryResult[] = [];
+          const platformSend = this.sendAndRecord(
+            dispatch,
+            signal,
+            backgroundResults,
+          ).then((adapterResult) => {
+            platformRemotePushAccepted =
+              adapterResult?.remotePushAccepted === true;
+          });
+          let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+          const deadline = new Promise<"deadline">((resolve) => {
+            deadlineTimer = setTimeout(
+              () => resolve("deadline"),
+              options?.platformOutcomeDeadlineMs ??
+                PLATFORM_OUTCOME_DEADLINE_MS,
+            );
+          });
+          const raced = await Promise.race([
+            platformSend.then(() => "settled" as const),
+            deadline,
+          ]);
+          clearTimeout(deadlineTimer);
+          if (raced === "deadline") {
+            log.warn(
+              { channel, signalId: signal.signalId },
+              "Platform dispatch outcome unknown at deadline -- sending the local banner without it",
+            );
+            // The in-flight dispatch's result lands in backgroundResults,
+            // which this call no longer reads; its delivery row still gets
+            // the real terminal status.
+            results.push({
+              channel,
+              destination: destinationLabel,
+              status: "pending",
+              conversationId: pairing.conversationId ?? undefined,
+              messageId: pairing.messageId ?? undefined,
+              conversationStrategy: pairing.strategy,
+            });
+          } else {
+            results.push(...backgroundResults);
+          }
+          await flushDeferredVellumSend();
+          continue;
+        }
 
-      const adapterResult = await this.sendAndRecord(dispatch, signal, results);
-      if (channel === "platform") {
-        platformRemotePushAccepted = adapterResult?.remotePushAccepted === true;
+        const adapterResult = await this.sendAndRecord(
+          dispatch,
+          signal,
+          results,
+        );
+        if (channel === "platform") {
+          platformRemotePushAccepted =
+            adapterResult?.remotePushAccepted === true;
+        }
       }
+    } finally {
+      // Guarantees the vellum intent is emitted (and its pending delivery
+      // row resolved) even when a later channel's prep throws; also covers
+      // the common [vellum, platform] selection where no later channel
+      // triggered the mid-loop flush.
+      await flushDeferredVellumSend();
     }
-
-    // Covers the common [vellum, platform] selection where no later channel
-    // triggered the flush.
-    await flushDeferredVellumSend();
 
     return results;
   }
