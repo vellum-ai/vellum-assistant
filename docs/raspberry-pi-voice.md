@@ -152,11 +152,11 @@ ID:
 
 ```bash
 vellum voice doctor \
-  --url http://127.0.0.1:7821 \
+  --url http://127.0.0.1:7830 \
   --assistant-id assistant-123
 
 vellum voice \
-  --url http://127.0.0.1:7821 \
+  --url http://127.0.0.1:7830 \
   --assistant-id assistant-123
 ```
 
