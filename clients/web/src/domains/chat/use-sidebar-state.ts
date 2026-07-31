@@ -59,6 +59,7 @@ import {
 } from "@/hooks/conversation-queries";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { getChannelLabel } from "@/utils/channel-presentation";
+import { RECENTS_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon";
 
 // ---------------------------------------------------------------------------
 // Public constants
@@ -290,7 +291,7 @@ export function useSidebarState({
       list.push({
         type: "recents",
         key: "recents",
-        label: "Chats",
+        label: RECENTS_SECTION_LABEL,
         all: grouped.recents,
       });
       for (const section of grouped.channelSections) {

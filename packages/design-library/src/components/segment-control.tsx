@@ -25,7 +25,8 @@ export interface SegmentControlProps<T extends string> {
    * Segment height, measured on the inner buttons; the group's own 2px
    * padding sits outside it. `default` is 28px (32px overall). `sm` is 24px
    * (28px overall), for dense surfaces like a sidebar rail where a
-   * full-height control would outweigh the rows around it. Ignored when any
+   * full-height control would outweigh the rows around it; it grows to 36px
+   * below `md`, where a 24px target is too small to tap. Ignored when any
    * segment carries a `sublabel`, since that needs height to follow content.
    */
   size?: "default" | "sm";
@@ -45,10 +46,16 @@ export interface SegmentControlProps<T extends string> {
   className?: string;
 }
 
-/** Inner segment height per size. The group's own 2px padding sits outside. */
+/**
+ * Inner segment height per size. The group's own 2px padding sits outside.
+ *
+ * `sm` grows back on coarse pointers: 24px is a fine density on a desktop
+ * rail but well under a comfortable touch target, and the surrounding rows on
+ * those breakpoints are taller too. `iconOnly` already does the same.
+ */
 const SEGMENT_HEIGHTS = {
   default: "h-7",
-  sm: "h-6",
+  sm: "h-6 max-md:h-9",
 } as const;
 
 /**

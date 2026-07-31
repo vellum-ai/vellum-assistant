@@ -132,7 +132,7 @@ describe("SegmentControl size", () => {
     }
   });
 
-  test("sm shrinks the segments to 24px", () => {
+  test("sm shrinks the segments to 24px, and grows them back for touch", () => {
     const html = renderToStaticMarkup(
       <SegmentControl
         items={textItems}
@@ -145,6 +145,8 @@ describe("SegmentControl size", () => {
     for (const cls of radioClassNames(html)) {
       expect(cls).toContain("h-6");
       expect(cls).not.toContain("h-7");
+      // 24px is under a comfortable touch target, so it grows below `md`.
+      expect(cls).toContain("max-md:h-9");
     }
   });
 

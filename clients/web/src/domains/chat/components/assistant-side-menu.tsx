@@ -1,4 +1,4 @@
-import { MessageSquare, Search, SquarePen, X } from "lucide-react";
+import { Search, SquarePen, X } from "lucide-react";
 import {
   useCallback,
   useLayoutEffect,
@@ -39,7 +39,11 @@ import {
 } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
-import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
+import {
+  RECENTS_SECTION_ICON,
+  RECENTS_SECTION_LABEL,
+  sectionIcon,
+} from "@/domains/chat/utils/sidebar-section-icon";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
 import { Button, SideMenu } from "@vellumai/design-library";
@@ -561,11 +565,12 @@ export function AssistantSideMenu({
                     attentionConversationIds,
                   )}
                 >
-                  {(close) => (
+                  {(close, scrollParent) => (
                     <CollapsedGroupFlyout
                       title={section.label}
                       conversations={section.all}
                       onClosePopover={close}
+                      scrollParent={scrollParent}
                     />
                   )}
                 </CollapsedGroupIcon>
@@ -575,8 +580,8 @@ export function AssistantSideMenu({
                   would be unreachable while collapsed. */}
               {sidebar.viewMode === "all" ? (
                 <CollapsedGroupIcon
-                  icon={MessageSquare}
-                  label="Chats"
+                  icon={RECENTS_SECTION_ICON}
+                  label={RECENTS_SECTION_LABEL}
                   disabled={sidebar.flatList.length === 0}
                   indicatorState={getGroupIndicatorState(
                     sidebar.flatList,
@@ -584,11 +589,12 @@ export function AssistantSideMenu({
                     attentionConversationIds,
                   )}
                 >
-                  {(close) => (
+                  {(close, scrollParent) => (
                     <CollapsedGroupFlyout
-                      title="Chats"
+                      title={RECENTS_SECTION_LABEL}
                       conversations={sidebar.flatList}
                       onClosePopover={close}
+                      scrollParent={scrollParent}
                     />
                   )}
                 </CollapsedGroupIcon>

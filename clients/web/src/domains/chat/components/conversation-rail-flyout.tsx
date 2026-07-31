@@ -6,13 +6,11 @@
  * actions menu. Selecting a row closes the flyout popover and then runs the
  * normal select (which also closes the overlay sidebar on mobile).
  *
- * The list is bounded: a section can hold an unbounded number of
- * conversations (Chats, or the All view's whole list), and a popover that
- * mounts every one of them would grow past the screen and jank on open. Past
- * {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows it windows instead,
- * which is the case `VirtualList` is built for here: unlike the sidebar body,
- * the flyout owns its scroll region, so the list can have the bounded height
- * virtuoso's own scroller needs.
+ * A section can hold an unbounded number of conversations (Chats, or the All
+ * view's whole list), and a popover that mounts every one of them would jank
+ * on open. Past {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows the list
+ * windows instead, against the popover's own scrollport rather than a box of
+ * its own, so the flyout keeps a single scrollbar and its full height.
  */
 
 import { VirtualList } from "@vellumai/design-library/components/virtual-list";
@@ -27,12 +25,18 @@ export interface CollapsedGroupFlyoutProps {
   conversations: Conversation[];
   /** Close the rail flyout popover (in addition to selecting). */
   onClosePopover?: () => void;
+  /**
+   * The popover's own scrollport. A long list windows against it, so the
+   * flyout adds no second scroll region of its own.
+   */
+  scrollParent?: HTMLElement | null;
 }
 
 export function CollapsedGroupFlyout({
   title,
   conversations,
   onClosePopover,
+  scrollParent,
 }: CollapsedGroupFlyoutProps) {
   const ctx = useConversationListContext();
 
@@ -57,21 +61,17 @@ export function CollapsedGroupFlyout({
         </span>
       </div>
       <div className="px-2">
-        {conversations.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD ? (
-          /* Virtuoso's scroller sizes to 100%, so the wrapper is what bounds
-             it. The plain branch below caps at the same height. */
-          <div className="h-96">
-            <VirtualList
-              items={conversations}
-              computeItemKey={(_, conversation) => conversation.conversationId}
-              itemContent={(_, conversation) => renderRow(conversation)}
-              className="h-full bg-transparent"
-            />
-          </div>
+        {conversations.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD &&
+        scrollParent ? (
+          <VirtualList
+            items={conversations}
+            customScrollParent={scrollParent}
+            computeItemKey={(_, conversation) => conversation.conversationId}
+            itemContent={(_, conversation) => renderRow(conversation)}
+            className="bg-transparent"
+          />
         ) : (
-          <div className="max-h-96 overflow-y-auto">
-            {conversations.map(renderRow)}
-          </div>
+          conversations.map(renderRow)
         )}
       </div>
     </div>
