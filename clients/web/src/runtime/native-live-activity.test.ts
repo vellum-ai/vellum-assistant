@@ -1,11 +1,11 @@
 /**
  * Tests for the `VoiceLiveActivity` bridge.
  *
- * The contract under test is skew-safety: the iOS shell ships through App Store
+ * The contract under test is skew-safety: mobile shells ship through store
  * review while this bundle deploys continuously, so an arbitrarily old shell
  * can host it with no such plugin compiled in. Every exported function must
- * therefore resolve — never reject, never hang — whether the plugin answers,
- * rejects, or does not exist, and must not touch the bridge at all off iOS.
+ * therefore resolve without rejecting or hanging whether the plugin answers,
+ * rejects, or does not exist, and must not touch the bridge off native mobile.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -92,12 +92,16 @@ describe("outside a native mobile shell", () => {
   });
 });
 
-test("Android does not dispatch to the ActivityKit bridge", async () => {
+test("Android dispatches status calls but not ActivityKit push tokens", async () => {
   onNativeAndroid = true;
   onNativeIOS = false;
 
-  expect(await startVoiceLiveActivity(startOptions)).toBe(false);
-  expect(start).not.toHaveBeenCalled();
+  expect(await startVoiceLiveActivity(startOptions)).toBe(true);
+  expect(start).toHaveBeenCalledWith(startOptions);
+  await updateVoiceLiveActivity(content);
+  expect(update).toHaveBeenCalledWith(content);
+  await endVoiceLiveActivity();
+  expect(end).toHaveBeenCalledTimes(1);
   const unsubscribe = subscribeVoiceLiveActivityPushToken(() => undefined);
   expect(addListener).not.toHaveBeenCalled();
   unsubscribe();
