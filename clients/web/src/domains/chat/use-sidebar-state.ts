@@ -6,11 +6,19 @@
  * typed object the presentational `AssistantSideMenu` renders without any
  * inline computation, `useEffect`, or derived state.
  *
+ * Two views share all of that. In `all` (the default) the sections stop at
+ * the curated layer - Pinned and the custom groups - and everything else
+ * renders as {@link SidebarState.flatList}, one recency-sorted list the
+ * sidebar virtualizes. In `grouped`, Chats and one section per origin channel
+ * follow the curated layer, and the flat list goes unused.
+ *
  * The headline output is {@link SidebarState.sections}: one flat, ordered
  * list of every renderable section (Pinned, Chats, each channel, each custom
  * group) as a discriminated union. The sidebar walks that list in order -
  * it does not know which section types exist or where they "belong", which
- * is what lets the user put a custom group above Recents.
+ * is what lets the user put a custom group above Recents. Channel sections
+ * are the one constrained case: they can never order above Pinned or a
+ * custom group.
  *
  * Memoizes grouping per `conversations` reference so parent re-renders
  * that don't change the conversation list skip the grouping work.
@@ -38,14 +46,18 @@ import {
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import {
   channelSectionKey,
+  isChannelSectionKey,
   isKnownCategoryKey,
   isKnownPrimaryKey,
 } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import {
+  enforceChannelFloor,
   mergeSectionOrder,
   moveSectionKey,
   nextStoredOrder,
+  type SectionOrderClass,
 } from "@/domains/chat/utils/sidebar-section-order";
+import type { SidebarViewMode } from "@/domains/chat/utils/sidebar-view-mode";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
   useBackgroundConversationListQuery,
@@ -131,6 +143,21 @@ function buildPaginatedSection(
   };
 }
 
+/**
+ * How a section key orders against the others. Pinned and the custom groups
+ * are the curated layer that channel sections may never rise above; Chats is
+ * free to sit anywhere.
+ */
+function classifySectionKey(key: string): SectionOrderClass {
+  if (key === "recents") {
+    return "free";
+  }
+  if (isChannelSectionKey(key)) {
+    return "channel";
+  }
+  return "anchor";
+}
+
 // ---------------------------------------------------------------------------
 // Sections
 // ---------------------------------------------------------------------------
@@ -163,16 +190,30 @@ export type SidebarSection =
   | (SidebarSectionBase & { type: "group"; group: CustomGroup });
 
 export interface SidebarState {
+  /** Which view the sidebar renders. */
+  viewMode: SidebarViewMode;
+  /** Switch views and persist the choice for this assistant. */
+  onViewModeChange: (next: SidebarViewMode) => void;
+
   pinned: Conversation[];
+  /** Empty in `all` view - those conversations live in {@link flatList}. */
   channelSections: ChannelSectionState[];
+  /** The `grouped` view's Chats section. */
   recents: PaginatedSection;
+  /**
+   * The `all` view's list: every conversation that is neither pinned nor in a
+   * custom group, newest first. Windowed at render, so it carries no page
+   * size or reveal state of its own.
+   */
+  flatList: Conversation[];
 
   customGroups: CustomGroup[];
 
   /**
-   * Every section in the user's chosen order - the list the sidebar renders.
-   * Sections the user has never touched fall back to the default order
-   * (Pinned, custom groups, Chats, channel sections).
+   * Every section in the user's chosen order - the list the sidebar renders
+   * above the flat list. Sections the user has never touched fall back to the
+   * default order (Pinned, custom groups, then - in `grouped` view - Chats
+   * and the channel sections).
    */
   sections: SidebarSection[];
   /**
@@ -186,6 +227,12 @@ export interface SidebarState {
    * for neither.
    */
   onMoveSection: (key: string, delta: -1 | 1) => void;
+  /**
+   * Whether {@link SidebarState.onMoveSection} would actually move anything -
+   * false at the ends of the list, and for a channel section that would have
+   * to cross Pinned or a custom group to make the move.
+   */
+  canMoveSection: (key: string, delta: -1 | 1) => boolean;
 
   /**
    * Open keys for the single accordion root that holds *every* section -
@@ -237,6 +284,8 @@ export function useSidebarState({
   const setOpenPrimary = useSidebarLayoutStore.use.setOpenPrimary();
   const sectionOrder = useSidebarLayoutStore.use.sectionOrder();
   const setSectionOrder = useSidebarLayoutStore.use.setSectionOrder();
+  const viewMode = useSidebarLayoutStore.use.viewMode();
+  const setViewMode = useSidebarLayoutStore.use.setViewMode();
   const backgroundActivated = useSidebarLayoutStore.use.backgroundActivated();
   const scheduledActivated = useSidebarLayoutStore.use.scheduledActivated();
   const collapseAssistantId = useSidebarLayoutStore.use.assistantId();
@@ -280,8 +329,9 @@ export function useSidebarState({
     () =>
       groupConversations(allConversations, {
         groups: conversationGroups,
+        groupByChannel: viewMode === "grouped",
       }),
-    [allConversations, conversationGroups],
+    [allConversations, conversationGroups, viewMode],
   );
 
   // --- Pagination ("show more") ---
@@ -328,10 +378,12 @@ export function useSidebarState({
 
   // --- Section order ---
 
-  // Default layout: Pinned, then the user's custom groups, then Chats and the
-  // channel sections. Groups lead because they are the deliberate, curated
-  // organization layer, and they hold their place while channel sections come
-  // and go with traffic.
+  // Default layout: Pinned, then the user's custom groups, then - in the
+  // grouped view - Chats and the channel sections. Groups lead because they
+  // are the deliberate, curated organization layer, and they hold their place
+  // while channel sections come and go with traffic. In the flat view the
+  // sections stop at the curated layer: everything else renders as one list
+  // below them.
   const defaultSections = useMemo((): SidebarSection[] => {
     const list: SidebarSection[] = [];
     if (grouped.pinned.length > 0) {
@@ -351,25 +403,28 @@ export function useSidebarState({
         group,
       });
     }
-    list.push({
-      type: "recents",
-      key: "recents",
-      label: "Chats",
-      all: recentsSection.all,
-      pagination: recentsSection,
-    });
-    for (const section of channelSections) {
+    if (viewMode === "grouped") {
       list.push({
-        type: "channel",
-        key: channelSectionKey(section.channelId),
-        label: getChannelLabel(section.channelId),
-        all: section.all,
-        channelId: section.channelId,
-        pagination: section,
+        type: "recents",
+        key: "recents",
+        label: "Chats",
+        all: recentsSection.all,
+        pagination: recentsSection,
       });
+      for (const section of channelSections) {
+        list.push({
+          type: "channel",
+          key: channelSectionKey(section.channelId),
+          label: getChannelLabel(section.channelId),
+          all: section.all,
+          channelId: section.channelId,
+          pagination: section,
+        });
+      }
     }
     return list;
   }, [
+    viewMode,
     grouped.pinned,
     grouped.customGroups,
     recentsSection,
@@ -377,35 +432,58 @@ export function useSidebarState({
   ]);
 
   const sections = useMemo((): SidebarSection[] => {
-    if (sectionOrder.length === 0) {
-      return defaultSections;
-    }
+    const defaultKeys = defaultSections.map((s) => s.key);
+    const ordered =
+      sectionOrder.length === 0
+        ? defaultKeys
+        : mergeSectionOrder(defaultKeys, sectionOrder);
     const byKey = new Map(defaultSections.map((s) => [s.key, s]));
-    return mergeSectionOrder(
-      defaultSections.map((s) => s.key),
-      sectionOrder,
-    ).map((key) => byKey.get(key)!);
+    return enforceChannelFloor(ordered, classifySectionKey).map(
+      (key) => byKey.get(key)!,
+    );
   }, [defaultSections, sectionOrder]);
 
   const onReorderSections = useCallback(
     (orderedKeys: string[]) => {
-      setSectionOrder(nextStoredOrder(sectionOrder, orderedKeys));
+      setSectionOrder(
+        nextStoredOrder(
+          sectionOrder,
+          enforceChannelFloor(orderedKeys, classifySectionKey),
+        ),
+      );
     },
     [sectionOrder, setSectionOrder],
   );
 
+  // The order `key` would land in after a nudge, or null when the nudge
+  // changes nothing - either end of the list, or a channel section the
+  // channel floor pushes straight back where it was.
+  const orderAfterMove = useCallback(
+    (key: string, delta: -1 | 1): string[] | null => {
+      const current = sections.map((s) => s.key);
+      const moved = moveSectionKey(current, key, delta);
+      if (!moved) {
+        return null;
+      }
+      const settled = enforceChannelFloor(moved, classifySectionKey);
+      return settled.join(" ") === current.join(" ") ? null : settled;
+    },
+    [sections],
+  );
+
   const onMoveSection = useCallback(
     (key: string, delta: -1 | 1) => {
-      const moved = moveSectionKey(
-        sections.map((s) => s.key),
-        key,
-        delta,
-      );
+      const moved = orderAfterMove(key, delta);
       if (moved) {
         setSectionOrder(nextStoredOrder(sectionOrder, moved));
       }
     },
-    [sections, sectionOrder, setSectionOrder],
+    [orderAfterMove, sectionOrder, setSectionOrder],
+  );
+
+  const canMoveSection = useCallback(
+    (key: string, delta: -1 | 1) => orderAfterMove(key, delta) !== null,
+    [orderAfterMove],
   );
 
   // --- Open/closed state ---
@@ -473,13 +551,17 @@ export function useSidebarState({
   );
 
   return {
+    viewMode,
+    onViewModeChange: setViewMode,
     pinned: grouped.pinned,
     channelSections,
     recents: recentsSection,
+    flatList: grouped.recents,
     customGroups: grouped.customGroups,
     sections,
     onReorderSections,
     onMoveSection,
+    canMoveSection,
     effectiveOpenSections,
     onOpenSectionsChange,
   };

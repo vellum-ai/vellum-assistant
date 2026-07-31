@@ -1,13 +1,19 @@
 /**
  * Tests for `AssistantSideMenu`.
  *
- * Rendering goes through `react-dom/server` — assertions look at the
- * emitted markup. Interactive behavior (Show more, onSelect) is exercised
- * by the SideMenu primitive's own tests; here we verify the composition
- * rules unique to `AssistantSideMenu`.
+ * Most tests render to the DOM and assert on the emitted markup. The client
+ * render is what matters for anything that depends on the sidebar's layout
+ * store: Zustand serves its *initial* state to `react-dom/server`, so a
+ * server-rendered sidebar can only ever show the default view. Tests that
+ * assert nothing view-dependent (the New Chat row) still use
+ * `renderToStaticMarkup`.
+ *
+ * Interactive behavior (Show more, onSelect) is exercised by the SideMenu
+ * primitive's own tests; here we verify the composition rules unique to
+ * `AssistantSideMenu`.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -52,6 +58,16 @@ import {
   AssistantSideMenu,
 } from "@/domains/chat/components/assistant-side-menu";
 import { SIDEBAR_CONVERSATION_LIMIT } from "@/domains/chat/use-sidebar-state";
+import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+
+// Most of what follows describes the Grouped view's composition: the Chats
+// section, the per-channel sections, and the peer treatment they share with
+// Pinned and the custom groups. The layout store is a module singleton, so
+// each test declares the view it exercises rather than inheriting one.
+beforeEach(() => {
+  localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
+  useSidebarLayoutStore.setState({ assistantId: null, viewMode: "grouped" });
+});
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {
@@ -70,7 +86,7 @@ function renderMenu(props: {
   includeTipCard?: boolean;
 }): string {
   const includeFooterAction = props.includeFooterAction ?? true;
-  return renderToStaticMarkup(
+  const { container } = render(
     createElement(AssistantSideMenu, {
       assistantId: "asst-1",
       collapsed: props.collapsed ?? false,
@@ -87,6 +103,9 @@ function renderMenu(props: {
         : undefined,
     }),
   );
+  const html = container.innerHTML;
+  cleanup();
+  return html;
 }
 
 describe("AssistantSideMenu · Chats category rows", () => {
@@ -184,6 +203,64 @@ describe("AssistantSideMenu · Chats category rows", () => {
     expect(html).toContain(">Chats<");
     expect(html).not.toContain(">2<");
     expect(html).not.toContain(">1<");
+  });
+});
+
+describe("AssistantSideMenu · All view", () => {
+  beforeEach(() => {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
+    useSidebarLayoutStore.setState({ assistantId: null, viewMode: "all" });
+  });
+
+  const conversations = [
+    makeConversation({ conversationId: "p1", title: "Pin one", isPinned: true }),
+    makeConversation({ conversationId: "r1", title: "Recent one" }),
+    makeConversation({
+      conversationId: "s1",
+      title: "Slack one",
+      originChannel: "slack",
+    }),
+  ];
+
+  // The flat list is virtualized, and virtuoso renders no rows without real
+  // layout, so these assert the composition around it. What lands *in* the
+  // list is covered by `use-sidebar-state.test.tsx` (`flatList`).
+  test("drops the Chats and channel headers in favour of one flat list", () => {
+    const html = renderMenu({ conversations });
+
+    expect(html).not.toContain(">Chats<");
+    expect(html).not.toContain(">Slack<");
+    expect(html).toContain(">Pinned<");
+    expect(html).toContain('data-slot="virtual-list"');
+  });
+
+  test("carries no 'Show more' affordance", () => {
+    const html = renderMenu({
+      conversations: Array.from({ length: 40 }, (_, index) =>
+        makeConversation({
+          conversationId: `r${index}`,
+          title: `Recent ${index}`,
+        }),
+      ),
+    });
+
+    expect(html).not.toContain(">Show more<");
+    expect(html).toContain('data-slot="virtual-list"');
+  });
+
+  test("offers the view switch", () => {
+    const html = renderMenu({ conversations });
+
+    expect(html).toContain('aria-label="Conversation list view"');
+    expect(html).toContain(">All<");
+    expect(html).toContain(">Grouped<");
+  });
+
+  test("the collapsed rail reaches the flat list through a Chats icon", () => {
+    const html = renderMenu({ conversations, collapsed: true });
+
+    expect(html).toContain('aria-label="Chats"');
+    expect(html).toContain('aria-label="Pinned"');
   });
 });
 

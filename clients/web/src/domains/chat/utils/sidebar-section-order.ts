@@ -149,6 +149,55 @@ export function nextStoredOrder(
   return trimmed;
 }
 
+// ---------------------------------------------------------------------------
+// Ordering constraints
+// ---------------------------------------------------------------------------
+
+/**
+ * How a section key participates in ordering:
+ *
+ * - `anchor` - Pinned and the custom groups. The user's own curation layer,
+ *   which always sits above the channel sections.
+ * - `channel` - a per-origin-channel section. Reorderable among its peers,
+ *   never above an anchor.
+ * - `free` - everything else (Chats). Orderable anywhere.
+ */
+export type SectionOrderClass = "anchor" | "channel" | "free";
+
+/**
+ * `keys` with every `channel` section pushed below the last `anchor` section,
+ * preserving relative order within each class.
+ *
+ * Channel sections come and go with traffic, so letting one settle above the
+ * user's pinned rows or curated groups would rearrange the deliberate part of
+ * the sidebar on its own. Applied to the render order and to what gets
+ * persisted, so the stored preference always describes a layout that renders.
+ */
+export function enforceChannelFloor(
+  keys: readonly string[],
+  classify: (key: string) => SectionOrderClass,
+): string[] {
+  let lastAnchor = -1;
+  keys.forEach((key, index) => {
+    if (classify(key) === "anchor") {
+      lastAnchor = index;
+    }
+  });
+  if (lastAnchor <= 0) {
+    return [...keys];
+  }
+  const head = keys.slice(0, lastAnchor + 1);
+  const displaced = head.filter((key) => classify(key) === "channel");
+  if (displaced.length === 0) {
+    return [...keys];
+  }
+  return [
+    ...head.filter((key) => classify(key) !== "channel"),
+    ...displaced,
+    ...keys.slice(lastAnchor + 1),
+  ];
+}
+
 /**
  * `keys` with `key` moved one slot toward the start (`-1`) or end (`+1`).
  * Returns `null` when the move is a no-op - the key is missing or already at

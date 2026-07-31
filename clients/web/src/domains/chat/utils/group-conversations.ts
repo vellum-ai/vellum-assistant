@@ -17,7 +17,8 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
  *   (or legacy `groupId === "system:all"`). Each origin channel is a
  *   first-class collapsible section, not a foreground/background status; one
  *   `ChannelSection` is produced per channel that has conversations, ordered
- *   by channel id.
+ *   by channel id. With `groupByChannel: false` no channel sections are
+ *   produced at all and those conversations fall through to `recents`.
  * - `scheduled` — `conversationType === "scheduled"` OR legacy
  *   `groupId === "system:scheduled"`.
  * - `background` — all background threads
@@ -84,7 +85,13 @@ function isBackground(c: Conversation): boolean {
  * the precedence the Slack section used: a channel conversation only buckets
  * into its section when it has no explicit (custom or system) group.
  */
-function channelSectionBucketId(c: Conversation): string | null {
+function channelSectionBucketId(
+  c: Conversation,
+  groupByChannel: boolean,
+): string | null {
+  if (!groupByChannel) {
+    return null;
+  }
   if (!isChannelConversation(c)) {
     return null;
   }
@@ -193,8 +200,16 @@ export function groupConversations(
   conversations: Conversation[],
   options?: {
     groups?: ConversationGroup[];
+    /**
+     * Bucket unassigned external-channel conversations into one section per
+     * origin channel. When `false`, `channelSections` comes back empty and
+     * those conversations join `recents`, giving one flat recency list.
+     * Defaults to `true`.
+     */
+    groupByChannel?: boolean;
   },
 ): GroupedConversations {
+  const groupByChannel = options?.groupByChannel ?? true;
   const pinned: Conversation[] = [];
   const scheduled: Conversation[] = [];
   const background: Conversation[] = [];
@@ -244,7 +259,7 @@ export function groupConversations(
       }
     }
 
-    const channelId = channelSectionBucketId(c);
+    const channelId = channelSectionBucketId(c, groupByChannel);
     if (channelId) {
       const bucket = channelBuckets.get(channelId);
       if (bucket) {

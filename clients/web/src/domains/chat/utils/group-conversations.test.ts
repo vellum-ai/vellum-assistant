@@ -766,6 +766,64 @@ describe("groupConversations · surfaced promotion to recents", () => {
   });
 });
 
+describe("groupConversations · groupByChannel: false", () => {
+  test("channel conversations join recents instead of forming sections", () => {
+    const result = groupConversations(
+      [
+        makeConversation({
+          conversationId: "s1",
+          originChannel: "slack",
+          groupId: "system:all",
+          lastMessageAt: 10,
+        }),
+        makeConversation({
+          conversationId: "r1",
+          groupId: "system:all",
+          lastMessageAt: 20,
+        }),
+      ],
+      { groupByChannel: false },
+    );
+
+    expect(result.channelSections).toEqual([]);
+    expect(result.recents.map((c) => c.conversationId)).toEqual(["r1", "s1"]);
+  });
+
+  test("pinned and custom-group precedence is unchanged", () => {
+    const result = groupConversations(
+      [
+        makeConversation({
+          conversationId: "p1",
+          originChannel: "slack",
+          isPinned: true,
+        }),
+        makeConversation({
+          conversationId: "g1",
+          originChannel: "telegram",
+          groupId: "grp-a",
+        }),
+      ],
+      {
+        groupByChannel: false,
+        groups: [
+          {
+            id: "grp-a",
+            name: "Alpha",
+            sortPosition: 0,
+            isSystemGroup: false,
+          },
+        ] satisfies ConversationGroup[],
+      },
+    );
+
+    expect(result.pinned.map((c) => c.conversationId)).toEqual(["p1"]);
+    expect(
+      result.customGroups[0]?.conversations.map((c) => c.conversationId),
+    ).toEqual(["g1"]);
+    expect(result.recents).toEqual([]);
+  });
+});
+
 describe("buildMoveToGroupTargets", () => {
   const research = makeGroup({ id: "g_research", name: "Research" });
   const ideas = makeGroup({ id: "g_ideas", name: "Ideas" });

@@ -1,4 +1,4 @@
-import { Search, SquarePen, X } from "lucide-react";
+import { MessageSquare, Search, SquarePen, X } from "lucide-react";
 import {
   useCallback,
   useLayoutEffect,
@@ -24,6 +24,8 @@ import { SidebarListContextMenu } from "@/domains/chat/components/sidebar-list-c
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
+import { SidebarFlatConversationList } from "@/domains/chat/components/sidebar-flat-conversation-list";
+import { SidebarViewModeToggle } from "@/domains/chat/components/sidebar-view-mode-toggle";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
@@ -150,9 +152,11 @@ function SearchButton() {
  *   Body · one section list, in the user's own order (default shown)
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
- *     • Chats ▾        - recent conversations, with Show more/less
- *     • Channel ▾      — one collapsible section per origin channel
- *                        (Slack, Telegram, WhatsApp, …)
+ *     • [ All | Grouped ] - the switch for everything below it
+ *     • All view: every remaining conversation as one headerless,
+ *       virtualized list, newest first
+ *     • Grouped view: Chats ▾ (with Show more/less) then one collapsible
+ *       section per origin channel (Slack, Telegram, WhatsApp, …)
  *   Footer
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────
@@ -231,6 +235,11 @@ export function AssistantSideMenu({
   // scrollable body, so the body reserves matching bottom padding to keep the
   // last conversation rows scrollable clear of it. Measured (not static)
   // because the tip card appears/disappears and its copy length varies.
+  // The scrollport the flat "All" list virtualizes against. State, not a ref,
+  // because the list only mounts once the node exists and has to re-render
+  // when it does.
+  const [bodyElement, setBodyElement] = useState<HTMLElement | null>(null);
+
   const overlayBottomColumnRef = useRef<HTMLDivElement | null>(null);
   const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
 
@@ -355,20 +364,17 @@ export function AssistantSideMenu({
   };
 
   // Header actions for one section: the bulk actions every section shares,
-  // the move-up/down pair its position allows (absent at either end, which is
-  // how the menu avoids offering a move that does nothing), and - for custom
-  // groups only - rename/delete/copy-id.
-  const sectionMenu = (
-    section: SidebarSection,
-    index: number,
-  ): GroupMenuItemsProps => {
+  // the move-up/down pair its position allows (absent when the move would do
+  // nothing, which is how the menu avoids offering a dead action), and - for
+  // custom groups only - rename/delete/copy-id.
+  const sectionMenu = (section: SidebarSection): GroupMenuItemsProps => {
     const moveOptions = {
-      onMoveUp:
-        index === 0 ? undefined : () => sidebar.onMoveSection(section.key, -1),
-      onMoveDown:
-        index === sidebar.sections.length - 1
-          ? undefined
-          : () => sidebar.onMoveSection(section.key, 1),
+      onMoveUp: sidebar.canMoveSection(section.key, -1)
+        ? () => sidebar.onMoveSection(section.key, -1)
+        : undefined,
+      onMoveDown: sidebar.canMoveSection(section.key, 1)
+        ? () => sidebar.onMoveSection(section.key, 1)
+        : undefined,
     };
     if (section.type !== "group") {
       return buildGroupMenu(section.label, section.all, moveOptions);
@@ -384,6 +390,25 @@ export function AssistantSideMenu({
       onCopyGroupId: () => copyIdToClipboard(section.group.id, "Group ID"),
     });
   };
+
+  const renderSection = (section: SidebarSection) => (
+    <SidebarSectionItem
+      key={section.key}
+      section={section}
+      groupMenu={sectionMenu(section)}
+      drag={sectionDragFor(section)}
+      collapsedIndicator={collapsedActivityDot(section.all)}
+    />
+  );
+
+  // How many leading sections are the user's own curation layer (Pinned and
+  // the custom groups). The view switch renders right after them, because
+  // they are the part of the sidebar it does not change.
+  const curatedSectionCount = sidebar.sections.reduce(
+    (count, section, index) =>
+      section.type === "pinned" || section.type === "group" ? index + 1 : count,
+    0,
+  );
 
   // --- Built-in navigation ---
   // Pinned apps above the built-in nav, separated by a divider. On the rail
@@ -491,6 +516,7 @@ export function AssistantSideMenu({
         </SideMenu.Header>
 
         <SideMenu.Body
+          ref={setBodyElement}
           className={
             variant === "overlay"
               ? /* pb-24 is a coarse floating-column reserve until the measured
@@ -546,6 +572,29 @@ export function AssistantSideMenu({
                   )}
                 </CollapsedGroupIcon>
               ))}
+              {/* The flat list has no section of its own to draw, so the rail
+                  gives it one icon - otherwise the All view's conversations
+                  would be unreachable while collapsed. */}
+              {sidebar.viewMode === "all" ? (
+                <CollapsedGroupIcon
+                  icon={MessageSquare}
+                  label="Chats"
+                  disabled={sidebar.flatList.length === 0}
+                  indicatorState={getGroupIndicatorState(
+                    sidebar.flatList,
+                    processingConversationIds,
+                    attentionConversationIds,
+                  )}
+                >
+                  {(close) => (
+                    <CollapsedGroupFlyout
+                      title="Chats"
+                      conversations={sidebar.flatList}
+                      onClosePopover={close}
+                    />
+                  )}
+                </CollapsedGroupIcon>
+              ) : null}
             </div>
           ) : (
             /* Right-clicking the list (including the empty space below the
@@ -572,16 +621,25 @@ export function AssistantSideMenu({
                     didn't create - they order these however they like. The
                     header's own indent (SIDEBAR_SECTION_INDENT) is what marks
                     where a section starts. */}
-                {sidebar.sections.map((section, index) => (
-                  <SidebarSectionItem
-                    key={section.key}
-                    section={section}
-                    groupMenu={sectionMenu(section, index)}
-                    drag={sectionDragFor(section)}
-                    collapsedIndicator={collapsedActivityDot(section.all)}
-                  />
-                ))}
+                {sidebar.sections.slice(0, curatedSectionCount).map(renderSection)}
+                {/* The switch governs only what follows it - the flat list, or
+                    Chats and the channel sections - so it sits at that
+                    boundary. Inside the one accordion root, not above it, so
+                    it shares the same gap as everything else. */}
+                <SidebarViewModeToggle
+                  value={sidebar.viewMode}
+                  onChange={sidebar.onViewModeChange}
+                />
+                {sidebar.sections.slice(curatedSectionCount).map(renderSection)}
               </CollapsibleNavSection.Root>
+              {/* The All view's remainder: no header, no channel buckets, and
+                  no "Show more" - it just keeps going as the user scrolls. */}
+              {sidebar.viewMode === "all" ? (
+                <SidebarFlatConversationList
+                  conversations={sidebar.flatList}
+                  scrollParent={bodyElement}
+                />
+              ) : null}
             </SidebarListContextMenu>
           )}
         </SideMenu.Body>

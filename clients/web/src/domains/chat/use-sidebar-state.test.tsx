@@ -42,8 +42,19 @@ afterEach(() => {
     openCategories: [],
     openCustomGroups: [],
     sectionOrder: [],
+    viewMode: "all",
   });
 });
+
+/**
+ * Put the sidebar in the channel-grouped view. The layout store hydrates from
+ * localStorage in an effect, so seeding the key is what survives the hook's
+ * own `setAssistantId` call.
+ */
+function seedGroupedView(assistantId = "asst-1"): void {
+  localStorage.setItem(`vellum:sidebar-view-mode:${assistantId}`, "grouped");
+  useSidebarLayoutStore.setState({ viewMode: "grouped" });
+}
 
 describe("useSidebarState pagination", () => {
   test("reveals recents in page-size increments and can reset", () => {
@@ -90,6 +101,7 @@ describe("useSidebarState pagination", () => {
   });
 
   test("uses the same incremental reveal behavior for channel sections", () => {
+    seedGroupedView();
     const conversations = Array.from({ length: 12 }, (_, index) =>
       makeConversation(index, {
         originChannel: "slack",
@@ -125,6 +137,7 @@ describe("useSidebarState pagination", () => {
   });
 
   test("exposes one paginated section per origin channel", () => {
+    seedGroupedView();
     const conversations = [
       makeConversation(0, { originChannel: "slack" }),
       makeConversation(1, { originChannel: "telegram" }),
@@ -154,6 +167,7 @@ describe("useSidebarState open-section persistence", () => {
   // forced open. Persisting those would outlive the attention that opened
   // them and leave the section stuck open across reloads.
   test("does not persist a section that only attention forced open", () => {
+    seedGroupedView();
     const conversations = [
       makeConversation(0),
       makeConversation(1, {
@@ -190,6 +204,7 @@ describe("useSidebarState open-section persistence", () => {
   });
 
   test("persists a section the user opened themselves", () => {
+    seedGroupedView();
     const conversations = [
       makeConversation(0),
       makeConversation(1, {
@@ -260,6 +275,84 @@ describe("useSidebarState custom-group open-section persistence", () => {
   });
 });
 
+describe("useSidebarState all view", () => {
+  const conversations = [
+    makeConversation(0, { conversationId: "r1", lastMessageAt: 30 }),
+    makeConversation(1, {
+      conversationId: "s1",
+      originChannel: "slack",
+      lastMessageAt: 40,
+    }),
+    makeConversation(2, {
+      conversationId: "t1",
+      originChannel: "telegram",
+      lastMessageAt: 20,
+    }),
+    makeConversation(3, { conversationId: "p1", isPinned: true }),
+    makeConversation(4, { conversationId: "g1", groupId: "grp-a" }),
+  ];
+  const conversationGroups = [
+    { id: "grp-a", name: "Alpha", sortPosition: 0, isSystemGroup: false },
+  ];
+
+  function renderSidebar() {
+    return renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations,
+        conversationGroups,
+      }),
+    );
+  }
+
+  test("is the default view", () => {
+    expect(renderSidebar().result.current.viewMode).toBe("all");
+  });
+
+  test("merges the channel conversations into one recency-sorted list", () => {
+    const { result } = renderSidebar();
+
+    expect(result.current.channelSections).toEqual([]);
+    expect(result.current.flatList.map((c) => c.conversationId)).toEqual([
+      "s1",
+      "r1",
+      "t1",
+    ]);
+  });
+
+  test("leaves pinned and grouped conversations out of the flat list", () => {
+    const { result } = renderSidebar();
+
+    const flatIds = result.current.flatList.map((c) => c.conversationId);
+    expect(flatIds).not.toContain("p1");
+    expect(flatIds).not.toContain("g1");
+  });
+
+  test("renders only the curated sections above the list", () => {
+    const { result } = renderSidebar();
+
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "pinned",
+      "grp-a",
+    ]);
+  });
+
+  test("switching views persists the choice for the assistant", () => {
+    const { result } = renderSidebar();
+
+    act(() => result.current.onViewModeChange("grouped"));
+
+    expect(result.current.viewMode).toBe("grouped");
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "pinned",
+      "grp-a",
+      "recents",
+      "channel:slack",
+      "channel:telegram",
+    ]);
+  });
+});
+
 describe("useSidebarState section order", () => {
   const conversations = [
     makeConversation(0, { conversationId: "r1" }),
@@ -275,6 +368,7 @@ describe("useSidebarState section order", () => {
   ];
 
   function renderSidebar() {
+    seedGroupedView();
     return renderHook(() =>
       useSidebarState({
         assistantId: "asst-1",
@@ -300,21 +394,62 @@ describe("useSidebarState section order", () => {
     act(() =>
       result.current.onReorderSections([
         "recents",
-        "channel:slack",
         "grp-a",
+        "channel:slack",
       ]),
     );
 
     expect(useSidebarLayoutStore.getState().sectionOrder).toEqual([
       "recents",
-      "channel:slack",
       "grp-a",
+      "channel:slack",
     ]);
     expect(result.current.sections.map((s) => s.key)).toEqual([
       "recents",
-      "channel:slack",
       "grp-a",
+      "channel:slack",
     ]);
+  });
+
+  test("a channel section settles back below the custom groups", () => {
+    const { result } = renderSidebar();
+
+    act(() =>
+      result.current.onReorderSections([
+        "channel:slack",
+        "grp-a",
+        "recents",
+      ]),
+    );
+
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "grp-a",
+      "channel:slack",
+      "recents",
+    ]);
+    // What renders is what persists, so the stored preference never describes
+    // a layout the sidebar refuses to draw.
+    expect(useSidebarLayoutStore.getState().sectionOrder).toEqual([
+      "grp-a",
+      "channel:slack",
+      "recents",
+    ]);
+  });
+
+  test("a nudge that the channel floor would undo is not offered", () => {
+    const { result } = renderSidebar();
+
+    // Slack sits last, below Chats, which it may pass...
+    expect(result.current.canMoveSection("channel:slack", -1)).toBe(true);
+    act(() => result.current.onMoveSection("channel:slack", -1));
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "grp-a",
+      "channel:slack",
+      "recents",
+    ]);
+
+    // ...but not the custom group above it.
+    expect(result.current.canMoveSection("channel:slack", -1)).toBe(false);
   });
 
   test("onMoveSection nudges one section and is a no-op at the ends", () => {
@@ -341,9 +476,9 @@ describe("useSidebarState section order", () => {
 
     act(() =>
       result.current.onReorderSections([
+        "grp-a",
         "channel:slack",
         "recents",
-        "grp-a",
       ]),
     );
 
@@ -358,8 +493,8 @@ describe("useSidebarState section order", () => {
       }),
     );
     expect(quiet.result.current.sections.map((s) => s.key)).toEqual([
-      "recents",
       "grp-a",
+      "recents",
     ]);
 
     // Reordering while it's gone must not forget where it lived.

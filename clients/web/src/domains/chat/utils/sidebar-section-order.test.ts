@@ -1,10 +1,23 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  enforceChannelFloor,
   mergeSectionOrder,
   moveSectionKey,
   nextStoredOrder,
+  type SectionOrderClass,
 } from "@/domains/chat/utils/sidebar-section-order";
+
+/** Mirrors the sidebar's own classification: Chats free, channels floored. */
+function classify(key: string): SectionOrderClass {
+  if (key === "recents") {
+    return "free";
+  }
+  if (key.startsWith("channel:")) {
+    return "channel";
+  }
+  return "anchor";
+}
 
 describe("mergeSectionOrder", () => {
   test("falls back to the default order when nothing is stored", () => {
@@ -148,5 +161,40 @@ describe("moveSectionKey", () => {
 
   test("returns null for a key that isn't in the list", () => {
     expect(moveSectionKey(["a", "b"], "z", 1)).toBeNull();
+  });
+});
+
+describe("enforceChannelFloor", () => {
+  test("leaves an order that already respects the floor alone", () => {
+    const keys = ["pinned", "grp-a", "recents", "channel:slack"];
+    expect(enforceChannelFloor(keys, classify)).toEqual(keys);
+  });
+
+  test("pushes a channel section below the last anchor", () => {
+    expect(
+      enforceChannelFloor(
+        ["channel:slack", "pinned", "grp-a", "recents"],
+        classify,
+      ),
+    ).toEqual(["pinned", "grp-a", "channel:slack", "recents"]);
+  });
+
+  test("keeps displaced channel sections in their relative order", () => {
+    expect(
+      enforceChannelFloor(
+        ["channel:telegram", "channel:slack", "grp-a"],
+        classify,
+      ),
+    ).toEqual(["grp-a", "channel:telegram", "channel:slack"]);
+  });
+
+  test("lets a channel section sit above Chats", () => {
+    const keys = ["pinned", "channel:slack", "recents"];
+    expect(enforceChannelFloor(keys, classify)).toEqual(keys);
+  });
+
+  test("is a no-op with no anchors to floor against", () => {
+    const keys = ["channel:slack", "recents"];
+    expect(enforceChannelFloor(keys, classify)).toEqual(keys);
   });
 });
