@@ -31,11 +31,8 @@
  * (no native Capacitor Android shell ships today); registration/delete failures
  * are reported to Sentry but never thrown into the app lifecycle.
  *
- * The upserted row tags the token with the build's APNs entitlement
- * environment, resolved by `runtime/apns-environment.ts` (the native
- * `ApnsEnvironment` plugin with a bundle-suffix heuristic fallback). The
- * resolver is shared with the ActivityKit Live Activity token upsert so the
- * two registrations can never tag the same build differently.
+ * The upserted row's `apns_environment` tag is resolved by
+ * `runtime/apns-environment.ts`; see its docblock for the rationale.
  *
  * Per `docs/CAPACITOR.md`, the `@capacitor/*` plugins are destructured inline
  * at each call site — never returned through an `async` boundary — because the

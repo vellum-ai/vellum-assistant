@@ -406,16 +406,14 @@ export async function postLocalNotification(
     // at mount), and the app was hidden when the intent arrived; the
     // remote push banners on its own there, and scheduling the local one
     // too would double-notify during the SSE grace window after
-    // backgrounding. No separate support check: a session-confirmed
-    // registration is only reachable through `registerForRemotePush`,
-    // which requires remote-push support.
+    // backgrounding. A session-confirmed registration implies remote-push
+    // support: it is recorded only by `registerForRemotePush`, which is
+    // gated on that support.
     //
     // Residual limitation: `remotePushDispatched` is an aggregate
     // account-level outcome (any device token accepted), so on a
     // multi-device account a token pruned mid-session can still suppress
-    // this banner while only another device received the push. Closing
-    // that gap requires per-token dispatch results from the platform's
-    // dispatch endpoint.
+    // this banner while only another device received the push.
     if (
       args.remotePushDispatched === true &&
       args.assistantId !== undefined &&

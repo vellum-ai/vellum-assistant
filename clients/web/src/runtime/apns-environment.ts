@@ -19,10 +19,6 @@
  * bundle id, which is exactly the case the bundle-suffix heuristic got wrong
  * for TestFlight dev builds. Shells predating the plugin, and profiles it
  * cannot parse, fall back to that heuristic.
- *
- * Per `docs/CAPACITOR.md`, only the plugin call's result may cross an `async`
- * boundary, never the plugin Proxy itself: the Proxy's `.then` trap would hang
- * the awaiting caller forever.
  */
 
 import { registerPlugin } from "@capacitor/core";
@@ -33,13 +29,7 @@ interface ApnsEnvironmentPlugin {
   get(): Promise<{ environment?: string }>;
 }
 
-/**
- * Native plugin reporting the build's real APNs entitlement environment, read
- * from the embedded provisioning profile
- * (`clients/ios/App/App/ApnsEnvironmentPlugin.swift`). Resolves
- * `"development"`, `"production"`, or `"unknown"` on modern shells; on older
- * shells that predate the plugin the bridge call rejects instead.
- */
+/** Native entitlement-environment plugin; see the module docblock. */
 const ApnsEnvironment =
   registerPlugin<ApnsEnvironmentPlugin>("ApnsEnvironment");
 
