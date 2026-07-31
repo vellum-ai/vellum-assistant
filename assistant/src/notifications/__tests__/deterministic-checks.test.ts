@@ -262,6 +262,53 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     expect(result.reason).toContain("empty");
   });
 
+  test("passes assistant_reply pass-through even when body matches normalized event name", async () => {
+    const signal = makeSignal({
+      sourceChannel: "vellum",
+      sourceEventName: "chat.assistant_reply",
+    });
+    const decision = makeDecision({
+      reasoningSummary: "assistant_reply pass-through",
+      renderedCopy: {
+        vellum: { title: "Assistant", body: "chat assistant reply" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(true);
+  });
+
+  test("fails assistant_reply pass-through with empty body (empty-body branch still fires)", async () => {
+    const signal = makeSignal({
+      sourceChannel: "vellum",
+      sourceEventName: "chat.assistant_reply",
+    });
+    const decision = makeDecision({
+      reasoningSummary: "assistant_reply pass-through",
+      renderedCopy: {
+        vellum: { title: "Assistant", body: "" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("empty");
+  });
+
+  test("still fails a non-pass-through decision on a chat.assistant_reply event-name body", async () => {
+    const signal = makeSignal({
+      sourceChannel: "vellum",
+      sourceEventName: "chat.assistant_reply",
+    });
+    const decision = makeDecision({
+      reasoningSummary: "llm classification",
+      renderedCopy: {
+        vellum: { title: "Assistant", body: "chat.assistant_reply" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("fallback leak");
+  });
+
   test("still fails non-pass-through decision when body matches event name", async () => {
     // Regression guard: the pass-through short-circuit must not weaken
     // the check for LLM/fallback paths.

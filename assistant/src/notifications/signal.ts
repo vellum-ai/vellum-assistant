@@ -123,6 +123,11 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
       "OAuth credential health issue detected (expired, revoked, missing scopes)",
   },
   {
+    id: "chat.assistant_reply",
+    description:
+      "Assistant finished replying to a user-initiated turn the user is no longer watching",
+  },
+  {
     id: "telegram.webhook_health_alert",
     description:
       "Telegram webhook is not delivering (unregistered, or failing per getWebhookInfo)",
@@ -231,6 +236,11 @@ export interface NotificationSignal<TEventName extends string = string> {
   sourceEventName: TEventName; // free-form: 'reminder_fired', 'guardian_question', etc.
   contextPayload: NotificationContextPayload<TEventName>;
   attentionHints: AttentionHints;
+  /**
+   * Producer-supplied deduplication key. Deterministic decision paths reuse it
+   * as the decision's dedupeKey so the decision row matches the event row.
+   */
+  dedupeKey?: string;
   /** Routing intent from the source (e.g. reminder). Controls post-decision channel enforcement. */
   routingIntent?: RoutingIntent;
   /** Free-form hints from the source for the decision engine (e.g. preferred channels). */

@@ -253,6 +253,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     contextPayload: (params.contextPayload ??
       {}) as NotificationContextPayload<TEventName>,
     attentionHints: params.attentionHints,
+    dedupeKey: params.dedupeKey,
     routingIntent: params.routingIntent,
     routingHints: params.routingHints,
     conversationAffinityHint: params.conversationAffinityHint,
