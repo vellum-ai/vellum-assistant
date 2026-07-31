@@ -19,7 +19,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantQuery } from "@/assistant/queries";
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
-import { getLocalAssistants, isLocalMode } from "@/lib/local-mode";
+import { getLocalAssistants, isLocalClient } from "@/lib/local-mode";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -47,7 +47,7 @@ export function useAssistantLifecycle({
   const shouldQueryServer =
     isAuthenticated(sessionStatus) &&
     !isGatewayAuthMode() &&
-    (hasPlatformSession || !isLocalMode()) &&
+    (hasPlatformSession || !isLocalClient()) &&
     isOrgReady;
 
   // Which platform assistant the user has selected, gated by the

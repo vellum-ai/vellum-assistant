@@ -16,6 +16,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -196,6 +197,27 @@ describe("ActiveProcessOverlay — expand & rows", () => {
 
     expect(screen.getByText("Process a")).toBeTruthy();
     expect(screen.queryByText("Process b")).toBeNull();
+  });
+
+  test("stays open when a higher layer already claimed Escape", () => {
+    render(
+      <ActiveProcessOverlay
+        descriptor={fakeDescriptor(STACKED_PILL)}
+        ids={["a", "b"]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "2 active processes" }));
+    const event = new KeyboardEvent("keydown", {
+      key: "Escape",
+      cancelable: true,
+    });
+    event.preventDefault();
+
+    act(() => {
+      document.dispatchEvent(event);
+    });
+
+    expect(screen.getByText("2 Active")).toBeTruthy();
   });
 });
 

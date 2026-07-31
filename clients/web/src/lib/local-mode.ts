@@ -117,7 +117,7 @@ const commitLockfile = (data: Lockfile): void => {
 
 const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 
-export function isLocalMode(): boolean {
+export function isLocalClient(): boolean {
   const raw = import.meta.env.VITE_PLATFORM_MODE;
   if (!raw) {
     return true;
@@ -332,6 +332,45 @@ export async function syncPlatformAssistantsToLockfile(
   }
 }
 
+/**
+ * Remove a platform-hosted assistant's lockfile entry: a device-local
+ * "forget" that never touches the assistant itself. Rides the platform-replace
+ * host channel scoped to the entry's org: the remaining platform entries are
+ * written back minus the target, so local entries and other orgs' platform
+ * entries are untouched. A platform sync while logged in re-adds the
+ * assistant, so this only affects what the device lists while logged out.
+ */
+export async function removePlatformAssistantFromLockfile(
+  assistantId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const entry = getLockfileAssistant(assistantId);
+  if (!entry || !isPlatformAssistant(entry)) {
+    return { ok: false, error: "This assistant isn't in the local list." };
+  }
+  // Only the target org's entries ride the replace payload: the host treats
+  // every supplied id as replaced-by-payload, and the renderer's parsed copies
+  // drop host-only fields, so other orgs' on-disk records must stay out of the
+  // payload to survive raw. A legacy org-less entry can't be scoped; its
+  // unscoped replace resends every platform entry (minus the target).
+  const remaining = getPlatformAssistants()
+    .filter((a) => a.assistantId !== assistantId)
+    .filter(
+      (a) =>
+        entry.organizationId == null ||
+        a.organizationId === entry.organizationId,
+    )
+    .map((a) => ({ ...a }));
+  const result = await replacePlatformAssistantsHost(
+    remaining,
+    entry.organizationId,
+  );
+  if (!result.ok) {
+    return { ok: false, error: result.error || "Failed to remove assistant." };
+  }
+  commitLockfile(result.lockfile);
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Retire
 // ---------------------------------------------------------------------------
@@ -512,7 +551,7 @@ function expectsLocalGateway(
 ): assistant is LockfileAssistant {
   return (
     !!assistant &&
-    isLocalMode() &&
+    isLocalClient() &&
     !isRemoteGatewayMode() &&
     isLocalGatewayAssistant(assistant)
   );

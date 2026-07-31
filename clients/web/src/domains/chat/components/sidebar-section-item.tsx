@@ -6,17 +6,17 @@
  * header treatment identical and lets the user interleave them freely
  * (LUM-2909). Only three things vary by type, and they're all here:
  *
- * - **What the row list shows.** Chats and channel sections paginate
- *   ("Show more"); Pinned and custom groups show everything.
  * - **Whether rows drag.** Only the sections that honor `displayOrder`
  *   (Pinned, custom groups) offer row-level reordering - the rest stay
  *   recency-sorted, so dragging a row in them would have nothing to persist.
- * - **Whether the header carries a visible "…" button.** Custom groups own
- *   rename/delete, so their actions get a permanent affordance rather than
- *   living only behind right-click.
+ * - **Whether the header carries a "…" button.** The curated sections (Pinned
+ *   and the custom groups) get one, so their actions are reachable without
+ *   knowing to right-click. It reveals on hover; the derived sections (Chats,
+ *   the channel sections) keep their actions behind the header menu.
  *
  * Everything else - the icon, the collapse behavior, the header menu, the
- * section drag wiring - is uniform, and comes in already resolved.
+ * section drag wiring, and the bounded scrolling row list - is uniform, and
+ * comes in already resolved.
  */
 
 import type { ReactNode } from "react";
@@ -46,15 +46,10 @@ export interface SidebarSectionItemProps {
  */
 function rowListPropsFor(section: SidebarSection) {
   if (section.type === "recents" || section.type === "channel") {
-    return {
-      items: section.pagination.items,
-      pagination: section.pagination,
-      dragSection: undefined,
-    };
+    return { items: section.all, dragSection: undefined };
   }
   return {
     items: section.all,
-    pagination: undefined,
     dragSection:
       section.type === "pinned" ? "pinned" : `group:${section.key}`,
   };
@@ -72,9 +67,9 @@ export function SidebarSectionItem({
       icon={sectionIcon(section)}
       label={section.label}
       /* The "…" button and the header's right-click menu both render from
-         `groupMenu`; only custom groups carry the always-visible button. */
+         `groupMenu`; only the curated sections carry the button. */
       trailing={
-        section.type === "group" ? (
+        section.type === "group" || section.type === "pinned" ? (
           <GroupActionsMenu label={section.label} {...groupMenu} />
         ) : undefined
       }

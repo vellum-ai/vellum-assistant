@@ -1,10 +1,20 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  enforceCuratedLead,
   mergeSectionOrder,
   moveSectionKey,
   nextStoredOrder,
+  type SectionOrderClass,
 } from "@/domains/chat/utils/sidebar-section-order";
+
+/** Mirrors the sidebar's own classification: the switch's two tiers. */
+function classify(key: string): SectionOrderClass {
+  if (key === "recents" || key.startsWith("channel:")) {
+    return "governed";
+  }
+  return "curated";
+}
 
 describe("mergeSectionOrder", () => {
   test("falls back to the default order when nothing is stored", () => {
@@ -148,5 +158,58 @@ describe("moveSectionKey", () => {
 
   test("returns null for a key that isn't in the list", () => {
     expect(moveSectionKey(["a", "b"], "z", 1)).toBeNull();
+  });
+});
+
+describe("enforceCuratedLead", () => {
+  test("leaves an order that already respects the tiers alone", () => {
+    const keys = ["pinned", "grp-a", "recents", "channel:slack"];
+    expect(enforceCuratedLead(keys, classify)).toEqual(keys);
+  });
+
+  test("pulls a curated section back above the governed ones", () => {
+    expect(
+      enforceCuratedLead(
+        ["channel:slack", "pinned", "recents", "grp-a"],
+        classify,
+      ),
+    ).toEqual(["pinned", "grp-a", "channel:slack", "recents"]);
+  });
+
+  test("Chats cannot cross above the curated layer", () => {
+    expect(
+      enforceCuratedLead(["recents", "grp-a", "channel:slack"], classify),
+    ).toEqual(["grp-a", "recents", "channel:slack"]);
+  });
+
+  test("keeps relative order within each tier", () => {
+    expect(
+      enforceCuratedLead(
+        ["channel:telegram", "grp-b", "recents", "grp-a", "channel:slack"],
+        classify,
+      ),
+    ).toEqual([
+      "grp-b",
+      "grp-a",
+      "channel:telegram",
+      "recents",
+      "channel:slack",
+    ]);
+  });
+
+  test("a channel section may still sit above Chats - same tier", () => {
+    const keys = ["pinned", "channel:slack", "recents"];
+    expect(enforceCuratedLead(keys, classify)).toEqual(keys);
+  });
+
+  test("is a no-op when every section is in one tier", () => {
+    expect(enforceCuratedLead(["channel:slack", "recents"], classify)).toEqual([
+      "channel:slack",
+      "recents",
+    ]);
+    expect(enforceCuratedLead(["pinned", "grp-a"], classify)).toEqual([
+      "pinned",
+      "grp-a",
+    ]);
   });
 });

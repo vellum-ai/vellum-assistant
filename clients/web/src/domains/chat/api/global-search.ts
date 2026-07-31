@@ -12,6 +12,17 @@ import type { SearchGlobalGetResponse } from "@/generated/daemon/types.gen";
  */
 export type GlobalSearchResponse = SearchGlobalGetResponse["results"];
 
+/**
+ * A search outcome: the results plus the term the daemon actually matched
+ * on (the input with supported filters like `is:archived` stripped) and
+ * its lexical tokens from the daemon's own tokenizer.
+ */
+export interface GlobalSearchOutcome {
+  query: string;
+  queryTokens: string[];
+  results: GlobalSearchResponse;
+}
+
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
@@ -23,6 +34,23 @@ const EMPTY_RESULTS: GlobalSearchResponse = {
   contacts: [],
 };
 
+const EMPTY_OUTCOME: GlobalSearchOutcome = {
+  query: "",
+  queryTokens: [],
+  results: EMPTY_RESULTS,
+};
+
+/** Whitespace-token fallback for daemons that predate `queryTokens`. */
+function tokensWithFallback(
+  tokens: string[] | undefined,
+  query: string,
+): string[] {
+  if (tokens) {
+    return tokens;
+  }
+  return query.split(/\s+/).filter((token) => token.length > 0);
+}
+
 /**
  * Perform a global search across the daemon's indexed data for the given
  * assistant. Returns results grouped by category.
@@ -33,8 +61,8 @@ export async function searchGlobal(
   assistantId: string,
   query: string,
   options?: { limit?: number; signal?: AbortSignal },
-): Promise<GlobalSearchResponse> {
-  const limit = options?.limit ?? 20;
+): Promise<GlobalSearchOutcome> {
+  const limit = options?.limit ?? 10;
 
   try {
     const { data, response } = await searchGlobalGet({
@@ -49,16 +77,20 @@ export async function searchGlobal(
     });
 
     if (!response?.ok || !data) {
-      return EMPTY_RESULTS;
+      return EMPTY_OUTCOME;
     }
 
-    return data.results;
+    return {
+      query: data.query,
+      queryTokens: tokensWithFallback(data.queryTokens, data.query),
+      results: data.results,
+    };
   } catch (err) {
     // AbortError is expected when debounced queries supersede each other.
     if (err instanceof DOMException && err.name === "AbortError") {
-      return EMPTY_RESULTS;
+      return EMPTY_OUTCOME;
     }
     console.error("[global-search] search failed", { assistantId, query, err });
-    return EMPTY_RESULTS;
+    return EMPTY_OUTCOME;
   }
 }

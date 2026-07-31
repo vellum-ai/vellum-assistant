@@ -23,6 +23,10 @@ import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-s
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
 import { useThreadSuggestions } from "@/domains/chat/hooks/use-thread-suggestions";
 import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
   buildEditAppGreeting,
   buildEditAppStarters,
 } from "@/domains/chat/utils/edit-app-empty-state";
@@ -133,9 +137,25 @@ export function useChatEmptyState({
       : null;
 
   // The plain chat empty state: a fresh conversation outside the app-editing
-  // side panel. Gates the composer peek, the suggestions library, and the
+  // side panel. Gates the suggestions library, the starters dock, and the
   // proactive credits upsell card.
   const isPlainEmptyState = isEmptyConversation && !editingApp;
+
+  // The avatar's presence on the empty state lives entirely in
+  // `ComposerPeek` (hanging from the top of the screen while idle in the
+  // browser, saying hello from under the input on iOS, peeking behind the
+  // input while it's focused on both). The greeting headline renders
+  // alone.
+  // Not during a live-voice session. The peek is anchored to the composer's
+  // input rect, and a session replaces that input with the voice surface, so
+  // the avatar it hangs has nothing left to peek out from. On mobile it is
+  // worse than pointless: the peek is a `fixed` full-viewport portal, so its
+  // top-of-screen avatar dangles into the band above the voice sheet, which is
+  // the one part of the screen the sheet deliberately leaves to the thread
+  // header.
+  const liveVoiceState = useLiveVoiceStore.use.state();
+  const actsEnabled =
+    isPlainEmptyState && !isLiveVoiceSessionActive(liveVoiceState);
 
   // Behind the flag, the new suggestions library replaces the starter chips
   // on a fresh thread. The app-editing override keeps its bespoke chips
@@ -256,15 +276,13 @@ export function useChatEmptyState({
 
   // Portal component: mounting location doesn't matter, but it only runs
   // on the plain empty state (never over the app-editing side panel, whose
-  // composer shares the same DOM anchor). The avatar's presence on the empty
-  // state lives entirely in `ComposerPeek` (hanging from the top of the
-  // screen while idle, peeking behind the input while it's focused); the
-  // greeting headline renders alone.
-  const composerPeekSlot = isPlainEmptyState ? (
+  // composer shares the same DOM anchor) and never during a live-voice
+  // session (see `actsEnabled` above).
+  const composerPeekSlot = actsEnabled ? (
     <ComposerPeek
       components={avatarComponents}
       traits={avatarTraits}
-      active={isPlainEmptyState}
+      active={actsEnabled}
     />
   ) : undefined;
 

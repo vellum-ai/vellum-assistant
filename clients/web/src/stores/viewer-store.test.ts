@@ -545,54 +545,29 @@ describe("openProcessDetail", () => {
   });
 });
 
-describe("closeActiveDetail", () => {
-  it("closes an open subagent-detail and restores the prior view", () => {
-    useViewerStore.setState({ mainView: "app" });
-    getState().openProcessDetail({ kind: "subagent", id: "sa-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("app");
-    expect(state.activeSubagentId).toBeNull();
-  });
-
-  it("closes an open workflow-detail and restores the prior view", () => {
-    getState().openProcessDetail({ kind: "workflow", id: "run-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("chat");
-    expect(state.activeWorkflowRunId).toBeNull();
-  });
-
-  it("closes an open acp-run-detail and restores the prior view", () => {
-    getState().openProcessDetail({ kind: "acp-run", id: "acp-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("chat");
-    expect(state.activeAcpRunId).toBeNull();
-  });
-
-  it("closes an open background-task-detail and restores the prior view", () => {
-    getState().openProcessDetail({ kind: "background-task", id: "bg-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("chat");
-    expect(state.activeBackgroundTaskId).toBeNull();
-  });
-
-  it("is a no-op when no process-detail view is open", () => {
-    useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("app");
-    expect(state.activeAppId).toBe("app-1");
-  });
-
-  it("does not close tool-detail (out of scope for the process facade)", () => {
+describe("closeActiveOverlay", () => {
+  it("closes a tool detail overlay and restores its prior view", () => {
     getState().openToolDetail(SAMPLE_TOOL);
-    getState().closeActiveDetail();
-    const state = getState();
-    expect(state.mainView).toBe("tool-detail");
-    expect(state.activeToolDetail).toBe(SAMPLE_TOOL);
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeToolDetail).toBeNull();
+  });
+
+  it("closes a process detail overlay through its specific action", () => {
+    getState().openProcessDetail({ kind: "workflow", id: "run-1" });
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeWorkflowRunId).toBeNull();
+  });
+
+  it("returns false without changing a non-overlay view", () => {
+    useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
+
+    expect(getState().closeActiveOverlay()).toBe(false);
+    expect(getState().mainView).toBe("app");
+    expect(getState().activeAppId).toBe("app-1");
   });
 });
 

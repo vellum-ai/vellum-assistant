@@ -10,6 +10,7 @@ import {
   spawnDetachedWalCheckpoint,
 } from "../persistence/db-async-query.js";
 import { getSqlite, isDbOpen, resetDb } from "../persistence/db-connection.js";
+import { shutdownEmbeddingBackends } from "../persistence/embeddings/embedding-backend.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import { stopConsentRefresh } from "../platform/consent-cache.js";
 import { HOOKS } from "../plugin-api/constants.js";
@@ -70,12 +71,15 @@ async function shutdown(): Promise<void> {
   // Set this BEFORE awaiting heartbeat stop so it covers all
   // potentially-blocking async shutdown work.
   //
-  // 20s budget: 15s reserved for Meet session teardown
-  // (`MeetSessionManager.shutdownAll`), plus ~5s for the remaining
-  // daemon work (workspace commits, server drain, enrichment, telemetry,
-  // mcp, qdrant, sqlite checkpoint). Without a live Meet session the
-  // rest of the shutdown routinely completes in under a second, so this
-  // bump only changes behavior for the stuck-shutdown path.
+  // 30s budget: 15s reserved for Meet session teardown
+  // (`MeetSessionManager.shutdownAll`), up to
+  // `EMBEDDING_SHUTDOWN_BUDGET_MS` for reaping the embedding worker
+  // subprocesses, plus ~5s for the remaining daemon work (workspace commits,
+  // server drain, enrichment, telemetry, mcp, qdrant, sqlite checkpoint).
+  // Without a live Meet session the rest of the shutdown routinely completes
+  // in under a second, so this only changes behavior for the stuck-shutdown
+  // path. Forcing the exit before the embedding reap finishes would orphan the
+  // worker this shutdown exists to collect.
   const forceTimer = setTimeout(() => {
     log.warn("Graceful shutdown timed out, forcing exit");
     // A stuck shutdown may never reach the graceful WAL checkpoint below —
@@ -90,7 +94,7 @@ async function shutdown(): Promise<void> {
     }
     stopBackgroundServicesAndCleanupPidFile();
     process.exit(1);
-  }, 20_000);
+  }, 30_000);
   forceTimer.unref();
 
   await stopWorkspaceHeartbeatService();
@@ -179,6 +183,15 @@ async function shutdown(): Promise<void> {
     await stopMcpServerManager();
   } catch (err) {
     log.warn({ err }, "MCP server manager shutdown failed (non-fatal)");
+  }
+
+  // Local embedding backends own an ONNX worker subprocess each. Nothing else
+  // reaps them, so without this they outlive the daemon holding ~570 MB apiece
+  // until the next boot happens to reclaim them (JARVIS-1125).
+  try {
+    await shutdownEmbeddingBackends();
+  } catch (err) {
+    log.warn({ err }, "Embedding backend shutdown failed (non-fatal)");
   }
 
   await stopQdrantManager();

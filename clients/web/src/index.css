@@ -15,6 +15,14 @@ body {
   color: var(--content-default);
 }
 
+/* Capacitor iOS shell: the app shell shrinks ahead of the keyboard plugin's
+ * deferred web view resize, briefly exposing the canvas, which unpainted falls
+ * through (isOpaque = false) to the near-white native SurfaceOverlay backdrop.
+ * Gated because Electron's transparent floating windows need an unpainted canvas. */
+:root[data-native-platform="ios"] body {
+  background: var(--surface-base);
+}
+
 /* Electron prechat onboarding typography — mirror the lighter DM Sans (Swift
  * VFont) weights/sizes so the macOS Electron funnel matches the native Swift
  * client. Scoped via `.electron-prechat-type` (applied ONLY on Electron) so the
@@ -49,9 +57,6 @@ body {
 
 @keyframes fadeInUp {
   0% { transform: translateY(16px); opacity: 0; }
-  /* End at `none` (not translateY(0)) so the filled-forwards transform does
-     not create a containing block — otherwise position:fixed descendants like
-     the Dropdown menu anchor to this element instead of the viewport. */
   100% { transform: none; opacity: 1; }
 }
 
@@ -68,8 +73,12 @@ body {
   animation: fadeIn 0.25s ease-out both;
 }
 
+/* `backwards`, not `both`: see the note on `.home-detail-drawer` below. A
+   forwards-filled transform stays applied as an identity matrix once the
+   animation ends, and that is enough to make this element the containing
+   block for any `position: fixed` descendant. */
 .plans-takeover-content-enter {
-  animation: fadeInUp 0.35s ease-out both;
+  animation: fadeInUp 0.35s ease-out backwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -87,15 +96,23 @@ body {
 }
 
 /* Home Activity detail drawer (schedule / heartbeat / notification) sliding
-   in from the right. Ends at `transform: none` for the same containing-block
-   reason as fadeInUp above (the panel hosts fixed Dropdown/tooltip layers). */
+   in from the right. The panel hosts fixed Dropdown/tooltip layers, so the
+   fill mode below matters: see the note on the rule. */
 @keyframes drawer-slide-in {
   0% { transform: translateX(16px); opacity: 0; }
   100% { transform: none; opacity: 1; }
 }
 
+/* `backwards`, not `both`. Forwards-fill would hold the final keyframe after
+   the animation ends, and the held value is the interpolated identity matrix,
+   not the `transform: none` written above. A transform of any kind, identity
+   included, makes this element the containing block for `position: fixed`
+   descendants, which silently defeats the intent the keyframe documents:
+   fixed layers inside the panel would resolve their viewport coordinates
+   against this box and land offscreen. Dropping forwards-fill costs nothing,
+   because the final keyframe is already the element's own resting style. */
 .home-detail-drawer {
-  animation: drawer-slide-in 0.2s ease-out both;
+  animation: drawer-slide-in 0.2s ease-out backwards;
   height: 100%;
 }
 
@@ -948,6 +965,93 @@ body {
   to {
     transform: translateX(-1200px);
   }
+}
+
+/* Audio-reactive eyes (use-reactive-eyes.ts). `--eye-amp` is written per frame
+ * from the live amplitude; the gesture is picked by `data-eye-reaction`.
+ * Deliberately small — the eyes are the room's fixed point, so this is meant to
+ * read as alive, not as dancing. Composes with (rather than replaces) the
+ * entrance keyframes and the per-state size tween, which live on ancestors. */
+.voice-room-eyes-reactive {
+  --eye-amp: 0;
+  transform-origin: center;
+  will-change: transform;
+}
+
+/* Listening: the eyes open up toward the speaker — mostly vertical, so it
+ * reads as widening rather than as zooming — and lift very slightly. */
+.voice-room-eyes-reactive[data-eye-reaction="listening"] {
+  transform: translateY(calc(var(--eye-amp) * -1.5%))
+    scaleX(calc(1 + var(--eye-amp) * 0.03))
+    scaleY(calc(1 + var(--eye-amp) * 0.1));
+}
+
+/* Responding: a rounder pulse on the assistant's own output amplitude, with a
+ * small bounce — the "energy going out" language of the responding treatment
+ * radiating behind them. */
+.voice-room-eyes-reactive[data-eye-reaction="responding"] {
+  transform: translateY(calc(var(--eye-amp) * -2.5%))
+    scale(calc(1 + var(--eye-amp) * 0.055));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-room-eyes-reactive {
+    transform: none;
+  }
+}
+
+/* Mesh band (voice-mesh-waves.tsx): the canvas already answers amplitude in its
+ * own geometry — the sheet expands and contracts as the envelope swells — so the
+ * container must NOT also translate or scale with `--voice-amp`. Two responses
+ * stacked on one signal read as the whole band bouncing up and down behind a
+ * sheet that is separately breathing, which is the tell that this is an effect
+ * rather than a picture of the voice. Keep the static anchoring (and the
+ * brightness, which composes fine); drop the movement. */
+.voice-listening-waves--mesh,
+.voice-listening-waves--mesh.voice-listening-waves--top,
+.voice-listening-waves--mesh.voice-listening-waves--inline {
+  transform: none;
+  /* Fade all the way out with the voice, rather than to the shared band's 0.28
+   * floor. The sheet's displacement already drops to nothing as amplitude does
+   * (`idleEnvelope: 0`), so a floored opacity would leave a flat, permanently
+   * visible line across the room between turns. `--band-peak-opacity` is the
+   * per-voice ceiling the room sets (see `BAND_VOICE`); `--band-presence` is a
+   * saturating curve on the amplitude rather than the raw value, so the ceiling
+   * is reached at ordinary speaking level instead of only at a shout — see
+   * `opacityKnee`. Multiplying two linear ramps was what made the band read as
+   * barely there. */
+  opacity: calc(var(--band-presence, 0) * var(--band-peak-opacity, 1));
+}
+/* The centered band still needs its own -50% or it drops half a band height;
+ * only the amplitude-driven scaleY comes off. */
+.voice-listening-waves--mesh.voice-listening-waves--center {
+  transform: translateY(-50%);
+}
+
+/* Push the two edge bands further out of frame than the filled band sits.
+ *
+ * The mesh centers its sheet inside whatever box it is given, so a band
+ * spanning 0–42% puts the weave's spine at 21% — close enough to the middle
+ * that it crowds the eyes and reads as two competing centerpieces. Hanging the
+ * box off the edge moves the spine to ~11% (and its mirror at ~89%), which
+ * both clears the eyes and lets the sheet run off the top and bottom of the
+ * screen rather than terminating inside it — the energy arrives from outside
+ * the room instead of starting at a visible boundary. The room's own
+ * `overflow-hidden` does the clipping. */
+.voice-listening-waves--mesh.voice-listening-waves--top {
+  top: -10%;
+}
+.voice-listening-waves--mesh.voice-listening-waves--bottom {
+  bottom: -10%;
+}
+
+/* Reactive band (voice-reactive-waves.tsx): the path geometry is rebuilt every
+ * frame from a rolling history of the live amplitude, so the horizontal motion
+ * *is* the signal scrolling by. The drift keyframe above would slide that
+ * terrain a second time, so it comes off — everything else (palette, style,
+ * placement, the `--voice-amp` rise/brightness) still applies. */
+.voice-listening-waves--reactive path {
+  animation: none;
 }
 
 /* Line style: stroke the open curve; no fill. */

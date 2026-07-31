@@ -159,9 +159,18 @@ describe("ensureDefaultProvider", () => {
     expect(llm().defaultProvider).toEqual({ provider: "anthropic" });
   });
 
-  test("an invalid/non-catalog signal falls through to the matrix", async () => {
+  test("a legacy signal naming a non-matrix API-key provider is honored", async () => {
     proxyState.prereqs = false;
     writeConfig({ llm: { default: { provider: "minimax" } } });
+
+    await ensureDefaultProvider(workspaceDir);
+
+    expect(llm().defaultProvider).toEqual({ provider: "minimax" });
+  });
+
+  test("a signal naming a provider that cannot back the defaults falls through", async () => {
+    proxyState.prereqs = false;
+    writeConfig({ llm: { default: { provider: "litellm" } } });
 
     await ensureDefaultProvider(workspaceDir);
 

@@ -127,7 +127,8 @@ export function IntegrationDetailModal({
   // Modal: Escape key + body scroll lock
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
         onClose();
       }
     };

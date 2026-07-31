@@ -41,9 +41,13 @@ function renderEyes(onRender?: () => void) {
   const utils = render(<Probe />);
   const root = utils.getByTestId("voice-room-eyes");
   // The lid group carries the blink transform; the parallax layer carries the
-  // cursor offset.
+  // cursor offset. Addressed by test id rather than by tree position: the eyes
+  // stack several transform layers that compose rather than replace each other
+  // (parallax, the audio reaction, the per-state size tween), and `svg`'s
+  // parent silently became a different one of them when the reaction layer
+  // landed.
   const lids = root.querySelector("g") as SVGGElement;
-  const parallax = root.querySelector("svg")?.parentElement as HTMLElement;
+  const parallax = utils.getByTestId("voice-room-eyes-parallax");
   return { ...utils, lids, parallax };
 }
 

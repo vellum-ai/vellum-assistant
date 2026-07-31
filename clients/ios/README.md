@@ -308,15 +308,14 @@ There's a deliberate mismatch:
 | Where                       | Value                                      |
 | --------------------------- | ------------------------------------------ |
 | Xcode `PRODUCT_BUNDLE_IDENTIFIER` | `ai.vocify-inc.vellum-assistant-ios` ← real one |
-| `capacitor.config.ts` `appId`     | `ai.vocify.vellumassistantios`                  |
+| `capacitor.config.ts` `appId`     | `ai.vocify.vellumassistant`                     |
 
-Capacitor's CLI rejects `appId`s with hyphens (it requires Java package
-form), but Apple's bundle ID rules _do_ allow hyphens — and our existing
-App Store Connect app, signing cert, and provisioning profile all use
-the hyphenated form. The hyphen-free `appId` exists only to satisfy
-`cap init` / `cap add` / `cap sync` validation. **Do not "fix" this
-mismatch** — doing so would require re-provisioning the entire app.
-See the inline comment in `capacitor.config.ts`.
+Capacitor requires `appId` to use Java package form because Android uses it as
+the application namespace. The iOS project is generated from `project.yml`
+after `cap sync`, and its xcconfigs keep the existing hyphenated App Store
+bundle IDs. **Do not align the iOS bundle IDs with `appId`** because doing so
+would require re-provisioning the app. See the inline comment in
+`capacitor.config.ts`.
 
 ## Common tasks
 

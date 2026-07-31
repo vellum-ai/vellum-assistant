@@ -55,6 +55,10 @@ export function isThinkingConfigDisabled(thinking: unknown): boolean {
   return normalizeThinkingConfigForWire(thinking)?.type === "disabled";
 }
 
+export function isThinkingConfigAdaptive(thinking: unknown): boolean {
+  return normalizeThinkingConfigForWire(thinking)?.type === "adaptive";
+}
+
 export function isThinkingConfigEnabled(thinking: unknown): boolean {
   const normalized = normalizeThinkingConfigForWire(thinking);
   return normalized !== undefined && normalized.type !== "disabled";

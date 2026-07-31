@@ -34,6 +34,7 @@ import {
   type IpcCallOptions,
 } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
+import { verifySignedQueryHandshake } from "../plugin-ingress-handshake.js";
 import {
   VELLUM_TIMESTAMP_HEADER,
   handshakeSignedPayload,
@@ -157,35 +158,71 @@ export function createPluginWebhookWebsocketHandler(deps: PluginWebhookWsDeps) {
       return new Response("Webhook secret not configured", { status: 409 });
     }
 
-    // A handshake carries no body to sign, so the signature covers the
-    // timestamp and the path instead, and the timestamp bounds how long a
-    // captured handshake stays usable.
-    const timestamp = req.headers.get(VELLUM_TIMESTAMP_HEADER);
-    if (!timestamp || !timestampWithinTolerance(timestamp)) {
-      log.warn(
-        { plugin, path },
-        "Plugin webhook WS: missing or stale timestamp",
-      );
-      return new Response("Forbidden", { status: 403 });
-    }
-    const signed = handshakeSignedPayload(timestamp, new URL(req.url).pathname);
-    // Verify through the refresh helper rather than against the value read
-    // above: a secret that rotated while the cache still held the old one
-    // would otherwise fail an upgrade that is actually valid.
-    const signatureValid = await verifySecretWithRefresh({
-      credentials,
-      key: secretKey,
-      verify: (candidate) =>
-        verifyVellumSignature(req.headers, signed, candidate),
-      log,
-      label: "Plugin webhook WS handshake",
-    });
-    if (!signatureValid) {
-      log.warn(
-        { plugin, path, signer: route.signer },
-        "Plugin webhook WS: signature verification failed",
-      );
-      return new Response("Forbidden", { status: 403 });
+    const url = new URL(req.url);
+
+    // Both branches verify through the refresh helper rather than against the
+    // secret read above: one that rotated while the cache still held the old
+    // value would otherwise fail an upgrade that is actually valid.
+    if (route.handshake === "signed-query") {
+      // The caller was handed a URL and nothing else, so the whole credential
+      // is in the query string. It carries its own expiry instead of a
+      // freshness window: the URL is minted long before it is dialed.
+      let rejection: string | undefined;
+      const valid = await verifySecretWithRefresh({
+        credentials,
+        key: secretKey,
+        verify: (candidate) => {
+          const result = verifySignedQueryHandshake({
+            url,
+            pathname: url.pathname,
+            secret: candidate,
+          });
+          // Kept for the log line below. On a retry against a refreshed
+          // secret this holds the second attempt's reason, which is the one
+          // that decided the outcome.
+          if (!result.ok) {
+            rejection = result.reason;
+          }
+          return result.ok;
+        },
+        log,
+        label: "Plugin webhook WS signed-query handshake",
+      });
+      if (!valid) {
+        log.warn(
+          { plugin, path, signer: route.signer, rejection },
+          "Plugin webhook WS: signed-query handshake rejected",
+        );
+        return new Response("Forbidden", { status: 403 });
+      }
+    } else {
+      // A handshake carries no body to sign, so the signature covers the
+      // timestamp and the path instead, and the timestamp bounds how long a
+      // captured handshake stays usable.
+      const timestamp = req.headers.get(VELLUM_TIMESTAMP_HEADER);
+      if (!timestamp || !timestampWithinTolerance(timestamp)) {
+        log.warn(
+          { plugin, path },
+          "Plugin webhook WS: missing or stale timestamp",
+        );
+        return new Response("Forbidden", { status: 403 });
+      }
+      const signed = handshakeSignedPayload(timestamp, url.pathname);
+      const valid = await verifySecretWithRefresh({
+        credentials,
+        key: secretKey,
+        verify: (candidate) =>
+          verifyVellumSignature(req.headers, signed, candidate),
+        log,
+        label: "Plugin webhook WS handshake",
+      });
+      if (!valid) {
+        log.warn(
+          { plugin, path, signer: route.signer },
+          "Plugin webhook WS: signature verification failed",
+        );
+        return new Response("Forbidden", { status: 403 });
+      }
     }
 
     const upgraded = server.upgrade(req, {

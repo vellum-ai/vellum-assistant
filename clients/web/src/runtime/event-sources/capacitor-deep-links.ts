@@ -1,3 +1,5 @@
+import { Capacitor } from "@capacitor/core";
+
 import { publish } from "@/lib/event-bus";
 import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
 import {
@@ -8,7 +10,7 @@ import {
 } from "@/runtime/native-deep-link";
 
 /**
- * Capacitor iOS shell's `App.appUrlOpen` → deep-link routing.
+ * Capacitor shell deep-link routing.
  *
  * OAuth-complete URLs (`vellum-assistant://oauth-complete?…`) dispatch
  * the `OAUTH_COMPLETE_DEEP_LINK_EVENT` window CustomEvent that
@@ -20,7 +22,7 @@ import {
  * other URL publishes `deeplink.unknown { url }` on the bus
  * (query/fragment stripped).
  *
- * Off Capacitor iOS the function is a no-op — Electron deep links flow
+ * Off Capacitor the function is a no-op; Electron deep links flow
  * through `publishElectronDeepLinksSource` instead.
  *
  * Lazy inline `@capacitor/app` import per CAPACITOR.md's "lazy-import rule".
@@ -28,7 +30,23 @@ import {
 export function publishCapacitorDeepLinksSource(): () => void {
   return subscribeCapacitorListener("capacitor_deep_links", async () => {
     const { App } = await import("@capacitor/app");
-    return App.addListener("appUrlOpen", ({ url }) => handleUrl(url));
+    const listener = await App.addListener("appUrlOpen", ({ url }) =>
+      handleUrl(url),
+    );
+    try {
+      // iOS replays cold-launch URLs through AppDelegate. Its last URL remains
+      // cached for the process, so reading it here would deliver it twice.
+      if (Capacitor.getPlatform() === "android") {
+        const launch = await App.getLaunchUrl();
+        if (launch?.url) {
+          handleUrl(launch.url);
+        }
+      }
+      return listener;
+    } catch (error) {
+      await listener.remove();
+      throw error;
+    }
   });
 }
 

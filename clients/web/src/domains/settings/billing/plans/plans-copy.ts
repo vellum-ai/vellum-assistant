@@ -36,13 +36,13 @@ export const PLAN_TIER_COPY: Record<PlanTierKey, PlanTierCopy> = {
     recommended: true,
   },
   super: {
-    tagline: "Stronger performance for heavier workloads.",
+    tagline: "Do more, think less about the how.",
     cta: "Go Super",
     priceCaption: "Billed monthly",
     extraFeatures: ["Assistant email and subdomain"],
   },
   ultra: {
-    tagline: "Built for sustained, high-demand work.",
+    tagline: "Your second brain, running full speed.",
     cta: "Unleash Ultra",
     priceCaption: "Billed monthly",
     extraFeatures: ["Assistant email and subdomain"],

@@ -10,6 +10,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Gateway ingress/webhooks                    | [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)                                               |
 | Browser extension                            | [`clients/chrome-extension/README.md`](clients/chrome-extension/README.md)                                               |
 | Clients (web, iOS, macOS/Electron)           | [`clients/README.md`](clients/README.md)                                                           |
+| Public docs site (`clients/docs`)            | [`clients/docs/README.md`](clients/docs/README.md)                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
 | Assistant scheduling deep dive              | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md)           |
