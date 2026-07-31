@@ -21,7 +21,10 @@ import {
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
 import { isGuardianSensitiveEvent } from "./adapters/macos.js";
-import { pairDeliveryWithConversation } from "./conversation-pairing.js";
+import {
+  pairDeliveryWithConversation,
+  type PairingResult,
+} from "./conversation-pairing.js";
 import { composeFallbackCopy } from "./copy-composer.js";
 import {
   createDelivery,
@@ -43,7 +46,9 @@ import type { NotificationSignal } from "./signal.js";
 import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
+  ChannelDestination,
   ConversationAction,
+  DeliveryResult,
   NotificationChannel,
   NotificationDecision,
   NotificationDeliveryResult,
@@ -223,6 +228,23 @@ export interface BroadcastDecisionOptions {
   onConversationCreated?: OnConversationCreatedFn;
 }
 
+/**
+ * A channel dispatch that is fully prepared (destination resolved, copy
+ * rendered, conversation paired, pending delivery row created) but whose
+ * adapter send has not yet run. Used to defer the vellum send until the
+ * platform dispatch outcome is known.
+ */
+interface PendingChannelDispatch {
+  adapter: ChannelAdapter;
+  channel: NotificationChannel;
+  destination: ChannelDestination;
+  payload: ChannelDeliveryPayload;
+  deliveryId: string;
+  destinationLabel: string;
+  pairing: PairingResult;
+  hasPersistedDecision: boolean;
+}
+
 export class NotificationBroadcaster {
   private adapters: Map<NotificationChannel, ChannelAdapter>;
   private onConversationCreated: OnConversationCreatedFn | null = null;
@@ -268,16 +290,22 @@ export class NotificationBroadcaster {
 
     // Ensure vellum is processed first so the notification_conversation_created
     // event fires immediately, before slower channel sends (e.g. Telegram 30s
-    // timeout) can delay it past the macOS deep-link retry window.
-    const orderedChannels = [...decision.selectedChannels].sort((a, b) => {
-      if (a === "vellum") {
-        return -1;
+    // timeout) can delay it past the macOS deep-link retry window. Platform
+    // sorts second: the vellum intent carries remotePushDispatched, so its
+    // deferred send (below) flushes right after the platform outcome is known
+    // instead of waiting behind slower channels.
+    const dispatchRank = (channel: NotificationChannel): number => {
+      if (channel === "vellum") {
+        return 0;
       }
-      if (b === "vellum") {
+      if (channel === "platform") {
         return 1;
       }
-      return 0;
-    });
+      return 2;
+    };
+    const orderedChannels = [...decision.selectedChannels].sort(
+      (a, b) => dispatchRank(a) - dispatchRank(b),
+    );
 
     // Pre-compute fallback copy in case any channel is missing rendered copy
     let fallbackCopy: Partial<
@@ -301,7 +329,34 @@ export class NotificationBroadcaster {
       messageId: string | null;
     } | null = null;
 
+    // The vellum intent's remotePushDispatched flag must reflect the ACTUAL
+    // platform dispatch outcome, not channel selection: when both channels
+    // are selected, the vellum channel is still prepared first (pairing, the
+    // conversation-created emission, and the pending delivery row all run
+    // eagerly, so the platform deep link keeps the vellum pairing carry), but
+    // its adapter send is deferred until the platform adapter reports whether
+    // the platform accepted a device push. Typical cost: one fast HTTP
+    // round-trip before the local banner goes out.
+    let deferredVellumSend: PendingChannelDispatch | null = null;
+    let platformRemotePushAccepted = false;
+    const flushDeferredVellumSend = async (): Promise<void> => {
+      if (!deferredVellumSend) {
+        return;
+      }
+      const pending = deferredVellumSend;
+      deferredVellumSend = null;
+      pending.payload.remotePushDispatched = platformRemotePushAccepted;
+      await this.sendAndRecord(pending, signal, results);
+    };
+
     for (const channel of orderedChannels) {
+      // Platform sorts immediately after vellum, so once any other channel is
+      // reached the platform outcome is settled: flush the deferred vellum
+      // send now so the local banner is not held behind slower sends.
+      if (channel !== "vellum" && channel !== "platform") {
+        await flushDeferredVellumSend();
+      }
+
       const adapter = this.adapters.get(channel);
       if (!adapter) {
         log.warn(
@@ -555,6 +610,9 @@ export class NotificationBroadcaster {
         approvalContext,
         accessRequestContext,
         toolApprovalSource,
+        // Starts false for vellum; the deferred-send flush overwrites it
+        // with the actual platform outcome when platform is also selected.
+        ...(channel === "vellum" ? { remotePushDispatched: false } : {}),
       };
 
       // Compute conversation decision audit fields for the delivery record
@@ -589,68 +647,12 @@ export class NotificationBroadcaster {
             "No persisted decision ID -- skipping delivery record creation",
           );
         }
-
-        const adapterResult = await adapter.send(payload, destination);
-
-        if (adapterResult.success) {
-          // Prefer the channel-native id the adapter just captured (e.g.
-          // Slack `ts`) so later edits can target the same message; fall
-          // back to the pairing-supplied id for channels that surface it
-          // through conversation pairing instead.
-          const resolvedMessageId =
-            adapterResult.messageId ?? pairing.messageId ?? undefined;
-          if (hasPersistedDecision) {
-            updateDeliveryStatus(
-              deliveryId,
-              "sent",
-              undefined,
-              adapterResult.messageId
-                ? { messageId: adapterResult.messageId }
-                : undefined,
-            );
-          }
-          results.push({
-            channel,
-            destination: destinationLabel,
-            status: "sent",
-            sentAt: Date.now(),
-            conversationId: pairing.conversationId ?? undefined,
-            messageId: resolvedMessageId,
-            conversationStrategy: pairing.strategy,
-          });
-        } else {
-          if (hasPersistedDecision) {
-            updateDeliveryStatus(deliveryId, "failed", {
-              message: adapterResult.error,
-            });
-          }
-          results.push({
-            channel,
-            destination: destinationLabel,
-            status: "failed",
-            errorMessage: adapterResult.error,
-            conversationId: pairing.conversationId ?? undefined,
-            messageId: pairing.messageId ?? undefined,
-            conversationStrategy: pairing.strategy,
-          });
-        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         log.error(
           { err, channel, signalId: signal.signalId },
-          "Unexpected error during channel delivery",
+          "Failed to create delivery record",
         );
-
-        if (hasPersistedDecision) {
-          try {
-            updateDeliveryStatus(deliveryId, "failed", {
-              message: errorMessage,
-            });
-          } catch {
-            // Swallow -- the delivery record may not exist if createDelivery failed
-          }
-        }
-
         results.push({
           channel,
           destination: destinationLabel,
@@ -660,10 +662,135 @@ export class NotificationBroadcaster {
           messageId: pairing.messageId ?? undefined,
           conversationStrategy: pairing.strategy,
         });
+        continue;
+      }
+
+      const dispatch: PendingChannelDispatch = {
+        adapter,
+        channel,
+        destination,
+        payload,
+        deliveryId,
+        destinationLabel,
+        pairing,
+        hasPersistedDecision,
+      };
+
+      if (channel === "vellum" && orderedChannels.includes("platform")) {
+        // The vellum intent carries remotePushDispatched, so its send waits
+        // for the platform outcome; everything else (pairing, events, the
+        // pending delivery row) already ran above.
+        deferredVellumSend = dispatch;
+        continue;
+      }
+
+      const adapterResult = await this.sendAndRecord(dispatch, signal, results);
+      if (channel === "platform") {
+        platformRemotePushAccepted = adapterResult?.remotePushAccepted === true;
       }
     }
 
+    // Covers the common [vellum, platform] selection where no later channel
+    // triggered the flush.
+    await flushDeferredVellumSend();
+
     return results;
+  }
+
+  /**
+   * Dispatch a prepared payload through its channel adapter and record the
+   * outcome (delivery row status + results entry). Returns the adapter's
+   * result, or null when the send threw.
+   */
+  private async sendAndRecord(
+    dispatch: PendingChannelDispatch,
+    signal: NotificationSignal,
+    results: NotificationDeliveryResult[],
+  ): Promise<DeliveryResult | null> {
+    const {
+      adapter,
+      channel,
+      destination,
+      payload,
+      deliveryId,
+      destinationLabel,
+      pairing,
+      hasPersistedDecision,
+    } = dispatch;
+    try {
+      const adapterResult = await adapter.send(payload, destination);
+
+      if (adapterResult.success) {
+        // Prefer the channel-native id the adapter just captured (e.g.
+        // Slack `ts`) so later edits can target the same message; fall
+        // back to the pairing-supplied id for channels that surface it
+        // through conversation pairing instead.
+        const resolvedMessageId =
+          adapterResult.messageId ?? pairing.messageId ?? undefined;
+        if (hasPersistedDecision) {
+          updateDeliveryStatus(
+            deliveryId,
+            "sent",
+            undefined,
+            adapterResult.messageId
+              ? { messageId: adapterResult.messageId }
+              : undefined,
+          );
+        }
+        results.push({
+          channel,
+          destination: destinationLabel,
+          status: "sent",
+          sentAt: Date.now(),
+          conversationId: pairing.conversationId ?? undefined,
+          messageId: resolvedMessageId,
+          conversationStrategy: pairing.strategy,
+        });
+      } else {
+        if (hasPersistedDecision) {
+          updateDeliveryStatus(deliveryId, "failed", {
+            message: adapterResult.error,
+          });
+        }
+        results.push({
+          channel,
+          destination: destinationLabel,
+          status: "failed",
+          errorMessage: adapterResult.error,
+          conversationId: pairing.conversationId ?? undefined,
+          messageId: pairing.messageId ?? undefined,
+          conversationStrategy: pairing.strategy,
+        });
+      }
+      return adapterResult;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(
+        { err, channel, signalId: signal.signalId },
+        "Unexpected error during channel delivery",
+      );
+
+      if (hasPersistedDecision) {
+        try {
+          updateDeliveryStatus(deliveryId, "failed", {
+            message: errorMessage,
+          });
+        } catch {
+          // Swallow -- best-effort failure-status update
+        }
+      }
+
+      results.push({
+        channel,
+        destination: destinationLabel,
+        status: "failed",
+        errorMessage,
+        conversationId: pairing.conversationId ?? undefined,
+        messageId: pairing.messageId ?? undefined,
+        conversationStrategy: pairing.strategy,
+      });
+      return null;
+    }
   }
 }
 
