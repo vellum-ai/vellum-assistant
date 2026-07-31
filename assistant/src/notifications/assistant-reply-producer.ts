@@ -17,6 +17,7 @@ import {
   getMessageById,
   getMessagesPaginated,
   isEchoSuppressedUserMessage,
+  isVoiceSessionUserMessage,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { resolveConversationKind } from "../persistence/conversation-types.js";
@@ -120,6 +121,12 @@ export async function emitAssistantReplyNotification(params: {
     // sends) are persisted with role "user" but are internal scaffolding, so
     // the turn they open is nobody's prompt awaiting a reply.
     if (isEchoSuppressedUserMessage(initiatingMetadata)) {
+      return;
+    }
+    // A phone or in-app voice utterance is answered out loud over the session
+    // the user is still on, so the reply is never unseen in the sense this
+    // producer notifies about; pushing here would fire once per spoken turn.
+    if (isVoiceSessionUserMessage(initiatingMetadata)) {
       return;
     }
 

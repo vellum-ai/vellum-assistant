@@ -338,7 +338,10 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
     expect(fake.lastPersistOpts()?.content).toBe(
       ESCALATION_CONTINUATION_CONTENT,
     );
-    expect(fake.lastPersistOpts()?.metadata).toEqual({ hidden: true });
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+      hidden: true,
+    });
   });
 
   test("the opener prompt is persisted un-hidden (unchanged)", async () => {
@@ -347,7 +350,33 @@ describe("startVoiceTurn escalation-continuation persistence", () => {
 
     await startVoiceTurn(makeTurnOptions()); // content: CALL_OPENING_MARKER
 
-    expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+    });
+  });
+});
+
+describe("startVoiceTurn voice-origin marker", () => {
+  // The reply to a voice turn is spoken back over the open session, so
+  // downstream consumers (the assistant-reply push producer) need a durable
+  // way to recognize the row. The channel fields cannot serve: live voice
+  // persists as `vellum`/`macos`, the same as a typed desktop send.
+  test("every persisted voice row carries voiceSessionTurn", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what's the weather",
+      userMessageChannel: "vellum",
+      userMessageInterface: "macos",
+    });
+
+    expect(
+      realConversationCrud.isVoiceSessionUserMessage(
+        fake.lastPersistOpts()?.metadata as Record<string, unknown>,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -390,7 +419,10 @@ describe("startVoiceTurn hiddenSyntheticPrompt", () => {
     );
 
     expect(fake.lastPersistOpts()?.content).toBe(SYNTHETIC_CONTENT);
-    expect(fake.lastPersistOpts()?.metadata).toEqual({ hidden: true });
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+      hidden: true,
+    });
     expect(echoes).toHaveLength(0);
   });
 
@@ -405,7 +437,9 @@ describe("startVoiceTurn hiddenSyntheticPrompt", () => {
       }),
     );
 
-    expect(fake.lastPersistOpts()?.metadata).toBeUndefined();
+    expect(fake.lastPersistOpts()?.metadata).toEqual({
+      voiceSessionTurn: true,
+    });
     expect(echoes).toEqual([
       expect.objectContaining({ text: SYNTHETIC_CONTENT }),
     ]);

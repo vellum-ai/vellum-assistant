@@ -9,6 +9,7 @@
  *   - An `automated: true` initiating user message is silent.
  *   - A hidden lifecycle row (subagent / ACP notification) opening the turn is
  *     silent.
+ *   - A live phone / in-app voice utterance opening the turn is silent.
  *   - An already-seen reply is silent.
  *   - A tool-only reply (empty text preview) is silent.
  *   - A throwing dependency is swallowed, not propagated.
@@ -333,6 +334,55 @@ describe("emitAssistantReplyNotification", () => {
       expect(emitCalls).toHaveLength(0);
     });
   }
+
+  // A voice utterance persists as an ordinary visible user row on a standard
+  // conversation, so only the `voiceSessionTurn` marker the bridge stamps keeps
+  // every spoken reply from also pushing. The phone case carries a `phone`
+  // channel; the in-app live-voice case is `vellum`/`macos`, identical to a
+  // typed desktop send, which is why the channel fields cannot be the gate.
+  const VOICE_ROW_CASES: Array<{ name: string; metadata: unknown }> = [
+    {
+      name: "phone call",
+      metadata: {
+        voiceSessionTurn: true,
+        userMessageChannel: "phone",
+        userMessageInterface: "phone",
+      },
+    },
+    {
+      name: "in-app live voice",
+      metadata: {
+        voiceSessionTurn: true,
+        userMessageChannel: "vellum",
+        userMessageInterface: "macos",
+      },
+    },
+  ];
+
+  for (const { name, metadata } of VOICE_ROW_CASES) {
+    test(`stays silent when the turn was opened by a ${name} utterance`, async () => {
+      userRows = [makeMessage({ metadata: JSON.stringify(metadata) })];
+
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+    });
+  }
+
+  test("still emits for a typed desktop send on the same channel", async () => {
+    userRows = [
+      makeMessage({
+        metadata: JSON.stringify({
+          userMessageChannel: "vellum",
+          userMessageInterface: "macos",
+        }),
+      }),
+    ];
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+  });
 
   test("stays silent when no real user message opened the turn", async () => {
     userRows = [];

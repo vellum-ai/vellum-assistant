@@ -298,6 +298,14 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
+     * Marks a role-`"user"` row that opened a live phone or in-app voice turn
+     * (every row `startVoiceTurn` persists, see `calls/voice-session-bridge.ts`).
+     * The channel/interface fields cannot stand in for it: a live-voice turn
+     * persists as `vellum`/`macos`, exactly like a typed desktop send. Test with
+     * {@link isVoiceSessionUserMessage}.
+     */
+    voiceSessionTurn: z.boolean().optional(),
+    /**
      * Discriminates daemon-authored rows from ordinary turns.
      * `"system_card"` marks pre-composed status cards (the /compact, /clean,
      * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
@@ -399,6 +407,22 @@ export function isEchoSuppressedUserMessage(
     metadata?.acpNotification != null ||
     isBackgroundEventMetadata(metadata)
   );
+}
+
+/**
+ * True when a role-`"user"` row was persisted by the voice bridge for a live
+ * phone call or in-app voice session (see the `voiceSessionTurn` field on
+ * {@link messageMetadataSchema}).
+ *
+ * The reply to such a turn is spoken back over the still-open session, so any
+ * consumer that treats a finished reply as something the user has yet to see
+ * (the assistant-reply notification producer) must skip it rather than push a
+ * notification for audio the user is hearing right now.
+ */
+export function isVoiceSessionUserMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return metadata?.voiceSessionTurn === true;
 }
 
 /**

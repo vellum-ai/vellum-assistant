@@ -872,7 +872,13 @@ export async function startVoiceTurn(
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
       requestId,
-      ...(isHiddenSyntheticPrompt ? { metadata: { hidden: true } } : {}),
+      metadata: {
+        // Durable "this turn came from an open voice session" marker. The
+        // channel fields cannot carry it: live voice persists as
+        // `vellum`/`macos`, indistinguishable from a typed desktop send.
+        voiceSessionTurn: true,
+        ...(isHiddenSyntheticPrompt ? { hidden: true } : {}),
+      },
     });
     return persistResult.id;
   };
