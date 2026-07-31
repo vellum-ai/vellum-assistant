@@ -147,6 +147,19 @@ describe("stt-routes", () => {
     expect(transcribeFile.policy?.requiredScopes).toContain("chat.write");
   });
 
+  // -- Providers list -------------------------------------------------------
+
+  test("providers list includes each provider's languageSelection", async () => {
+    const { handler } = getRoute("stt/providers");
+    const result = (await handler(makeArgs({}))) as {
+      providers: Array<{ id: string; languageSelection: string }>;
+    };
+
+    const byId = new Map(result.providers.map((p) => [p.id, p]));
+    expect(byId.get("deepgram")?.languageSelection).toBe("manual");
+    expect(byId.get("google-gemini")?.languageSelection).toBe("auto");
+  });
+
   // -- Success path ---------------------------------------------------------
 
   test("returns transcribed text with provider and boundary ids", async () => {

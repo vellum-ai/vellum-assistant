@@ -218,7 +218,7 @@ export function SlackChannelList({
     <div className="flex flex-col gap-3 p-4">
       <Typography
         as="p"
-        variant="body-small-default"
+        variant="body-small-lighter"
         className="text-[color:var(--content-tertiary)]"
       >
         {presenceHint}
@@ -226,7 +226,7 @@ export function SlackChannelList({
       {loading ? (
         <Typography
           as="span"
-          variant="body-small-default"
+          variant="body-small-lighter"
           className="text-[color:var(--content-tertiary)]"
         >
           Loading…
@@ -234,7 +234,7 @@ export function SlackChannelList({
       ) : error ? (
         <Typography
           as="span"
-          variant="body-small-default"
+          variant="body-small-lighter"
           className="text-[color:var(--content-negative)]"
         >
           Couldn’t load channels. Try reopening this page.
@@ -289,7 +289,7 @@ export function SlackChannelList({
           {visibleChannels.length === 0 ? (
             <Typography
               as="span"
-              variant="body-small-default"
+              variant="body-small-lighter"
               className="py-4 text-center text-[color:var(--content-tertiary)]"
             >
               No channels match.

@@ -257,6 +257,7 @@ export function registerContactsCommand(program: Command): void {
           opts: {
             channel?: string;
             placeholder?: string;
+            defaultValue?: string;
             role?: string;
             label?: string;
             description?: string;
@@ -271,6 +272,7 @@ export function registerContactsCommand(program: Command): void {
               body: {
                 channel: opts.channel,
                 placeholder: opts.placeholder,
+                defaultValue: opts.defaultValue,
                 role: opts.role ?? "unknown",
                 label: opts.label,
                 description: opts.description,

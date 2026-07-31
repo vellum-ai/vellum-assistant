@@ -90,6 +90,22 @@ describe("AnimatedAvatar blink", () => {
   });
 });
 
+describe("AnimatedAvatar canvas", () => {
+  test("lets the body draw outside the SVG box while it moves", () => {
+    const { container } = render(
+      <AnimatedAvatar
+        components={BUNDLED_COMPONENTS}
+        traits={TRAITS}
+        size={240}
+        isAssistantBusy
+      />,
+    );
+
+    const svg = container.querySelector("svg") as SVGSVGElement;
+    expect(svg.style.overflow).toBe("visible");
+  });
+});
+
 describe("AnimatedAvatar streaming morph", () => {
   test("cycles the body path without a React state update", () => {
     const { container } = render(

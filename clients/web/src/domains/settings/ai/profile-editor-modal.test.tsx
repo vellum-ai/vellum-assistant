@@ -37,7 +37,7 @@ const initialLifecycleState = useAssistantLifecycleStore.getState();
 
 // Spy on the design-library toast so we can assert the shared ProfileEditorModal
 // does NOT fire a profile-create success toast itself — that toast belongs to
-// the surrounding surface (Settings via ManageProfilesModal, composer via its
+// the surrounding surface (Settings via ProfileDetailPanel, composer via its
 // own quick-add), preventing a double-fire.
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: {
@@ -361,22 +361,23 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("ProfileEditorModal create mode — provider-first", () => {
-  test("keeps Name and Key inside Advanced in create mode", () => {
+  test("Name is top-level in create mode; Key stays inside Advanced (LUM-2881)", () => {
     renderCreate([makeConnection("anthropic-personal")]);
+
+    // The Name field renders before any provider/model is picked - it is
+    // top-level, never inside the Advanced disclosure.
+    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
 
     selectProvider("Anthropic");
     selectModel("Claude Opus 4.8");
 
-    expect(
-      document.querySelector('input[placeholder="e.g. Fast & Cheap"]'),
-    ).toBeNull();
+    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
     expect(
       document.querySelector('input[placeholder="e.g. fast-cheap"]'),
     ).toBeNull();
 
     fireEvent.click(getButton("Advanced"));
 
-    expect(getInputByPlaceholder("e.g. Fast & Cheap")).toBeDefined();
     expect(getInputByPlaceholder("e.g. fast-cheap")).toBeDefined();
   });
 
@@ -1280,6 +1281,9 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       fireEvent.click(trigger);
       return labels;
     });
+    expect(optionLabels).toContain("GPT-5.6 Sol");
+    expect(optionLabels).toContain("GPT-5.6 Terra");
+    expect(optionLabels).toContain("GPT-5.6 Luna");
     expect(optionLabels).toContain("GPT-5.5");
     expect(optionLabels).not.toContain("GPT-5.5 Pro");
   });

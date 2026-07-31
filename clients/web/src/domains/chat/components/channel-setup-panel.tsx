@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { Button, Input, Typography } from "@vellumai/design-library";
 
 import { SlackSetupWizard } from "@/components/slack-setup-wizard";
-import { DetailShell } from "@/domains/chat/components/detail-shell";
+import { DetailShell } from "@/components/detail-shell";
 import { channelsReadinessGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
 import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";

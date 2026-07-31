@@ -1,6 +1,25 @@
+/**
+ * Visual reference for `CollapsibleNavSection`.
+ *
+ * Everything here renders through the real components - `SideMenu`,
+ * `SideMenu.SubList`, `SideMenu.Item` - inside a real `SideMenu` shell, with
+ * no story-local styling. That is deliberate: this story previously drew its
+ * rows with a private `NavRow` helper (its own padding, its own type token,
+ * its own hover) wrapped in a hand-rolled `flex flex-col gap-0.5 pl-6` div, so
+ * it showed a section that looked nothing like any section the app ships. A
+ * story that restyles its own children can't catch a regression in the
+ * components it claims to document.
+ *
+ * If a section ever needs a layout this story can't express with the shipped
+ * primitives, that's the signal to add the missing primitive - not to
+ * hand-roll it here.
+ */
+
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Clock, MessageSquare, Pin, Star } from "lucide-react";
 import type { ReactNode } from "react";
+
+import { SideMenu } from "@vellumai/design-library";
 
 import { CollapsibleNavSection } from "./collapsible-nav-section";
 
@@ -13,8 +32,31 @@ interface NavSectionStoryArgs {
 
 const meta: Meta<NavSectionStoryArgs> = {
   title: "Components/CollapsibleNavSection",
+  globals: {
+    viewport: { value: "sbDesktop", isRotated: false },
+  },
   parameters: {
     layout: "padded",
+    viewport: {
+      options: {
+        sbDesktop: {
+          name: "Desktop",
+          styles: { width: "1280px", height: "760px" },
+          type: "desktop",
+        },
+      },
+    },
+    /* Section headers and rows carry `max-md:` variants for the mobile drawer
+       (16px type, 46px rows instead of 14px/30px). Those key off the
+       *viewport*, so at a narrow browser window these stories would render the
+       mobile drawer's metrics while still showing the `rail` variant, a
+       combination the app never ships. The pinned viewport above holds the
+       Canvas at desktop width regardless of window size.
+
+       It does not reach the Docs canvas: every story on a docs page shares one
+       iframe, so no per-story viewport applies there, and that iframe runs
+       roughly 300px narrower than the window. Read these in Canvas, or widen
+       the window past ~1070px for Docs. Tracked in LUM-2921. */
   },
   argTypes: {
     label: { control: "text" },
@@ -27,11 +69,28 @@ const meta: Meta<NavSectionStoryArgs> = {
 export default meta;
 type Story = StoryObj<NavSectionStoryArgs>;
 
-function NavRow({ children }: { children: ReactNode }) {
+/**
+ * The sidebar shell every section really lives in. `SideMenu` owns the
+ * surface, the width, and the collapsed-rail context its children read, so
+ * rendering a section outside one would exercise a configuration that never
+ * ships.
+ */
+function SideMenuFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-md px-3 py-1.5 text-body-small-default text-[var(--content-secondary)] hover:bg-[var(--surface-lift)]">
-      {children}
+    <div className="w-[280px] bg-[var(--surface-base)]">
+      <SideMenu ariaLabel="Navigation preview" collapsed={false} variant="rail">
+        <SideMenu.Body>{children}</SideMenu.Body>
+      </SideMenu>
     </div>
+  );
+}
+
+/** A count chip, the one trailing affordance these sections use. */
+function CountBadge({ children }: { children: ReactNode }) {
+  return (
+    <span className="text-body-small-default text-[var(--content-tertiary)]">
+      {children}
+    </span>
   );
 }
 
@@ -43,32 +102,27 @@ export const Default: Story = {
     defaultOpen: true,
   },
   render: ({ label, showIcon, showTrailing, defaultOpen }) => (
-    <div className="w-[260px]">
+    <SideMenuFrame>
       <CollapsibleNavSection.Root
         type="multiple"
+        className="gap-3"
         defaultValue={defaultOpen ? ["section"] : []}
       >
         <CollapsibleNavSection.Section
           value="section"
           icon={showIcon ? Clock : undefined}
           label={label}
-          trailing={
-            showTrailing ? (
-              <span className="text-body-small-default text-[var(--content-tertiary)]">
-                12
-              </span>
-            ) : undefined
-          }
+          trailing={showTrailing ? <CountBadge>12</CountBadge> : undefined}
         >
-          <div className="flex flex-col gap-0.5 pl-6">
-            <NavRow>New conversation</NavRow>
-            <NavRow>Plan a trip to Tokyo</NavRow>
-            <NavRow>Refactor sidebar component</NavRow>
-            <NavRow>Quarterly planning notes</NavRow>
-          </div>
+          <SideMenu.SubList>
+            <SideMenu.Item label="New conversation" />
+            <SideMenu.Item label="Plan a trip to Tokyo" />
+            <SideMenu.Item label="Refactor sidebar component" active />
+            <SideMenu.Item label="Quarterly planning notes" />
+          </SideMenu.SubList>
         </CollapsibleNavSection.Section>
       </CollapsibleNavSection.Root>
-    </div>
+    </SideMenuFrame>
   ),
 };
 
@@ -78,53 +132,50 @@ export const MultipleSections: Story = {
     docs: {
       description: {
         story:
-          'Multiple sections sharing a single root — `type="multiple"` lets several stay open at once.',
+          'Multiple sections sharing a single root - `type="multiple"` lets several stay open at once, and the root\'s gap is the only thing between them, so every section boundary is spaced identically.',
       },
     },
   },
   render: () => (
-    <div className="w-[260px]">
+    <SideMenuFrame>
       <CollapsibleNavSection.Root
         type="multiple"
+        className="gap-3"
         defaultValue={["pinned", "recents"]}
       >
         <CollapsibleNavSection.Section
           value="pinned"
           icon={Pin}
           label="Pinned"
-          trailing={
-            <span className="text-body-small-default text-[var(--content-tertiary)]">
-              3
-            </span>
-          }
+          trailing={<CountBadge>3</CountBadge>}
         >
-          <div className="flex flex-col gap-0.5 pl-6">
-            <NavRow>Daily standup</NavRow>
-            <NavRow>Roadmap Q3</NavRow>
-            <NavRow>Hiring loop</NavRow>
-          </div>
+          <SideMenu.SubList>
+            <SideMenu.Item label="Daily standup" />
+            <SideMenu.Item label="Roadmap Q3" />
+            <SideMenu.Item label="Hiring loop" />
+          </SideMenu.SubList>
         </CollapsibleNavSection.Section>
         <CollapsibleNavSection.Section
           value="recents"
           icon={Clock}
           label="Recents"
         >
-          <div className="flex flex-col gap-0.5 pl-6">
-            <NavRow>Plan a trip to Tokyo</NavRow>
-            <NavRow>Refactor sidebar component</NavRow>
-          </div>
+          <SideMenu.SubList>
+            <SideMenu.Item label="Plan a trip to Tokyo" />
+            <SideMenu.Item label="Refactor sidebar component" />
+          </SideMenu.SubList>
         </CollapsibleNavSection.Section>
         <CollapsibleNavSection.Section
           value="favorites"
           icon={Star}
           label="Favorites"
         >
-          <div className="flex flex-col gap-0.5 pl-6">
-            <NavRow>Saved snippet</NavRow>
-          </div>
+          <SideMenu.SubList>
+            <SideMenu.Item label="Saved snippet" />
+          </SideMenu.SubList>
         </CollapsibleNavSection.Section>
       </CollapsibleNavSection.Root>
-    </div>
+    </SideMenuFrame>
   ),
 };
 
@@ -136,31 +187,26 @@ export const NoIcon: Story = {
     defaultOpen: true,
   },
   render: ({ label, showTrailing, defaultOpen }) => (
-    <div className="w-[260px]">
+    <SideMenuFrame>
       <CollapsibleNavSection.Root
         type="multiple"
+        className="gap-3"
         defaultValue={defaultOpen ? ["section"] : []}
       >
         <CollapsibleNavSection.Section
-          value="section"
+          value={label}
           label={label}
-          trailing={
-            showTrailing ? (
-              <span className="text-body-small-default text-[var(--content-tertiary)]">
-                5
-              </span>
-            ) : undefined
-          }
+          trailing={showTrailing ? <CountBadge>5</CountBadge> : undefined}
         >
-          <div className="flex flex-col gap-0.5 pl-6">
-            <NavRow>
-              <MessageSquare className="mr-2 inline h-3.5 w-3.5" />
-              First conversation
-            </NavRow>
-            <NavRow>Second conversation</NavRow>
-          </div>
+          <SideMenu.SubList>
+            {/* `icon` and `indent` are the shipped way to align rows with and
+                without a leading glyph - the reason this story doesn't need
+                a margin utility of its own. */}
+            <SideMenu.Item icon={MessageSquare} label="First conversation" />
+            <SideMenu.Item label="Second conversation" indent />
+          </SideMenu.SubList>
         </CollapsibleNavSection.Section>
       </CollapsibleNavSection.Root>
-    </div>
+    </SideMenuFrame>
   ),
 };

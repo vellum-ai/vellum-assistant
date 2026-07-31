@@ -1,5 +1,5 @@
 import { ChevronRight, type LucideIcon } from "lucide-react";
-import { type ReactNode, type Ref } from "react";
+import { type DragEvent, type ReactNode, type Ref } from "react";
 
 import { BottomSheet, ContextMenu } from "@vellumai/design-library";
 import {
@@ -13,6 +13,7 @@ import {
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE,
   SIDEBAR_ROW_PADDING_X,
+  SIDEBAR_SECTION_INDENT,
 } from "@/components/sidebar-nav-geometry";
 import { useLongPressSheet } from "@/hooks/use-long-press-sheet";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -111,6 +112,40 @@ function LongPressHeaderMenu({
 // Section
 // ---------------------------------------------------------------------------
 
+/**
+ * Drag-to-reorder wiring for a whole section.
+ *
+ * Every handler goes on the **header** - it is both the drag handle and the
+ * drop target - while the visual state (`dragging`, `dropEdge`) styles the
+ * whole section box.
+ *
+ * The header, not the section root, owns the handlers deliberately.
+ * `dragleave` bubbles, so a section root that is also the drop target
+ * receives leave events from each of its own conversation rows as the pointer
+ * crosses them; those have a `relatedTarget` outside the root, so the drop
+ * indicator gets cleared on the way past an expanded section. Keeping the
+ * handlers on one flat element (the same shape a conversation row uses)
+ * removes that class of bug: leaves between the header's own children always
+ * resolve to a descendant and are correctly ignored.
+ *
+ * Structural on purpose - this component sits in shared `components/` and
+ * shouldn't reach into the chat domain's drag hook for a type.
+ */
+export interface CollapsibleNavSectionDrag {
+  headerProps: {
+    draggable: true;
+    onDragStart: (event: DragEvent<HTMLElement>) => void;
+    onDragEnd: () => void;
+    onDragOver: (event: DragEvent<HTMLElement>) => void;
+    onDragLeave: (event: DragEvent<HTMLElement>) => void;
+    onDrop: (event: DragEvent<HTMLElement>) => void;
+  };
+  /** True while this section is the one being dragged. */
+  dragging: boolean;
+  /** Edge to draw the insertion line on while hovered, else null. */
+  dropEdge: "before" | "after" | null;
+}
+
 export interface CollapsibleNavSectionSectionProps extends Omit<
   CollapsibleItemProps,
   "children"
@@ -132,6 +167,8 @@ export interface CollapsibleNavSectionSectionProps extends Omit<
    * indicators, so a header dot would be redundant.
    */
   collapsedIndicator?: ReactNode;
+  /** Drag-to-reorder wiring; omit to leave the section fixed in place. */
+  drag?: CollapsibleNavSectionDrag;
   children?: ReactNode;
   contentClassName?: string;
   ref?: Ref<HTMLDivElement>;
@@ -145,6 +182,7 @@ function CollapsibleNavSectionSection({
   contextMenuContent,
   touchMenuContent,
   collapsedIndicator,
+  drag,
   children,
   className,
   contentClassName,
@@ -154,7 +192,11 @@ function CollapsibleNavSectionSection({
   const headerEl = (
     <div
       data-slot="collapsible-nav-section-header"
-      className="flex items-center justify-between"
+      className={cn(
+        "flex items-center justify-between",
+        drag && "cursor-grab active:cursor-grabbing",
+      )}
+      {...drag?.headerProps}
     >
       {/* The horizontal geometry (padding, chip width, gap) is inline from
           sidebar-nav-geometry at every breakpoint — the assistant cluster
@@ -247,11 +289,29 @@ function CollapsibleNavSectionSection({
       ref={ref}
       data-slot="collapsible-nav-section-section"
       value={value}
-      className={className}
+      /* Visual state only - the handlers live on the header (see
+         {@link CollapsibleNavSectionDrag}). Drawing the insertion line on the
+         whole section box, rather than on the header strip, keeps "lands after
+         this section" from reading as "lands inside it" when the section is
+         expanded. */
+      className={cn(
+        drag?.dragging && "opacity-50",
+        // Insertion line, matching the conversation-row drop indicator.
+        drag?.dropEdge === "before" &&
+          "shadow-[inset_0_2px_0_0_var(--primary-base)]",
+        drag?.dropEdge === "after" &&
+          "shadow-[inset_0_-2px_0_0_var(--primary-base)]",
+        className,
+      )}
       {...itemProps}
     >
       {header}
-      <Collapsible.Content className={contentClassName}>
+      {/* One indent for every section's content, defined here rather than at
+          each call site so no section can nest differently from the rest. */}
+      <Collapsible.Content
+        className={contentClassName}
+        style={{ paddingLeft: SIDEBAR_SECTION_INDENT }}
+      >
         {children}
       </Collapsible.Content>
     </Collapsible.Item>

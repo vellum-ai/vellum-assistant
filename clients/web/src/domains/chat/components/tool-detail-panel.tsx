@@ -34,7 +34,7 @@ import { Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
-import { DetailShell } from "@/domains/chat/components/detail-shell";
+import { DetailShell } from "@/components/detail-shell";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
 import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";

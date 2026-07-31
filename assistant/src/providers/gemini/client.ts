@@ -12,6 +12,7 @@ import { getLogger } from "../../util/logger.js";
 import { DAILY_LIMIT_PATTERNS } from "../../util/provider-error-patterns.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
+import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -240,17 +241,59 @@ const GEMINI_MODEL_RESTRICTED_PATTERNS =
 const GEMINI_OVERLOAD_PATTERNS = /overload/i;
 
 /**
+ * Detect whether an `ApiError` has an empty (or whitespace-only) message.
+ * Google's API always returns a JSON body with a real message on genuine
+ * errors. An empty message means the response had no body — the SDK's
+ * fallback `ApiError` construction — which indicates a proxy or egress
+ * filter intercepted the request before it reached Google.
+ */
+function hasEmptyMessage(error: ApiError): boolean {
+  return (error.message ?? "").trim().length === 0;
+}
+
+/**
+ * Format a human-readable error message from a Gemini `ApiError`. When the
+ * error has an empty message (no JSON body returned), surface a distinct,
+ * actionable message pointing at network/proxy interception instead of the
+ * generic "Gemini API error (404): " which reads as "model not found."
+ */
+export function formatGeminiErrorMessage(error: ApiError): string {
+  if (hasEmptyMessage(error)) {
+    return (
+      `Gemini API returned ${error.status} with no response body — ` +
+      "this typically indicates a network proxy or egress filter " +
+      "intercepting the request, not a genuine Google API error. " +
+      "Check your network configuration and ensure requests to " +
+      "generativelanguage.googleapis.com are allowed."
+    );
+  }
+  return `Gemini API error (${error.status}): ${error.message}`;
+}
+
+/**
  * Map a Gemini `ApiError`'s HTTP status / status-name to a semantic
  * {@link ProviderErrorReason}. The SDK's `ApiError` exposes only `status` and
  * `message`, and the canonical status-name (e.g. `PERMISSION_DENIED`) rides the
  * message body, so we match on both. Context-overflow is handled separately by
  * {@link detectGeminiContextOverflow}; a plain 429 here is a rate limit.
+ *
+ * When the error message is empty (no JSON body), the response did not come
+ * from Google's API — a proxy or egress filter intercepted the request. In
+ * that case we return `"network_error"` for 404/403 status codes rather than
+ * `"model_not_found"` / `"invalid_credentials"`, which would mislead users.
  */
 export function deriveGeminiReason(error: ApiError): ProviderErrorReason {
   const status = error.status;
   const message = error.message ?? "";
   const upper = message.toUpperCase();
   const hasName = (name: string) => upper.includes(name);
+
+  // Empty message → proxy/network interception, not a genuine Google error.
+  // Check this before the status-code branches so 404-with-empty-body doesn't
+  // get misclassified as "model_not_found."
+  if (hasEmptyMessage(error) && (status === 404 || status === 403)) {
+    return "network_error";
+  }
 
   // The managed proxy's daily-limit 402 body carries a specific code; match it
   // before the status branches so it isn't classified as a generic 4xx.
@@ -309,9 +352,19 @@ export async function validateGeminiApiKey(
         return { valid: false, reason: "API key is invalid or expired." };
       }
       if (error.status === 403) {
+        // An empty-body 403 likely came from a proxy, not Google's API.
+        // Treat it as inconclusive (allow key storage) rather than rejecting
+        // with a non-actionable "Gemini API error (403): " message.
+        if (hasEmptyMessage(error)) {
+          log.warn(
+            { status: 403 },
+            "Gemini API returned 403 with empty body during key validation — likely proxy interception, allowing key storage",
+          );
+          return { valid: true };
+        }
         return {
           valid: false,
-          reason: `Gemini API error (${error.status}): ${error.message}`,
+          reason: formatGeminiErrorMessage(error),
         };
       }
       // Transient errors (429, 5xx, etc.) — validation is inconclusive,
@@ -380,6 +433,7 @@ export class GeminiProvider implements Provider {
       : undefined;
 
     try {
+      recordProviderRequestDiagnostics({ model_id: activeModel });
       const geminiContents = this.toGeminiContents(messages, activeModel);
 
       const geminiConfig: genai.GenerateContentConfig = {};
@@ -573,7 +627,7 @@ export class GeminiProvider implements Provider {
           );
         }
         throw new ProviderError(
-          `Gemini API error (${error.status}): ${error.message}`,
+          formatGeminiErrorMessage(error),
           "gemini",
           error.status,
           // Skip reason on caller-abort: abortReason already carries the intent

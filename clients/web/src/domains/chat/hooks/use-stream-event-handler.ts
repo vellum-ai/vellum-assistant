@@ -253,6 +253,7 @@ export function useStreamEventHandler(
         queryClient,
         setCompactionCircuitOpenUntil: store.setCompactionCircuitOpenUntil,
         shiftPendingQueuedMessageId: store.shiftPendingQueuedMessageId,
+        takePendingQueuedMessageId: store.takePendingQueuedMessageId,
         setRequestIdMapping: store.setRequestIdMapping,
         popRequestIdMapping: store.popRequestIdMapping,
         consumePendingLocalDeletion: store.consumePendingLocalDeletion,

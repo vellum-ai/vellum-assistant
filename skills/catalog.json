@@ -60,7 +60,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-30T02:16:04.000Z"
     },
     {
       "id": "chat-complex-documents",
@@ -508,7 +508,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-07-28T04:58:42.000Z"
+      "updatedAt": "2026-07-28T05:02:41.000Z"
     },
     {
       "id": "llm-provider-setup",
@@ -599,6 +599,31 @@
       },
       "compatibility": "Requires curl and python3. Works on macOS and Linux.",
       "updatedAt": "2026-06-03T03:10:07.000Z"
+    },
+    {
+      "id": "memory-corpus-ingest",
+      "name": "memory-corpus-ingest",
+      "description": "Ingest a large dataset into memory as a skimmed map. Cold-store the raw files under a workspace imports directory, census them into a slice plan, skim each slice into compact map pages that point back at the raw files, ingest the map with the memory ingest CLI, and author a drill-in retrieval skill so the corpus stays searchable on demand. For recording archives, transcript collections, document dumps, and any corpus too large to hold in memory directly.",
+      "metadata": {
+        "emoji": "🗺️",
+        "vellum": {
+          "category": "system",
+          "display-name": "Corpus Ingest",
+          "user-invocable": "true",
+          "activation-hints": [
+            "User wants to import a large dataset, recordings archive, or document dump into memory",
+            "User asks the assistant to learn a big folder of files or a document collection",
+            "User mentions a Fathom recordings export or an archive of meeting transcripts",
+            "User wants the assistant to know what is in a corpus without pasting it all into chat"
+          ],
+          "avoid-when": [
+            "The input is a small set of distilled memories or an export from another assistant (use assistant-migration)",
+            "The input is ChatGPT conversation history (use chatgpt-import)"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-30T02:27:39.000Z"
     },
     {
       "id": "notifications",
@@ -1126,25 +1151,27 @@
     {
       "id": "vellum-self-knowledge",
       "name": "vellum-self-knowledge",
-      "description": "Answer questions about Vellum, the assistant's architecture, capabilities, and current configuration by routing to live sources of truth",
+      "description": "Answer questions about Vellum's architecture, configuration, and hosting from live sources of truth",
       "metadata": {
         "emoji": "🪞",
         "vellum": {
           "category": "system",
           "display-name": "Vellum Self-Knowledge",
           "activation-hints": [
-            "When the user asks what model the assistant is running on",
-            "When the user asks about Vellum, how the assistant works, or its architecture",
-            "When the user asks about the assistant's current configuration or settings",
-            "When the user asks what the assistant can do or what skills/tools are available"
+            "what model the assistant is running on",
+            "how Vellum works or its architecture",
+            "its current configuration or settings",
+            "what it can do, or what skills/tools are available",
+            "how to self-host a Vellum assistant",
+            "how to configure your own model API key"
           ],
           "avoid-when": [
-            "When the user wants to change configuration (use in-chat config instead)"
+            "changing configuration (use in-chat config instead)"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-28T22:26:01.000Z"
     },
     {
       "id": "vellum-skills-catalog",

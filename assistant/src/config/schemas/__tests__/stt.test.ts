@@ -65,6 +65,33 @@ describe("SttServiceSchema", () => {
       /must be one of/,
     );
   });
+
+  test("language is optional and stays absent when unset", () => {
+    // Absent (not defaulted to "en") so the resolver can tell "user chose
+    // nothing" from "user chose English" and omit the param entirely.
+    const parsed = SttServiceSchema.parse({ provider: "vellum" });
+    expect(parsed.language).toBeUndefined();
+  });
+
+  test("language round-trips a code and the multi code-switching mode", () => {
+    expect(
+      SttServiceSchema.parse({ provider: "vellum", language: "multi" })
+        .language,
+    ).toBe("multi");
+    expect(
+      SttServiceSchema.parse({ provider: "deepgram", language: "hi" }).language,
+    ).toBe("hi");
+  });
+
+  test("language is trimmed and rejects blank strings", () => {
+    expect(
+      SttServiceSchema.parse({ provider: "vellum", language: "  multi  " })
+        .language,
+    ).toBe("multi");
+    expect(() =>
+      SttServiceSchema.parse({ provider: "vellum", language: "   " }),
+    ).toThrow(/must not be empty/);
+  });
 });
 
 describe("managed provider", () => {

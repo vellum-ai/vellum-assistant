@@ -86,11 +86,17 @@ export const IngressRouteSchema = z.object({
    *
    * `plugin` (the default) verifies against the plugin's own
    * `webhook_secret`, so a plugin can receive third-party callbacks it has
-   * arranged itself. `vellum` verifies against the platform's
-   * `webhook_secret` — for routes only Vellum calls, which would otherwise
-   * need a per-plugin secret provisioned for a caller we already
-   * authenticate. Declaring it is the plugin's choice; approving it is the
-   * guardian's, which is why it is part of the digest.
+   * arranged itself, and a guardian decides whether that route is served.
+   *
+   * `vellum` verifies against the platform's `webhook_secret`, for routes
+   * only Vellum calls, which would otherwise need a per-plugin secret
+   * provisioned for a caller we already authenticate. Such a route is
+   * served without a guardian approval: the trust it relies on was given
+   * when the account was connected. See `findServableRoute` in
+   * `plugin-ingress-approvals.ts` for the rule and what it concedes.
+   *
+   * Either way the signer is part of the digest, so a plugin cannot move a
+   * route between the two without the change being visible.
    */
   signer: IngressSignerSchema.default("plugin"),
   /** Human-readable purpose, surfaced in gateway logs and admin UI. */
@@ -128,6 +134,14 @@ export interface PluginIngressDiscovery {
    */
   problems: PluginIngressProblem[];
 }
+
+/**
+ * Matches a public plugin route path, capturing plugin name and route path.
+ * Shared by the HTTP route entry and the WebSocket upgrade branch so the two
+ * halves of the surface cannot come to disagree about its shape.
+ */
+export const PLUGIN_WEBHOOK_PATH_PATTERN =
+  /^\/webhooks\/plugins\/([^/]+)\/(.+)$/;
 
 /** Compose the absolute public path the gateway serves for a route. */
 export function pluginWebhookPath(plugin: string, path: string): string {

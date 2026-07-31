@@ -30,10 +30,61 @@ export const PROVIDER_REDIRECT_PATH =
 // Provider redirect (synchronous form POST)
 // ---------------------------------------------------------------------------
 
+/**
+ * Marketing attribution params the backend accepts on the redirect POST.
+ *
+ * Mirrors the keys `read_request_attribution` reads off the request in
+ * `django/config/middleware/marketing_attribution.py`.
+ */
+const ATTRIBUTION_PARAMS: readonly string[] = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "utm_term",
+  "gclid",
+  "gbraid",
+  "wbraid",
+  "msclkid",
+  "fbclid",
+  "ttclid",
+  "li_fat_id",
+  "twclid",
+];
+
+/** Server truncates per-field; this only bounds what we put on the wire. */
+const ATTRIBUTION_VALUE_MAX_LENGTH = 512;
+
+/**
+ * Attribution params present on the current URL, carried here from the
+ * campaign landing page.
+ *
+ * Attribution normally rides the `vellum_utm` cookie, but that cookie is set
+ * by the marketing site's middleware and does not survive a social in-app
+ * browser (Instagram, Facebook) handing off to the system browser — the new
+ * cookie jar never saw it, so paid-social signups arrive unattributed.
+ * URL params do survive that handoff, and the backend falls back to reading
+ * them off the request when the cookie is missing, so forwarding them here
+ * gives the flow a cookie-free path to attribution.
+ */
+export function readAttributionParams(search: string): Record<string, string> {
+  const params = new URLSearchParams(search);
+  const collected: Record<string, string> = {};
+  for (const key of ATTRIBUTION_PARAMS) {
+    const value = params.get(key);
+    if (value) {
+      collected[key] = value.slice(0, ATTRIBUTION_VALUE_MAX_LENGTH);
+    }
+  }
+  return collected;
+}
+
 export interface ProviderRedirectOptions {
   readonly intent?: ProviderIntent;
   /** Pre-fill the WorkOS AuthKit email field (and email-first flows). */
   readonly loginHint?: string;
+  /** Campaign attribution to forward, from {@link readAttributionParams}. */
+  readonly attribution?: Record<string, string>;
 }
 
 /**
@@ -59,6 +110,15 @@ export function buildProviderRedirectFields(
   }
   if (options.loginHint) {
     fields["login_hint"] = options.loginHint;
+  }
+  // Assigned before the reserved fields above would be reachable, but written
+  // after them so a crafted `?provider=` or `?callback_url=` on the landing
+  // URL can never override the redirect target.
+  for (const key of ATTRIBUTION_PARAMS) {
+    const value = options.attribution?.[key];
+    if (value) {
+      fields[key] = value;
+    }
   }
 
   return fields;
@@ -110,12 +170,14 @@ export async function startProviderRedirect(
 
   form.action = `${origin}${PROVIDER_REDIRECT_PATH}`;
 
-  const fields = buildProviderRedirectFields(
-    providerId,
-    callbackUrl,
-    origin,
-    options,
-  );
+  const fields = buildProviderRedirectFields(providerId, callbackUrl, origin, {
+    ...options,
+    // Read here rather than threaded from each screen so every entry point
+    // forwards attribution: the landing page carries it in the URL precisely
+    // because the cookie may not have survived the browser handoff.
+    attribution:
+      options.attribution ?? readAttributionParams(window.location.search),
+  });
   fields["csrfmiddlewaretoken"] = csrfToken;
 
   for (const [name, value] of Object.entries(fields)) {

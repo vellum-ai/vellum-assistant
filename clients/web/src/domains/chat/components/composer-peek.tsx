@@ -25,6 +25,7 @@ import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "motion/react";
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
+import { recordUpdate } from "@/lib/commit-pressure";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { avatarPeekMetrics } from "@/utils/avatar-peek-metrics";
@@ -159,26 +160,29 @@ export function ComposerPeek({
     // The composer moves and resizes under the peeks without firing any
     // event we could subscribe to — the centered empty-state group reflows
     // as the greeting streams in, the textarea autogrows, slots settle.
-    // Track its rect every frame; the updater bails (same state object)
-    // when nothing changed, so idle frames don't re-render.
+    // Track its rect every frame, scheduling an update only on a frame where
+    // the rect actually moved. An unconditional per-frame `setRect` still
+    // enters the commit stream whenever the fiber already has pending lanes
+    // (React's eager bailout only applies to an idle fiber), which is exactly
+    // the traffic that trips the nested-update limit. See
+    // docs/CONVENTIONS.md, "Keep decorative animation out of the commit
+    // stream".
     let raf = 0;
+    let last: TargetRect | null = null;
     const track = () => {
-      setRect((prev) => {
-        const next = measure();
-        if (!next) {
-          return prev;
-        }
-        if (
-          prev &&
-          next.left === prev.left &&
-          next.top === prev.top &&
-          next.width === prev.width &&
-          next.height === prev.height
-        ) {
-          return prev;
-        }
-        return next;
-      });
+      const next = measure();
+      if (
+        next &&
+        (last === null ||
+          next.left !== last.left ||
+          next.top !== last.top ||
+          next.width !== last.width ||
+          next.height !== last.height)
+      ) {
+        last = next;
+        recordUpdate("composer-peek");
+        setRect(next);
+      }
       raf = requestAnimationFrame(track);
     };
     raf = requestAnimationFrame(track);

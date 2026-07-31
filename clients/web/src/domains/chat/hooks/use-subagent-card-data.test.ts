@@ -100,6 +100,86 @@ describe("computeSubagentCardData — state derivation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Loading state: terminal card whose detail hasn't been fetched yet
+// ---------------------------------------------------------------------------
+
+describe("computeSubagentCardData: unfetched-timeline loading state", () => {
+  test("terminal addressable entry with 0 events and !detailSettled → loading, no step count", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        conversationId: "conv-child",
+        events: [],
+        detailSettled: false,
+      }),
+    );
+    expect(data.state).toBe("loading");
+    expect(data.stepCount).toBe("");
+    expect(data.currentStepTitle).toBe("Loading");
+    expect(data.currentStepInfo).toBe("Research Agent");
+    expect(data.steps).toEqual([]);
+  });
+
+  test("once detailSettled with 0 events → resting empty state, not loading", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        conversationId: "conv-child",
+        events: [],
+        detailSettled: true,
+      }),
+    );
+    expect(data.state).toBe("complete");
+    expect(data.currentStepTitle).toBe("Finished");
+    expect(data.stepCount).toBe("0 steps");
+  });
+
+  test("terminal entry with events shows its steps, not loading", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        conversationId: "conv-child",
+        // No detailSettled flag: events alone prove the timeline is loaded.
+        events: [makeEvent({ type: "text", content: "hello" })],
+      }),
+    );
+    expect(data.state).toBe("complete");
+    expect(data.steps).toHaveLength(1);
+    expect(data.stepCount).toBe("1 step");
+  });
+
+  test("active entry with 0 events is NOT forced to loading (keeps Working)", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "running",
+        conversationId: "conv-child",
+        events: [],
+      }),
+    );
+    // Running still maps to a `loading` visual state, but it must go through
+    // the normal streaming path, not the unfetched-timeline branch.
+    expect(data.state).toBe("loading");
+    expect(data.currentStepTitle).toBe("Working");
+  });
+
+  test("non-addressable terminal entry (old daemon, no conversation id) is NOT stuck loading", () => {
+    const data = computeSubagentCardData(
+      makeEntry({
+        status: "completed",
+        // No conversationId and no parentConversationId → unaddressable.
+        conversationId: undefined,
+        parentConversationId: undefined,
+        events: [],
+        detailSettled: false,
+      }),
+    );
+    expect(data.state).toBe("complete");
+    expect(data.currentStepTitle).toBe("Finished");
+    expect(data.stepCount).toBe("0 steps");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Step mapping
 // ---------------------------------------------------------------------------
 

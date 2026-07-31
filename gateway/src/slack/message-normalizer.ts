@@ -144,16 +144,7 @@ export function normalizeSlackDirectMessage(
   if (msg.subtype && msg.subtype !== "file_share") return null;
   if (!msg.user || !msg.channel || !msg.ts) return null;
 
-  // DMs are always directed at the bot, so fall back to the default assistant
-  // even when the DM channel id isn't in the routing table — otherwise guardian
-  // verification replies would be silently dropped.
-  let routing = resolveAssistant(config, msg.channel, msg.user);
-  if (isRejection(routing) && config.defaultAssistantId) {
-    routing = {
-      assistantId: config.defaultAssistantId,
-      routeSource: "default" as const,
-    };
-  }
+  const routing = resolveAssistant(config, msg.channel, msg.user);
   if (isRejection(routing)) return null;
 
   return buildNormalizedSlackMessage(

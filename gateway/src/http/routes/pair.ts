@@ -29,6 +29,7 @@
 
 import { and, eq } from "drizzle-orm";
 
+import { LOCAL_ASSISTANT_ID } from "../../assistant-id.js";
 import { mintAndRecordDeviceBoundTokenPair } from "../../auth/guardian-bootstrap.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { mintToken } from "../../auth/token-service.js";
@@ -53,7 +54,7 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 /** Pair tokens are valid for 24 hours — covers extended sessions and SSE reconnects. */
 const PAIR_TOKEN_TTL_SECONDS = 86400;
 
-const DAEMON_INTERNAL_ASSISTANT_ID = "self";
+const DAEMON_INTERNAL_ASSISTANT_ID = LOCAL_ASSISTANT_ID;
 
 // ---------------------------------------------------------------------------
 // Rate limiter (dedicated, per-peer)
