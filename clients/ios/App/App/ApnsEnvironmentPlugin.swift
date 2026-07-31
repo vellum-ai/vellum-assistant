@@ -4,7 +4,7 @@ import Foundation
 /// Capacitor plugin that reports which APNs environment this build's
 /// `aps-environment` entitlement actually points at, read from the embedded
 /// provisioning profile. The web side
-/// (`clients/web/src/runtime/push-registration.ts`) uses it to tag device
+/// (`clients/web/src/runtime/apns-environment.ts`) uses it to tag device
 /// tokens correctly: TestFlight signs every build, including dev-suffixed
 /// bundle IDs, with the production entitlement, so any heuristic based on the
 /// bundle ID misclassifies TestFlight dev builds and their pushes are
@@ -14,6 +14,10 @@ import Foundation
 /// - `"development"`: an Xcode / development-signed install
 /// - `"production"`: a TestFlight or App Store install
 /// - `"unknown"`: the profile exists but could not be read or parsed
+///
+/// Simulator builds ship no embedded profile and always resolve
+/// `"development"`, because APNs simulator push only uses the development
+/// environment.
 ///
 /// It never rejects. Per the skew rule in `clients/web/docs/CAPACITOR.md`, a
 /// plugin must not require a separate availability probe, so the one result
@@ -28,6 +32,12 @@ public class ApnsEnvironmentPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
 
     @objc public func get(_ call: CAPPluginCall) {
+        #if targetEnvironment(simulator)
+            // Simulator builds ship no embedded profile, and APNs simulator
+            // push always uses the development environment.
+            call.resolve(["environment": "development"])
+            return
+        #endif
         call.resolve(["environment": Self.entitlementEnvironment()])
     }
 
