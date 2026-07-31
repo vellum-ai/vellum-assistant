@@ -102,7 +102,7 @@ jobs:
           fi
           if ! jq -e --arg package_id "$EXPECTED_PACKAGE_ID" \
             'any(.client[]?; .client_info.android_client_info.package_name == $package_id)' \
-            clients/android/app/google-services.json >/dev/null; then
+            clients/android/app/google-services.json >/dev/null 2>&1; then
             echo "::error::Firebase configuration does not contain $EXPECTED_PACKAGE_ID"
             exit 1
           fi
