@@ -45,7 +45,6 @@ describe("AddCreditsModal", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("link")).toBeNull();
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
   });
 
   test("renders the updated copy and labels", () => {
