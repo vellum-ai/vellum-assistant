@@ -118,6 +118,11 @@ const SERVER_VAD_PRE_ROLL_MAX_CHUNKS = 25;
 // strict upper bound on the release→turn-start tail in persistent mode (the
 // provider keeps its own, longer, finalize fallback).
 const FINALIZE_GRACE_MS = 1_000;
+// Released speech with no usable final waits longer because some streaming
+// providers settle Finalize before delivering the ordinary final transcript.
+// The shared stream is retired if this cap expires so an unidentifiable late
+// final cannot attach to the next utterance.
+const EMPTY_FINALIZE_GRACE_MS = 3_000;
 // Consecutive speech (ms) required before speech during assistant playback
 // flushes it (speech_started) and cancels the turn, so a cough, a filler word,
 // or the assistant's own TTS bleeding through imperfect browser echo
@@ -256,6 +261,12 @@ export interface LiveVoiceSessionOptions {
    */
   finalizeGraceMs?: number;
   /**
+   * Overrides the bounded wait for a speech-bearing shared-transcriber cycle
+   * whose finalize settles without a usable transcript (test hook). Defaults
+   * to `EMPTY_FINALIZE_GRACE_MS`.
+   */
+  emptyFinalizeGraceMs?: number;
+  /**
    * Front-model presence tuning (semantic endpointing + spoken acks). The
    * production factory seeds this from `liveVoice.frontModel` config when
    * unset; absent fields fall back to the schema defaults (the constructor
@@ -322,6 +333,10 @@ interface UtteranceCycle {
   // one `finalized` signal is owed to it. At most one queued cycle has
   // this set at a time — see pumpFinalizeQueue.
   finalizeRequested: boolean;
+  // The shared stream emitted `finalized` for this cycle. An empty released
+  // cycle remains at the head of the finalize queue during its bounded
+  // late-final grace so ordinary finals keep their original owner.
+  finalizeSettled: boolean;
   transcriber: StreamingTranscriber | null;
   // Manual (push-to-talk) capture routed at least one chunk into this cycle.
   // It is the only evidence the user is mid-utterance before STT emits
@@ -773,6 +788,7 @@ function createUtteranceCycle(): UtteranceCycle {
     assistantTurnStarted: false,
     completed: false,
     finalizeRequested: false,
+    finalizeSettled: false,
     transcriber: null,
     manualAudioCaptured: false,
     speechRouted: false,
@@ -1036,6 +1052,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   /** The cycle whose grace timer is armed (only the newest release has one). */
   private finalizeGraceCycle: UtteranceCycle | null = null;
   private readonly finalizeGraceMs: number;
+  private emptyFinalizeGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  private emptyFinalizeGraceCycle: UtteranceCycle | null = null;
+  private readonly emptyFinalizeGraceMs: number;
   // Rotates through the progress fallback phrases across the session's turns.
   private progressPhraseCounter = 0;
   // Front-model service: phrases spoken acks and progress narration; null
@@ -1105,6 +1124,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       options.bargeInMinSpeechMs ??
       DEFAULT_BARGE_IN_MIN_SPEECH_MS;
     this.finalizeGraceMs = options.finalizeGraceMs ?? FINALIZE_GRACE_MS;
+    this.emptyFinalizeGraceMs =
+      options.emptyFinalizeGraceMs ?? EMPTY_FINALIZE_GRACE_MS;
     this.frontDecider = options.frontDecider ?? null;
     this.frontModelConfig = LiveVoiceFrontModelConfigSchema.parse(
       options.frontModelConfig ?? {},
@@ -1402,6 +1423,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     transcriber: StreamingTranscriber,
   ): UtteranceCycle[] {
     this.clearFinalizeGraceTimer();
+    this.clearEmptyFinalizeGraceTimer();
     const drained = this.finalizeQueue;
     this.finalizeQueue = [];
     for (const finalizing of drained) {
@@ -2787,6 +2809,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance.phase = "released";
     this.finalizeQueue.push(utterance);
     this.armFinalizeGraceTimer(utterance);
+    if (
+      utterance.speechRouted &&
+      utterance.finalTranscriptSegments.length === 0
+    ) {
+      this.armEmptyFinalizeGraceTimer(utterance);
+    }
     this.pumpFinalizeQueue();
     await this.startAssistantTurnIfReady();
     await this.drainOutboundFrames();
@@ -2840,6 +2868,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (utterance === this.finalizeGraceCycle) {
       this.clearFinalizeGraceTimer();
     }
+    if (utterance === this.emptyFinalizeGraceCycle) {
+      this.clearEmptyFinalizeGraceTimer();
+    }
   }
 
   private armFinalizeGraceTimer(utterance: UtteranceCycle): void {
@@ -2860,6 +2891,33 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.finalizeGraceCycle = null;
   }
 
+  private armEmptyFinalizeGraceTimer(utterance: UtteranceCycle): void {
+    this.clearEmptyFinalizeGraceTimer();
+    this.emptyFinalizeGraceCycle = utterance;
+    this.emptyFinalizeGraceTimer = setTimeout(() => {
+      this.emptyFinalizeGraceTimer = null;
+      this.emptyFinalizeGraceCycle = null;
+      void this.handleEmptyFinalizeGraceTimeout(utterance).catch(() => {});
+    }, this.emptyFinalizeGraceMs);
+  }
+
+  private clearEmptyFinalizeGraceTimer(): void {
+    if (this.emptyFinalizeGraceTimer !== null) {
+      clearTimeout(this.emptyFinalizeGraceTimer);
+      this.emptyFinalizeGraceTimer = null;
+    }
+    this.emptyFinalizeGraceCycle = null;
+  }
+
+  private shouldWaitForLateEmptyFinal(utterance: UtteranceCycle): boolean {
+    return (
+      utterance.speechRouted &&
+      utterance.finalizeRequested &&
+      utterance.finalTranscriptSegments.length === 0 &&
+      utterance === this.emptyFinalizeGraceCycle
+    );
+  }
+
   // The finalize flush never arrived: proceed with the segments collected
   // so far. The cycle stays in the finalize queue so its late flush is
   // still attributed to (and dropped for) it instead of polluting a newer
@@ -2875,9 +2933,53 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     ) {
       return;
     }
+    if (this.shouldWaitForLateEmptyFinal(utterance)) {
+      log.warn(
+        "Live voice finalize flush timed out without a transcript; waiting for the bounded late-final grace",
+      );
+      return;
+    }
+    if (utterance === this.emptyFinalizeGraceCycle) {
+      this.clearEmptyFinalizeGraceTimer();
+    }
     log.warn(
       "Live voice finalize flush timed out; starting the turn with the transcript collected so far",
     );
+    utterance.phase = "transcriber_closed";
+    await this.startAssistantTurnIfReady();
+  }
+
+  private async handleEmptyFinalizeGraceTimeout(
+    utterance: UtteranceCycle,
+  ): Promise<void> {
+    if (
+      !this.finalizeQueue.includes(utterance) ||
+      this.isClosed ||
+      this.state === "failed" ||
+      this.state === "interrupted"
+    ) {
+      return;
+    }
+
+    this.clearFinalizeGraceTimer();
+    if (utterance.finalTranscriptSegments.length > 0) {
+      log.warn(
+        "Live voice empty-transcript finalize grace expired after receiving a transcript; starting the turn with the transcript collected so far",
+      );
+      utterance.phase = "transcriber_closed";
+      await this.startAssistantTurnIfReady();
+      return;
+    }
+
+    log.warn(
+      "Live voice empty-transcript finalize grace expired; discarding the utterance",
+    );
+    const shared = this.sharedTranscriber;
+    if (shared && utterance.transcriber === shared) {
+      this.retireSharedTranscriberForRedial(shared);
+    } else {
+      this.dropFromFinalizeQueue(utterance);
+    }
     utterance.phase = "transcriber_closed";
     await this.startAssistantTurnIfReady();
   }
@@ -3010,14 +3112,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // Completes the head's outstanding finalize request, whether or
         // not its flush final arrived (the provider may omit an empty
         // flush; its own fallback still emits `finalized`).
-        const owner = this.finalizeQueue.shift() ?? null;
-        if (owner && owner === this.finalizeGraceCycle) {
-          this.clearFinalizeGraceTimer();
+        const owner = this.finalizeQueue[0] ?? null;
+        if (owner) {
+          owner.finalizeSettled = true;
         }
         if (owner && owner.phase === "released") {
           // In persistent mode "transcriber_closed" means the cycle's
           // transcript is complete — the shared stream stays open.
           owner.phase = "transcriber_closed";
+        }
+        if (owner && this.shouldWaitForLateEmptyFinal(owner)) {
+          if (owner === this.finalizeGraceCycle) {
+            this.clearFinalizeGraceTimer();
+          }
+          return;
+        }
+        if (owner) {
+          this.dropFromFinalizeQueue(owner);
         }
         // The request slot is free again: send the next awaiting cycle's.
         this.pumpFinalizeQueue();
@@ -3081,6 +3192,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance.latestPartialText = null;
     this.markFinalTranscript(utterance);
     await this.sendFrame({ type: "stt_final", text });
+    if (transcript.length > 0 && utterance.finalizeSettled) {
+      this.dropFromFinalizeQueue(utterance);
+      this.pumpFinalizeQueue();
+    }
     // Fresh-final fast replay (unified front-door): a hold judged on the
     // pre-finalize partial is stale the moment the finalized transcript
     // extends it — the caller already finished, so waiting out the extension
@@ -3170,6 +3285,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // close(); persistent mode re-establishes itself on the next arm.
   private stopSessionTranscriber(): void {
     this.clearFinalizeGraceTimer();
+    this.clearEmptyFinalizeGraceTimer();
     this.finalizeQueue = [];
     const shared = this.sharedTranscriber;
     this.sharedTranscriber = null;
@@ -3236,6 +3352,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     const content = utterance.finalTranscriptSegments.join(" ").trim();
+    if (content.length === 0 && this.shouldWaitForLateEmptyFinal(utterance)) {
+      return;
+    }
     if (content.length === 0) {
       utterance.assistantTurnStarted = true;
       if (this.turnDetector) {
