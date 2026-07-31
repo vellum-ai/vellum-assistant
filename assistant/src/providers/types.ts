@@ -327,16 +327,32 @@ export interface SendMessageConfig {
    */
   logit_bias?: Record<string, number>;
   /**
-   * When true, the most recent user message's content varies across
-   * otherwise-identical turns (e.g. a per-turn memory spotlight block was
-   * injected into it; the agent loop sets this from actual spotlight
-   * presence). Consumed by the Anthropic client, which skips the long-TTL
-   * turn-start anchor for such a message (anchoring the previous stable user
-   * message instead when one exists) and still places its 5m advancing-tail
-   * breakpoint so in-turn tool-loop iterations read the prefix back. The
-   * OpenAI Responses transport does not consult this field: its explicit
-   * marker ladder marks every markable user item regardless, prepaying the
-   * volatile item's write for in-turn reads. Default false.
+   * When true, the TURN-STARTING user message carries content that will not
+   * recur byte-identically on the next turn, so a long-TTL breakpoint placed
+   * on it could never be read back across turns. The agent loop is the only
+   * producer: it sets the flag from the history it is about to send, when the
+   * turn-starting message carries a memory-v3 `<memory_spotlight>` block (the
+   * one injected block strip-and-replaced from every user message each turn).
+   *
+   * The flag describes the turn, not the request, so it holds for every
+   * request the turn makes — including tool-loop iterations, whose trailing
+   * tool-result message is user-role but carries no injected blocks.
+   *
+   * Consumed by the Anthropic client only, where it selects the TTL of the
+   * turn-start breakpoint: short instead of long. The block is still marked,
+   * so the turn's tool-loop iterations read the prefix back and each hit
+   * refreshes the entry; nothing is spent on a long-TTL entry whose bytes
+   * change before the next turn could reach it. Holding the flag steady across
+   * the turn is what keeps that one boundary on a single TTL — marking it at
+   * two would bill two writes for one reusable prefix.
+   *
+   * The OpenAI Responses transport ignores the flag and marks every markable
+   * user item: a volatile message is fixed within its own turn, so the write is
+   * prepaid once and read back by each tool-loop iteration.
+   *
+   * Default false. Providers that place no message-level breakpoints, or that
+   * key their cache on a request-level identifier rather than message bytes,
+   * can ignore it.
    */
   mutableLatestUserMessage?: boolean;
   /**

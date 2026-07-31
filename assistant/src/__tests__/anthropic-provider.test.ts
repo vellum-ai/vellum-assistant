@@ -781,10 +781,11 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(prevLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
-  test("mutableLatestUserMessage: during a tool-use loop placement is unchanged (block is fixed within the turn)", async () => {
-    // Turn-start is not the last message (tool_result follows), so the
-    // turn-start block is fixed for the rest of the turn — the flag must not
-    // move the anchor.
+  test("mutableLatestUserMessage: a volatile turn start keeps the 5m TTL through its tool-use loop", async () => {
+    // The turn start is fixed for the rest of the turn, so it stays markable —
+    // but it is volatile ACROSS turns, so the long TTL would buy a write that
+    // can never be read back. Upgrading it here would also mark the same block
+    // at a second TTL, billing two writes for one reusable prefix.
     const messages: Message[] = [
       userMsg("Turn 1"),
       assistantMsg("Response 1"),
@@ -804,11 +805,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       }>;
     }>;
 
-    // Turn-start (Turn 2, index 2) still gets the 1h anchor — within a tool-use
-    // loop the block is fixed, so the volatile-latest flag must not move it.
     const turn2 = sent[2];
     const turn2Last = turn2.content[turn2.content.length - 1];
-    expect(turn2Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(turn2Last.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
   });
 
   test("mutableLatestUserMessage: volatile first turn carries the 5m tail but no long-TTL anchor", async () => {

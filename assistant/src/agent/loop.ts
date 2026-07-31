@@ -1,7 +1,7 @@
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { preModelCallSanitize } from "../context/outbound-sanitize.js";
-import { latestUserMessageHasSpotlight } from "../context/strip-injections.js";
+import { turnStartUserMessageHasSpotlight } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -1419,16 +1419,18 @@ export class AgentLoop {
           providerConfig.cacheTtl = this.config.cacheTtl;
         }
 
-        // Cache-anchor signal for volatile latest-user-message turns. The
+        // Cache-anchor signal for turns whose opening message is volatile. The
         // memory-v3 `<memory_spotlight>` block is the only injected block that
-        // is strip-and-replaced on the tail every turn, so when it is present
-        // the latest user message's bytes do not recur and the provider anchors
-        // its long-TTL cache breakpoint on stable content instead. Derived from
-        // the history actually being sent rather than from configuration, so
-        // turns where memory contributed no spotlight keep a normal anchor.
-        // Only set when true so the wire/config stays byte-identical when
-        // absent.
-        if (latestUserMessageHasSpotlight(history)) {
+        // is strip-and-replaced from every user message each turn, so when it
+        // is present that message's bytes do not recur next turn and a
+        // long-TTL breakpoint on it could never be read back. The provider
+        // marks it at the short TTL instead. Derived from the history actually
+        // being sent rather than from configuration, so turns where memory
+        // contributed no spotlight keep a normal anchor. Read off the
+        // turn-starting message, so the signal holds for every request in the
+        // turn rather than flipping once tool results arrive. Only set when
+        // true so the wire/config stays byte-identical when absent.
+        if (turnStartUserMessageHasSpotlight(history)) {
           providerConfig.mutableLatestUserMessage = true;
         }
 

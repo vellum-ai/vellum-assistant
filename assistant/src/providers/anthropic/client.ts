@@ -1169,7 +1169,10 @@ export class AnthropicProvider implements Provider {
         }
         return -1;
       };
-      const applyCacheControlToLastBlock = (msgIdx: number): void => {
+      const applyCacheControlToLastBlock = (
+        msgIdx: number,
+        control: typeof cacheControl | typeof tailCacheControl = cacheControl,
+      ): void => {
         const content = msgs[msgIdx].content;
         if (!Array.isArray(content) || content.length === 0) {
           return;
@@ -1177,27 +1180,30 @@ export class AnthropicProvider implements Provider {
         const lastBlock = content[content.length - 1];
         if (typeof lastBlock !== "string") {
           (lastBlock as unknown as Record<string, unknown>).cache_control =
-            cacheControl;
+            control;
         }
       };
       const turnStartIdx = findUserTextMsgIdx(msgs.length - 1);
-      // When the latest user message is volatile (`mutableLatestUserMessage`)
-      // and it is itself the turn-start (first-of-turn, no tool-use loop yet),
-      // skip the long-TTL anchor here — it would land on per-turn-varying
-      // content and never hit again. The previous-turn anchor below becomes the
-      // primary stable breakpoint. During tool-use loops (`turnStartIdx <
-      // msgs.length - 1`) the turn-start block is fixed within the turn, so
-      // behavior is unchanged. Independent from `disableTurnStartCache`, which
-      // expresses a different intent (one-shot callers with no future hit).
-      const skipVolatileTurnStartAnchor =
-        mutableLatestUserMessage && turnStartIdx === msgs.length - 1;
-      if (
-        turnStartIdx >= 0 &&
-        !disableCache &&
-        !disableTurnStartCache &&
-        !skipVolatileTurnStartAnchor
-      ) {
-        applyCacheControlToLastBlock(turnStartIdx);
+      // Turn-start anchor. A volatile turn start (`mutableLatestUserMessage`:
+      // the message carries a per-turn block that will not recur next turn)
+      // takes the SHORT TTL instead of the long one. The long TTL would buy
+      // nothing: the bytes change next turn, so that entry can never be read
+      // across turns, and the only reads it can serve are this turn's tool-loop
+      // iterations — which the short TTL already serves, refreshing on each
+      // hit. Marking the same boundary at two different TTLs across a turn
+      // bills two writes for one reusable prefix, the long one at the higher
+      // write multiplier.
+      //
+      // The signal is turn-scoped, not request-scoped: it describes the
+      // turn-starting user message, so it holds for every request in the turn
+      // and the TTL chosen here stays consistent as the tool loop advances.
+      // `disableTurnStartCache` is independent — it expresses a different
+      // intent (one-shot callers with no future hit).
+      if (turnStartIdx >= 0 && !disableCache && !disableTurnStartCache) {
+        applyCacheControlToLastBlock(
+          turnStartIdx,
+          mutableLatestUserMessage ? tailCacheControl : cacheControl,
+        );
       }
 
       // Previous-turn anchor: when this request is the first of a new turn
@@ -1223,27 +1229,19 @@ export class AnthropicProvider implements Provider {
 
       // Advancing tail: place a short-lived 5m cache breakpoint on the last
       // block of the last message. This caches the growing tail cheaply
-      // without conflicting with the 1h breakpoints above. It fires during
-      // tool-use loops (the tail falls after the turn-starting user message)
-      // and also on every first-of-turn request whose volatile turn-start
-      // anchor was skipped: there the latest message would otherwise carry no
-      // breakpoint at all, so the next request's anchor can land far ahead of
-      // the last written boundary and Anthropic's ~20-block cache lookback
-      // can't bridge the gap, forcing a full re-creation of the prefix. On a
-      // volatile FIRST turn (no previous-turn anchor exists) it is the only
-      // message breakpoint, and it is what lets that turn's tool loop read the
-      // system prompt, tools, and opening message back instead of re-writing
-      // them each iteration. A volatile message is fixed within its own turn,
-      // so the write is prepaid once; cross-turn the 5m entry expires
-      // harmlessly. The first-of-turn bridge lands on the turn-start block, so
-      // it honors `disableTurnStartCache` like the long-TTL anchor above. Skip
+      // without conflicting with the long-TTL breakpoints above. It fires
+      // during tool-use loops, where the tail falls after the turn-starting
+      // user message: without it the next iteration's anchor can land far
+      // ahead of the last written boundary and Anthropic's ~20-block cache
+      // lookback can't bridge the gap, forcing a full re-creation of the
+      // prefix. On a first-of-turn request the tail IS the turn-start message,
+      // which the anchor above already marks, so no bridge is needed. Skip
       // thinking/redacted_thinking blocks — Anthropic doesn't allow
       // cache_control on those types.
       if (
         !disableCache &&
         turnStartIdx >= 0 &&
-        (turnStartIdx < sentMessages.length - 1 ||
-          (skipVolatileTurnStartAnchor && !disableTurnStartCache))
+        turnStartIdx < sentMessages.length - 1
       ) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {

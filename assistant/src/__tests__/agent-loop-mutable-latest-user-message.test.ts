@@ -176,7 +176,7 @@ describe("AgentLoop.run: mutableLatestUserMessage from spotlight presence", () =
     expect("mutableLatestUserMessage" in (configs()[0] ?? {})).toBe(false);
   });
 
-  test("during a tool loop the signal follows the trailing tool-result message", async () => {
+  test("the signal holds for every request in a tool loop", async () => {
     // GIVEN a spotlight-bearing opening message and a tool round-trip
     const { provider, configs } = makeRecordingProvider([
       toolUseResponse("t1", "echo", { value: "first" }),
@@ -200,11 +200,13 @@ describe("AgentLoop.run: mutableLatestUserMessage from spotlight presence", () =
       callSite: "mainAgent",
     });
 
-    // THEN the opening call is volatile, and the follow-up call is not: its
-    // latest user message is the tool-result turn, which is fixed history the
-    // provider can anchor on
+    // THEN both calls report the turn as volatile. The signal describes the
+    // turn-starting message, not whichever user message happens to be last, so
+    // the trailing tool-result turn does not clear it. Holding it steady is
+    // what keeps the provider marking that one block at a single TTL for the
+    // whole turn instead of writing it twice.
     expect(configs()).toHaveLength(2);
     expect(configs()[0]?.mutableLatestUserMessage).toBe(true);
-    expect("mutableLatestUserMessage" in (configs()[1] ?? {})).toBe(false);
+    expect(configs()[1]?.mutableLatestUserMessage).toBe(true);
   });
 });

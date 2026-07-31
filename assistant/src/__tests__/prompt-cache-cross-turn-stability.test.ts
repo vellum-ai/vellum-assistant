@@ -318,6 +318,29 @@ function anthropicMarkedIndexes(
   return marked;
 }
 
+/**
+ * TTLs marked on the turn-starting user message — the last user message
+ * carrying text, which is the boundary the Anthropic client anchors on.
+ */
+function anthropicTurnStartTtls(
+  params: Record<string, unknown> | null,
+): string[] {
+  const messages = (params?.messages ?? []) as AnthropicWireMessage[];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "user") {
+      continue;
+    }
+    if (!message.content?.some((b) => b.type === "text")) {
+      continue;
+    }
+    return (message.content ?? [])
+      .map((b) => (b.cache_control as { ttl?: string } | undefined)?.ttl)
+      .filter((ttl): ttl is string => ttl !== undefined);
+  }
+  return [];
+}
+
 // ---------------------------------------------------------------------------
 // Two real turns through the render pipeline
 // ---------------------------------------------------------------------------
@@ -501,6 +524,53 @@ describe("prompt cache cross-turn stability: volatile first turn", () => {
     expect(anthropicMarkedIndexes(lastAnthropicParams).length).toBeGreaterThan(
       0,
     );
+  });
+
+  test("Anthropic: a volatile turn start keeps one TTL across its tool loop", async () => {
+    // Marking one boundary at two TTLs bills two writes for a single reusable
+    // prefix. A volatile turn start can only ever be read back within its own
+    // turn, so it takes the short TTL on the opening request and must keep it
+    // once tool results arrive, rather than being upgraded to the long TTL.
+    const provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
+    const opening = calls[0].messages;
+
+    await provider.sendMessage(opening, {
+      systemPrompt: "system prompt",
+      config: { mutableLatestUserMessage: true, cacheTtl: "1h" },
+    });
+    const openingTtls = anthropicTurnStartTtls(lastAnthropicParams);
+
+    await provider.sendMessage(
+      [
+        ...opening,
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "t1", name: "echo", input: {} }],
+        },
+        {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+        },
+      ] as unknown as Message[],
+      {
+        systemPrompt: "system prompt",
+        config: { mutableLatestUserMessage: true, cacheTtl: "1h" },
+      },
+    );
+    const toolLoopTtls = anthropicTurnStartTtls(lastAnthropicParams);
+
+    expect(openingTtls).toEqual(["5m"]);
+    expect(toolLoopTtls).toEqual(openingTtls);
+  });
+
+  test("Anthropic: a stable turn start still takes the long TTL", async () => {
+    const provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
+    await provider.sendMessage(calls[0].messages, {
+      systemPrompt: "system prompt",
+      config: { cacheTtl: "1h" },
+    });
+
+    expect(anthropicTurnStartTtls(lastAnthropicParams)).toEqual(["1h"]);
   });
 });
 
