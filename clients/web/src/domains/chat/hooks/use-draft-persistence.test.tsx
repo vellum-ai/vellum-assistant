@@ -9,11 +9,17 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 // localStorage (happy-dom doesn't persist across tests). Matches the approach
 // in composer-store.test.ts.
 const localSettingsStore = new Map<string, string>();
+// Spread the real module rather than enumerating its exports: `mock.module`
+// replaces the whole module, so a hand-listed set breaks every importer the
+// moment local-settings grows an export it does not name.
+const actualLocalSettings = await import("@/utils/local-settings");
 mock.module("@/utils/local-settings", () => ({
+  ...actualLocalSettings,
   getLocalSetting: (key: string, fallback: string) =>
     localSettingsStore.get(key) ?? fallback,
   setLocalSetting: (key: string, value: string) => {
     localSettingsStore.set(key, value);
+    return true;
   },
   removeLocalSetting: (key: string) => {
     localSettingsStore.delete(key);
