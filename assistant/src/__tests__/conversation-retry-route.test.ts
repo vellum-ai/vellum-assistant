@@ -70,6 +70,8 @@ mock.module("../persistence/conversation-crud.js", () => ({
   extractImageSourcePaths: () => undefined,
   forkConversation: () => ({ id: "forked" }),
   getConversation: getConversationMock,
+  isHiddenMessageMetadata: (metadata: Record<string, unknown> | undefined) =>
+    metadata?.hidden === true,
   provenanceFromTrustContext: () => ({ provenanceTrustClass: "unknown" }),
   setConversationSurfaced: () => null,
   unarchiveConversation: () => true,
