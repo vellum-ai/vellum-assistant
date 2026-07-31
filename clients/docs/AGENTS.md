@@ -47,13 +47,15 @@ Both run automatically via `predev`/`prebuild`. All outputs are gitignored. Next
 - Prefetch suppression (`Next-Router-Prefetch`, `Next-Router-Segment-Prefetch`, `Purpose`/`Sec-Purpose`) is load-bearing: dbt carries a scrubber for a historical phantom-prefetch bug. `skipMiddlewareUrlNormalize: true` in `next.config.ts` keeps those headers visible to the proxy; do not remove it.
 - This app's Kubernetes container name is `docs`. Page_view lines only reach BigQuery after the Phase 2 platform Terraform change extends the pageview sink filter (currently `container_name="nextjs"`) to container `docs`.
 
-## Copy style
+## Content sync contract
 
-- No em dashes anywhere, including entities (`&mdash;`, `&#8212;`). Use a period, comma, colon, parentheses, or a plain hyphen.
-- Say "assistant", never "daemon", in docs prose.
-- Placeholder people are Alice and Bob; emails use `user@example.com`-style reserved domains (root `AGENTS.md` "Generic Examples").
-- Keep copy accurate to product behavior: telemetry/diagnostics sharing is opt-out (on by default, disableable by the user), and the LLM provider is configurable (do not write copy implying a single fixed provider).
-- Present tense; describe what the product does now, not what changed.
+Docs content is synced **verbatim** from the platform repo's docs tree (`vellum-assistant-platform/web/src/app/(marketing)/docs`) — the platform source is canonical. Do not editorialize, re-style, or paraphrase during a sync; copy edits (terminology, style, factual corrections) must land in the platform source first and flow down through a sync. The only permitted deltas from the platform source are:
+
+- Mechanical transforms: `@/app/(marketing)/docs/` → `@/app/docs/` imports, `/docs`-prefixed WebP asset paths, cross-app links absolutized to `https://www.vellum.ai/...`, and `eslint --fix` output for this package's lint rules.
+- Placeholder-persona substitution required by the root `AGENTS.md` "Generic Examples" rule (this repo is public): real names in platform copy are replaced deterministically (`Marina` → `Alice`, `Becky` → `Bob`). Extend the substitution map if new real names appear upstream.
+- The structural severances and shared-shell components listed under "Deviations from the platform source" below.
+
+Verify every sync with a fidelity audit: each file must be byte-identical to its platform source after the transforms above, and every exception must be individually explainable.
 
 ## Deviations from the platform source
 
@@ -62,6 +64,7 @@ Behavior ported from the platform app that intentionally differs:
 - Attribution referrer/click-id classification is stricter than the platform emitter: empty click-id params (e.g. a bare `?gclid=`) emit no paid attribution, referrer domains match at hostname boundaries (exact host or dot-suffix, never substring), and `copilot.bing.com` classifies as GEO. The emitted JSON key set is unchanged.
 - Search extraction/ranking adds element-boundary spacing during text extraction, indexes standalone headings unconditionally as their own chunks with level-aware scoping, and returns matched-term snippets.
 - Tailwind has no class-keyed dark variant. The pre-hydration bootstrap stamps both `.dark` and `data-theme="dark"` on `<html>`; `dark:` utilities key off `data-theme` (the design-library `tokens.css` custom variant) while `docs-theme.css` selectors key off `.dark`.
+- The mobile nav drawer is refactored around a shared `NavPanelShell` (`_components/nav-panel-shell.tsx`) with a ref-counted body-scroll lock (`_components/body-scroll-lock.ts`) and single-owner Cmd/Ctrl+K registration (`DocsSearch registerShortcut`). `docs-nav.tsx`, `releases-nav.tsx`, and `docs-nav-context.tsx` are therefore **hand-merged** during syncs: keep this app's shell structure and mirror only the platform's nav item data.
 
 ## Deferred items and known divergences from the platform app
 

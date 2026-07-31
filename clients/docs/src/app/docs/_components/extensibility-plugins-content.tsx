@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import type { Route } from "next";
+
+import { routes } from "@/lib/routes";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
@@ -429,9 +430,9 @@ export function ExtensibilityPluginsContent() {
       >
         <p className="mb-8 text-zinc-600 dark:text-zinc-400">
           To browse and install ready-made plugins, visit the{" "}
-          <Link href={"/plugins" as Route} className={linkClass}>
+          <a href={routes.plugins} className={linkClass}>
             plugin marketplace
-          </Link>
+          </a>
           .
         </p>
         <p className="mb-8 text-zinc-600 dark:text-zinc-400">

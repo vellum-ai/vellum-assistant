@@ -134,11 +134,11 @@ export function QuickStartContent() {
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <strong>Give it a name.</strong> &ldquo;Your name is
-              Becky.&rdquo; That name will stick.
+              Bob.&rdquo; That name will stick.
             </li>
             <li>
               <strong>Tell it about yourself.</strong> &ldquo;I&apos;m
-              Marina. I work in marketing, live in Brooklyn, and prefer
+              Alice. I work in marketing, live in Brooklyn, and prefer
               short, direct answers.&rdquo; That&apos;s the kind of
               context it folds into how it talks to you.
             </li>

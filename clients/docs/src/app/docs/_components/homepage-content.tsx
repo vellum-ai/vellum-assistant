@@ -243,7 +243,7 @@ export function HomepageContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    Hey Becky, what&apos;s on my calendar today? <em>(spoken)</em>
+                    Hey Bob, what&apos;s on my calendar today? <em>(spoken)</em>
                   </td>
                   <td className="px-3 py-2">
                     Listens, thinks, talks back. Push-to-talk or always-listening, your call.
