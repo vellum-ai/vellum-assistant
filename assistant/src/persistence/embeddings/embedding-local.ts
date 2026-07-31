@@ -313,16 +313,14 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       // Writing to a worker that has already exited raises EPIPE. That must
       // surface as an ordinary embed failure the caller can fall back from:
       // an escaping EPIPE reaches the daemon's `unhandledRejection` handler,
-      // which tears down the whole process (JARVIS-1125). `flush()` may also
-      // report the broken pipe asynchronously, so its promise is caught too.
+      // which tears down the whole process (JARVIS-1125).
+      //
+      // The guard covers `write`, not just `flush`. Both are synchronous on
+      // Bun's FileSink, and `write` is the call that actually raises the broken
+      // pipe, so wrapping `flush` alone (as this did) never caught it.
       try {
         proc.stdin.write(JSON.stringify({ id, texts }) + "\n");
-        const flushed: unknown = proc.stdin.flush();
-        if (flushed instanceof Promise) {
-          flushed.catch((err: unknown) => {
-            this.failPendingRequest(id, err);
-          });
-        }
+        proc.stdin.flush();
       } catch (err) {
         this.failPendingRequest(id, err);
       }
