@@ -31,6 +31,12 @@
  * (no native Capacitor Android shell ships today); registration/delete failures
  * are reported to Sentry but never thrown into the app lifecycle.
  *
+ * The upserted row tags the token with the build's APNs entitlement
+ * environment, resolved by `runtime/apns-environment.ts` (the native
+ * `ApnsEnvironment` plugin with a bundle-suffix heuristic fallback). The
+ * resolver is shared with the ActivityKit Live Activity token upsert so the
+ * two registrations can never tag the same build differently.
+ *
  * Per `docs/CAPACITOR.md`, the `@capacitor/*` plugins are destructured inline
  * at each call site — never returned through an `async` boundary — because the
  * plugin Proxy's `.then` trap would hang the awaiting caller forever.
@@ -42,22 +48,11 @@ import {
   assistantsPushTokensDelete,
   assistantsPushTokensUpsert,
 } from "@/generated/api/sdk.gen";
-import type { ApnsEnvironmentEnum } from "@/generated/api/types.gen";
 import { publish } from "@/lib/event-bus";
 import { captureError } from "@/lib/sentry/capture-error";
+import { resolveSignedApnsEnvironment } from "@/runtime/apns-environment";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { createStorageAccessor } from "@/utils/typed-storage";
-
-/**
- * Bundle-id suffix that maps to the development APNs entitlement. The dev Xcode
- * config (`clients/ios/App/App/Config/App-Dev.xcconfig`) signs with
- * `App-Dev.entitlements` (`aps-environment = development`) and ships the `.dev`
- * bundle id; production and staging both sign with `App.entitlements`
- * (`aps-environment = production`). APNs rejects a token minted under one
- * environment if dispatched against the other, so the platform stores the
- * environment alongside the token and the value must match the running build.
- */
-const DEV_BUNDLE_SUFFIX = ".dev";
 
 /** Token registration we last upserted, retained so logout can delete it. */
 interface RegisteredToken {
@@ -141,11 +136,6 @@ export function isRemotePushSupported(): boolean {
   return isNativePlatform() && Capacitor.getPlatform() === "ios";
 }
 
-/** Map the running build's bundle id to its APNs entitlement environment. */
-function resolveApnsEnvironment(bundleId: string): ApnsEnvironmentEnum {
-  return bundleId.endsWith(DEV_BUNDLE_SUFFIX) ? "development" : "production";
-}
-
 /**
  * Upsert a freshly-minted APNs token to the platform for the given assistant.
  * Best-effort: a non-2xx response or thrown error is reported and swallowed.
@@ -155,6 +145,7 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
     // `@capacitor/app` is a plugin Proxy — destructure inline (see CAPACITOR.md).
     const { App } = await import("@capacitor/app");
     const { id: bundleId } = await App.getInfo();
+    const apnsEnvironment = await resolveSignedApnsEnvironment(bundleId);
 
     const result = await assistantsPushTokensUpsert({
       path: { assistant_id: assistantId },
@@ -162,7 +153,7 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
         token,
         platform: "ios",
         bundle_id: bundleId,
-        apns_environment: resolveApnsEnvironment(bundleId),
+        apns_environment: apnsEnvironment,
       },
       throwOnError: false,
     });

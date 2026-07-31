@@ -10,6 +10,25 @@ import { subscribe } from "@/lib/event-bus";
 
 let isNative = true;
 let platform = "ios";
+
+// ── ApnsEnvironment (module-scope registerPlugin bridge) ─────────────────────
+//
+// The default simulates an old shell without the plugin (bridge call rejects),
+// so the pre-plugin tests below keep exercising the bundle-suffix heuristic
+// they were written against. Cases that exercise the signing-derived path set
+// `apnsEnvironmentRejects = false` and an explicit `apnsEnvironmentResult`.
+
+let apnsEnvironmentResult: string | undefined;
+let apnsEnvironmentRejects = true;
+const apnsEnvironmentGetMock = mock(
+  async (): Promise<{ environment?: string }> => {
+    if (apnsEnvironmentRejects) {
+      throw new Error("ApnsEnvironment.get() is not implemented on ios");
+    }
+    return { environment: apnsEnvironmentResult };
+  },
+);
+
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNative,
 }));
@@ -18,6 +37,8 @@ mock.module("@capacitor/core", () => ({
     isNativePlatform: () => isNative,
     getPlatform: () => platform,
   },
+  registerPlugin: (name: string) =>
+    name === "ApnsEnvironment" ? { get: apnsEnvironmentGetMock } : {},
 }));
 
 // ── @capacitor/push-notifications (lazy-imported plugin Proxy) ────────────────
@@ -164,6 +185,9 @@ beforeEach(() => {
   platform = "ios";
   permissionState = "granted";
   bundleId = "ai.vocify-inc.vellum-assistant-ios";
+  apnsEnvironmentResult = undefined;
+  apnsEnvironmentRejects = true;
+  apnsEnvironmentGetMock.mockClear();
   registrationHandler = null;
   registrationErrorHandler = null;
   actionPerformedHandler = null;
@@ -266,6 +290,56 @@ describe("registerForRemotePush", () => {
 
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
     expect(upsertMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("signing-derived APNs environment", () => {
+  const registerToken = async (token: string) => {
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: token });
+    await flushMicrotasks();
+  };
+
+  test("prefers the signed entitlement: production on a .dev bundle (TestFlight dev build)", async () => {
+    apnsEnvironmentRejects = false;
+    apnsEnvironmentResult = "production";
+    bundleId = "ai.vocify-inc.vellum-assistant-ios.dev";
+
+    await registerToken("apns-token-testflight");
+
+    expect(lastUpsertArg?.body.apns_environment).toBe("production");
+  });
+
+  test("registers development when the build is development-signed (Xcode install)", async () => {
+    apnsEnvironmentRejects = false;
+    apnsEnvironmentResult = "development";
+
+    await registerToken("apns-token-xcode");
+
+    // The plugin result wins even though the non-.dev bundle id would map to
+    // production under the heuristic.
+    expect(lastUpsertArg?.body.apns_environment).toBe("development");
+  });
+
+  test("falls back to the bundle-suffix heuristic when the entitlement is unreadable", async () => {
+    apnsEnvironmentRejects = false;
+    apnsEnvironmentResult = "unknown";
+    bundleId = "ai.vocify-inc.vellum-assistant-ios.dev";
+
+    await registerToken("apns-token-unknown");
+
+    expect(lastUpsertArg?.body.apns_environment).toBe("development");
+  });
+
+  test("old shell without the plugin: heuristic fallback, no Sentry capture", async () => {
+    apnsEnvironmentRejects = true;
+    bundleId = "ai.vocify-inc.vellum-assistant-ios.dev";
+
+    await registerToken("apns-token-old-shell");
+
+    expect(apnsEnvironmentGetMock).toHaveBeenCalledTimes(1);
+    expect(lastUpsertArg?.body.apns_environment).toBe("development");
+    expect(captureErrorMock).not.toHaveBeenCalled();
   });
 });
 
