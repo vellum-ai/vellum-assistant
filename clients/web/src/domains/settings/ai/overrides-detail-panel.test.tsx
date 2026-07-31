@@ -298,30 +298,28 @@ describe("OverridesDetailPanel - advisor", () => {
   });
 });
 
-describe("OverridesDetailPanel - tuning-field preservation (LUM-2949)", () => {
-  // A persisted entry shaped like the real `voiceFrontDoor`: a picker field
-  // plus tuning the editor renders no control for.
-  const TUNED_CONFIG = {
+describe("OverridesDetailPanel - tuning-only entries (LUM-2949)", () => {
+  // `isDraftActive` reads only profile/provider/model, so a persisted entry
+  // holding nothing but tuning reads as "off". Serializing it to `null`
+  // would delete it: see `config-callsite-patch-merge.test.ts`, which pins
+  // that a `null` erases the whole entry while an omitted key is preserved.
+  const TUNING_ONLY_CONFIG = {
     ...CONFIG,
     llm: {
       ...CONFIG.llm,
       callSites: {
-        heartbeatAgent: {
-          profile: "quality",
-          effort: "low",
-          thinking: { enabled: false },
-        },
+        heartbeatAgent: { effort: "low", thinking: { enabled: false } },
       },
     },
   };
 
-  function renderWithTuned() {
-    servedConfig = TUNED_CONFIG;
+  function renderWith(config: unknown) {
+    servedConfig = config;
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 0 } },
     });
     client.setQueryData([{ _id: "configLlmCallsitesGet" }], CATALOG);
-    client.setQueryData([{ _id: "configGet" }], TUNED_CONFIG);
+    client.setQueryData([{ _id: "configGet" }], config);
     return render(
       createElement(
         QueryClientProvider,
@@ -334,69 +332,64 @@ describe("OverridesDetailPanel - tuning-field preservation (LUM-2949)", () => {
     );
   }
 
-  test("changing a different row leaves the tuned entry's fields intact", async () => {
-    renderWithTuned();
+  function toggleFor(displayName: string): HTMLElement {
+    const match = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[role="switch"], input[type="checkbox"]',
+      ),
+    ).find((el) =>
+      (el.getAttribute("aria-label") ?? "").includes(displayName),
+    );
+    if (!match) {
+      throw new Error(`expected a toggle for ${displayName}`);
+    }
+    return match;
+  }
+
+  test("a tuning-only entry the user never touched is omitted, not nulled", async () => {
+    renderWith(TUNING_ONLY_CONFIG);
     await waitFor(() => {
       expect(renderedText()).toContain("Workflow Leaf");
     });
 
-    // Turn on an override for a row that is NOT the tuned one.
-    const toggles = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="switch"], input[type="checkbox"]'),
-    );
-    const leafToggle = toggles.find((el) =>
-      (el.getAttribute("aria-label") ?? "").includes("Workflow Leaf"),
-    );
-    if (!leafToggle) {
-      throw new Error("expected the Workflow Leaf toggle");
-    }
-    fireEvent.click(leafToggle);
+    // Turn on an override for a different row, then save.
+    fireEvent.click(toggleFor("Workflow Leaf"));
     fireEvent.click(getButton("Save"));
 
     await waitFor(() => {
       expect(configPatchBodies.length).toBe(1);
     });
     const body = configPatchBodies[0] as {
-      llm: { callSites: Record<string, Record<string, unknown>> };
+      llm: { callSites: Record<string, unknown> };
     };
-    // The untouched tuned row round-trips with its tuning intact.
-    expect(body.llm.callSites.heartbeatAgent).toEqual({
-      profile: "quality",
-      provider: null,
-      model: null,
-      effort: "low",
-      thinking: { enabled: false },
-    });
+    // Absent, so the merge leaves the persisted tuning in place. `null`
+    // here would delete settings the user never asked to remove.
+    expect("heartbeatAgent" in body.llm.callSites).toBe(false);
+    expect(body.llm.callSites.workflowLeaf).toBeTruthy();
   });
 
-  test("apply-to-all rewrites the profile and keeps per-row tuning", async () => {
-    renderWithTuned();
+  test("switching a row off still sends null so the entry is deleted", async () => {
+    const ACTIVE_CONFIG = {
+      ...CONFIG,
+      llm: {
+        ...CONFIG.llm,
+        callSites: { heartbeatAgent: { profile: "quality", effort: "low" } },
+      },
+    };
+    renderWith(ACTIVE_CONFIG);
     await waitFor(() => {
-      expect(renderedText()).toContain("Use one profile for all actions");
+      expect(renderedText()).toContain("Heartbeat Agent");
     });
 
-    const trigger = document.querySelector<HTMLElement>(
-      'button[role="combobox"]',
-    );
-    if (!trigger) {
-      throw new Error("expected the apply-all dropdown trigger");
-    }
-    pickOption(trigger, "My BYOK");
-    fireEvent.click(getButton("Apply to all"));
+    fireEvent.click(toggleFor("Heartbeat Agent"));
     fireEvent.click(getButton("Save"));
 
     await waitFor(() => {
       expect(configPatchBodies.length).toBe(1);
     });
     const body = configPatchBodies[0] as {
-      llm: { callSites: Record<string, Record<string, unknown>> };
+      llm: { callSites: Record<string, unknown> };
     };
-    expect(body.llm.callSites.heartbeatAgent).toEqual({
-      profile: "my-byok",
-      provider: null,
-      model: null,
-      effort: "low",
-      thinking: { enabled: false },
-    });
+    expect(body.llm.callSites.heartbeatAgent).toBe(null);
   });
 });
