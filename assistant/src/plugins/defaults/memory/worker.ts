@@ -16,6 +16,7 @@ import { getConfig } from "../../../config/loader.js";
 import { isMemoryEnabled } from "../../../config/memory-v3-gate.js";
 import { rehydratePlatformCredentials } from "../../../config/platform-rehydration.js";
 import { resetDb } from "../../../persistence/db-connection.js";
+import { shutdownEmbeddingBackends } from "../../../persistence/embeddings/embedding-backend.js";
 import { disableStreamSeqStamping } from "../../../runtime/assistant-stream-state.js";
 import { initializeTools } from "../../../tools/registry.js";
 import {
@@ -87,7 +88,17 @@ async function main(): Promise<void> {
     }
     disposePidGuard?.();
     cleanupWorkerPidFile(pidPath);
-    process.exit(0);
+
+    // This process runs its own embedding backend, so it owns an ONNX worker
+    // subprocess the daemon must not touch. Reap it here rather than leaving an
+    // orphan for a later spawn's sweep to find (JARVIS-1125). Bounded: exiting
+    // promptly matters more than a clean reap, and the sweep is the backstop.
+    void Promise.race([
+      shutdownEmbeddingBackends().catch((err: unknown) => {
+        log.warn({ err }, "Embedding backend shutdown failed (non-fatal)");
+      }),
+      Bun.sleep(2_000),
+    ]).finally(() => process.exit(0));
   };
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));

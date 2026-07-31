@@ -87,6 +87,15 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
     this.delegate?.dispose?.();
   }
 
+  async shutdown(): Promise<void> {
+    // A delegate under construction still ends up owning a worker, so settle
+    // the in-flight import before tearing down rather than skipping it.
+    if (!this.delegate && this.initPromise) {
+      await this.initPromise.catch(() => undefined);
+    }
+    await this.delegate?.shutdown?.();
+  }
+
   resetForRetry(): void {
     if (!this.delegate) {
       this.initPromise = null;
@@ -223,6 +232,35 @@ export function clearEmbeddingBackendCache(): void {
   vectorCacheBytes = 0;
   backendDimCache.clear();
   localBackendBroken = false;
+}
+
+/**
+ * Tear down every cached backend's OS resources and empty the caches.
+ *
+ * Called on daemon shutdown so process-owned embedding workers exit with their
+ * owner instead of being orphaned. `clearEmbeddingBackendCache()` is the
+ * fire-and-forget sibling used on config/credential changes; this one waits for
+ * each worker to actually exit (JARVIS-1125).
+ */
+export async function shutdownEmbeddingBackends(): Promise<void> {
+  const backends = new Set(backendCache.values());
+  backendCache.clear();
+  vectorCache.clear();
+  vectorCacheBytes = 0;
+  backendDimCache.clear();
+
+  await Promise.all(
+    [...backends].map(async (backend) => {
+      try {
+        await backend.shutdown?.();
+      } catch (err) {
+        log.warn(
+          { err, provider: backend.provider, model: backend.model },
+          "Failed to shut down embedding backend",
+        );
+      }
+    }),
+  );
 }
 
 /** Reset the sticky local-backend failure flag without evicting live backends. */

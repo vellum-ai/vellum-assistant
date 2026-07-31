@@ -89,6 +89,13 @@ export interface EmbeddingBackend {
     options?: EmbeddingRequestOptions,
   ): Promise<number[][]>;
   dispose?(): void;
+  /**
+   * Deterministic teardown for daemon shutdown: release any OS resources the
+   * backend owns (e.g. a worker subprocess) and resolve only once they are
+   * confirmed gone. Unlike {@link dispose}, which may defer while embeds are
+   * in flight, this must not leave a child process behind.
+   */
+  shutdown?(): Promise<void>;
 }
 
 /**

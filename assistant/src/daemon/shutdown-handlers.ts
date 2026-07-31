@@ -10,6 +10,7 @@ import {
   spawnDetachedWalCheckpoint,
 } from "../persistence/db-async-query.js";
 import { getSqlite, isDbOpen, resetDb } from "../persistence/db-connection.js";
+import { shutdownEmbeddingBackends } from "../persistence/embeddings/embedding-backend.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import { stopConsentRefresh } from "../platform/consent-cache.js";
 import { HOOKS } from "../plugin-api/constants.js";
@@ -179,6 +180,15 @@ async function shutdown(): Promise<void> {
     await stopMcpServerManager();
   } catch (err) {
     log.warn({ err }, "MCP server manager shutdown failed (non-fatal)");
+  }
+
+  // Local embedding backends own an ONNX worker subprocess each. Nothing else
+  // reaps them, so without this they outlive the daemon holding ~570 MB apiece
+  // until the next boot happens to reclaim them (JARVIS-1125).
+  try {
+    await shutdownEmbeddingBackends();
+  } catch (err) {
+    log.warn({ err }, "Embedding backend shutdown failed (non-fatal)");
   }
 
   await stopQdrantManager();

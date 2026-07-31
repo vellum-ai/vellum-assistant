@@ -1,5 +1,6 @@
 import {
   existsSync,
+  readdirSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -61,6 +62,133 @@ function clearModelCache(): void {
       log.warn({ err, modelCacheDir }, "Failed to remove model cache");
     }
   }
+}
+
+/** Whether a PID names a live process. */
+function isProcessAlive(pid: number): boolean {
+  try {
+    // Signal 0 probes for liveness without delivering a signal.
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+interface WorkerProcess {
+  pid: number;
+  ppid: number;
+}
+
+/**
+ * What this process may do with an embed worker it found in the process table.
+ *
+ * - `reclaim` — parented to us: a worker we started and lost track of. Reaping
+ *   it is what enforces one live worker per owning process.
+ * - `orphan` — reparented to init, or its owner is gone. Nobody else will ever
+ *   clean it up.
+ * - `foreign` — owned by another live process. The memory-worker process runs
+ *   its own backend against this same workspace and is entitled to its own
+ *   worker; signalling it is what made the two replace each other in a loop.
+ */
+export type WorkerOwnership = "reclaim" | "orphan" | "foreign";
+
+export function classifyWorkerOwnership(
+  worker: WorkerProcess,
+  selfPid: number,
+  isOwnerAlive: (pid: number) => boolean,
+): WorkerOwnership {
+  if (worker.ppid === selfPid) {
+    return "reclaim";
+  }
+  if (worker.ppid <= 1 || !isOwnerAlive(worker.ppid)) {
+    return "orphan";
+  }
+  return "foreign";
+}
+
+/** Enumerate `(pid, ppid, rawCommand)` rows from Linux `/proc`. */
+function listProcessRowsFromProc(): {
+  pid: number;
+  ppid: number;
+  cmd: string;
+}[] {
+  const rows: { pid: number; ppid: number; cmd: string }[] = [];
+  for (const entry of readdirSync("/proc")) {
+    const pid = Number(entry);
+    if (!Number.isInteger(pid) || pid <= 0) {
+      continue;
+    }
+    try {
+      // `stat` field 4 is ppid, but `comm` (field 2) may contain spaces or
+      // parens — parse from the last ')' so a weird comm cannot shift fields.
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+      const ppid = Number(after[1]);
+      const cmd = readFileSync(`/proc/${pid}/cmdline`, "utf8")
+        .split("\0")
+        .filter(Boolean)
+        .join(" ");
+      if (Number.isInteger(ppid)) {
+        rows.push({ pid, ppid, cmd });
+      }
+    } catch {
+      // Process exited between readdir and read — skip.
+    }
+  }
+  return rows;
+}
+
+/** Enumerate `(pid, ppid, rawCommand)` rows via `ps` (macOS / no `/proc`). */
+function listProcessRowsFromPs(): { pid: number; ppid: number; cmd: string }[] {
+  // `-ww` disables column-width truncation. Without it, macOS `ps` clips the
+  // command field to the terminal width, which can cut off the workerPath
+  // argument and hide a genuine match. Same flag is used by
+  // daemon-control.ts:123 for exactly this reason.
+  const result = Bun.spawnSync({
+    cmd: ["ps", "-A", "-ww", "-o", "pid=,ppid=,command="],
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  if (result.exitCode !== 0) {
+    return [];
+  }
+  const rows: { pid: number; ppid: number; cmd: string }[] = [];
+  for (const line of new TextDecoder().decode(result.stdout).split("\n")) {
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+    if (m) {
+      rows.push({ pid: Number(m[1]), ppid: Number(m[2]), cmd: m[3].trim() });
+    }
+  }
+  return rows;
+}
+
+/**
+ * Live embed-worker processes for this workspace, as `(pid, ppid)` pairs.
+ *
+ * Ownership of an embed worker is recorded by the OS process tree, not by the
+ * PID file: a worker's parent IS its owner. The process table is therefore the
+ * authoritative answer to "whose worker is this", and unlike the PID file it
+ * survives a crash and cannot be overwritten by a second owner. That matters
+ * because the daemon and the memory-worker process legitimately run one worker
+ * each against the same workspace.
+ *
+ * Matches on the absolute worker script path, which lives under THIS
+ * workspace's embedding-models directory and is therefore unique per assistant
+ * instance — a sibling instance's workers never match. Raw command lines are
+ * read for matching only, never stored or logged: process arguments can carry
+ * secrets (see the redaction note in `util/process-tree.ts`).
+ */
+export function listWorkerProcesses(workerPath: string): WorkerProcess[] {
+  let rows: { pid: number; ppid: number; cmd: string }[];
+  try {
+    rows = listProcessRowsFromProc();
+  } catch {
+    rows = listProcessRowsFromPs();
+  }
+  return rows
+    .filter((r) => r.cmd.includes(workerPath))
+    .map((r) => ({ pid: r.pid, ppid: r.ppid }));
 }
 
 /**
@@ -153,18 +281,47 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   private sendRequest(texts: string[]): Promise<WorkerResponse> {
     const id = ++this.requestCounter;
     return new Promise((resolve) => {
-      if (!this.workerProc) {
+      const proc = this.workerProc;
+      if (!proc) {
         resolve({ id, error: "Worker not initialized" });
         return;
       }
       this.pendingRequests.set(id, { resolve });
-      this.workerProc.stdin.write(JSON.stringify({ id, texts }) + "\n");
+
+      // Writing to a worker that has already exited raises EPIPE. That must
+      // surface as an ordinary embed failure the caller can fall back from —
+      // an escaping EPIPE reaches the daemon's `unhandledRejection` handler,
+      // which tears down the whole process (JARVIS-1125). `flush()` may also
+      // report the broken pipe asynchronously, so its promise is caught too.
       try {
-        this.workerProc.stdin.flush();
-      } catch {
-        // Worker may have exited — pending request will be resolved by stdout reader cleanup
+        proc.stdin.write(JSON.stringify({ id, texts }) + "\n");
+        const flushed: unknown = proc.stdin.flush();
+        if (flushed instanceof Promise) {
+          flushed.catch((err: unknown) => {
+            this.failPendingRequest(id, err);
+          });
+        }
+      } catch (err) {
+        this.failPendingRequest(id, err);
       }
     });
+  }
+
+  /**
+   * Resolve one in-flight request with an error. Resolving (rather than
+   * rejecting) keeps the failure on the normal `embed()` path, where it becomes
+   * a thrown `Error` the backend chain can fall back from.
+   */
+  private failPendingRequest(id: number, err: unknown): void {
+    const pending = this.pendingRequests.get(id);
+    if (!pending) {
+      return;
+    }
+    this.pendingRequests.delete(id);
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err, model: this.model }, "Embedding worker pipe write failed");
+    pending.resolve({ id, error: `worker pipe write failed: ${message}` });
+    this.disposeIfIdle();
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -230,11 +387,10 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     const embeddingModelsDir = getEmbeddingModelsDir();
     const modelCacheDir = `${embeddingModelsDir}/model-cache`;
 
-    // Singleton guard: an orphaned embed worker from a previous daemon
-    // (e.g. one that crashed without cleanup) may still be running and
-    // holding the workspace's PID file. Detect and reclaim it before
-    // spawning so we never leave duplicate workers eating CPU/memory.
-    this.reclaimStaleWorker(workerPath);
+    // Singleton guard: a worker this process already owns (or one orphaned by
+    // a crashed owner) may still be running. Reclaim it before spawning so we
+    // never leave duplicate workers eating CPU/memory.
+    this.reclaimOwnedWorkers(workerPath);
 
     log.info(
       { bunPath, workerPath, model: this.model },
@@ -345,22 +501,59 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
       // Only clean up if this reader's proc is still the active one.
       // A new worker may have been spawned during the async cleanup window.
-      if (this.workerProc === proc) {
-        // Worker exited — reject all pending requests and clean up
-        for (const [, pending] of this.pendingRequests) {
-          pending.resolve({
-            error: "Embedding worker process exited unexpectedly",
-          });
-        }
-        this.pendingRequests.clear();
-        this.workerProc = null;
-        this.stdoutReaderActive = false;
-        this.removePidFile();
-        this.stdoutBuffer = "";
-        // Allow re-initialization on next embed() call
-        this.initGuard.reset();
+      if (this.workerProc !== proc) {
+        return;
       }
+
+      // The stream ending does NOT prove the child exited — a read error ends
+      // this loop just the same. Releasing ownership of a still-running child
+      // strands it: nothing holds its handle any more and, once its PID file
+      // entry is gone, no later reclaim can find it, so it lives until reboot
+      // holding ~570 MB (JARVIS-1125). Terminate and wait for the OS to confirm
+      // before forgetting it.
+      await this.terminateWorker(proc);
+
+      // Re-check: a new worker may have been spawned while we awaited exit.
+      if (this.workerProc !== proc) {
+        return;
+      }
+
+      for (const [, pending] of this.pendingRequests) {
+        pending.resolve({
+          error: "Embedding worker process exited unexpectedly",
+        });
+      }
+      this.pendingRequests.clear();
+      this.workerProc = null;
+      this.stdoutReaderActive = false;
+      this.releasePidFile(proc.pid);
+      this.stdoutBuffer = "";
+      // Allow re-initialization on next embed() call
+      this.initGuard.reset();
     })();
+  }
+
+  /**
+   * Terminate a worker and wait for the OS to confirm it is gone.
+   *
+   * Every path that gives up ownership of a worker goes through here, so the
+   * invariant "we never forget a child we have not confirmed dead" holds even
+   * when the trigger was a stream error rather than an exit.
+   */
+  private async terminateWorker(proc: {
+    kill: () => void;
+    exited: Promise<unknown>;
+  }): Promise<void> {
+    try {
+      proc.kill();
+    } catch {
+      // Already exiting or already reaped.
+    }
+    try {
+      await proc.exited;
+    } catch {
+      // Bun resolves `exited` on normal termination; ignore probe failures.
+    }
   }
 
   private readyResolve: (() => void) | null = null;
@@ -436,17 +629,26 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         originalReject(err);
       };
 
-      // Also handle early worker exit
-      this.workerProc?.exited.then(() => {
-        if (this.readyResolve) {
-          clearTimeout(timeout);
-          this.readyResolve = null;
-          this.readyReject = null;
-          reject(
-            new Error("Embedding worker process exited before becoming ready"),
-          );
-        }
-      });
+      // Also handle early worker exit. The `catch` matters: an unhandled
+      // rejection here reaches the daemon's fatal-error handler and takes the
+      // process down, which is the same failure shape as the EPIPE in
+      // `sendRequest` (JARVIS-1125).
+      this.workerProc?.exited
+        .then(() => {
+          if (this.readyResolve) {
+            clearTimeout(timeout);
+            this.readyResolve = null;
+            this.readyReject = null;
+            reject(
+              new Error(
+                "Embedding worker process exited before becoming ready",
+              ),
+            );
+          }
+        })
+        .catch(() => {
+          // Exit status unavailable — the ready timeout is the backstop.
+        });
     });
   }
 
@@ -468,7 +670,19 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     }
   }
 
-  private removePidFile(): void {
+  /**
+   * Drop the PID file, but only while it still names `ownedPid`.
+   *
+   * The file is a single workspace-scoped slot shared by every backend instance
+   * and by the memory-worker process, so an unconditional unlink here deletes
+   * whichever worker happens to be published — including a live one belonging
+   * to somebody else. Compare-and-delete keeps a teardown from unpublishing a
+   * worker it does not own (JARVIS-1125).
+   */
+  private releasePidFile(ownedPid: number): void {
+    if (this.readPidFile() !== ownedPid) {
+      return;
+    }
     try {
       unlinkSync(this.getPidFilePath());
     } catch {
@@ -491,103 +705,53 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   }
 
   /**
-   * Verify a PID belongs to this workspace's embed worker before sending
-   * signals — defends against PID reuse killing an unrelated process if the
-   * original worker exited and the OS recycled the PID.
+   * Terminate every embed worker this process is responsible for, so spawning
+   * a replacement cannot leave a duplicate behind.
    *
-   * Matching `embed-worker` alone would also match a sibling assistant
-   * instance's worker (different VELLUM_WORKSPACE_DIR), so we match against
-   * the absolute worker script path, which lives under THIS workspace's
-   * embedding-models directory and is therefore unique per instance.
+   * Responsibility is read off the process tree rather than the PID file. A
+   * worker's parent is its owner, which makes ownership survive a crash and
+   * immune to a second owner overwriting the shared PID file — the two failure
+   * modes behind JARVIS-1125. See {@link classifyWorkerOwnership} for the
+   * per-worker decision; this also recovers workers stranded by earlier daemon
+   * generations, not just the single entry a PID file can hold.
    */
-  private isOurEmbedWorker(pid: number, workerPath: string): boolean {
-    try {
-      // `-ww` disables column-width truncation. Without it, macOS `ps` clips
-      // the command field to the terminal width, which can cut off the
-      // workerPath argument and cause this check to spuriously return false
-      // for genuine orphans. Same flag is used by daemon-control.ts:123 for
-      // exactly this reason.
-      const result = Bun.spawnSync({
-        cmd: ["ps", "-ww", "-p", String(pid), "-o", "command="],
-        stdout: "pipe",
-        stderr: "ignore",
-      });
-      if (result.exitCode !== 0) {
-        return false;
+  private reclaimOwnedWorkers(workerPath: string): void {
+    for (const worker of listWorkerProcesses(workerPath)) {
+      // Never signal ourselves — should not happen since the worker is a child
+      // process, but guard against logic bugs that would deadlock the daemon.
+      if (worker.pid === process.pid) {
+        continue;
       }
-      const cmd = new TextDecoder().decode(result.stdout).trim();
-      if (!cmd) {
-        return false;
-      }
-      return cmd.includes(workerPath);
-    } catch {
-      return false;
-    }
-  }
 
-  /**
-   * If a previous embed worker is still running for this workspace (orphaned
-   * by a crashed daemon, for example), terminate it before spawning a new one
-   * so we never end up with duplicate workers competing for the same workspace.
-   *
-   * Stale PID files (process no longer exists) are silently cleaned up.
-   * PIDs that have been recycled to unrelated processes — including embed
-   * workers belonging to *other* assistant instances — are left untouched.
-   */
-  private reclaimStaleWorker(workerPath: string): void {
-    const pid = this.readPidFile();
-    if (pid == null) {
-      return;
-    }
-
-    // Never signal ourselves — should not happen since the worker is a child
-    // process, but guard against logic bugs that would deadlock the daemon.
-    if (pid === process.pid) {
-      this.removePidFile();
-      return;
-    }
-
-    let isAlive = false;
-    try {
-      // Signal 0 just probes for liveness without delivering a signal.
-      process.kill(pid, 0);
-      isAlive = true;
-    } catch {
-      // ESRCH — no such process. PID file is stale.
-    }
-
-    if (!isAlive) {
-      log.info(
-        { pid, model: this.model },
-        "Removing stale embed worker PID file (process no longer exists)",
+      const ownership = classifyWorkerOwnership(
+        worker,
+        process.pid,
+        isProcessAlive,
       );
-      this.removePidFile();
-      return;
-    }
+      if (ownership === "foreign") {
+        continue;
+      }
 
-    if (!this.isOurEmbedWorker(pid, workerPath)) {
-      // PID points to something that isn't this workspace's embed worker —
-      // either an unrelated process (PID reuse after the original worker
-      // exited) or another assistant instance's worker. Either way, don't
-      // signal it; just drop the stale file so the new worker can claim it.
       log.warn(
-        { pid, model: this.model },
-        "PID file points to a process that is not this workspace's embed worker; clearing without killing",
+        { pid: worker.pid, ownerPid: worker.ppid, model: this.model },
+        ownership === "reclaim"
+          ? "Reclaiming an embed worker this process had lost track of"
+          : "Terminating an orphaned embed worker from a previous owner",
       );
-      this.removePidFile();
-      return;
+      try {
+        process.kill(worker.pid, "SIGTERM");
+      } catch {
+        // Race: it exited between enumeration and the kill — fine.
+      }
+      this.releasePidFile(worker.pid);
     }
 
-    log.warn(
-      { pid, model: this.model },
-      "Found orphaned embed worker from a previous daemon, terminating it",
-    );
-    try {
-      process.kill(pid, "SIGTERM");
-    } catch {
-      // Race: it exited between the liveness check and the kill — fine.
+    // A PID file naming a process that is gone (or was never ours) is stale;
+    // drop it so the worker we are about to spawn can publish cleanly.
+    const published = this.readPidFile();
+    if (published != null && !isProcessAlive(published)) {
+      this.releasePidFile(published);
     }
-    this.removePidFile();
   }
 
   private disposeIfIdle(): void {
@@ -609,16 +773,46 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     this.stdoutReaderActive = false;
     this.stdoutBuffer = "";
     this.initGuard.reset();
-    this.removePidFile();
+
+    // An instance whose worker already exited owns nothing. Unlinking the PID
+    // file here would unpublish whichever worker is currently registered —
+    // typically a live one belonging to another instance, which then becomes
+    // invisible to every later reclaim. Only release what we actually hold.
+    if (!proc) {
+      return;
+    }
+
+    this.releasePidFile(proc.pid);
+    void this.terminateWorker(proc);
+  }
+
+  /**
+   * Terminate this backend's worker and wait for the child to exit.
+   *
+   * The deterministic counterpart to {@link dispose} for daemon shutdown: it
+   * ignores the idle checks (the process is going away, so deferring until
+   * in-flight embeds settle would just orphan the child) and resolves only once
+   * the OS confirms the worker is gone.
+   */
+  async shutdown(): Promise<void> {
+    this.disposeRequested = true;
+
+    const proc = this.workerProc;
+    this.workerProc = null;
+    this.stdoutReaderActive = false;
+    this.stdoutBuffer = "";
+    this.initGuard.reset();
+
+    for (const [, pending] of this.pendingRequests) {
+      pending.resolve({ error: "Local embedding backend is shutting down" });
+    }
+    this.pendingRequests.clear();
 
     if (!proc) {
       return;
     }
 
-    try {
-      proc.kill();
-    } catch {
-      // Worker may already be exiting
-    }
+    this.releasePidFile(proc.pid);
+    await this.terminateWorker(proc);
   }
 }
