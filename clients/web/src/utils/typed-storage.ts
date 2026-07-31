@@ -17,6 +17,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import {
+  notifySettingChange,
   removeLocalSetting,
   setLocalSetting,
   watchSetting,
@@ -88,7 +89,7 @@ export interface KeyedStorageAccessor<T> {
   /**
    * React hook that subscribes to changes for one entity's key.
    * Concurrent-rendering-safe, and reads during render rather than in an
-   * effect — so the first paint already carries the stored value instead of
+   * effect, so the first paint already carries the stored value instead of
    * the fallback.
    */
   useValue: (id: string) => T;
@@ -116,13 +117,52 @@ function readRaw(key: string): string | null {
  * only when the result is reference-equal, so a non-primitive `T` reparsed
  * each call would re-render forever. Caching on the raw string keeps the
  * reference stable while the stored text is unchanged, and self-heals when
- * it isn't — the same contract `createStorageAccessor` implements for the
- * static case.
+ * it isn't. This is the same contract `createStorageAccessor` implements for
+ * the static case.
  *
  * Deliberately not shared with `load`. `load` returns a freshly parsed value
  * that callers may mutate; handing them the cached instance would corrupt
  * every subscriber's snapshot.
  */
+/**
+ * Session-scoped holding area for values storage refuses to take.
+ *
+ * `localStorage.setItem` throws in private browsing, under a policy that
+ * disables storage, and on quota exhaustion. The write is best-effort and
+ * fails soft, which is right for persistence but wrong for display: a value
+ * read back through `useValue` would keep reporting the previous state, so a
+ * control bound to it looks broken rather than merely unsaved.
+ *
+ * Holding the rejected value in memory and announcing it anyway keeps the
+ * control honest. The choice applies for the session and is absent on the next
+ * load, which is the most any storage-backed value can offer on a device that
+ * rejects writes.
+ *
+ * An entry lives only until a write for the same id succeeds, so a browser
+ * that recovers (the user leaves private browsing, quota frees up) goes back
+ * to reading straight from storage.
+ */
+function createOverrides<T>() {
+  const overrides = new Map<string, T>();
+  return {
+    has: (id: string) => overrides.has(id),
+    get: (id: string) => overrides.get(id) as T,
+    drop: (id: string) => overrides.delete(id),
+    /** Write through to storage, holding the value in memory if it bounces. */
+    write(id: string, key: string, value: T, serialized: string): void {
+      if (setLocalSetting(key, serialized)) {
+        overrides.delete(id);
+        return;
+      }
+      overrides.set(id, value);
+      notifySettingChange(key, serialized);
+    },
+  };
+}
+
+/** The single entity id a static-key accessor stores its override under. */
+const STATIC_ID = "";
+
 function createSnapshotCache<T>(
   read: (id: string) => string | null,
   parseOrFallback: (raw: string | null) => T,
@@ -199,8 +239,12 @@ export function createStorageAccessor<T>(
   // and re-render indefinitely.
   let cachedRaw: string | null | undefined;
   let cachedValue: T = fallback;
+  const overrides = createOverrides<T>();
 
   function load(): T {
+    if (overrides.has(STATIC_ID)) {
+      return overrides.get(STATIC_ID);
+    }
     const raw = readRaw(key);
     if (raw === cachedRaw) {
       return cachedValue;
@@ -220,10 +264,11 @@ export function createStorageAccessor<T>(
   }
 
   function save(value: T): void {
-    setLocalSetting(key, serialize(value));
+    overrides.write(STATIC_ID, key, value, serialize(value));
   }
 
   function remove(): void {
+    overrides.drop(STATIC_ID);
     removeLocalSetting(key);
   }
 
@@ -288,22 +333,32 @@ export function createKeyedStorageAccessor<T>(
     }
   }
 
+  const overrides = createOverrides<T>();
+
   function load(id: string): T {
+    if (overrides.has(id)) {
+      return overrides.get(id);
+    }
     return parseOrFallback(readRaw(keyFn(id)));
   }
 
   function save(id: string, value: T): void {
-    setLocalSetting(keyFn(id), serialize(value));
+    overrides.write(id, keyFn(id), value, serialize(value));
   }
 
   function remove(id: string): void {
+    overrides.drop(id);
     removeLocalSetting(keyFn(id));
   }
 
-  const snapshot = createSnapshotCache<T>(
+  const cachedSnapshot = createSnapshotCache<T>(
     (id) => readRaw(keyFn(id)),
     parseOrFallback,
   );
+
+  function snapshot(id: string): T {
+    return overrides.has(id) ? overrides.get(id) : cachedSnapshot(id);
+  }
 
   function useValue(id: string): T {
     // Both callbacks are keyed on `id`: a changed entity must resubscribe to
@@ -358,7 +413,7 @@ export interface RecordStorageAccessor<V> {
   /**
    * React hook that subscribes to one entity's record. Returns the same
    * reference while the stored text is unchanged, so it is safe to depend on
-   * — but for that reason the result must be treated as read-only. Use
+   * but for that reason the result must be treated as read-only. Use
    * {@link RecordStorageAccessor.load} when you need a mutable copy.
    */
   useValue: (id: string) => Record<string, V>;
@@ -408,7 +463,16 @@ export function createRecordStorageAccessor<V>(
     }
   }
 
+  const overrides = createOverrides<Record<string, V>>();
+
+  function persist(id: string, record: Record<string, V>): void {
+    overrides.write(id, keyFn(id), record, JSON.stringify(record));
+  }
+
   function load(id: string): Record<string, V> {
+    if (overrides.has(id)) {
+      return { ...overrides.get(id) };
+    }
     const raw = readRaw(keyFn(id));
     if (raw === null) {
       return { ...fallback };
@@ -432,28 +496,33 @@ export function createRecordStorageAccessor<V>(
         for (const [k, v] of trimmed) {
           trimmedRecord[k] = v;
         }
-        setLocalSetting(keyFn(id), JSON.stringify(trimmedRecord));
+        persist(id, trimmedRecord);
         return;
       }
     }
 
-    setLocalSetting(keyFn(id), JSON.stringify(existing));
+    persist(id, existing);
   }
 
   function deleteEntry(id: string, entryKey: string): void {
     const existing = load(id);
     delete existing[entryKey];
-    setLocalSetting(keyFn(id), JSON.stringify(existing));
+    persist(id, existing);
   }
 
   function remove(id: string): void {
+    overrides.drop(id);
     removeLocalSetting(keyFn(id));
   }
 
-  const snapshot = createSnapshotCache<Record<string, V>>(
+  const cachedSnapshot = createSnapshotCache<Record<string, V>>(
     (id) => readRaw(keyFn(id)),
     (raw) => (raw === null ? fallback : (parseRecord(raw) ?? fallback)),
   );
+
+  function snapshot(id: string): Record<string, V> {
+    return overrides.has(id) ? overrides.get(id) : cachedSnapshot(id);
+  }
 
   function useValue(id: string): Record<string, V> {
     const subscribe = useCallback(

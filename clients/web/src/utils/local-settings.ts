@@ -16,13 +16,33 @@ export function getLocalSetting(key: string, fallback: string): string {
   }
 }
 
-export function setLocalSetting(key: string, value: string): void {
+/**
+ * Write a setting. Returns whether the value reached storage, so callers that
+ * render the value can keep it in memory when it did not. Callers that treat
+ * persistence as fire-and-forget can ignore the result.
+ */
+export function setLocalSetting(key: string, value: string): boolean {
   if (typeof window === "undefined") {
-    return;
+    return false;
   }
   try {
     localStorage.setItem(key, value);
   } catch {
+    return false;
+  }
+  notifyChange(key, value);
+  return true;
+}
+
+/**
+ * Announce a value that did not reach storage.
+ *
+ * A rejected write fires no notification of its own, so a subscriber holding
+ * the value in memory has no way to learn it changed. This is the signal for
+ * that case; the notification carries the value the caller is standing behind.
+ */
+export function notifySettingChange(key: string, value: string): void {
+  if (typeof window === "undefined") {
     return;
   }
   notifyChange(key, value);

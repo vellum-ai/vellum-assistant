@@ -204,6 +204,47 @@ describe("createKeyedStorageAccessor", () => {
       expect(result.current).toEqual(["a", "b"]);
     });
 
+    // Private browsing, a policy that disables storage, and quota exhaustion
+    // all make setItem throw. The value still has to reach the UI, or the
+    // control bound to it reads as broken rather than merely unsaved.
+    test("holds the value and notifies when storage rejects the write", () => {
+      const setItem = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = () => {
+        throw new Error("QuotaExceededError");
+      };
+
+      try {
+        const { result } = renderHook(() => keyed.useValue("asst-1"));
+        expect(result.current).toBe("");
+
+        act(() => keyed.save("asst-1", "conv-abc"));
+
+        expect(result.current).toBe("conv-abc");
+        expect(keyed.load("asst-1")).toBe("conv-abc");
+      } finally {
+        localStorage.setItem = setItem;
+      }
+    });
+
+    test("a later successful write drops the in-memory value", () => {
+      const setItem = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = () => {
+        throw new Error("QuotaExceededError");
+      };
+      try {
+        keyed.save("asst-1", "conv-abc");
+      } finally {
+        localStorage.setItem = setItem;
+      }
+
+      keyed.save("asst-1", "conv-xyz");
+
+      expect(localStorage.getItem("vellum:lastConvo:asst-1")).toBe("conv-xyz");
+      // Reading past the override, not through a stale copy of it.
+      localStorage.setItem("vellum:lastConvo:asst-1", "conv-external");
+      expect(keyed.load("asst-1")).toBe("conv-external");
+    });
+
     test("a mutated load() result does not corrupt the snapshot", () => {
       list.save("asst-1", ["a"]);
       const { result } = renderHook(() => list.useValue("asst-1"));

@@ -67,6 +67,27 @@ describe("useViewMode", () => {
     expect(result.current).toBe("all");
   });
 
+  // Storage is unavailable in private browsing and once quota is exhausted.
+  // The switch still has to move: an unsaved choice is tolerable, a control
+  // that ignores clicks is not.
+  test("still switches when storage rejects the write", () => {
+    const setItem = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = () => {
+      throw new Error("QuotaExceededError");
+    };
+
+    try {
+      const { result } = renderHook(() => useViewMode("asst-1"));
+      expect(result.current).toBe("all");
+
+      act(() => saveViewMode("asst-1", "grouped"));
+
+      expect(result.current).toBe("grouped");
+    } finally {
+      localStorage.setItem = setItem;
+    }
+  });
+
   test("follows the key when the assistant changes", () => {
     saveViewMode("asst-2", "grouped");
 
