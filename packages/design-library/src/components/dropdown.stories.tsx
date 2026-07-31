@@ -227,7 +227,7 @@ export const Compact: Story = {
  *
  * A transformed ancestor becomes the containing block for `position: fixed`
  * descendants, so a menu rendered inline under one resolves its viewport
- * coordinates against that ancestor's box instead — shifting it by the
+ * coordinates against that ancestor's box instead, shifting it by the
  * ancestor's origin, usually far enough to leave the viewport entirely. The
  * trigger still reports `data-state="open"`, which is why the failure reads to
  * users as "the dropdown won't open" rather than "the menu is in the wrong
@@ -235,7 +235,7 @@ export const Compact: Story = {
  * viewport as its containing block.
  *
  * The web app hits this with its detail drawer, whose slide-in animation uses
- * `animation-fill-mode: both` — the final keyframe's identity matrix stays
+ * `animation-fill-mode: both`, so the final keyframe's identity matrix stays
  * applied for the life of the drawer.
  */
 export const InsideTransformedAncestor: Story = {
