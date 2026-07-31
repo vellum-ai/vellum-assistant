@@ -1,4 +1,8 @@
-import type { ChannelId as CanonicalChannelId } from "@vellumai/service-contracts/channels";
+import {
+  type ChannelId as CanonicalChannelId,
+  type InterfaceId as CanonicalInterfaceId,
+  parseInterfaceId as parseCanonicalInterfaceId,
+} from "@vellumai/service-contracts/channels";
 
 /**
  * Channels the gateway can ingress — a strict subset of the canonical
@@ -39,23 +43,14 @@ export const INTERFACE_IDS = [
   "slack",
   "email",
   "a2a",
-] as const;
+] as const satisfies readonly CanonicalInterfaceId[];
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
 
 /**
- * Interface IDs that older clients or persisted data may still use.
- * Maps legacy values to their canonical replacements.
- */
-const LEGACY_INTERFACE_ALIASES: Record<string, InterfaceId> = {
-  // The web client used to report "vellum" as its interface ID.
-  vellum: "web",
-};
-
-/**
- * Strict type guard — returns `true` only for canonical `InterfaceId`
- * values. Legacy aliases like `"vellum"` return `false`; use
- * `parseInterfaceId` to accept and normalize those.
+ * Strict type guard for gateway-admitted `InterfaceId` values. Canonical
+ * values outside the local subset and legacy aliases like `"vellum"` return
+ * `false`; use `parseInterfaceId` to accept and normalize admitted aliases.
  */
 export function isInterfaceId(value: unknown): value is InterfaceId {
   return (
@@ -64,17 +59,9 @@ export function isInterfaceId(value: unknown): value is InterfaceId {
   );
 }
 
-export function normalizeInterfaceId(value: InterfaceId): InterfaceId {
-  return (LEGACY_INTERFACE_ALIASES[value] as InterfaceId) ?? value;
-}
-
 export function parseInterfaceId(value: unknown): InterfaceId | null {
-  if (typeof value !== "string") return null;
-  if ((INTERFACE_IDS as readonly string[]).includes(value))
-    return value as InterfaceId;
-  const alias = LEGACY_INTERFACE_ALIASES[value];
-  if (alias) return alias;
-  return null;
+  const canonical = parseCanonicalInterfaceId(value);
+  return canonical !== null && isInterfaceId(canonical) ? canonical : null;
 }
 
 export interface TurnInterfaceContext {

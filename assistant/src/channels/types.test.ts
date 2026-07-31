@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { INTERFACE_IDS as CANONICAL_INTERFACE_IDS } from "@vellumai/service-contracts/channels";
+
 import {
   CLIENT_OS_VALUES,
   INTERACTIVE_INTERFACES,
@@ -8,28 +10,15 @@ import {
   parseClientOs,
   parseInterfaceId,
   supportsHostProxy,
-} from "../types.js";
+} from "./types.js";
 
 describe("INTERFACE_IDS", () => {
-  test("includes chrome-extension", () => {
-    expect(
-      (INTERFACE_IDS as readonly string[]).includes("chrome-extension"),
-    ).toBe(true);
-  });
+  test("accepts the complete canonical interface set", () => {
+    expect(INTERFACE_IDS).toBe(CANONICAL_INTERFACE_IDS);
 
-  test("still includes macos and other existing interfaces", () => {
-    for (const id of [
-      "macos",
-      "ios",
-      "cli",
-      "telegram",
-      "phone",
-      "web",
-      "whatsapp",
-      "slack",
-      "email",
-    ]) {
-      expect((INTERFACE_IDS as readonly string[]).includes(id)).toBe(true);
+    for (const id of CANONICAL_INTERFACE_IDS) {
+      expect(isInterfaceId(id)).toBe(true);
+      expect(parseInterfaceId(id)).toBe(id);
     }
   });
 });
