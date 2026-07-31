@@ -277,14 +277,13 @@ import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routin
 // `tryResolveProviderForConnectionName` lookups so resolveDefaultProvider
 // returns a usable provider for any connection name the winning profile
 // references. The managed connection must carry the provider the catalog
-// `balanced` default declares (fireworks) or resolution rejects the row as a
+// `balanced` default declares (openai) or resolution rejects the row as a
 // provider mismatch; other names behave as personal anthropic connections.
 mock.module("../providers/inference/connections.js", () => ({
   getConnection: (_db: unknown, name: string) => ({
     id: 1,
     name,
-    provider:
-      name === VELLUM_MANAGED_CONNECTION_NAME ? "fireworks" : "anthropic",
+    provider: name === VELLUM_MANAGED_CONNECTION_NAME ? "openai" : "anthropic",
     auth_strategy: "user_managed_credential",
     credential_alias: null,
     metadata_json: null,
