@@ -162,7 +162,6 @@ export const NotificationDecisionSchema = z.object({
   dedupeKey: z.string(),
   confidence: z.number(),
   fallbackUsed: z.boolean(),
-  verbatimCopy: z.boolean().optional(),
   persistedDecisionId: z.string().optional(),
 });
 
