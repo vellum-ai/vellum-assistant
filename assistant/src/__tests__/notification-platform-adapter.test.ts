@@ -33,11 +33,13 @@ interface FetchCall {
   path: string;
   method: string;
   body: Record<string, unknown>;
+  hasAbortSignal: boolean;
 }
 
 const fetchCalls: FetchCall[] = [];
 const fetchResponses: Array<{ ok: boolean; status: number; body?: string }> =
   [];
+const fetchErrors: Error[] = [];
 let clientAvailable = true;
 
 mock.module("../platform/client.js", () => ({
@@ -52,7 +54,16 @@ mock.module("../platform/client.js", () => ({
           const body = init?.body
             ? (JSON.parse(init.body as string) as Record<string, unknown>)
             : {};
-          fetchCalls.push({ path, method: init?.method ?? "GET", body });
+          fetchCalls.push({
+            path,
+            method: init?.method ?? "GET",
+            body,
+            hasAbortSignal: init?.signal instanceof AbortSignal,
+          });
+          const error = fetchErrors.shift();
+          if (error) {
+            throw error;
+          }
           const response = fetchResponses.shift() ?? {
             ok: true,
             status: 200,
@@ -107,6 +118,7 @@ describe("PlatformPushAdapter", () => {
   beforeEach(() => {
     fetchCalls.length = 0;
     fetchResponses.length = 0;
+    fetchErrors.length = 0;
     clientAvailable = true;
   });
 
@@ -201,6 +213,28 @@ describe("PlatformPushAdapter", () => {
     expect(result.error).toContain("500");
     // 1 initial + 3 retries = 4 attempts
     expect(fetchCalls).toHaveLength(4);
+  });
+
+  test("bounds every attempt with an abort signal", async () => {
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(fetchCalls[0]?.hasAbortSignal).toBe(true);
+  });
+
+  test("retries attempts that abort on the per-attempt timeout", async () => {
+    fetchErrors.push(
+      new DOMException("The operation timed out.", "TimeoutError"),
+    );
+    fetchResponses.push({ ok: true, status: 200, body: '{"tokens_sent": 1}' });
+
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(result.remotePushAccepted).toBe(true);
+    expect(fetchCalls).toHaveLength(2);
   });
 
   test("does not retry on 4xx responses", async () => {

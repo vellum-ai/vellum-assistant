@@ -34,6 +34,83 @@ export interface OwnerConsent {
   shareDiagnosticsAcceptedVersion: string;
 }
 
+interface PlatformClientConfig {
+  baseUrl: string;
+  apiKey: string;
+  assistantId: string;
+}
+
+/**
+ * Resolve the platform client's prerequisites.
+ *
+ * First tries the in-memory managed proxy context (available when the daemon
+ * has rehydrated env overrides). Falls back to reading platform credentials
+ * directly from the credential store so that standalone CLI invocations work
+ * without the daemon having run its rehydration step.
+ *
+ * Returns `null` when auth prerequisites are missing (not logged in, no API
+ * key). The assistant ID is resolved but not required.
+ */
+async function resolvePlatformClientConfig(): Promise<PlatformClientConfig | null> {
+  if (!arePlatformFeaturesEnabled()) {
+    log.debug("platform features disabled -- returning null");
+    return null;
+  }
+
+  const ctx = await resolveManagedProxyContext();
+
+  let baseUrl = ctx.enabled ? ctx.platformBaseUrl : "";
+  let apiKey = ctx.enabled ? ctx.assistantApiKey : "";
+  let assistantId = getPlatformAssistantId();
+
+  // Fall back to credential store for values not yet rehydrated (standalone CLI).
+  if (!baseUrl) {
+    baseUrl =
+      (await getSecureKeyAsync(credentialKey("vellum", "platform_base_url"))) ??
+      "";
+  }
+  if (!apiKey) {
+    apiKey =
+      (await getSecureKeyAsync(credentialKey("vellum", "assistant_api_key"))) ??
+      "";
+  }
+  if (!assistantId) {
+    assistantId =
+      (
+        await getSecureKeyAsync(
+          credentialKey("vellum", "platform_assistant_id"),
+        )
+      )?.trim() ?? "";
+  }
+
+  if (!baseUrl || !apiKey) {
+    const level = _missingPrereqsWarned ? "debug" : "warn";
+    _missingPrereqsWarned = true;
+    log[level](
+      {
+        hasBaseUrl: !!baseUrl,
+        hasApiKey: !!apiKey,
+        hasAssistantId: !!assistantId,
+        managedProxyEnabled: ctx.enabled,
+      },
+      "Platform client prerequisites missing -- returning null",
+    );
+    return null;
+  }
+
+  return { baseUrl, apiKey, assistantId };
+}
+
+/**
+ * Whether the platform client's auth prerequisites are present. A cheap
+ * availability probe for callers that only need to know if platform calls
+ * can be attempted: reads config and the credential store, constructs no
+ * client, and makes no network requests.
+ */
+export async function isPlatformClientConfigured(): Promise<boolean> {
+  return (await resolvePlatformClientConfig()) !== null;
+}
+
 export class VellumPlatformClient {
   private readonly platformBaseUrl: string;
   private readonly apiKey: string;
@@ -50,67 +127,22 @@ export class VellumPlatformClient {
   }
 
   /**
-   * Create a platform client by resolving managed proxy context.
-   *
-   * First tries the in-memory managed proxy context (available when the daemon
-   * has rehydrated env overrides). Falls back to reading platform credentials
-   * directly from the credential store so that standalone CLI invocations work
-   * without the daemon having run its rehydration step.
+   * Create a platform client from {@link resolvePlatformClientConfig}.
    *
    * Returns `null` when auth prerequisites are missing (not logged in, no API
-   * key). The assistant ID is resolved but not required — callers that need it
-   * should check `platformAssistantId` themselves.
+   * key). The assistant ID is resolved but not required -- callers that need
+   * it should check `platformAssistantId` themselves.
    */
   static async create(): Promise<VellumPlatformClient | null> {
-    if (!arePlatformFeaturesEnabled()) {
-      log.debug("platform features disabled — returning null");
+    const config = await resolvePlatformClientConfig();
+    if (!config) {
       return null;
     }
-
-    const ctx = await resolveManagedProxyContext();
-
-    let baseUrl = ctx.enabled ? ctx.platformBaseUrl : "";
-    let apiKey = ctx.enabled ? ctx.assistantApiKey : "";
-    let assistantId = getPlatformAssistantId();
-
-    // Fall back to credential store for values not yet rehydrated (standalone CLI).
-    if (!baseUrl) {
-      baseUrl =
-        (await getSecureKeyAsync(
-          credentialKey("vellum", "platform_base_url"),
-        )) ?? "";
-    }
-    if (!apiKey) {
-      apiKey =
-        (await getSecureKeyAsync(
-          credentialKey("vellum", "assistant_api_key"),
-        )) ?? "";
-    }
-    if (!assistantId) {
-      assistantId =
-        (
-          await getSecureKeyAsync(
-            credentialKey("vellum", "platform_assistant_id"),
-          )
-        )?.trim() ?? "";
-    }
-
-    if (!baseUrl || !apiKey) {
-      const level = _missingPrereqsWarned ? "debug" : "warn";
-      _missingPrereqsWarned = true;
-      log[level](
-        {
-          hasBaseUrl: !!baseUrl,
-          hasApiKey: !!apiKey,
-          hasAssistantId: !!assistantId,
-          managedProxyEnabled: ctx.enabled,
-        },
-        "Platform client prerequisites missing — returning null",
-      );
-      return null;
-    }
-
-    return new VellumPlatformClient(baseUrl, apiKey, assistantId);
+    return new VellumPlatformClient(
+      config.baseUrl,
+      config.apiKey,
+      config.assistantId,
+    );
   }
 
   /**

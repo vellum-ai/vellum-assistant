@@ -18,6 +18,7 @@ import {
   guardianForChannel,
 } from "../contacts/guardian-delivery-reader.js";
 import type { ConversationCreateType } from "../persistence/conversation-types.js";
+import { isPlatformClientConfigured } from "../platform/client.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { VellumAdapter } from "./adapters/macos.js";
@@ -329,19 +330,38 @@ export async function emitNotificationSignal<TEventName extends string>(
     // system notification (vellum) and the remote push (platform),
     // regardless of what the decision engine selected. macOS surfaces a
     // banner even when the app is focused, and a suspended iOS device is
-    // only reachable via APNs.
+    // only reachable via APNs. Platform is only forced when the daemon has
+    // platform credentials -- on unbound daemons the dispatch can never
+    // succeed and would write a failed delivery row per signal.
+    //
+    // Vellum PREPENDS and platform APPENDS: the broadcaster re-sorts by
+    // dispatch rank, so selection order only matters to single_channel
+    // enforcement's first-selected fallback (step 2.5b), which must keep
+    // the in-app banner rather than a push the server may skip.
     const urgency = signal.attentionHints.urgency;
     if (
       (urgency === "high" || urgency === "critical") &&
       decision.shouldNotify
     ) {
-      const forcedChannels: NotificationChannel[] = (
-        ["vellum", "platform"] as const
-      ).filter((channel) => !decision.selectedChannels.includes(channel));
+      const selectedChannels: NotificationChannel[] = [
+        ...decision.selectedChannels,
+      ];
+      const forcedChannels: NotificationChannel[] = [];
+      if (!selectedChannels.includes("vellum")) {
+        selectedChannels.unshift("vellum");
+        forcedChannels.push("vellum");
+      }
+      if (
+        !selectedChannels.includes("platform") &&
+        (await isPlatformClientConfigured())
+      ) {
+        selectedChannels.push("platform");
+        forcedChannels.push("platform");
+      }
       if (forcedChannels.length > 0) {
         decision = {
           ...decision,
-          selectedChannels: [...forcedChannels, ...decision.selectedChannels],
+          selectedChannels,
           reasoningSummary: `${decision.reasoningSummary} (${forcedChannels.join(", ")} forced: ${urgency} urgency)`,
         };
       }
