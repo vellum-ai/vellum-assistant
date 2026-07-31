@@ -21,6 +21,8 @@ export function PendingContactRequestRow() {
 
   return (
     <ContactPromptCard
+      // Remount per request so a replacement prompt starts with fresh state.
+      key={pendingContactRequest.requestId}
       contactRequest={pendingContactRequest}
       isSubmitting={isSubmitting}
       accepted={accepted}

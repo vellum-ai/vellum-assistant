@@ -16,9 +16,17 @@ mock.module("../daemon/process-message.js", () => ({
   processMessage: mockProcessMessage,
 }));
 
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
+import {
+  createConversation,
+  setConversationOriginChannelIfUnset,
+} from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { createSchedule } from "../schedule/schedule-store.js";
+import {
+  createOwnerDeferredWake,
+  createSchedule,
+} from "../schedule/schedule-store.js";
 import { runDueSchedulesOnce } from "../schedule/scheduler.js";
 
 await initializeDb();
@@ -51,12 +59,45 @@ describe("scheduler wake mode", () => {
   });
 
   test("wake schedule calls wakeAgentForOpportunity with correct args", async () => {
-    // GIVEN a one-shot wake schedule with a conversation ID
-    const schedule = await createSchedule({
+    // GIVEN a one-shot wake schedule targeting a local conversation
+    createConversation({ id: "conv-xyz" });
+    const schedule = await createOwnerDeferredWake({
+      conversationId: "conv-xyz",
+      hint: "Check back on this",
+      fireAt: Date.now() - 1000,
       name: "Wake Test",
-      message: "Check back on this",
+    });
+    forceScheduleDue(schedule.id);
+
+    // WHEN the scheduler fires
+    await runDueSchedulesOnce();
+
+    // THEN wakeAgentForOpportunity is called with the correct arguments,
+    // including the target conversation's guardian resting trust, which the
+    // resumed turn runs under.
+    expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
+    expect(mockWakeAgentForOpportunity).toHaveBeenCalledWith({
+      conversationId: "conv-xyz",
+      hint: "Check back on this",
+      source: "defer",
+      persistTriggerAsEvent: true,
+      trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
+    });
+
+    // AND processMessage is never called (wake mode doesn't use it)
+    expect(mockProcessMessage).not.toHaveBeenCalled();
+  });
+
+  test("a wake on a remote-channel conversation carries no elevated trust", async () => {
+    // GIVEN a wake schedule whose target conversation originated on a remote
+    // channel, so no resting trust can be reconstructed for it
+    createConversation({ id: "conv-telegram" });
+    setConversationOriginChannelIfUnset("conv-telegram", "telegram");
+    const schedule = await createSchedule({
+      name: "Remote Wake",
+      message: "Follow up",
       mode: "wake",
-      wakeConversationId: "conv-xyz",
+      wakeConversationId: "conv-telegram",
       nextRunAt: Date.now() - 1000,
     });
     forceScheduleDue(schedule.id);
@@ -64,17 +105,15 @@ describe("scheduler wake mode", () => {
     // WHEN the scheduler fires
     await runDueSchedulesOnce();
 
-    // THEN wakeAgentForOpportunity is called with the correct arguments
+    // THEN the wake runs with no trust context at all, so the turn resolves the
+    // fail-closed `unknown` class and sensitive tools stay denied
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledWith({
-      conversationId: "conv-xyz",
-      hint: "Check back on this",
+      conversationId: "conv-telegram",
+      hint: "Follow up",
       source: "defer",
       persistTriggerAsEvent: true,
     });
-
-    // AND processMessage is never called (wake mode doesn't use it)
-    expect(mockProcessMessage).not.toHaveBeenCalled();
   });
 
   test("missing wakeConversationId logs warning and completes (not fails)", async () => {

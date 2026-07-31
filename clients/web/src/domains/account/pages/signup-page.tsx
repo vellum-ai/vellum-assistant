@@ -1,7 +1,9 @@
 import { AuthWaitSpinner } from "@/domains/account/components/auth-wait-spinner";
 import { SignupScreen } from "@/domains/account/components/signup-screen";
 import { SignupShell } from "@/domains/account/components/signup-shell";
+import { useFunnelPageView } from "@/domains/account/hooks/use-funnel-page-view";
 import { useReturnToShortCircuit } from "@/domains/account/hooks/use-return-to-short-circuit";
+import { routes } from "@/utils/routes";
 
 /**
  * Signup entry. Renders the branded sign-up screen for everyone: a rotating
@@ -15,6 +17,9 @@ import { useReturnToShortCircuit } from "@/domains/account/hooks/use-return-to-s
  */
 export function SignupPage() {
   const shortCircuit = useReturnToShortCircuit();
+  // Only a visitor who reaches the screen is a funnel arrival — an existing
+  // session that short-circuits straight to `returnTo` is not.
+  useFunnelPageView(routes.account.signup, shortCircuit.kind === "proceed");
 
   if (shortCircuit.kind === "wait") {
     return (

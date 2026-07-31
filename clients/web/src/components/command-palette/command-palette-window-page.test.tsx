@@ -61,6 +61,7 @@ const localSelectedRef = {
   value: null as { assistantId: string; name?: string } | null,
 };
 mock.module("@/lib/local-mode", () => ({
+  isLocalClient: () => false,
   getSelectedAssistant: () => localSelectedRef.value,
   getActiveAssistant: () =>
     resolvedRef.activeAssistantId

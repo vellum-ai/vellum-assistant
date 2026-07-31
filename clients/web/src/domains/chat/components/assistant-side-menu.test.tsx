@@ -43,7 +43,10 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
   }),
 }));
 
-import type { Conversation } from "@/types/conversation-types";
+import type {
+  Conversation,
+  ConversationGroup,
+} from "@/types/conversation-types";
 import {
   ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
   AssistantSideMenu,
@@ -59,6 +62,7 @@ function makeConversation(overrides: Partial<Conversation>): Conversation {
 
 function renderMenu(props: {
   conversations: Conversation[];
+  conversationGroups?: ConversationGroup[];
   activeConversationId?: string;
   collapsed?: boolean;
   variant?: "rail" | "overlay";
@@ -72,6 +76,7 @@ function renderMenu(props: {
       collapsed: props.collapsed ?? false,
       variant: props.variant ?? "rail",
       conversations: props.conversations,
+      conversationGroups: props.conversationGroups,
       activeConversationId: props.activeConversationId,
       onSelectConversation: () => {},
       footerAction: includeFooterAction
@@ -524,6 +529,81 @@ describe("AssistantSideMenu · overlay close affordance", () => {
     expect(overlayHtml).toContain('aria-label="Close navigation"');
     expect(railHtml).not.toContain('aria-label="Close navigation"');
   });
+
+  test("keeps the search affordance in the overlay header", () => {
+    const overlayHtml = renderMenu({ conversations: [], variant: "overlay" });
+    expect(overlayHtml).toContain('aria-label="Search (⌘K)"');
+  });
+});
+
+describe("AssistantSideMenu · overlay iOS floating glyph row", () => {
+  // Class-presence pins only: they assert the markup still carries the
+  // `native-ios:` utilities, not that anything floats or composites.
+  const conversations = [
+    makeConversation({ conversationId: "a", title: "Alpha" }),
+  ];
+
+  const overlayDom = (): HTMLElement => {
+    // A detached node, not a testing-library render: this only inspects
+    // static markup, and mounting it would leave React's cleanup with a tree
+    // it doesn't own.
+    const container = document.createElement("div");
+    container.innerHTML = renderMenu({ conversations, variant: "overlay" });
+    return container;
+  };
+
+  const glyph = (container: HTMLElement, label: string): HTMLElement => {
+    const match = container.querySelector<HTMLElement>(
+      `[aria-label="${label}"]`,
+    );
+    if (!match) {
+      throw new Error(`No overlay header glyph labelled "${label}"`);
+    }
+    return match;
+  };
+
+  // Whole class tokens, so an assertion matches a utility rather than a prefix
+  // of one: `top-4` must not be satisfied by `top-40`.
+  const classTokens = (element: Element | null): string[] =>
+    element ? Array.from(element.classList) : [];
+
+  test("the glyph row carries the floating placement utilities", () => {
+    const container = overlayDom();
+    const row = classTokens(glyph(container, "Close navigation").parentElement);
+
+    expect(row).toContain("native-ios:absolute");
+    expect(row).toContain("native-ios:inset-x-4");
+    expect(row).toContain("native-ios:top-4");
+    expect(row).toContain("native-ios:z-10");
+    expect(row).toContain("native-ios:pointer-events-none");
+  });
+
+  test("both glyphs opt back into pointer events", () => {
+    const container = overlayDom();
+
+    expect(classTokens(glyph(container, "Close navigation"))).toContain(
+      "pointer-events-auto",
+    );
+    expect(classTokens(glyph(container, "Search (⌘K)"))).toContain(
+      "pointer-events-auto",
+    );
+  });
+
+  test("the scroll body reserves the glyph band and carries both mask declarations", () => {
+    const body = classTokens(
+      overlayDom().querySelector('[data-slot="side-menu-body"]'),
+    );
+
+    expect(body).toContain("native-ios:pt-14");
+    // Complete declarations, so the fade geometry is pinned too: a different
+    // stop or gradient direction is a different token.
+    expect(body).toContain(
+      "native-ios:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
+    );
+    expect(body).toContain(
+      "native-ios:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
+    );
+  });
 });
 
 describe("AssistantSideMenu · section header menus", () => {
@@ -628,43 +708,306 @@ describe("AssistantSideMenu · section header menus", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Section layout (LUM-2909)
+// ---------------------------------------------------------------------------
+
+const LAYOUT_CONVERSATIONS = [
+  makeConversation({ conversationId: "p1", title: "Pin one", isPinned: true }),
+  makeConversation({ conversationId: "r1", title: "Recent one" }),
+  makeConversation({
+    conversationId: "s1",
+    title: "Slack one",
+    originChannel: "slack",
+    groupId: "system:all",
+  }),
+  makeConversation({ conversationId: "g1", title: "Group one", groupId: "grp-a" }),
+];
+
+const LAYOUT_GROUPS = [
+  { id: "grp-a", name: "Alpha", isSystemGroup: false },
+] as unknown as ConversationGroup[];
+
+/**
+ * Parse rendered markup into a detached node. Not a testing-library render:
+ * these assertions only inspect static markup, and mounting would leave
+ * React's cleanup with a tree it doesn't own.
+ */
+function parse(html: string): HTMLElement {
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  return container;
+}
+
+function sectionElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      '[data-slot="collapsible-nav-section-section"]',
+    ),
+  );
+}
+
+function sectionLabels(container: HTMLElement): (string | undefined)[] {
+  return sectionElements(container).map((s) =>
+    s
+      .querySelector('[data-slot="collapsible-nav-section-header"]')
+      ?.textContent?.trim(),
+  );
+}
+
 describe("AssistantSideMenu · section spacing", () => {
   // One accordion root holds every section, so its gap is the only thing
-  // separating them — no boundary can pick up the Body's larger gap instead.
-  test("Pinned, Chats and channel sections share a single accordion root", () => {
-    const html = renderMenu({
-      conversations: [
-        makeConversation({ conversationId: "p1", isPinned: true }),
-        makeConversation({ conversationId: "r1", title: "Recent one" }),
-        makeConversation({
-          conversationId: "s1",
-          title: "Slack one",
-          originChannel: "slack",
-        }),
-      ],
-    });
-
-    // A detached node, not a testing-library render: this only inspects
-    // static markup, and mounting it would leave React's cleanup with a tree
-    // it doesn't own.
-    const container = document.createElement("div");
-    container.innerHTML = html;
-
-    const sections = Array.from(
-      container.querySelectorAll<HTMLElement>(
-        '[data-slot="collapsible-nav-section-section"]',
-      ),
+  // separating them - no boundary can pick up the Body's larger gap instead,
+  // and a custom group can sit between two built-in sections.
+  test("every section type shares a single accordion root", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
     );
-    const labels = sections.map((s) =>
-      s
-        .querySelector('[data-slot="collapsible-nav-section-header"]')
-        ?.textContent?.trim(),
-    );
-    expect(labels).toEqual(["Pinned", "Chats", "Slack"]);
 
-    // All three are siblings — one shared parent, so one shared gap.
+    const sections = sectionElements(container);
+    expect(sectionLabels(container)).toEqual([
+      "Pinned",
+      "Alpha",
+      "Chats",
+      "Slack",
+    ]);
+
+    // All four are siblings - one shared parent, so one shared gap.
     const parents = new Set(sections.map((s) => s.parentElement));
     expect(parents.size).toBe(1);
     expect([...parents][0]?.className).toContain("gap-3");
   });
+});
+
+describe("AssistantSideMenu · default section order", () => {
+  // The point of LUM-2909: groups are the deliberate organization layer, so
+  // they lead rather than sitting under channel sections that come and go.
+  test("custom groups render above Chats and the channel sections", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
+    );
+
+    const labels = sectionLabels(container);
+    expect(labels.indexOf("Alpha")).toBeLessThan(labels.indexOf("Chats"));
+    expect(labels.indexOf("Alpha")).toBeLessThan(labels.indexOf("Slack"));
+  });
+
+  test("the collapsed rail lists the same sections in the same order", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+        collapsed: true,
+      }),
+    );
+
+    // The rail renders icon tiles, so the section identity is in the label.
+    const railLabels = Array.from(
+      container.querySelectorAll<HTMLElement>("[aria-label]"),
+    )
+      .map((el) => el.getAttribute("aria-label"))
+      .filter((label): label is string =>
+        ["Pinned", "Alpha", "Chats", "Slack"].includes(label ?? ""),
+      );
+
+    expect(railLabels).toEqual(["Pinned", "Alpha", "Chats", "Slack"]);
+  });
+});
+
+describe("AssistantSideMenu · equal section treatment", () => {
+  // Custom groups are peers of Pinned, Chats, and the channel sections - not
+  // a separate class. Nothing in the list may imply a grouping the user
+  // didn't create, because they order these however they like.
+  test("no dividers separate the sections", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
+    );
+
+    const separatorsInList = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="side-menu-separator"]',
+      ),
+    ).filter((hr) => hr.closest('[data-slot="collapsible"]'));
+
+    expect(separatorsInList).toHaveLength(0);
+  });
+
+  // Same shell, same drag wiring, same header treatment for every type - a
+  // group must not be distinguishable from a built-in section by its chrome.
+  test("every section renders through the same component with the same affordances", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
+    );
+
+    const sections = sectionElements(container);
+    expect(sections).toHaveLength(4);
+
+    for (const section of sections) {
+      const header = section.querySelector<HTMLElement>(
+        '[data-slot="collapsible-nav-section-header"]',
+      );
+      // Draggable header (the reorder handle) and a leading icon, on all four.
+      expect(header?.getAttribute("draggable")).toBe("true");
+      expect(header?.querySelector("svg")).not.toBeNull();
+    }
+  });
+});
+
+describe("AssistantSideMenu · section reordering", () => {
+  test("section headers are drag handles", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
+    );
+
+    const headers = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="collapsible-nav-section-header"]',
+      ),
+    );
+    expect(headers).toHaveLength(4);
+    expect(headers.every((h) => h.getAttribute("draggable") === "true")).toBe(
+      true,
+    );
+  });
+
+  test("a lone section isn't draggable - there's nothing to reorder against", () => {
+    const container = parse(
+      renderMenu({
+        conversations: [makeConversation({ conversationId: "r1" })],
+      }),
+    );
+
+    const headers = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="collapsible-nav-section-header"]',
+      ),
+    );
+    expect(headers).toHaveLength(1);
+    expect(headers[0]?.getAttribute("draggable")).toBeNull();
+  });
+
+  // Regression guard. The handlers first sat on the section root, where
+  // `dragleave` bubbling up from the section's own conversation rows cleared
+  // the indicator every time the pointer crossed one - so dragging over an
+  // expanded section showed no drop target at all. Keeping them on the header
+  // is what fixes it, and only an event-level test can tell the difference.
+  test("dragging over a section header marks it as the drop target", async () => {
+    const { container } = render(
+      createElement(AssistantSideMenu, {
+        assistantId: "asst-1",
+        collapsed: false,
+        variant: "rail" as const,
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+        onSelectConversation: () => {},
+      }),
+    );
+    try {
+      const headerFor = (label: string) =>
+        Array.from(
+          container.querySelectorAll<HTMLElement>(
+            '[data-slot="collapsible-nav-section-header"]',
+          ),
+        ).find((h) => h.textContent?.includes(label))!;
+
+      // Minimal DataTransfer stand-in: `onDragStart` only sets an effect and
+      // a payload (Firefox needs the latter to begin a drag at all).
+      const dataTransfer = { effectAllowed: "", dropEffect: "", setData: () => {} };
+      const fire = (el: HTMLElement, type: string) => {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.assign(event, { dataTransfer, clientY: 10 });
+        act(() => {
+          el.dispatchEvent(event);
+        });
+      };
+
+      fire(headerFor("Alpha"), "dragstart");
+      fire(headerFor("Chats"), "dragover");
+
+      const chatsSection = headerFor("Chats").closest(
+        '[data-slot="collapsible-nav-section-section"]',
+      );
+      // A zero-height rect in the test DOM puts the pointer past the midpoint,
+      // so the insertion line lands on the trailing edge.
+      expect(chatsSection?.className).toContain("inset_0_-2px");
+
+      // The dragged section dims - deferred one tick past `dragstart` on
+      // purpose, because re-rendering the dragged node inside the dragstart
+      // dispatch cancels the drag in Chromium.
+      await waitFor(() => {
+        const dimmed = Array.from(
+          container.querySelectorAll(
+            '[data-slot="collapsible-nav-section-section"]',
+          ),
+        ).filter((el) => el.className.includes("opacity-50"));
+        expect(dimmed).toHaveLength(1);
+        expect(dimmed[0]?.textContent).toContain("Alpha");
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Drag events fire on neither touch nor the keyboard, so the header menu
+  // carries the same reordering.
+  test.each([
+    ["Alpha", ["Move Section Up", "Move Section Down"]],
+    // Pinned leads and Slack trails, so each offers only one direction.
+    ["Pinned", ["Move Section Down"]],
+    ["Slack", ["Move Section Up"]],
+  ])(
+    "%s offers the move actions its position allows",
+    async (label, expected) => {
+      const { container } = render(
+        createElement(AssistantSideMenu, {
+          assistantId: "asst-1",
+          collapsed: false,
+          variant: "rail" as const,
+          conversations: LAYOUT_CONVERSATIONS,
+          conversationGroups: LAYOUT_GROUPS,
+          onSelectConversation: () => {},
+        }),
+      );
+      try {
+        const header = Array.from(
+          container.querySelectorAll<HTMLElement>(
+            '[data-slot="collapsible-nav-section-header"]',
+          ),
+        ).find((h) => h.textContent?.includes(label));
+
+        act(() => {
+          header?.dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, button: 2 }),
+          );
+        });
+
+        await waitFor(() => {
+          const items = Array.from(
+            document.querySelectorAll('[role="menuitem"]'),
+          ).map((el) => el.textContent);
+          const moveItems = items.filter((text) =>
+            text?.startsWith("Move Section"),
+          );
+          expect(moveItems).toEqual(expected);
+        });
+      } finally {
+        cleanup();
+      }
+    },
+  );
 });

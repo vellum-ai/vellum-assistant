@@ -9,6 +9,7 @@ import {
   LoginErrorText,
   LoginHeading,
 } from "@/domains/account/components/login-shell";
+import { useFunnelPageView } from "@/domains/account/hooks/use-funnel-page-view";
 import { useReturnToShortCircuit } from "@/domains/account/hooks/use-return-to-short-circuit";
 import {
   PROVIDER_ID,
@@ -28,9 +29,9 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
 };
 
 /**
- * Capacitor iOS login: single "Sign in" button inside NativeSplash.
- * Opens a Safari sheet via `/accounts/native/start` with no provider
- * hint — WorkOS AuthKit handles Apple / Google / email selection.
+ * Capacitor native login: single "Sign in" button inside NativeSplash.
+ * Opens the platform browser auth surface with no provider hint; WorkOS
+ * AuthKit handles Apple / Google / email selection.
  */
 function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -159,7 +160,7 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
 /**
  * Branded sign-in screen for `/account/login`.
  *
- * Delegates to `NativeLoginForm` (Capacitor iOS) or `WebLoginForm`
+ * Delegates to `NativeLoginForm` (Capacitor native) or `WebLoginForm`
  * (standard browser / Electron) based on platform detection.
  *
  * `useReturnToShortCircuit` owns whether an existing session skips OAuth and
@@ -169,6 +170,9 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
 export function LoginPage() {
   const isNative = useIsNativePlatform();
   const shortCircuit = useReturnToShortCircuit();
+  // Only a visitor who reaches the screen is a funnel arrival — an existing
+  // session that short-circuits straight to `returnTo` is not.
+  useFunnelPageView(routes.account.login, shortCircuit.kind === "proceed");
 
   if (shortCircuit.kind === "wait") {
     return isNative ? (

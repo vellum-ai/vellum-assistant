@@ -380,6 +380,10 @@ export function useLiveVoice(
   // backoff. Keeping its MediaStream element alive preserves the user
   // activation that started iOS voice-processing playback.
   const standbyPlayerRef = useRef<LiveVoiceAudioPlayer | null>(null);
+  // The player currently rendering audio, so the assistant-mute control can
+  // reach its gain stage mid-session. `standbyPlayerRef` cannot serve: it is
+  // deliberately emptied the moment a session adopts the player.
+  const activePlayerRef = useRef<LiveVoiceAudioPlayer | null>(null);
   // Initial-connect resilience (JARVIS-1282). `hasReadyRef` records whether the
   // current session lifecycle ever reached `ready` — false during the very
   // first connect, so a transient pre-`ready` connection failure (cold velay
@@ -557,6 +561,18 @@ export function useLiveVoice(
   }, []);
 
   /**
+   * Mute the assistant's audio. Unlike the mic mute there is nothing to fake
+   * upstream: the player owns a gain stage, so this is a straight write to the
+   * live graph plus the store flag surfaces render from. The player keeps the
+   * flag itself, which is what carries the mute across the reconnect gap onto
+   * whatever graph comes back.
+   */
+  const setOutputMuted = useCallback((muted: boolean) => {
+    useLiveVoiceStore.getState().setOutputMuted(muted);
+    activePlayerRef.current?.setOutputMuted(muted);
+  }, []);
+
+  /**
    * Retune the running session's turn-detection knobs live (the voice-room
    * gear). Delegates to the transport, which no-ops unless the socket is
    * active; a no-op during the reconnect gap (no session) is fine — the fresh
@@ -617,6 +633,9 @@ export function useLiveVoice(
       // below clears the flag, so carry it over (a fresh start() always
       // begins live: attempt 0 ⇒ wasMuted is not re-applied).
       const wasMuted = store.muted;
+      // Same reasoning as `wasMuted`: a user who silenced the assistant must
+      // not have it start talking again because the socket blipped.
+      const wasOutputMuted = store.outputMuted;
       // The entry origin (the tapped control's position, published by the
       // composer just before start) also lives in the session state the reset
       // below clears — carry it across so the room's entrance grows from it.
@@ -639,6 +658,9 @@ export function useLiveVoice(
       if (isReconnect && wasMuted) {
         store.setMuted(true);
       }
+      if (isReconnect && wasOutputMuted) {
+        store.setOutputMuted(true);
+      }
       if (isReconnect && wasRoomMinimized) {
         store.setRoomMinimized(true);
       }
@@ -651,6 +673,7 @@ export function useLiveVoice(
         release,
         interrupt,
         setMuted,
+        setOutputMuted,
         updateConfig,
       });
 
@@ -658,13 +681,18 @@ export function useLiveVoice(
       const client = (
         opts.createClient ?? (() => new LiveVoiceChannelClient())
       )();
-      const player = standbyPlayerRef.current ?? createPlayer();
+      const prewarmedPlayer = standbyPlayerRef.current;
+      const player = prewarmedPlayer ?? createPlayer();
       standbyPlayerRef.current = null;
       // The composer reserves and prewarms this player before its async
       // readiness check. Reconnects reuse it too; this repeated call is a no-op
       // while its AudioContext is running. Direct callers without a reservation
       // still create and prewarm here.
       player.prewarm();
+      activePlayerRef.current = player;
+      // A reconnect built a new player (or reused the standby one) while the
+      // store still carries the user's mute; make the graph agree with it.
+      player.setOutputMuted(useLiveVoiceStore.getState().outputMuted);
       // Route the room avatar's `responding` pulse to real TTS output. The mic
       // amplitude (the only prior source) is near-silent while the assistant
       // speaks, so the avatar looked inverted — pulsing on the user's voice, not
@@ -1059,6 +1087,7 @@ export function useLiveVoice(
                 release,
                 interrupt,
                 setMuted,
+                setOutputMuted,
                 updateConfig,
               });
               console.warn(
@@ -1125,6 +1154,7 @@ export function useLiveVoice(
               release,
               interrupt,
               setMuted,
+              setOutputMuted,
               updateConfig,
             });
             console.warn(
@@ -1169,7 +1199,16 @@ export function useLiveVoice(
           : {}),
       });
     },
-    [teardown, stop, release, interrupt, setMuted, updateConfig, createPlayer],
+    [
+      teardown,
+      stop,
+      release,
+      interrupt,
+      setMuted,
+      setOutputMuted,
+      updateConfig,
+      createPlayer,
+    ],
   );
 
   // Let the transport `closed` handler re-enter the connect flow for a
@@ -1307,6 +1346,26 @@ async function finishCaptureStartup(
   if (s.state === "connecting") {
     s.setState("listening");
   }
+  rebindOutputRouteToCapture(session);
+}
+
+/**
+ * Re-render the TTS output route against the now-live capture unit, then record
+ * where playback actually ended up.
+ *
+ * Runs at the one moment both halves of the full-duplex path exist: the player
+ * was unlocked back in the entry gesture, and the microphone has just come up.
+ * WebKit binds a MediaStream renderer to whichever capture unit is active when
+ * it starts, and the echo reference belongs to that unit, so a renderer started
+ * before `getUserMedia` may hold no reference at all.
+ *
+ * The restart itself is inaudible (nothing is queued yet), and it is
+ * fire-and-forget: a refused `play()` falls back to the direct output path from
+ * its own rejection handler, so there is no outcome here for a caller to act on
+ * and a session must never be gated on it.
+ */
+function rebindOutputRouteToCapture(session: SessionContext): void {
+  void session.player.restartOutputRoute();
 }
 
 /**
@@ -1349,9 +1408,9 @@ function handleAmplitude(
     return;
   }
   // Muted: the server hears silence (see handleChunk), so the UI and the
-  // manual-mode amplitude barge-in must too — a hot-looking waveform (or a
+  // manual-mode amplitude barge-in must too. A hot-looking waveform (or a
   // barge-in) from a muted mic would contradict the substituted stream.
-  const muted = useLiveVoiceStore.getState().muted;
+  const { muted } = useLiveVoiceStore.getState();
   useLiveVoiceStore.getState().setInputAmplitude(muted ? 0 : amplitude);
   if (
     !muted &&

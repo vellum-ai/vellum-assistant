@@ -1,9 +1,17 @@
 import type { LucideIcon } from "lucide-react";
 import { Loader2, Search, X } from "lucide-react";
 import {
+  AnimatePresence,
+  motion,
+  useIsPresent,
+  useReducedMotion,
+} from "motion/react";
+import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
+  type CSSProperties,
   type FC,
   type KeyboardEvent,
   type MouseEvent,
@@ -12,9 +20,31 @@ import {
 import { createPortal } from "react-dom";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsNativeIOS } from "@/runtime/platform-detection";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { CommandPaletteItem } from "@/components/command-palette/command-palette-item";
+
+// z-50 keeps the full-screen palette above the navigation drawer (fixed z-40
+// in chat-layout), which stays mounted underneath so dismissing search returns
+// to the menu.
+const MOBILE_SHEET_CLASSES =
+  "fixed inset-0 z-50 flex flex-col bg-[var(--surface-lift)]";
+
+const MOBILE_SHEET_SAFE_AREA_STYLE: CSSProperties = {
+  paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+  paddingBottom:
+    "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
+  paddingLeft: "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
+  paddingRight: "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
+};
+
+// The exiting sheet still covers the viewport, so taps aimed at the chat and
+// the drawer underneath have to pass through it.
+const MOBILE_SHEET_EXITING_STYLE: CSSProperties = {
+  ...MOBILE_SHEET_SAFE_AREA_STYLE,
+  pointerEvents: "none",
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,6 +55,8 @@ export interface CommandPaletteItemData {
   icon?: LucideIcon;
   title: string;
   subtitle?: string;
+  /** Longer match excerpt rendered as a second line under the title. */
+  snippet?: string;
   shortcutHint?: ReactNode;
 }
 
@@ -43,6 +75,11 @@ export interface CommandPaletteProps {
   query: string;
   /** Update the search query. */
   onQueryChange: (value: string) => void;
+  /**
+   * Lexical tokens of the term the server matched on, used to highlight
+   * matches inside result snippets.
+   */
+  highlightTokens?: string[];
   /** Currently selected index (flat across all sections). */
   selectedIndex: number;
   /** Sections of results to display. */
@@ -56,6 +93,64 @@ export interface CommandPaletteProps {
   /** Render without the main-app backdrop/portal inside a floating window. */
   surface?: "overlay" | "window";
 }
+
+interface MobileSheetProps {
+  /** Key-down handler from useCommandPalette for keyboard navigation. */
+  onKeyDown: (e: KeyboardEvent) => void;
+  children: ReactNode;
+}
+
+/**
+ * Full-screen sheet used by the iOS shell, sliding up on open and out on
+ * close. It outlives `isOpen` for the length of the exit, and AnimatePresence
+ * renders the exiting element with the props it was frozen at, so everything
+ * that has to change the moment the exit starts reads `useIsPresent()`
+ * instead: the sheet stops taking taps, drops out of the accessibility tree,
+ * and releases focus.
+ */
+const MobileSheet: FC<MobileSheetProps> = ({ onKeyDown, children }) => {
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotion();
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  // Blurring the search input starts the iOS keyboard dismissal in parallel
+  // with the slide-out. Scoped to the sheet so focus that a close handler
+  // moved elsewhere (the composer, after "New Conversation") survives.
+  useLayoutEffect(() => {
+    if (isPresent) {
+      return;
+    }
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && sheetRef.current?.contains(active)) {
+      active.blur();
+    }
+  }, [isPresent]);
+
+  return (
+    <motion.div
+      ref={sheetRef}
+      className={MOBILE_SHEET_CLASSES}
+      style={
+        isPresent ? MOBILE_SHEET_SAFE_AREA_STYLE : MOBILE_SHEET_EXITING_STYLE
+      }
+      role="dialog"
+      aria-modal={isPresent ? true : undefined}
+      aria-hidden={isPresent ? undefined : true}
+      aria-label="Search"
+      onKeyDown={onKeyDown}
+      initial={{ y: "100%", opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: "100%", opacity: 0 }}
+      transition={
+        reduceMotion
+          ? { duration: 0 }
+          : { duration: 0.28, ease: [0.16, 1, 0.3, 1] }
+      }
+    >
+      {children}
+    </motion.div>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -75,6 +170,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   onClose,
   query,
   onQueryChange,
+  highlightTokens,
   selectedIndex,
   sections,
   isSearching = false,
@@ -83,6 +179,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   surface = "overlay",
 }) => {
   const isMobile = useIsMobile();
+  const isNativeIOSShell = useIsNativeIOS();
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -118,14 +215,18 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
     [onClose],
   );
 
-  if (!isOpen) {
+  const isWindowSurface = surface === "window";
+  const useMobileLayout = isMobile && !isWindowSurface;
+  // iOS shell only: the sheet stays mounted while closed so AnimatePresence
+  // can play the slide-out exit.
+  const animateMobileSheet = isNativeIOSShell && useMobileLayout;
+
+  if (!isOpen && !animateMobileSheet) {
     return null;
   }
 
   // Flatten all items to compute the global index for each item.
   let flatIndex = 0;
-  const isWindowSurface = surface === "window";
-  const useMobileLayout = isMobile && !isWindowSurface;
 
   const searchInputRow = (
     <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-3">
@@ -252,6 +353,8 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
                   icon={item.icon}
                   title={item.title}
                   subtitle={item.subtitle}
+                  snippet={item.snippet}
+                  highlightTokens={highlightTokens}
                   shortcutHint={useMobileLayout ? undefined : item.shortcutHint}
                   isSelected={currentIndex === selectedIndex}
                   onClick={() => onItemSelect?.(item, currentIndex)}
@@ -265,27 +368,28 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
     </div>
   );
 
+  if (animateMobileSheet) {
+    return (
+      <AnimatePresence>
+        {isOpen ? (
+          <MobileSheet key="command-palette-sheet" onKeyDown={onKeyDown}>
+            {searchInputRow}
+            {resultsList}
+          </MobileSheet>
+        ) : null}
+      </AnimatePresence>
+    );
+  }
+
   if (useMobileLayout) {
     return (
       <div
-        // z-50 keeps the full-screen palette above the navigation drawer
-        // (fixed z-40 in chat-layout), which stays mounted underneath so
-        // dismissing search returns to the menu.
-        className="fixed inset-0 z-50 flex flex-col bg-[var(--surface-lift)]"
+        className={MOBILE_SHEET_CLASSES}
         role="dialog"
         aria-modal="true"
         aria-label="Search"
         onKeyDown={onKeyDown}
-        style={{
-          paddingTop:
-            "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-          paddingBottom:
-            "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
-          paddingLeft:
-            "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
-          paddingRight:
-            "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
-        }}
+        style={MOBILE_SHEET_SAFE_AREA_STYLE}
       >
         {searchInputRow}
         {resultsList}

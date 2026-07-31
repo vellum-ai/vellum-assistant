@@ -9,7 +9,6 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 
 import { assistantsDomainsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
-import type { CreditTierEnum } from "@/generated/api/types.gen";
 import {
   clearCheckoutIntent,
   readPurchasedCheckoutIntent,
@@ -33,8 +32,10 @@ import {
 } from "./provisioning-state";
 import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { TakeoverBackdrop } from "./takeover-backdrop";
+import { takeoverCopy, type TakeoverDirection } from "./takeover-copy";
 import { useAssistantDomains } from "./use-assistant-domains";
 import { useProProvisioning } from "./use-pro-provisioning";
+import type { CreditTierChange } from "./use-provisioning-credits";
 import { useTakeoverSurface } from "./use-takeover-surface";
 
 type WizardStep = "provisioning" | "domain" | "complete";
@@ -67,6 +68,28 @@ const EMPTY_DIMENSIONS: ProvisioningDimensions = {
   storageGib: null,
 };
 
+/**
+ * What an in-place plan change knows about the state it left behind. The
+ * platform applies the change before the takeover mounts, so every "current"
+ * value the takeover can read is already the post-change one; the caller
+ * captures these before it dispatches the change and hands them over.
+ */
+export interface ResizeTakeoverContext {
+  /** Machine and storage as they stood before the change was dispatched. */
+  fromSnapshot: ProvisioningDimensions;
+  /** The credit tiers the change moves between; null when it left them alone. */
+  credits: CreditTierChange | null;
+  /** Which way the change goes, which every surface here writes its copy to. */
+  direction: TakeoverDirection;
+  /**
+   * Whether the change can lower a resource ceiling, so the pod has to shrink
+   * before it is ready. Separate from `direction`, which is copy only: a
+   * per-dimension edit reads "change" whichever way its dimensions move, and one
+   * that only touches credits owes no provisioning at all.
+   */
+  canLowerResources: boolean;
+}
+
 export interface BillingOnboardingModalProps {
   open: boolean;
   onClose: () => void;
@@ -83,11 +106,12 @@ export interface BillingOnboardingModalProps {
    */
   mode?: "checkout" | "resize";
   /**
-   * Resize mode only: the credit tier applied by an in-place change, forwarded
-   * to the takeover. Ignored in checkout mode, where credits ride the stashed
-   * intent instead. See `ProvisioningStateProps.resizeCredits`.
+   * Resize mode only: what the change looked like before it was dispatched.
+   * Ignored in checkout mode, where the from-sides come from the pre-resize
+   * actuals snapshot and credits ride the stashed intent. A resize mount that
+   * omits it falls back to that same snapshot and renders no credits chip.
    */
-  resizeCredits?: CreditTierEnum | null;
+  resizeContext?: ResizeTakeoverContext;
 }
 
 export function BillingOnboardingModal({
@@ -96,7 +120,7 @@ export function BillingOnboardingModal({
   dwellMs,
   phaseMinMs,
   mode = "checkout",
-  resizeCredits,
+  resizeContext,
 }: BillingOnboardingModalProps) {
   const isResize = mode === "resize";
   const queryClient = useQueryClient();
@@ -116,10 +140,23 @@ export function BillingOnboardingModal({
   // chatting stays unavailable until the upgrade finishes.
   const [backgroundConfirmOpen, setBackgroundConfirmOpen] = useState(false);
 
+  // Only an in-place change can go anywhere but up, and only it threads a
+  // context; checkout and a context-less resize mount both read as an upgrade.
+  const direction = isResize ? resizeContext?.direction : undefined;
+  const copy = takeoverCopy(direction);
+  // For the same reason, only an in-place change can lower a ceiling. Checkout
+  // and a context-less resize mount only ever raise them.
+  const canLowerResources = isResize
+    ? resizeContext?.canLowerResources === true
+    : false;
+
   // The hook owns the on-open subscription/onboarding cache invalidation and
   // every provisioning poll; it keeps tracking across step changes so a
-  // backgrounded resize still resolves while the user sets up their domain.
-  const provisioning = useProProvisioning({ open });
+  // backgrounded resize still resolves while the user sets up their domain. It
+  // takes the ceiling question because a change that can lower a ceiling meets
+  // its targets before anything moves, so it needs positive evidence of the
+  // restart before it may complete.
+  const provisioning = useProProvisioning({ open, canLowerResources });
 
   // Whether this wizard has actually been opened, so the reset branch below can
   // tell a close from the mount of an instance that is simply rendered closed
@@ -185,6 +222,26 @@ export function BillingOnboardingModal({
 
   const { targets, assistantId, domainStepAvailable, onboardingSettled } =
     provisioning;
+
+  // An in-place change lands before this mounts, so its actuals already read
+  // post-change and the captured snapshot is the only honest from-side.
+  // Checkout's resize fires after the mount, so its actuals snapshot genuinely
+  // predates the change.
+  //
+  // Each dimension resolves on its own: a capture taken while one of its own
+  // reads was still unsettled carries a null for that dimension alone, and
+  // pinning the whole from-side to that capture freezes it null for the life of
+  // the takeover. Falling back to the actuals degrades honestly,
+  // because for an in-place change those actuals already describe the
+  // post-change state, so the dimension reads from == to and drops out of the
+  // row entirely. A missing chip beats a chip stating a move that never
+  // happened.
+  const capturedFrom = isResize ? resizeContext?.fromSnapshot : undefined;
+  const actualsFrom = provisioning.actualsSnapshot;
+  const fromSnapshot: ProvisioningDimensions = {
+    machineSize: capturedFrom?.machineSize ?? actualsFrom?.machineSize ?? null,
+    storageGib: capturedFrom?.storageGib ?? actualsFrom?.storageGib ?? null,
+  };
 
   // The takeover and the sheet that covers it on the way out paint from one
   // surface: the tint published as a custom property, plus the same blurred
@@ -324,12 +381,12 @@ export function BillingOnboardingModal({
     provisioning.kickProvisioning();
     toast.info(
       provisioning.kickError != null
-        ? "We'll retry your upgrade in the background."
-        : "Your upgrade continues in the background.",
+        ? copy.backgroundRetryToast
+        : copy.backgroundExitToast,
     );
     setBackgroundConfirmOpen(false);
     onClose();
-  }, [provisioning, onClose]);
+  }, [provisioning, onClose, copy]);
 
   // Cancelling keeps the user on the takeover, still waiting on the upgrade.
   const cancelBackgroundExit = useCallback(() => {
@@ -447,7 +504,7 @@ export function BillingOnboardingModal({
         // after the wizard has advanced past provisioning.
         open={backgroundConfirmOpen && machineBusy}
         title="Continue in the background?"
-        message="Your assistant is still upgrading. Chatting won't be available until it finishes — you can keep waiting here, or continue and we'll let you know when it's ready."
+        message={copy.backgroundConfirmMessage}
         confirmLabel="Continue"
         cancelLabel="Keep waiting"
         onConfirm={confirmBackgroundExit}
@@ -459,16 +516,21 @@ export function BillingOnboardingModal({
   function renderStep() {
     if (step === "provisioning") {
       if (provisioning.confirmError || provisioning.targetsError) {
-        return <FetchErrorState onGoToBilling={onClose} />;
+        return (
+          <FetchErrorState onGoToBilling={onClose} direction={direction} />
+        );
       }
       return (
         <ProvisioningState
           state={provisioning.state}
+          direction={direction}
           softWaiting={provisioning.softWaiting}
           intent={intent}
-          resizeCredits={isResize ? resizeCredits : undefined}
+          creditsChange={isResize ? resizeContext?.credits : undefined}
           targets={targets ?? EMPTY_DIMENSIONS}
-          fromSnapshot={provisioning.actualsSnapshot ?? EMPTY_DIMENSIONS}
+          fromSnapshot={fromSnapshot}
+          machineFloor={provisioning.machineFloor}
+          landed={provisioning.landed}
           celebrating={routingSettled}
           onCelebrationEnd={advanceFromProvisioning}
           assistantId={assistantId}
@@ -496,6 +558,6 @@ export function BillingOnboardingModal({
       );
     }
 
-    return <CompleteState assistantId={assistantId} />;
+    return <CompleteState assistantId={assistantId} direction={direction} />;
   }
 }

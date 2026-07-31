@@ -306,3 +306,21 @@ export function useIsMacOSWeb(): boolean {
     () => false,
   );
 }
+
+/**
+ * Hook form of `isNativeIOS()`, safe to call from a render body.
+ *
+ * The value is correct on the very first render and constant thereafter:
+ * Capacitor injects `native-bridge.js` as a `WKUserScript` at
+ * `.atDocumentStart`, so `window.Capacitor` exists before this bundle
+ * executes. `subscribe` is a noop because nothing can change the value, and
+ * the `getServerSnapshot` argument is unreachable because `clients/web`
+ * renders client-only through `createRoot` (no SSR, no hydration).
+ *
+ * Prefer it over the bare function in JSX (docs/CAPACITOR.md): it keeps the
+ * shape consistent with `useIsIOSWeb` / `useIsMacOSWeb` and stays correct if a
+ * prerender step is ever added. There is no first-paint flicker to avoid.
+ */
+export function useIsNativeIOS(): boolean {
+  return useSyncExternalStore(noop, isNativeIOS, () => false);
+}

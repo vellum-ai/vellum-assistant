@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   AudioLines,
   Captions,
+  Languages,
   MicOff,
   Settings,
 } from "lucide-react";
@@ -12,9 +13,17 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { SelectTriggerRow } from "@/components/speech/select-trigger-row";
+import { SttLanguagePicker } from "@/components/speech/stt-language-picker";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
+import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 import { VoiceList } from "@/components/speech/voice-list";
 import { VoiceProvidersNote } from "@/components/speech/voice-providers-note";
+import {
+  sttCatalogEntryForLocale,
+  sttLanguageLabelForCode,
+  suggestedLanguageForLocale,
+} from "@/lib/stt/language-catalog";
 import { MANAGED_VOICE_CREDITS_NOTE } from "@/lib/tts/managed-voice-catalog";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -23,10 +32,9 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * One-time welcome card shown the first time a user enters voice mode, before
  * the live session starts.
  *
- * Deliberately NOT a settings quiz: captions are toggled in-session from the
- * voice room, the assistant's voice from the room's settings gear (where it
- * hot-applies on the next reply, so the user picks while actually hearing it),
- * and the full preferences live in Settings → Voice — front-loading choices
+ * Deliberately NOT a settings quiz: the preferences live in Settings → Voice
+ * (the assistant's voice hot-applies from there on the next reply, so a user
+ * can pick while actually hearing it), and front-loading choices
  * before the user has ever experienced voice mode is the wrong moment. The card
  * just sets expectations and starts.
  *
@@ -37,6 +45,18 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
  * quiet link points there. The label names a destination rather than an action:
  * the defaults work untouched, and a link reading like a task would imply setup
  * is owed. Quiet by design so it never competes with "Start talking".
+ *
+ * The second sanctioned exception is the listening-language row: a wrong STT
+ * language is broken rather than suboptimal (the assistant would mishear every
+ * turn), so it is the one default worth surfacing before the first session.
+ * The row appears only on locale evidence (the browser locale suggests a
+ * non-English spoken language), only when the daemon reports the configured
+ * STT provider as language-selectable, and only when that provider's option
+ * set actually offers the suggested language (a Tamil locale under xai has
+ * nothing valid to suggest, so no row); English-locale users see the card
+ * unchanged. It is a surfaced smart default, not a question: nothing is
+ * written unless the user explicitly picks, and a pick hot-applies from the
+ * next spoken turn (no Save, matching the voice picker's semantics).
  *
  * Those settings are a **view within this one modal**, not a modal stacked on
  * it: entering swaps the card's header and body, and a back arrow returns to the
@@ -66,10 +86,11 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 const AVATAR_SIZE = 44;
 
 /**
- * Which view the card is showing: the welcome content, or the optional voice
- * settings reached from it.
+ * Which view the card is showing: the welcome content, the optional voice
+ * settings reached from it, or the listening-language picker reached from
+ * the intro's language row.
  */
-type FirstRunView = "intro" | "settings";
+type FirstRunView = "intro" | "settings" | "language";
 
 export interface VoiceFirstRunCardProps {
   /** Assistant whose avatar anchors the card; `null` renders the "V" fallback. */
@@ -101,17 +122,57 @@ export function VoiceFirstRunCard({
   const [view, setView] = useState<FirstRunView>("intro");
   const backToIntro = () => setView("intro");
 
+  // Locale evidence for the listening-language row: null for English locales
+  // and locales outside the catalog. Guarded for environments without a
+  // `navigator` (the pattern voice-input-button uses). Provider-agnostic on
+  // purpose: it only decides whether the hook's queries are worth enabling,
+  // before the configured provider is known.
+  const navigatorLanguage =
+    typeof navigator !== "undefined" ? navigator.language : undefined;
+  const localeEntry = sttCatalogEntryForLocale(navigatorLanguage);
+  // A null assistant id keeps the hook's queries disabled, so without locale
+  // evidence the intro renders byte-identical to before, with no daemon
+  // fetches pulled into the first-run render.
+  const {
+    available: languageAvailable,
+    currentCode: languageCode,
+    configuredProviderId,
+    selectLanguage,
+    selecting: languageSelecting,
+  } = useSttLanguageSelection(localeEntry !== null ? assistantId : null);
+  // The actual suggestion is provider-scoped: null when the configured
+  // provider's option set does not offer the locale's language (a Tamil
+  // locale under xai), so the row never renders a suggestion the picker
+  // withholds. `languageAvailable` stays false until config arrives, so the
+  // row only renders once `configuredProviderId` is the real provider.
+  const suggestedCode = suggestedLanguageForLocale(
+    navigatorLanguage,
+    configuredProviderId,
+  );
+
   return (
     <Modal.Root
       open
       onOpenChange={(next) => {
-        // Escape / backdrop / ✕ all route through here; treat any close as a
-        // cancel so the first run stays un-consumed. Inert when locked (those
-        // affordances are removed / prevented below), so `onDismiss` only fires
-        // on the dismissible (web) path.
-        if (!next) {
-          onDismiss?.();
+        if (next) {
+          return;
         }
+        // Radix escape / backdrop / ✕ all route through here. In a sub-view a
+        // close request means "back to the intro", mirroring `onEscapeKeyDown`
+        // below; because this callback is the authoritative guard, the
+        // routing holds regardless of which environment's listener fires
+        // first (the document-level one and the React-tree one order
+        // differently across DOM runtimes). `open` is controlled, so ignoring
+        // the request costs nothing.
+        if (view !== "intro") {
+          backToIntro();
+          return;
+        }
+        // On the intro a close is a plain cancel: the first run stays
+        // un-consumed. Inert when locked (those affordances are removed /
+        // prevented below), so `onDismiss` only fires on the dismissible
+        // (web) path.
+        onDismiss?.();
       }}
     >
       <Modal.Content
@@ -135,6 +196,27 @@ export function VoiceFirstRunCard({
             : nonDismissible
               ? (event) => event.preventDefault()
               : undefined
+        }
+        onKeyDown={
+          // Belt to `onEscapeKeyDown`'s suspenders: Radix delivers Escape via
+          // a document-level listener that some DOM environments never fire,
+          // so the content also catches the key in the React tree; without
+          // this a sub-view Escape can go entirely unhandled and the card
+          // sticks. Escape in a sub-view thus has three possible paths
+          // (`onOpenChange`, `onEscapeKeyDown`, this handler); any subset may
+          // fire in any order, and each one routes to `backToIntro`, which is
+          // a no-op when the intro is already showing, so the outcome is the
+          // same whichever subset runs. A dismiss cannot slip through
+          // regardless: `onOpenChange` above is the authoritative guard.
+          view !== "intro"
+            ? (event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  backToIntro();
+                }
+              }
+            : undefined
         }
         onInteractOutside={
           nonDismissible ? (event) => event.preventDefault() : undefined
@@ -196,6 +278,38 @@ export function VoiceFirstRunCard({
                   </span>
                 </li>
               </ul>
+              {/* A surfaced smart default, not a question: rendered only on
+                  locale evidence for a language-selectable provider (see the
+                  module docstring), and it writes nothing unless the user
+                  picks. A pick hot-applies from the next spoken turn, so it
+                  holds even if the card is then dismissed. */}
+              {suggestedCode !== null && languageAvailable && (
+                <div className="mt-5 flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2.5">
+                    <Languages
+                      aria-hidden
+                      className="size-4 shrink-0 text-[var(--content-secondary)]"
+                    />
+                    <span className="text-body-medium-default">
+                      Listening language
+                    </span>
+                  </span>
+                  {/* A trigger row into the language sub-view (the card's
+                      one-dialog pattern, like the Voices view), styled like
+                      a compact dropdown trigger. The picker itself carries
+                      the "Suggested" annotation on the locale suggestion. */}
+                  <SelectTriggerRow
+                    size="compact"
+                    aria-label="Listening language"
+                    aria-haspopup="dialog"
+                    onClick={() => setView("language")}
+                    value={sttLanguageLabelForCode(
+                      languageCode,
+                      configuredProviderId,
+                    )}
+                  />
+                </div>
+              )}
             </Modal.Body>
             <Modal.Footer className="items-center justify-between">
               {/* A destination, not a task: the defaults work, so this names
@@ -212,7 +326,14 @@ export function VoiceFirstRunCard({
                 <Settings aria-hidden className="size-3.5 shrink-0" />
                 <span className="hover:underline">Voice settings</span>
               </button>
-              <Button variant="primary" onClick={onStart}>
+              {/* Start waits out an in-flight language write (mirroring the
+                  Voices view's voice-write gate) so the session cannot open
+                  before the picked language lands. */}
+              <Button
+                variant="primary"
+                onClick={onStart}
+                disabled={languageSelecting}
+              >
                 Start talking
               </Button>
             </Modal.Footer>
@@ -224,7 +345,41 @@ export function VoiceFirstRunCard({
             assistantId={assistantId}
             onStart={onStart}
             onBack={backToIntro}
+            startBlocked={languageSelecting}
           />
+        )}
+
+        {/* The listening-language sub-view: the shared search-first picker
+            hosted in this one dialog (no stacked modal), mirroring the
+            Voices view. A pick hot-applies and returns to the intro, whose
+            Start already waits out the in-flight write; Escape and the back
+            arrow return to the intro too (never a cancel). */}
+        {view === "language" && (
+          <>
+            <Modal.Header>
+              <div className="flex items-center gap-2">
+                <BackButton onClick={backToIntro} />
+                <div className="flex min-w-0 flex-col">
+                  <Modal.Title className="leading-tight">
+                    Listening language
+                  </Modal.Title>
+                  <Modal.Description>
+                    Applies from your next spoken turn.
+                  </Modal.Description>
+                </div>
+              </div>
+            </Modal.Header>
+            <Modal.Body>
+              <SttLanguagePicker
+                currentCode={languageCode}
+                configuredProviderId={configuredProviderId}
+                suggestedCode={suggestedCode}
+                selectLanguage={selectLanguage}
+                selecting={languageSelecting}
+                onDone={backToIntro}
+              />
+            </Modal.Body>
+          </>
         )}
       </Modal.Content>
     </Modal.Root>
@@ -241,10 +396,17 @@ function VoiceSettingsView({
   assistantId,
   onStart,
   onBack,
+  startBlocked = false,
 }: {
   assistantId: string | null;
   onStart: () => void;
   onBack: () => void;
+  /**
+   * An in-flight write elsewhere on the card (the intro's language pick)
+   * that Start must also wait out, so the session cannot open on the
+   * previous STT language regardless of which view launches it.
+   */
+  startBlocked?: boolean;
 }) {
   // Own the selection here (rather than let the list self-commit) so the write's
   // in-flight state can gate Start: the picker reports a pick via `onChange`, and
@@ -283,14 +445,15 @@ function VoiceSettingsView({
       </Modal.Body>
       {/* Mirrors the intro footer (fine print left, primary right) and is always
           present, so the picker flows straight into the session without a size
-          change when a voice is chosen. Start waits out an in-flight voice write
-          so the session can't open on the previous voice. */}
+          change when a voice is chosen. Start waits out an in-flight voice or
+          language write so the session can't open on the previous voice or
+          the previous STT language. */}
       <Modal.Footer className="items-center justify-between gap-3">
         <VoiceProvidersNote />
         <Button
           variant="primary"
           onClick={onStart}
-          disabled={selecting}
+          disabled={selecting || startBlocked}
           className="shrink-0"
         >
           Start talking

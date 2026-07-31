@@ -1008,3 +1008,259 @@ describe("AdjustPlanModal credit bundle — selector order", () => {
     ).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Current-plan identity: real package name and real tier rows
+// ---------------------------------------------------------------------------
+
+/**
+ * A catalog keyed by the real `MachineTierEnum` / `StorageTierEnum` values
+ * ('medium' | 'large' | 'xl', 'xs' | 's' | ...), unlike `proPlansResponse`'s
+ * older fictional keys. The current-plan rows label the machine off
+ * `MACHINE_TIER_LABEL`, which is keyed by the real enum, so these tests need a
+ * catalog a real subscription could actually point at.
+ */
+function realKeyedPlansResponse(): PlanListResponse {
+  return {
+    plans: [
+      {
+        id: "base",
+        name: "Base",
+        base_price_cents: 0,
+        base_lookup_key: "base",
+        billing_interval: "month",
+        included_features: ["Pay-as-you-go credits"],
+      },
+      {
+        id: "pro",
+        name: "Pro",
+        base_price_cents: 1000,
+        base_lookup_key: "pro_base",
+        billing_interval: "month",
+        machine_tiers: [
+          {
+            tier: "medium",
+            label: "Medium",
+            price_cents: 3500,
+            lookup_key: "medium_lk",
+            cpu_limit: "2500m",
+            memory_gib: 5,
+            description: "Medium machine (2.5 vCPU, 5 GiB)",
+          },
+          {
+            tier: "large",
+            label: "Large",
+            price_cents: 6000,
+            lookup_key: "large_lk",
+            cpu_limit: "4",
+            memory_gib: 8,
+            description: "Large machine (4 vCPU, 8 GiB)",
+          },
+        ],
+        storage_tiers: [
+          {
+            tier: "xs",
+            label: "10 GiB",
+            price_cents: 500,
+            storage_gib: 10,
+            lookup_key: "xs_lk",
+            legacy: false,
+          },
+          {
+            tier: "s",
+            label: "30 GiB",
+            price_cents: 1000,
+            storage_gib: 30,
+            lookup_key: "s_lk",
+            legacy: false,
+          },
+        ],
+        included_features: [
+          "Pay-as-you-go and bundled credits",
+          "Configurable machine size",
+          "Configurable storage",
+          "Assistant email & subdomain",
+        ],
+        credit_tiers: CREDIT_TIERS,
+      },
+    ],
+  } as unknown as PlanListResponse;
+}
+
+/** A Pro sub on the `large` machine with 30 GiB storage and a $50 bundle. */
+const REAL_ONBOARDING: OnboardingData = {
+  max_machine_tier: "large",
+  selected_storage_tier: "s",
+  selected_storage_gib: 30,
+};
+
+function planNames(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('[data-testid="modal-plan-name"]'),
+  ).map((n) => n.textContent?.trim() ?? "");
+}
+
+describe("AdjustPlanModal current plan: name and real tier rows", () => {
+  test("a clean-pinned sub reads its package name and its own tier rows", async () => {
+    renderModal(
+      subscription("pro", "credits_50", {
+        cancel_at_period_end: true,
+        package: { key: "super", name: "Super", version: 1, customized: false },
+      }),
+      realKeyedPlansResponse(),
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      if (!planNames().includes("Super")) {
+        throw new Error("package name not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Large Machine");
+    expect(text).toContain("30 GB");
+    expect(text).toContain("50 credits/mo");
+    // The non-tier entitlement survives; the three tier-derived generic bullets
+    // are superseded by the subscriber's real values.
+    expect(text).toContain("Assistant email & subdomain");
+    expect(text).not.toContain("Configurable machine size");
+    expect(text).not.toContain("Configurable storage");
+    expect(text).not.toContain("Pay-as-you-go and bundled credits");
+  });
+
+  test("keeps the pay-as-you-go row for a sub holding no credit bundle", async () => {
+    // No bundle means no concrete credit row, so the catalog's pay-as-you-go
+    // entitlement has to survive; otherwise the card says nothing at all about
+    // credits for a plan that still has them.
+    renderModal(
+      subscription("pro", null, { cancel_at_period_end: true }),
+      realKeyedPlansResponse(),
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      if (!(document.body.textContent ?? "").includes("Large Machine")) {
+        throw new Error("real rows not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Pay-as-you-go and bundled credits");
+    expect(text).not.toContain("Configurable machine size");
+    expect(text).not.toContain("Configurable storage");
+  });
+
+  test("carries through a non-tier entitlement the catalog adds", async () => {
+    // The real spec rows replace only the generic capability copy. Anything
+    // else the catalog lists is an entitlement no tier encodes, so it has to
+    // survive rather than be dropped by a client-side allowlist.
+    const plans = realKeyedPlansResponse();
+    const pro = (plans.plans as unknown as { included_features: string[] }[])[1];
+    pro.included_features = [...pro.included_features, "Priority support"];
+
+    renderModal(
+      subscription("pro", "credits_50", { cancel_at_period_end: true }),
+      plans,
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      const text = document.body.textContent ?? "";
+      if (!text.includes("Large Machine")) {
+        throw new Error("real rows not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Priority support");
+    expect(text).toContain("Assistant email & subdomain");
+    expect(text).not.toContain("Configurable machine size");
+  });
+
+  test("a customized pin reads 'Custom' but still shows its real tier rows", async () => {
+    renderModal(
+      subscription("pro", "credits_50", {
+        cancel_at_period_end: true,
+        package: { key: "super", name: "Super", version: 1, customized: true },
+      }),
+      realKeyedPlansResponse(),
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      if (!planNames().includes("Custom")) {
+        throw new Error("custom name not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Large Machine");
+    expect(text).toContain("30 GB");
+    expect(text).not.toContain("Super");
+  });
+
+  test("an unpinned legacy sub reads 'Custom'", async () => {
+    renderModal(
+      subscription("pro", "credits_50", { cancel_at_period_end: true }),
+      realKeyedPlansResponse(),
+      undefined,
+      REAL_ONBOARDING,
+    );
+
+    await waitFor(() => {
+      if (!planNames().includes("Custom")) {
+        throw new Error("custom name not rendered yet");
+      }
+    });
+  });
+
+  test("a base user sees the Pro card as a generic offer, not as their plan", async () => {
+    renderModal(subscription("base", null), realKeyedPlansResponse());
+
+    await waitFor(() => {
+      if (!planNames().includes("Pro")) {
+        throw new Error("catalog name not rendered yet");
+      }
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Configurable machine size");
+    expect(text).not.toContain("Large Machine");
+    // Never "Custom": a base user has no Pro package to describe.
+    expect(planNames()).not.toContain("Custom");
+  });
+
+  test("an errored onboarding read keeps generic copy instead of describing a paid sub as Small", async () => {
+    // The onboarding query is deliberately unseeded: it fires, the unmocked SDK
+    // fn rejects, and with retry:false it settles into an error. Every tier then
+    // reads null, so an `isLoading`-only gate would open and label this paying
+    // subscriber with the standard-small baseline.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    client.setQueryData(
+      organizationsBillingSubscriptionRetrieveQueryKey(),
+      subscription("pro", "credits_50", { cancel_at_period_end: true }),
+    );
+    client.setQueryData(
+      organizationsBillingPlansRetrieveQueryKey(),
+      realKeyedPlansResponse(),
+    );
+    const { findByTestId } = render(
+      <QueryClientProvider client={client}>
+        <AdjustPlanModal open onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    await findByTestId("modal-pro-price-unavailable");
+
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("Small Machine");
+    expect(text).toContain("Configurable machine size");
+  });
+});

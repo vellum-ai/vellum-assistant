@@ -16,11 +16,13 @@ import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboardi
 import { ATTRIBUTED_PLUGIN_PARAM } from "@/domains/onboarding/plugin-attribution";
 import { useMarketingPricingTakeover } from "@/hooks/use-marketing-pricing-takeover";
 import { CHECKOUT_CONTINUE_PARAM } from "@/lib/billing/checkout-continuation";
+import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
 import {
   clearCheckoutIntent,
   readCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
-import { isLocalMode } from "@/lib/local-mode";
+import { buildCustomCheckoutSearch } from "@/lib/billing/custom-checkout-params";
+import { isLocalClient } from "@/lib/local-mode";
 import { postCheckoutHatchReturnTo } from "@/lib/navigation/navigation-resolver";
 import {
   usePrivacyConsent,
@@ -31,7 +33,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { saveConsent } from "@/lib/consent/consent-persistence";
-import { routes } from "@/utils/routes";
+import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 
 export function PrivacyScreen() {
@@ -108,13 +110,13 @@ export function PrivacyScreen() {
     // then redirects into the research flow. Vellum-Cloud goes straight to
     // research (managed background hatch).
     const isLocalHatch =
-      isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+      isLocalClient() && hostingParam !== null && hostingParam !== "vellum-cloud";
     const destination = onboardingDestinationAfterConsent({
       isLocalHatch,
     });
     const onboardingNext = `${destination}${qs ? `?${qs}` : ""}`;
 
-    // A pricing-CTA signup stashes its chosen package (see navigation-resolver
+    // A pricing-CTA signup stashes its chosen plan (see navigation-resolver
     // post-auth). With consent now recorded, resume checkout so payment happens
     // after consent and before the assistant hatches. Resume ONLY a
     // signup-marked intent (`resumeAfterOnboarding`): an ordinary billing-surface
@@ -124,26 +126,23 @@ export function PrivacyScreen() {
     // re-stashing on a Stripe redirect, clearing it on an already-Pro no_op — so
     // this screen just hands off. Resuming only from this explicit Start click —
     // never a render effect — keeps consent and checkout from looping.
-    // A positively-off `marketing-pricing-takeover` drops the dead package and
+    // A positively-off `marketing-pricing-takeover` drops the dead selection and
     // continues onboarding: handing off would bounce through a gated checkout
     // route and out of the funnel before research runs. An unresolved flag still
     // resumes, carrying the onboarding step this click would otherwise have
     // taken: if the flag lands off, checkout returns the user there instead of
     // the plans takeover, so a pending→disabled race stays inside the funnel.
     const checkoutIntent = readCheckoutIntent();
-    if (
-      checkoutIntent?.kind === "package" &&
-      checkoutIntent.resumeAfterOnboarding === true
-    ) {
+    if (checkoutIntent?.resumeAfterOnboarding === true) {
       if (takeover === "disabled") {
         clearCheckoutIntent();
       } else {
-        const checkoutParams = new URLSearchParams({
-          package: checkoutIntent.packageKey,
-          [CHECKOUT_CONTINUE_PARAM]: onboardingNext,
-        });
-        void navigate(`${routes.checkout}?${checkoutParams.toString()}`);
-        return;
+        const checkoutParams = checkoutResumeSearch(checkoutIntent);
+        if (checkoutParams) {
+          checkoutParams.set(CHECKOUT_CONTINUE_PARAM, onboardingNext);
+          void navigate(`${routes.checkout}?${checkoutParams.toString()}`);
+          return;
+        }
       }
     }
 
@@ -246,7 +245,7 @@ export function PrivacyScreen() {
             fullWidth
             onClick={() =>
               navigate(
-                isLocalMode()
+                isLocalClient()
                   ? routes.onboarding.hosting
                   : routes.onboarding.start,
               )
@@ -259,4 +258,24 @@ export function PrivacyScreen() {
       </div>
     </OnboardingLayout>
   );
+}
+
+/**
+ * The checkout query a signup-marked stash resumes with, or `null` when it
+ * names nothing the checkout route could act on: a custom stash without the
+ * storage tier the upgrade endpoint requires. Only the marker-free
+ * billing-surface saves can write one, and those never resume here.
+ */
+function checkoutResumeSearch(intent: CheckoutIntent): URLSearchParams | null {
+  if (intent.kind === "package") {
+    return new URLSearchParams({ [PACKAGE_PARAM]: intent.packageKey });
+  }
+  if (intent.storageTier === null) {
+    return null;
+  }
+  return buildCustomCheckoutSearch({
+    machineTier: intent.machineTier,
+    storageTier: intent.storageTier,
+    creditTier: intent.creditTier,
+  });
 }

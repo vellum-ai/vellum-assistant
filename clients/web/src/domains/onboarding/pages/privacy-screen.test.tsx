@@ -63,7 +63,7 @@ mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
 // Mutable platform/flag state so individual tests can flip them.
 let nativePlatform = false;
 let localMode = false;
-mock.module("@/lib/local-mode", () => ({ isLocalMode: () => localMode }));
+mock.module("@/lib/local-mode", () => ({ isLocalClient: () => localMode }));
 mock.module("@/runtime/native-auth", () => ({
   useIsNativePlatform: () => nativePlatform,
 }));
@@ -332,6 +332,121 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(target).not.toContain(routes.checkout);
   });
 
+  test("resumes checkout when a pending signup-marked custom intent is present", () => {
+    checkoutIntentValue = {
+      kind: "custom",
+      machineTier: "large",
+      storageTier: "s",
+      creditTier: "credits_50",
+      savedAt: Date.now(),
+      resumeAfterOnboarding: true,
+    };
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(saveConsentMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(`${routes.checkout}?`)).toBe(true);
+    const query = navigatedQuery();
+    // The tier params the checkout route parses back into an upgrade body.
+    expect(query.get("machine_tier")).toBe("large");
+    expect(query.get("storage_tier")).toBe("s");
+    expect(query.get("credit_tier")).toBe("credits_50");
+    expect(query.get("continue")).toBe(
+      `${routes.onboarding.research}?hosting=managed`,
+    );
+  });
+
+  test("a resumed custom config omits the dimensions it leaves unset", () => {
+    checkoutIntentValue = {
+      kind: "custom",
+      machineTier: null,
+      storageTier: "xs",
+      creditTier: null,
+      savedAt: Date.now(),
+      resumeAfterOnboarding: true,
+    };
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    const query = navigatedQuery();
+    expect(query.get("storage_tier")).toBe("xs");
+    // Absent, not empty: an empty tier param would fail the checkout parse.
+    expect(query.has("machine_tier")).toBe(false);
+    expect(query.has("credit_tier")).toBe(false);
+  });
+
+  test("proceeds with onboarding when a marked custom stash names no storage tier", () => {
+    // Storage is required on a package-less upgrade, so such a stash names
+    // nothing the checkout route could buy. Fall through rather than hand off
+    // to a route that would only bail back out of the funnel.
+    checkoutIntentValue = {
+      kind: "custom",
+      machineTier: "medium",
+      storageTier: null,
+      creditTier: null,
+      savedAt: Date.now(),
+      resumeAfterOnboarding: true,
+    };
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(routes.onboarding.research)).toBe(true);
+    expect(target).not.toContain(routes.checkout);
+  });
+
+  test("drops the carried custom config and proceeds when the pricing funnel is off", () => {
+    takeoverValue = "disabled";
+    checkoutIntentValue = {
+      kind: "custom",
+      machineTier: "medium",
+      storageTier: "m",
+      creditTier: null,
+      savedAt: Date.now(),
+      resumeAfterOnboarding: true,
+    };
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(clearCheckoutIntentMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(routes.onboarding.research)).toBe(true);
+    expect(target).not.toContain(routes.checkout);
+  });
+
+  test("does NOT resume an unmarked custom intent: onboarding proceeds normally", () => {
+    // The Stripe hand-off rewrites the stash without the marker, so an
+    // unmarked custom intent describes a checkout that already ran.
+    checkoutIntentValue = {
+      kind: "custom",
+      machineTier: "medium",
+      storageTier: "m",
+      creditTier: null,
+      savedAt: Date.now(),
+    };
+    searchParamsValue = new URLSearchParams("hosting=managed");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(routes.onboarding.research)).toBe(true);
+    expect(target).not.toContain(routes.checkout);
+  });
+
   // -- paid post-checkout return bounced here for consent -------------------
   //
   // A checkout return with nothing provisioned is funneled to the hatching
@@ -455,7 +570,7 @@ describe("PrivacyScreen — Back navigation", () => {
 
   test("native platform shell: Back stays in-SPA (no marketing-host escape)", () => {
     // The environment-preservation case Codex flagged: on Capacitor
-    // staging/dev, isLocalMode() is false, so platform-mode Back applies. It
+    // staging/dev, isLocalClient() is false, so platform-mode Back applies. It
     // must remain an in-SPA navigation, never a full-document nav to `/`.
     localMode = false;
     nativePlatform = true;

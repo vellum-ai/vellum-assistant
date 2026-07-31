@@ -5,7 +5,6 @@ import { buildAgentCard } from "../agent-card.js";
 describe("buildAgentCard", () => {
   const BASE_PARAMS = {
     assistantName: "Alice",
-    baseUrl: "https://example.com",
   };
 
   test("includes all required top-level fields", () => {
@@ -21,15 +20,12 @@ describe("buildAgentCard", () => {
     expect(card.skills).toBeDefined();
   });
 
-  test("interface URL is baseUrl + /a2a/message:send", () => {
+  // A2A message exchange runs over the authenticated invite flow, so there is
+  // no peer-callable protocol endpoint for the card to point at.
+  test("advertises no protocol interfaces", () => {
     const card = buildAgentCard(BASE_PARAMS);
 
-    expect(card.supported_interfaces).toHaveLength(1);
-    expect(card.supported_interfaces[0].url).toBe(
-      "https://example.com/a2a/message:send",
-    );
-    expect(card.supported_interfaces[0].protocol_binding).toBe("JSONRPC");
-    expect(card.supported_interfaces[0].protocol_version).toBe("1.0");
+    expect(card.supported_interfaces).toEqual([]);
   });
 
   test("push_notifications capability is true", () => {
@@ -53,7 +49,7 @@ describe("buildAgentCard", () => {
   test("defaults description when omitted", () => {
     const card = buildAgentCard(BASE_PARAMS);
 
-    expect(card.description).toBe("Alice — a Vellum AI assistant");
+    expect(card.description).toBe("Alice - a Vellum AI assistant");
   });
 
   test("uses explicit description when provided", () => {
@@ -82,17 +78,5 @@ describe("buildAgentCard", () => {
       description: "Send a message and receive a response",
       tags: ["chat"],
     });
-  });
-
-  test("constructs correct interface URL with trailing-slash base", () => {
-    const card = buildAgentCard({
-      ...BASE_PARAMS,
-      baseUrl: "https://example.com/",
-    });
-
-    // The URL is constructed by simple concatenation; callers normalize the base.
-    expect(card.supported_interfaces[0].url).toBe(
-      "https://example.com//a2a/message:send",
-    );
   });
 });

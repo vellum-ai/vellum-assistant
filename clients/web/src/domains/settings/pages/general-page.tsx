@@ -39,7 +39,7 @@ import {
 import {
   getSelectedAssistant,
   isLocalAssistant,
-  isLocalMode,
+  isLocalClient,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
@@ -90,10 +90,10 @@ export function GeneralPage() {
   }, [searchParams, setSearchParams]);
 
   const platformAssistant =
-    assistant?.is_local && !isLocalMode() ? null : assistant;
+    assistant?.is_local && !isLocalClient() ? null : assistant;
   const selected = getSelectedAssistant();
   const hasSelectedLocalAssistant =
-    isLocalMode() && !!assistant && !!selected && isLocalAssistant(selected);
+    isLocalClient() && !!assistant && !!selected && isLocalAssistant(selected);
   const canRetireLocally = hasSelectedLocalAssistant;
   const canUpgradeLocally = hasSelectedLocalAssistant && !isRemoteGatewayMode();
   // Whether an upgrade panel (platform or local) is on screen. Both panels

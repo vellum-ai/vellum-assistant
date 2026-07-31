@@ -13,7 +13,11 @@ import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { toneForBg } from "@/utils/avatar-tone";
 
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
-import { VoiceTranscriptText } from "./voice-transcript-text";
+import { VOICE_ROOM_TEXT_MEASURE } from "./voice-room-layout";
+import {
+  VOICE_ASSISTANT_CAPTION_CLASS,
+  VoiceTranscriptText,
+} from "./voice-transcript-text";
 
 /**
  * Iteration harness for the voice room's live captions — the room's two text
@@ -243,17 +247,29 @@ export const SpokenWordHighlight: Story = {
   ),
 };
 
-/** Neutral dark surface for the isolated caption scenes (no room plumbing). */
+/**
+ * The room's assistant caption, minus the room plumbing (no avatar tone, no
+ * zone positioning, no motion) so a scene can isolate the reveal itself.
+ *
+ * Everything that governs how the caption *looks* still comes from the shipped
+ * source: `VOICE_ASSISTANT_CAPTION_CLASS` for the type ramp,
+ * `VOICE_ROOM_TEXT_MEASURE` for the column, `--surface-base` for the dark
+ * backdrop, and left alignment because the word reveal is tuned for it. With no
+ * `--room-fg` set, `VoiceTranscriptText` falls back to the theme content
+ * tokens, which is a real code path (an avatar with no tone).
+ */
 function CaptionSurface({ children }: { children: ReactNode }) {
   return (
     <div
       data-theme="dark"
-      className="flex min-h-[240px] items-center justify-center rounded-lg p-10"
-      style={{ backgroundColor: "#17191C" }}
+      className="flex min-h-[240px] items-center justify-center rounded-lg bg-[var(--surface-base)] p-10"
     >
-      <p className="max-w-[36rem] text-center text-[15px] leading-relaxed text-balance">
+      <div
+        className={`w-full ${VOICE_ASSISTANT_CAPTION_CLASS}`}
+        style={{ maxWidth: VOICE_ROOM_TEXT_MEASURE }}
+      >
         {children}
-      </p>
+      </div>
     </div>
   );
 }

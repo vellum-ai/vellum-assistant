@@ -49,7 +49,7 @@ import { whenStoreState } from "@/utils/when-store-state";
  */
 export function useAssistantSupports(minVersion: string): boolean {
   const version = useAssistantIdentityStore.use.version();
-  return supportsVersion(version, minVersion);
+  return versionSupports(version, minVersion);
 }
 
 /**
@@ -100,10 +100,41 @@ export function useAssistantScopedSupports(
  */
 export function assistantSupports(minVersion: string): boolean {
   const version = useAssistantIdentityStore.getState().version;
-  return supportsVersion(version, minVersion);
+  return versionSupports(version, minVersion);
 }
 
-function supportsVersion(
+/**
+ * Non-hook variant of {@link useAssistantScopedSupports}, for imperative
+ * callers (event handlers, async ops) — same owner-scoping rule, read off a
+ * `getState()` snapshot.
+ *
+ * Narrows `ownerAssistantId` to `string`: a null/undefined owner is never
+ * supported, so a `true` result always carries a usable assistant id.
+ *
+ * Inherits {@link assistantSupports}'s conservative `false` while the version
+ * is unhydrated, so callers that may run before the identity fetch lands must
+ * await {@link whenAssistantVersionKnown} first.
+ */
+export function assistantScopedSupports(
+  minVersion: string,
+  ownerAssistantId: string | null | undefined,
+): ownerAssistantId is string {
+  const identityAssistantId = useAssistantIdentityStore.getState().assistantId;
+  return (
+    assistantSupports(minVersion) &&
+    ownerAssistantId != null &&
+    ownerAssistantId === identityAssistantId
+  );
+}
+
+/**
+ * Raw comparison behind `useAssistantSupports`/`assistantSupports`, for
+ * gates that resolve the assistant version themselves instead of reading
+ * the identity store (e.g. onboarding, which runs against a freshly
+ * hatched assistant before the store hydrates). Same semantics: `false`
+ * on null/unparseable versions, dev builds ahead of same-base stable.
+ */
+export function versionSupports(
   version: string | null | undefined,
   minVersion: string,
 ): boolean {

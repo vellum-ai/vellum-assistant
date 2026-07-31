@@ -270,6 +270,36 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.max_tokens).toBe(expected.maxTokens as number);
   });
 
+  test("live-voice front-door call sites reach OpenAI with reasoning off", async () => {
+    // The `latency-optimized` pin's whole value is time-to-first-token, and on
+    // an OpenAI upstream that depends entirely on disabled thinking being
+    // encoded as `effort: "none"`. OpenAI-compatible APIs reason by default
+    // when the field is absent, which pushes first-token past the verdict
+    // deadline the profile exists to beat.
+    //
+    // The profile declares `provider: "vellum"` (the provider-agnostic managed
+    // sentinel) and the real upstream comes from the model id, so the stub is
+    // named for that resolved upstream rather than the sentinel, matching what
+    // `createAdapterFromConnection` builds for a managed route.
+    setLlmConfig({});
+
+    const expected = CODE_DEFAULT_PROFILE_ENTRIES["latency-optimized"];
+    for (const callSite of ["voiceFrontDoor", "voiceFrontDecision"] as const) {
+      let seen: SendMessageOptions | undefined;
+      const wrapped = new RetryProvider(
+        makeProvider("openai", (options) => {
+          seen = options;
+        }),
+      );
+
+      await wrapped.sendMessage(DUMMY_MESSAGES, { config: { callSite } });
+
+      const config = seen?.config as Record<string, unknown>;
+      expect(config.model).toBe(expected.model as string);
+      expect(config.effort).toBe("none");
+    }
+  });
+
   test("propagates resolved effort/speed/temperature; omits server-side fields", async () => {
     setLlmConfig({
       callSites: {

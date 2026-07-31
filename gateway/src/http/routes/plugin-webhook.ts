@@ -1,11 +1,11 @@
 /**
- * Public webhook surface for approved plugin ingress routes.
+ * Public webhook surface for declared plugin ingress routes.
  *
  * This is where the ingress gate stops being bookkeeping: a request is
- * forwarded to the plugin only when the guardian has approved a declaration
- * that names exactly this route. Anything else is a 404 — including routes a
- * plugin declares but nobody has approved, so an unapproved declaration is
- * indistinguishable from one that was never made.
+ * forwarded only when `findServableRoute` says this exact route may be
+ * served. Anything else is a 404, including a declaration awaiting
+ * approval, so a route that is not yet servable is indistinguishable from
+ * one that was never declared.
  *
  * Requests arrive from the public internet through the Velay tunnel, so
  * approval alone would only decide which paths exist, not who may call them.
@@ -14,7 +14,10 @@
  * The declaration picks whose secret that is — see `IngressRouteSchema.signer`.
  */
 
-import type { PluginIngressResolution } from "../../channels/plugin-ingress-approvals.js";
+import {
+  findServableRoute,
+  type PluginIngressResolution,
+} from "../../channels/plugin-ingress-approvals.js";
 import type { IngressSigner } from "../../channels/plugin-ingress.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
@@ -78,36 +81,31 @@ export interface PluginWebhookHandlerDeps {
 /**
  * Handle `/webhooks/plugins/:plugin/:path`.
  *
- * The requested path must equal an approved route's declared path. Matching
- * is exact rather than prefix-based: the digest a guardian approved covers
- * the paths it listed, so serving `<approved>/anything` would hand out reach
- * that was never reviewed. Exact matching also disposes of traversal — no
- * `..` segment equals a declared path — and of percent-encoded spellings,
- * which fail closed rather than being decoded into a match.
+ * The requested path must equal a servable route's declared path. Matching
+ * is exact rather than prefix-based: a declaration covers the paths it
+ * listed, so serving `<declared>/anything` would hand out reach nobody
+ * granted. Exact matching also disposes of traversal, since no `..` segment
+ * equals a declared path, and of percent-encoded spellings, which fail
+ * closed rather than being decoded into a match.
  */
 export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
   const { config, resolve, credentials, fetchImpl } = deps;
 
   return async (req: Request, plugin: string, path: string) => {
-    let approved: PluginIngressResolution["approved"];
+    let route: ReturnType<typeof findServableRoute>;
     try {
-      approved = resolve().approved;
+      // WebSocket routes are declared here but upgraded elsewhere; serving one
+      // over plain HTTP would be a different thing than was declared.
+      route = findServableRoute(resolve(), plugin, path, "http");
     } catch (err) {
-      log.error({ err, plugin }, "Failed to resolve approved plugin ingress");
+      log.error({ err, plugin }, "Failed to resolve plugin ingress");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
-
-    const declaration = approved.find((d) => d.plugin === plugin);
-    const route = declaration?.routes.find(
-      // WebSocket routes are declared here but upgraded elsewhere; serving
-      // one over plain HTTP would be a different thing than was approved.
-      (r) => r.kind === "http" && r.path === path,
-    );
 
     if (!route) {
       // Deliberately quiet: this path is reachable by anyone on the internet,
       // so logging every miss at info would hand out a log-flooding lever.
-      log.debug({ plugin, path }, "No approved HTTP ingress route");
+      log.debug({ plugin, path }, "No servable HTTP ingress route");
       return Response.json({ error: "Not Found" }, { status: 404 });
     }
 

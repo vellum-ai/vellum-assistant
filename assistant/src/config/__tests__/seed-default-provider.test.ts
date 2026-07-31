@@ -108,6 +108,22 @@ describe("seedInferenceProfiles / llm.defaultProvider", () => {
     expect(llm.defaultProvider).toEqual({ provider: "openai" });
   });
 
+  test("BYOK hatch with a non-matrix API-key provider writes that provider", () => {
+    const llm = seed(
+      { llm: { default: { provider: "together" } } },
+      { isHatch: true },
+    );
+    expect(llm.defaultProvider).toEqual({ provider: "together" });
+  });
+
+  test("BYOK hatch with an endpoint-supplied provider falls back to anthropic", () => {
+    const llm = seed(
+      { llm: { default: { provider: "litellm" } } },
+      { isHatch: true },
+    );
+    expect(llm.defaultProvider).toEqual({ provider: "anthropic" });
+  });
+
   test("BYOK hatch with provider ollama falls back to anthropic", () => {
     const llm = seed(
       { llm: { default: { provider: "ollama" } } },

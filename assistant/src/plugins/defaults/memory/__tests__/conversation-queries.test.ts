@@ -15,6 +15,10 @@ import {
 } from "../../../../persistence/conversation-queries.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
+import {
+  appendContentDeltas,
+  resolveContentRefPath,
+} from "../../../../persistence/message-content-file.js";
 import { rawRun } from "../../../../persistence/raw-query.js";
 import { conversations } from "../../../../persistence/schema/index.js";
 
@@ -60,6 +64,183 @@ describe("buildExcerpt", () => {
     expect(excerpt).toBe("Searchable block text");
     expect(excerpt).not.toContain("<external_content");
     expect(excerpt).not.toContain("</external_content>");
+  });
+
+  test("extracts thinking text instead of returning raw JSON", () => {
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        {
+          type: "thinking",
+          thinking: "A casual greeting, likely a reply to my earlier message",
+          signature: "sig",
+        },
+      ]),
+      "greeting",
+    );
+
+    expect(excerpt).toContain("casual greeting");
+    expect(excerpt).not.toContain('[{"type"');
+  });
+
+  test("falls back to legible text when the query only matches JSON structure", () => {
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        { type: "thinking", thinking: "Plain reasoning text", signature: "s" },
+      ]),
+      "thinking",
+    );
+
+    expect(excerpt).toBe("Plain reasoning text");
+  });
+
+  test("extracts string-form tool_result content", () => {
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_01",
+          content: "Command output line",
+        },
+      ]),
+      "output",
+    );
+
+    expect(excerpt).toBe("Command output line");
+  });
+
+  test("does not expose external_content tags for string-form tool_result content", () => {
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_01",
+          content:
+            '<external_content source="slack">\nSearchable Slack text\n</external_content>',
+        },
+      ]),
+      "Slack",
+    );
+
+    expect(excerpt).toContain("Searchable Slack text");
+    expect(excerpt).not.toContain("<external_content");
+  });
+
+  test("extracts file block extracted_text", () => {
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        {
+          type: "file",
+          source: { type: "url", url: "https://example.com/report.pdf" },
+          extracted_text: "Quarterly revenue grew nine percent",
+        },
+      ]),
+      "revenue",
+    );
+
+    expect(excerpt).toBe("Quarterly revenue grew nine percent");
+  });
+
+  test("still extracts array-form tool_result inner text", () => {
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_01",
+          content: [{ type: "text", text: "Inner tool text" }],
+        },
+      ]),
+      "Inner",
+    );
+
+    expect(excerpt).toBe("Inner tool text");
+  });
+
+  test("centers the excerpt on a token match when the query is not contiguous", () => {
+    const filler = "start padding ".repeat(25);
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        { type: "text", text: `${filler}alpha and shortly after beta appear` },
+      ]),
+      "alpha beta",
+    );
+
+    expect(excerpt).toContain("alpha");
+    expect(excerpt).toContain("beta");
+    expect(excerpt.startsWith("…")).toBe(true);
+  });
+
+  test("whole-query matches also respect tokenizer boundaries", () => {
+    const filler = "party planning notes ".repeat(10);
+    const excerpt = buildExcerpt(
+      JSON.stringify([{ type: "text", text: `${filler}art supplies list` }]),
+      "art",
+    );
+
+    expect(excerpt).toContain("art supplies");
+  });
+
+  test("ignores token substrings inside larger words when centering", () => {
+    const filler = "party planning notes ".repeat(10);
+    const excerpt = buildExcerpt(
+      JSON.stringify([{ type: "text", text: `${filler}alpha appears here` }]),
+      "alpha art",
+    );
+
+    expect(excerpt).toContain("alpha");
+  });
+
+  test("keeps the excerpt window aligned when lowercasing changes string length", () => {
+    const prefix = "İ".repeat(120);
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        { type: "text", text: `${prefix} alpha and beta follow` },
+      ]),
+      "alpha beta",
+    );
+
+    expect(excerpt).toContain("alpha");
+    expect(excerpt).toContain("beta");
+  });
+
+  test("returns an empty excerpt for messages with no legible text", () => {
+    const excerpt = buildExcerpt(
+      JSON.stringify([
+        { type: "tool_use", id: "toolu_01", name: "bash", input: {} },
+      ]),
+      "bash",
+    );
+
+    expect(excerpt).toBe("");
+  });
+
+  test("returns an empty excerpt for non-block JSON objects", () => {
+    expect(buildExcerpt('{"foo":"bar"}', "foo")).toBe("");
+  });
+
+  test("returns an empty excerpt for unresolved content refs", () => {
+    const excerpt = buildExcerpt(
+      JSON.stringify({ ref: "conversations/missing-conv/msg-1.jsonl" }),
+      "anything",
+    );
+
+    expect(excerpt).toBe("");
+  });
+
+  test("folds and extracts text for resolvable content refs", () => {
+    const ref = "conversations/excerpt-test/msg-1.jsonl";
+    const absPath = resolveContentRefPath(ref);
+    expect(absPath).not.toBeNull();
+    appendContentDeltas(absPath!, [
+      {
+        i: 0,
+        seq: 1,
+        block: { type: "text", text: "Folded delta text about pandas" },
+      },
+    ]);
+
+    const excerpt = buildExcerpt(JSON.stringify({ ref }), "pandas");
+
+    expect(excerpt).toBe("Folded delta text about pandas");
   });
 });
 
@@ -121,6 +302,49 @@ describe("buildRecallEvidenceExcerpt", () => {
     expect(buildRecallEvidenceExcerpt(mixed, "Slack")).toBe(
       'prefix <external_content source="slack"> Mixed Slack text </external_content>',
     );
+  });
+
+  test("extracts thinking text for recall evidence", () => {
+    const excerpt = buildRecallEvidenceExcerpt(
+      JSON.stringify([
+        {
+          type: "thinking",
+          thinking: "Recall reasoning detail",
+          signature: "s",
+        },
+      ]),
+      "reasoning",
+    );
+
+    expect(excerpt).toBe("Recall reasoning detail");
+  });
+
+  test("preserves external_content boundaries for string-form tool_result content", () => {
+    const excerpt = buildRecallEvidenceExcerpt(
+      JSON.stringify([
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_01",
+          content:
+            '<external_content source="slack">\nSearchable Slack text\n</external_content>',
+        },
+      ]),
+      "Slack",
+    );
+
+    expect(excerpt).toBe(
+      '<external_content source="slack">\nSearchable Slack text\n</external_content>',
+    );
+  });
+
+  test("keeps the raw fallback for messages with no legible text", () => {
+    const raw = JSON.stringify([
+      { type: "tool_use", id: "toolu_01", name: "bash", input: {} },
+    ]);
+
+    const excerpt = buildRecallEvidenceExcerpt(raw, "bash");
+
+    expect(excerpt).toContain("tool_use");
   });
 });
 

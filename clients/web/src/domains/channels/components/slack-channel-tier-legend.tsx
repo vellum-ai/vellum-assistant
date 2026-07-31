@@ -1,5 +1,3 @@
-import { Link } from "react-router";
-
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
@@ -9,69 +7,68 @@ import {
 } from "@/domains/channels/slack-channel-overrides";
 import { TierDot } from "@/domains/channels/components/tier-picker";
 import type { RiskThreshold } from "@/utils/threshold-presets";
-import { routes } from "@/utils/routes";
 
 /**
- * Full per-level help copy, framed around what the assistant does on its own
- * when answering other people in the channel. Rendered inline under each name
- * in the key, so the meaning is on screen without hovering — plain text (not
- * JSX) because it interpolates the assistant name. The terse
- * `CAPABILITY_TIER_META.sublabel` is the picker's short form, not used here.
+ * One line per level, all on the single lookup-depth axis: how much the
+ * assistant does on its own when answering other people before checking with
+ * the owner. The per-level lines are the whole key (LUM-2905); the card
+ * header carries the Trust Rules pointer.
  *
- * Grounded in what a channel cell can actually delegate
+ * Both lines lead with the ask, so the only thing that differs between levels
+ * is the exception clause and the levels stay comparable at a glance.
+ *
+ * The exception is grounded in what a channel cell can actually delegate
  * (`assistant/src/tools/tool-approval-handler.ts` → `isChannelLiftable`): only
- * non-executing side effects in the assistant's own workspace — reads, public
- * `web_fetch`, and ordinary in-workspace file writes. "Take notes" describes
- * those writes without implying documents: the document tools run on the host
- * and stay on the capability floor. Everything the footer names is floored at
- * every level, so the two levels differ only in whether that narrow set runs
- * on its own or asks first.
+ * non-executing side effects in the assistant's own workspace (reads, public
+ * `web_fetch`, and ordinary in-workspace file writes). "Saving files in its
+ * own workspace" is the wording the global Conservative preset already uses
+ * (`utils/threshold-presets.ts`), so both surfaces name the delegated work the
+ * same way; the workspace scope is what keeps it from reading as document
+ * authoring, since the document tools run on the host and stay on the
+ * capability floor.
+ *
+ * The capability floor (code, the owner's computer or accounts, unvetted
+ * skills always escalate) needs no inventory here: "asks before anything
+ * beyond ..." already covers everything the exception does not name.
  */
-function tierDescription(tier: RiskThreshold, assistantName: string): string {
+function tierDescription(tier: RiskThreshold): string {
   return tier === "none"
-    ? `${assistantName} replies, but asks you before doing anything else, even a web search.`
-    : `${assistantName} can look things up and take notes on its own: web searches, public web pages, and reading and writing files in its own workspace.`;
+    ? "Asks before every action, even a web search."
+    : "Asks before anything beyond looking things up and saving files in its own workspace.";
 }
 
 export interface SlackChannelTierLegendProps {
-  /** Trimmed assistant name with a "your assistant" fallback, for copy. */
-  assistantName: string;
   /**
    * The level the owner's global setting resolves to, marked "· default" in
    * the key so it lines up with the rows (which name the same level). `null`
-   * while unknown — no level is marked.
+   * while unknown; no level is marked.
    */
   defaultTier: RiskThreshold | null;
 }
 
 /**
- * Always-visible Assistant Access key in the default-access card footer: a
- * heading, who the levels apply to, every level as its name over the full
- * {@link tierDescription} sentence, then the boundary that holds at every
- * level. Everything renders on screen — no hover tooltip — so the meaning is
- * reachable on touch. The level the global default resolves to is marked
- * "· default", matching the per-row picker so the two read together.
+ * Always-visible Assistant Access key in the default-access card footer: only
+ * the levels themselves, each name over its {@link tierDescription} line,
+ * which carries the full meaning. No heading and no scope line: the rows
+ * above the footer already establish what is being picked, and the "applies
+ * to other people in the channel" scope fact from #39143 was deliberately
+ * traded away for brevity in LUM-2905; restore a scope line here if that
+ * confusion resurfaces. Everything renders on screen (no hover tooltip) so
+ * the meaning is reachable on touch. The level the global default resolves to
+ * is marked "· default", matching the per-row picker so the two read
+ * together.
+ *
+ * The key lists levels most-permissive-first (Conservative before Strict) so
+ * the usual default reads first; the picker menu keeps preset order, which is
+ * fine because each key entry names its level.
  */
-export function SlackChannelTierLegend({
-  assistantName,
-  defaultTier,
-}: SlackChannelTierLegendProps) {
+export function SlackChannelTierLegend({ defaultTier }: SlackChannelTierLegendProps) {
   const shownDefault = channelTierBehavesAs(defaultTier ?? undefined) ?? null;
+  const legendTiers = [...CHANNEL_TIER_VALUES].reverse();
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
-      <Typography as="span" variant="body-small-emphasised">
-        Assistant Access levels
-      </Typography>
-      <Typography
-        as="p"
-        variant="body-small-default"
-        className="text-[color:var(--content-tertiary)]"
-      >
-        Applies to other people in the channel — your own requests use your
-        global Assistant Access.
-      </Typography>
       <ul className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-        {CHANNEL_TIER_VALUES.map((tier) => {
+        {legendTiers.map((tier) => {
           const meta = CAPABILITY_TIER_META[tier];
           return (
             <li key={tier} className="flex flex-col gap-0.5">
@@ -90,34 +87,20 @@ export function SlackChannelTierLegend({
                   </Typography>
                 ) : null}
               </span>
+              {/* body-small-lighter, not -default: these lines wrap, and the
+                  -default/-emphasised variants are line-height-1 single-line
+                  label styles (tokens.css). */}
               <Typography
                 as="span"
-                variant="body-small-default"
+                variant="body-small-lighter"
                 className="text-[color:var(--content-tertiary)]"
               >
-                {tierDescription(tier, assistantName)}
+                {tierDescription(tier)}
               </Typography>
             </li>
           );
         })}
       </ul>
-      <Typography
-        as="p"
-        variant="body-small-default"
-        className="text-[color:var(--content-tertiary)]"
-      >
-        Whatever the level, nothing in this room lets {assistantName} run code,
-        change how it works, reach your computer or your connected accounts, or
-        use skills you haven&rsquo;t vetted. Those always come to you first.
-        Your{" "}
-        <Link
-          to={routes.settings.privacy}
-          className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
-        >
-          Trust Rules
-        </Link>{" "}
-        fine-tune when it asks.
-      </Typography>
     </div>
   );
 }

@@ -26,9 +26,7 @@ import { Button } from "@vellumai/design-library";
 import { CenteredMessage } from "./centered-message";
 import {
   describeMemoryUnavailable,
-  MEMORY_ENABLE_PROMPT,
   MEMORY_STATUS_ERROR_COPY,
-  MEMORY_V3_UPGRADE_PROMPT,
 } from "./memory-unavailable-copy";
 
 export interface MemoryUpgradePromptProps {
@@ -87,8 +85,11 @@ export function MemoryUpgradePrompt({
     ? MEMORY_STATUS_ERROR_COPY
     : describeMemoryUnavailable(tier);
 
+  // Bound to a const so it narrows inside the click handlers.
+  const seed = copy.prompt;
+
   let action: React.ReactNode = null;
-  if (copy.action === "upgrade" && onOpenThread) {
+  if (copy.action === "upgrade" && onOpenThread && seed) {
     action = (
       <Button
         variant="primary"
@@ -98,7 +99,7 @@ export function MemoryUpgradePrompt({
           // The route's `onOpenThread` reports its own `chat_from_node`; this
           // is the narrower signal that says which chat, and why.
           emitMemoryEvent("upgrade_v3_clicked");
-          onOpenThread(MEMORY_V3_UPGRADE_PROMPT);
+          onOpenThread(seed);
         }}
       >
         Upgrade memory
@@ -128,7 +129,7 @@ export function MemoryUpgradePrompt({
         Memory settings
       </Button>
     );
-  } else if (copy.action === "settings" && onOpenThread) {
+  } else if (copy.action === "settings" && onOpenThread && seed) {
     // No reachable toggle, so hand it to the assistant — which can set
     // `memory.enabled` regardless of which settings pages this user can see.
     action = (
@@ -138,7 +139,7 @@ export function MemoryUpgradePrompt({
         leftIcon={<Sparkles />}
         onClick={() => {
           emitMemoryEvent("enable_memory_clicked");
-          onOpenThread(MEMORY_ENABLE_PROMPT);
+          onOpenThread(seed);
         }}
       >
         Turn memory on

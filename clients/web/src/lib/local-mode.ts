@@ -6,6 +6,7 @@ import {
 import {
   clearGatewayToken,
   ensureGatewayToken,
+  GatewayTokenError,
   getGatewayToken,
   getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
@@ -116,7 +117,7 @@ const commitLockfile = (data: Lockfile): void => {
 
 const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 
-export function isLocalMode(): boolean {
+export function isLocalClient(): boolean {
   const raw = import.meta.env.VITE_PLATFORM_MODE;
   if (!raw) {
     return true;
@@ -331,6 +332,45 @@ export async function syncPlatformAssistantsToLockfile(
   }
 }
 
+/**
+ * Remove a platform-hosted assistant's lockfile entry: a device-local
+ * "forget" that never touches the assistant itself. Rides the platform-replace
+ * host channel scoped to the entry's org: the remaining platform entries are
+ * written back minus the target, so local entries and other orgs' platform
+ * entries are untouched. A platform sync while logged in re-adds the
+ * assistant, so this only affects what the device lists while logged out.
+ */
+export async function removePlatformAssistantFromLockfile(
+  assistantId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const entry = getLockfileAssistant(assistantId);
+  if (!entry || !isPlatformAssistant(entry)) {
+    return { ok: false, error: "This assistant isn't in the local list." };
+  }
+  // Only the target org's entries ride the replace payload: the host treats
+  // every supplied id as replaced-by-payload, and the renderer's parsed copies
+  // drop host-only fields, so other orgs' on-disk records must stay out of the
+  // payload to survive raw. A legacy org-less entry can't be scoped; its
+  // unscoped replace resends every platform entry (minus the target).
+  const remaining = getPlatformAssistants()
+    .filter((a) => a.assistantId !== assistantId)
+    .filter(
+      (a) =>
+        entry.organizationId == null ||
+        a.organizationId === entry.organizationId,
+    )
+    .map((a) => ({ ...a }));
+  const result = await replacePlatformAssistantsHost(
+    remaining,
+    entry.organizationId,
+  );
+  if (!result.ok) {
+    return { ok: false, error: result.error || "Failed to remove assistant." };
+  }
+  commitLockfile(result.lockfile);
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Retire
 // ---------------------------------------------------------------------------
@@ -511,7 +551,7 @@ function expectsLocalGateway(
 ): assistant is LockfileAssistant {
   return (
     !!assistant &&
-    isLocalMode() &&
+    isLocalClient() &&
     !isRemoteGatewayMode() &&
     isLocalGatewayAssistant(assistant)
   );
@@ -661,6 +701,105 @@ function isRepairableConnectError(error: unknown): boolean {
 }
 
 /**
+ * Retry budget for riding out the local gateway's startup window. On reboot the
+ * gateway (a macOS Login Item) restarts concurrently with the desktop app, and
+ * a `wake` restarts it in place — in both cases the loopback `/auth/token` mint
+ * refuses connections or answers transiently (a `503` "starting", or a
+ * repairable `401` before the guardian binding backfill lands) for the first
+ * few seconds. A single prime races that window and dead-ends to the recovery
+ * controls even though the gateway becomes usable moments later. Mutable so
+ * tests can shrink the window.
+ */
+export const LOCAL_GATEWAY_STARTUP_RETRY = {
+  attempts: 8,
+  intervalMs: 1_000,
+};
+
+/**
+ * A gateway that is UP but transiently rejecting the mint as it finishes
+ * starting after a reboot: a `503` "starting" (or another `5xx`) before its
+ * post-assistant-ready work completes, or a repairable `401` in the window
+ * after traffic opens but before the guardian-binding backfill lands — the
+ * reported reboot symptom. Both heal on their own within seconds, so the boot
+ * restore rides them out (never `wake`ing).
+ *
+ * A `403` loopback-boundary refusal is terminal. A thrown transport error is
+ * deliberately excluded: the gateway isn't answering at all (an intentionally
+ * stopped assistant, not a starting one), so the boot restore falls through to
+ * the chooser promptly instead of stalling the whole retry budget on an
+ * assistant the user isn't running — the chooser's connect-with-repair path
+ * (which may `wake`) handles that case.
+ */
+function isGatewayStillStarting(error: unknown): boolean {
+  return error instanceof GatewayTokenError && error.status !== 403;
+}
+
+/**
+ * A `wake`-restarted gateway that hasn't finished coming back up: it refuses
+ * connections (a thrown transport error), answers `503`/`5xx`, or rejects the
+ * mint with a repairable `401` while it re-provisions its guardian binding. A
+ * `403` loopback-boundary refusal is terminal, and a missing/expired guardian
+ * token or an unresolved gateway won't heal by waiting (the just-run `wake`
+ * already re-seeded the token and recorded the port), so those fall through.
+ */
+function isGatewayRestartTransient(error: unknown): boolean {
+  if (error instanceof GuardianTokenError) {
+    return false;
+  }
+  if (error instanceof UnresolvedLocalGatewayError) {
+    return false;
+  }
+  if (error instanceof GatewayTokenError) {
+    return error.status !== 403;
+  }
+  // A thrown fetch/transport error — the gateway isn't accepting connections
+  // yet as it restarts.
+  return true;
+}
+
+/**
+ * Prime the local gateway connection, retrying on a bounded interval while the
+ * failure is a transient startup condition (`shouldRideOut`). Rides out the
+ * local gateway's startup window without spawning anything — the plain prime
+ * only reads the on-disk guardian token and mints a gateway session — so it
+ * respects the "app launch never spawns daemon processes" boot contract. The
+ * last error propagates once the retry budget is spent or the failure is not a
+ * ride-out-able one, so the existing connect-error classification is preserved.
+ */
+async function primeLocalGatewayWithStartupRideout(
+  target: LockfileAssistant | undefined,
+  shouldRideOut: (error: unknown) => boolean,
+): Promise<void> {
+  const { attempts, intervalMs } = LOCAL_GATEWAY_STARTUP_RETRY;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await primeLocalGatewayConnection(target);
+      return;
+    } catch (error) {
+      if (attempt >= attempts || !shouldRideOut(error)) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+}
+
+/**
+ * Boot restore path: prime the selected local assistant's gateway connection,
+ * riding out the gateway's startup window when it is up but still starting
+ * ({@link isGatewayStillStarting}). Unlike the interactive
+ * {@link primeLocalGatewayConnectionWithRepair}, this never `wake`s — app launch
+ * must not spawn daemon processes — so a gateway that is down entirely, or one
+ * that rejects the mint (a repairable `401`), falls through promptly to the
+ * chooser, where the auto-connect flow's repair handles it.
+ */
+export async function primeLocalGatewayConnectionWithStartupRetry(
+  target?: LockfileAssistant,
+): Promise<void> {
+  await primeLocalGatewayWithStartupRideout(target, isGatewayStillStarting);
+}
+
+/**
  * Prime the local gateway connection, transparently repairing the assistant in
  * place when the first attempt fails for a repairable reason.
  *
@@ -696,6 +835,13 @@ export async function primeLocalGatewayConnectionWithRepair(
     const refreshed = lockfile.assistants.find(
       (a) => a.assistantId === assistantId,
     );
-    await primeLocalGatewayConnection(refreshed ?? target);
+    // Wake restarts the daemon + gateway, so the retry races the gateway coming
+    // back up — a single prime here fails while it is still starting and the
+    // connect dead-ends to the recovery controls. Ride out that restart window
+    // instead, so a persisted local assistant reconnects on its own.
+    await primeLocalGatewayWithStartupRideout(
+      refreshed ?? target,
+      isGatewayRestartTransient,
+    );
   }
 }

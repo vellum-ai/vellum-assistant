@@ -8,7 +8,9 @@ and desktop wrappers that users interact with directly.
 ```
 clients/
 ├── web/               # Web app (Vite)
+├── docs/              # Public docs site: SSR Next.js app serving www.vellum.ai/docs
 ├── ios/               # iOS Capacitor shell
+├── android/           # Android Capacitor shell
 ├── macos/             # macOS desktop wrapper (Electron / electron-vite)
 └── chrome-extension/  # MV3 Chrome browser extension
 ```
@@ -16,6 +18,9 @@ clients/
 The iOS app is a Capacitor shell that lives in [`ios/`](./ios/); it loads the
 web app over HTTPS and does not consume any code from the other client
 surfaces.
+
+The Android app is a Capacitor shell that lives in [`android/`](./android/);
+it follows the same remote web app loading model as iOS.
 
 ## What belongs here
 
@@ -30,11 +35,15 @@ surfaces.
 
 ## Conventions
 
-- Each client subdirectory is its own self-contained Bun package with its own
-  `bun.lock`, `package.json`, `tsconfig.json`, and lint config — matching the
-  existing pattern used by other TypeScript packages in this repo.
-- No workspaces, no Turborepo. Per-package dependency installs with
-  `bun install`. Exact version pinning (see root [`AGENTS.md`](../AGENTS.md)).
+- `web/`, `macos/`, and `docs/` are members of the root bun workspace: the
+  single root `bun.lock` covers them, and `bun install` anywhere in the tree
+  resolves to the workspace root. Each keeps its own `package.json`,
+  `tsconfig.json`, and lint config.
+- `chrome-extension/` is the one standalone package, with its own `bun.lock`
+  and per-package `bun install`. Native shells (`ios/`, `android/`) are
+  Capacitor shells built from `web/` and have no package manifests of their
+  own.
+- Exact version pinning applies repo-wide (see root [`AGENTS.md`](../AGENTS.md)).
 - When a new client is added under `clients/`, add corresponding `paths:` globs
   to any relevant PR/CI workflows in `.github/workflows/`.
 

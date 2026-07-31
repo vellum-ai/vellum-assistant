@@ -63,6 +63,12 @@ describe("CompleteState heading and creatures", () => {
     expect(getByText("Enjoy the new found power.")).toBeTruthy();
   });
 
+  test("a plan change states what landed instead of new found power", () => {
+    const { getByText } = render(<CompleteState direction="downgrade" />);
+    expect(getByText("You're all set!")).toBeTruthy();
+    expect(getByText("Your plan changes are live.")).toBeTruthy();
+  });
+
   test("renders the full six-creature corner layer, aria-hidden", () => {
     const { getByTestId, getAllByTestId } = render(<CompleteState />);
     expect(getAllByTestId("creature-avatar")).toHaveLength(6);

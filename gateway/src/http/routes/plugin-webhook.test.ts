@@ -166,6 +166,65 @@ describe("the gate", () => {
     expect(calls).toEqual([]);
   });
 
+  it("serves a vellum-signed declaration nobody approved", async () => {
+    // Only a caller holding the platform secret can reach it, and the user
+    // extended that trust when they connected their account.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () =>
+        resolution({
+          pending: [
+            {
+              plugin: "meeting-bot",
+              routes: [{ ...ROUTE, signer: "vellum" as const }],
+              digest: "d".repeat(32),
+            },
+          ],
+        }),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", VELLUM_SECRET),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("still demands the platform signature on an unapproved vellum route", async () => {
+    // Skipping approval did not skip authentication.
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () =>
+        resolution({
+          pending: [
+            {
+              plugin: "meeting-bot",
+              routes: [{ ...ROUTE, signer: "vellum" as const }],
+              digest: "d".repeat(32),
+            },
+          ],
+        }),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      post("/webhooks/plugins/meeting-bot/realtime", "{}", PLUGIN_SECRET),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
+
   it("404s a plugin with no declaration at all", async () => {
     const { calls, fetchImpl } = recordingFetch();
     const handle = createPluginWebhookHandler({

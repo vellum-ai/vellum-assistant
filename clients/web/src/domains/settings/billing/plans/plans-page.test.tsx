@@ -55,6 +55,8 @@ import {
   makeUltraPackage,
 } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 import type {
+  Assistant,
+  MachineSizeEnum,
   OnboardingStateResponse,
   PackageChangeResponse,
   PlanListResponse,
@@ -79,8 +81,8 @@ let creditTierCall: Captured | null = null;
 let openedUrl: string | null = null;
 // When non-null, the change-machine-tier call rejects — drives the failure path.
 let machineTierError: unknown = null;
-// Success-toast messages captured from the mocked toast module — lets the
-// downgrade path assert its confirmation toast without rendering the Toaster.
+// Success-toast messages captured from the mocked toast module, so a path can
+// assert exactly which confirmations fired without rendering the Toaster.
 const toastSuccessCalls: string[] = [];
 // When false, the change-package promise never settles — used to observe the
 // in-flight (pending) disabled state.
@@ -99,6 +101,15 @@ let changePackageError: unknown = null;
 let subscriptionFixture: SubscriptionResponse | null = null;
 let plansFixture: PlanListResponse | null = null;
 let onboardingFixture: OnboardingStateResponse | null = null;
+// When non-null the onboarding read waits on this before answering, which holds
+// the query unsettled the way a cold load does.
+let onboardingHold: Promise<void> | null = null;
+// The assistant the machine from-side is read off, plus a log of how it was
+// asked for, so the primary-then-active resolution can be asserted.
+let assistantFixture: Assistant | null = null;
+let activeAssistantFixture: Assistant | null = null;
+const assistantByIdCalls: (string | null)[] = [];
+let activeAssistantCalls = 0;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -151,8 +162,23 @@ mock.module("@/generated/api/sdk.gen", () => ({
     Promise.resolve({ data: subscriptionFixture, response: { ok: true } }),
   organizationsBillingPlansRetrieve: () =>
     Promise.resolve({ data: plansFixture, response: { ok: true } }),
-  organizationsBillingSubscriptionOnboardingRetrieve: () =>
-    Promise.resolve({ data: onboardingFixture, response: { ok: true } }),
+  organizationsBillingSubscriptionOnboardingRetrieve: () => {
+    const result = { data: onboardingFixture, response: { ok: true } };
+    return onboardingHold
+      ? onboardingHold.then(() => result)
+      : Promise.resolve(result);
+  },
+  assistantsRetrieve: (opts: { path?: { id?: string } }) => {
+    assistantByIdCalls.push(opts.path?.id ?? null);
+    return Promise.resolve({ data: assistantFixture, response: { ok: true } });
+  },
+  assistantsActiveRetrieve: () => {
+    activeAssistantCalls += 1;
+    return Promise.resolve({
+      data: activeAssistantFixture,
+      response: { ok: true },
+    });
+  },
 }));
 
 mock.module("@/runtime/browser", () => ({
@@ -183,23 +209,29 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 // The full loading → "You're all set!" flow is owned by
 // billing-onboarding-modal.test.tsx's resize-mode suite.
 //
-// Captures the credit tier the page threads in so the credit-change confirmation
-// (and the switch path's deliberate omission of it) can be asserted directly.
-let takeoverResizeCredits: string | null | undefined;
+// Captures the context the page threads in, so the pre-change from-sides (and
+// the switch path's omission of an unchanged bundle) can be asserted directly.
+type CapturedResizeContext = {
+  fromSnapshot: { machineSize: string | null; storageGib: number | null };
+  credits: { fromTier: string | null; toTier: string | null } | null;
+  direction: string;
+  canLowerResources: boolean;
+};
+let takeoverResizeContext: CapturedResizeContext | undefined;
 mock.module(
   "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal",
   () => ({
     BillingOnboardingModal: ({
       open,
       mode,
-      resizeCredits,
+      resizeContext,
     }: {
       open: boolean;
       mode?: string;
-      resizeCredits?: string | null;
+      resizeContext?: CapturedResizeContext;
     }) => {
       if (open) {
-        takeoverResizeCredits = resizeCredits;
+        takeoverResizeContext = resizeContext;
       }
       return open ? (
         <div data-testid="resize-takeover" data-mode={mode ?? "checkout"} />
@@ -475,6 +507,24 @@ function LocationProbe() {
   return <div data-testid="loc">{location.pathname + location.search}</div>;
 }
 
+/**
+ * An assistant whose pod sits at `machineSize` on a `provisionedStorageGib`
+ * volume, the two resource from-sides the chips read.
+ */
+function makeAssistant(
+  id: string,
+  machineSize: MachineSizeEnum,
+  provisionedStorageGib = 10,
+): Assistant {
+  return {
+    id,
+    name: "Casey",
+    handle: "casey",
+    machine_size: machineSize,
+    provisioned_storage_gib: provisionedStorageGib,
+  } as Assistant;
+}
+
 /** Onboarding state carrying a Pro sub's current machine/storage tiers. */
 function onboarding(
   overrides: Partial<OnboardingStateResponse> = {},
@@ -495,9 +545,13 @@ function renderInteractive(
   {
     plans = fullCatalog(),
     onboardingData = onboarding(),
+    seedOnboarding = true,
   }: {
     plans?: PlanListResponse;
-    onboardingData?: OnboardingStateResponse;
+    /** Null models a read that settled with no payload, e.g. one that failed. */
+    onboardingData?: OnboardingStateResponse | null;
+    /** False leaves the onboarding query to fetch, so it mounts unsettled. */
+    seedOnboarding?: boolean;
   } = {},
 ) {
   subscriptionFixture = subscription;
@@ -519,10 +573,12 @@ function renderInteractive(
     subscription,
   );
   client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
-  client.setQueryData(
-    organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
-    onboardingData,
-  );
+  if (seedOnboarding) {
+    client.setQueryData(
+      organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+      onboardingData,
+    );
+  }
   return {
     // Exposed so the checkout test can seed the avatar cache the stash reads.
     client,
@@ -556,8 +612,13 @@ beforeEach(() => {
   subscriptionFixture = null;
   plansFixture = null;
   onboardingFixture = null;
+  onboardingHold = null;
+  assistantFixture = makeAssistant("assistant-primary", "medium");
+  activeAssistantFixture = makeAssistant("assistant-active", "large");
+  assistantByIdCalls.length = 0;
+  activeAssistantCalls = 0;
   toastSuccessCalls.length = 0;
-  takeoverResizeCredits = undefined;
+  takeoverResizeContext = undefined;
   // The stash and the assistants store are module-level globals, so reset both.
   clearTakeoverAvatarStash();
   useResolvedAssistantsStore.setState({
@@ -572,7 +633,7 @@ afterEach(() => {
 });
 
 describe("PlansPage — Pro package switch (change-package)", () => {
-  test("Super → Mighty downgrade confirms, then calls change-package without opening the takeover", async () => {
+  test("Super → Mighty downgrade confirms, then calls change-package and opens the takeover", async () => {
     const { findByRole, findByTestId, getByTestId, queryByTestId } =
       renderInteractive(proSuperSubscription());
 
@@ -587,15 +648,74 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     await waitFor(() => expect(changePackageCall).not.toBeNull());
     expect(changePackageCall!.body).toEqual({ package: "mighty" });
 
-    // A downgrade caps the machine down immediately, so the dialog closes on a
-    // success toast and the provisioning takeover never opens.
+    // A downgrade caps the machine down and restarts the pod like any other
+    // switch, so it watches the same takeover, with no fire-and-forget toast.
     await waitFor(() =>
       expect(queryByTestId("confirm-package-switch-button")).toBeNull(),
     );
-    expect(toastSuccessCalls).toEqual(["Downgraded to Mighty."]);
-    expect(queryByTestId("resize-takeover")).toBeNull();
+    const takeover = await findByTestId("resize-takeover");
+    expect(takeover.getAttribute("data-mode")).toBe("resize");
+    expect(takeoverResizeContext?.direction).toBe("downgrade");
+    // Mighty names no machine tier, so the pod is capped to the floor: met
+    // targets can't stand in for "nothing was owed" here.
+    expect(takeoverResizeContext?.canLowerResources).toBe(true);
+    expect(toastSuccessCalls).toEqual([]);
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
     expect(upgradeCall).toBeNull();
+  });
+
+  test("an unread current tier is treated as able to lower, not as the floor", async () => {
+    // A failed onboarding read settles `currentReady` while leaving every
+    // dimension null, and a null machine tier is what a machine-less package
+    // reports. Ranking that null would read a Super sub as sitting on the
+    // floor and hand a real downgrade the inference only a raise earns.
+    const { findByRole, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+      { onboardingData: null },
+    );
+
+    fireEvent.click(
+      await findByRole("button", { name: "Downgrade to Mighty" }),
+    );
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(takeoverResizeContext?.canLowerResources).toBe(true);
+  });
+
+  test("an untrusted tier read snapshots no pod at all", async () => {
+    // Holding the assistant query is not enough: a disabled query still serves
+    // whatever the cache holds, and a null primary makes the hook answer with
+    // the ACTIVE assistant, which is the wrong pod in the org where this
+    // matters. The captured from-sides have to be empty, not merely unfetched.
+    activeAssistantFixture = makeAssistant("assistant-active", "large", 50);
+    // Open the gate first so the active assistant lands in the cache, which is
+    // the only way the stale path has anything to serve.
+    const { findByRole, findByTestId, client } = renderInteractive(
+      proSuperSubscription(),
+      { onboardingData: onboarding({ primary_assistant_id: null }) },
+    );
+    await waitFor(() => expect(activeAssistantCalls).toBeGreaterThan(0));
+
+    // Now close it: same payload, older read.
+    act(() => {
+      client.setQueryData(
+        organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
+        onboardingFixture,
+        { updatedAt: Date.now() - 60_000 },
+      );
+    });
+
+    fireEvent.click(
+      await findByRole("button", { name: "Downgrade to Mighty" }),
+    );
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(takeoverResizeContext?.fromSnapshot).toEqual({
+      machineSize: null,
+      storageGib: null,
+    });
   });
 
   test("Super → Ultra upgrade confirms, then calls change-package with the ultra key", async () => {
@@ -612,10 +732,148 @@ describe("PlansPage — Pro package switch (change-package)", () => {
 
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
-    // The switch path sources no bundle, so it threads none — a stale value
-    // from a prior custom change must never surface on this takeover.
-    expect(takeoverResizeCredits).toBeUndefined();
+    expect(takeoverResizeContext?.direction).toBe("upgrade");
+    // Ultra raises the ceiling, so the fast no-op inference is kept.
+    expect(takeoverResizeContext?.canLowerResources).toBe(false);
+    // The sub holds no bundle and Ultra pins one, so the tier move is threaded.
+    expect(takeoverResizeContext?.credits).toEqual({
+      fromTier: null,
+      toTier: "credits_115",
+    });
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+  });
+
+  test("a switch that leaves the bundle alone threads no credits chip", async () => {
+    // Super pins credits_45 and the sub already holds it, so there is no move to
+    // state and the chip is dropped.
+    const { findByRole, findByTestId } = renderInteractive({
+      ...proMightySubscription(),
+      selected_credit_tier: "credits_45",
+    });
+
+    fireEvent.click(await findByRole("button", { name: "Go Super" }));
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(takeoverResizeContext?.credits).toBeNull();
+  });
+
+  test("a package switch hands the takeover the pre-change machine, storage and bundle", async () => {
+    // The server caps the machine before change-package answers, and the hook
+    // then invalidates the subscription and onboarding reads, so every "current"
+    // value the page can read once the await resolves is already post-change.
+    // Model that by flipping each fixture to its post-change value before the
+    // switch is confirmed: only a capture taken ahead of the await survives it.
+    // The disk carries 25 GB while the billed tier reads 30, the spread a
+    // volume keeps after its tier was lowered. The chip must state the disk.
+    assistantFixture = makeAssistant("assistant-primary", "medium", 25);
+    const { findByRole, findByTestId } = renderInteractive(
+      { ...proSuperSubscription(), selected_credit_tier: "credits_45" },
+      {
+        onboardingData: onboarding({
+          primary_assistant_id: "assistant-primary",
+          selected_storage_gib: 30,
+        }),
+      },
+    );
+    // Let the by-id assistant read land before the pod grows.
+    await waitFor(() => expect(assistantByIdCalls.length).toBeGreaterThan(0));
+
+    changePackageData = {
+      status: "ok",
+      package: { key: "ultra", name: "Ultra", version: 1, customized: false },
+    };
+    subscriptionFixture = {
+      ...proSuperSubscription(),
+      selected_credit_tier: "credits_115",
+    };
+    onboardingFixture = onboarding({
+      primary_assistant_id: "assistant-primary",
+      max_machine_tier: "large",
+      selected_storage_gib: 60,
+    });
+    assistantFixture = makeAssistant("assistant-primary", "large", 60);
+
+    fireEvent.click(await findByRole("button", { name: "Unleash Ultra" }));
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(takeoverResizeContext?.fromSnapshot).toEqual({
+      machineSize: "medium",
+      storageGib: 25,
+    });
+    expect(takeoverResizeContext?.credits).toEqual({
+      fromTier: "credits_45",
+      toTier: "credits_115",
+    });
+  });
+
+  test("the machine from-side reads the onboarding payload's primary assistant", async () => {
+    // The takeover watches the primary-then-active assistant, so the chip's
+    // from-side has to describe that same pod. In a multi-assistant org the
+    // active one is a different machine.
+    const { findByRole, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+      {
+        onboardingData: onboarding({
+          primary_assistant_id: "assistant-primary",
+        }),
+      },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Unleash Ultra" }));
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(assistantByIdCalls).toContain("assistant-primary");
+    expect(activeAssistantCalls).toBe(0);
+    // "medium" is the primary's size; the active assistant reads "large".
+    expect(takeoverResizeContext?.fromSnapshot.machineSize).toBe("medium");
+  });
+
+  test("an unsettled onboarding read never resolves the from-side to the active assistant", async () => {
+    // On a cold load the onboarding payload has not answered, so no primary is
+    // named yet. Reading through to the active assistant in that window returns
+    // a real machine size for the wrong pod in a multi-assistant org, and the
+    // capture then states it for the life of the takeover.
+    let releaseOnboarding = () => {};
+    onboardingHold = new Promise<void>((resolve) => {
+      releaseOnboarding = resolve;
+    });
+    const { findByRole, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+      { seedOnboarding: false },
+    );
+
+    const cta = await findByRole("button", { name: "Unleash Ultra" });
+    expect(assistantByIdCalls).toEqual([]);
+    expect(activeAssistantCalls).toBe(0);
+
+    fireEvent.click(cta);
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    // Let the post-change invalidation refetches settle so the takeover opens.
+    releaseOnboarding();
+    await findByTestId("resize-takeover");
+
+    // Unknown, not the active assistant's "large". Storage has the same window.
+    expect(takeoverResizeContext?.fromSnapshot).toEqual({
+      machineSize: null,
+      storageGib: null,
+    });
+  });
+
+  test("with no primary named the from-side falls back to the active assistant", async () => {
+    const { findByRole, findByTestId } = renderInteractive(
+      proSuperSubscription(),
+      { onboardingData: onboarding({ primary_assistant_id: null }) },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Unleash Ultra" }));
+    fireEvent.click(await findByTestId("confirm-package-switch-button"));
+    await findByTestId("resize-takeover");
+
+    expect(assistantByIdCalls).toEqual([]);
+    expect(takeoverResizeContext?.fromSnapshot.machineSize).toBe("large");
   });
 
   test("Pro → Free downgrade confirms first, then opens the Stripe billing portal", async () => {
@@ -867,6 +1125,11 @@ describe("PlansPage — Custom Pro subs switch via neutral confirm", () => {
     expect(changePackageCall!.body).toEqual({ package: "mighty" });
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
+    // No rank to compare against, so the takeover states a neutral change.
+    expect(takeoverResizeContext?.direction).toBe("change");
+    // And for the same reason its own ceiling can sit anywhere relative to the
+    // target's, so the switch has to prove the restart rather than assume none.
+    expect(takeoverResizeContext?.canLowerResources).toBe(true);
     expect(upgradeCall).toBeNull();
   });
 
@@ -928,7 +1191,7 @@ describe("PlansPage — Custom row current-plan marker", () => {
     });
 
     await findByText("Your Current Plan");
-    await findByText("Medium Machine · 10 GB · 50 credits");
+    await findByText("Medium Machine · 10 GB · 50 credits/mo");
   });
 
   test("a legacy/unpinned Pro sub sees the Custom row marked current with a tier summary", async () => {
@@ -938,7 +1201,7 @@ describe("PlansPage — Custom row current-plan marker", () => {
     });
 
     await findByText("Your Current Plan");
-    await findByText("Medium Machine · 10 GB · 50 credits");
+    await findByText("Medium Machine · 10 GB · 50 credits/mo");
   });
 
   test("a custom sub holding a deprecated credit tier shows a derived credit label", async () => {
@@ -950,7 +1213,7 @@ describe("PlansPage — Custom row current-plan marker", () => {
     );
 
     await findByText("Your Current Plan");
-    await findByText("Medium Machine · 10 GB · 45 credits");
+    await findByText("Medium Machine · 10 GB · 45 credits/mo");
   });
 
   test("a clean-pinned Pro sub sees no marker on the Custom row", async () => {
@@ -1153,8 +1416,21 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     // (which no-ops for active Pro) is never touched.
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
-    // The bundle changed alongside the machine, so it's threaded through too.
-    expect(takeoverResizeCredits).toBe("credits_50");
+    // The bundle changed alongside the machine, so the tier move is threaded
+    // through too, from the pre-change tier the sub held.
+    expect(takeoverResizeContext?.credits).toEqual({
+      fromTier: null,
+      toTier: "credits_50",
+    });
+    // The pod's own machine and disk are the from-sides, not the billed tiers.
+    expect(takeoverResizeContext?.fromSnapshot).toEqual({
+      machineSize: "large",
+      storageGib: 10,
+    });
+    // A per-dimension edit can move dimensions in both directions at once.
+    expect(takeoverResizeContext?.direction).toBe("change");
+    // Medium → Large raises the ceiling, so nothing has to shrink.
+    expect(takeoverResizeContext?.canLowerResources).toBe(false);
     expect(upgradeCall).toBeNull();
   });
 
@@ -1181,10 +1457,83 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     // a readable confirmation moment.
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
-    // The applied bundle is threaded through so the takeover can confirm it —
-    // the credit-only path never reaches the WAITING credits chip.
-    expect(takeoverResizeCredits).toBe("credits_50");
+    // The tier move is threaded through so the takeover can state it; a
+    // credit-only change resolves straight to the terminal phase.
+    expect(takeoverResizeContext?.credits).toEqual({
+      fromTier: null,
+      toTier: "credits_50",
+    });
+    // Credits are not a provisioned resource and no ceiling moved, so the
+    // takeover keeps the inference that lets met targets resolve it straight
+    // away. The neutral "change" direction must not cost it that.
+    expect(takeoverResizeContext?.canLowerResources).toBe(false);
     expect(upgradeCall).toBeNull();
+  });
+
+  test("a storage-only Continue keeps the fast no-op inference", async () => {
+    // Volumes only ever grow, so a storage edit can't lower a ceiling either.
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    selectOption("Storage", "30 GB");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(storageTierCall).not.toBeNull());
+    expect(storageTierCall!.body).toEqual({ storage_tier: "s" });
+    expect(machineTierCall).toBeNull();
+    expect(creditTierCall).toBeNull();
+
+    await findByTestId("resize-takeover");
+    expect(takeoverResizeContext?.canLowerResources).toBe(false);
+  });
+
+  test("a machine downgrade makes the takeover prove the restart", async () => {
+    // The sub holds a Large ceiling and drops to Medium, so the server caps the
+    // pod down. A machine downgrade owes no grow, so it opens the takeover only
+    // alongside the credit change here, and while that takeover is up the
+    // cap-down is rolling out with its targets already reading met.
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+      {
+        plans: customCatalog(),
+        onboardingData: onboarding({ max_machine_tier: "large" }),
+      },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
+    selectOption("Credit bundle", "50 credits");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    expect(machineTierCall!.body).toEqual({ machine_tier: "medium" });
+
+    await findByTestId("resize-takeover");
+    // The copy stays neutral; only the ceiling question flips.
+    expect(takeoverResizeContext?.direction).toBe("change");
+    expect(takeoverResizeContext?.canLowerResources).toBe(true);
+  });
+
+  test("a machine-only Continue threads no credits chip", async () => {
+    const { findByRole, findByTestId } = renderInteractive(
+      proMightySubscription(),
+      { plans: customCatalog() },
+    );
+
+    fireEvent.click(await findByRole("button", { name: "Configure" }));
+
+    selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    await findByTestId("resize-takeover");
+    expect(creditTierCall).toBeNull();
+    expect(takeoverResizeContext?.credits).toBeNull();
   });
 
   // Configure always opens the in-place custom modal for a Pro sub, whatever the

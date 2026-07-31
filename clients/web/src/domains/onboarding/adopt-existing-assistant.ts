@@ -19,7 +19,7 @@ export function shouldAdoptExistingAssistant({
 }: {
   /** The research route's `?hosting` value, or null when absent. */
   hostingParam: string | null;
-  /** Build-time local mode (`isLocalMode()`). */
+  /** Build-time local mode (`isLocalClient()`). */
   localMode: boolean;
   /** A live local gateway session exists (`isGatewayAuthMode()`). */
   gatewayAuthSession: boolean;

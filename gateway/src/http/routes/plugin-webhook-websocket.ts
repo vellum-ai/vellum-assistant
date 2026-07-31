@@ -13,15 +13,14 @@
  * meaning on the wire would be inventing a protocol neither side has agreed
  * to, so a failure is logged and the socket is left alone.
  *
- * Today a frame must carry a JSON object. The IPC request envelope can carry
- * a binary frame — `writeMessage` sends one and the server's reader parses it
- * — but the server discards it (`void binary` in `assistant-server.ts`) and
- * the gateway's client still speaks the legacy newline protocol, which has no
- * binary frame at all. Until that is fixed, anything else is refused at the
- * socket rather than silently dropped on the way to the plugin.
+ * A frame travels as the request's raw body, so the plugin receives exactly
+ * the bytes the caller sent: text or binary, well-formed JSON or not.
  */
 
-import type { PluginIngressResolution } from "../../channels/plugin-ingress-approvals.js";
+import {
+  findServableRoute,
+  type PluginIngressResolution,
+} from "../../channels/plugin-ingress-approvals.js";
 import type { IngressSigner } from "../../channels/plugin-ingress.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
@@ -30,7 +29,10 @@ import {
   resolveCredentialWithRefresh,
   verifySecretWithRefresh,
 } from "../../credential-refresh.js";
-import { ipcCallAssistant } from "../../ipc/assistant-client.js";
+import {
+  ipcCallAssistant,
+  type IpcCallOptions,
+} from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
 import {
   VELLUM_TIMESTAMP_HEADER,
@@ -69,7 +71,7 @@ function frameByteLength(frame: string | Uint8Array): number {
 export type IpcCall = (
   method: string,
   params?: Record<string, unknown>,
-  opts?: { timeoutMs?: number },
+  opts?: IpcCallOptions,
 ) => Promise<unknown>;
 
 export type PluginWebhookSocketData = {
@@ -114,10 +116,10 @@ export interface PluginWebhookWsDeps {
 /**
  * Upgrade handler for `/webhooks/plugins/:plugin/:path`.
  *
- * Applies the same gate as the HTTP half — only a guardian-approved
- * declaration naming exactly this path is served, and only for the
- * `websocket` kind — then authenticates the handshake before upgrading. An
- * upgrade cannot be un-done once accepted, so everything is checked first.
+ * Applies the same gate as the HTTP half (see `findServableRoute`) and only
+ * for the `websocket` kind, then authenticates the handshake before
+ * upgrading. An upgrade cannot be un-done once accepted, so everything is
+ * checked first.
  */
 export function createPluginWebhookWebsocketHandler(deps: PluginWebhookWsDeps) {
   const { config, resolve, credentials, ipcCall } = deps;
@@ -132,20 +134,16 @@ export function createPluginWebhookWebsocketHandler(deps: PluginWebhookWsDeps) {
       return new Response("Upgrade Required", { status: 426 });
     }
 
-    let approved: PluginIngressResolution["approved"];
+    let route: ReturnType<typeof findServableRoute>;
     try {
-      approved = resolve().approved;
+      route = findServableRoute(resolve(), plugin, path, "websocket");
     } catch (err) {
-      log.error({ err, plugin }, "Failed to resolve approved plugin ingress");
+      log.error({ err, plugin }, "Failed to resolve plugin ingress");
       return new Response("Internal Server Error", { status: 500 });
     }
-
-    const route = approved
-      .find((d) => d.plugin === plugin)
-      ?.routes.find((r) => r.kind === "websocket" && r.path === path);
     if (!route) {
       // Quiet for the same reason as the HTTP half: anyone can reach this.
-      log.debug({ plugin, path }, "No approved websocket ingress route");
+      log.debug({ plugin, path }, "No servable websocket ingress route");
       return new Response("Not Found", { status: 404 });
     }
 
@@ -211,47 +209,34 @@ export function createPluginWebhookWebsocketHandler(deps: PluginWebhookWsDeps) {
 }
 
 /**
- * The JSON object a frame carries, or null when it does not carry one.
+ * Hand one frame to the plugin's route over IPC.
  *
- * Until the IPC request envelope can carry raw bytes, `body` is the only way
- * a frame reaches a route, and it must be an object — `synthesizeRequest`
- * re-serialises it, and the runtime adapter keeps objects only. Anything else
- * is undeliverable rather than merely awkward, so the caller refuses it
- * instead of letting it vanish.
+ * The frame travels as the request's raw body, so the plugin receives the
+ * bytes the caller sent: text or binary, well-formed JSON or not. Deciding
+ * what a frame means is the plugin's job, not the transport's.
  */
-function frameAsJsonObject(
-  frame: string | Uint8Array,
-): Record<string, unknown> | null {
-  if (typeof frame !== "string") return null;
-  try {
-    const parsed: unknown = JSON.parse(frame);
-    return parsed !== null &&
-      typeof parsed === "object" &&
-      !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Hand one frame to the plugin's route over IPC. */
 async function deliverFrame(
   data: PluginWebhookSocketData,
-  body: Record<string, unknown>,
+  frame: string | Uint8Array,
 ): Promise<void> {
   const { config, plugin, path } = data;
   const call = data.ipcCall ?? ipcCallAssistant;
+  const bytes =
+    typeof frame === "string" ? new TextEncoder().encode(frame) : frame;
   try {
     await call(
       "user_route_post",
       {
         pathParams: { path: `plugins/${plugin}/${path}` },
         queryParams: {},
-        body,
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type":
+            typeof frame === "string"
+              ? "text/plain; charset=utf-8"
+              : "application/octet-stream",
+        },
       },
-      { timeoutMs: config.runtimeTimeoutMs },
+      { timeoutMs: config.runtimeTimeoutMs, binary: bytes },
     );
   } catch (err) {
     log.warn({ err, plugin, path }, "Plugin webhook frame delivery failed");
@@ -273,10 +258,7 @@ async function drain(data: PluginWebhookSocketData): Promise<void> {
     while (data.queue.length > 0 && !data.closed) {
       const frame = data.queue.shift()!;
       data.queuedBytes -= frameByteLength(frame);
-      const body = frameAsJsonObject(frame);
-      // Enqueueing already rejected anything without one; this is a guard,
-      // not a second gate.
-      if (body) await deliverFrame(data, body);
+      await deliverFrame(data, frame);
     }
   } finally {
     data.delivering = false;
@@ -320,23 +302,6 @@ export function getPluginWebhookWebsocketHandlers() {
       const frame =
         message instanceof ArrayBuffer ? new Uint8Array(message) : message;
       const size = frameByteLength(frame);
-
-      // Refuse what cannot be delivered, rather than queue it and drop it
-      // silently at the far end. 1003 is the code for "received data of a
-      // type this endpoint cannot accept", which is exactly the situation
-      // until the IPC envelope carries raw frames.
-      if (frameAsJsonObject(frame) === null) {
-        log.warn(
-          {
-            plugin: data.plugin,
-            path: data.path,
-            binary: typeof frame !== "string",
-          },
-          "Plugin webhook frame is not a JSON object — closing connection",
-        );
-        refuse(ws, 1003, "Frame must be a JSON object");
-        return;
-      }
 
       // A single oversized frame is refused rather than queued: it could
       // never be delivered anyway, since it exceeds what the plugin's route

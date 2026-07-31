@@ -64,6 +64,7 @@ import {
   type VoiceFrontDecider,
   type VoiceProgressTextInput,
 } from "./front-decision.js";
+import { LiveActivityReporter } from "./live-activity-reporter.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -230,6 +231,11 @@ export interface LiveVoiceSessionOptions {
   archiveAudio?: LiveVoiceSessionAudioArchiver | null;
   emitMetrics?: boolean;
   metricsClock?: LiveVoiceMetricsClock;
+  /**
+   * Mirrors phase changes to the iOS Live Activity. Injectable so tests can
+   * assert what a session reports without reaching the platform.
+   */
+  liveActivityReporter?: LiveActivityReporter;
   createTurnId?: () => string;
   /**
    * Overrides the server-VAD turn detector thresholds. The production
@@ -330,6 +336,13 @@ interface UtteranceCycle {
   // server_vad has the turn detector for the same question, and never sets
   // this — its ingress is handleServerVadAudio.
   manualAudioCaptured: boolean;
+  // server_vad capture routed speech (not just pre-roll silence) into this
+  // cycle. Distinguishes an eagerly re-armed cycle holding only leading
+  // silence from one already carrying the user's utterance: the
+  // stale-language interception in handleServerVadAudio may retire the
+  // former, never the latter. turnId cannot answer this, because a
+  // silence-only pre-roll flush assigns it too.
+  speechRouted: boolean;
   pendingAudioChunks: Buffer[];
   pendingAudioBytes: number;
   finalTranscriptSegments: string[];
@@ -768,6 +781,7 @@ function createUtteranceCycle(): UtteranceCycle {
     finalizeRequested: false,
     transcriber: null,
     manualAudioCaptured: false,
+    speechRouted: false,
     pendingAudioChunks: [],
     pendingAudioBytes: 0,
     finalTranscriptSegments: [],
@@ -917,6 +931,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly metrics: LiveVoiceMetricsCollector;
   private readonly createTurnId: () => string;
   private readonly conversationId: string;
+  /**
+   * Mirrors phase changes to the iOS Live Activity through the platform, for
+   * the case the client cannot cover: an app backgrounded long enough for iOS
+   * to suspend the web layer that would otherwise push them.
+   */
+  private readonly liveActivityReporter: LiveActivityReporter;
   private state: LiveVoiceSessionState = "initializing";
   private currentUtterance: UtteranceCycle | null = null;
   private outboundFrames: Promise<void> = Promise.resolve();
@@ -1007,6 +1027,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // providers without finalizeUtterance, and after an unexpected stream
   // close (the next arm resolves a fresh transcriber).
   private sharedTranscriber: StreamingTranscriber | null = null;
+  // The `services.stt.language` value the shared stream was dialed with.
+  // Providers pin the language per connection, so the persistent re-arm
+  // compares this against the current config and re-dials on a change
+  // instead of reusing a stream locked to the old language. Cleared
+  // whenever sharedTranscriber is cleared.
+  private sharedTranscriberLanguage: string | undefined;
   /**
    * FIFO of released cycles awaiting finalize settlement on the shared
    * stream, oldest first. Flush finals and `finalized` signals carry no
@@ -1076,6 +1102,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
+    this.liveActivityReporter =
+      options.liveActivityReporter ??
+      new LiveActivityReporter(this.conversationId);
     this.metricsClock = options.metricsClock ?? Date.now;
     this.metrics = new LiveVoiceMetricsCollector({
       sessionId: context.sessionId,
@@ -1209,6 +1238,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
+    // Retire the island before the teardown below starts awaiting things. A
+    // close can take a while (a pending continuation is delivered first), and
+    // an activity left asserting "Speaking…" through it is exactly the stale
+    // claim this reporter exists to prevent.
+    this.liveActivityReporter.end();
     this.turnDetector?.dispose();
     this.clearEndpointExtensionTimer();
     // There is no longer anyone on the call to speak to, so a queued
@@ -1248,15 +1282,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shared = this.sharedTranscriber;
     if (shared) {
-      // Persistent re-arm: the shared stream is already open, so the cycle
-      // goes straight to streaming with no resolve/start round-trip.
-      utterance.transcriber = shared;
-      return await this.activateUtterance(utterance, replayTurnEnd);
+      if (!this.sharedStreamLanguageIsStale()) {
+        // Persistent re-arm: the shared stream is already open, so the cycle
+        // goes straight to streaming with no resolve/start round-trip.
+        utterance.transcriber = shared;
+        return await this.activateUtterance(utterance, replayTurnEnd);
+      }
+      // The shared stream is pinned to the old language, so retire it and
+      // fall through to the fresh resolve, which reads the language from
+      // config at resolve time.
+      this.retireSharedTranscriberForRedial(shared);
     }
 
     try {
+      // One language snapshot serves both the dial and the re-arm
+      // comparison: passing it to the resolver keeps the stream's actual
+      // language and the recorded sharedTranscriberLanguage identical even
+      // when config changes while the resolver awaits credentials.
+      const sttLanguage = getConfig().services.stt.language;
       const transcriber = await this.resolveTranscriber({
         sampleRate: this.context.startFrame.audio.sampleRate,
+        ...(sttLanguage ? { language: sttLanguage } : {}),
       });
 
       if (this.isUtteranceStale(utterance)) {
@@ -1280,6 +1326,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // its events route by cycle ownership instead of binding to this
         // one cycle.
         this.sharedTranscriber = transcriber;
+        this.sharedTranscriberLanguage = sttLanguage;
         await transcriber.start((event) => {
           void this.handleSharedTranscriberEvent(transcriber, event);
         });
@@ -1341,7 +1388,51 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): void {
     if (transcriber && this.sharedTranscriber === transcriber) {
       this.sharedTranscriber = null;
+      this.sharedTranscriberLanguage = undefined;
     }
+  }
+
+  // Config-driven language change detection: the web client's language
+  // picker patches services.stt.language and the daemon's config cache
+  // invalidation surfaces the new value on the next getConfig() read, with
+  // no session protocol message involved.
+  private sharedStreamLanguageIsStale(): boolean {
+    return this.sharedTranscriberLanguage !== getConfig().services.stt.language;
+  }
+
+  // Retires the shared stream so the next arm dials a fresh one (used when
+  // the configured language changes between utterances). Any cycle still in
+  // the finalize queue here has already dispatched its assistant turn:
+  // arming a new cycle requires assistantTurnStarted or completed, and only
+  // an arm reaches this path. Draining the queue is therefore bookkeeping
+  // that matches the unexpected-close drain: the drained cycles' late flush
+  // tails die with the old stream, and their sealed transcripts stand.
+  private retireSharedTranscriberForRedial(shared: StreamingTranscriber): void {
+    this.releaseSharedTranscriber(shared);
+    this.drainFinalizeQueueFor(shared);
+    stopTranscriberBestEffort(shared);
+  }
+
+  // Shared teardown bookkeeping for a stream that is going away (retire for
+  // redial or unexpected close): the grace timer dies with the stream, queued
+  // cycles drop their reference to it, and any released cycle's transcript is
+  // sealed. Returns the drained cycles so callers can distinguish queued
+  // cycles from the current utterance.
+  private drainFinalizeQueueFor(
+    transcriber: StreamingTranscriber,
+  ): UtteranceCycle[] {
+    this.clearFinalizeGraceTimer();
+    const drained = this.finalizeQueue;
+    this.finalizeQueue = [];
+    for (const finalizing of drained) {
+      if (finalizing.transcriber === transcriber) {
+        finalizing.transcriber = null;
+      }
+      if (finalizing.phase === "released") {
+        finalizing.phase = "transcriber_closed";
+      }
+    }
+    return drained;
   }
 
   private isUtteranceStale(utterance: UtteranceCycle): boolean {
@@ -1466,6 +1557,37 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!utterance) {
       return;
     }
+    // Language change made while the session idles: the post-turn re-arm
+    // binds the next cycle to the shared stream eagerly, before the picker
+    // patches services.stt.language, so the stale binding surfaces when
+    // speech first reaches the armed cycle. A cycle that has routed no
+    // speech (pre-roll silence flushed at arm time does not count, see
+    // speechRouted) retires together with the old-language stream and
+    // falls through to the lazy arm below, which dials a fresh stream
+    // with the configured language.
+    const sharedForLanguage = this.sharedTranscriber;
+    if (
+      sharedForLanguage &&
+      utterance.transcriber === sharedForLanguage &&
+      !utterance.released &&
+      !utterance.completed &&
+      !utterance.speechRouted &&
+      // A cycle carrying committed or partial transcript text is not
+      // silence-only bookkeeping: in persistent mode a late tail final from
+      // the previous utterance's audio can route here before any speech
+      // does, and its stt_final frame already reached the client.
+      // Finalizing such a cycle would silently drop displayed text, so it
+      // keeps its old-language stream and the language change applies from
+      // the following utterance.
+      utterance.finalTranscriptSegments.length === 0 &&
+      utterance.latestPartialText === null &&
+      this.sharedStreamLanguageIsStale()
+    ) {
+      this.retireSharedTranscriberForRedial(sharedForLanguage);
+      utterance.transcriber = null;
+      utterance.phase = "transcriber_closed";
+      await this.finalizePendingUtterance(utterance, "stt_language_changed");
+    }
     if (utterance.released || utterance.completed) {
       // Parked speech makes silent chunks arm-worthy too: the parked
       // utterance must flush without requiring more speech.
@@ -1487,6 +1609,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     }
 
+    // Speech is now reaching the cycle, either in this chunk or parked in
+    // the pre-roll about to flush; read the flag before takeVadPreRoll
+    // resets it.
+    if (hasSpeech || this.vadPreRollHasSpeech) {
+      utterance.speechRouted = true;
+    }
     for (const preRollChunk of this.takeVadPreRoll()) {
       await this.routeVadAudio(utterance, preRollChunk);
     }
@@ -1543,9 +1671,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Arm-time flush: parked release-window audio joins the new cycle's
   // pending buffer so a completed parked utterance needs no further speech.
   private flushVadPreRollIntoPending(utterance: UtteranceCycle): void {
+    // Read before takeVadPreRoll resets it: a ring holding parked speech
+    // makes this cycle speech-bearing, a silence-only ring does not.
+    const preRollHadSpeech = this.vadPreRollHasSpeech;
     for (const chunk of this.takeVadPreRoll()) {
       this.collectUserAudio(utterance, chunk);
       this.bufferPendingUtteranceAudio(utterance, chunk);
+    }
+    if (preRollHadSpeech) {
+      utterance.speechRouted = true;
     }
   }
 
@@ -2917,20 +3051,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         await this.sendTranscriberErrorFrame(event);
         return;
       case "closed": {
+        if (this.sharedTranscriber !== transcriber) {
+          // A retired stream's stop() emits closed asynchronously, possibly
+          // after a replacement stream is installed. The retire path already
+          // drained the finalize queue and nulled the stream refs, so this
+          // close is stale bookkeeping; mutating here would clear the
+          // replacement's state and seal its in-flight utterance early.
+          return;
+        }
         // The shared stream closed under the session: fall back to the
         // per-cycle path — the next arm resolves a fresh transcriber.
         this.sharedTranscriber = null;
-        this.clearFinalizeGraceTimer();
-        const drained = this.finalizeQueue;
-        this.finalizeQueue = [];
-        for (const finalizing of drained) {
-          if (finalizing.transcriber === transcriber) {
-            finalizing.transcriber = null;
-          }
-          if (finalizing.phase === "released") {
-            finalizing.phase = "transcriber_closed";
-          }
-        }
+        this.sharedTranscriberLanguage = undefined;
+        const drained = this.drainFinalizeQueueFor(transcriber);
         const current = this.currentUtterance;
         if (
           current &&
@@ -3060,6 +3193,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.finalizeQueue = [];
     const shared = this.sharedTranscriber;
     this.sharedTranscriber = null;
+    this.sharedTranscriberLanguage = undefined;
     const utterance = this.currentUtterance;
     const transcriber = utterance?.transcriber ?? null;
     if (utterance) {
@@ -5126,6 +5260,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     frame: LiveVoiceServerFramePayload,
     shouldSend: () => boolean = () => true,
   ): Promise<boolean> {
+    // Mirrored to the iOS Live Activity from here rather than from each call
+    // site: every frame that moves the session's phase passes through this one
+    // method, and a per-call-site hook would drift from it on the first frame
+    // anyone added. Fire-and-forget by contract — see the reporter.
+    this.liveActivityReporter.report(frame);
     let sent = false;
     this.outboundFrames = this.outboundFrames
       .catch(() => {})

@@ -1,5 +1,8 @@
 import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
-import { isModelInCatalog } from "../providers/model-catalog.js";
+import {
+  catalogMaxOutputTokens,
+  isModelInCatalog,
+} from "../providers/model-catalog.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
 import type { ModelIntent } from "../providers/types.js";
 import { getManagedUpstream } from "../providers/vellum-model-routing.js";
@@ -10,6 +13,7 @@ import {
   type DefaultProfileProvider,
   INTERNAL_PROFILE_KEYS,
   type InternalProfileKey,
+  isDefaultProfileProvider,
   OS_BETA_PROFILE_KEY,
   PROFILE_MATRIX_KEYS,
   type ProfileMatrixKey,
@@ -17,6 +21,7 @@ import {
 import { resolveDefaultConnectionName } from "./default-provider-resolution.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+  DEFAULT_PROVIDER_CHOICES,
   type DefaultProviderConfig,
   type ProfileEntry,
 } from "./schemas/llm.js";
@@ -30,15 +35,14 @@ import {
  * intent, and each provider that can serve default profiles has a concrete
  * implementation of that intent (model, token budget, effort, thinking).
  * The `vellum` column is the platform-managed implementation; the other
- * columns are the BYOK implementations used to materialize the personal
- * `custom-*` profiles at hatch time.
+ * columns are the BYOK implementations resolved through `llm.defaultProvider`
+ * on off-platform installs.
  *
- * `seedInferenceProfiles` still materializes the `vellum` column into
- * workspace config on every boot, but runtime readers resolve profiles
- * through `getEffectiveProfiles`/`getEffectiveProfile` below, which serve
- * default bodies from this module and overlay only the workspace-owned
- * `label`/`status`/`topP` state. This keeps default profile content
- * updatable by shipping a release — no workspace migration.
+ * Nothing materializes default bodies into workspace config: runtime readers
+ * resolve profiles through `getEffectiveProfiles`/`getEffectiveProfile`
+ * below, which serve default bodies from this module and overlay only the
+ * workspace-owned `label`/`status`/`topP` state. This keeps default profile
+ * content updatable by shipping a release, with no workspace migration.
  */
 
 /**
@@ -112,12 +116,18 @@ const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> = {
     },
   },
   "latency-optimized": {
-    // The managed latency class. `cost-optimized`'s upstream showed
-    // multi-second cross-session TTFT tails on live voice drives, which the
-    // front model's leading tokens cannot absorb — they ARE the turn-taking
-    // verdict. Replace only with a model whose managed credentials are
-    // provisioned in every environment.
-    model: "claude-haiku-4-5-20251001",
+    // The managed latency class. Its leading tokens are the live-voice
+    // turn-taking verdict, so what this profile optimizes is the tail of
+    // time-to-first-token rather than the median: a verdict slower than
+    // `liveVoice.frontModel.endpointDecisionTimeoutMs` trips the speculative
+    // fail-open commit in live-voice-session.ts, which is audible dead air.
+    //
+    // Two constraints bind the model id. Its managed credentials must be
+    // provisioned in every environment, and it alone selects the upstream:
+    // `provider` below is the provider-agnostic managed sentinel, so
+    // `getManagedUpstream` resolves the real upstream from the model's catalog
+    // owner.
+    model: "gpt-5.6-luna",
     provider: "vellum",
     source: "managed",
     label: "Latency",
@@ -133,10 +143,11 @@ const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> = {
 
 /**
  * The BYOK implementation of each default profile intent, shared by every
- * non-vellum provider column. The concrete model resolves per provider from
- * the `intent` via `resolveModelIntent` at materialization time. `provider`
- * is stamped per column (and overridden at hatch time with the user's
- * chosen provider).
+ * non-vellum provider. The concrete model resolves per provider from the
+ * `intent` via `resolveModelIntent` at materialization time (falling back to
+ * the provider's catalog `defaultModel` when it has no intent table).
+ * `provider` is stamped per column for the named matrix columns, and
+ * per-request for any other default-capable provider.
  */
 const BYOK_PROFILE_IMPLS: Record<
   ProfileMatrixKey,
@@ -209,11 +220,9 @@ export const PROFILE_IMPLS: Record<
 >;
 
 /**
- * Managed profiles, i.e. the `vellum` column keyed by profile name. Seeded
- * into workspace config on every daemon boot; platform overlays
- * (`preserveProfileNames`) take precedence when present. Keyed by the
- * user-facing defaults only — an internal profile is code-resolved and never
- * materialized into workspace config.
+ * Managed profiles, i.e. the `vellum` column keyed by profile name. Keyed by
+ * the user-facing defaults only: an internal profile is code-resolved and
+ * never listed or ordered.
  */
 export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries(
@@ -221,10 +230,11 @@ export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   );
 
 /**
- * User profile templates, materialized as `custom-*` at hatch time for
- * off-platform installations. The `provider` field is a placeholder — it is
- * overridden at hatch time with the user's chosen provider and personal
- * connection name.
+ * Frozen record of the `custom-*` profile bodies that pre-conversion BYOK
+ * hatches wrote to workspace config (the anthropic column; provider and
+ * connection were overridden per hatch). Consumed by the existing-install
+ * conversion pass as the reference for recognizing unedited copies, which
+ * are safe to remove in favor of the code-resolved defaults.
  */
 export const USER_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries(
@@ -339,6 +349,27 @@ for (const key of PROFILE_MATRIX_KEYS) {
   }
 }
 
+// Provider choices without a named column materialize from the shared BYOK
+// templates; verify each one's resolved model lands in the catalog.
+for (const provider of DEFAULT_PROVIDER_CHOICES) {
+  if (isDefaultProfileProvider(provider)) {
+    continue;
+  }
+  for (const key of PROFILE_MATRIX_KEYS) {
+    const { model } = materializeProfile(
+      { ...BYOK_PROFILE_IMPLS[key], provider },
+      provider,
+    );
+    if (model == null || !isModelInCatalog(provider, model)) {
+      throw new Error(
+        `Default provider choice "${provider}" cannot materialize "${key}": ` +
+          `resolved model "${model ?? ""}" is not in PROVIDER_CATALOG. ` +
+          `Update model-catalog.ts or model-intents.ts.`,
+      );
+    }
+  }
+}
+
 function buildDefaultProfileEntries(): Record<string, ProfileEntry> {
   const entries: Record<string, ProfileEntry> = {};
   for (const key of PROFILE_MATRIX_KEYS) {
@@ -363,10 +394,9 @@ export const CODE_DEFAULT_PROFILE_ENTRIES: Readonly<
 
 /**
  * The per-default-profile fields that remain workspace-owned state: the
- * exact whitelist `seedInferenceProfiles` preserves across reseeds (BYOK
- * label suffix, hatch-time/user disable, pre-existing topP overrides).
- * Carried by key-presence rather than truthiness so an explicit `null`
- * (cleared field) survives too.
+ * exact whitelist `seedInferenceProfiles` preserves across reseeds (user
+ * renames, user disables, topP overrides). Carried by key-presence rather
+ * than truthiness so an explicit `null` (cleared field) survives too.
  */
 const WORKSPACE_OWNED_DEFAULT_FIELDS = ["label", "status", "topP"] as const;
 
@@ -443,18 +473,22 @@ function resolveAgainstBody(
 
 /**
  * Like `getEffectiveProfile`, but a default profile key's code-owned body
- * comes from the default provider's column of the intent × provider matrix
- * instead of always the `vellum` column. A `null` defaultProvider and every
- * non-matrix name fall back to `getEffectiveProfile`'s behavior.
+ * comes from the default provider's implementation of the intent × provider
+ * matrix instead of always the `vellum` column. A `null` defaultProvider and
+ * every non-matrix name fall back to `getEffectiveProfile`'s behavior.
  *
  * Non-obvious rules:
  *
  * - The `vellum` column stamps `provider: "vellum"` with no connection —
  *   dispatch derives the upstream from the model per-request.
- * - The resolved body carries `source: "managed"` regardless of column:
+ * - A default provider without a named matrix column materializes from the
+ *   shared `BYOK_PROFILE_IMPLS` templates, with `resolveModelIntent`
+ *   falling back to the provider's catalog `defaultModel`.
+ * - The resolved body carries `source: "managed"` regardless of provider:
  *   default profile content is code-owned whichever provider implements it.
- *   The BYOK templates' `source: "user"` is hatch-time state for
- *   materialized `custom-*` copies, not an ownership claim on the body.
+ *   The BYOK templates' `source: "user"` exists for the conversion pass's
+ *   frozen `custom-*` reference bodies (`USER_PROFILE_TEMPLATES`), not as
+ *   an ownership claim on the body.
  */
 export function resolveDefaultProfileForProvider(
   workspaceProfiles: Record<string, ProfileEntry> | undefined,
@@ -495,15 +529,39 @@ function defaultProfileBodyForProvider(
   if (defaultProvider == null || !isMatrixProfileKey(name)) {
     return CODE_DEFAULT_PROFILE_ENTRIES[name];
   }
-  const impl = PROFILE_IMPLS[name][defaultProvider.provider];
-  return {
+  const { provider } = defaultProvider;
+  const impl = isDefaultProfileProvider(provider)
+    ? PROFILE_IMPLS[name][provider]
+    : { ...BYOK_PROFILE_IMPLS[name], provider };
+  return clampMaxTokensToModelCap({
     ...materializeProfile(
       impl,
       impl.provider,
       resolveDefaultConnectionName(defaultProvider),
     ),
     source: "managed",
-  };
+  });
+}
+
+/**
+ * Clamp a code-owned default body's `maxTokens` to the resolved model's
+ * catalog `maxOutputTokens`. The shared BYOK templates request one token
+ * budget per intent, but the model a provider resolves can allow less
+ * (e.g. atlascloud caps output at 8192 while the balanced template asks for
+ * 16000), and an over-cap request is rejected upstream. The `vellum` column
+ * is exempt by construction: "vellum" is not a catalog provider, so the
+ * lookup misses and the hand-validated managed pins pass through untouched.
+ * User-authored profiles never reach this path.
+ */
+function clampMaxTokensToModelCap(body: ProfileEntry): ProfileEntry {
+  if (body.provider == null || body.model == null || body.maxTokens == null) {
+    return body;
+  }
+  const cap = catalogMaxOutputTokens(body.provider, body.model);
+  if (cap == null || body.maxTokens <= cap) {
+    return body;
+  }
+  return { ...body, maxTokens: cap };
 }
 
 /**

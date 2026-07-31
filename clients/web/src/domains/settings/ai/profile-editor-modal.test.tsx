@@ -1281,6 +1281,9 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
       fireEvent.click(trigger);
       return labels;
     });
+    expect(optionLabels).toContain("GPT-5.6 Sol");
+    expect(optionLabels).toContain("GPT-5.6 Terra");
+    expect(optionLabels).toContain("GPT-5.6 Luna");
     expect(optionLabels).toContain("GPT-5.5");
     expect(optionLabels).not.toContain("GPT-5.5 Pro");
   });

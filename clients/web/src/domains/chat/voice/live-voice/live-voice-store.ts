@@ -94,6 +94,31 @@ export function liveVoiceStateLabel(
 }
 
 /**
+ * The label a *surface* shows for a session — {@link liveVoiceStateLabel} plus
+ * the audio-aware `speaking` remap.
+ *
+ * `speaking` stays set across a mid-turn tool run: the assistant spoke an ack,
+ * then went silent while a tool runs. Announcing "Speaking…" while nothing is
+ * audible is wrong for the room's caption, wrong for its screen-reader
+ * announcement, and wrong for the Dynamic Island (JARVIS-1279). Every surface
+ * that renders session activity calls this — the voice room and the iOS Live
+ * Activity mirror — so the island always reads exactly what the room reads.
+ *
+ * {@link liveVoiceStateLabel} stays the lower layer for callers that have no
+ * audio signal to consult.
+ */
+export function liveVoiceSurfaceLabel(
+  state: LiveVoiceSessionState,
+  reconnecting: boolean,
+  assistantAudioActive: boolean,
+): string {
+  return liveVoiceStateLabel(
+    state === "speaking" && !assistantAudioActive ? "thinking" : state,
+    reconnecting,
+  );
+}
+
+/**
  * Imperative controls for the active session, registered by the
  * {@link useLiveVoice} controller instance that owns it. Lets a globally
  * mounted component (e.g. the title-bar session pill) drive a session owned by
@@ -125,6 +150,13 @@ export interface LiveVoiceSessionControls {
    * published amplitude pins to 0.
    */
   setMuted: (muted: boolean) => void;
+  /**
+   * Mute (or unmute) the assistant's audio without ending the session or
+   * stopping the reply in progress. The turn keeps running and the transcript
+   * keeps filling; only the sound stops, so unmuting mid-reply drops the user
+   * back into it wherever it has reached.
+   */
+  setOutputMuted: (muted: boolean) => void;
   /**
    * Retune the live session's turn-detection knobs ("pause before reply" /
    * "interrupt sensitivity") without reconnecting. Each field is optional; the
@@ -236,6 +268,12 @@ export interface LiveVoiceState {
    */
   muted: boolean;
   /**
+   * True while the user muted the assistant's audio (see
+   * {@link LiveVoiceSessionControls.setOutputMuted}). Written by the controller
+   * so surfaces render the state; cleared on session reset like `muted`.
+   */
+  outputMuted: boolean;
+  /**
    * Whether the active session runs hands-free (server-VAD). Published by the
    * controller at start and downgraded on the version-skew fallback (an older
    * daemon that ignores `turnDetection`). Surfaces use it to gate hands-free-
@@ -333,6 +371,8 @@ export interface LiveVoiceActions {
   setInputAmplitude: (amplitude: number) => void;
   /** Record the muted state published by the controller. */
   setMuted: (muted: boolean) => void;
+  /** Record the assistant-audio muted state published by the controller. */
+  setOutputMuted: (muted: boolean) => void;
   /** Record whether the active session runs hands-free (server-VAD). */
   setHandsFree: (handsFree: boolean) => void;
   /** Record whether the voice room is dismissed for the active session. */
@@ -367,10 +407,25 @@ export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
 // Predicates
 // ---------------------------------------------------------------------------
 
-/** Whether `state` is a live session phase (anything but idle/failed). */
+/**
+ * The phases of a session that is actually running — everything
+ * {@link isLiveVoiceSessionActive} admits. Surfaces that only exist for a
+ * running session (the iOS Live Activity's phase) derive their own union from
+ * this rather than restating it, so the two cannot drift.
+ */
+export type ActiveLiveVoiceSessionState = Exclude<
+  LiveVoiceSessionState,
+  "idle" | "failed"
+>;
+
+/**
+ * Whether `state` is a live session phase (anything but idle/failed). Narrows,
+ * so callers that only handle a running session — e.g. mapping the phase onto
+ * a surface's own narrower union — get that for free.
+ */
 export function isLiveVoiceSessionActive(
   state: LiveVoiceSessionState,
-): boolean {
+): state is ActiveLiveVoiceSessionState {
   return state !== "idle" && state !== "failed";
 }
 
@@ -447,6 +502,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   assistantTranscript: "",
   inputAmplitude: 0,
   muted: false,
+  outputMuted: false,
   handsFree: false,
   roomMinimized: false,
   entryOrigin: null,
@@ -472,6 +528,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       conversationId,
       startedConversationId: conversationId,
       muted: false,
+      outputMuted: false,
     }),
   setConversationId: (conversationId) => set({ conversationId }),
   setControls: (controls) => set({ controls }),
@@ -485,6 +542,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
   setMuted: (muted) => set({ muted }),
+  setOutputMuted: (outputMuted) => set({ outputMuted }),
   setHandsFree: (handsFree) => set({ handsFree }),
   setRoomMinimized: (roomMinimized) => set({ roomMinimized }),
   setEntryOrigin: (entryOrigin) => set({ entryOrigin }),
@@ -498,6 +556,57 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
 }));
 
 export const useLiveVoiceStore = createSelectors(useLiveVoiceStoreBase);
+
+/**
+ * Subscribe to the *settled* session state: the store as it stands once the
+ * current synchronous burst of `set()` calls has finished.
+ *
+ * `useLiveVoiceStore.subscribe` fires synchronously on every single `set()`,
+ * and a session transition is rarely one `set()`. Starting a session runs
+ * `reset()` (→ `idle`) immediately followed by `setState("connecting")`, then
+ * re-applies `reconnecting`, the session context, the carried-over `muted`, and
+ * the controls — so a raw subscriber sees an `idle` that never existed as a
+ * state of the world, plus four intermediate frames of a half-built session.
+ *
+ * React consumers never notice: they read through selectors and React batches
+ * the burst into one render. Consumers that drive *the world* do, and for them
+ * that phantom `idle` is destructive rather than cosmetic — on every hands-free
+ * reconnect (a dropped velay socket, JARVIS-1255/1256) it tears down and
+ * immediately re-creates the `AVAudioSession`, possibly while backgrounded or
+ * locked, and ends and restarts the Live Activity so the island visibly
+ * disappears and comes back.
+ *
+ * So: coalesce the burst into one microtask and hand the listener a fresh
+ * `getState()`. A superseded state never reaches it, and a transition costs one
+ * callback instead of five — which also keeps the mirror inside ActivityKit's
+ * update budget. A microtask rather than a timer, so nothing observable is
+ * deferred past the transition itself.
+ */
+export function subscribeSettledLiveVoiceState(
+  listener: (session: LiveVoiceState) => void,
+): () => void {
+  let scheduled = false;
+  let disposed = false;
+  const unsubscribe = useLiveVoiceStore.subscribe(() => {
+    if (scheduled) {
+      return;
+    }
+    scheduled = true;
+    queueMicrotask(() => {
+      scheduled = false;
+      // Unsubscribed inside the burst — a controller unmounting mid-transition.
+      // Its own teardown is authoritative; this must not fire after it.
+      if (disposed) {
+        return;
+      }
+      listener(useLiveVoiceStore.getState());
+    });
+  });
+  return () => {
+    disposed = true;
+    unsubscribe();
+  };
+}
 
 /**
  * Stable amplitude poll function for waveform canvases: sampled ~30 Hz inside
@@ -602,6 +711,15 @@ export function stopLiveVoiceResponse(): void {
  */
 export function setLiveVoiceMuted(muted: boolean): void {
   useLiveVoiceStore.getState().controls?.setMuted(muted);
+}
+
+/**
+ * Mute or unmute the assistant's audio through the store-registered controls
+ * (the controller mirrors the state into `outputMuted`). No-op when no session
+ * exists. See {@link endLiveVoiceSession} for why this is module-level.
+ */
+export function setLiveVoiceOutputMuted(muted: boolean): void {
+  useLiveVoiceStore.getState().controls?.setOutputMuted(muted);
 }
 
 /**

@@ -106,7 +106,7 @@ mock.module("@/lib/auth/gateway-session", () => ({
   setRemoteGatewayToken: () => {},
 }));
 
-const isLocalModeMock = mock(() => false);
+const isLocalClientMock = mock(() => false);
 const isRemoteGatewayModeMock = mock(() => false);
 const getSelectedAssistantMock = mock(
   (): { assistantId: string } | undefined => undefined,
@@ -122,7 +122,7 @@ mock.module("@/lib/local-mode", () => ({
   getSelectedAssistant: getSelectedAssistantMock,
   hasAssistants: () => false,
   isLocalAssistant: () => false,
-  isLocalMode: isLocalModeMock,
+  isLocalClient: isLocalClientMock,
   isPlatformAssistant: () => false,
   isPlatformDisabled: () => false,
   isRemoteGatewayMode: isRemoteGatewayModeMock,
@@ -208,7 +208,7 @@ beforeEach(() => {
   // any new mocked dep added here MUST re-set its baseline below or
   // tests will silently inherit the previous test's stub.
   isGatewayAuthModeMock.mockImplementation(() => false);
-  isLocalModeMock.mockImplementation(() => false);
+  isLocalClientMock.mockImplementation(() => false);
   isRemoteGatewayModeMock.mockImplementation(() => false);
   getSelectedAssistantMock.mockImplementation(() => undefined);
   getLocalGatewayUrlMock.mockImplementation(() => undefined);

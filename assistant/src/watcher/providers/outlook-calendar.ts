@@ -305,6 +305,7 @@ export const outlookCalendarProvider: WatcherProvider = {
   id: "outlook-calendar",
   displayName: "Outlook Calendar",
   requiredCredentialService: CREDENTIAL_SERVICE,
+  untrustedContentSource: "calendar",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
     const connection = await resolveOAuthConnection(credentialService);
