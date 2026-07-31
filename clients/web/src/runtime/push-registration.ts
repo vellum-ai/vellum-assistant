@@ -32,60 +32,27 @@
  * are reported to Sentry but never thrown into the app lifecycle.
  *
  * The upserted row tags the token with the build's APNs entitlement
- * environment. The primary source is the native `ApnsEnvironment` plugin
- * (`clients/ios/App/App/ApnsEnvironmentPlugin.swift`), which reads the real
- * `aps-environment` value from the embedded provisioning profile: TestFlight
- * and App Store builds always carry production APNs tokens regardless of
- * bundle id, which is exactly the case the bundle-suffix heuristic got wrong
- * for TestFlight dev builds. Shells predating the plugin, and profiles it
- * cannot parse, fall back to that heuristic ({@link resolveApnsEnvironment}).
+ * environment, resolved by `runtime/apns-environment.ts` (the native
+ * `ApnsEnvironment` plugin with a bundle-suffix heuristic fallback). The
+ * resolver is shared with the ActivityKit Live Activity token upsert so the
+ * two registrations can never tag the same build differently.
  *
  * Per `docs/CAPACITOR.md`, the `@capacitor/*` plugins are destructured inline
  * at each call site — never returned through an `async` boundary — because the
  * plugin Proxy's `.then` trap would hang the awaiting caller forever.
  */
 
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
 
 import {
   assistantsPushTokensDelete,
   assistantsPushTokensUpsert,
 } from "@/generated/api/sdk.gen";
-import type { ApnsEnvironmentEnum } from "@/generated/api/types.gen";
 import { publish } from "@/lib/event-bus";
 import { captureError } from "@/lib/sentry/capture-error";
+import { resolveSignedApnsEnvironment } from "@/runtime/apns-environment";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { createStorageAccessor } from "@/utils/typed-storage";
-
-interface ApnsEnvironmentPlugin {
-  get(): Promise<{ environment?: string }>;
-}
-
-/**
- * Native plugin reporting the build's real APNs entitlement environment, read
- * from the embedded provisioning profile
- * (`clients/ios/App/App/ApnsEnvironmentPlugin.swift`). Resolves
- * `"development"`, `"production"`, or `"unknown"` on modern shells; on older
- * shells that predate the plugin the bridge call rejects instead.
- */
-const ApnsEnvironment =
-  registerPlugin<ApnsEnvironmentPlugin>("ApnsEnvironment");
-
-/**
- * Bundle-id suffix that maps to the development APNs entitlement in the
- * fallback heuristic, consulted only for shells predating the
- * `ApnsEnvironment` plugin and for profiles it cannot parse (`"unknown"`).
- * The dev Xcode config (`clients/ios/App/App/Config/App-Dev.xcconfig`) signs
- * with `App-Dev.entitlements` (`aps-environment = development`) and ships the
- * `.dev` bundle id; production and staging both sign with `App.entitlements`
- * (`aps-environment = production`). APNs rejects a token minted under one
- * environment if dispatched against the other, so the platform stores the
- * environment alongside the token and the value must match the running build.
- * The heuristic misreads TestFlight-signed dev builds (production tokens on a
- * `.dev` bundle id), which is why the signing-derived plugin result wins when
- * available.
- */
-const DEV_BUNDLE_SUFFIX = ".dev";
 
 /** Token registration we last upserted, retained so logout can delete it. */
 interface RegisteredToken {
@@ -167,45 +134,6 @@ function trackUpsert(upsert: Promise<void>): void {
  */
 export function isRemotePushSupported(): boolean {
   return isNativePlatform() && Capacitor.getPlatform() === "ios";
-}
-
-/**
- * Fallback heuristic: map the running build's bundle id to its APNs
- * entitlement environment. Only consulted when the `ApnsEnvironment` plugin
- * is absent (older shell) or cannot read the entitlement (`"unknown"`).
- */
-function resolveApnsEnvironment(bundleId: string): ApnsEnvironmentEnum {
-  return bundleId.endsWith(DEV_BUNDLE_SUFFIX) ? "development" : "production";
-}
-
-/**
- * Resolve the environment to tag the token with, preferring the build's real
- * signing entitlement over the bundle-suffix heuristic.
- */
-async function resolveSignedApnsEnvironment(
-  bundleId: string,
-): Promise<ApnsEnvironmentEnum> {
-  try {
-    // Only the result crosses this `async` boundary, never the plugin Proxy
-    // itself (see CAPACITOR.md).
-    const { environment } = await ApnsEnvironment.get();
-    if (environment === "development" || environment === "production") {
-      return environment;
-    }
-    console.debug(
-      "[push-registration] unreadable APNs entitlement, using bundle-id heuristic:",
-      environment,
-    );
-  } catch (err) {
-    // `console.debug`, not `captureError`, per the `native-voice.ts` skew
-    // convention: an older App Store/TestFlight shell without the plugin is
-    // an expected state on every web deploy, not a fault.
-    console.debug(
-      "[push-registration] ApnsEnvironment bridge unavailable, using bundle-id heuristic:",
-      err,
-    );
-  }
-  return resolveApnsEnvironment(bundleId);
 }
 
 /**
