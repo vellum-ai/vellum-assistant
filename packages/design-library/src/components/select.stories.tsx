@@ -96,7 +96,10 @@ const visibilityOptions: SelectOption<"public" | "team" | "private">[] = [
   { value: "private", label: "Private", icon: <Lock className="h-4 w-4" /> },
 ];
 
-export const WithIcons: Story = {
+// Typed to its own narrower `T` rather than casting `args` inside `render`.
+// The generic is the point of these two stories, and a story may declare a
+// props type narrower than the meta's.
+export const WithIcons: StoryObj<SelectProps<"public" | "team" | "private">> = {
   args: { value: "public",
     "aria-label": "Visibility",
   },
@@ -105,7 +108,7 @@ export const WithIcons: Story = {
     return (
       <div className="w-64">
         <Select
-          {...(args as SelectProps<"public" | "team" | "private">)}
+          {...args}
           options={visibilityOptions}
           value={value}
           onChange={(next) => updateArgs({ value: next })}
@@ -184,7 +187,7 @@ const machineSizes: SelectOption<"small" | "medium" | "large">[] = [
   { value: "large", label: "Large, 4 vCPU, 8 GiB" },
 ];
 
-export const WithSuffix: Story = {
+export const WithSuffix: StoryObj<SelectProps<"small" | "medium" | "large">> = {
   args: { value: "small",
     "aria-label": "Machine size",
   },
@@ -193,7 +196,7 @@ export const WithSuffix: Story = {
     return (
       <div className="w-80">
         <Select
-          {...(args as SelectProps<"small" | "medium" | "large">)}
+          {...args}
           options={machineSizes}
           value={value}
           onChange={(next) => updateArgs({ value: next })}
