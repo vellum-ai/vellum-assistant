@@ -22,10 +22,10 @@ const GETTING_STARTED_PAGES = [
       "Your first 5 minutes. From zero to \"this is actually useful.\"",
   },
   {
-    title: "Your First Skill",
-    href: "/docs/getting-started/your-first-skill",
+    title: "Self-improving Skills",
+    href: "/docs/key-concepts/self-improving-skills",
     description:
-      "Teaching your assistant a new trick. The beginning of a beautiful friendship.",
+      "How your assistant turns completed work into reusable skills and improves them over time.",
   },
 ];
 

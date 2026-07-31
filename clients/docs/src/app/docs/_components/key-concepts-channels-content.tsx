@@ -37,7 +37,7 @@ export function KeyConceptsChannelsContent() {
       >
         <p className="mb-8 text-zinc-600">
           A channel is how you talk to your assistant. Your assistant is the
-          same everywhere: same personality, same memories, same skills. The
+          same everywhere — same personality, same memories, same skills. The
           only thing that changes is where you&apos;re talking to it and what
           the channel can do.
         </p>
@@ -54,32 +54,32 @@ export function KeyConceptsChannelsContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Chat</strong>: full conversational UI with
+              <strong>Chat</strong> &mdash; full conversational UI with
               cards, tables, forms, and other rich surfaces
             </li>
             <li>
-              <strong>About your assistant</strong>: browse identity, skills,
+              <strong>About your assistant</strong> &mdash; browse identity, skills,
               workspace files, contacts, and memories
             </li>
             <li>
-              <strong>Document editor</strong>: long-form writing
+              <strong>Document editor</strong> &mdash; long-form writing
               with your assistant as collaborator
             </li>
             <li>
-              <strong>App viewer</strong>: interactive apps your
+              <strong>App viewer</strong> &mdash; interactive apps your
               assistant builds render right in the page
             </li>
             <li>
-              <strong>Voice input</strong>: press to talk using
+              <strong>Voice input</strong> &mdash; press to talk using
               your browser&apos;s microphone
             </li>
             <li>
-              <strong>Approvals</strong>: native in-page permission
+              <strong>Approvals</strong> &mdash; native in-page permission
               prompts, same as the desktop app
             </li>
           </ul>
           <p className="mb-0 text-zinc-600">
-            Web is cloud-only by design: the assistant runs in your
+            Web is cloud-only by design &mdash; the assistant runs in your
             Vellum Cloud account, with the workspace and sandbox living
             there. The browser doesn&apos;t have access to your local
             machine, so host file access, shell commands, computer use, and
@@ -99,31 +99,31 @@ export function KeyConceptsChannelsContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Chat</strong>: type messages, see responses, interact
+              <strong>Chat</strong> — type messages, see responses, interact
               with cards, tables, and other UI surfaces
             </li>
             <li>
-              <strong>Computer use</strong>: your assistant can see your screen
+              <strong>Computer use</strong> — your assistant can see your screen
               and control your Mac directly
             </li>
             <li>
-              <strong>Voice input</strong>: hold your activation key and speak,
+              <strong>Voice input</strong> — hold your activation key and speak,
               or enable wake word detection
             </li>
             <li>
-              <strong>Document editor</strong>: long-form writing with your
+              <strong>Document editor</strong> — long-form writing with your
               assistant as collaborator
             </li>
             <li>
-              <strong>App viewer</strong>: interactive apps your assistant
+              <strong>App viewer</strong> — interactive apps your assistant
               builds render right in the window
             </li>
             <li>
-              <strong>Screen watch</strong>: your assistant can observe what
+              <strong>Screen watch</strong> — your assistant can observe what
               you&apos;re doing and offer context-aware help
             </li>
             <li>
-              <strong>Host file &amp; shell access</strong>: your assistant can
+              <strong>Host file &amp; shell access</strong> — your assistant can
               read files and run commands on your machine
             </li>
           </ul>
@@ -146,19 +146,19 @@ export function KeyConceptsChannelsContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Chat anywhere</strong>: full conversational
+              <strong>Chat anywhere</strong> &mdash; full conversational
               UI on the go
             </li>
             <li>
-              <strong>Conversation continuity</strong>: pick up
+              <strong>Conversation continuity</strong> &mdash; pick up
               where you left off on Mac or web; history is shared
             </li>
             <li>
-              <strong>Push notifications</strong>: your assistant
+              <strong>Push notifications</strong> &mdash; your assistant
               can reach you when something needs your attention
             </li>
             <li>
-              <strong>Approvals</strong>: native iOS prompts when
+              <strong>Approvals</strong> &mdash; native iOS prompts when
               a tool call needs your go-ahead
             </li>
           </ul>
@@ -184,7 +184,7 @@ export function KeyConceptsChannelsContent() {
           <p className="mb-4 text-zinc-600">
             A command-line interface for interacting with your assistant from
             the terminal. Uses the same SSE streaming connection as the desktop
-            app, meaning it&apos;s a full interactive interface, not just a
+            app — meaning it&apos;s a full interactive interface, not just a
             dumb pipe.
           </p>
           <p className="mb-0 text-zinc-600">
@@ -216,7 +216,7 @@ export function KeyConceptsChannelsContent() {
           </p>
           <p className="mb-0 text-zinc-600">
             Telegram is also one of the channels your assistant can use to
-            reach you: notifications, follow-ups, and alerts can all land in
+            reach you — notifications, follow-ups, and alerts can all land in
             your Telegram chat.
           </p>
         </section>
@@ -274,12 +274,12 @@ export function KeyConceptsChannelsContent() {
           <p className="mb-4 text-zinc-600">
             Connect your Gmail account via Google OAuth and your assistant
             becomes a full email manager. This is what happens when you say
-            &ldquo;check my email&rdquo; or &ldquo;clean up my inbox&rdquo;:
+            &ldquo;check my email&rdquo; or &ldquo;clean up my inbox&rdquo; —
             it defaults to your Gmail, not the assistant&apos;s own address.
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>Read, search, and triage your inbox</li>
-            <li>Draft and send emails on your behalf (draft-first workflow, nothing sends without your approval)</li>
+            <li>Draft and send emails on your behalf (draft-first workflow — nothing sends without your approval)</li>
             <li>Archive, label, trash, and organize messages</li>
             <li>Unsubscribe from mailing lists</li>
             <li>Bulk declutter with sender digest scanning</li>
@@ -288,7 +288,7 @@ export function KeyConceptsChannelsContent() {
             <li>Vacation auto-responder</li>
           </ul>
           <p className="mb-4 text-zinc-600">
-            Gmail is also a platform in the unified messaging system: your
+            Gmail is also a platform in the unified messaging system — your
             assistant can read, search, and send across Gmail, Telegram, and
             other connected platforms through a single interface.
           </p>
@@ -302,7 +302,7 @@ export function KeyConceptsChannelsContent() {
             <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
               email-channel
             </code>
-            ) and uses a provider-agnostic architecture, currently backed by
+            ) and uses a provider-agnostic architecture — currently backed by
             AgentMail.
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
@@ -332,16 +332,16 @@ export function KeyConceptsChannelsContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Inbound calls</strong>: callers reach your
+              <strong>Inbound calls</strong> — callers reach your
               assistant&apos;s phone number, and it answers with real-time voice
               conversation powered by ElevenLabs text-to-speech
             </li>
             <li>
-              <strong>Outbound calls</strong>: your assistant can call people
+              <strong>Outbound calls</strong> — your assistant can call people
               on your behalf (for example, during guardian verification)
             </li>
             <li>
-              <strong>Transcripts</strong>: call recordings are transcribed and
+              <strong>Transcripts</strong> — call recordings are transcribed and
               stored as conversation history
             </li>
           </ul>
@@ -351,8 +351,8 @@ export function KeyConceptsChannelsContent() {
             conversations are{" "}
             <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
               not_deliverable
-            </code>,
-            meaning the assistant can&apos;t initiate a message to a phone
+            </code>{" "}
+            — meaning the assistant can&apos;t initiate a message to a phone
             number outside of an active call. Setup requires a Twilio account
             and a provisioned phone number.
           </p>
@@ -391,7 +391,7 @@ export function KeyConceptsChannelsContent() {
             . Every message has a channel.
           </p>
           <p className="mb-4 text-zinc-600">
-            <strong>Interfaces</strong> are more specific: they
+            <strong>Interfaces</strong> are more specific &mdash; they
             include the channels plus the specific clients used to send the
             message. The <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">vellum</code>{" "}
             channel has four interfaces:{" "}
@@ -404,12 +404,12 @@ export function KeyConceptsChannelsContent() {
             <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">cli</code>{" "}
             (the terminal). A message on the{" "}
             <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">vellum</code>{" "}
-            channel might come from any of these: the interface tells
+            channel might come from any of these &mdash; the interface tells
             the system which one.
           </p>
           <p className="mb-0 text-zinc-600">
             The distinction matters for capabilities. The macOS, web, iOS,
-            and CLI interfaces are <strong>interactive</strong>: they
+            and CLI interfaces are <strong>interactive</strong> &mdash; they
             have an SSE client capable of displaying native permission prompts.
             Channel interfaces (Telegram, Slack, etc.) route approvals
             through the guardian system instead.
@@ -475,40 +475,40 @@ export function KeyConceptsChannelsContent() {
                   <td className="px-3 py-2">
                     <strong>Computer use</strong>
                   </td>
-                  <td className="px-3 py-2">-</td>
+                  <td className="px-3 py-2">&mdash;</td>
                   <td className="px-3 py-2">Yes</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">—</td>
+                  <td className="px-3 py-2">—</td>
+                  <td className="px-3 py-2">—</td>
+                  <td className="px-3 py-2">—</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
                     <strong>Host file/shell access</strong>
                   </td>
-                  <td className="px-3 py-2">-</td>
+                  <td className="px-3 py-2">&mdash;</td>
                   <td className="px-3 py-2">Yes</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">—</td>
+                  <td className="px-3 py-2">—</td>
+                  <td className="px-3 py-2">—</td>
+                  <td className="px-3 py-2">—</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
                     <strong>Screen watch</strong>
                   </td>
-                  <td className="px-3 py-2">-</td>
+                  <td className="px-3 py-2">&mdash;</td>
                   <td className="px-3 py-2">Yes</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">—</td>
+                  <td className="px-3 py-2">—</td>
+                  <td className="px-3 py-2">—</td>
+                  <td className="px-3 py-2">—</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
@@ -516,11 +516,11 @@ export function KeyConceptsChannelsContent() {
                   </td>
                   <td className="px-3 py-2">Yes</td>
                   <td className="px-3 py-2">Yes</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">—</td>
+                  <td className="px-3 py-2">—</td>
+                  <td className="px-3 py-2">—</td>
                   <td className="px-3 py-2">Yes</td>
                 </tr>
                 <tr>
@@ -534,7 +534,7 @@ export function KeyConceptsChannelsContent() {
                   <td className="px-3 py-2">Inline buttons</td>
                   <td className="px-3 py-2">Interactive buttons</td>
                   <td className="px-3 py-2">Plain text</td>
-                  <td className="px-3 py-2">-</td>
+                  <td className="px-3 py-2">—</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
@@ -559,21 +559,21 @@ export function KeyConceptsChannelsContent() {
                   <td className="px-3 py-2">Yes</td>
                   <td className="px-3 py-2">Yes</td>
                   <td className="px-3 py-2">Yes</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">&mdash;</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
                     <strong>Invite codes</strong>
                   </td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
-                  <td className="px-3 py-2">-</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">&mdash;</td>
+                  <td className="px-3 py-2">&mdash;</td>
                   <td className="px-3 py-2">Yes</td>
                   <td className="px-3 py-2">Yes</td>
                   <td className="px-3 py-2">Yes</td>
-                  <td className="px-3 py-2">-</td>
+                  <td className="px-3 py-2">—</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
@@ -612,7 +612,7 @@ export function KeyConceptsChannelsContent() {
             remembered in Slack.
           </p>
           <p className="mb-0 text-zinc-600">
-            What ties it together is the guardian system, covered in
+            What ties it together is the guardian system &mdash; covered in
             the next section.
           </p>
         </section>
@@ -623,7 +623,7 @@ export function KeyConceptsChannelsContent() {
             The guardian
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
-            The <strong>guardian</strong> is you, the primary owner of
+            The <strong>guardian</strong> is you &mdash; the primary owner of
             the assistant. Guardians have full access to memories, workspace
             files, tools, and credentials, and are the only ones who can
             grant approval for sensitive actions. Channels are how the
@@ -647,7 +647,7 @@ export function KeyConceptsChannelsContent() {
               permission to do something sensitive, it asks the guardian. On
               interactive channels (web, desktop, CLI) the prompt appears
               inline. On other channels (Telegram, Slack, email), the
-              approval is sent through the channel itself: you reply
+              approval is sent through the channel itself &mdash; you reply
               there to allow or deny. Approvals routed through a channel are
               always downgraded to one-time grants.
             </li>
@@ -689,7 +689,8 @@ export function KeyConceptsChannelsContent() {
             <li>&ldquo;Provision a phone number&rdquo;</li>
           </ul>
           <p className="mb-4 text-zinc-600">
-            Your assistant walks you through the setup conversationally (providing API keys, authorizing OAuth, configuring webhooks)
+            Your assistant walks you through the setup conversationally —
+            providing API keys, authorizing OAuth, configuring webhooks —
             rather than through a separate settings panel. Each channel has its
             own setup skill that handles the end-to-end flow.
           </p>

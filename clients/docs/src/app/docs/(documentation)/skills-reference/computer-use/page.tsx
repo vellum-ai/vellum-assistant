@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Computer Use - Vellum Docs",
   description:
-    "Computer Use skill for Vellum: control your Mac directly with screen observation, clicking, typing, and AppleScript.",
+    "Computer Use skill for Vellum — control your Mac directly with screen observation, clicking, typing, and AppleScript.",
   path: "/docs/skills-reference/computer-use",
 });
 

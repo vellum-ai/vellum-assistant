@@ -37,7 +37,7 @@ export function SkillsReferenceDoorDashContent() {
           </blockquote>
           <p className="mb-0 text-zinc-600">
             Your assistant opens a Chrome window to the DoorDash login page. Sign in as
-            usual. Your assistant detects the login automatically and captures the
+            usual &mdash; your assistant detects the login automatically and captures the
             session. The Chrome window stays open in the background for API requests.
           </p>
         </section>
@@ -103,7 +103,7 @@ export function SkillsReferenceDoorDashContent() {
                     &ldquo;Reorder what I got last time&rdquo;
                   </td>
                   <td className="px-3 py-2">
-Not yet supported. Your assistant can search and reorder from the same
+Not yet supported &mdash; your assistant can search and reorder from the same
                     restaurant instead
                   </td>
                 </tr>

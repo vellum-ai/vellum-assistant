@@ -108,7 +108,7 @@ export function SkillsReferenceScreenWatchContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Not always-on.</strong> This is not always-on background monitoring:
+              <strong>Not always-on.</strong> This is not always-on background monitoring &mdash;
               it&apos;s explicitly triggered and time-bounded.
             </li>
             <li>

@@ -95,7 +95,7 @@ export function WebSearchBraveContent() {
             </li>
           </ol>
           <p className="mb-3 text-zinc-600">
-            Prefer the CLI? Two commands from any shell where the assistant is running:
+            Prefer the CLI? Two commands from any shell where the assistant daemon is running:
           </p>
           <div className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4">
             <pre className="font-[family-name:var(--font-dm-mono)] text-sm text-zinc-100">
@@ -132,7 +132,7 @@ assistant config set services.web-search.provider brave`}
               If Brave Search is unavailable, the assistant falls through the rest of the web search
               chain (Perplexity, Tavily, then Provider Native). See the{" "}
               <Link
-                href={"/docs/key-concepts/web-search"}
+                href="/docs/key-concepts/web-search"
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
                 Web Search
@@ -187,7 +187,7 @@ assistant config set services.web-search.provider brave`}
             </li>
             <li>
               <Link
-                href={"/docs/key-concepts/web-search"}
+                href="/docs/key-concepts/web-search"
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
                 Vellum Web Search reference

@@ -206,12 +206,12 @@ export function OauthIntegrationsContent() {
             New integrations are added regularly. If a service you need isn&apos;t listed,
             you can often connect it via a custom skill using its API key, or request it
             through the{" "}
-            <a
+            <Link
               href="https://www.vellum.ai/roadmap"
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               roadmap
-            </a>
+            </Link>
             .
           </p>
         </section>
@@ -275,7 +275,7 @@ export function OauthIntegrationsContent() {
             </li>
             <li>
               <strong>LLM isolation:</strong> The LLM never receives raw tokens. When a
-              skill needs to call an API, the assistant runtime retrieves the token and injects it
+              skill needs to call an API, the daemon retrieves the token and injects it
               into the HTTP request at the transport layer.
             </li>
             <li>
@@ -293,7 +293,7 @@ export function OauthIntegrationsContent() {
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             For more details on the credential vault and permissions model, see{" "}
             <Link
-              href={"/docs/trust-security/the-permissions-model"}
+              href="/docs/trust-security/the-permissions-model"
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               The Permissions Model
@@ -344,7 +344,7 @@ export function OauthIntegrationsContent() {
                     Managed OAuth (billed)
                   </td>
                   <td className="py-3 pr-4">
-                    Twitter (X): Vellum manages the OAuth app, but the underlying API usage is billed per call.
+                    Twitter (X) — Vellum manages the OAuth app, but the underlying API usage is billed per call.
                   </td>
                   <td className="py-3">
                     API calls are billed through Vellum credits at the platform rate.
@@ -371,7 +371,7 @@ export function OauthIntegrationsContent() {
             advanced cases where you bring your own API keys or enterprise OAuth apps. For
             details on credit denominations and usage, see the{" "}
             <Link
-              href={"/docs/pricing"}
+              href="/docs/pricing"
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               pricing page
@@ -416,7 +416,7 @@ export function OauthIntegrationsContent() {
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             For more detailed troubleshooting steps, see the{" "}
             <Link
-              href={"/docs/help/common-issues"}
+              href="/docs/help/common-issues"
               className="text-emerald-700 underline hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
             >
               Common Issues

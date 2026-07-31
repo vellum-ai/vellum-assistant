@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
@@ -80,9 +81,9 @@ export function YourFirstSkillContent() {
           </p>
           <p className="mb-6 text-zinc-600">
             For the full list, see the{" "}
-            <a href="https://www.vellum.ai/skills" className="font-semibold text-emerald-700 underline hover:text-emerald-800">
+            <Link href="https://www.vellum.ai/skills" className="font-semibold text-emerald-700 underline hover:text-emerald-800">
               Skills Reference
-            </a>.
+            </Link>.
           </p>
         </section>
 
@@ -138,8 +139,9 @@ export function YourFirstSkillContent() {
             Step 2: Draft the recipe
           </h3>
           <p className="mb-4 text-zinc-600">
-            Your agent drafts the skill from what you described. It creates the files, wires the
-            tools, and sets the format. It does this with its built-in <strong>Skill Management</strong>{" "}
+            Your agent drafts the skill from what you described. It writes the instructions,
+            bundles any reference notes and scripts the workflow needs, and sets the format. It
+            does this with its built-in <strong>Skill Management</strong>{" "}
             skill, the skill that builds skills. You do not invoke it directly. Just describe what
             you want and your agent reaches for it automatically.
           </p>
@@ -195,9 +197,9 @@ export function YourFirstSkillContent() {
         <p className="mb-0 text-zinc-600">
           <em>
             For documentation on every built-in skill, see the{" "}
-            <a href="https://www.vellum.ai/skills" className="font-semibold text-emerald-700 underline hover:text-emerald-800">
+            <Link href="https://www.vellum.ai/skills" className="font-semibold text-emerald-700 underline hover:text-emerald-800">
               Skills Reference
-            </a>. Or keep going to{" "}
+            </Link>. Or keep going to{" "}
             <a href="/docs/key-concepts" className="font-semibold text-emerald-700 underline hover:text-emerald-800">
               Key Concepts
             </a>{" "}

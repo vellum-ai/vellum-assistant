@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 
 import { AgentLoopDiagram } from "@/app/docs/_components/agent-loop-diagram";
@@ -681,14 +682,14 @@ export function ExtensibilityHooksContent() {
                       <strong className="text-zinc-900 dark:text-zinc-100">
                         Example:
                       </strong>{" "}
-                      <a
-                        href={hook.example.href}
+                      <Link
+                        href={hook.example.href as Route}
                         className="font-mono text-xs text-emerald-600 underline hover:text-emerald-800 dark:text-emerald-400"
                         target="_blank"
                         rel="noopener noreferrer"
                       >
                         {hook.example.label}
-                      </a>
+                      </Link>
                     </p>
                   ) : null}
                   {hook.note ? (
@@ -798,8 +799,8 @@ export function ExtensibilityHooksContent() {
             Every hook has the same shape: it receives a typed context and
             either mutates it in place and returns nothing, or returns a{" "}
             <strong>partial</strong> context. A returned partial is merged onto
-            the threaded context (only the keys it includes are
-            overwritten, every other field is preserved), so a hook can
+            the threaded context &mdash; only the keys it includes are
+            overwritten, every other field is preserved &mdash; so a hook can
             edit just the subset of fields it cares about without re-specifying
             the rest. The runtime threads the merged context to the next plugin
             and then to the Assistant.

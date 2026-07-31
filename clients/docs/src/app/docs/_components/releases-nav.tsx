@@ -2,33 +2,39 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 
+import { DocsSearch } from "@/app/docs/_components/docs-search";
+import { DocsThemePicker } from "@/app/docs/_components/docs-theme-picker";
+import { DocsGithubLink } from "@/app/docs/_components/docs-github-link";
 import { useDocsNav } from "@/app/docs/_components/docs-nav-context";
-import { NavPanelShell } from "@/app/docs/_components/nav-panel-shell";
 import type { ApiRelease } from "@/lib/releases-server";
-import {
-  groupApiReleasesByMonth,
-  monthLabel,
-  releaseAnchor,
-} from "@/lib/releases-server";
+import { groupApiReleasesByMonth } from "@/lib/releases-server";
+
+function releaseAnchor(release: ApiRelease) {
+  return `v${release.version}`;
+}
+
+function getCurrentMonth() {
+  const now = new Date();
+  return now.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
 
 interface ReleasesNavProps {
   releases: ApiRelease[];
 }
 
-/**
- * Releases sidebar grouped by month, with scroll-tracked highlighting via an
- * IntersectionObserver. Renders as a sticky sidebar on desktop and as a
- * slide-in drawer on mobile.
- */
 export function ReleasesNav({ releases }: ReleasesNavProps) {
   const groups = groupApiReleasesByMonth(releases);
   const [activeId, setActiveId] = useState<string>("");
-  const { close } = useDocsNav();
+  const { visible, animating, close } = useDocsNav();
 
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(() => {
-    const currentMonth = monthLabel(new Date());
+    const currentMonth = getCurrentMonth();
     const hasCurrentMonth = groups.some((g) => g.month === currentMonth);
     const initial = hasCurrentMonth ? currentMonth : groups[0]?.month;
     return initial ? new Set([initial]) : new Set();
@@ -56,6 +62,10 @@ export function ReleasesNav({ releases }: ReleasesNavProps) {
     return map;
   }, [groups]);
 
+  const closeNav = useCallback(() => {
+    close();
+  }, [close]);
+
   useEffect(() => {
     const ids = groups.flatMap((g) => g.releases.map(releaseAnchor));
 
@@ -68,9 +78,7 @@ export function ReleasesNav({ releases }: ReleasesNavProps) {
             const month = releaseToMonth.get(id);
             if (month) {
               setExpandedMonths((prev) => {
-                if (prev.has(month)) {
-                  return prev;
-                }
+                if (prev.has(month)) {return prev;}
                 const next = new Set(prev);
                 next.add(month);
                 return next;
@@ -79,26 +87,28 @@ export function ReleasesNav({ releases }: ReleasesNavProps) {
           }
         }
       },
-      { rootMargin: "-80px 0px -60% 0px", threshold: 0 },
+      { rootMargin: "-80px 0px -60% 0px", threshold: 0 }
     );
 
     for (const id of ids) {
       const el = document.getElementById(id);
-      if (el) {
-        observer.observe(el);
-      }
+      if (el) {observer.observe(el);}
     }
 
     return () => observer.disconnect();
   }, [groups, releaseToMonth]);
 
-  return (
-    <NavPanelShell>
+  const navContent = (
+    <div className="flex h-full flex-col">
+      {/* Search only renders here on mobile; desktop has it in the header. */}
+      <div className="shrink-0 px-4 pt-4 pb-3 md:hidden">
+        <DocsSearch />
+      </div>
       <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 md:pt-8">
         <div className="mb-5">
           <Link
             href="/docs/releases"
-            onClick={close}
+            onClick={closeNav}
             className="docs-nav-title font-['DM_Sans',sans-serif] text-lg font-bold no-underline"
           >
             Releases
@@ -137,7 +147,7 @@ export function ReleasesNav({ releases }: ReleasesNavProps) {
                           <li key={release.version} className="m-0 p-0">
                             <a
                               href={`#${anchor}`}
-                              onClick={close}
+                              onClick={closeNav}
                               className={`flex items-center justify-between rounded-lg py-2 pl-7 pr-3 text-sm no-underline transition-colors ${
                                 isActive
                                   ? "docs-nav-link-active font-medium"
@@ -157,6 +167,49 @@ export function ReleasesNav({ releases }: ReleasesNavProps) {
           })}
         </ul>
       </div>
-    </NavPanelShell>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Mobile drawer */}
+      {visible && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div
+            className={`docs-nav-overlay absolute inset-0 transition-opacity duration-250 ${
+              animating ? "opacity-100" : "opacity-0"
+            }`}
+            onClick={closeNav}
+          />
+          <div
+            className={`docs-nav-panel absolute inset-y-0 left-0 w-72 overflow-y-auto border-r shadow-xl transition-transform duration-250 ease-out flex flex-col ${
+              animating ? "translate-x-0" : "-translate-x-full"
+            }`}
+          >
+            <button
+              type="button"
+              onClick={closeNav}
+              className="docs-nav-close absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg"
+              aria-label="Close navigation"
+            >
+              <X size={18} />
+            </button>
+            <div className="flex-1 overflow-y-auto">{navContent}</div>
+            <div
+              className="docs-nav-mobile-footer flex items-center justify-between border-t px-4 py-3"
+              style={{ borderColor: "var(--docs-border)" }}
+            >
+              <DocsThemePicker />
+              <DocsGithubLink />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Desktop sidebar */}
+      <nav className="docs-nav-panel hidden border-r md:sticky md:top-[101px] md:block md:h-[calc(100vh-101px)] md:w-64 md:shrink-0 md:self-start md:overflow-y-auto md:pb-8">
+        {navContent}
+      </nav>
+    </>
   );
 }

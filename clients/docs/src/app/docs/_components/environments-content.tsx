@@ -63,8 +63,8 @@ export function EnvironmentsContent() {
             <Image
               src="/docs/architecture-diagram.webp"
               alt="Architecture diagram showing the relationship between channels, environments, and external providers"
-              width={5484}
-              height={3481}
+              width={1200}
+              height={800}
               unoptimized
               className="w-full rounded-lg"
             />
@@ -124,7 +124,7 @@ export function EnvironmentsContent() {
             </code>
           </div>
           <p className="mb-6 text-stone-600 dark:text-stone-400">
-            When running locally, the assistant and gateway both start on
+            When running locally, the assistant daemon and gateway both start on
             your machine. Latency is low and your assistant has direct access to
             local files and tools.
           </p>

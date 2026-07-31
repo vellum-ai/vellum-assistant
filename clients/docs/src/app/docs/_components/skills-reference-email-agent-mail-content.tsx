@@ -40,7 +40,7 @@ export function SkillsReferenceEmailAgentMailContent() {
           </blockquote>
           <p className="mb-0 text-zinc-600">
             Your assistant will create its own email address through AgentMail (e.g.,{" "}
-            <code>bob@agentmail.vellum.ai</code>). This is a one-time process. Once set up,
+            <code>gigi@agentmail.vellum.ai</code>). This is a one-time process. Once set up,
             email works automatically going forward.
           </p>
         </section>
@@ -95,7 +95,7 @@ export function SkillsReferenceEmailAgentMailContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Draft a reply to Alice&apos;s last email&rdquo;
+                    &ldquo;Draft a reply to Sarah&apos;s last email&rdquo;
                   </td>
                   <td className="px-3 py-2">
                     Composes a response for your review before sending

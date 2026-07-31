@@ -80,14 +80,14 @@ export function DeveloperGuideGetStartedContent() {
             gateway in cloud mode, not exposed directly, so for raw API
             development you&apos;ll want a local install. See{" "}
             <Link
-              href={"/docs/hosting-options/cloud-hosting"}
+              href="/docs/hosting-options/cloud-hosting"
               className={linkClass}
             >
               Cloud hosting
             </Link>{" "}
             and{" "}
             <Link
-              href={"/docs/hosting-options/local-hosting"}
+              href="/docs/hosting-options/local-hosting"
               className={linkClass}
             >
               Local hosting
@@ -103,7 +103,7 @@ export function DeveloperGuideGetStartedContent() {
           <p className="mb-4 text-zinc-600">
             Most developer work happens in{" "}
             <strong>vellum-assistant</strong>, the open-source repo that
-            holds the assistant runtime and everything that ships with
+            holds the assistant daemon and everything that ships with
             it:
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
@@ -133,7 +133,7 @@ export function DeveloperGuideGetStartedContent() {
           <p className="mb-0 text-zinc-600">
             See{" "}
             <Link
-              href={"/docs/developer-guide/architecture"}
+              href="/docs/developer-guide/architecture"
               className={linkClass}
             >
               Architecture
@@ -155,9 +155,9 @@ export function DeveloperGuideGetStartedContent() {
           <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
             <li>
               Install the{" "}
-              <a href="https://www.vellum.ai/download" className={linkClass}>
+              <Link href="https://www.vellum.ai/download" className={linkClass}>
                 desktop app
-              </a>{" "}
+              </Link>{" "}
               and walk through onboarding. Your workspace will live at{" "}
               <code>~/.vellum/</code>.
             </li>
@@ -178,7 +178,7 @@ export function DeveloperGuideGetStartedContent() {
             For the full development loop, including parallel agents
             and the review pipeline, see{" "}
             <Link
-              href={"/docs/developer-guide/development-workflow"}
+              href="/docs/developer-guide/development-workflow"
               className={linkClass}
             >
               Development Workflow
@@ -202,7 +202,7 @@ export function DeveloperGuideGetStartedContent() {
             <p className="mb-3 text-zinc-600">
               The <code>vellum</code> CLI is the highest-level
               interface. It reads your local credentials and routes
-              commands to the running assistant.
+              commands to the running daemon.
             </p>
             <pre className="mb-3 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
               <code>{`# send a message and stream the response
@@ -230,7 +230,7 @@ vellum ps`}</code>
             </SectionHeading>
             <p className="mb-3 text-zinc-600">
               The runtime exposes a versioned REST API at{" "}
-              <code>/v1</code>. On a local install the assistant listens
+              <code>/v1</code>. On a local install the daemon listens
               on a loopback port; the CLI handles auth for you, but you
               can also call the API directly with a JWT bearer token.
             </p>
@@ -251,7 +251,7 @@ curl -X POST \\
               <code>Authorization: Bearer</code> header carrying a
               token signed by the gateway. See{" "}
               <Link
-                href={"/docs/developer-guide/security"}
+                href="/docs/developer-guide/security"
                 className={linkClass}
               >
                 Security &amp; Permissions
@@ -277,7 +277,7 @@ curl -X POST \\
             <p className="mb-0 text-zinc-600">
               See{" "}
               <Link
-                href={"/docs/developer-guide/api"}
+                href="/docs/developer-guide/api"
                 className={linkClass}
               >
                 API &amp; Communication
@@ -295,7 +295,7 @@ curl -X POST \\
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <Link
-                href={"/docs/developer-guide/architecture"}
+                href="/docs/developer-guide/architecture"
                 className={linkClass}
               >
                 Architecture
@@ -305,7 +305,7 @@ curl -X POST \\
             </li>
             <li>
               <Link
-                href={"/docs/developer-guide/security"}
+                href="/docs/developer-guide/security"
                 className={linkClass}
               >
                 Security &amp; Permissions
@@ -315,7 +315,7 @@ curl -X POST \\
             </li>
             <li>
               <Link
-                href={"/docs/developer-guide/features"}
+                href="/docs/developer-guide/features"
                 className={linkClass}
               >
                 Features &amp; Capabilities
@@ -325,7 +325,7 @@ curl -X POST \\
             </li>
             <li>
               <Link
-                href={"/docs/developer-guide/api"}
+                href="/docs/developer-guide/api"
                 className={linkClass}
               >
                 API &amp; Communication
@@ -334,7 +334,7 @@ curl -X POST \\
             </li>
             <li>
               <Link
-                href={"/docs/developer-guide/development-workflow"}
+                href="/docs/developer-guide/development-workflow"
                 className={linkClass}
               >
                 Development Workflow

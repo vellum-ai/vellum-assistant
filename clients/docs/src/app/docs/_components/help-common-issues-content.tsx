@@ -170,7 +170,7 @@ export function HelpCommonIssuesContent() {
             <li>Make sure you&apos;re on macOS 14 (Sonoma) or later.</li>
             <li>
               Check the menu bar for the Vellum icon. If it&apos;s
-              missing, the assistant isn&apos;t running.
+              missing, the assistant daemon isn&apos;t running.
               Relaunch the app.
             </li>
             <li>
@@ -297,7 +297,7 @@ export function HelpCommonIssuesContent() {
           <p className="mb-0 text-zinc-600">
             See{" "}
             <Link
-              href={"/docs/key-concepts/memory-and-context"}
+              href="/docs/key-concepts/memory-and-context"
               className={linkClass}
             >
               Memory &amp; Context
@@ -374,7 +374,7 @@ export function HelpCommonIssuesContent() {
             </li>
             <li>
               If you&apos;re running a local install, confirm your Mac
-              is on and the assistant is running. Cloud
+              is on and the assistant daemon is running. Cloud
               installs don&apos;t need this.
             </li>
             <li>
@@ -464,7 +464,7 @@ export function HelpCommonIssuesContent() {
             loading?&rdquo; and it can read the file and tell you
             what&apos;s wrong. For more on building skills, see the{" "}
             <Link
-              href={"/docs/getting-started/your-first-skill"}
+              href="/docs/getting-started/your-first-skill"
               className={linkClass}
             >
               Your first skill
@@ -522,7 +522,7 @@ export function HelpCommonIssuesContent() {
           <p className="mb-0 text-zinc-600">
             If your assistant can&apos;t self-diagnose and nothing
             here matches, head to{" "}
-            <Link href={"/docs/help/getting-help"} className={linkClass}>
+            <Link href="/docs/help/getting-help" className={linkClass}>
               Getting Help
             </Link>{" "}
             for where to ask. Bring a description of what you tried,

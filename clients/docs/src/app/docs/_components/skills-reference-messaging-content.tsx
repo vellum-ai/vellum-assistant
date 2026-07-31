@@ -112,7 +112,7 @@ export function SkillsReferenceMessagingContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;What did Alice say in #engineering yesterday?&rdquo;
+                    &ldquo;What did Sarah say in #engineering yesterday?&rdquo;
                   </td>
                   <td className="px-3 py-2">
                     Finds specific messages by person and channel

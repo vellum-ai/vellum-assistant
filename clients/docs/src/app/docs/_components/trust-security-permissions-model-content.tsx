@@ -33,7 +33,7 @@ export function TrustSecurityPermissionsModelContent() {
           automatically and which ones need your approval.
         </p>
         <p className="mb-8 text-zinc-600">
-          Every permission check is deterministic, enforced by traditional software,
+          Every permission check is deterministic — enforced by traditional software,
           not judged by the AI. The approval buttons you see are hard-coded responses,
           not natural language interpreted by the model. This means there&apos;s no way
           to prompt-inject past a permission boundary.
@@ -48,23 +48,23 @@ export function TrustSecurityPermissionsModelContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Low</strong>: read-only operations (reading workspace files, web
+              <strong>Low</strong> — read-only operations (reading workspace files, web
               searches, loading skills, recalling memories). These run automatically at
               the default risk tolerance.
             </li>
             <li>
-              <strong>Medium</strong>: operations that change state (writing files, making
+              <strong>Medium</strong> — operations that change state (writing files, making
               API calls, running shell commands that modify things). Whether these prompt
               you depends on your risk tolerance setting.
             </li>
             <li>
-              <strong>High</strong>: destructive or sensitive operations (deleting files,
+              <strong>High</strong> — destructive or sensitive operations (deleting files,
               modifying skill source code, running sudo). These always prompt you unless
               you&apos;ve set your risk tolerance to Full access.
             </li>
           </ul>
           <p className="mb-3 text-zinc-600">
-            Risk classification runs in the gateway, a separate, deterministic process
+            Risk classification runs in the gateway — a separate, deterministic process
             outside the AI sandbox. Shell commands are parsed using a tree-sitter parser;
             other tools are classified based on their registry metadata.
           </p>
@@ -74,7 +74,7 @@ export function TrustSecurityPermissionsModelContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>A description of what it wants to do, in plain language</li>
             <li>A color-coded risk badge (🟢 Low / 🟡 Medium / 🔴 High)</li>
-            <li>The risk reason: why the classifier assigned that level</li>
+            <li>The risk reason — why the classifier assigned that level</li>
             <li>An expandable &ldquo;Show details&rdquo; section with the full tool input</li>
           </ul>
         </section>
@@ -109,7 +109,7 @@ export function TrustSecurityPermissionsModelContent() {
                   </td>
                   <td className="px-3 py-2">Nothing</td>
                   <td className="px-3 py-2">
-                    Everything: every action requires explicit approval
+                    Everything — every action requires explicit approval
                   </td>
                 </tr>
                 <tr>
@@ -136,7 +136,7 @@ export function TrustSecurityPermissionsModelContent() {
                   </td>
                   <td className="px-3 py-2">Everything</td>
                   <td className="px-3 py-2">
-                    Nothing: your assistant never asks for permission
+                    Nothing — your assistant never asks for permission
                   </td>
                 </tr>
               </tbody>
@@ -157,15 +157,15 @@ export function TrustSecurityPermissionsModelContent() {
             </p>
             <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
               <li>
-                <strong>When chatting</strong>: interactive conversation sessions
+                <strong>When chatting</strong> — interactive conversation sessions
                 (default: Default)
               </li>
               <li>
-                <strong>Scheduled tasks</strong>: background tasks like heartbeats and
+                <strong>Scheduled tasks</strong> — background tasks like heartbeats and
                 scheduled jobs (default: Relaxed)
               </li>
               <li>
-                <strong>Automation / API</strong>: externally triggered via API or webhooks
+                <strong>Automation / API</strong> — externally triggered via API or webhooks
                 (default: Strict)
               </li>
             </ul>
@@ -187,13 +187,13 @@ export function TrustSecurityPermissionsModelContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Allow</strong>: approve this action. If the system has a
+              <strong>Allow</strong> — approve this action. If the system has a
               pattern match for the action (e.g. <code>git push *</code>), clicking
               Allow also creates a trust rule so similar actions auto-approve in
               the future.
             </li>
             <li>
-              <strong>Deny</strong>: block this action.
+              <strong>Deny</strong> — block this action.
             </li>
           </ul>
           <p className="mb-4 text-zinc-600">
@@ -201,7 +201,7 @@ export function TrustSecurityPermissionsModelContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Allow &amp; Create Rule</strong>: approve the action and open
+              <strong>Allow &amp; Create Rule</strong> — approve the action and open
               the Rule Editor, where you can customize the trust rule before it&apos;s
               saved. The Rule Editor is pre-populated with an LLM-suggested pattern
               and scope.
@@ -221,37 +221,38 @@ export function TrustSecurityPermissionsModelContent() {
           <p className="mb-4 text-zinc-600">
             Think of your assistant&apos;s workspace as a separate computer inside your
             computer. It&apos;s a self-contained environment where the assistant can run
-            freely (creating files, modifying data, running commands) without needing
+            freely — creating files, modifying data, running commands — without needing
             your approval. Anything that happens inside this inner computer stays contained.
           </p>
           <p className="mb-2 text-zinc-600">
             <strong>Inside the workspace</strong> (<code>~/.vellum/workspace/</code>):
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
-            <li>Reading, writing, and editing files: no approval needed</li>
-            <li>Running shell commands via <strong>bash</strong>: no approval needed (sandboxed execution)</li>
-            <li>Building apps, saving memories, searching the web: no approval needed</li>
+            <li>Reading, writing, and editing files — no approval needed</li>
+            <li>Running shell commands via <strong>bash</strong> — no approval needed (sandboxed execution)</li>
+            <li>Building apps, saving memories, searching the web — no approval needed</li>
           </ul>
           <p className="mb-2 text-zinc-600">
             <strong>Outside the workspace</strong> (your host machine):
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>host_file_read</strong>: reading files anywhere on your machine.
+              <strong>host_file_read</strong> — reading files anywhere on your machine.
               Prompted.
             </li>
             <li>
-              <strong>host_file_write, host_file_edit</strong>: writing or editing files
+              <strong>host_file_write, host_file_edit</strong> — writing or editing files
               anywhere. Prompted.
             </li>
             <li>
-              <strong>host_bash</strong>: running shell commands on your actual machine.
+              <strong>host_bash</strong> — running shell commands on your actual machine.
               Prompted.
             </li>
           </ul>
           <p className="mb-4 text-zinc-600">
             When the assistant needs to do something outside its workspace, it doesn&apos;t
-            reach out directly. Instead, it tells a separate process, one that lives outside the sandbox, to perform the action and report back. That external
+            reach out directly. Instead, it tells a separate process — one that lives
+            outside the sandbox — to perform the action and report back. That external
             process is deterministic, traditional software with no AI involved. The AI
             stays inside the cage at all times.
           </p>
@@ -271,7 +272,7 @@ export function TrustSecurityPermissionsModelContent() {
             tree-sitter parser and classifies them based on what programs they invoke:
           </p>
           <p className="mb-3 text-zinc-600">
-            <strong>Low risk</strong> (read-only programs):{" "}
+            <strong>Low risk</strong> — read-only programs:{" "}
             <code>ls</code>, <code>cat</code>, <code>grep</code>, <code>find</code>,{" "}
             <code>git status</code>, <code>git log</code>, <code>git diff</code>,{" "}
             <code>node</code>, <code>python</code>, <code>jq</code>, <code>tree</code>,{" "}
@@ -279,14 +280,14 @@ export function TrustSecurityPermissionsModelContent() {
             similar.
           </p>
           <p className="mb-3 text-zinc-600">
-            <strong>Medium risk</strong> (programs that modify state):{" "}
+            <strong>Medium risk</strong> — programs that modify state:{" "}
             <code>sed</code>, <code>awk</code>, <code>chmod</code>, <code>chown</code>,{" "}
             <code>curl</code>, <code>wget</code>, non-read-only git subcommands (like{" "}
             <code>git commit</code>, <code>git push</code>), and any program not in the
             known-safe list.
           </p>
           <p className="mb-4 text-zinc-600">
-            <strong>High risk</strong> (dangerous programs):{" "}
+            <strong>High risk</strong> — dangerous programs:{" "}
             <code>sudo</code>, <code>rm</code>, <code>dd</code>, <code>mkfs</code>,{" "}
             <code>reboot</code>, <code>shutdown</code>, <code>kill</code>,{" "}
             <code>iptables</code>, and other system administration tools.
@@ -306,26 +307,26 @@ export function TrustSecurityPermissionsModelContent() {
           <p className="mb-3 text-zinc-600">
             Trust rules are persistent decisions that tell the system to always allow
             or always deny specific actions. They accumulate over time as you use your
-            assistant: the more you approve, the fewer prompts you see.
+            assistant — the more you approve, the fewer prompts you see.
           </p>
           <p className="mb-3 text-zinc-600">Each rule has:</p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Tool</strong>: which tool it applies to
+              <strong>Tool</strong> — which tool it applies to
             </li>
             <li>
-              <strong>Pattern</strong>: a glob pattern matching specific commands, paths,
+              <strong>Pattern</strong> — a glob pattern matching specific commands, paths,
               or URLs
             </li>
             <li>
-              <strong>Risk level</strong>: the classified risk of the action
+              <strong>Risk level</strong> — the classified risk of the action
             </li>
             <li>
-              <strong>Scope</strong>: where the rule applies (a specific directory, the
+              <strong>Scope</strong> — where the rule applies (a specific directory, the
               project root, or everywhere)
             </li>
             <li>
-              <strong>Decision</strong>: allow, deny, or ask
+              <strong>Decision</strong> — allow, deny, or ask
             </li>
           </ul>
           <p className="mb-4 text-zinc-600">
@@ -352,16 +353,16 @@ export function TrustSecurityPermissionsModelContent() {
             </p>
             <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
               <li>
-                <strong>Pattern options</strong>: a ladder of patterns from most specific
+                <strong>Pattern options</strong> — a ladder of patterns from most specific
                 (exact command) to most general (any command from that program), generated
                 by the command parser
               </li>
               <li>
-                <strong>Scope options</strong>: where the rule should apply (this specific
-                directory, the project root, or everywhere)
+                <strong>Scope options</strong> — where the rule should apply: this specific
+                directory, the project root, or everywhere
               </li>
               <li>
-                <strong>Risk level</strong>: the classified risk, so you understand what
+                <strong>Risk level</strong> — the classified risk, so you understand what
                 you&apos;re allowing
               </li>
             </ul>
@@ -405,7 +406,7 @@ export function TrustSecurityPermissionsModelContent() {
             risk-based rules.
           </p>
           <p className="mb-0 text-zinc-600">
-            Trust rules for skill tools are version-bound: they record the skill&apos;s
+            Trust rules for skill tools are version-bound — they record the skill&apos;s
             content hash. If the skill&apos;s source files change, the hash changes and
             you&apos;re re-prompted. Modified skills can&apos;t silently inherit previous
             approvals.
@@ -490,19 +491,19 @@ export function TrustSecurityPermissionsModelContent() {
           <p className="mb-3 text-zinc-600">Approval grants are:</p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>One-time use</strong>: a grant is consumed when the action executes
+              <strong>One-time use</strong> — a grant is consumed when the action executes
               and can&apos;t be reused
             </li>
             <li>
-              <strong>Time-limited</strong>: grants expire after 5 minutes if not used
+              <strong>Time-limited</strong> — grants expire after 5 minutes if not used
             </li>
             <li>
-              <strong>Scoped</strong>: bound to the specific tool and input that was
+              <strong>Scoped</strong> — bound to the specific tool and input that was
               requested
             </li>
           </ul>
           <p className="mb-0 text-zinc-600">
-            Guardian approvals are always downgraded to one-time grants: they never
+            Guardian approvals are always downgraded to one-time grants — they never
             create persistent trust rules. To create a rule that auto-approves future
             actions, you&apos;d need to do that directly from the desktop app.
           </p>
@@ -522,7 +523,7 @@ export function TrustSecurityPermissionsModelContent() {
           </ol>
           <p className="mb-0 text-zinc-600">
             If you create a deny rule for a pattern, future attempts to use that tool with
-            a matching pattern are blocked silently: the assistant won&apos;t even ask.
+            a matching pattern are blocked silently — the assistant won&apos;t even ask.
           </p>
         </section>
       </DocsContent>

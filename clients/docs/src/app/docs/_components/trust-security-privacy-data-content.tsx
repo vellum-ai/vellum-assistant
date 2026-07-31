@@ -221,7 +221,7 @@ export function TrustSecurityPrivacyDataContent() {
 
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>AI model calls</strong>: conversation context (messages,
+              <strong>AI model calls</strong> — conversation context (messages,
               workspace files, relevant memories) is sent to the AI model
               provider for inference. Currently, this is Anthropic (Claude)
               with a zero-retention data policy.
@@ -239,10 +239,10 @@ export function TrustSecurityPrivacyDataContent() {
               that address also passes through the AgentMail provider.
             </li>
             <li>
-              <strong>Tool network calls</strong>: when a tool makes an
+              <strong>Tool network calls</strong> — when a tool makes an
               external API request (e.g., web search, fetching a URL), that
               request leaves your environment. Credentials for these requests
-              are injected by a proxy at the network layer: the assistant
+              are injected by a proxy at the network layer — the assistant
               never sees the raw credential values.
             </li>
           </ul>
@@ -317,28 +317,28 @@ export function TrustSecurityPrivacyDataContent() {
 
           <p className="mb-4 text-zinc-600">
             Even with secure collection, secrets can accidentally end up in
-            conversation text: pasted from a clipboard, included in a file,
+            conversation text — pasted from a clipboard, included in a file,
             or returned in a tool output. A multi-layer detection pipeline
             catches these:
           </p>
 
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Ingress scanning</strong>: inbound messages are checked
+              <strong>Ingress scanning</strong> — inbound messages are checked
               for known secret patterns before they reach the assistant.
               Detected secrets are blocked or redacted.
             </li>
             <li>
-              <strong>Pattern matching</strong>: regex-based detectors for
+              <strong>Pattern matching</strong> — regex-based detectors for
               common secret formats: API keys, tokens, connection strings,
               private keys, and more.
             </li>
             <li>
-              <strong>Allowlist</strong>: known false positives can be
+              <strong>Allowlist</strong> — known false positives can be
               allowlisted so they don&apos;t trigger the scanner.
             </li>
             <li>
-              <strong>Tool output scanning</strong>: secrets in tool
+              <strong>Tool output scanning</strong> — secrets in tool
               execution results are detected and handled before they enter
               the conversation context.
             </li>
@@ -372,7 +372,7 @@ export function TrustSecurityPrivacyDataContent() {
               the desktop app, and verified automatically.
             </li>
             <li>
-              <strong>Trusted contacts</strong>: verified people who message
+              <strong>Trusted contacts</strong> — verified people who message
               your assistant through external channels (Telegram, Slack,
               email). They can have conversations and use allowed
               tools, but they can&apos;t access your memories, read your
@@ -446,15 +446,15 @@ export function TrustSecurityPrivacyDataContent() {
 
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Low risk</strong>: runs automatically. Reading files,
+              <strong>Low risk</strong> — runs automatically. Reading files,
               searching memory, generating text.
             </li>
             <li>
-              <strong>Medium risk</strong>: prompts for approval. Writing
+              <strong>Medium risk</strong> — prompts for approval. Writing
               files, running shell commands, sending messages.
             </li>
             <li>
-              <strong>High risk</strong>: always prompts. Deleting data,
+              <strong>High risk</strong> — always prompts. Deleting data,
               modifying system settings, computer use actions.
             </li>
           </ul>
@@ -538,12 +538,12 @@ export function TrustSecurityPrivacyDataContent() {
 
           <ul className="mb-0 list-disc space-y-4 pl-6 text-zinc-600">
             <li>
-              <strong>Use private conversations</strong>: memory from
+              <strong>Use private conversations</strong> — memory from
               private conversations is scoped and won&apos;t leak into future
               contexts.
             </li>
             <li>
-              <strong>Never paste secrets in chat</strong>: use{" "}
+              <strong>Never paste secrets in chat</strong> — use{" "}
               <code className="rounded bg-zinc-100 px-1 py-0.5 text-sm">
                 credential_store
               </code>{" "}
@@ -551,19 +551,19 @@ export function TrustSecurityPrivacyDataContent() {
               the conversation.
             </li>
             <li>
-              <strong>Review workspace files</strong>: check USER.md and
+              <strong>Review workspace files</strong> — check USER.md and
               SOUL.md periodically. If something sensitive got saved there,
               remove it. These files are sent to the model on every
               conversation.
             </li>
             <li>
-              <strong>Manage memories</strong>: ask your assistant to delete
+              <strong>Manage memories</strong> — ask your assistant to delete
               specific memories, or review them with &ldquo;show me what you
               remember about X.&rdquo; You have full control over what stays
               in memory.
             </li>
             <li>
-              <strong>Scope trust rules carefully</strong>: avoid
+              <strong>Scope trust rules carefully</strong> — avoid
               broad &ldquo;always allow&rdquo; rules for high-risk tools. Use
               conversation-scoped or time-limited approvals instead.
             </li>
