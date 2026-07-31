@@ -12,6 +12,7 @@ import {
 import { getIsContainerized } from "../../../config/env-registry.js";
 import { resolveTrailingLinkTarget } from "../../../util/fs-symlinks.js";
 import { getDotEnvPath } from "../../../util/platform.js";
+import { getSkillDirectories } from "./skill-directories.js";
 
 /**
  * Result type shared by both sandbox and host path policies.
@@ -283,11 +284,37 @@ function securityDirDenial(target: SandboxTarget): PathResult | null {
   return null;
 }
 
+/**
+ * Whether the target lands inside a directory belonging to a cataloged skill.
+ *
+ * Containment is judged on the symlink-canonicalized target against the
+ * canonicalized skill directories, so a symlink inside a skill directory that
+ * points elsewhere is not covered: it resolves outside the skill directory
+ * and stays out of bounds.
+ */
+function isWithinSkillDirectory(target: SandboxTarget): boolean {
+  return getSkillDirectories().some((directory) =>
+    isWithinDir(target.realResolved, directory),
+  );
+}
+
+/**
+ * Escapes from the boundary directory a policy tolerates. Both default to
+ * denial: a target that leaves the boundary is out of bounds unless an
+ * allowance covers it.
+ */
+interface BoundaryEscapes {
+  /** Any out-of-boundary target (non-containerized host fallback). */
+  host: boolean;
+  /** Out-of-boundary targets that land inside a cataloged skill directory. */
+  skillDirectories: boolean;
+}
+
 function evaluateSandboxPolicy(
   rawPath: string,
   boundaryDir: string,
   options: { mustExist?: boolean } | undefined,
-  allowOutOfBounds: boolean,
+  escapes: BoundaryEscapes,
 ): PathResult {
   const target = resolveSandboxTarget(
     rawPath,
@@ -295,7 +322,11 @@ function evaluateSandboxPolicy(
     options?.mustExist ?? true,
   );
 
-  if (!allowOutOfBounds && isOutOfBounds(target)) {
+  if (
+    isOutOfBounds(target) &&
+    !escapes.host &&
+    !(escapes.skillDirectories && isWithinSkillDirectory(target))
+  ) {
     return outOfBoundsFailure(rawPath, target);
   }
 
@@ -332,7 +363,10 @@ export function sandboxPolicy(
   boundaryDir: string,
   options?: { mustExist?: boolean },
 ): PathResult {
-  return evaluateSandboxPolicy(rawPath, boundaryDir, options, false);
+  return evaluateSandboxPolicy(rawPath, boundaryDir, options, {
+    host: false,
+    skillDirectories: false,
+  });
 }
 
 /**
@@ -357,12 +391,41 @@ export function sandboxPolicyWithHostFallback(
   boundaryDir: string,
   options?: { mustExist?: boolean },
 ): PathResult {
-  return evaluateSandboxPolicy(
-    rawPath,
-    boundaryDir,
-    options,
-    !getIsContainerized() && securityDirConfigMirrorable(),
-  );
+  return evaluateSandboxPolicy(rawPath, boundaryDir, options, {
+    host: hostFallbackAllowed(),
+    skillDirectories: false,
+  });
+}
+
+function hostFallbackAllowed(): boolean {
+  return !getIsContainerized() && securityDirConfigMirrorable();
+}
+
+/**
+ * Read-side sandbox policy: {@link sandboxPolicyWithHostFallback} plus a
+ * read-only allowance for files inside the directory of a cataloged skill.
+ *
+ * Skill bodies point the model at their own reference files by absolute path
+ * (see `listReferenceFiles`), and skills installed outside the workspace
+ * (bundled skills in the install tree, plugin-resident skills) sit beyond the
+ * boundary. The allowance keeps those reads on the file tools instead of
+ * pushing them through a shell.
+ *
+ * Every other protection is unchanged: the target is symlink-canonicalized
+ * before containment is judged, so a symlink inside a skill directory cannot
+ * reach outside it, and the basename denylist plus the service security
+ * directories still apply. Write-side policies do not take this allowance:
+ * skill directories stay read-only to the file tools.
+ */
+export function sandboxReadPolicy(
+  rawPath: string,
+  boundaryDir: string,
+  options?: { mustExist?: boolean },
+): PathResult {
+  return evaluateSandboxPolicy(rawPath, boundaryDir, options, {
+    host: hostFallbackAllowed(),
+    skillDirectories: true,
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ import {
   IMAGE_EXTENSIONS,
   readImageFile,
 } from "../shared/filesystem/image-read.js";
-import { sandboxPolicyWithHostFallback } from "../shared/filesystem/path-policy.js";
+import { sandboxReadPolicy } from "../shared/filesystem/path-policy.js";
 import {
   invalidToolInputResult,
   toToolInputSchema,
@@ -80,10 +80,7 @@ export const fileReadTool = {
     // For image files, delegate to the shared image reader.
     const ext = extname(rawPath).toLowerCase();
     if (IMAGE_EXTENSIONS.has(ext)) {
-      const pathCheck = sandboxPolicyWithHostFallback(
-        rawPath,
-        context.workingDir,
-      );
+      const pathCheck = sandboxReadPolicy(rawPath, context.workingDir);
       if (!pathCheck.ok) {
         return {
           content: `Error: ${pathCheck.error}. To read files outside the workspace, use the host_file_read tool instead.`,
@@ -95,10 +92,7 @@ export const fileReadTool = {
 
     // For audio files, delegate to the shared audio reader.
     if (AUDIO_EXTENSIONS.has(ext)) {
-      const pathCheck = sandboxPolicyWithHostFallback(
-        rawPath,
-        context.workingDir,
-      );
+      const pathCheck = sandboxReadPolicy(rawPath, context.workingDir);
       if (!pathCheck.ok) {
         return {
           content: `Error: ${pathCheck.error}. To read files outside the workspace, use the host_file_read tool instead.`,
@@ -109,7 +103,7 @@ export const fileReadTool = {
     }
 
     const ops = new FileSystemOps((path, opts) =>
-      sandboxPolicyWithHostFallback(path, context.workingDir, opts),
+      sandboxReadPolicy(path, context.workingDir, opts),
     );
 
     const result = ops.readFileSafe({ path: rawPath, offset, limit });

@@ -575,7 +575,13 @@ describe("resolveRealPath", () => {
   });
 
   test("falls back to the lexical path when nothing on it exists", () => {
-    const phantom = join(tmpdir(), "definitely-not-here-12345", "nope.txt");
+    // realpath the temp root so a symlinked prefix (macOS /var -> /private/var)
+    // is not mistaken for the resolution under test.
+    const phantom = join(
+      realpathSync(tmpdir()),
+      "definitely-not-here-12345",
+      "nope.txt",
+    );
     expect(resolveRealPath(phantom)).toBe(phantom);
   });
 });
