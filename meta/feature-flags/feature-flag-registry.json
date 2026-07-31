@@ -362,7 +362,7 @@
       "scope": "assistant",
       "key": "assistant-reply-push",
       "label": "Assistant Reply Push",
-      "description": "Gates the `chat.assistant_reply` push notification the daemon emits at the end of a user-initiated turn whose reply the user has not seen. On by default; turn it off to silence the push without disabling the rest of the notification pipeline.",
+      "description": "Gates the `chat.assistant_reply` push notification the assistant sends at the end of a user-initiated turn whose reply the user has not seen. On by default; turn it off to silence the push without disabling the rest of the notification pipeline.",
       "defaultEnabled": true
     }
   ]

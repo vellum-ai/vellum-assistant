@@ -170,10 +170,9 @@ export async function runDeferredTurnTail(params: {
   } = params;
   const tailStartedAt = Date.now();
 
-  // One conversation read for the whole tail: the notification producer, the
-  // truncation step, and the disk mirror all want the same row. Guarded like
-  // every step below, because this runs after the terminal SSE and a SQLite
-  // hiccup must not escape into the loop's outer catch.
+  // Conversation row for the notification producer below. Guarded like every
+  // step below, because this runs after the terminal SSE and a SQLite hiccup
+  // must not escape into the loop's outer catch.
   let conversation: ConversationRow | null = null;
   try {
     conversation = getConversation(ctx.conversationId);
@@ -208,15 +207,28 @@ export async function runDeferredTurnTail(params: {
     });
   }
 
+  // Fresh row for the two filesystem steps below. The awaited work above is
+  // long enough for the user to delete the conversation, and the row read at
+  // the top of the tail stays truthy across that deletion, so spooling or
+  // mirroring against it would rebuild a deleted conversation's directory from
+  // in-memory history. A row that is gone skips both steps exactly as an
+  // unreadable one does.
+  let liveConversation: ConversationRow | null = null;
+  try {
+    liveConversation = getConversation(ctx.conversationId);
+  } catch (err) {
+    rlog.warn({ err }, "Failed to re-read conversation for end-of-turn work");
+  }
+
   // Post-turn tool-result truncation: spool oversized results to disk and
   // replace their in-context content with a stub + pointer, shrinking the next
   // turn's context. Rewrites only the in-memory history, so it has no bearing on
   // the reply already delivered to the client.
   try {
-    if (conversation) {
+    if (liveConversation) {
       const convDir = getResolvedConversationDirPath(
         ctx.conversationId,
-        conversation.createdAt,
+        liveConversation.createdAt,
       );
       const { messages: derefMessages, dereferencedCount } =
         derefToolResultReReads(ctx.messages);
@@ -253,11 +265,11 @@ export async function runDeferredTurnTail(params: {
   // escape into the loop's outer catch and emit a second, contradictory
   // terminal event for a turn the client already saw complete.
   try {
-    if (state.lastAssistantMessageId && conversation) {
+    if (state.lastAssistantMessageId && liveConversation) {
       syncMessageToDisk(
         ctx.conversationId,
         state.lastAssistantMessageId,
-        conversation.createdAt,
+        liveConversation.createdAt,
       );
     }
   } catch (err) {
