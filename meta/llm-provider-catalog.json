@@ -264,17 +264,17 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 2.5,
-            "outputPer1mTokens": 15,
-            "cacheWritePer1mTokens": 3.125,
-            "cacheReadPer1mTokens": 0.25,
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 12,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 5,
-                "outputPer1mTokens": 22.5,
-                "cacheWritePer1mTokens": 6.25,
-                "cacheReadPer1mTokens": 0.5
+                "inputPer1mTokens": 4,
+                "outputPer1mTokens": 18,
+                "cacheWritePer1mTokens": 5,
+                "cacheReadPer1mTokens": 0.4
               }
             ]
           }
@@ -292,17 +292,17 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 1,
-            "outputPer1mTokens": 6,
-            "cacheWritePer1mTokens": 1.25,
-            "cacheReadPer1mTokens": 0.1,
+            "inputPer1mTokens": 0.2,
+            "outputPer1mTokens": 1.2,
+            "cacheWritePer1mTokens": 0.25,
+            "cacheReadPer1mTokens": 0.02,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 2,
-                "outputPer1mTokens": 9,
-                "cacheWritePer1mTokens": 2.5,
-                "cacheReadPer1mTokens": 0.2
+                "inputPer1mTokens": 0.4,
+                "outputPer1mTokens": 1.8,
+                "cacheWritePer1mTokens": 0.5,
+                "cacheReadPer1mTokens": 0.04
               }
             ]
           }
@@ -1168,17 +1168,17 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 2.5,
-            "outputPer1mTokens": 15,
-            "cacheWritePer1mTokens": 3.125,
-            "cacheReadPer1mTokens": 0.25,
+            "inputPer1mTokens": 1,
+            "outputPer1mTokens": 6,
+            "cacheWritePer1mTokens": 1.25,
+            "cacheReadPer1mTokens": 0.1,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 5,
-                "outputPer1mTokens": 22.5,
-                "cacheWritePer1mTokens": 6.25,
-                "cacheReadPer1mTokens": 0.5
+                "inputPer1mTokens": 2,
+                "outputPer1mTokens": 9,
+                "cacheWritePer1mTokens": 2.5,
+                "cacheReadPer1mTokens": 0.2
               }
             ]
           }
@@ -1196,17 +1196,17 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 2.5,
-            "outputPer1mTokens": 15,
-            "cacheWritePer1mTokens": 3.125,
-            "cacheReadPer1mTokens": 0.25,
+            "inputPer1mTokens": 1,
+            "outputPer1mTokens": 6,
+            "cacheWritePer1mTokens": 1.25,
+            "cacheReadPer1mTokens": 0.1,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 5,
-                "outputPer1mTokens": 22.5,
-                "cacheWritePer1mTokens": 6.25,
-                "cacheReadPer1mTokens": 0.5
+                "inputPer1mTokens": 2,
+                "outputPer1mTokens": 9,
+                "cacheWritePer1mTokens": 2.5,
+                "cacheReadPer1mTokens": 0.2
               }
             ]
           }
@@ -1224,17 +1224,17 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 1,
-            "outputPer1mTokens": 6,
-            "cacheWritePer1mTokens": 1.25,
-            "cacheReadPer1mTokens": 0.1,
+            "inputPer1mTokens": 0.1,
+            "outputPer1mTokens": 0.6,
+            "cacheWritePer1mTokens": 0.125,
+            "cacheReadPer1mTokens": 0.01,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 2,
-                "outputPer1mTokens": 9,
-                "cacheWritePer1mTokens": 2.5,
-                "cacheReadPer1mTokens": 0.2
+                "inputPer1mTokens": 0.2,
+                "outputPer1mTokens": 0.9,
+                "cacheWritePer1mTokens": 0.25,
+                "cacheReadPer1mTokens": 0.02
               }
             ]
           }
@@ -1252,17 +1252,17 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 1,
-            "outputPer1mTokens": 6,
-            "cacheWritePer1mTokens": 1.25,
-            "cacheReadPer1mTokens": 0.1,
+            "inputPer1mTokens": 0.1,
+            "outputPer1mTokens": 0.6,
+            "cacheWritePer1mTokens": 0.125,
+            "cacheReadPer1mTokens": 0.01,
             "tiers": [
               {
                 "inputTokenThreshold": 272000,
-                "inputPer1mTokens": 2,
-                "outputPer1mTokens": 9,
-                "cacheWritePer1mTokens": 2.5,
-                "cacheReadPer1mTokens": 0.2
+                "inputPer1mTokens": 0.2,
+                "outputPer1mTokens": 0.9,
+                "cacheWritePer1mTokens": 0.25,
+                "cacheReadPer1mTokens": 0.02
               }
             ]
           }

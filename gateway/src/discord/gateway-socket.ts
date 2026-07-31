@@ -27,6 +27,7 @@ import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
 import type { DiscordInboundEvent } from "../channels/inbound-event.js";
 import { admitDiscordMessage } from "./admit.js";
+import { AdmissionDropLog } from "./admission-log.js";
 import { ReconnectBackoff, SESSION_STABLE_AFTER_MS } from "./backoff.js";
 import {
   RESUMABLE_CLOSE_CODE,
@@ -137,6 +138,7 @@ export class DiscordGatewayClient {
   private readonly heartbeat: HeartbeatMonitor;
   private readonly backoff: ReconnectBackoff;
   private readonly threadParents = new ThreadParentCache();
+  private readonly admissionDropLog = new AdmissionDropLog();
 
   private sessionState: DiscordSessionState | null = null;
   private ws: GatewaySocketLike | null = null;
@@ -654,14 +656,34 @@ export class DiscordGatewayClient {
       allowedChannelIds: this.readAllowedChannelIds(),
     });
     if (!verdict.admitted) {
-      log.debug(
-        {
-          reason: verdict.reason,
-          channelId: message.channel_id,
-          messageId: message.id,
-        },
-        "Discord message dropped by admission gate",
+      const fields = {
+        reason: verdict.reason,
+        channelId: message.channel_id,
+        messageId: message.id,
+      };
+      // Severity splits by reason and volume is capped at the first drop per
+      // reason and channel. See `admission-log.ts` for why a single level
+      // cannot serve both a misconfigured allow-list and a busy guild.
+      const level = this.admissionDropLog.levelFor(
+        verdict.reason,
+        message.channel_id,
       );
+      if (level === "warn") {
+        log.warn(
+          fields,
+          "Discord message dropped: the channel is not on the allow-list. " +
+            "Check `discord.allowedChannelIds` in config.json. Further " +
+            "drops for this channel log at debug.",
+        );
+      } else if (level === "info") {
+        log.info(
+          fields,
+          "Discord message dropped by admission gate. Further drops for " +
+            "this reason and channel log at debug.",
+        );
+      } else {
+        log.debug(fields, "Discord message dropped by admission gate");
+      }
       return;
     }
 

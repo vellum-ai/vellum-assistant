@@ -176,6 +176,13 @@ export interface AudioContextLike {
    */
   createAnalyser?(): AnalyserNode;
   /**
+   * Create the gain stage the output mute rides on. Optional for the same
+   * reason as {@link createAnalyser}: a lightweight test context can omit it,
+   * and the player then simply cannot mute its output
+   * ({@link LiveVoiceAudioPlayer.setOutputMuted} becomes a no-op).
+   */
+  createGain?(): GainNode;
+  /**
    * Decode an encoded container (wav/mp3/opus) into an `AudioBuffer`, deriving
    * sample rate and channel layout from the container header.
    */
@@ -268,6 +275,24 @@ export class LiveVoiceAudioPlayer {
    * (test mock) — {@link getOutputAmplitude} then reports 0.
    */
   private analyser: AnalyserNode | null = null;
+
+  /**
+   * Gain stage between the metering tap and the destination, carrying the
+   * output mute.
+   *
+   * Deliberately AFTER the analyser: muting is about the user's ears, not
+   * about what is true. The assistant is still speaking while muted, so the
+   * room's bands and the avatar's reaction keep showing that it is, and the
+   * user can see the reply land rather than watching a dead screen.
+   */
+  private outputGain: GainNode | null = null;
+
+  /**
+   * Whether the assistant's audio is muted. Held on the player rather than
+   * only on the node so it survives context (re)creation: a reconnect builds a
+   * fresh graph, and the user's mute has to come back with it.
+   */
+  private outputMuted = false;
 
   /** Reusable time-domain sample buffer for {@link getOutputAmplitude}. */
   private analyserSamples: Float32Array<ArrayBuffer> | null = null;
@@ -435,9 +460,11 @@ export class LiveVoiceAudioPlayer {
     source.buffer = buffer;
 
     // Route through the metering analyser when present (so output amplitude can
-    // drive the room avatar), otherwise straight to the destination.
+    // drive the room avatar), then the mute gain, then the destination. Each
+    // stage is optional, so fall through to whichever exists.
     source.connect(
       this.analyser ??
+        this.outputGain ??
         this.mediaStreamOutput?.destination ??
         context.destination,
     );
@@ -552,7 +579,17 @@ export class LiveVoiceAudioPlayer {
       this.context = context;
       this.playheadTime = 0;
       this.totalScheduledSeconds = 0;
-      const outputNode = this.createOutputNode(context);
+      const destinationNode = this.createOutputNode(context);
+      // Mute stage, closest to the destination so everything upstream (the
+      // metering tap included) still sees the real signal.
+      let outputNode = destinationNode;
+      if (context.createGain) {
+        const gain = context.createGain();
+        gain.connect(destinationNode);
+        gain.gain.value = this.outputMuted ? 0 : 1;
+        this.outputGain = gain;
+        outputNode = gain;
+      }
       // Tap the output bus for amplitude metering when the context supports it.
       // Scheduled sources connect through this analyser to the destination; a
       // context without createAnalyser (test mock) skips metering entirely and
@@ -596,9 +633,16 @@ export class LiveVoiceAudioPlayer {
       }
 
       this.disposeMediaStreamOutput();
+      // Rebuild the tail of the graph onto the raw destination, keeping the
+      // mute stage in it so a muted session does not start playing aloud
+      // because its iOS output route fell back.
+      if (this.outputGain) {
+        this.outputGain.disconnect();
+        this.outputGain.connect(context.destination);
+      }
       if (this.analyser) {
         this.analyser.disconnect();
-        this.analyser.connect(context.destination);
+        this.analyser.connect(this.outputGain ?? context.destination);
       }
       captureError(error, {
         context: "live_voice_ios_media_stream_output",
@@ -618,6 +662,30 @@ export class LiveVoiceAudioPlayer {
     for (const track of route.destination.stream.getTracks()) {
       track.stop();
     }
+  }
+
+  /**
+   * Mute or unmute the assistant's audio without touching the session.
+   *
+   * Distinct from stopping a reply: the assistant keeps talking, the turn keeps
+   * running, and the transcript keeps filling. Only the sound stops, so
+   * unmuting mid-reply drops the user back into it wherever it has got to.
+   *
+   * The flag is remembered even with no context yet (a mute set before the
+   * first reply) and re-applied to every graph this player builds, so a
+   * reconnect does not un-mute the assistant behind the user's back. A context
+   * without `createGain` (test mock) has no stage to ride, and this no-ops.
+   */
+  setOutputMuted(muted: boolean): void {
+    this.outputMuted = muted;
+    if (this.outputGain) {
+      this.outputGain.gain.value = muted ? 0 : 1;
+    }
+  }
+
+  /** Whether the assistant's audio is currently muted. */
+  isOutputMuted(): boolean {
+    return this.outputMuted;
   }
 
   /**
