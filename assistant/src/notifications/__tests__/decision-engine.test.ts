@@ -148,6 +148,7 @@ describe("assistant_tool pass-through in notification decision engine", () => {
     expect(decision.renderedCopy.vellum?.title).toBe("Custom Title");
     expect(decision.conversationActions?.vellum?.action).toBe("start_new");
     expect(decision.reasoningSummary).toBe("assistant_tool pass-through");
+    expect(decision.verbatimCopy).toBe(true);
     expect(decision.fallbackUsed).toBe(false);
     expect(decision.confidence).toBe(1.0);
     expect(decision.dedupeKey).toBe(signal.signalId);
@@ -337,6 +338,7 @@ describe("chat.assistant_reply pass-through in notification decision engine", ()
     expect(decision.renderedCopy.platform?.body).toBe("Here is your answer.");
     expect(decision.renderedCopy.platform?.title).toBe("Assistant");
     expect(decision.reasoningSummary).toBe("assistant_reply pass-through");
+    expect(decision.verbatimCopy).toBe(true);
     expect(decision.fallbackUsed).toBe(false);
     expect(decision.confidence).toBe(1.0);
   });

@@ -916,6 +916,7 @@ function buildPassThroughDecision(params: {
     dedupeKey: params.dedupeKey,
     confidence: 1.0,
     fallbackUsed: false,
+    verbatimCopy: true,
     ...(deepLinkTarget ? { deepLinkTarget } : {}),
   };
   decision = enforceGuardianRequestCode(decision, signal);
