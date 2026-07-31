@@ -51,16 +51,18 @@ describe("Notice — actions layout", () => {
     );
   });
 
-  test("the dismiss control is pinned to the corner, out of the wrapping flow", () => {
+  test("the dismiss control keeps its space in the flow under a consumer padding class", () => {
     const html = renderToStaticMarkup(
-      <Notice tone="info" title="Heads up" onDismiss={() => {}}>
+      <Notice tone="info" title="Heads up" onDismiss={() => {}} className="p-4">
         Something to know.
       </Notice>,
     );
 
-    expect(html).toContain("absolute right-2.5 top-2.5");
-    // Its lane is reserved so a wrapped actions row never runs under it.
-    expect(html).toContain("pr-9");
+    // A corner-pinned control would need a root padding lane, which `cn()`
+    // drops as soon as the consumer passes its own `p-*` — the button would
+    // then overlap the message. Staying in the flow removes that coupling.
+    expect(html).toContain("shrink-0");
+    expect(html).not.toContain("absolute");
   });
 });
 

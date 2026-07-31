@@ -96,8 +96,6 @@ export function Notice({
       className={cn(
         "relative flex w-full gap-3 rounded-lg border p-3",
         alignTop ? "items-start" : "items-center",
-        // The dismiss control is pinned to the corner, so reserve its lane.
-        onDismiss && "pr-9",
         "text-[color:var(--content-default)]",
         toneClasses.container,
         className,
@@ -145,13 +143,20 @@ export function Notice({
         ) : null}
       </div>
 
+      {/*
+       * The dismiss control stays in the flow rather than being pinned to the
+       * corner: reserving a corner lane means a root padding class, and `cn()`
+       * merges the consumer's `className` last, so any caller passing its own
+       * `p-*` would silently drop the reservation and let the button overlap
+       * the message. At ~22px it costs the message almost nothing.
+       */}
       {onDismiss ? (
         <button
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss"
           className={cn(
-            "absolute right-2.5 top-2.5 cursor-pointer rounded bg-transparent p-0.5",
+            "shrink-0 cursor-pointer rounded bg-transparent p-0.5",
             "text-[color:var(--content-secondary)] opacity-70 transition-opacity",
             "hover:opacity-100 keyboard-focus:outline-none keyboard-focus:ring-2",
             "keyboard-focus:ring-[var(--ring)]",
