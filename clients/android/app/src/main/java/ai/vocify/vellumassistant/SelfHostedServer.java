@@ -91,7 +91,11 @@ final class SelfHostedServer {
         if (containsEncodedDotSegment(parsed.getRawPath())) {
             return null;
         }
-        String path = normalizePath(parsed.normalize().getRawPath());
+        URI normalized = parsed.normalize();
+        if (containsDotSegment(normalized.getRawPath())) {
+            return null;
+        }
+        String path = normalizePath(normalized.getRawPath());
         try {
             return new URI(scheme + "://" + formatAuthority(host, parsed.getPort()) + path);
         } catch (URISyntaxException exception) {
@@ -225,6 +229,18 @@ final class SelfHostedServer {
                 }
             }
             if (encodedDot && (".".contentEquals(decoded) || "..".contentEquals(decoded))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsDotSegment(String rawPath) {
+        if (rawPath == null) {
+            return false;
+        }
+        for (String segment : rawPath.split("/", -1)) {
+            if (".".equals(segment) || "..".equals(segment)) {
                 return true;
             }
         }

@@ -32,6 +32,12 @@ public class SelfHostedServerTest {
     }
 
     @Test
+    public void rejectsParentSegmentsThatRemainAboveRoot() {
+        assertNull(SelfHostedServer.validate("https://example.com/../../tenant"));
+        assertNull(SelfHostedServer.validate("https://example.com/tenant/../../../assistant"));
+    }
+
+    @Test
     public void rejectsCredentialsQueriesAndFragments() {
         assertNull(SelfHostedServer.validate("https://" + "user:credential@" + "example.com/assistant"));
         assertNull(SelfHostedServer.validate("https://example.com/assistant?code=secret"));
