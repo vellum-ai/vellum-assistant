@@ -94,13 +94,6 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import {
-  EchoMarginProbe,
-  recordLiveVoiceEchoMargin,
-  recordLiveVoiceOutputRoute,
-  recordLiveVoiceSessionStart,
-} from "@/domains/chat/voice/live-voice/live-voice-diagnostics";
-import { describeVoiceAudioSession } from "@/runtime/native-audio-session";
-import {
   isLiveVoiceSessionActive,
   minimizeVoiceRoom,
   useLiveVoiceStore,
@@ -307,12 +300,6 @@ interface SessionContext {
    */
   clientHeardLatencyMs: number | null;
   /**
-   * Correlates microphone and speaker amplitude so a support bundle can show
-   * whether echo cancellation engaged, instead of leaving it to be inferred
-   * from transcripts. Fed from {@link handleAmplitude}; flushed at session end.
-   */
-  echoProbe: EchoMarginProbe;
-  /**
    * Pending idle-check timer for the store's `assistantAudioActive` flag. Armed
    * on each `tts_audio` frame and re-armed while the player is still draining;
    * fires once audio has stopped flowing to mark the assistant silent (so a
@@ -488,7 +475,6 @@ export function useLiveVoice(
     sessionRef.current = null;
     session.generation += 1;
     clearAssistantAudioActive(session);
-    flushEchoMargin(session);
     useLiveVoiceStore.getState().setState("ending");
     for (const unsubscribe of session.unsubscribes) {
       unsubscribe();
@@ -698,14 +684,6 @@ export function useLiveVoice(
       const prewarmedPlayer = standbyPlayerRef.current;
       const player = prewarmedPlayer ?? createPlayer();
       standbyPlayerRef.current = null;
-      // Whether this session inherited a player unlocked inside a user gesture
-      // is the fact that decides if its echo-cancelling output route could be
-      // started at all, so it is recorded before anything can obscure it.
-      recordLiveVoiceSessionStart({
-        playerSource: prewarmedPlayer ? "prewarmed" : "created",
-        isReconnect,
-        handsFree: startOptions.handsFree === true,
-      });
       // The composer reserves and prewarms this player before its async
       // readiness check. Reconnects reuse it too; this repeated call is a no-op
       // while its AudioContext is running. Direct callers without a reservation
@@ -746,7 +724,6 @@ export function useLiveVoice(
         speechEndedAtMs: null,
         turnHeardStampMs: null,
         clientHeardLatencyMs: null,
-        echoProbe: new EchoMarginProbe(),
         assistantAudioIdleTimer: null,
       };
 
@@ -1306,7 +1283,6 @@ function disposeSessionPrimitives(
 ): void {
   session.generation += 1;
   clearAssistantAudioActive(session);
-  flushEchoMargin(session);
   for (const unsubscribe of session.unsubscribes) {
     unsubscribe();
   }
@@ -1318,21 +1294,6 @@ function disposeSessionPrimitives(
     void session.player.dispose();
   }
   void session.capture.shutdown();
-}
-
-/**
- * Emit the measurement for a reply that was still playing when the session
- * ended, so a user who reports the problem mid-sentence still ships the number
- * that describes it. No-op when the assistant never became audible.
- */
-function flushEchoMargin(session: SessionContext): void {
-  const summary = session.echoProbe.summarize();
-  if (summary) {
-    recordLiveVoiceEchoMargin(
-      summary,
-      session.player.getOutputRouteDiagnostics().route,
-    );
-  }
 }
 
 /**
@@ -1398,31 +1359,13 @@ async function finishCaptureStartup(
  * it starts, and the echo reference belongs to that unit, so a renderer started
  * before `getUserMedia` may hold no reference at all.
  *
- * The restart itself is inaudible (nothing is queued yet). The record that
- * follows is fire-and-forget: it waits on a native bridge call, and a session
- * must never be gated on diagnostics.
- *
- * It does wait for the restart's own play attempt to settle, though. A refused
- * attempt disposes the route and reconnects playback to the direct path from
- * its rejection handler, so a snapshot taken while that rejection is still
- * pending would report `media-stream` for a session that is about to lose it.
- * This event is the primary evidence that echo cancellation engaged, so it has
- * to describe where playback actually ended up.
+ * The restart itself is inaudible (nothing is queued yet), and it is
+ * fire-and-forget: a refused `play()` falls back to the direct output path from
+ * its own rejection handler, so there is no outcome here for a caller to act on
+ * and a session must never be gated on it.
  */
 function rebindOutputRouteToCapture(session: SessionContext): void {
-  const generation = session.generation;
-  void Promise.all([
-    session.player.restartOutputRoute(),
-    describeVoiceAudioSession(),
-  ]).then(([, audioSession]) => {
-    if (session.generation !== generation) {
-      return;
-    }
-    recordLiveVoiceOutputRoute({
-      ...session.player.getOutputRouteDiagnostics(),
-      audioSession,
-    });
-  });
+  void session.player.restartOutputRoute();
 }
 
 /**
@@ -1467,31 +1410,8 @@ function handleAmplitude(
   // Muted: the server hears silence (see handleChunk), so the UI and the
   // manual-mode amplitude barge-in must too. A hot-looking waveform (or a
   // barge-in) from a muted mic would contradict the substituted stream.
-  const { muted, outputMuted } = useLiveVoiceStore.getState();
+  const { muted } = useLiveVoiceStore.getState();
   useLiveVoiceStore.getState().setInputAmplitude(muted ? 0 : amplitude);
-  if (!muted && !outputMuted) {
-    // Sampled here rather than on a timer of its own: this fires once per PCM
-    // chunk, which is the cadence the microphone actually produces, and the
-    // speaker's amplitude is a cheap read off the player's metering tap.
-    //
-    // Both mutes disqualify the sample, for opposite reasons. A muted mic means
-    // the server is hearing a substituted silent stream, so nothing measured
-    // against it describes the session. A muted assistant means the room is
-    // silent while the meter still reads loud: the mute gain sits after the
-    // analyser by design, so the visuals keep moving. Sampling through it would
-    // measure the mic against a speaker that is not playing and report perfect
-    // cancellation for a path that was never tested.
-    const summary = session.echoProbe.sample(
-      amplitude,
-      session.player.readOutputLevel(),
-    );
-    if (summary) {
-      recordLiveVoiceEchoMargin(
-        summary,
-        session.player.getOutputRouteDiagnostics().route,
-      );
-    }
-  }
   if (
     !muted &&
     !session.handsFree &&

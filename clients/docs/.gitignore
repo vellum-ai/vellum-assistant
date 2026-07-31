@@ -1,0 +1,6 @@
+# Build-time agent markdown mirrors (scripts/generate-agent-markdown.ts)
+generated/
+public/docs/llms.txt
+
+# Generated at build time by scripts/generate-docs-search-index.ts
+public/docs/search-index.json
