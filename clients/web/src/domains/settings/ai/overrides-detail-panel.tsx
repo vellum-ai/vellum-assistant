@@ -337,16 +337,31 @@ export function OverridesDetailPanel({
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
+      // `PATCH /v1/config` deep-merges (`deepMergeOverwrite` in the daemon's
+      // config loader), so an omitted key keeps its persisted value and a
+      // `null` deletes the whole entry. Three cases follow from that:
+      //
+      //  - active draft: send the picker triple. Nulling provider/model
+      //    clears a stale pin; any tuning the entry carries is untouched
+      //    because it isn't mentioned.
+      //  - the user switched this row off: send `null` and delete it. That
+      //    is what off means.
+      //  - inactive and untouched: omit it. `isDraftActive` only reads the
+      //    picker triple, so an entry holding nothing but tuning reads as
+      //    off; sending `null` for it would delete settings the user never
+      //    asked to remove.
       const patch: Record<string, CallSiteOverrideDraft | null> = {};
       for (const id of Object.keys(drafts)) {
         const d = drafts[id] ?? null;
-        patch[id] = isDraftActive(d)
-          ? {
-              profile: d?.profile ?? null,
-              provider: d?.provider ?? null,
-              model: d?.model ?? null,
-            }
-          : null;
+        if (isDraftActive(d)) {
+          patch[id] = {
+            profile: d?.profile ?? null,
+            provider: d?.provider ?? null,
+            model: d?.model ?? null,
+          };
+        } else if (id in draftEdits && draftEdits[id] === null) {
+          patch[id] = null;
+        }
       }
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
@@ -372,6 +387,7 @@ export function OverridesDetailPanel({
     }
   }, [
     drafts,
+    draftEdits,
     callSiteDraftsDirty,
     advisorDirty,
     advisorProfile,
