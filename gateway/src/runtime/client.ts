@@ -8,10 +8,11 @@ import {
 } from "@vellumai/service-contracts/twilio-ingress";
 import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
 
-import type {
-  AdmissionPolicy,
-  RuntimeInboundPayload,
-  TrustVerdict,
+import {
+  type AdmissionPolicy,
+  ChannelResetResponseSchema,
+  type RuntimeInboundPayload,
+  type TrustVerdict,
 } from "@vellumai/gateway-client";
 import type { ChannelId } from "../channels/types.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
@@ -380,14 +381,18 @@ export async function resetConversation(
 
   cbOnSuccess();
 
-  const result = (await response.json().catch(() => ({}))) as {
-    ok?: boolean;
-    denied?: boolean;
-    reason?: string;
-  };
+  // Fail closed on a malformed 2xx body. Treating an unparseable response as
+  // "not denied" would announce a reset that never happened.
+  const raw = await response.json().catch(() => undefined);
+  const parsed = ChannelResetResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `Reset conversation returned a malformed response: ${parsed.error.issues[0]?.message ?? "unparseable body"}`,
+    );
+  }
   return {
-    denied: result.denied === true,
-    ...(result.reason ? { reason: result.reason } : {}),
+    denied: parsed.data.denied === true,
+    ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
   };
 }
 

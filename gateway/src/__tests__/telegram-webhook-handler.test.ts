@@ -598,7 +598,7 @@ describe("telegram webhook handler: /new admission", () => {
 
   test("a runtime denial is silent: no confirmation reaches the sender", async () => {
     installFetchMock({
-      resetResponse: { denied: true, reason: "not_interactive" },
+      resetResponse: { ok: false, denied: true, reason: "not_interactive" },
     });
     const { handler } = createTelegramWebhookHandler(
       makeConfig(ROUTED),
@@ -613,6 +613,35 @@ describe("telegram webhook handler: /new admission", () => {
     expect(
       fetchCalls.find((c) => c.url.includes("/sendMessage")),
     ).toBeUndefined();
+  });
+
+  test("a malformed runtime response fails closed instead of claiming success", async () => {
+    // Treating an unparseable 2xx as "not denied" would announce a reset that
+    // never happened.
+    seedActorContact();
+    installFetchMock({ resetResponse: { unexpected: "shape" } });
+    const { handler } = createTelegramWebhookHandler(
+      makeConfig(ROUTED),
+      makeCaches(),
+    );
+
+    const res = await handler(
+      makeWebhookRequest(makeTelegramPayload("/new", 5010)),
+    );
+
+    expect(res.status).toBe(200);
+    const confirmation = fetchCalls.find(
+      (c) =>
+        c.url.includes("/sendMessage") &&
+        String((c.body as any)?.text ?? "").includes("new conversation"),
+    );
+    expect(confirmation).toBeUndefined();
+    const notice = fetchCalls.find(
+      (c) =>
+        c.url.includes("/sendMessage") &&
+        String((c.body as any)?.text ?? "").includes("Failed to reset"),
+    );
+    expect(notice).toBeDefined();
   });
 });
 

@@ -169,6 +169,27 @@ describe("handleDeleteConversation authorization", () => {
     expect(result).toMatchObject({ ok: false });
   });
 
+  test("rejects a malformed body before authorizing", () => {
+    // Authenticated transport is not validation: a bad verdict shape must be
+    // refused outright, not coerced into an authorization input.
+    expect(() =>
+      reset({ trustVerdict: { trustClass: "not-a-class" } }),
+    ).toThrow();
+  });
+
+  test("rejects an unknown sourceChannel", () => {
+    expect(() =>
+      handleDeleteConversation({
+        body: {
+          sourceChannel: "not-a-channel",
+          conversationExternalId: "C1",
+          trustVerdict: verdict(),
+        },
+        headers: GATEWAY_HEADERS,
+      }),
+    ).toThrow();
+  });
+
   test("non-gateway principals are unchanged: no verdict required", () => {
     // The desktop/CLI path is authenticated by the route policy itself.
     const result = reset({}, { "x-vellum-principal-type": "actor" });

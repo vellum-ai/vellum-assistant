@@ -15,13 +15,13 @@
  */
 import {
   type AdmissionPolicy,
+  ChannelResetRequestSchema,
   enforceAdmissionPolicy,
-  isAdmissionPolicy,
   isAdmissionPolicyExemptChannel,
   type TrustVerdict,
 } from "@vellumai/gateway-client";
 
-import type { ChannelId } from "../../channels/types.js";
+import { type ChannelId, isChannelId } from "../../channels/types.js";
 import {
   deleteConversationKey,
   getOrCreateConversation,
@@ -85,7 +85,7 @@ export type DeleteConversationResult =
  * are unchanged.
  */
 function authorizeChannelReset(args: {
-  sourceChannel: string;
+  sourceChannel: ChannelId;
   conversationExternalId: string;
   principalType: string | undefined;
   trustVerdict: TrustVerdict | undefined;
@@ -101,7 +101,7 @@ function authorizeChannelReset(args: {
   }
 
   const trust = actorTrustContextFromVerdict(usable.verdict, {
-    sourceChannel: args.sourceChannel as ChannelId,
+    sourceChannel: args.sourceChannel,
     conversationExternalId: args.conversationExternalId,
   });
 
@@ -135,25 +135,24 @@ export function handleDeleteConversation({
   body = {},
   headers,
 }: RouteHandlerArgs): DeleteConversationResult {
+  // Authenticated transport is not validation: parse the body before any of
+  // it reaches the authorization decision.
+  const parsed = ChannelResetRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      `Invalid channel reset request: ${parsed.error.issues[0]?.message ?? "malformed body"}`,
+    );
+  }
   const {
     sourceChannel,
     conversationExternalId,
     sourceThreadId,
     trustVerdict,
     admissionPolicy,
-  } = body as {
-    sourceChannel?: string;
-    conversationExternalId?: string;
-    sourceThreadId?: string;
-    trustVerdict?: TrustVerdict;
-    admissionPolicy?: string;
-  };
+  } = parsed.data;
 
-  if (!sourceChannel || typeof sourceChannel !== "string") {
-    throw new BadRequestError("sourceChannel is required");
-  }
-  if (!conversationExternalId || typeof conversationExternalId !== "string") {
-    throw new BadRequestError("conversationExternalId is required");
+  if (!isChannelId(sourceChannel)) {
+    throw new BadRequestError(`Unknown sourceChannel: ${sourceChannel}`);
   }
 
   const authorization = authorizeChannelReset({
@@ -161,9 +160,7 @@ export function handleDeleteConversation({
     conversationExternalId,
     principalType: headers?.["x-vellum-principal-type"],
     trustVerdict,
-    admissionPolicy: isAdmissionPolicy(admissionPolicy)
-      ? admissionPolicy
-      : undefined,
+    admissionPolicy,
   });
   if (!authorization.ok) {
     log.info(

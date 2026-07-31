@@ -44,12 +44,16 @@ export type {
 
 // Inbound contract (gateway → daemon) — Zod schemas + derived types
 export {
+  ChannelResetRequestSchema,
+  ChannelResetResponseSchema,
   CommandIntentSchema,
   RuntimeInboundPayloadSchema,
   SourceMetadataSchema,
 } from "./inbound-contract.js";
 
 export type {
+  ChannelResetRequest,
+  ChannelResetResponse,
   CommandIntent,
   RuntimeInboundPayload,
   SourceMetadata,
