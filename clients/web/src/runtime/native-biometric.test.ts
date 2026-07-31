@@ -3,19 +3,12 @@ import { afterAll, beforeEach, expect, mock, test } from "bun:test";
 let native = true;
 type ServerOptions = { server: string };
 type StoreOptions = ServerOptions & { token: string };
-const isAvailable = mock(async () => ({
-  available: true,
-  biometryType: "biometric",
-}));
+const isAvailable = mock(async () => ({ available: true, biometryType: "biometric" }));
 const storeToken = mock(async (_options: StoreOptions) => undefined);
-const retrieveToken = mock(async (_options: ServerOptions) => ({
-  token: "session-token",
-}));
+const retrieveToken = mock(async (_options: ServerOptions) => ({ token: "session-token" }));
 const deleteToken = mock(async (_options: ServerOptions) => undefined);
 
-mock.module("@/runtime/native-auth", () => ({
-  isNativePlatform: () => native,
-}));
+mock.module("@/runtime/native-auth", () => ({ isNativePlatform: () => native }));
 mock.module("@capacitor/core", () => ({
   registerPlugin: () => ({
     isAvailable,
@@ -35,7 +28,9 @@ function setOrigin(origin: string): void {
   });
 }
 
-const nativeError = (code: string) => Object.assign(new Error(code), { code });
+function nativeError(code: string): Error & { code: string } {
+  return Object.assign(new Error(code), { code });
+}
 
 beforeEach(() => {
   native = true;

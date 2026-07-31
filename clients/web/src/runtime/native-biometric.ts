@@ -83,10 +83,6 @@ function biometricRetrievalServers(origin: string): string[] {
     : [origin];
 }
 
-/**
- * Check whether biometric authentication is available on this device.
- * Returns an unavailable capability on non-native platforms without throwing.
- */
 export async function getBiometricCapability(): Promise<BiometricCapability> {
   if (!isNativePlatform()) {
     return UNAVAILABLE_CAPABILITY;
@@ -104,12 +100,6 @@ export async function getBiometricCapability(): Promise<BiometricCapability> {
   }
 }
 
-/**
- * Store a session token in native secure storage protected by biometrics.
- * Returns `true` on success, `false` if biometrics are unavailable or
- * the native write fails. Callers should only persist the biometric
- * preference when this returns `true`.
- */
 export async function storeBiometricToken(token: string): Promise<boolean> {
   if (!isNativePlatform()) {
     return false;
@@ -197,10 +187,6 @@ export async function deleteBiometricToken(): Promise<void> {
 // Preference helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Whether biometric session recovery is enabled. Defaults to `true` on
- * native platforms. Users must explicitly opt out via Settings → Privacy.
- */
 export function isBiometricEnabled(): boolean {
   return getDeviceBool("biometricEnabled", true);
 }
