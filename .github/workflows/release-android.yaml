@@ -33,15 +33,15 @@ jobs:
           case "$ENVIRONMENT" in
             production)
               echo "flavor=Production" >> "$GITHUB_OUTPUT"
-              echo "package_id=ai.vocify.vellumassistant" >> "$GITHUB_OUTPUT"
+              echo "package_id=ai.vellum.assistant" >> "$GITHUB_OUTPUT"
               ;;
             staging)
               echo "flavor=Staging" >> "$GITHUB_OUTPUT"
-              echo "package_id=ai.vocify.vellumassistant.staging" >> "$GITHUB_OUTPUT"
+              echo "package_id=ai.vellum.assistant.staging" >> "$GITHUB_OUTPUT"
               ;;
             dev)
               echo "flavor=Dev" >> "$GITHUB_OUTPUT"
-              echo "package_id=ai.vocify.vellumassistant.dev" >> "$GITHUB_OUTPUT"
+              echo "package_id=ai.vellum.assistant.dev" >> "$GITHUB_OUTPUT"
               ;;
             *)
               echo "::error::Invalid Android environment: $ENVIRONMENT"

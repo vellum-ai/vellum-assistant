@@ -1,4 +1,4 @@
-package ai.vocify.vellumassistant;
+package ai.vellum.assistant;
 
 import android.content.Context;
 import android.content.SharedPreferences;

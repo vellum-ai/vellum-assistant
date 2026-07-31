@@ -59,7 +59,7 @@ const config: CapacitorConfig = {
   // NOTE: Capacitor's CLI requires Java-package form here because Android
   // uses this value as its application namespace. The real iOS bundle IDs are
   // set via `PRODUCT_BUNDLE_IDENTIFIER` in the Xcode project.
-  appId: "ai.vocify.vellumassistant",
+  appId: "ai.vellum.assistant",
   appName: "Vellum",
   webDir: "capacitor-shell",
   server: {

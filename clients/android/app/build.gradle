@@ -29,10 +29,10 @@ if (!signingConfigured && (requireSigning || signingValues.values().any { !it.is
 }
 
 android {
-    namespace = "ai.vocify.vellumassistant"
+    namespace = "ai.vellum.assistant"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "ai.vocify.vellumassistant"
+        applicationId "ai.vellum.assistant"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode versionCodeInput.toInteger()

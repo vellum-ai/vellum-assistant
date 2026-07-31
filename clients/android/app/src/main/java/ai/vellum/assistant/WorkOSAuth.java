@@ -1,4 +1,4 @@
-package ai.vocify.vellumassistant;
+package ai.vellum.assistant;
 
 import android.net.Uri;
 import android.util.Base64;

@@ -387,7 +387,7 @@ describe("RemoteWebPairingPage", () => {
     expect(query.get("url")).toBe(window.location.origin);
     expect(query.get("code")).toBe("android-device");
     expect(href.slice(intentIndex)).toContain(
-      "#Intent;scheme=vellum-assistant;package=ai.vocify.vellumassistant;",
+      "#Intent;scheme=vellum-assistant;package=ai.vellum.assistant;",
     );
     expect(androidIntentFallback(href)).toBe(window.location.href);
     expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();

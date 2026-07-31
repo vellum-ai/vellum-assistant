@@ -43,9 +43,9 @@ hosts.
 
 | Flavor | Application ID | Display Name | Auth Scheme | Auth Host |
 |--------|----------------|--------------|-------------|-----------|
-| `production` | `ai.vocify.vellumassistant` | Vellum | `vellum-assistant` | `www.vellum.ai` |
-| `staging` | `ai.vocify.vellumassistant.staging` | Vellum Staging | `vellum-assistant-staging` | `staging-assistant.vellum.ai` |
-| `dev` | `ai.vocify.vellumassistant.dev` | Vellum Dev | `vellum-assistant-dev` | `dev-assistant.vellum.ai` |
+| `production` | `ai.vellum.assistant` | Vellum | `vellum-assistant` | `www.vellum.ai` |
+| `staging` | `ai.vellum.assistant.staging` | Vellum Staging | `vellum-assistant-staging` | `staging-assistant.vellum.ai` |
+| `dev` | `ai.vellum.assistant.dev` | Vellum Dev | `vellum-assistant-dev` | `dev-assistant.vellum.ai` |
 
 For local development, pick the `devDebug` variant in Android Studio. If you
 sync a different `VELLUM_ENVIRONMENT`, build the matching flavor so the WebView
@@ -126,7 +126,7 @@ clients/
     │   ├── build.gradle          # Product flavors and Capacitor app module
     │   └── src/main/
     │       ├── AndroidManifest.xml
-    │       ├── java/ai/vocify/vellumassistant/
+    │       ├── java/ai/vellum/assistant/
     │       │   ├── ConnectDeepLink.java
     │       │   ├── MainActivity.java
     │       │   ├── NativeAuthPlugin.java
@@ -217,9 +217,9 @@ skip Android distribution so existing releases remain unaffected.
 
 Complete the following setup before enabling internal-track uploads:
 
-1. Create Play Console apps for `ai.vocify.vellumassistant`,
-   `ai.vocify.vellumassistant.staging`, and
-   `ai.vocify.vellumassistant.dev`.
+1. Create Play Console apps for `ai.vellum.assistant`,
+   `ai.vellum.assistant.staging`, and
+   `ai.vellum.assistant.dev`.
 2. Enable Play App Signing for each app and create one controlled upload key.
 3. Upload and roll out one signed AAB to each app's internal track manually.
    Google Play requires this initial release before the Publisher API can

@@ -1,4 +1,4 @@
-package ai.vocify.vellumassistant;
+package ai.vellum.assistant;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;

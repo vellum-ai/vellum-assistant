@@ -1,4 +1,4 @@
-package ai.vocify.vellumassistant;
+package ai.vellum.assistant;
 
 import java.io.ByteArrayOutputStream;
 import java.net.URI;

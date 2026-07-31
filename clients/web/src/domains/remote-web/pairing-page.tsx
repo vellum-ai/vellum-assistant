@@ -126,7 +126,7 @@ function clearDeviceCodeFromUrl(): void {
  * a phone that scanned a pairing QR with its camera.
  */
 const VELLUM_APP_SCHEME = "vellum-assistant";
-const VELLUM_ANDROID_PACKAGE = "ai.vocify.vellumassistant";
+const VELLUM_ANDROID_PACKAGE = "ai.vellum.assistant";
 type AppHandoffPlatform = "ios" | "android";
 
 /**
