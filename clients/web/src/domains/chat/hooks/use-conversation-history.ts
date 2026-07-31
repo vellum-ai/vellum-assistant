@@ -484,21 +484,55 @@ export function useConversationHistory({
     }
   }, [activeInProgress, refetchHistoryOnTurnEnd]);
 
-  // Billing tracks turns across ALL conversations, not just the active one:
-  // a background turn (external channel, other client) spends the same
-  // org-wide balance. Falling edge over the combined signal, so a background
-  // turn ending while another is still running defers the invalidation to
-  // the last turn's end.
-  const anyInProgress =
-    isSending(turnPhase) || processingConversationIds.size > 0;
-  const anyWasInProgressRef = useRef(false);
+  // Billing tracks turn ends across ALL conversations, not just the active
+  // one: a background turn (external channel, other client) spends the same
+  // org-wide balance. Each conversation leaving the processing set fires its
+  // own invalidation, so one turn's spend is never masked by another turn
+  // still running (a turn parked at `awaiting_user_input` can hold a
+  // combined signal for minutes). The local-send falling edge is the
+  // fallback for a send whose conversation never got flagged processing;
+  // when the flag did appear, the set departure owns the invalidation and
+  // the send edge stays quiet, so a local turn fires exactly once.
+  const sendingNow = isSending(turnPhase);
+  const prevProcessingRef = useRef(processingConversationIds);
+  const wasSendingRef = useRef(false);
+  const activeSendTrackedRef = useRef(false);
   useEffect(() => {
-    const justFinished = anyWasInProgressRef.current && !anyInProgress;
-    anyWasInProgressRef.current = anyInProgress;
-    if (justFinished) {
+    const prevProcessing = prevProcessingRef.current;
+    prevProcessingRef.current = processingConversationIds;
+    const sendJustEnded = wasSendingRef.current && !sendingNow;
+    wasSendingRef.current = sendingNow;
+
+    if (
+      sendingNow &&
+      !!activeConversationId &&
+      processingConversationIds.has(activeConversationId)
+    ) {
+      activeSendTrackedRef.current = true;
+    }
+
+    let anyTurnDeparted = false;
+    for (const id of prevProcessing) {
+      if (!processingConversationIds.has(id)) {
+        anyTurnDeparted = true;
+        break;
+      }
+    }
+
+    if (anyTurnDeparted) {
+      invalidateBillingSummary();
+    } else if (sendJustEnded && !activeSendTrackedRef.current) {
       invalidateBillingSummary();
     }
-  }, [anyInProgress, invalidateBillingSummary]);
+    if (sendJustEnded) {
+      activeSendTrackedRef.current = false;
+    }
+  }, [
+    processingConversationIds,
+    sendingNow,
+    activeConversationId,
+    invalidateBillingSummary,
+  ]);
 
   // -------------------------------------------------------------------------
   // Refetch history when the SSE connection reopens after a disconnect.

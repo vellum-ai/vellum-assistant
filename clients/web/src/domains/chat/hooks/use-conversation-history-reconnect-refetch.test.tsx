@@ -15,6 +15,7 @@ import { organizationsBillingSummaryRetrieveQueryKey } from "@/generated/api/@ta
 import { __resetForTesting, publish } from "@/lib/event-bus";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------
@@ -115,6 +116,8 @@ afterEach(() => {
   __resetForTesting();
   useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
   useConversationStore.getState().removeProcessingConversationId("conv-A");
+  useConversationStore.getState().removeProcessingConversationId("conv-B");
+  useTurnStore.setState({ phase: "idle" });
 });
 
 describe("useConversationHistory — refetch on SSE reopen", () => {
@@ -291,11 +294,12 @@ describe("useConversationHistory — refetch on SSE reopen", () => {
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
 
-  test("defers the billing invalidation until the last overlapping turn ends", () => {
+  test("invalidates per turn when overlapping turns end at different times", () => {
     /**
-     * The billing edge watches the combined in-progress signal, so a
-     * background turn ending while the active turn still streams fires
-     * nothing; the single invalidation lands when the last turn finishes.
+     * Each conversation leaving the processing set fires its own
+     * invalidation. A background turn that exhausts the balance must refresh
+     * it immediately even while another turn is still running; a turn parked
+     * at a user prompt would otherwise defer the refresh indefinitely.
      */
     // GIVEN overlapping turns in A (active) and B (background)
     renderHistory("conv-A");
@@ -308,14 +312,62 @@ describe("useConversationHistory — refetch on SSE reopen", () => {
     act(() => {
       useConversationStore.getState().removeProcessingConversationId("conv-B");
     });
-    // THEN nothing fires while A still streams
-    expect(billingInvalidations()).toBe(0);
+    // THEN its spend refreshes the balance while A still streams
+    expect(billingInvalidations()).toBe(1);
 
     // WHEN the active turn ends too
     act(() => {
       useConversationStore.getState().removeProcessingConversationId("conv-A");
     });
-    // THEN exactly one billing invalidation for the overlapping pair
+    // THEN the second turn fires its own invalidation
+    expect(billingInvalidations()).toBe(2);
+  });
+
+  test("a local send tracked in the processing set invalidates exactly once", () => {
+    /**
+     * A `useSendMessage` turn raises both signals: `turnPhase` goes sending
+     * and the server flags the conversation processing. The set departure
+     * owns the invalidation; the send falling edge stays quiet so the turn
+     * does not double-fire.
+     */
+    // GIVEN a local send whose conversation is also flagged processing
+    renderHistory("conv-A");
+    act(() => {
+      useTurnStore.setState({ phase: "streaming" });
+    });
+    act(() => {
+      useConversationStore.getState().markConversationProcessing("conv-A");
+    });
+
+    // WHEN the turn ends and both signals clear
+    act(() => {
+      useTurnStore.setState({ phase: "idle" });
+    });
+    act(() => {
+      useConversationStore.getState().removeProcessingConversationId("conv-A");
+    });
+
+    // THEN exactly one billing invalidation
+    expect(billingInvalidations()).toBe(1);
+  });
+
+  test("a local send that is never flagged processing still invalidates on its falling edge", () => {
+    /**
+     * The send falling edge is the fallback for a turn whose processing flag
+     * never arrives; without it that turn's spend would go unrefreshed.
+     */
+    // GIVEN a local send with no processing flag
+    renderHistory("conv-A");
+    act(() => {
+      useTurnStore.setState({ phase: "streaming" });
+    });
+
+    // WHEN the send ends
+    act(() => {
+      useTurnStore.setState({ phase: "idle" });
+    });
+
+    // THEN the billing summary refreshes once
     expect(billingInvalidations()).toBe(1);
   });
 
