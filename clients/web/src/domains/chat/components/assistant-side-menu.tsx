@@ -41,11 +41,6 @@ import { SidebarSectionResizeHandle } from "@/domains/chat/components/sidebar-se
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
 import {
-  resetPinnedSectionHeight,
-  savePinnedSectionHeight,
-  usePinnedSectionHeight,
-} from "@/domains/chat/utils/sidebar-pinned-height";
-import {
   RECENTS_SECTION_ICON,
   RECENTS_SECTION_LABEL,
   sectionIcon,
@@ -160,8 +155,7 @@ function SearchButton() {
  *     • [ All | Grouped ] - the view switch, first and sticky
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
- *     • ───────────────  - when anything is curated above it; drags to
- *       resize Pinned while that section is expanded
+ *     • ───────────────  - when anything is curated above it
  *     • All view: every remaining conversation as one headerless,
  *       virtualized list, newest first
  *     • Grouped view: Chats ▾ then one collapsible section per origin
@@ -423,10 +417,6 @@ export function AssistantSideMenu({
       groupMenu={sectionMenu(section)}
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot(section.all)}
-      listRef={section.type === "pinned" ? pinnedListRef : undefined}
-      listMaxHeight={
-        section.type === "pinned" ? pinnedListMaxHeight : undefined
-      }
     />
   );
 
@@ -675,18 +665,10 @@ export function AssistantSideMenu({
                   .map(renderSection)}
                 {/* The list's one rule, marking where curation ends and the
                     conversations begin. Absent when nothing is curated yet, so
-                    a fresh sidebar never opens on a stray line. It carries no
-                    margin, sitting on the root's own gap, and doubles as the
-                    Pinned section's resize handle while Pinned is expanded. */}
+                    a fresh sidebar never opens on a stray line. `my-0` keeps it
+                    on the root's own gap instead of adding to it. */}
                 {sidebar.curatedSectionCount > 0 ? (
-                  <SidebarSectionResizeHandle
-                    targetRef={pinnedListRef}
-                    resizable={pinnedResizable}
-                    onCommit={(height) =>
-                      savePinnedSectionHeight(assistantId, height)
-                    }
-                    onReset={() => resetPinnedSectionHeight(assistantId)}
-                  />
+                  <SideMenu.Separator className="my-0" />
                 ) : null}
                 {sidebar.sections
                   .slice(sidebar.curatedSectionCount)

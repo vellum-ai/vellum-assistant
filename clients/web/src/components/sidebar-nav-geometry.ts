@@ -48,13 +48,3 @@ export const SIDEBAR_SECTION_INDENT = 12;
  * neighbours.
  */
 export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
-
-/**
- * Bounds for the Pinned section's user-adjustable height (dragging the rule
- * under the curated block). Min fits two desktop rows (30px each) plus their
- * 4px gap. Max stays a fixed constant rather than viewport-derived: the
- * sidebar body scrolls, so an oversized section degrades to body scrolling
- * the same way a long section list does today.
- */
-export const SIDEBAR_SECTION_RESIZE_MIN_HEIGHT = 64;
-export const SIDEBAR_SECTION_RESIZE_MAX_HEIGHT = 600;

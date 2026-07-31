@@ -51,11 +51,7 @@ import {
   nextStoredOrder,
   type SectionOrderClass,
 } from "@/domains/chat/utils/sidebar-section-order";
-import {
-  saveViewMode,
-  useViewMode,
-  type SidebarViewMode,
-} from "@/domains/chat/utils/sidebar-view-mode";
+import type { SidebarViewMode } from "@/domains/chat/utils/sidebar-view-mode";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
   useBackgroundConversationListQuery,
@@ -214,20 +210,8 @@ export function useSidebarState({
   const setOpenPrimary = useSidebarLayoutStore.use.setOpenPrimary();
   const sectionOrder = useSidebarLayoutStore.use.sectionOrder();
   const setSectionOrder = useSidebarLayoutStore.use.setSectionOrder();
-
-  // Read straight from storage rather than through the layout store. The store
-  // hydrates in an effect, so anything it owns renders as the default on the
-  // first paint; the view mode decides which list the sidebar draws, making
-  // that flash the most visible one. Subscribing instead means the stored
-  // choice is there on the first paint, and a change in another window lands
-  // here without a reload.
-  const viewMode = useViewMode(assistantId);
-  const setViewMode = useCallback(
-    (next: SidebarViewMode) => {
-      saveViewMode(assistantId, next);
-    },
-    [assistantId],
-  );
+  const viewMode = useSidebarLayoutStore.use.viewMode();
+  const setViewMode = useSidebarLayoutStore.use.setViewMode();
   const backgroundActivated = useSidebarLayoutStore.use.backgroundActivated();
   const scheduledActivated = useSidebarLayoutStore.use.scheduledActivated();
   const collapseAssistantId = useSidebarLayoutStore.use.assistantId();

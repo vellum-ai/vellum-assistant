@@ -66,13 +66,6 @@ export interface ConversationRowListProps {
    * of its own would put a second scrollbar in the rail.
    */
   scrollParent?: HTMLElement;
-  /**
-   * Reaches the bounded scroll div, for the Pinned resize handle to drive
-   * imperatively during a drag. Unused when `scrollParent` unbounds the list.
-   */
-  listRef?: Ref<HTMLDivElement>;
-  /** Caps the bounded list instead of {@link SIDEBAR_SECTION_MAX_HEIGHT}. */
-  listMaxHeight?: number;
 }
 
 export function ConversationRowList({
@@ -80,8 +73,6 @@ export function ConversationRowList({
   dragSection,
   dragSiblings,
   scrollParent,
-  listRef,
-  listMaxHeight,
 }: ConversationRowListProps) {
   const renderRow = (conversation: Conversation) => (
     <ConversationRow
@@ -107,9 +98,8 @@ export function ConversationRowList({
       rows
     ) : (
       <div
-        ref={listRef}
         className="overflow-y-auto"
-        style={{ maxHeight: listMaxHeight ?? SIDEBAR_SECTION_MAX_HEIGHT }}
+        style={{ maxHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
       >
         {rows}
       </div>
@@ -134,12 +124,7 @@ export function ConversationRowList({
   return scrollParent ? (
     windowed
   ) : (
-    <div
-      ref={listRef}
-      style={{ height: listMaxHeight ?? SIDEBAR_SECTION_MAX_HEIGHT }}
-    >
-      {windowed}
-    </div>
+    <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>
   );
 }
 export interface ConversationNavSectionProps extends ConversationRowListProps {

@@ -3,7 +3,7 @@ import { Globe, Lock, Users } from "lucide-react";
 import { useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 
-import { Dropdown, type DropdownOption } from "./dropdown";
+import { Dropdown, type DropdownOption, type DropdownProps } from "./dropdown";
 import { Modal } from "./modal";
 import { Tag } from "./tag";
 
@@ -347,14 +347,7 @@ export const InsideModal: Story = {
   render: function ModalDropdown(args) {
     const [value, setValue] = useState("apple");
     return (
-      // Opened by the play function rather than `defaultOpen`. An always-open
-      // modal renders over the whole autodocs page, hiding every other story.
-      <Modal.Root>
-        <Modal.Trigger asChild>
-          <button type="button" data-testid="open-modal">
-            Open modal
-          </button>
-        </Modal.Trigger>
+      <Modal.Root defaultOpen>
         <Modal.Content>
           <Modal.Header>
             <Modal.Title>Pick a fruit</Modal.Title>
@@ -373,9 +366,7 @@ export const InsideModal: Story = {
       </Modal.Root>
     );
   },
-  play: async ({ canvasElement, step }) => {
-    await userEvent.click(within(canvasElement).getByTestId("open-modal"));
-
+  play: async ({ step }) => {
     // Scoped to the document rather than the canvas: both the dialog and the
     // menu are portaled out of the story's subtree.
     const dialog = document.querySelector('[data-slot="modal-content"]');

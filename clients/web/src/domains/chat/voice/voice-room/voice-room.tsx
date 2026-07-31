@@ -446,7 +446,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   const choreography = resolveVoiceRoomChoreography(variant, reduce === true);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape" || event.defaultPrevented) {
+      if (event.key !== "Escape") {
         return;
       }
       // A dialog layered over the room owns the key while it holds focus. The

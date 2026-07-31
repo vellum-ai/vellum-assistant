@@ -9,6 +9,7 @@ function resetStore() {
     openCategories: [],
     openCustomGroups: [],
     openPrimary: ["pinned", "recents"],
+    viewMode: "all",
     backgroundActivated: false,
     scheduledActivated: false,
   });
@@ -242,6 +243,31 @@ describe("SidebarLayoutStore - independent lazy-section activation", () => {
     expect(state.scheduledActivated).toBe(false);
   });
 
-  // The view mode is deliberately not held here: it reads from storage
-  // directly so it survives the first paint. See sidebar-view-mode.test.ts.
+  test("defaults to the flat All view", () => {
+    expect(useSidebarLayoutStore.getState().viewMode).toBe("all");
+  });
+
+  test("setViewMode persists per assistant and hydrates back", () => {
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore.getState().setViewMode("grouped");
+
+    expect(localStorage.getItem("vellum:sidebar-view-mode:asst-1")).toBe(
+      "grouped",
+    );
+
+    // A second assistant keeps the default until it is switched itself.
+    useSidebarLayoutStore.getState().setAssistantId("asst-2");
+    expect(useSidebarLayoutStore.getState().viewMode).toBe("all");
+
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    expect(useSidebarLayoutStore.getState().viewMode).toBe("grouped");
+  });
+
+  test("an unrecognized stored view falls back to the default", () => {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "channels");
+
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+
+    expect(useSidebarLayoutStore.getState().viewMode).toBe("all");
+  });
 });

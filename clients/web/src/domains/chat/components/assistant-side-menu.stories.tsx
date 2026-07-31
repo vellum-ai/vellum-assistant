@@ -105,14 +105,12 @@ const GROUPS: ConversationGroup[] = [
 ];
 
 /**
- * Seed the stored view mode so the story mounts straight into the view it
- * documents. The sidebar subscribes to storage during render, so the write is
- * all it takes; resetting the layout store clears any collapse state a
- * previously-rendered story left behind.
+ * Seed the layout store (and the localStorage the store hydrates from) so the
+ * story mounts straight into the view it documents.
  */
 function seedViewMode(assistantId: string, mode: SidebarViewMode): void {
   saveViewMode(assistantId, mode);
-  useSidebarLayoutStore.setState({ assistantId: null });
+  useSidebarLayoutStore.setState({ assistantId: null, viewMode: mode });
 }
 
 const SHARED_ARGS = {

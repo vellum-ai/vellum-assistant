@@ -68,6 +68,7 @@ beforeEach(() => {
   localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
   useSidebarLayoutStore.setState({
     assistantId: null,
+    viewMode: "grouped",
     sectionOrder: [],
     openCategories: [],
     openCustomGroups: [],
@@ -214,7 +215,7 @@ describe("AssistantSideMenu · Chats category rows", () => {
 describe("AssistantSideMenu · All view", () => {
   beforeEach(() => {
     localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
-    useSidebarLayoutStore.setState({ assistantId: null });
+    useSidebarLayoutStore.setState({ assistantId: null, viewMode: "all" });
   });
 
   const conversations = [
@@ -264,7 +265,7 @@ describe("AssistantSideMenu · All view", () => {
       "vellum:sidebar-section-order:asst-1",
       JSON.stringify(["recents", "grp-a", "channel:slack"]),
     );
-    useSidebarLayoutStore.setState({ assistantId: null });
+    useSidebarLayoutStore.setState({ assistantId: null, viewMode: "grouped" });
 
     const container = parse(
       renderMenu({
@@ -1014,19 +1015,17 @@ describe("AssistantSideMenu · equal section treatment", () => {
     const indexOfText = (text: string) =>
       children.findIndex((el) => (el.textContent ?? "").includes(text));
     const ruleIndex = children.findIndex((el) =>
-      el.matches('[data-slot="sidebar-section-resize-handle"]'),
+      el.matches('[data-slot="side-menu-separator"]'),
     );
 
     expect(
-      root.querySelectorAll('[data-slot="sidebar-section-resize-handle"]'),
+      root.querySelectorAll('[data-slot="side-menu-separator"]'),
     ).toHaveLength(1);
     // Pinned and Alpha above it, Chats and Slack below.
     expect(indexOfText("Pinned")).toBeLessThan(ruleIndex);
     expect(indexOfText("Alpha")).toBeLessThan(ruleIndex);
     expect(indexOfText("Chats")).toBeGreaterThan(ruleIndex);
     expect(indexOfText("Slack")).toBeGreaterThan(ruleIndex);
-    // Pinned is present and open by default, so the rule drags.
-    expect(children[ruleIndex]?.hasAttribute("data-resizable")).toBe(true);
   });
 
   test("the rule is absent until something is curated", () => {
@@ -1045,35 +1044,8 @@ describe("AssistantSideMenu · equal section treatment", () => {
     }
 
     expect(
-      root.querySelectorAll('[data-slot="sidebar-section-resize-handle"]'),
+      root.querySelectorAll('[data-slot="side-menu-separator"]'),
     ).toHaveLength(0);
-  });
-
-  // The rule only drags while there is a Pinned section to resize; a custom
-  // group alone still earns the rule, but an inert one.
-  test("the rule is inert when groups are curated without pins", () => {
-    const container = parse(
-      renderMenu({
-        conversations: [
-          makeConversation({ conversationId: "r1" }),
-          makeConversation({
-            conversationId: "g1",
-            title: "Group one",
-            groupId: "grp-a",
-          }),
-        ],
-        conversationGroups: LAYOUT_GROUPS,
-      }),
-    );
-
-    const rule = container.querySelector<HTMLElement>(
-      '[data-slot="sidebar-section-resize-handle"]',
-    );
-    if (!rule) {
-      throw new Error("expected the curated block's rule");
-    }
-
-    expect(rule.hasAttribute("data-resizable")).toBe(false);
   });
 
   // The switch sits outside the section list, ahead of it: a sticky element
