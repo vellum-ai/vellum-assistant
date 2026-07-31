@@ -10,7 +10,7 @@ import { Button } from "@vellumai/design-library";
  *
  * Width is constrained to `--chat-max-width` so the banner aligns with
  * the composer below it. Surface tokens follow the design-system
- * conventions (base surface, element border, subtle shadow).
+ * conventions (base surface, subtle shadow, no border).
  */
 export interface NudgeChatBannerProps {
   /** Decorative leading icon — rendered inside a 32px rounded square. */
@@ -46,21 +46,20 @@ export function NudgeChatBanner({
 }: NudgeChatBannerProps) {
   return (
     <div
-      className="mx-auto flex overflow-hidden rounded-xl border"
+      className="mx-auto flex overflow-hidden rounded-[10px]"
       style={{
-        background: "var(--surface-base)",
-        borderColor: "var(--border-element)",
+        background: "color-mix(in srgb, var(--surface-base) 92%, white)",
         animation: "fadeInUp 0.25s ease-out both",
         maxWidth: "var(--chat-max-width)",
         width: "100%",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.06)",
+        boxShadow: "0 5px 8px 6px rgba(0,0,0,0.03), 0 7px 16px 6px rgba(0,0,0,0.03)",
       }}
       role="status"
       aria-label={ariaLabel}
     >
-      <div className="flex flex-1 items-center gap-2 px-4 py-3 md:gap-3">
+      <div className="flex flex-1 items-center gap-2 px-[14px] py-3 md:gap-3">
         <span
-          className="flex size-8 shrink-0 items-center justify-center rounded-lg"
+          className="flex size-8 shrink-0 items-center justify-center rounded-[6px]"
           style={{ background: "var(--surface-lift)" }}
         >
           {icon}

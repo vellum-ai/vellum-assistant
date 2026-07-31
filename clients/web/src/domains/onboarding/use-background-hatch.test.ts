@@ -84,7 +84,7 @@ const saveLockfileAssistantMock = mock(
 mock.module("@/lib/local-mode", () => ({
   probeLocalGatewayReady: probeLocalGatewayReadyMock,
   getLockfileAssistant: getLockfileAssistantMock,
-  isLocalMode: () => localMode,
+  isLocalClient: () => localMode,
   // Surfaces the written entry to the assertions below; payload pinned by
   // `local-mode.test.ts`.
   saveManagedLockfileAssistant: async (

@@ -61,6 +61,7 @@ import {
 import { APP_VERSION } from "../version.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
+import { ensureByokDefaultProfiles } from "../workspace/byok-default-profile-ensure.js";
 import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
@@ -474,13 +475,11 @@ export async function runDaemon(): Promise<void> {
   // seeder and persisted alongside schema defaults.
   const defaultConfigMerge = mergeDefaultWorkspaceConfig();
 
-  // Seed inference profiles into the workspace config. Managed Anthropic
-  // profiles are overwritten on every boot so Vellum can push updates.
-  // Off-platform hatches additionally create user profiles + a personal
-  // provider connection for the hatch provider.
+  // Seed inference profiles into the workspace config: active/advisor
+  // resolution plus, on off-platform hatches, `llm.defaultProvider` and a
+  // personal provider connection for the hatch provider.
   try {
     seedInferenceProfiles({
-      preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
       preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
       isHatch: defaultConfigMerge.hadOverlay,
       db: dbReady ? getDb() : undefined,
@@ -521,6 +520,22 @@ export async function runDaemon(): Promise<void> {
     log.warn(
       { err },
       "Default provider ensure pass failed — continuing startup",
+    );
+  }
+
+  // Runs on every boot, after the default-provider ensure (it keys off
+  // llm.defaultProvider) and before custom-profile materialization (so
+  // copies it retires this boot are never pointlessly materialized first;
+  // its comparison normalizes both sides through the same completion, so
+  // ordering is not correctness-bearing).
+  // See workspace/byok-default-profile-ensure.ts for the full rationale.
+  try {
+    ensureByokDefaultProfiles(getWorkspaceDir());
+    log.info("BYOK default profile ensure pass complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "BYOK default profile ensure pass failed; continuing startup",
     );
   }
 

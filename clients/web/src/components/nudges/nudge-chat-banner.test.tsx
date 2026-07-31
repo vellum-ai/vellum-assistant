@@ -79,7 +79,9 @@ describe("NudgeChatBanner", () => {
       />,
     );
 
-    expect(html).toContain("background:var(--surface-base)");
+    expect(html).toContain(
+      "background:color-mix(in srgb, var(--surface-base) 92%, white)",
+    );
     expect(html).not.toContain("background:var(--surface-overlay)");
   });
 

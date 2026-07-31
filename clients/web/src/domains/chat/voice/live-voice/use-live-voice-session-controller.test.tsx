@@ -36,6 +36,8 @@ const deactivateVoiceAudioSession = mock(async () => undefined);
 const unsubscribeInterruptions = mock(() => undefined);
 let interruptionHandlers: ((event: InterruptionEvent) => void)[] = [];
 
+// A whole-module mock, so every export the controller's import graph reaches
+// has to be present here or the module fails to load.
 mock.module("@/runtime/native-audio-session", () => ({
   activateVoiceAudioSession,
   deactivateVoiceAudioSession,
@@ -344,7 +346,12 @@ describe("native audio session", () => {
     await startListeningViaStarter(h);
 
     // The churn a real turn produces, none of which may reach the bridge.
-    for (const phase of ["transcribing", "thinking", "speaking", "listening"] as const) {
+    for (const phase of [
+      "transcribing",
+      "thinking",
+      "speaking",
+      "listening",
+    ] as const) {
       await act(async () => {
         useLiveVoiceStore.getState().setState(phase);
         await Promise.resolve();

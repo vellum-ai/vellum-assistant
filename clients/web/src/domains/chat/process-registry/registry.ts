@@ -18,3 +18,26 @@ export const PROCESS_KINDS: BackgroundProcessDescriptor[] = [
   WORKFLOW_DESCRIPTOR,
   BACKGROUND_TASK_DESCRIPTOR,
 ];
+
+/**
+ * The kinds that float an overlay above the transcript in a windowed chat.
+ *
+ * Workflows and background tasks only. Subagent and ACP sessions are surfaced
+ * by the header's `ConversationActivityPill`, which also covers finished
+ * sessions and keeps the transcript clear, so overlaying them as well would
+ * give one process two entry points.
+ */
+export const OVERLAY_PROCESS_KINDS: BackgroundProcessDescriptor[] = [
+  WORKFLOW_DESCRIPTOR,
+  BACKGROUND_TASK_DESCRIPTOR,
+];
+
+/**
+ * The kinds that float an overlay in a pop-out window: every kind.
+ *
+ * A pop-out renders no header, so it has no `ConversationActivityPill` to carry
+ * subagent and ACP sessions. The overlay is the only ambient surface there, and
+ * it covers all four kinds so running work stays visible.
+ */
+export const POPOUT_OVERLAY_PROCESS_KINDS: BackgroundProcessDescriptor[] =
+  PROCESS_KINDS;

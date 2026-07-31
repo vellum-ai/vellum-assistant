@@ -1,8 +1,8 @@
-# Capacitor / iOS Conventions
+# Capacitor / Native Conventions
 
-The web app ships as both a browser SPA and the JS layer of a [Capacitor](https://capacitorjs.com/) iOS shell that loads it in a `WKWebView`. The patterns below are mandatory for any code path that might run inside Capacitor iOS — most of them address real iOS-specific failure modes that desktop browsers silently tolerate.
+The web app ships as both a browser SPA and the JS layer of [Capacitor](https://capacitorjs.com/) iOS and Android shells that load it in native WebViews. The patterns below are mandatory for any code path that might run inside a Capacitor shell. Several sections call out iOS-specific failure modes that desktop browsers silently tolerate.
 
-> **Read this only if your change touches iOS code paths.** For browser-only contributions you can skip this document. Building the iOS app itself additionally requires macOS and Xcode; the native shell lives in [`clients/ios/`](../../../clients/ios/).
+> **Read this only if your change touches native Capacitor code paths.** For browser-only contributions you can skip this document. The native shells live in [`clients/ios/`](../../../clients/ios/) and [`clients/android/`](../../../clients/android/).
 
 If you're touching anything in `clients/web/src/runtime/`, anything that calls a `@capacitor/*` plugin, anything that streams from the daemon, anything that auto-resizes based on content, or anything that gates a browser API that triggers an OS permission alert — start here.
 
@@ -34,6 +34,21 @@ If you genuinely need to pass a plugin around, wrap it in a non-thenable contain
 References:
 - `@capacitor/core` proxy `get` trap — [`global.ts` in `ionic-team/capacitor`](https://github.com/ionic-team/capacitor/blob/main/core/src/global.ts) (search `createPluginMethod`).
 - ECMAScript spec — [`PromiseResolveThenableJob`](https://tc39.es/ecma262/#sec-promiseresolvethenablejob) (the runtime hook this footgun rides on).
+
+### Linking a plugin runs its native `load()`
+
+Capacitor calls every linked plugin's `load()` at bridge init, before any JS imports it and whether or not `capacitor.config.ts` configures it. An iOS Capacitor plugin dependency is therefore never runtime-neutral, and "we only added the dependency, nothing imports it" says nothing about behavior.
+
+**Before adding an iOS Capacitor plugin dependency, read its native `load()` and account for every side effect it has.** A plugin is not dependency-only until that read says so.
+
+`@capacitor/keyboard` is the worked example. Its `load()`:
+
+- Sets `hideFormAccessoryBar = YES` with no config gate (`Keyboard.m:187`). That is the mechanism that hides the input accessory bar (prev/next chevrons plus Done) above the iOS keyboard in this shell. The `setAccessoryBarVisible({ isVisible: false })` call in [`src/runtime/native-keyboard.ts`](../src/runtime/native-keyboard.ts) only states the same intent explicitly and pins it against an upstream default change.
+- Removes `WKWebView`'s own keyboard-avoidance observers, unsubscribing the web view from the `UIKeyboardWillShow`, `UIKeyboardWillHide`, and keyboard frame-change notifications (`Keyboard.m:196-199`), and substitutes a web view frame resize the plugin drives itself. On show, that resize is deferred by the keyboard animation duration plus `0.2` seconds (`Keyboard.m:256-257`); on hide it runs at `delay:0.01` (`Keyboard.m:214`). So `visualViewport` learns the keyboard height well after the system animation has started.
+
+[`useVisibleViewport`](../src/hooks/use-visible-viewport.ts) bridges that gap through [`subscribeNativeKeyboardHeight`](../src/runtime/native-keyboard.ts), which registers a `keyboardWillShow` plugin listener and so reports the keyboard height at the leading edge of the animation instead of after the deferred resize.
+
+Register these through `Keyboard.addListener`, not the same-named `window` events the bridge also dispatches: `cap.createEvent` builds those with `document.createEvent('Events')` and copies each payload key straight onto the event object, so `event.detail` is always `undefined` and a `detail.keyboardHeight` read silently yields `0`.
 
 ---
 
@@ -116,6 +131,7 @@ Native OAuth completion auto-dismisses `SFSafariViewController` by redirecting t
 - **Parse via `parseOAuthCompleteDeepLink()`.** It exact-matches the scheme against the apex allow-list, rejects look-alikes (e.g. `vellum-assistant-evil://`), requires the `oauth-complete` host, and enforces a non-empty `requestId`. Adding a new scheme means adding it to the allow-list — do not loosen the matcher to a `startsWith` check.
 - **Consume via a typed window-event listener hook** that registers for the `"vellum:oauth-complete-deeplink"` event and cleans up on unmount.
 - **Pair the deep-link listener with a `browserFinished` poll fallback** when the consumer must work on builds where the listener doesn't fire (e.g. iOS dispatch hiccups, user-cancel paths). Today's UX must remain the worst case in every failure mode.
+- **Read `App.getLaunchUrl()` only on Android.** The iOS `AppDelegate` replays cold-launch URLs through `appUrlOpen`, while Capacitor retains its last iOS URL for the process. Reading it again would duplicate the deep link.
 - **`<scheme>://voice?mode=new|resume[&prompt=…]`** is the start-voice contract (`parseStartVoiceDeepLink` → `deeplink.startVoice`). Siri, the Action Button, Control Center, the Live Activity's `widgetURL`, and a link typed into Safari all converge on it — see [`clients/ios/docs/NATIVE_VOICE.md` § The deep-link contract](../../../clients/ios/docs/NATIVE_VOICE.md#the-deep-link-contract). `prompt` is untrusted free-form text and is bounded and sanitized *in the parser*, not at the consumer.
 
 References:
@@ -250,6 +266,52 @@ work. On teardown, pause it, clear `srcObject`, and stop every track owned by
 the destination stream. Automatic reconnects must reuse the already-started
 player and MediaStream element: creating a replacement from a backoff timer
 loses the original user activation and can make `play()` fail.
+
+**Re-render the track once the microphone is live.** WebKit binds a MediaStream
+renderer to whichever capture unit is active when the renderer starts, and the
+echo reference belongs to that unit. Starting the element in the entry gesture
+is therefore necessary but not sufficient: at that moment `getUserMedia` has not
+run, so the renderer can come up bound to a plain output unit and never acquire
+a reference. `LiveVoiceAudioPlayer.restartOutputRoute()` pauses and replays the
+element, and the session calls it once capture reports running. The queue is
+silent at that point, so the restart is inaudible.
+
+It also **rebuilds a route that has already fallen back**, which is what the
+gesture-less entry points depend on. A session started from Siri, the Action
+Button, or a Live Activity has no activation to borrow, so its prewarm `play()`
+is refused and the fallback tears the route down; by capture time the page holds
+a live `getUserMedia` stream, which is grounds for playing a MediaStream element
+that an unactivated page could not. Treating a fallen-back route as nothing to
+retry would strand exactly those sessions on the direct path for their whole
+lifetime.
+
+**The route degrades silently.** A refused `play()` falls back to
+`AudioContext.destination`: audio still plays and echo cancellation is simply
+gone, which surfaces only as the assistant transcribing fragments of its own
+speech. `getOutputRouteDiagnostics()` reports the resolved route, the `play()`
+rejection, and live element state. It exists so the fallback path is testable
+(`tts-playback.test.ts`), and nothing in production consumes it.
+
+**The live-voice path writes nothing to the diagnostics rings, deliberately.** A
+voice session is the most private surface the app has, and the rings are carried
+off the device inside support bundles. Anything derived from the microphone is
+out of bounds outright: not only speech, but aggregates over it, such as an
+amplitude envelope, a correlation, or a room noise floor. Those characterise a
+user's home. This was instrumented once, in #39687, to prove the rebind above
+engaged; it did, on device and on the web, and the instrumentation was removed
+with the question it answered.
+
+Console output is held to the same intent but is not yet the same rule. The
+session's own logging is error-path `console.warn`s carrying codes and reasons,
+never content. The one exception is a per-turn
+`console.debug("[live-voice] turn latency", ...)` in `use-live-voice.ts`,
+carrying a turn id and timings (added in #37710, awaiting a debug panel). It
+predates this section and is listed here so the paragraph stays honest, not as a
+precedent: new per-turn logging does not belong on this path.
+
+If echo returns, that is a device-debugging session with a build that carries a
+probe, not a reason to reinstate one in the shipped bundle. Prefer a temporary
+branch over a permanent field, and delete it the same way.
 
 References:
 

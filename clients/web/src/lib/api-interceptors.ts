@@ -37,7 +37,7 @@ import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { ApiError, toApiError } from "@/utils/api-errors";
 import {
-  isLocalMode,
+  isLocalClient,
   isPlatformDisabled,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
@@ -224,7 +224,7 @@ export async function rewriteForSelfHostedIngress(
   // reference (blob handle) and read directly, with no renderer-side data
   // pipe to block on. Platform self-hosted uses TLS, so keep the streaming
   // body there to avoid buffering large uploads.
-  const body = isLocalMode()
+  const body = isLocalClient()
     ? request.body
       ? await request.blob()
       : null
@@ -240,7 +240,7 @@ export async function rewriteForSelfHostedIngress(
     redirect: request.redirect,
     signal: request.signal,
   };
-  if (!isLocalMode() && request.body) {
+  if (!isLocalClient() && request.body) {
     (init as RequestInit & { duplex: "half" }).duplex = "half";
   }
   return new Request(rewrittenUrl.toString(), init);
@@ -430,7 +430,7 @@ export function localGatewayAuthRecoveryInterceptor(
   if (gw401RecoveryFired) {
     return response;
   }
-  if (!isLocalMode()) {
+  if (!isLocalClient()) {
     return response;
   }
   const ingressUrl = getSelfHostedIngressUrl();
@@ -648,7 +648,7 @@ export function platformFeaturesGate(request: Request): Request {
     return new Request(request.url, { signal: aborted.signal });
   }
 
-  if (!isLocalMode()) {
+  if (!isLocalClient()) {
     return request;
   }
   if (arePlatformFeaturesEnabled()) {

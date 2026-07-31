@@ -39,7 +39,7 @@ import {
 import {
   getSelectedAssistant,
   isLocalAssistant,
-  isLocalMode,
+  isLocalClient,
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
@@ -59,6 +59,10 @@ export function GeneralPage() {
   } = useAssistantWithHealthz();
   const multiPlatformAssistant =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
+  const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
+  // Both flags can be on for the same audience; the switcher card supersedes
+  // the in-page picker so two "Switch Assistant" cards never render together.
+  const showAssistantSwitcherCard = assistantSwitcher && isLocalClient();
   const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const settingsSleepPolicy =
@@ -90,10 +94,10 @@ export function GeneralPage() {
   }, [searchParams, setSearchParams]);
 
   const platformAssistant =
-    assistant?.is_local && !isLocalMode() ? null : assistant;
+    assistant?.is_local && !isLocalClient() ? null : assistant;
   const selected = getSelectedAssistant();
   const hasSelectedLocalAssistant =
-    isLocalMode() && !!assistant && !!selected && isLocalAssistant(selected);
+    isLocalClient() && !!assistant && !!selected && isLocalAssistant(selected);
   const canRetireLocally = hasSelectedLocalAssistant;
   const canUpgradeLocally = hasSelectedLocalAssistant && !isRemoteGatewayMode();
   // Whether an upgrade panel (platform or local) is on screen. Both panels
@@ -313,7 +317,26 @@ export function GeneralPage() {
         </DetailCard>
       )}
 
-      {multiPlatformAssistant && <AssistantPicker />}
+      {multiPlatformAssistant && !showAssistantSwitcherCard && (
+        <AssistantPicker />
+      )}
+
+      {showAssistantSwitcherCard && (
+        <DetailCard
+          title="Switch Assistant"
+          subtitle="Choose which assistant this device is connected to."
+          accessory={
+            <Button
+              variant="outlined"
+              onClick={() =>
+                void navigate(`${routes.selectAssistant}?noAutoSkip=1`)
+              }
+            >
+              Choose Assistant
+            </Button>
+          }
+        />
+      )}
 
       {(showRetire || showDeleteAccount) && (
         <DetailCard variant="danger" title="Danger Zone">

@@ -2206,6 +2206,15 @@ jobs:
       version: ${{ needs.compute-version.outputs.version }}
     secrets: inherit
 
+  release-android:
+    needs: [compute-version, register-release, build-chrome-extension]
+    if: vars.ANDROID_RELEASE_ENABLED == 'true'
+    uses: ./.github/workflows/release-android.yaml
+    with:
+      environment: dev
+      version: ${{ needs.compute-version.outputs.version }}
+    secrets: inherit
+
   # ── Slack notification (first failure only) ──────────────────────────
 
   notify-releases:

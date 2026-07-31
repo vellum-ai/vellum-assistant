@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./channels": "./src/channels.ts",
+    "./conversation-handle": "./src/conversation-handle.ts",
     "./client-metadata": "./src/client-metadata.ts",
     "./credential-rpc": "./src/credential-rpc.ts",
     "./ingress": "./src/ingress.ts",
@@ -18,6 +19,7 @@
     "./attachment-naming": "./src/attachment-naming.ts",
     "./redacted-credential": "./src/redacted-credential.ts",
     "./secret-detection": "./src/secret-detection.ts",
+    "./stripe-currency": "./src/stripe-currency.ts",
     "./error": "./src/error.ts"
   },
   "scripts": {

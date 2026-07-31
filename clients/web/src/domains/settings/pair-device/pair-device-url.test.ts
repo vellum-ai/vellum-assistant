@@ -3,15 +3,15 @@ import { describe, expect, test } from "bun:test";
 import {
   buildRemoteWebPairingUrl,
   isLoopbackUrl,
-  normalizePublicBaseUrl,
+  normalizePairingBaseUrl,
   publicBaseUrlRejectionMessage,
   resolvePublicBaseUrl,
 } from "./pair-device-url";
 
-describe("normalizePublicBaseUrl", () => {
+describe("normalizePairingBaseUrl", () => {
   test("strips query, hash, and the assistant path segment", () => {
     expect(
-      normalizePublicBaseUrl(
+      normalizePairingBaseUrl(
         "https://foo.ts.net/assistant/pair?x=1#device_code=abc",
       ),
     ).toBe("https://foo.ts.net");
@@ -19,18 +19,18 @@ describe("normalizePublicBaseUrl", () => {
 
   test("preserves a deployment path prefix before /assistant", () => {
     expect(
-      normalizePublicBaseUrl("https://foo.example.com/vellum/assistant/"),
+      normalizePairingBaseUrl("https://foo.example.com/vellum/assistant/"),
     ).toBe("https://foo.example.com/vellum");
   });
 
   test("trims trailing slashes", () => {
-    expect(normalizePublicBaseUrl("https://foo.ts.net///")).toBe(
+    expect(normalizePairingBaseUrl("https://foo.ts.net///")).toBe(
       "https://foo.ts.net",
     );
   });
 
   test("throws on an unparseable value", () => {
-    expect(() => normalizePublicBaseUrl("not a url")).toThrow();
+    expect(() => normalizePairingBaseUrl("not a url")).toThrow();
   });
 });
 

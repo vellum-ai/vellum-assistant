@@ -15,6 +15,14 @@ body {
   color: var(--content-default);
 }
 
+/* Capacitor iOS shell: the app shell shrinks ahead of the keyboard plugin's
+ * deferred web view resize, briefly exposing the canvas, which unpainted falls
+ * through (isOpaque = false) to the near-white native SurfaceOverlay backdrop.
+ * Gated because Electron's transparent floating windows need an unpainted canvas. */
+:root[data-native-platform="ios"] body {
+  background: var(--surface-base);
+}
+
 /* Electron prechat onboarding typography — mirror the lighter DM Sans (Swift
  * VFont) weights/sizes so the macOS Electron funnel matches the native Swift
  * client. Scoped via `.electron-prechat-type` (applied ONLY on Electron) so the
@@ -49,9 +57,6 @@ body {
 
 @keyframes fadeInUp {
   0% { transform: translateY(16px); opacity: 0; }
-  /* End at `none` (not translateY(0)) so the filled-forwards transform does
-     not create a containing block — otherwise position:fixed descendants like
-     the Dropdown menu anchor to this element instead of the viewport. */
   100% { transform: none; opacity: 1; }
 }
 
@@ -68,8 +73,12 @@ body {
   animation: fadeIn 0.25s ease-out both;
 }
 
+/* `backwards`, not `both`: see the note on `.home-detail-drawer` below. A
+   forwards-filled transform stays applied as an identity matrix once the
+   animation ends, and that is enough to make this element the containing
+   block for any `position: fixed` descendant. */
 .plans-takeover-content-enter {
-  animation: fadeInUp 0.35s ease-out both;
+  animation: fadeInUp 0.35s ease-out backwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -87,15 +96,23 @@ body {
 }
 
 /* Home Activity detail drawer (schedule / heartbeat / notification) sliding
-   in from the right. Ends at `transform: none` for the same containing-block
-   reason as fadeInUp above (the panel hosts fixed Dropdown/tooltip layers). */
+   in from the right. The panel hosts fixed Dropdown/tooltip layers, so the
+   fill mode below matters: see the note on the rule. */
 @keyframes drawer-slide-in {
   0% { transform: translateX(16px); opacity: 0; }
   100% { transform: none; opacity: 1; }
 }
 
+/* `backwards`, not `both`. Forwards-fill would hold the final keyframe after
+   the animation ends, and the held value is the interpolated identity matrix,
+   not the `transform: none` written above. A transform of any kind, identity
+   included, makes this element the containing block for `position: fixed`
+   descendants, which silently defeats the intent the keyframe documents:
+   fixed layers inside the panel would resolve their viewport coordinates
+   against this box and land offscreen. Dropping forwards-fill costs nothing,
+   because the final keyframe is already the element's own resting style. */
 .home-detail-drawer {
-  animation: drawer-slide-in 0.2s ease-out both;
+  animation: drawer-slide-in 0.2s ease-out backwards;
   height: 100%;
 }
 

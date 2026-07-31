@@ -295,38 +295,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         return;
       }
       const viewer = useViewerStore.getState();
-      switch (viewer.mainView) {
-        case "tool-detail":
-          viewer.closeToolDetail();
-          break;
-        case "activity-steps":
-          viewer.closeActivitySteps();
-          break;
-        case "subagent-detail":
-          viewer.closeSubagentDetail();
-          break;
-        case "workflow-detail":
-          viewer.closeWorkflowDetail();
-          break;
-        case "acp-run-detail":
-          viewer.closeAcpRunDetail();
-          break;
-        case "background-task-detail":
-          viewer.closeBackgroundTaskDetail();
-          break;
-        case "skill-detail":
-          viewer.closeSkillDetail();
-          break;
-        case "channel-setup":
-          viewer.closeChannelSetup();
-          break;
-        case "document":
-          viewer.closeDocument();
-          break;
-        default:
-          return;
+      if (viewer.closeActiveOverlay()) {
+        event.preventDefault();
       }
-      event.preventDefault();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

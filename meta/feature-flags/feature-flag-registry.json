@@ -342,11 +342,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "composer-secret-guard",
-      "scope": "assistant",
-      "key": "composer-secret-guard",
-      "label": "Composer Secret Guard",
-      "description": "Detect API keys/secrets typed into the chat composer and offer secure credential storage before send",
+      "id": "assistant-switcher",
+      "scope": "client",
+      "key": "assistant-switcher",
+      "label": "Assistant Switcher",
+      "description": "Show the Switch Assistant section in General settings (local mode only), linking to the assistant chooser.",
       "defaultEnabled": false
     },
     {

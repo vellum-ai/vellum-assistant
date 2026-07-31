@@ -20,12 +20,21 @@ import {
 } from "@/domains/chat/utils/group-icon-registry";
 import { getChannelIcon } from "@/utils/channel-presentation";
 
+/**
+ * The Chats section's label and glyph. Named here because the All view's
+ * collapsed-rail tile stands in for a section that isn't in the list, so it
+ * has no {@link SidebarSection} to read them from and would otherwise restate
+ * both.
+ */
+export const RECENTS_SECTION_LABEL = "Chats";
+export const RECENTS_SECTION_ICON: LucideIcon = MessageSquare;
+
 export function sectionIcon(section: SidebarSection): LucideIcon {
   switch (section.type) {
     case "pinned":
       return Pin;
     case "recents":
-      return MessageSquare;
+      return RECENTS_SECTION_ICON;
     case "channel":
       return getChannelIcon(section.channelId);
     case "group":

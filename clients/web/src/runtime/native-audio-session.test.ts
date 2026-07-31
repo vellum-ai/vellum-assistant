@@ -40,7 +40,11 @@ const defaultAddListener = (
 const addListener = mock(defaultAddListener);
 
 mock.module("@capacitor/core", () => ({
-  registerPlugin: () => ({ activate, deactivate, addListener }),
+  registerPlugin: () => ({
+    activate,
+    deactivate,
+    addListener,
+  }),
 }));
 
 const {

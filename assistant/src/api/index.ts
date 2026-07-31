@@ -81,6 +81,7 @@ import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
+import { MessageRequeuedEventSchema } from "./events/message-requeued.js";
 import { MessageSteeredEventSchema } from "./events/message-steered.js";
 import { ModelInfoEventSchema } from "./events/model-info.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
@@ -446,6 +447,10 @@ export {
   type MessageRequestCompleteEvent,
   MessageRequestCompleteEventSchema,
 } from "./events/message-request-complete.js";
+export {
+  type MessageRequeuedEvent,
+  MessageRequeuedEventSchema,
+} from "./events/message-requeued.js";
 export {
   type MessageSteeredEvent,
   MessageSteeredEventSchema,
@@ -939,6 +944,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageQueuedEventSchema,
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
+  MessageRequeuedEventSchema,
   MessageSteeredEventSchema,
   ModelInfoEventSchema,
   NavigateSettingsEventSchema,

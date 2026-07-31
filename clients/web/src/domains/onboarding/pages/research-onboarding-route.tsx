@@ -29,7 +29,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalClient } from "@/lib/local-mode";
 import { POST_CHECKOUT_HATCH_PARAM } from "@/lib/navigation/navigation-resolver";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
@@ -283,7 +283,7 @@ export function ResearchOnboardingRoute() {
   const hostingParam = searchParams.get("hosting");
   const adoptExistingAssistant = shouldAdoptExistingAssistant({
     hostingParam,
-    localMode: isLocalMode(),
+    localMode: isLocalClient(),
     gatewayAuthSession: isGatewayAuthMode(),
   });
   // The hatching screen names the assistant it provisioned in the `assistant`

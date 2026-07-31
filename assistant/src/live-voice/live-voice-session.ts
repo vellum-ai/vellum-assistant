@@ -64,6 +64,7 @@ import {
   type VoiceFrontDecider,
   type VoiceProgressTextInput,
 } from "./front-decision.js";
+import { LiveActivityReporter } from "./live-activity-reporter.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -230,6 +231,11 @@ export interface LiveVoiceSessionOptions {
   archiveAudio?: LiveVoiceSessionAudioArchiver | null;
   emitMetrics?: boolean;
   metricsClock?: LiveVoiceMetricsClock;
+  /**
+   * Mirrors phase changes to the iOS Live Activity. Injectable so tests can
+   * assert what a session reports without reaching the platform.
+   */
+  liveActivityReporter?: LiveActivityReporter;
   createTurnId?: () => string;
   /**
    * Overrides the server-VAD turn detector thresholds. The production
@@ -925,6 +931,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly metrics: LiveVoiceMetricsCollector;
   private readonly createTurnId: () => string;
   private readonly conversationId: string;
+  /**
+   * Mirrors phase changes to the iOS Live Activity through the platform, for
+   * the case the client cannot cover: an app backgrounded long enough for iOS
+   * to suspend the web layer that would otherwise push them.
+   */
+  private readonly liveActivityReporter: LiveActivityReporter;
   private state: LiveVoiceSessionState = "initializing";
   private currentUtterance: UtteranceCycle | null = null;
   private outboundFrames: Promise<void> = Promise.resolve();
@@ -1090,6 +1102,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
+    this.liveActivityReporter =
+      options.liveActivityReporter ??
+      new LiveActivityReporter(this.conversationId);
     this.metricsClock = options.metricsClock ?? Date.now;
     this.metrics = new LiveVoiceMetricsCollector({
       sessionId: context.sessionId,
@@ -1223,6 +1238,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
+    // Retire the island before the teardown below starts awaiting things. A
+    // close can take a while (a pending continuation is delivered first), and
+    // an activity left asserting "Speaking…" through it is exactly the stale
+    // claim this reporter exists to prevent.
+    this.liveActivityReporter.end();
     this.turnDetector?.dispose();
     this.clearEndpointExtensionTimer();
     // There is no longer anyone on the call to speak to, so a queued
@@ -5240,6 +5260,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     frame: LiveVoiceServerFramePayload,
     shouldSend: () => boolean = () => true,
   ): Promise<boolean> {
+    // Mirrored to the iOS Live Activity from here rather than from each call
+    // site: every frame that moves the session's phase passes through this one
+    // method, and a per-call-site hook would drift from it on the first frame
+    // anyone added. Fire-and-forget by contract — see the reporter.
+    this.liveActivityReporter.report(frame);
     let sent = false;
     this.outboundFrames = this.outboundFrames
       .catch(() => {})

@@ -1098,7 +1098,7 @@ which UI surfaces are available:
 
 | Signal | Where | What it means |
 |--------|-------|---------------|
-| `isLocalMode()` | `src/lib/local-mode.ts` | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform |
+| `isLocalClient()` | `src/lib/local-mode.ts` | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform |
 | `hasPlatformSession` | `src/stores/auth-store.ts` | `true` when the user has a valid session with the Vellum platform (set asynchronously after probing the allauth session endpoint) |
 | `isPlatformDisabled()` | `src/lib/local-mode.ts` | Env var / config setting (`VITE_VELLUM_DISABLE_PLATFORM` or `__VELLUM_CONFIG__.disablePlatform`). When `true` in local mode, the API interceptor no-ops all platform client requests |
 
