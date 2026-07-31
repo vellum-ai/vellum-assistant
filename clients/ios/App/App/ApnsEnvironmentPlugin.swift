@@ -33,8 +33,6 @@ public class ApnsEnvironmentPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc public func get(_ call: CAPPluginCall) {
         #if targetEnvironment(simulator)
-            // Simulator builds ship no embedded profile, and APNs simulator
-            // push always uses the development environment.
             call.resolve(["environment": "development"])
             return
         #endif

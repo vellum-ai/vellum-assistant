@@ -153,9 +153,7 @@ async function upsertToken(
     // `@capacitor/app` is a plugin Proxy — destructure inline (see CAPACITOR.md).
     const { App } = await import("@capacitor/app");
     const { id: bundleId } = await App.getInfo();
-    // Shared with the device-token upsert so both registrations tag this
-    // build's tokens with the same APNs environment (signing-derived, with a
-    // bundle-suffix fallback).
+    // See `runtime/apns-environment.ts` for the shared-resolver rationale.
     const apnsEnvironment = await resolveSignedApnsEnvironment(bundleId);
 
     const result = await assistantsLiveActivityTokensUpsert({

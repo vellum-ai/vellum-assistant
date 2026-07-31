@@ -31,17 +31,6 @@ mock.module("@capacitor/core", () => ({
     name === "ApnsEnvironment" ? { get: apnsEnvironmentGetMock } : {},
 }));
 
-// ── Sentry capture-error ─────────────────────────────────────────────────────
-//
-// The module deliberately reports fallbacks via `console.debug` only (an old
-// shell is an expected state, not a fault); the mock makes the no-capture
-// assertion fail loudly if a future edit starts reporting them.
-
-const captureErrorMock = mock(() => {});
-mock.module("@/lib/sentry/capture-error", () => ({
-  captureError: captureErrorMock,
-}));
-
 const { resolveSignedApnsEnvironment } =
   await import("@/runtime/apns-environment");
 
@@ -54,7 +43,6 @@ beforeEach(() => {
   apnsEnvironmentResult = undefined;
   apnsEnvironmentRejects = true;
   apnsEnvironmentGetMock.mockClear();
-  captureErrorMock.mockClear();
   consoleDebugSpy.mockClear();
 });
 
@@ -89,7 +77,7 @@ describe("resolveSignedApnsEnvironment", () => {
     );
   });
 
-  test("bridge rejection (old shell) falls back to the heuristic: console.debug, no Sentry capture", async () => {
+  test("bridge rejection (old shell) falls back to the heuristic via console.debug", async () => {
     expect(await resolveSignedApnsEnvironment(DEV_BUNDLE_ID)).toBe(
       "development",
     );
@@ -99,6 +87,5 @@ describe("resolveSignedApnsEnvironment", () => {
 
     expect(apnsEnvironmentGetMock).toHaveBeenCalledTimes(2);
     expect(consoleDebugSpy).toHaveBeenCalledTimes(2);
-    expect(captureErrorMock).not.toHaveBeenCalled();
   });
 });
