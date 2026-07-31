@@ -277,19 +277,36 @@ function makeMeteringPlayer(): {
   return { player, ctx };
 }
 
-function makeMediaStreamPlayer(playError?: Error): {
+/**
+ * `playErrors` is indexed by element: the player builds a fresh element each
+ * time it (re)creates the route, so a refused first attempt can be followed by
+ * a successful retry.
+ */
+function makeMediaStreamPlayer(...playErrors: (Error | undefined)[]): {
   player: LiveVoiceAudioPlayer;
   ctx: MockAudioContext;
   mediaElement: MockMediaStreamPlaybackElement;
+  elements: MockMediaStreamPlaybackElement[];
 } {
   const ctx = new MockAudioContext();
-  const mediaElement = new MockMediaStreamPlaybackElement(playError);
+  // The first element is built up front so tests can hold a reference to it
+  // before the player asks for one.
+  const elements = [new MockMediaStreamPlaybackElement(playErrors[0])];
+  let handedOut = 0;
   const player = new LiveVoiceAudioPlayer({
     audioContextFactory: () => ctx as unknown as AudioContextLike,
     useMediaStreamOutput: true,
-    mediaStreamPlaybackElementFactory: () => mediaElement,
+    mediaStreamPlaybackElementFactory: () => {
+      if (handedOut < elements.length) {
+        return elements[handedOut++]!;
+      }
+      const element = new MockMediaStreamPlaybackElement(playErrors[handedOut]);
+      elements.push(element);
+      handedOut++;
+      return element;
+    },
   });
-  return { player, ctx, mediaElement };
+  return { player, ctx, elements, mediaElement: elements[0]! };
 }
 
 function chunk(
@@ -466,22 +483,64 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(mediaElement.srcObject).not.toBeNull();
   });
 
-  test("restarting the route is a no-op once it has fallen back", async () => {
+  test("rebuilds a route the prewarm attempt was refused", async () => {
     const consoleError = spyOn(console, "error").mockImplementation(() => {});
     try {
-      const { player: mediaStreamPlayer, mediaElement } = makeMediaStreamPlayer(
-        new Error("playback rejected"),
-      );
+      // A gesture-less start (Siri, Action Button, Live Activity): the prewarm
+      // `play()` is refused outright and the fallback tears the route down.
+      const {
+        player: mediaStreamPlayer,
+        ctx: mediaStreamContext,
+        elements,
+      } = makeMediaStreamPlayer(new Error("no user activation"));
 
       mediaStreamPlayer.prewarm();
       await flushMicrotasks();
-      const attemptsAfterFallback = mediaElement.playCount;
-
-      mediaStreamPlayer.restartOutputRoute();
-
-      expect(mediaElement.playCount).toBe(attemptsAfterFallback);
       expect(mediaStreamPlayer.getOutputRouteDiagnostics().route).toBe(
         "direct",
+      );
+
+      // Capture is live now, which is grounds for playing a MediaStream element
+      // that an unactivated page could not. Leaving this session on the direct
+      // path would strand exactly the starts that most need the retry.
+      mediaStreamPlayer.restartOutputRoute();
+      await flushMicrotasks();
+
+      expect(elements).toHaveLength(2);
+      expect(elements[1]!.playCount).toBe(1);
+      expect(mediaStreamPlayer.getOutputRouteDiagnostics().route).toBe(
+        "media-stream",
+      );
+      // Audio reaches the rebuilt bus, with the mute stage still in front of it.
+      mediaStreamPlayer.enqueue(chunk(new Array(2400).fill(100)));
+      expect(mediaStreamContext.gain?.connectedTo).toBe(
+        mediaStreamContext.mediaStreamDestination,
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  test("a refused retry degrades to the direct path again", async () => {
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { player: mediaStreamPlayer, ctx: mediaStreamContext } =
+        makeMediaStreamPlayer(
+          new Error("no user activation"),
+          new Error("still refused"),
+        );
+
+      mediaStreamPlayer.prewarm();
+      await flushMicrotasks();
+      mediaStreamPlayer.restartOutputRoute();
+      await flushMicrotasks();
+
+      expect(mediaStreamPlayer.getOutputRouteDiagnostics().route).toBe(
+        "direct",
+      );
+      mediaStreamPlayer.enqueue(chunk(new Array(2400).fill(100)));
+      expect(mediaStreamContext.gain?.connectedTo).toBe(
+        mediaStreamContext.destination,
       );
     } finally {
       consoleError.mockRestore();

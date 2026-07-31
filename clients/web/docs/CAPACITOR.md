@@ -274,9 +274,16 @@ is therefore necessary but not sufficient: at that moment `getUserMedia` has not
 run, so the renderer can come up bound to a plain output unit and never acquire
 a reference. `LiveVoiceAudioPlayer.restartOutputRoute()` pauses and replays the
 element, and the session calls it once capture reports running. The queue is
-silent at that point, so the restart is inaudible. It is also the second chance
-the gesture-less entry points need, since a page holding a live `getUserMedia`
-stream may play a MediaStream element that an unactivated page could not.
+silent at that point, so the restart is inaudible.
+
+It also **rebuilds a route that has already fallen back**, which is what the
+gesture-less entry points depend on. A session started from Siri, the Action
+Button, or a Live Activity has no activation to borrow, so its prewarm `play()`
+is refused and the fallback tears the route down; by capture time the page holds
+a live `getUserMedia` stream, which is grounds for playing a MediaStream element
+that an unactivated page could not. Treating a fallen-back route as nothing to
+retry would strand exactly those sessions on the direct path for their whole
+lifetime.
 
 **The route degrades silently, so it must be reported.** A refused `play()`
 falls back to `AudioContext.destination`: audio still plays and echo

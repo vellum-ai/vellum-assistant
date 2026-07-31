@@ -705,21 +705,29 @@ export class LiveVoiceAudioPlayer {
       }
 
       this.disposeMediaStreamOutput();
-      // Rebuild the tail of the graph onto the raw destination, keeping the
-      // mute stage in it so a muted session does not start playing aloud
-      // because its iOS output route fell back.
-      if (this.outputGain) {
-        this.outputGain.disconnect();
-        this.outputGain.connect(context.destination);
-      }
-      if (this.analyser) {
-        this.analyser.disconnect();
-        this.analyser.connect(this.outputGain ?? context.destination);
-      }
+      this.connectOutputTail(context.destination);
       captureError(error, {
         context: "live_voice_ios_media_stream_output",
       });
     });
+  }
+
+  /**
+   * Point the tail of the graph at `destination`, preserving whichever optional
+   * stages exist. Sources feed the analyser, the analyser feeds the mute stage,
+   * and the mute stage feeds the sink, so the mute survives every rewiring: a
+   * silenced assistant must not start playing aloud because its output route
+   * changed underneath it.
+   */
+  private connectOutputTail(destination: AudioNode): void {
+    if (this.outputGain) {
+      this.outputGain.disconnect();
+      this.outputGain.connect(destination);
+    }
+    if (this.analyser) {
+      this.analyser.disconnect();
+      this.analyser.connect(this.outputGain ?? destination);
+    }
   }
 
   /**
@@ -733,24 +741,38 @@ export class LiveVoiceAudioPlayer {
    * acquires an echo reference. Restarting it once the mic is live rebinds it
    * against the voice-processing unit.
    *
-   * It is also the second chance the gesture-less start paths need. A session
-   * begun from Siri, the Action Button, or a Live Activity tap has no
-   * activation to borrow, so its first `play()` can be refused outright, while
-   * a page holding a live `getUserMedia` stream is allowed to play a
-   * MediaStream element.
+   * It is also the second chance the gesture-less start paths need, which is
+   * why a route that has already fallen back is rebuilt here rather than left
+   * alone. A session begun from Siri, the Action Button, or a Live Activity tap
+   * has no activation to borrow, so its prewarm `play()` is refused and the
+   * fallback tears the route down. That is precisely the session that most
+   * needs another attempt: by now the page holds a live `getUserMedia` stream,
+   * which is grounds for playing a MediaStream element that an unactivated page
+   * could not. Skipping it would strand exactly those sessions on the direct
+   * path forever.
    *
-   * Safe to call at any point: it no-ops when the route was never taken or has
-   * already fallen back, and it runs while the queue is silent, so the pause is
-   * inaudible. Never throws; a refused restart degrades exactly like a refused
-   * initial start.
+   * Safe to call at any point: it no-ops off the route entirely, and it runs
+   * while the queue is silent, so the pause is inaudible. Never throws; a
+   * refused retry degrades exactly like a refused initial start.
    */
   restartOutputRoute(): void {
     const context = this.context;
-    const route = this.mediaStreamOutput;
-    if (!context || !route) {
+    if (!context) {
       return;
     }
-    route.element.pause();
+
+    const route = this.mediaStreamOutput;
+    if (route) {
+      route.element.pause();
+      this.startMediaStreamOutput(context);
+      return;
+    }
+
+    if (!this.useMediaStreamOutput || !context.createMediaStreamDestination) {
+      return;
+    }
+    const destination = this.createOutputNode(context);
+    this.connectOutputTail(destination);
     this.startMediaStreamOutput(context);
   }
 
