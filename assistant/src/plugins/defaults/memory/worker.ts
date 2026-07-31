@@ -17,7 +17,6 @@ import { isMemoryEnabled } from "../../../config/memory-v3-gate.js";
 import { rehydratePlatformCredentials } from "../../../config/platform-rehydration.js";
 import { resetDb } from "../../../persistence/db-connection.js";
 import { shutdownEmbeddingBackends } from "../../../persistence/embeddings/embedding-backend.js";
-import { WORKER_TEARDOWN_BUDGET_MS } from "../../../persistence/embeddings/embedding-local.js";
 import { disableStreamSeqStamping } from "../../../runtime/assistant-stream-state.js";
 import { initializeTools } from "../../../tools/registry.js";
 import {
@@ -28,6 +27,7 @@ import { registerMemoryPluginJobHandlers } from "./job-handler-registration.js";
 import { startMemoryJobsWorkerLoop } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
 import { getMemoryWorkerPidPath } from "./paths.js";
+import { SHUTDOWN_REAP_BUDGET_MS } from "./shutdown-budget.js";
 
 const log = getLogger("memory-worker-process");
 
@@ -119,7 +119,7 @@ async function main(): Promise<void> {
       shutdownEmbeddingBackends().catch((err: unknown) => {
         log.warn({ err }, "Embedding backend shutdown failed (non-fatal)");
       }),
-      Bun.sleep(WORKER_TEARDOWN_BUDGET_MS + 1_000),
+      Bun.sleep(SHUTDOWN_REAP_BUDGET_MS),
     ]).finally(() => process.exit(0));
   };
 
