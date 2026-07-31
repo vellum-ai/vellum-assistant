@@ -183,6 +183,20 @@ function createSessionWithTranscriber(
   return { frames, resolver, session, transcriber };
 }
 
+function createEmptyFinalizeGraceSession(emptyFinalizeGraceMs: number) {
+  const transcriber = new FinalizingMockStreamingTranscriber();
+  transcriber.respondToFinalize = false;
+  const startVoiceTurn = completingVoiceTurnStarter();
+  const { context, frames } = createContext({ turnDetection: "server_vad" });
+  const session = new LiveVoiceSession(context, {
+    resolveTranscriber: mock(async () => transcriber),
+    startVoiceTurn,
+    finalizeGraceMs: 20,
+    emptyFinalizeGraceMs,
+  });
+  return { frames, session, startVoiceTurn, transcriber };
+}
+
 async function waitFor(
   predicate: () => boolean,
   message = "Timed out waiting for live voice STT test condition",
@@ -1099,6 +1113,151 @@ describe("LiveVoiceSession STT", () => {
         frame.type === "stt_final" ? [frame.text] : [],
       ),
     ).toEqual(["collected before release"]);
+  });
+
+  test("waits past the fast finalize grace for a late final on a speech-bearing empty cycle", async () => {
+    const { frames, session, startVoiceTurn, transcriber } =
+      createEmptyFinalizeGraceSession(80);
+
+    await session.start();
+    await session.handleBinaryAudio(loudPcmChunk());
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => transcriber.finalizeCalls === 1);
+    transcriber.emit({ type: "finalized" });
+
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    expect(startVoiceTurn).not.toHaveBeenCalled();
+    expect(frames.some((frame) => frame.type === "utterance_discarded")).toBe(
+      false,
+    );
+
+    transcriber.emit({ type: "final", text: "late usable transcript" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+    expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
+      content: "late usable transcript",
+    });
+    expect(frames.some((frame) => frame.type === "utterance_discarded")).toBe(
+      false,
+    );
+  });
+
+  test("discards a speech-bearing empty cycle exactly once at the bounded grace cap", async () => {
+    const { frames, session, startVoiceTurn, transcriber } =
+      createEmptyFinalizeGraceSession(60);
+
+    await session.start();
+    await session.handleBinaryAudio(loudPcmChunk());
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => transcriber.finalizeCalls === 1);
+    transcriber.emit({ type: "finalized" });
+
+    await waitFor(
+      () =>
+        frames.filter((frame) => frame.type === "utterance_discarded")
+          .length === 1,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(startVoiceTurn).not.toHaveBeenCalled();
+    expect(
+      frames.filter((frame) => frame.type === "utterance_discarded"),
+    ).toHaveLength(1);
+  });
+
+  test("drops an old stream final that arrives after empty-grace discard", async () => {
+    const first = new FinalizingMockStreamingTranscriber();
+    first.respondToFinalize = false;
+    const replacement = new FinalizingMockStreamingTranscriber();
+    const transcribers = [first, replacement];
+    const resolver = mock(async () => transcribers.shift() ?? replacement);
+    const startVoiceTurn = completingVoiceTurnStarter();
+    const { context, frames } = createContext({ turnDetection: "server_vad" });
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+      finalizeGraceMs: 20,
+      emptyFinalizeGraceMs: 60,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(loudPcmChunk());
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => first.finalizeCalls === 1);
+    first.emit({ type: "finalized" });
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "utterance_discarded"),
+    );
+    await waitFor(() => resolver.mock.calls.length === 2);
+
+    first.emit({ type: "final", text: "late transcript from old stream" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(startVoiceTurn).not.toHaveBeenCalled();
+    expect(
+      frames.flatMap((frame) =>
+        frame.type === "stt_final" ? [frame.text] : [],
+      ),
+    ).toEqual([]);
+  });
+
+  test("keeps parked newer speech separate from an older late final", async () => {
+    const { frames, session, startVoiceTurn, transcriber } =
+      createEmptyFinalizeGraceSession(500);
+
+    await session.start();
+    await session.handleBinaryAudio(loudPcmChunk());
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => transcriber.finalizeCalls === 1);
+    transcriber.emit({ type: "finalized" });
+
+    const parkedChunks = 40;
+    for (let index = 0; index < parkedChunks; index += 1) {
+      await session.handleBinaryAudio(loudPcmChunk());
+    }
+    await session.handleClientFrame({ type: "ptt_release" });
+    expect(transcriber.audioChunks).toHaveLength(1);
+
+    transcriber.respondToFinalize = true;
+    transcriber.emit({ type: "final", text: "late first utterance" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 2,
+    );
+
+    expect(startVoiceTurn.mock.calls.map((call) => call[0].content)).toEqual([
+      "late first utterance",
+      "utterance 2",
+    ]);
+    expect(transcriber.audioChunks).toHaveLength(parkedChunks + 1);
+    expect(
+      frames.filter((frame) => frame.type === "utterance_discarded"),
+    ).toHaveLength(0);
+  });
+
+  test("cancels the empty finalize grace on close and interrupt", async () => {
+    for (const action of ["close", "interrupt"] as const) {
+      const { frames, session, transcriber } =
+        createEmptyFinalizeGraceSession(50);
+
+      await session.start();
+      await session.handleBinaryAudio(loudPcmChunk());
+      await session.handleClientFrame({ type: "ptt_release" });
+      await waitFor(() => transcriber.finalizeCalls === 1);
+      transcriber.emit({ type: "finalized" });
+
+      if (action === "close") {
+        await session.close("websocket_close");
+      } else {
+        await session.handleClientFrame({ type: "interrupt" });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 70));
+
+      expect(
+        frames.filter((frame) => frame.type === "utterance_discarded"),
+      ).toHaveLength(0);
+      expect(transcriber.stopCalls).toBe(1);
+    }
   });
 
   test("speech after a grace-timeout dispatch routes to the next cycle, not the timed-out one", async () => {

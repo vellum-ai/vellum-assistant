@@ -139,6 +139,15 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 }
 
+class EmptyFinalizingMockStreamingTranscriber extends MockStreamingTranscriber {
+  finalizeCalls = 0;
+
+  finalizeUtterance(): void {
+    this.finalizeCalls += 1;
+    this.emit({ type: "finalized" });
+  }
+}
+
 function createHarness(options: {
   startFrame?: LiveVoiceClientStartFrame;
   finals?: string[];
@@ -167,6 +176,13 @@ function createHarness(options: {
   getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
   detachTeardownSettleTimeoutMs?: number;
   continuationAnnounceSilenceMs?: number;
+  finalizeGraceMs?: number;
+  emptyFinalizeGraceMs?: number;
+  createTranscriber?: (
+    index: number,
+    finalText: string,
+    holdStopEvents: boolean,
+  ) => MockStreamingTranscriber;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -186,10 +202,14 @@ function createHarness(options: {
   const resolveTranscriber = mock(async () => {
     const text =
       finals[transcribers.length] ?? `utterance ${transcribers.length + 1}`;
-    const transcriber = new MockStreamingTranscriber(
-      [{ type: "final", text }, { type: "closed" }],
-      options.holdStopEventsFor?.includes(transcribers.length) ?? false,
-    );
+    const holdStopEvents =
+      options.holdStopEventsFor?.includes(transcribers.length) ?? false;
+    const transcriber =
+      options.createTranscriber?.(transcribers.length, text, holdStopEvents) ??
+      new MockStreamingTranscriber(
+        [{ type: "final", text }, { type: "closed" }],
+        holdStopEvents,
+      );
     transcribers.push(transcriber);
     return transcriber;
   });
@@ -234,6 +254,12 @@ function createHarness(options: {
       ? {
           continuationAnnounceSilenceMs: options.continuationAnnounceSilenceMs,
         }
+      : {}),
+    ...(options.finalizeGraceMs !== undefined
+      ? { finalizeGraceMs: options.finalizeGraceMs }
+      : {}),
+    ...(options.emptyFinalizeGraceMs !== undefined
+      ? { emptyFinalizeGraceMs: options.emptyFinalizeGraceMs }
       : {}),
   };
   const session = options.viaFactory
@@ -3073,6 +3099,43 @@ describe("LiveVoiceSession server VAD", () => {
     const types = frameTypes(frames);
     expect(types.indexOf("utterance_end")).toBeLessThan(
       types.indexOf("utterance_discarded"),
+    );
+  });
+
+  test("a VAD utterance starts when STT final arrives after the fast finalize grace", async () => {
+    const { startVoiceTurn, calls } = makeAutoCompletingTurnStarter([
+      "Late transcript accepted.",
+    ]);
+    const { frames, session, transcribers } = createHarness({
+      startVoiceTurn,
+      finalizeGraceMs: 20,
+      emptyFinalizeGraceMs: 90,
+      createTranscriber: (_index, text, holdStopEvents) =>
+        new EmptyFinalizingMockStreamingTranscriber(
+          [{ type: "final", text }, { type: "closed" }],
+          holdStopEvents,
+        ),
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => countType(frames, "utterance_end") === 1);
+    const transcriber =
+      transcribers[0] as EmptyFinalizingMockStreamingTranscriber;
+    expect(transcriber.finalizeCalls).toBe(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    expect(countType(frames, "utterance_discarded")).toBe(0);
+    expect(calls).toHaveLength(0);
+
+    transcriber?.emit({ type: "final", text: "late VAD transcript" });
+    await waitFor(() => calls.length === 1);
+
+    expect(calls[0]?.content).toBe("late VAD transcript");
+    expect(countType(frames, "utterance_discarded")).toBe(0);
+    const types = frameTypes(frames);
+    expect(types.indexOf("utterance_end")).toBeLessThan(
+      types.indexOf("stt_final"),
     );
   });
 
