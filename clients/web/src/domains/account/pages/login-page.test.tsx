@@ -34,6 +34,26 @@ describeAuthEntryContract("LoginPage", {
   oauthTriggerText: "Continue",
 });
 
+describe("LoginPage sign-up cross-link", () => {
+  setupAuthEntry();
+
+  const signUpLink = () => screen.getByText("Sign up").getAttribute("href");
+
+  // Allowlist filtering and organic/bare behavior are covered by the
+  // withPreservedAttribution unit tests; this exercises the page wiring.
+  test("carries attribution from the current URL alongside returnTo", () => {
+    renderAuthEntry(
+      LoginPage,
+      ROUTE,
+      `${entryUrl(ROUTE, CHECKOUT)}&utm_source=ig&fbclid=abc123`,
+    );
+
+    expect(signUpLink()).toBe(
+      `/account/signup?returnTo=${encodeURIComponent(CHECKOUT)}&utm_source=ig&fbclid=abc123`,
+    );
+  });
+});
+
 describe("LoginPage native split", () => {
   setupAuthEntry();
 
