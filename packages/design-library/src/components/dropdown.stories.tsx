@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Globe, Lock, Users } from "lucide-react";
 import { useState } from "react";
+import { expect, userEvent, within } from "storybook/test";
 
 import { Dropdown, type DropdownOption, type DropdownProps } from "./dropdown";
 import { Tag } from "./tag";
@@ -217,5 +218,73 @@ export const Compact: Story = {
         />
       </div>
     );
+  },
+};
+
+/**
+ * Regression guard: the menu must stay glued to its trigger even when an
+ * ancestor has a `transform`.
+ *
+ * A transformed ancestor becomes the containing block for `position: fixed`
+ * descendants, so a menu rendered inline under one resolves its viewport
+ * coordinates against that ancestor's box instead — shifting it by the
+ * ancestor's origin, usually far enough to leave the viewport entirely. The
+ * trigger still reports `data-state="open"`, which is why the failure reads to
+ * users as "the dropdown won't open" rather than "the menu is in the wrong
+ * place". Portaling the menu out of the transformed subtree is what keeps the
+ * viewport as its containing block.
+ *
+ * The web app hits this with its detail drawer, whose slide-in animation uses
+ * `animation-fill-mode: both` — the final keyframe's identity matrix stays
+ * applied for the life of the drawer.
+ */
+export const InsideTransformedAncestor: Story = {
+  args: {
+    "aria-label": "Fruit",
+  },
+  render: function TransformedAncestorDropdown(args) {
+    const [value, setValue] = useState("apple");
+    return (
+      // `translate(80px, 40px)` stands in for the drawer's leftover matrix. A
+      // non-zero offset is deliberate: an identity transform triggers the same
+      // containing-block switch but hides the resulting drift behind a zero
+      // delta, so the assertion below would pass even on the broken build.
+      <div style={{ transform: "translate(80px, 40px)" }}>
+        <div className="w-64">
+          <Dropdown
+            {...args}
+            options={fruits}
+            value={value}
+            onChange={setValue}
+          />
+        </div>
+      </div>
+    );
+  },
+  play: async ({ canvasElement, step }) => {
+    const canvas = within(canvasElement);
+    const trigger = canvas.getByRole("combobox", { name: "Fruit" });
+
+    await step("open the menu", async () => {
+      await userEvent.click(trigger);
+      await expect(trigger).toHaveAttribute("data-state", "open");
+    });
+
+    await step("menu is positioned against the viewport", async () => {
+      // Scoped to the document, not the canvas: the menu is portaled out of
+      // the story's subtree, which is the whole point of this story.
+      const menu = document.querySelector('[data-slot="dropdown-menu"]');
+      await expect(menu).not.toBeNull();
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const menuRect = menu!.getBoundingClientRect();
+
+      // Left-aligned (the default) and directly below the trigger. Sub-pixel
+      // layout rounding is the only slack; the transformed-ancestor bug
+      // offsets these by the ancestor's translate (80px / 40px).
+      await expect(Math.abs(menuRect.left - triggerRect.left)).toBeLessThan(1);
+      await expect(menuRect.top).toBeGreaterThanOrEqual(triggerRect.bottom);
+      await expect(menuRect.top - triggerRect.bottom).toBeLessThan(8);
+    });
   },
 };
