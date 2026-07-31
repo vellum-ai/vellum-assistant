@@ -82,6 +82,11 @@ export function Notice({
         : null
       : icon;
 
+  // Anything stacked under the icon (a title, or an actions row) reads as a
+  // block the icon labels, so the icon aligns to the first line rather than to
+  // the middle of the notice.
+  const alignTop = Boolean(title || actions);
+
   return (
     <div
       {...rest}
@@ -90,7 +95,9 @@ export function Notice({
       data-slot="notice"
       className={cn(
         "relative flex w-full gap-3 rounded-lg border p-3",
-        title ? "items-start" : "items-center",
+        alignTop ? "items-start" : "items-center",
+        // The dismiss control is pinned to the corner, so reserve its lane.
+        onDismiss && "pr-9",
         "text-[color:var(--content-default)]",
         toneClasses.container,
         className,
@@ -100,7 +107,7 @@ export function Notice({
         <span
           className={cn(
             "flex shrink-0 items-center justify-center",
-            title && "mt-0.5",
+            alignTop && "mt-0.5",
             toneClasses.icon,
           )}
         >
@@ -127,11 +134,16 @@ export function Notice({
             {children}
           </Typography>
         ) : null}
+        {/*
+         * Actions sit under the message rather than beside it: a side column
+         * competes with the text for width, which collapses the message to a
+         * one-word-per-line column in narrow notices and strands the buttons
+         * against dead space in wide ones.
+         */}
+        {actions ? (
+          <div className="flex flex-wrap items-center gap-2 pt-1">{actions}</div>
+        ) : null}
       </div>
-
-      {actions ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
-      ) : null}
 
       {onDismiss ? (
         <button
@@ -139,7 +151,7 @@ export function Notice({
           onClick={onDismiss}
           aria-label="Dismiss"
           className={cn(
-            "shrink-0 cursor-pointer rounded bg-transparent p-0.5",
+            "absolute right-2.5 top-2.5 cursor-pointer rounded bg-transparent p-0.5",
             "text-[color:var(--content-secondary)] opacity-70 transition-opacity",
             "hover:opacity-100 keyboard-focus:outline-none keyboard-focus:ring-2",
             "keyboard-focus:ring-[var(--ring)]",

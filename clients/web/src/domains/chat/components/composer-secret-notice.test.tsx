@@ -28,7 +28,7 @@ const match: DetectedSecret = {
   wholeMessage: false,
 };
 
-const BLOCKED_TITLE = "Message not sent — it looks like it contains an API key";
+const BLOCKED_TITLE = "Message not sent. It looks like it contains an API key.";
 
 function renderNotice(overrides: Partial<ComposerSecretNoticeProps> = {}) {
   // Default the composer input to one that CONTAINS the previewed secret, so
@@ -69,7 +69,7 @@ describe("ComposerSecretNotice (passive)", () => {
       maskSecretValue(SYNTHETIC_PROJECT_KEY),
     );
     expect(container.textContent).toContain(
-      "Credentials sent in chat are visible in the transcript — store it securely instead.",
+      "Credentials sent in chat are visible in the transcript. Store it securely instead.",
     );
     expect(container.innerHTML).not.toContain(SYNTHETIC_PROJECT_KEY);
     // The detection label (vendor) stays internal.

@@ -65,14 +65,24 @@ mock.module("@vellumai/design-library", () => ({
     children,
     actions,
     tone,
+    onDismiss,
   }: {
     children?: ReactNode;
     actions?: ReactNode;
     tone?: string;
+    onDismiss?: () => void;
   }) => (
     <div data-testid="notice" data-tone={tone}>
       {children}
       {actions ? <div data-testid="notice-actions">{actions}</div> : null}
+      {onDismiss ? (
+        <button
+          type="button"
+          aria-label="Dismiss"
+          data-testid="notice-dismiss"
+          onClick={onDismiss}
+        />
+      ) : null}
     </div>
   ),
   Card: {
@@ -561,10 +571,10 @@ describe("ChatBody — channel footer slot", () => {
 
 describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
   // The Notice is rendered as an inline error banner above the composer.
-  // The banner has a "Go to Doctor" action and a "Dismiss" button as a
-  // second action (so the user has a real way to close the banner).
+  // The banner carries its own action ("Go to Doctor") plus the notice's
+  // dismiss control, so the user has a real way to close the banner.
 
-  test("renders a Dismiss button when genericChatError + onDismissChatError are both provided", () => {
+  test("renders the dismiss control when genericChatError + onDismissChatError are both provided", () => {
     const html = renderToStaticMarkup(
       <ChatBody
         {...baseProps({
@@ -580,7 +590,7 @@ describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
     );
 
     expect(html).toContain("Go to Doctor");
-    expect(html).toContain("Dismiss");
+    expect(html).toContain('data-testid="notice-dismiss"');
   });
 
   test("renders warning-tone generic notices as status banners", () => {
@@ -600,8 +610,8 @@ describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
     expect(html).toContain('data-tone="warning"');
   });
 
-  test("does NOT render the Dismiss button when onDismissChatError is omitted", () => {
-    // Defensive: don't silently show a Dismiss button that does nothing.
+  test("does NOT render the dismiss control when onDismissChatError is omitted", () => {
+    // Defensive: don't silently show a dismiss control that does nothing.
     const html = renderToStaticMarkup(
       <ChatBody
         {...baseProps({
@@ -610,7 +620,7 @@ describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
       />,
     );
 
-    expect(html).not.toContain("Dismiss");
+    expect(html).not.toContain("notice-dismiss");
   });
 
   test("does not render the error banner at all when genericChatError is null", () => {
@@ -618,6 +628,6 @@ describe("ChatBody — generic chat error Notice (dismiss UX)", () => {
       <ChatBody {...baseProps({ genericChatError: null })} />,
     );
 
-    expect(html).not.toContain(">Dismiss<");
+    expect(html).not.toContain('data-testid="notice"');
   });
 });
