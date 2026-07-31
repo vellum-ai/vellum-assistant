@@ -1,7 +1,7 @@
 /**
  * Personal-memory gating for the advisor context pack: NOW.md must only reach
  * the advisor when the turn's trust admits personal memory and the
- * scratchpad-injection toggle is on — the same policy the runtime memory
+ * scratchpad-injection toggle is on, the same policy the runtime memory
  * injectors apply. Without it, a low-risk advisor consult on a
  * remote/trusted-contact turn could forward private content the main agent
  * would never receive.
@@ -50,7 +50,7 @@ const sources = {
   // A path that does not exist, so the workspace-tree section stays empty and
   // the assertions isolate the gated surfaces.
   workingDir: "/tmp/does-not-exist-consult-gating",
-  // A remote, non-guardian per-turn snapshot — the case the live-state read
+  // A remote, non-guardian per-turn snapshot: the case the live-state read
   // could have wrongly elevated.
   trustClass: "unknown" as const,
   sourceChannel: "telegram",
@@ -63,7 +63,7 @@ beforeEach(() => {
   gateArg = null;
 });
 
-describe("advisor context pack — personal-memory gating", () => {
+describe("advisor context pack: personal-memory gating", () => {
   test("withholds NOW.md when personal memory is disallowed", async () => {
     personalAllowed = false;
     const ctx = (await buildAdvisorContext(sources)) ?? "";
@@ -87,8 +87,8 @@ describe("advisor context pack — personal-memory gating", () => {
   test("feeds the gate the per-turn trust snapshot, not live conversation state", async () => {
     personalAllowed = true;
     await buildAdvisorContext(sources);
-    // The gate must see exactly the snapshot threaded from ToolContext —
-    // trustClass + executionChannel — so a concurrent live-trust change can't
+    // The gate must see exactly the snapshot threaded from ToolContext
+    // (trustClass + executionChannel) so a concurrent live-trust change can't
     // elevate this invocation.
     expect(gateArg).toEqual({
       sourceChannel: "telegram",

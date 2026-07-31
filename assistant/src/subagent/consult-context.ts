@@ -1,6 +1,6 @@
 /**
  * Assemble the runtime context the advisor consult needs to make grounded
- * recommendations — the same situational awareness the executing agent has:
+ * recommendations, the same situational awareness the executing agent has:
  *  - the tools available to it this turn,
  *  - the full catalog of skills it can load,
  *  - the workspace around it: top-level context, a bounded directory tree of
@@ -9,7 +9,7 @@
  * The advisor already receives the agent's transcript and system prompt; this
  * adds the situational context that lives *outside* the prompt (tools and
  * skills are passed to the model as a separate catalog, not inlined). Without
- * it the advisor cannot reference platform capabilities — it would advise an
+ * it the advisor cannot reference platform capabilities: it would advise an
  * agent whose toolbox it has never seen. Memory surfaces owned by the memory
  * plugin (PKB, recall search) are deliberately absent: host code must not
  * import plugin internals, and the inherited transcript already carries the
@@ -23,8 +23,8 @@
  *
  * Every section is best-effort: each source is wrapped so a failure or empty
  * result drops just that section, never the consult. Daemon-, tool-, and
- * memory-side modules are pulled in via dynamic `import()` so this module —
- * reached from a tool executor (`tools/subagent/spawn.ts`) — never forms a
+ * memory-side modules are pulled in via dynamic `import()` so this module,
+ * reached from a tool executor (`tools/subagent/spawn.ts`), never forms a
  * static import cycle back through the tool registry or plugin bootstrap. The
  * result is a single string appended to the advisor's system prompt (see
  * `buildAdvisorSystem`), or `null` when nothing could be gathered.
@@ -34,6 +34,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { ChannelId } from "../channels/types.js";
+import type { SkillSummary } from "../config/skills.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { truncate as truncateText } from "../util/truncate.js";
@@ -61,6 +62,15 @@ export interface AdvisorContextSources {
    * from the catalog section, mirroring the `skill_load` gate.
    */
   enabledPluginSet?: ReadonlySet<string> | null;
+  /**
+   * Pre-resolved skill catalog, typically the parent conversation's warm
+   * `skillProjectionCache.catalog`. Passing it keeps the synchronous on-disk
+   * catalog scan out of the consult path (and matches the catalog view the
+   * parent turn's tool projection used). When absent, the section falls back
+   * to a fresh `loadSkillCatalog()` scan, the same call every agent turn's
+   * projection already makes.
+   */
+  skillCatalog?: readonly SkillSummary[];
 }
 
 /** Cap a block so the assembled context never balloons the consult prompt. */
@@ -77,7 +87,7 @@ function summarize(description: string | undefined, max = 160): string {
   return truncate(firstSentence, max);
 }
 
-/** `## Available tools` — the live tool set the agent can act with this turn. */
+/** `## Available tools`: the live tool set the agent can act with this turn. */
 async function buildToolsSection(
   allowedToolNames: ReadonlySet<string> | undefined,
 ): Promise<string | null> {
@@ -89,7 +99,7 @@ async function buildToolsSection(
     const lines: string[] = [];
     for (const name of [...allowedToolNames].sort()) {
       const summary = summarize(getTool(name)?.description);
-      lines.push(summary ? `- ${name} — ${summary}` : `- ${name}`);
+      lines.push(summary ? `- ${name}: ${summary}` : `- ${name}`);
     }
     if (lines.length === 0) {
       return null;
@@ -101,7 +111,7 @@ async function buildToolsSection(
 }
 
 /**
- * `## Available skills` — every skill the agent can load via `skill_load`.
+ * `## Available skills`: every skill the agent can load via `skill_load`.
  * The full catalog is included (one summarized line per skill) so the advisor
  * can point the agent at any existing capability instead of letting it
  * reinvent one. Skills the conversation cannot actually load are omitted,
@@ -110,6 +120,7 @@ async function buildToolsSection(
  */
 async function buildSkillsSection(
   enabledPluginSet: ReadonlySet<string> | null | undefined,
+  preResolvedCatalog: readonly SkillSummary[] | undefined,
 ): Promise<string | null> {
   try {
     const [
@@ -125,17 +136,19 @@ async function buildSkillsSection(
     ]);
     const config = getConfig();
     const pluginScope = enabledPluginSet ?? null;
-    const catalog = loadSkillCatalog().filter((skill) => {
-      if (
-        pluginScope !== null &&
-        skill.owner?.kind === "plugin" &&
-        !pluginScope.has(skill.owner.id)
-      ) {
-        return false;
-      }
-      const flagKey = skillFlagKey(skill);
-      return !flagKey || isAssistantFeatureFlagEnabled(flagKey, config);
-    });
+    const catalog = (preResolvedCatalog ?? loadSkillCatalog()).filter(
+      (skill) => {
+        if (
+          pluginScope !== null &&
+          skill.owner?.kind === "plugin" &&
+          !pluginScope.has(skill.owner.id)
+        ) {
+          return false;
+        }
+        const flagKey = skillFlagKey(skill);
+        return !flagKey || isAssistantFeatureFlagEnabled(flagKey, config);
+      },
+    );
     if (catalog.length === 0) {
       return null;
     }
@@ -145,7 +158,7 @@ async function buildSkillsSection(
         ? ` (use when: ${truncate(skill.activationHints.join("; "), 120)})`
         : "";
       const label = skill.displayName || skill.name || skill.id;
-      return `- ${label} (${skill.id})${summary ? ` — ${summary}` : ""}${when}`;
+      return `- ${label} (${skill.id})${summary ? `: ${summary}` : ""}${when}`;
     });
     return `## Available skills (load with skill_load)\n${lines.join("\n")}`;
   } catch {
@@ -238,8 +251,8 @@ export async function buildWorkspaceTree(
 }
 
 /**
- * Whether personal-memory surfaces (NOW.md) may be exposed to the advisor
- * — the same `isPersonalMemoryAllowed` gate the runtime memory injectors apply.
+ * Whether personal-memory surfaces (NOW.md) may be exposed to the advisor,
+ * the same `isPersonalMemoryAllowed` gate the runtime memory injectors apply.
  *
  * Derived from the per-turn trust snapshot (`ToolContext.trustClass` /
  * `executionChannel`, threaded in via {@link AdvisorContextSources}), NOT the
@@ -268,15 +281,15 @@ async function personalMemoryAllowedForAdvisor(
   }
 }
 
-/** `## Workspace & project context` — the loaded environment around the agent. */
+/** `## Workspace & project context`: the loaded environment around the agent. */
 async function buildWorkspaceSection(
   sources: AdvisorContextSources,
 ): Promise<string | null> {
   const { conversationId } = sources;
   const parts: string[] = [];
 
-  // The `<workspace>` directory listing is not personal memory — the agent's
-  // own file tools already operate in this cwd — so it is surfaced ungated, the
+  // The `<workspace>` directory listing is not personal memory (the agent's
+  // own file tools already operate in this cwd), so it is surfaced ungated, the
   // same way the workspace-context injector does. Same for the deeper tree.
   try {
     const { resolveWorkspaceTopLevelContext } =
@@ -351,7 +364,7 @@ async function buildWorkspaceSection(
 /**
  * Per-section deadline. A source that stalls (e.g. a workspace scan on a slow
  * volume) must cost the consult at most this long and drop only its own
- * section — the advisor is blocking, so context assembly can never be allowed
+ * section: the advisor is blocking, so context assembly can never be allowed
  * to hang the turn.
  */
 const SECTION_TIMEOUT_MS = 2_000;
@@ -379,7 +392,7 @@ export async function buildAdvisorContext(
   const sections = await Promise.all(
     [
       buildToolsSection(sources.allowedToolNames),
-      buildSkillsSection(sources.enabledPluginSet),
+      buildSkillsSection(sources.enabledPluginSet, sources.skillCatalog),
       buildWorkspaceSection(sources),
     ].map((section) => withSectionTimeout(section, sectionTimeoutMs)),
   );

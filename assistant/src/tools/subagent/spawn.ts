@@ -306,6 +306,9 @@ async function runAdvisorConsult(args: {
       trustClass: context.trustClass,
       sourceChannel: context.executionChannel,
       enabledPluginSet: context.enabledPluginSet,
+      // The parent's warm per-turn catalog keeps the synchronous on-disk
+      // catalog scan out of the consult path.
+      skillCatalog: parentConversation.skillProjectionCache?.catalog,
     });
 
     // Default to the stronger advisor profile when the caller did not pin one;

@@ -1,7 +1,7 @@
 /**
  * Skill-catalog filtering for the advisor context pack: the section must list
  * only skills the conversation can actually load, mirroring the `skill_load`
- * gates — plugin-owned skills outside the per-chat plugin scope and skills
+ * gates: plugin-owned skills outside the per-chat plugin scope and skills
  * whose feature flag is off are omitted.
  *
  * Mocks are isolated to this file (the test runner runs each file in its own
@@ -58,7 +58,7 @@ const baseSources = {
   allowedToolNames: new Set<string>(),
 };
 
-describe("advisor context pack — skill catalog filtering", () => {
+describe("advisor context pack: skill catalog filtering", () => {
   test("omits plugin skills outside the per-chat scope and flag-off skills", async () => {
     const ctx =
       (await buildAdvisorContext({
