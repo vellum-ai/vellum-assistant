@@ -1016,15 +1016,15 @@ export function ChatLayout({
           >
             {chatContent}
             {/* A popout narrowed below the mobile breakpoint lands in this
-                branch — still headerless, so it still needs the floating
+                branch, still headerless, so it still needs the floating
                 session surface (see the desktop popout branch below). */}
             {isPopout ? <VoiceSessionPillHost variant="standalone" /> : null}
           </main>
           {/* The drawer is a sibling of `<main>`, not a child of it, even
               though it is the chat body's own navigation. `mainRoomClass`
               puts a `filter` + `opacity` on `<main>` while the voice room is
-              up, and both make it a stacking context AND — for the filter —
-              the containing block for `position: fixed` descendants. Nested,
+              up, and both make it a stacking context AND (for the filter) the
+              containing block for `position: fixed` descendants. Nested,
               the drawer would come up blurred at 40% opacity, offset to
               `<main>`'s box instead of the viewport, and sealed below the
               room by its parent's tier: the menu button read as dead. Out

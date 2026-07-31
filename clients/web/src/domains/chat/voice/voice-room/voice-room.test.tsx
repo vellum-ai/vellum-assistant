@@ -647,7 +647,7 @@ describe("VoiceRoom: mobile sheet", () => {
   // Leaving the header usable is only half the promise: what the header OPENS
   // has to land in front of the room too. `root-layout.tsx` isolates the whole
   // app shell, so a sheet portaled to the body sits outside that stacking
-  // context and outranks every surface inside it regardless of z-index — the
+  // context and outranks every surface inside it regardless of z-index: the
   // navigation drawer opened invisibly behind the room and search opened behind
   // it. The room belongs inside the shell, under both.
   describe("stacking against the surfaces the header opens", () => {
@@ -668,6 +668,57 @@ describe("VoiceRoom: mobile sheet", () => {
 
       const sheet = screen.getByRole("dialog", { name: "Voice session" });
       expect(overlays.host.contains(sheet)).toBe(true);
+      removeHeader();
+      overlays.remove();
+    });
+
+    // The drawer and the palette close themselves on Escape and do not stop
+    // propagation, so an unconditional window handler dismissed both them and
+    // the room behind them on one keypress.
+    test("Escape belongs to a dialog layered over the room", () => {
+      const overlays = mountOverlayHost();
+      const removeHeader = mountHeader();
+      mockIsMobile = true;
+      startOwnedSession("listening");
+      render(<VoiceRoom variant="sheet" />);
+
+      // Stand in for the navigation drawer: a dialog over the room, holding
+      // focus, that is not the room's own.
+      const drawer = document.createElement("div");
+      drawer.setAttribute("role", "dialog");
+      drawer.setAttribute("tabindex", "-1");
+      document.body.appendChild(drawer);
+      drawer.focus();
+
+      act(() => {
+        fireEvent.keyDown(window, { key: "Escape" });
+      });
+
+      expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+      drawer.remove();
+      removeHeader();
+      overlays.remove();
+    });
+
+    test("Escape still minimizes from outside any dialog", () => {
+      // The composer textarea can still hold focus as the room opens, and it
+      // sits inside no dialog at all, so the key has to reach the room there.
+      const overlays = mountOverlayHost();
+      const removeHeader = mountHeader();
+      mockIsMobile = true;
+      startOwnedSession("listening");
+      render(<VoiceRoom variant="sheet" />);
+
+      const composer = document.createElement("textarea");
+      document.body.appendChild(composer);
+      composer.focus();
+
+      act(() => {
+        fireEvent.keyDown(window, { key: "Escape" });
+      });
+
+      expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+      composer.remove();
       removeHeader();
       overlays.remove();
     });
