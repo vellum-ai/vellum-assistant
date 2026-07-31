@@ -312,6 +312,52 @@ describe("AssistantSideMenu · All view", () => {
   });
 });
 
+describe("AssistantSideMenu · scrollport top inset", () => {
+  // The sticky view switch sticks to the scrollport's *content* box, so the
+  // body carries no top padding: any there would park the switch that far
+  // down and open a strip above it for rows to scroll through. The overlay
+  // still needs the inset though, because its first body child is the
+  // assistant cluster rather than the switch, and without it the cluster
+  // collides with the floating close and search glyphs. So the inset moves
+  // onto the cluster rather than disappearing.
+  test("the rail's scrollport carries no top inset", () => {
+    const container = parse(
+      renderMenu({ conversations: [makeConversation({ conversationId: "r1" })] }),
+    );
+    const body = container.querySelector<HTMLElement>(
+      '[data-slot="side-menu-body"]',
+    );
+    if (!body) {
+      throw new Error("expected the side menu body");
+    }
+
+    expect(body.className).not.toContain("pt-3");
+    expect(body.className).not.toContain("pt-4");
+  });
+
+  test("the overlay's assistant cluster keeps its inset off the glyph row", () => {
+    const container = parse(
+      renderMenu({
+        conversations: [makeConversation({ conversationId: "r1" })],
+        variant: "overlay",
+      }),
+    );
+    const body = container.querySelector<HTMLElement>(
+      '[data-slot="side-menu-body"]',
+    );
+    if (!body) {
+      throw new Error("expected the side menu body");
+    }
+
+    // Not on the scrollport itself.
+    expect(body.className).not.toContain(" pt-3");
+    // On its first child, the assistant cluster.
+    const cluster = body.firstElementChild;
+    expect(cluster?.className).toContain("pt-3");
+    expect(cluster?.textContent).toContain("Your Assistant");
+  });
+});
+
 describe("AssistantSideMenu · section scrolling", () => {
   // Every section behaves like the flat list: no "Show more", the rows just
   // keep going inside a bounded, scrollable area. Without the cap one busy

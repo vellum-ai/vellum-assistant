@@ -548,7 +548,19 @@ export function AssistantSideMenu({
               : undefined
           }
         >
-          {variant === "overlay" ? builtInNav : null}
+          {/* The overlay puts the assistant cluster at the top of the
+              scrollport rather than in a fixed header, so it owns the inset
+              that keeps it clear of the floating close and search glyphs. It
+              lives here rather than on the scrollport because the sticky view
+              switch sticks to the scrollport's content box: any padding there
+              would park the switch that far down and open a strip above it
+              for rows to scroll through. `gap-4` restates the body's own gap,
+              which wrapping these into one flex item would otherwise drop. */}
+          {variant === "overlay" ? (
+            <div className="flex flex-col gap-4 pt-3 max-md:pt-4">
+              {builtInNav}
+            </div>
+          ) : null}
           {isCollapsedRail ? (
             /* The rail shows the same sections in the same order, as icons.
                Nothing here is type-aware - order and labels come straight
