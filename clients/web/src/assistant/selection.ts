@@ -77,8 +77,9 @@ export function resolveSelectedAssistantId(
  * the `Vellum-Organization-Id` header uses (the resolved selection, or the
  * persisted id standing in for it), so a failed organization fetch cannot
  * drop the user's choice. Subscribes to the flags, the org, the selection,
- * and the resolved list so consumers re-render when any resolution input
- * changes.
+ * the resolved list, and its hydration marker so consumers re-render when
+ * any resolution input changes (hydration alone flips an unknown selected id
+ * from pass-through to ghost, even when the list itself is unchanged).
  */
 export function useGatedSelectedAssistantId(): string | null {
   const organizationId = useRequestOrganizationId();
@@ -88,6 +89,7 @@ export function useGatedSelectedAssistantId(): string | null {
     useClientFeatureFlagStore.use.assistantSwitcher();
   useResolvedAssistantsStore.use.selectedAssistantId();
   useResolvedAssistantsStore.use.assistants();
+  useResolvedAssistantsStore.use.assistantsHydrated();
   const gateOpen =
     (multiAssistantEnabled || (assistantSwitcherEnabled && isLocalClient())) &&
     !isGatewayAuthMode();

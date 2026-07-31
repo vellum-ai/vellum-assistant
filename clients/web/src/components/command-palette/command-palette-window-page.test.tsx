@@ -115,6 +115,7 @@ mock.module("@/stores/resolved-assistants-store", () => {
     assistants: () => resolvedRef.assistants,
     activeAssistantId: () => resolvedRef.activeAssistantId,
     selectedAssistantId: () => resolvedRef.selectedAssistantId,
+    assistantsHydrated: () => resolvedRef.assistantsHydrated,
   };
   useResolvedAssistantsStore.getState = () => ({
     assistants: resolvedRef.assistants,
