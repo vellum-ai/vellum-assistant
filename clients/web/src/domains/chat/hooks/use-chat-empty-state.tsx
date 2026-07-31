@@ -128,7 +128,7 @@ export function useChatEmptyState({
   // The avatar's presence on the empty state lives entirely in
   // `ComposerPeek` (hanging from the top of the screen while idle in the
   // browser, saying hello from under the input on iOS, peeking behind the
-  // input while it's focused on both) — the greeting headline renders
+  // input while it's focused on both). The greeting headline renders
   // alone.
   // Not during a live-voice session. The peek is anchored to the composer's
   // input rect, and a session replaces that input with the voice surface, so

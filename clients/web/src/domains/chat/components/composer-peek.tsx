@@ -46,11 +46,11 @@ interface TargetRect {
 }
 
 /**
- * Every perch derives its crop from `avatarPeekMetrics` — where the
- * active body shape + eye style actually place the eye ink — so every
- * avatar shows its eyes at the edge. Bodies whose face sits low (a lot
- * of body above the eyes) get scaled DOWN instead of exposing an ever
- * taller slab, capping each perch's on-screen height.
+ * Every perch derives its crop from `avatarPeekMetrics`, which reports
+ * where the active body shape and eye style actually place the eye ink,
+ * so every avatar shows its eyes at the edge. Bodies whose face sits low
+ * (a lot of body above the eyes) get scaled DOWN instead of exposing an
+ * ever taller slab, capping each perch's on-screen height.
  */
 
 /** Largest square the input-peek avatar renders at. */
@@ -455,7 +455,7 @@ export function ComposerPeek({
       )}
       {/* Shadow caster painted over the avatar: a transparent rect
           matching the card whose box-shadow falls on everything around
-          it — the avatar sits under the input's shadow, so it reads as
+          it, so the avatar sits under the input's shadow and reads as
           behind. Covers both the hello and the focus peek. */}
       <motion.div
         className="absolute"
