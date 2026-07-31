@@ -521,7 +521,7 @@ export function AssistantSideMenu({
                  inline padding below is applied. pt-14 on iOS clears the 40px
                  the floating icon row covers plus a 16px gap, so the first
                  row starts below the glyphs at rest. */
-                `-mx-4 gap-4 px-4 pt-3 pb-24 native-ios:pt-14 max-md:pt-4 ${NATIVE_IOS_LIST_TOP_FADE}`
+                `-mx-4 gap-4 px-4 pb-24 native-ios:pt-14 ${NATIVE_IOS_LIST_TOP_FADE}`
               : /* The collapsed rail tucks the group icons up under the
                  cluster separator (~12px to the first icon tile) so they
                  read as the next section, not a distant island. */
@@ -530,8 +530,10 @@ export function AssistantSideMenu({
                 : /* The scrollport spans the full rail so its scrollbar rides
                      the outer edge instead of cutting through the content, and
                      takes over the horizontal inset the root would have given
-                     it, so rows sit exactly where they did. */
-                  "-mx-4 gap-4 px-4 pt-3 max-md:pt-4"
+                     it, so rows sit exactly where they did. No top inset: the
+                     sticky view switch sits flush against the header, and any
+                     padding here would be a gap it has to cancel. */
+                  "-mx-4 gap-4 px-4"
           }
           style={
             variant === "overlay" && overlayBottomColumnHeight > 0

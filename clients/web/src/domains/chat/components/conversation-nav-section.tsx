@@ -13,9 +13,11 @@
  * screen. The flat list instead scrolls against the sidebar body it already
  * fills (`scrollParent`), which keeps the rail to a single scrollbar.
  *
- * Either way a long list windows rather than mounting every row, because an
- * assistant accumulates conversations indefinitely and they all arrive in one
- * query - there is no page to fetch, only rows to render.
+ * Either way a list past {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows
+ * windows rather than mounting every one, because an assistant accumulates
+ * conversations indefinitely and they all arrive in one query: there is no
+ * page to fetch, only rows to render. Shorter lists mount directly and skip
+ * virtuoso's measuring pass.
  *
  * Row callbacks and state come from {@link useConversationListContext}
  * (via `ConversationRow`), so neither takes them as props.
@@ -81,6 +83,29 @@ export function ConversationRowList({
     />
   );
 
+  const rows = <SideMenu.SubList>{items.map(renderRow)}</SideMenu.SubList>;
+
+  // Reorderable sections (Pinned, custom groups) always mount every row: the
+  // drag controller resolves a drop target from the rows themselves, so a
+  // windowed list would have nothing to drop onto past the viewport. They
+  // stay bounded and scrollable either way, and they are the curated
+  // sections, so they are the least likely to run long.
+  const windows =
+    !dragSection && items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD;
+
+  if (!windows) {
+    return scrollParent ? (
+      rows
+    ) : (
+      <div
+        className="overflow-y-auto"
+        style={{ maxHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
+      >
+        {rows}
+      </div>
+    );
+  }
+
   /* The primitive paints `--surface-base` for a list that owns its surface;
      every list here sits on a sidebar that has already painted its own. */
   const windowed = (
@@ -93,28 +118,13 @@ export function ConversationRowList({
     />
   );
 
-  if (scrollParent) {
-    return windowed;
-  }
-
-  // Reorderable sections (Pinned, custom groups) always mount every row: the
-  // drag controller resolves a drop target from the rows themselves, so a
-  // windowed list would have nothing to drop onto past the viewport. They
-  // stay bounded and scrollable either way, and they are the curated
-  // sections, so they are the least likely to run long.
-  if (!dragSection && items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD) {
-    /* Virtuoso's scroller sizes to 100%, so this branch commits to the full
-       height, which is honest here, since the list is past the cap. */
-    return <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>;
-  }
-
-  return (
-    <div
-      className="overflow-y-auto"
-      style={{ maxHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
-    >
-      <SideMenu.SubList>{items.map(renderRow)}</SideMenu.SubList>
-    </div>
+  /* Scrolling against an ancestor means no height of our own. Otherwise
+     virtuoso's scroller sizes to 100%, so the wrapper commits to the full
+     height, which is honest here since the list is past the cap. */
+  return scrollParent ? (
+    windowed
+  ) : (
+    <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>
   );
 }
 export interface ConversationNavSectionProps extends ConversationRowListProps {

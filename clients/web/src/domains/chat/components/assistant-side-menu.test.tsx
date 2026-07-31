@@ -228,16 +228,19 @@ describe("AssistantSideMenu · All view", () => {
     }),
   ];
 
-  // The flat list is virtualized, and virtuoso renders no rows without real
-  // layout, so these assert the composition around it. What lands *in* the
-  // list is covered by `use-sidebar-state.test.tsx` (`flatList`).
+  // Short lists mount their rows directly, so this can assert what actually
+  // renders. The windowed path is covered below, where virtuoso emits no rows
+  // without real layout and only its presence can be asserted.
   test("drops the Chats and channel headers in favour of one flat list", () => {
     const html = renderMenu({ conversations });
 
     expect(html).not.toContain(">Chats<");
     expect(html).not.toContain(">Slack<");
     expect(html).toContain(">Pinned<");
-    expect(html).toContain('data-slot="virtual-list"');
+    expect(html).not.toContain('data-slot="virtual-list"');
+    // The channel conversation is in the flat list, not a channel section.
+    expect(html).toContain("Slack one");
+    expect(html).toContain("Recent one");
   });
 
   test("carries no 'Show more' affordance", () => {

@@ -28,11 +28,10 @@ export function SidebarViewModeToggle({
     /* Sticky, so the view switch is reachable from anywhere in a list that
        can run tens of thousands of pixels tall. It needs the sidebar's own
        surface behind it and a z-index, or rows would scroll through it, and
-       A sticky offset is measured from the scrollport's *content* box, so a
-       plain `top-0` parks this the full height of the body's top inset below
-       the edge and rows slide through the strip above it. The negative `top`
-       cancels that inset so it sits flush against the header, and the
-       matching negative margin keeps it flush at rest too.
+       A sticky offset is measured from the scrollport's *content* box, so
+       this only lands flush against the header because the body carries no
+       top inset for it to sit below. Adding one back there would open a strip
+       above this that rows scroll through.
 
        It spans the full scrollport width and carries no padding of its own,
        so the list runs right up under it. Size and width are the primitive's
@@ -41,7 +40,7 @@ export function SidebarViewModeToggle({
        splits evenly between the segments - so the halves stay equal whatever
        the labels say, and "Groups" gets no bigger a target than "All". */
     <div
-      className="sticky -top-3 z-20 -mt-3 bg-[var(--surface-overlay)] max-md:-top-4 max-md:-mt-4"
+      className="sticky top-0 z-20 bg-[var(--surface-overlay)]"
     >
       <SegmentControl<SidebarViewMode>
         items={VIEW_MODE_ITEMS}
