@@ -26,22 +26,18 @@ export function SidebarViewModeToggle({
   onChange,
 }: SidebarViewModeToggleProps) {
   return (
-    <div
-      /* Compact only in height: `SegmentControl` exposes no size prop, so the
-         inner `role="radio"` buttons are shrunk with a descendant variant
-         rather than by mutating the shared primitive (24px inner + the
-         2px-padded container = 28px outer, one row height). Width is left to
-         the primitive, which spans the rail and splits it evenly between the
-         segments - the halves stay equal whatever the labels say, so
-         "Grouped" doesn't get a wider target than "All". */
-      className="[&_[role=radio]]:h-6"
-      style={{ paddingInline: SIDEBAR_ROW_PADDING_X }}
-    >
+    /* Inset to the shared row padding so the control's edges line up with the
+       conversation titles beside it. Size and width are the primitive's own:
+       `sm` for a rail-dense row height, and its default full width, which
+       splits evenly between the segments - so the halves stay equal whatever
+       the labels say, and "Grouped" gets no bigger a target than "All". */
+    <div style={{ paddingInline: SIDEBAR_ROW_PADDING_X }}>
       <SegmentControl<SidebarViewMode>
         items={VIEW_MODE_ITEMS}
         value={value}
         onChange={onChange}
         ariaLabel="Conversation list view"
+        size="sm"
       />
     </div>
   );

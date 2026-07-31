@@ -65,8 +65,18 @@ import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 // Pinned and the custom groups. The layout store is a module singleton, so
 // each test declares the view it exercises rather than inheriting one.
 beforeEach(() => {
+  // Per-assistant sidebar preferences (view, collapse, section order) all
+  // live in localStorage, so a test that seeds one would otherwise carry it
+  // into every test after it.
+  localStorage.clear();
   localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
-  useSidebarLayoutStore.setState({ assistantId: null, viewMode: "grouped" });
+  useSidebarLayoutStore.setState({
+    assistantId: null,
+    viewMode: "grouped",
+    sectionOrder: [],
+    openCategories: [],
+    openCustomGroups: [],
+  });
 });
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
@@ -246,6 +256,52 @@ describe("AssistantSideMenu · All view", () => {
 
     expect(html).not.toContain(">Show more<");
     expect(html).toContain('data-slot="virtual-list"');
+  });
+
+  // The switch governs everything below it, so it must never end up under a
+  // list it controls. Chats is free to order anywhere (only channel sections
+  // are floored), so dragging it above a custom group is a legal order that
+  // would otherwise push the switch below it.
+  test("stays above Chats even when the user drags Chats to the top", () => {
+    localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
+    localStorage.setItem(
+      "vellum:sidebar-section-order:asst-1",
+      JSON.stringify(["recents", "grp-a", "channel:slack"]),
+    );
+    useSidebarLayoutStore.setState({ assistantId: null, viewMode: "grouped" });
+
+    const container = parse(
+      renderMenu({
+        conversations: [
+          makeConversation({ conversationId: "r1", title: "Recent one" }),
+          makeConversation({
+            conversationId: "g1",
+            title: "Group one",
+            groupId: "grp-a",
+          }),
+        ],
+        conversationGroups: [
+          { id: "grp-a", name: "Alpha", isSystemGroup: false },
+        ] as unknown as ConversationGroup[],
+      }),
+    );
+
+    const root = container.querySelector<HTMLElement>(
+      '[data-slot="collapsible"]',
+    );
+    if (!root) {
+      throw new Error("expected the section list's accordion root");
+    }
+    const children = Array.from(root.children);
+    const switchIndex = children.findIndex((el) =>
+      el.querySelector('[data-slot="segment-control"]'),
+    );
+    const chatsIndex = children.findIndex((el) =>
+      (el.textContent ?? "").includes("Chats"),
+    );
+
+    expect(chatsIndex).toBeGreaterThan(-1);
+    expect(switchIndex).toBeLessThan(chatsIndex);
   });
 
   test("offers the view switch", () => {
@@ -556,7 +612,7 @@ describe("AssistantSideMenu · new conversation affordance", () => {
     onSelectConversation: () => {},
   };
 
-  test("renders the New Chat row (above the assistant row) when onStartNewConversation is supplied", () => {
+  test("renders the New Chat row (below the assistant row) when onStartNewConversation is supplied", () => {
     const html = renderToStaticMarkup(
       createElement(AssistantSideMenu, {
         ...baseProps,
@@ -567,9 +623,9 @@ describe("AssistantSideMenu · new conversation affordance", () => {
     expect(html).toContain(">New Chat<");
     // It is a button row, not a navigation link.
     expect(html).not.toContain('<a aria-label="New Chat"');
-    // New Chat sits above the assistant row.
-    expect(html.indexOf(">New Chat<")).toBeLessThan(
-      html.indexOf("Your Assistant"),
+    // The identity leads and the action hangs off it.
+    expect(html.indexOf("Your Assistant")).toBeLessThan(
+      html.indexOf(">New Chat<"),
     );
   });
 
@@ -901,7 +957,10 @@ describe("AssistantSideMenu · equal section treatment", () => {
   // Custom groups are peers of Pinned, Chats, and the channel sections - not
   // a separate class. Nothing in the list may imply a grouping the user
   // didn't create, because they order these however they like.
-  test("no dividers separate the sections", () => {
+  // The list carries exactly one rule, and it is not a section break: it
+  // marks where the user's curated layer ends and the view switch takes over.
+  // Two sections never have a rule between them, whatever their type.
+  test("the list's only rule sits between the curated layer and the switch", () => {
     const container = parse(
       renderMenu({
         conversations: LAYOUT_CONVERSATIONS,
@@ -909,13 +968,33 @@ describe("AssistantSideMenu · equal section treatment", () => {
       }),
     );
 
-    const separatorsInList = Array.from(
-      container.querySelectorAll<HTMLElement>(
-        '[data-slot="side-menu-separator"]',
-      ),
-    ).filter((hr) => hr.closest('[data-slot="collapsible"]'));
+    const root = container.querySelector<HTMLElement>(
+      '[data-slot="collapsible"]',
+    );
+    if (!root) {
+      throw new Error("expected the section list's accordion root");
+    }
 
-    expect(separatorsInList).toHaveLength(0);
+    const children = Array.from(root.children);
+    const ruleIndex = children.findIndex((el) =>
+      el.matches('[data-slot="side-menu-separator"]'),
+    );
+    const switchIndex = children.findIndex((el) =>
+      el.querySelector('[data-slot="segment-control"]'),
+    );
+
+    expect(
+      root.querySelectorAll('[data-slot="side-menu-separator"]'),
+    ).toHaveLength(1);
+    expect(switchIndex).toBe(ruleIndex + 1);
+
+    // Everything above the rule is Pinned and the custom groups.
+    const aboveLabels = children
+      .slice(0, ruleIndex)
+      .map((el) => el.textContent ?? "");
+    expect(aboveLabels.some((text) => text.includes("Pinned"))).toBe(true);
+    expect(aboveLabels.some((text) => text.includes("Alpha"))).toBe(true);
+    expect(aboveLabels.some((text) => text.includes("Slack"))).toBe(false);
   });
 
   // Same shell, same drag wiring, same header treatment for every type - a

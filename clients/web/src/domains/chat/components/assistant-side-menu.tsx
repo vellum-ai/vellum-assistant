@@ -147,11 +147,12 @@ function SearchButton() {
  * Structure (top → bottom):
  *
  *   Header
- *     • Your Assistant → Intelligence view
+ *     • Your Assistant → Intelligence view, with New Chat beneath it
  *     • ───────────────
  *   Body · one section list, in the user's own order (default shown)
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
+ *     • ───────────────  - the list's only rule, when anything is above it
  *     • [ All | Grouped ] - the switch for everything below it
  *     • All view: every remaining conversation as one headerless,
  *       virtualized list, newest first
@@ -401,14 +402,18 @@ export function AssistantSideMenu({
     />
   );
 
-  // How many leading sections are the user's own curation layer (Pinned and
-  // the custom groups). The view switch renders right after them, because
-  // they are the part of the sidebar it does not change.
-  const curatedSectionCount = sidebar.sections.reduce(
-    (count, section, index) =>
-      section.type === "pinned" || section.type === "group" ? index + 1 : count,
-    0,
+  // How many *leading* sections are the user's own curation layer (Pinned and
+  // the custom groups). The switch renders at the first section it governs,
+  // so everything above it is the part of the sidebar it does not change.
+  //
+  // Counting curated sections wherever they land would not do: Chats is free
+  // to sit anywhere (only channel sections are floored), so a user who drags
+  // it above a group would push the switch below the very list it controls.
+  const firstGovernedIndex = sidebar.sections.findIndex(
+    (section) => section.type !== "pinned" && section.type !== "group",
   );
+  const curatedSectionCount =
+    firstGovernedIndex === -1 ? sidebar.sections.length : firstGovernedIndex;
 
   // --- Built-in navigation ---
   // Pinned apps above the built-in nav, separated by a divider. On the rail
@@ -441,9 +446,10 @@ export function AssistantSideMenu({
           <SideMenu.Separator />
         </>
       ) : null}
-      {/* The assistant cluster: the New Chat row (avatar-tinted, plus +
-          label; icon-only tile on the collapsed rail) with the
-          avatar-colored assistant row beneath it. No divider when
+      {/* The assistant cluster: the avatar-colored assistant row with the
+          New Chat row (avatar-tinted, plus + label; icon-only tile on the
+          collapsed rail) beneath it, so the identity leads and the action
+          hangs off it. No divider when
           expanded; breathing room below instead. On the collapsed rail
           the separator provides the section break, so the margin drops
           and the header's own gap (8px) plus the separator's margin keeps
@@ -615,13 +621,25 @@ export function AssistantSideMenu({
                 value={sidebar.effectiveOpenSections}
                 onValueChange={sidebar.onOpenSectionsChange}
               >
-                {/* No dividers between sections. A custom group is a peer of
-                    Pinned, Chats, and a channel section, not a different class
-                    of thing, so nothing here may hint at a grouping the user
-                    didn't create - they order these however they like. The
-                    header's own indent (SIDEBAR_SECTION_INDENT) is what marks
-                    where a section starts. */}
+                {/* No dividers *between* sections. A custom group is a peer
+                    of Pinned, Chats, and a channel section, not a different
+                    class of thing, so nothing here may hint at a grouping the
+                    user didn't create - they order these however they like.
+                    The header's own indent (SIDEBAR_SECTION_INDENT) is what
+                    marks where a section starts. The single rule below is not
+                    a section break: it separates the curated layer from the
+                    switch that governs everything under it. */}
                 {sidebar.sections.slice(0, curatedSectionCount).map(renderSection)}
+                {/* The one divider in the list, and the only place a rule is
+                    honest: it marks where the user's own curation ends and
+                    the switch takes over, which is a real boundary rather
+                    than a grouping they didn't create. Absent when nothing is
+                    pinned and no group exists, so the list never opens on a
+                    rule. `my-0` keeps it on the root's own gap instead of
+                    adding to it. */}
+                {curatedSectionCount > 0 ? (
+                  <SideMenu.Separator className="my-0" />
+                ) : null}
                 {/* The switch governs only what follows it - the flat list, or
                     Chats and the channel sections - so it sits at that
                     boundary. Inside the one accordion root, not above it, so

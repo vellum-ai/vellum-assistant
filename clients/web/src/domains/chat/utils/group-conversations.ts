@@ -18,7 +18,9 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
  *   first-class collapsible section, not a foreground/background status; one
  *   `ChannelSection` is produced per channel that has conversations, ordered
  *   by channel id. With `groupByChannel: false` no channel sections are
- *   produced at all and those conversations fall through to `recents`.
+ *   produced at all and those conversations go to `recents` instead, at the
+ *   same point in the precedence chain, so which bucket a conversation is
+ *   visible in changes but whether it is visible does not.
  * - `scheduled` — `conversationType === "scheduled"` OR legacy
  *   `groupId === "system:scheduled"`.
  * - `background` — all background threads
@@ -85,13 +87,7 @@ function isBackground(c: Conversation): boolean {
  * the precedence the Slack section used: a channel conversation only buckets
  * into its section when it has no explicit (custom or system) group.
  */
-function channelSectionBucketId(
-  c: Conversation,
-  groupByChannel: boolean,
-): string | null {
-  if (!groupByChannel) {
-    return null;
-  }
+function channelSectionBucketId(c: Conversation): string | null {
   if (!isChannelConversation(c)) {
     return null;
   }
@@ -259,8 +255,18 @@ export function groupConversations(
       }
     }
 
-    const channelId = channelSectionBucketId(c, groupByChannel);
+    // Channel precedence is the same in both modes; only the destination
+    // differs. Short-circuiting here (rather than skipping the check when
+    // channel sections are off) keeps membership identical between the two
+    // views: a channel conversation that also carries a background or
+    // scheduled type stays visible either way, instead of falling through to
+    // a system bucket the sidebar never renders.
+    const channelId = channelSectionBucketId(c);
     if (channelId) {
+      if (!groupByChannel) {
+        recents.push(c);
+        continue;
+      }
       const bucket = channelBuckets.get(channelId);
       if (bucket) {
         bucket.push(c);
