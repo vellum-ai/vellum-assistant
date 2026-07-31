@@ -16,11 +16,11 @@
  * This is a multi-tier composition point, so the body carries `// ---- ... ----`
  * section labels naming which tier owns each group of steps. The v1 labels also
  * carry the `delete with v1` banner the deletion runbook greps for (see
- * `../AGENTS.md`), so none of the four v1 blocks here can be missed at deletion
+ * `../AGENTS.md`), so none of the five v1 blocks here can be missed at deletion
  * time. The labels do not form a single contiguous run per tier: the v1 Qdrant
  * collection ensure has to precede the shared embedding-identity reconcile, and
- * the v1 graph bootstrap belongs to the post-worker seeding tail. Steps only
- * move when the move is provably unobservable.
+ * the v1 graph bootstrap and node-embedding reconcile belong to the post-worker
+ * seeding tail. Steps only move when the move is provably unobservable.
  */
 
 import { join } from "node:path";
@@ -248,8 +248,9 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   }
 
   // ---- v1 (legacy engine) — delete with v1 ----
-  // Claim the one-shot v1-entry reconcile for this boot. The seeding and
-  // bootstrap steps below are exactly what the worker's `maybeRunV1EntryReconcile`
+  // Claim the one-shot v1-entry reconcile for this boot. The seeding, bootstrap,
+  // and node-embedding steps below are exactly what the worker's
+  // `maybeRunV1EntryReconcile`
   // runs, and they run here on every boot, so the worker only owes v1 the HOT
   // config transition. Writing the marker synchronously BEFORE the worker is
   // spawned is what makes that ordering total: the worker process does not
@@ -306,5 +307,23 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
     );
   } catch (err) {
     log.warn({ err }, "Graph bootstrap check failed — continuing");
+  }
+
+  // ---- v1 (legacy engine) — delete with v1 ----
+  // Backfill v1 embeddings for ordinary graph nodes whose `embed_graph_node`
+  // job was completed as a no-op under the substrate (the memory-item routes
+  // and the `memory_edit` tool write nodes on every tier). The seeding step
+  // above covers capability nodes only, so without this a node the user created
+  // on v2/v3 would stay out of v1 semantic retrieval for good. Self-gated on
+  // the v1 tier and fire-and-forget: the scan yields between batches, and boot
+  // must never wait on it.
+  try {
+    const { reconcileAllGraphNodeEmbeddings } =
+      await import("./graph/node-embedding-reconcile.js");
+    void reconcileAllGraphNodeEmbeddings().catch((err) =>
+      log.warn({ err }, "Graph-node embedding reconcile failed — continuing"),
+    );
+  } catch (err) {
+    log.warn({ err }, "Graph-node embedding reconcile failed — continuing");
   }
 }

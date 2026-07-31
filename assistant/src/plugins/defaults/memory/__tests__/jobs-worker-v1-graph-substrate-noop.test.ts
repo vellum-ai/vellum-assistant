@@ -40,6 +40,7 @@ let bootstrapCalls = 0;
 let maybeEnqueueBootstrapCalls = 0;
 let seedSkillGraphNodeCalls = 0;
 let seedCliGraphNodeCalls = 0;
+let nodeEmbeddingReconcileCalls = 0;
 let decayCalls = 0;
 let consolidateCalls = 0;
 let patternScanCalls = 0;
@@ -79,6 +80,13 @@ mock.module("../graph/capability-seed.js", () => ({
     seedCliGraphNodeCalls += 1;
   },
   seedUninstalledCatalogSkillMemories: async () => {},
+}));
+
+mock.module("../graph/node-embedding-reconcile.js", () => ({
+  reconcileGraphNodeEmbeddings: async () => {},
+  reconcileAllGraphNodeEmbeddings: async () => {
+    nodeEmbeddingReconcileCalls += 1;
+  },
 }));
 
 mock.module("../v1/graph/decay.js", () => ({
@@ -181,6 +189,7 @@ function resetCallCounts(): void {
   maybeEnqueueBootstrapCalls = 0;
   seedSkillGraphNodeCalls = 0;
   seedCliGraphNodeCalls = 0;
+  nodeEmbeddingReconcileCalls = 0;
   decayCalls = 0;
   consolidateCalls = 0;
   patternScanCalls = 0;
@@ -394,6 +403,9 @@ describe("v1 graph jobs under concept-page memory", () => {
     expect(maybeEnqueueBootstrapCalls).toBe(1);
     expect(seedSkillGraphNodeCalls).toBe(1);
     expect(seedCliGraphNodeCalls).toBe(1);
+    // The fourth step: ordinary graph nodes whose `embed_graph_node` row was
+    // dropped under the substrate are re-enqueued here, not by the seeders.
+    expect(nodeEmbeddingReconcileCalls).toBe(1);
     expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).not.toBeNull();
 
     // Second tick: the persisted checkpoint suppresses the reconcile even
@@ -404,6 +416,7 @@ describe("v1 graph jobs under concept-page memory", () => {
     expect(maybeEnqueueBootstrapCalls).toBe(1);
     expect(seedSkillGraphNodeCalls).toBe(1);
     expect(seedCliGraphNodeCalls).toBe(1);
+    expect(nodeEmbeddingReconcileCalls).toBe(1);
   });
 
   test("a substrate tick clears the checkpoint so a hot transition back to v1 reconciles again", () => {
@@ -428,6 +441,7 @@ describe("v1 graph jobs under concept-page memory", () => {
     expect(maybeEnqueueBootstrapCalls).toBe(2);
     expect(seedSkillGraphNodeCalls).toBe(2);
     expect(seedCliGraphNodeCalls).toBe(2);
+    expect(nodeEmbeddingReconcileCalls).toBe(2);
     expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).not.toBeNull();
   });
 
@@ -454,6 +468,7 @@ describe("v1 graph jobs under concept-page memory", () => {
     expect(maybeEnqueueBootstrapCalls).toBe(2);
     expect(seedSkillGraphNodeCalls).toBe(2);
     expect(seedCliGraphNodeCalls).toBe(2);
+    expect(nodeEmbeddingReconcileCalls).toBe(2);
     expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).not.toBeNull();
   });
 
@@ -492,5 +507,6 @@ describe("v1 graph jobs under concept-page memory", () => {
     expect(maybeEnqueueBootstrapCalls).toBe(0);
     expect(seedSkillGraphNodeCalls).toBe(0);
     expect(seedCliGraphNodeCalls).toBe(0);
+    expect(nodeEmbeddingReconcileCalls).toBe(0);
   });
 });

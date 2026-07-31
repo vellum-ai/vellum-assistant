@@ -16,17 +16,11 @@ import {
   loadSkillCatalog,
   type SkillSummary,
 } from "../../../../config/skills.js";
-import { getDb } from "../../../../persistence/db-connection.js";
-import { getMemoryBackendStatus } from "../../../../persistence/embeddings/embedding-backend.js";
-import { embeddingInputContentHash } from "../../../../persistence/embeddings/embedding-types.js";
 import {
   enqueueMemoryJob,
   upsertEmbedGraphNodeJob,
 } from "../../../../persistence/jobs-store.js";
-import {
-  memoryEmbeddings,
-  memoryGraphNodes,
-} from "../../../../persistence/schema/index.js";
+import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import {
   getCachedCatalogSync,
   getCatalog,
@@ -34,7 +28,7 @@ import {
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
 import type { SkillCapabilityInput } from "../substrate/skill-content.js";
-import { formatNodeForEmbedding } from "./graph-search.js";
+import { reconcileGraphNodeEmbeddings } from "./node-embedding-reconcile.js";
 import { createNode, rowToNode } from "./store.js";
 import {
   CAPABILITY_CLI_SOURCE_PREFIX as CLI_SOURCE_PREFIX,
@@ -194,7 +188,7 @@ export function seedSkillGraphNodes(): void {
     // The node writes above are synchronous; only the reconcile tail needs to
     // resolve the embedding backend, so it runs detached to keep this entry
     // point synchronous for its callers. It never rejects.
-    void reconcileCapabilityEmbeddings(reconcile);
+    void reconcileGraphNodeEmbeddings(reconcile);
   } catch (err) {
     log.warn({ err }, "Failed to seed skill graph nodes");
   }
@@ -214,7 +208,7 @@ export async function seedCliGraphNodes(): Promise<void> {
     }
 
     pruneStaleCapabilities(CLI_SOURCE_PREFIX, seenKeys);
-    await reconcileCapabilityEmbeddings(reconcile);
+    await reconcileGraphNodeEmbeddings(reconcile);
   } catch (err) {
     log.warn({ err }, "Failed to seed CLI graph nodes");
   }
@@ -251,7 +245,7 @@ export async function seedUninstalledCatalogSkillMemories(): Promise<void> {
       upsertSkillCapabilityNode(entry.id, fromCatalogSkill(entry), reconcile);
     }
 
-    await reconcileCapabilityEmbeddings(reconcile);
+    await reconcileGraphNodeEmbeddings(reconcile);
   } catch (err) {
     log.warn({ err }, "Failed to seed uninstalled catalog skill memories");
   }
@@ -278,78 +272,15 @@ function buildSkillContent(input: SkillCapabilityInput): string {
 /**
  * Capability nodes a seeding pass left content-unchanged, and so are candidates
  * for v1 embedding reconciliation. Collected during the pass and drained by
- * {@link reconcileCapabilityEmbeddings} once at the end: resolving the
- * embedding backend reaches the credential store, so it happens once per pass
- * rather than once per capability.
+ * {@link reconcileGraphNodeEmbeddings} once at the end: resolving the embedding
+ * backend reaches the credential store, so it happens once per pass rather than
+ * once per capability.
+ *
+ * Capability nodes are the seeding path's slice of the same problem
+ * `reconcileAllGraphNodeEmbeddings` solves for ordinary user nodes on v1 entry
+ * — one predicate, defined once in `node-embedding-reconcile.ts`.
  */
 type ReconcileQueue = MemoryNode[];
-
-/**
- * Enqueue `embed_graph_node` for every queued capability node whose current
- * content has no dense embedding under the current embedding backend.
- *
- * A capability seeded or updated while concept-page memory is active gets no
- * embed row, so when the assistant runs under v1 the unchanged-content
- * short-circuit alone would leave its v1 Qdrant point missing or stale. A node
- * counts as embedded only when a `memory_embeddings` row matches all three
- * facets of its current embedding identity:
- *
- *  - `(target_type, target_id)` — the node itself;
- *  - `(provider, model)` — the table is keyed per backend, so a row written by
- *    a previous backend describes vectors that are not in play any more;
- *  - `content_hash` — of the exact text `embedGraphNodeDirect` embeds for a
- *    node without image refs (capability nodes carry none), so a capability
- *    whose description changed under a higher tier re-embeds instead of
- *    keeping the vector built from the old text.
- *
- * That is one indexed `memory_embeddings` lookup per queued node (the unique
- * index covers target + provider + model). Rows are written only after the
- * Qdrant upsert succeeds (see `embedAndUpsert`), so a present row also means
- * the point itself landed. The enqueue coalesces with a pending
- * `embed_graph_node` row for the same node, so back-to-back seed passes (e.g.
- * `refreshSkillCapabilityMemories` seeding before and after the catalog
- * resolves) queue at most one job per node while the first is still pending.
- *
- * Fail-open and never rejects: an unresolvable backend or a lookup error logs
- * and skips the pass — reconciliation never blocks seeding.
- */
-async function reconcileCapabilityEmbeddings(
-  nodes: ReconcileQueue,
-): Promise<void> {
-  if (nodes.length === 0) {
-    return;
-  }
-  try {
-    const status = await getMemoryBackendStatus(getConfig());
-    if (!status.provider || !status.model) {
-      return;
-    }
-    const db = getDb();
-    for (const node of nodes) {
-      const contentHash = embeddingInputContentHash(
-        formatNodeForEmbedding(node),
-      );
-      const row = db
-        .select({ id: memoryEmbeddings.id })
-        .from(memoryEmbeddings)
-        .where(
-          and(
-            eq(memoryEmbeddings.targetType, "graph_node"),
-            eq(memoryEmbeddings.targetId, node.id),
-            eq(memoryEmbeddings.provider, status.provider),
-            eq(memoryEmbeddings.model, status.model),
-            eq(memoryEmbeddings.contentHash, contentHash),
-          ),
-        )
-        .get();
-      if (!row) {
-        upsertEmbedGraphNodeJob({ nodeId: node.id });
-      }
-    }
-  } catch (err) {
-    log.warn({ err }, "Capability embedding reconcile failed; skipping");
-  }
-}
 
 /**
  * Core upsert: find an existing capability node by its sourceKey,
@@ -363,7 +294,7 @@ async function reconcileCapabilityEmbeddings(
  * those rows target the v1 Qdrant collection, and dispatch discards them
  * while concept-page memory is active. On the v1 path an unchanged node joins
  * the pass's reconcile queue, which enqueues it when its current content has
- * no embedding (see {@link reconcileCapabilityEmbeddings}).
+ * no embedding (see {@link reconcileGraphNodeEmbeddings}).
  */
 function upsertCapabilityNode(
   sourceKey: string,

@@ -66,6 +66,9 @@ import {
   seedCliGraphNodes,
   seedSkillGraphNodes,
 } from "./graph/capability-seed.js";
+// V1 — delete with v1. The v1-entry backfill for ordinary graph nodes whose
+// `embed_graph_node` row was dropped under the substrate.
+import { reconcileAllGraphNodeEmbeddings } from "./graph/node-embedding-reconcile.js";
 import { getLogger } from "./logging.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
@@ -1035,15 +1038,17 @@ export function consolidationBackoffRemainingMs(
  * Run the one-time v1-entry reconcile unless it already ran for the current
  * stay on the v1 tier: the graph bootstrap check (populates an empty graph
  * from historical segments; self-guarded by tier/populated/has-history/
- * active-job gates) plus both capability seeders (their unchanged-content
- * path backfills v1 embeddings missing for nodes seeded under another tier).
+ * active-job gates), both capability seeders (their unchanged-content
+ * path backfills v1 embeddings missing for nodes seeded under another tier),
+ * and the graph-node embedding scan (the same backfill for ordinary
+ * user-created and user-edited nodes, which the seeders never look at).
  * The checkpoint is written even when individual steps fail — this is a
  * transition-edge trigger, not a retry loop; a failed step gets another
  * chance on the next transition or restart.
  *
  * This covers the HOT transition onto v1 only. A v1 boot is claimed by
  * `runMemoryStartup` before the worker process is spawned (it runs the same
- * three steps in the daemon), so a marker present here on the worker's first
+ * four steps in the daemon), so a marker present here on the worker's first
  * tick means boot already reconciled and this returns without a second,
  * concurrent pass over the same `memory_graph_nodes` rows.
  */
@@ -1080,6 +1085,17 @@ function maybeRunV1EntryReconcile(nowMs: number): void {
   } catch (err) {
     log.warn({ err }, "V1-entry CLI capability seeding failed");
   }
+  // Detached on purpose: the scan walks `memory_graph_nodes` in batches and
+  // yields between them, so awaiting it here would hold the maintenance tick
+  // for the length of the whole graph. It is idempotent, so a pass interrupted
+  // by shutdown just runs again on the next v1 entry.
+  try {
+    void reconcileAllGraphNodeEmbeddings().catch((err) => {
+      log.warn({ err }, "V1-entry graph-node embedding reconcile failed");
+    });
+  } catch (err) {
+    log.warn({ err }, "V1-entry graph-node embedding reconcile failed");
+  }
 
   try {
     setMemoryCheckpoint(
@@ -1096,9 +1112,10 @@ function maybeRunV1EntryReconcile(nowMs: number): void {
  * next tick that lands on v1 reconciles again. Called from every tick that is
  * off the v1 tier — both the substrate branch and the memory-disabled branch.
  * Memory being off counts as leaving v1 for the same reason the substrate does:
- * capability nodes keep being written (`refreshSkillCapabilityMemories` is
- * all-tier) while no `embed_graph_node` rows are enqueued, so those nodes are
- * absent from v1 semantic retrieval until a reconcile backfills them.
+ * graph nodes keep being written — capability seeding
+ * (`refreshSkillCapabilityMemories`) and the memory-item routes are both
+ * all-tier — while their `embed_graph_node` rows complete as no-ops, so those
+ * nodes are absent from v1 semantic retrieval until a reconcile backfills them.
  *
  * Reads before deleting. The marker is absent on essentially every tick of a
  * non-v1 assistant (it is only ever written on v1), so the read keeps the

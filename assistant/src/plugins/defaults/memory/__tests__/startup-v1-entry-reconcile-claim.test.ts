@@ -3,7 +3,7 @@
  * capability seeding and the graph bootstrap check itself, so it claims the
  * one-shot `v1_entry_reconcile_done` marker BEFORE spawning the out-of-process
  * memory worker. That ordering is what keeps the worker's first tick from
- * running the same three steps against the same `memory_graph_nodes` rows
+ * running the same four steps against the same `memory_graph_nodes` rows
  * concurrently — the worker process does not exist yet when the marker lands,
  * so its reconcile can only ever see the claim.
  *
@@ -89,6 +89,13 @@ mock.module("../graph/capability-seed.js", () => ({
   seedUninstalledCatalogSkillMemories: async () => {},
 }));
 
+mock.module("../graph/node-embedding-reconcile.js", () => ({
+  reconcileGraphNodeEmbeddings: async () => {},
+  reconcileAllGraphNodeEmbeddings: async () => {
+    stepsAfterSpawn.push("reconcileAllGraphNodeEmbeddings");
+  },
+}));
+
 mock.module("../v1/graph/bootstrap.js", () => ({
   bootstrapFromHistory: async () => ({}),
   bootstrapFromJournal: async () => ({ extracted: 0, errors: 0 }),
@@ -159,11 +166,14 @@ describe("v1-entry reconcile claim at daemon startup", () => {
     expect(spawnCalls).toBe(1);
     expect(checkpointAtSpawn).not.toBeNull();
     expect(getMemoryCheckpoint(V1_ENTRY_RECONCILE_KEY)).not.toBeNull();
-    // The claim covers exactly the three steps the worker's reconcile runs.
+    // The claim covers exactly the four steps the worker's reconcile runs —
+    // including the graph-node embedding backfill, which is the only one that
+    // covers ordinary user-created nodes.
     expect(stepsAfterSpawn).toEqual([
       "refreshSkillCapabilityMemories",
       "seedCliGraphNodes",
       "maybeEnqueueGraphBootstrap",
+      "reconcileAllGraphNodeEmbeddings",
     ]);
   });
 

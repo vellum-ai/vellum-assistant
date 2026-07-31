@@ -24,7 +24,9 @@ Everything else under the plugin root is **spine**:
   `conversation-graph-memory.ts` (the v1↔v2 dispatch spine; also owns
   compaction eviction of v2 activation rows and v3 `everInjected` state, and
   the injected-block strip identity), `store.ts`, `tool-handlers.ts`,
-  `tools.ts`, `capability-seed.ts`, `in-context-tracker.ts`, `graph-search.ts`
+  `tools.ts`, `capability-seed.ts`, `node-embedding-reconcile.ts` (v1-only
+  despite the directory — see the v1 runbook), `in-context-tracker.ts`,
+  `graph-search.ts`
   (node/trigger **embedding** plumbing — the v1 search half lives in
   `v1/graph/graph-search.ts`), `graph-memory-state-store.ts`, `types.ts`,
   `image-ref-utils.ts`. Despite the `memory_graph_*` naming, this directory is
@@ -514,13 +516,23 @@ not deleted**. Today the test-only hits are:
    list — it covers `startup.ts`'s `---- v1 (legacy engine) ----` section labels
    (which spell out the banner phrase for exactly this reason) and the dispatch
    call sites, not only the function bodies:
-   `startup.ts` (**four** blocks — the v1 Qdrant ensure and the PKB reconcile,
-   both covered by step 8; the v1-entry reconcile claim; and the graph-bootstrap
-   tail), `jobs-worker.ts` (`enqueueV1MaintenanceJobs` **and** the `else` arm
-   that calls it), `job-handlers.ts`, `indexer.ts` (`enqueueV1IndexTriggers`
-   **and** its call site), `injectors.ts` (the PKB injector pair). The same grep
-   also returns `graph/conversation-graph-memory.ts` and
+   `startup.ts` (**five** blocks — the v1 Qdrant ensure and the PKB reconcile,
+   both covered by step 8; the v1-entry reconcile claim; the graph-bootstrap
+   tail; and the graph-node embedding reconcile that follows it),
+   `jobs-worker.ts` (`enqueueV1MaintenanceJobs` **and** the `else` arm
+   that calls it, plus the `graph/node-embedding-reconcile.js` import and its
+   call in `maybeRunV1EntryReconcile`), `job-handlers.ts`, `indexer.ts`
+   (`enqueueV1IndexTriggers` **and** its call site), `injectors.ts` (the PKB
+   injector pair). The same grep also returns
+   `graph/conversation-graph-memory.ts` and
    `context-search/sources/memory.ts` — steps 4 and 5 above.
+   `graph/node-embedding-reconcile.ts` is banner-marked at the top of the file:
+   the whole module is v1-only (it exists to backfill v1 Qdrant points for graph
+   nodes written under another tier) and is **deleted outright**, together with
+   `graph/capability-seed.ts`'s `ReconcileQueue` plumbing — the queue, the
+   `isMemoryV1Active` pushes in `upsertCapabilityNode`, and the three
+   `reconcileGraphNodeEmbeddings` drains — which is that module's only other
+   caller. The node write paths themselves are all-tier and stay.
 7. Delete `V1_QDRANT_JOB_TYPES` and the `SweepPostponedOffV1Error` postpone
    path in `jobs-worker.ts`, plus the v1 job handlers
    (`v1/job-handlers/{backfill,embedding,index-maintenance}.ts`) and their
