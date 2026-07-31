@@ -639,7 +639,8 @@ export function ShareFeedbackModal({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isSubmitting) {
+      if (e.key === "Escape" && !e.defaultPrevented && !isSubmitting) {
+        e.preventDefault();
         onClose();
       }
     },

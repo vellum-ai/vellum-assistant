@@ -51,6 +51,7 @@ import { useIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import { useElectronIdentitySync } from "@/hooks/use-electron-identity-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
+import { subscribeAndroidBackButtonSource } from "@/runtime/event-sources/android-back-button";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindow } from "@/runtime/popout-window";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
@@ -70,7 +71,7 @@ const ShareFeedbackModal = lazy(() =>
 );
 
 /**
- * App-level layout route. Owns three cross-route concerns:
+ * App-level layout route. Owns four cross-route concerns:
  *
  * 1. Safe-area insets and iOS visual-viewport keyboard tracking.
  * 2. The single assistant lifecycle (`useAssistantLifecycle`). Mounted
@@ -85,6 +86,8 @@ const ShareFeedbackModal = lazy(() =>
  *    app-state) need to be alive on every authenticated route — not
  *    just chat — so cross-tab sync invalidations keep firing while the
  *    user is on settings, logs, etc.
+ * 4. Android system Back routing. The active UI layer gets first refusal,
+ *    followed by WebView history and app minimization at the root.
  *
  * References:
  * - React Router layout routes: https://reactrouter.com/start/data/routing
@@ -173,6 +176,7 @@ export function RootLayout() {
   useOnboardingWindowSize();
 
   useEventBusInit({ assistantId, isAssistantActive });
+  useEffect(() => subscribeAndroidBackButtonSource(), []);
   // Inbound deep-link navigation + window activation. Mounted here
   // (not in `ChatPage`) so a `vellum://thread/...` arriving while
   // the user is on `/assistant/settings`, `/logs`, etc. still
