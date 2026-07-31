@@ -99,10 +99,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/home/feed-source-enrichment.ts",
     "src/permissions/checker.ts",
     "src/persistence/conversation-crud.ts",
-    // `resolveConversationKind` compares a conversation's `source` against the
-    // memory-consolidation source. The reach is one frozen string constant with
-    // no dependencies of its own.
-    "src/persistence/conversation-types.ts",
     "src/persistence/steps.ts",
     "src/prompts/system-prompt.ts",
     "src/runtime/routes/consolidation-routes.ts",
