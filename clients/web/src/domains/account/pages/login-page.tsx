@@ -9,7 +9,6 @@ import {
   LoginErrorText,
   LoginHeading,
 } from "@/domains/account/components/login-shell";
-import { useFunnelPageView } from "@/domains/account/hooks/use-funnel-page-view";
 import { useReturnToShortCircuit } from "@/domains/account/hooks/use-return-to-short-circuit";
 import {
   PROVIDER_ID,
@@ -170,9 +169,6 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
 export function LoginPage() {
   const isNative = useIsNativePlatform();
   const shortCircuit = useReturnToShortCircuit();
-  // Only a visitor who reaches the screen is a funnel arrival — an existing
-  // session that short-circuits straight to `returnTo` is not.
-  useFunnelPageView(routes.account.login, shortCircuit.kind === "proceed");
 
   if (shortCircuit.kind === "wait") {
     return isNative ? (
