@@ -470,11 +470,8 @@ export function ProfileEditorProviderSection({
             value={model}
             onChange={handleModelSelection}
             disabled={isReadOnly || !provider}
+            placeholder={modelEmptyStateCopy?.placeholder ?? "Select a model"}
             options={[
-              {
-                value: "",
-                label: modelEmptyStateCopy?.placeholder ?? "Select a model",
-              },
               ...modelOptions.map((m) => ({
                 value: m.id,
                 label: m.displayName,

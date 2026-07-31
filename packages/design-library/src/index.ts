@@ -158,11 +158,10 @@ export {
 } from "./components/context-menu";
 export {
   Dropdown,
-  resolveDropdownMenuPosition,
   type DropdownOption,
   type DropdownProps,
-  type DropdownMenuPosition,
   type DropdownMenuAlign,
+  type DropdownSize,
 } from "./components/dropdown";
 export {
   PanelItem,

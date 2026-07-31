@@ -88,13 +88,11 @@ export function BlockedDeleteModal({
               aria-label="Replacement profile"
               value={replacement}
               onChange={onReplacementChange}
-              options={[
-                { value: "", label: "Select a replacement…" },
-                ...availableReplacements.map((p) => ({
-                  value: p.name,
-                  label: p.label ?? p.name,
-                })),
-              ]}
+              placeholder="Select a replacement…"
+              options={availableReplacements.map((p) => ({
+                value: p.name,
+                label: p.label ?? p.name,
+              }))}
             />
           </div>
           {error && (
