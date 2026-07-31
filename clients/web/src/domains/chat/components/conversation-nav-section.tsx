@@ -1,7 +1,7 @@
 /**
  * The two list-shaped pieces of the sidebar conversation list:
  *
- * - {@link ConversationRowList} — the one way conversation rows render as a
+ * - {@link ConversationRowList} - the one way conversation rows render as a
  *   list, used by every section and by the All view's flat list.
  * - {@link ConversationNavSection} — a `CollapsibleNavSection.Section`
  *   shell (icon + label + trailing + context menu) wrapping a
@@ -104,7 +104,7 @@ export function ConversationRowList({
   // sections, so they are the least likely to run long.
   if (!dragSection && items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD) {
     /* Virtuoso's scroller sizes to 100%, so this branch commits to the full
-       height — which is honest here, since the list is past the cap. */
+       height, which is honest here, since the list is past the cap. */
     return <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>;
   }
 
