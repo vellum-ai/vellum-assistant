@@ -674,7 +674,7 @@ describe("buildTranscriptItems", () => {
     expect(items[1]).toEqual({
       kind: "creditsUpsell",
       key: "credits-upsell-m2",
-      messageId: "m2",
+      message: errorRow,
     });
     expectDistinctNonEmptyKeys(items);
   });
@@ -701,7 +701,7 @@ describe("buildTranscriptItems", () => {
     expect(items[0]).toEqual({
       kind: "creditsUpsell",
       key: "credits-upsell-m1",
-      messageId: "m1",
+      message: errorRow,
     });
   });
 
@@ -719,7 +719,9 @@ describe("buildTranscriptItems", () => {
       creditsExhausted: true,
     });
 
-    expect(items).toHaveLength(1);
+    // The row keeps its bubble; the exhausted balance still appends the
+    // proactive tail card after it.
+    expect(items.map((i) => i.kind)).toEqual(["message", "creditsUpsell"]);
     expect((items[0] as MessageItem).message).toBe(errorRow);
   });
 
@@ -760,7 +762,7 @@ describe("buildTranscriptItems", () => {
     expect(items[1]).toEqual({
       kind: "creditsUpsell",
       key: "credits-upsell-m2",
-      messageId: "m2",
+      message: errorRow,
     });
     expectDistinctNonEmptyKeys(items);
   });
@@ -779,7 +781,9 @@ describe("buildTranscriptItems", () => {
       creditsExhausted: true,
     });
 
-    expect(items).toHaveLength(1);
+    // The row keeps its bubble; the exhausted balance still appends the
+    // proactive tail card after it.
+    expect(items.map((i) => i.kind)).toEqual(["message", "creditsUpsell"]);
     expect(items[0]).toEqual({
       kind: "message",
       key: "m1",
@@ -856,10 +860,13 @@ describe("buildTranscriptItems", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Proactive exhausted-balance card (appendCreditsUpsell)
+  // Proactive exhausted-balance card
+  //
+  // Derived entirely from inputs the projection already has: appended while
+  // `creditsExhausted` with no turn in flight and at least one message.
   // ---------------------------------------------------------------------------
 
-  test("appendCreditsUpsell appends the proactive card after the messages", () => {
+  test("an exhausted balance appends the proactive card after the messages", () => {
     const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
     const assistant = makeMessage({
       id: "m2",
@@ -870,7 +877,7 @@ describe("buildTranscriptItems", () => {
     const items = buildTranscriptItems({
       ...emptyInput(),
       messages: [user, assistant],
-      appendCreditsUpsell: true,
+      creditsExhausted: true,
     });
 
     expect(items).toHaveLength(3);
@@ -881,6 +888,30 @@ describe("buildTranscriptItems", () => {
     expectDistinctNonEmptyKeys(items);
   });
 
+  test("no proactive card without messages (the empty state renders its own)", () => {
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      creditsExhausted: true,
+    });
+
+    expect(items).toEqual([]);
+  });
+
+  test("no proactive card while a turn is in flight", () => {
+    // A credit wall never renders under the live progress indicator; the
+    // turn-settled billing refetch re-shows it as soon as the turn ends.
+    const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
+
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [user],
+      turnActive: true,
+      creditsExhausted: true,
+    });
+
+    expect(items.map((i) => i.kind)).toEqual(["message", "thinking"]);
+  });
+
   test("proactive card lands before trailers (thinking slot, onboarding choice)", () => {
     const user = makeMessage({ id: "m1", role: "user", ...textBody("Hello") });
 
@@ -889,7 +920,7 @@ describe("buildTranscriptItems", () => {
       messages: [user],
       isThinking: true,
       showOnboardingChoice: true,
-      appendCreditsUpsell: true,
+      creditsExhausted: true,
     });
 
     expect(items.map((i) => i.kind)).toEqual([
@@ -917,7 +948,6 @@ describe("buildTranscriptItems", () => {
       ...emptyInput(),
       messages: [user, errorRow],
       creditsExhausted: true,
-      appendCreditsUpsell: true,
     });
 
     // Exactly one card: the substituted one from the failed turn.
@@ -925,7 +955,7 @@ describe("buildTranscriptItems", () => {
     expect(items[items.length - 1]).toEqual({
       kind: "creditsUpsell",
       key: "credits-upsell-m2",
-      messageId: "m2",
+      message: errorRow,
     });
   });
 
@@ -949,7 +979,6 @@ describe("buildTranscriptItems", () => {
       messages: [user, errorRow],
       showOnboardingChoice: true,
       creditsExhausted: true,
-      appendCreditsUpsell: true,
     });
 
     expect(items.map((i) => i.kind)).toEqual([
@@ -960,7 +989,9 @@ describe("buildTranscriptItems", () => {
     expectDistinctNonEmptyKeys(items);
   });
 
-  test("the thinking slot of a still-busy failed turn does not defeat the dedupe", () => {
+  test("a still-busy failed turn shows only the substituted card", () => {
+    // `turnActive` suppresses the proactive tail card outright, so the
+    // substituted card and the thinking slot are all that render.
     const errorRow = makeMessage({
       id: "m1",
       role: "assistant",
@@ -976,7 +1007,6 @@ describe("buildTranscriptItems", () => {
       messages: [errorRow],
       turnActive: true,
       creditsExhausted: true,
-      appendCreditsUpsell: true,
     });
 
     expect(items.map((i) => i.kind)).toEqual(["creditsUpsell", "thinking"]);
@@ -1003,7 +1033,6 @@ describe("buildTranscriptItems", () => {
       ...emptyInput(),
       messages: [errorRow, later],
       creditsExhausted: true,
-      appendCreditsUpsell: true,
     });
 
     expect(items.map((i) => i.kind)).toEqual([
@@ -1020,12 +1049,12 @@ describe("buildTranscriptItems", () => {
     const first = buildTranscriptItems({
       ...emptyInput(),
       messages: [message],
-      appendCreditsUpsell: true,
+      creditsExhausted: true,
     });
     const second = buildTranscriptItems({
       ...emptyInput(),
       messages: [message],
-      appendCreditsUpsell: true,
+      creditsExhausted: true,
     });
 
     expect(second[1]).toBe(first[1]!);
