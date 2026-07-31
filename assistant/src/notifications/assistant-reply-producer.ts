@@ -16,6 +16,7 @@ import {
   getConversation,
   getMessageById,
   getMessagesPaginated,
+  isEchoSuppressedUserMessage,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { resolveConversationKind } from "../persistence/conversation-types.js";
@@ -111,7 +112,14 @@ export async function emitAssistantReplyNotification(params: {
     if (!initiatingMessage) {
       return;
     }
-    if (parseMessageMetadata(initiatingMessage.metadata)?.automated === true) {
+    const initiatingMetadata = parseMessageMetadata(initiatingMessage.metadata);
+    if (initiatingMetadata?.automated === true) {
+      return;
+    }
+    // Hidden lifecycle rows (subagent/ACP completions, wake triggers, hidden
+    // sends) are persisted with role "user" but are internal scaffolding, so
+    // the turn they open is nobody's prompt awaiting a reply.
+    if (isEchoSuppressedUserMessage(initiatingMetadata)) {
       return;
     }
 

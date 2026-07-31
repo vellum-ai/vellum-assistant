@@ -53,7 +53,6 @@ import {
   buildModelInfoEvent,
   formatCleanResult,
   formatCompactResult,
-  isBackgroundEventMetadata,
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
@@ -113,6 +112,7 @@ import {
   getMessages,
   getMessagesPaginated,
   hasMessages,
+  isBackgroundEventMetadata,
   isConversationProcessing,
   isHiddenMessageMetadata,
   isSystemCardMetadata,

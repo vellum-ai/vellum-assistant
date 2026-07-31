@@ -361,6 +361,47 @@ export function isHiddenMessageMetadata(
 }
 
 /**
+ * True when the row is a persisted `<background_event source="...">` trigger.
+ * Every wake, scheduled run, and backgrounded-tool completion stamps one (see
+ * `persistWakeTriggerMessage`). The permission mode such a turn ran under
+ * varies (most run interactive; clientless/headless wakes do not) and is
+ * recorded separately in `backgroundEventInteractive`; this predicate only
+ * identifies the row as a background event.
+ */
+export function isBackgroundEventMetadata(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return typeof metadata?.backgroundEventSource === "string";
+}
+
+/**
+ * True when a role-`"user"` row is internal scaffolding rather than a person's
+ * prompt: a daemon-injected run lifecycle notification (subagent
+ * `subagentNotification`, ACP run `acpNotification`, or any wake trigger, the
+ * persisted `<background_event source="...">` row every wake reads), or a row
+ * explicitly flagged `hidden` (e.g. a hidden `POST /messages` send that queued
+ * behind an in-flight turn, like the channel-setup wizard-close marker).
+ *
+ * These rows are persisted so the orchestrator wakes and reads the trigger,
+ * but the user sees the wake through its inline card ("Conversation Woke", or
+ * a terminal card for a backgrounded bash run), not a chat turn. One
+ * definition so the sites that must agree cannot drift: the
+ * `user_message_echo` broadcast (never render a live user bubble), the retry
+ * route's hidden-prompt re-run, and the assistant-reply notification producer
+ * (a turn opened by one of these rows is not a user prompt awaiting a reply).
+ */
+export function isEchoSuppressedUserMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return (
+    isHiddenMessageMetadata(metadata) ||
+    metadata?.subagentNotification != null ||
+    metadata?.acpNotification != null ||
+    isBackgroundEventMetadata(metadata)
+  );
+}
+
+/**
  * `messageKind` value marking a daemon-authored system card — a pre-composed
  * status reply (the /compact, /clean, and summarize-up-to result cards) that
  * bypasses the agent loop. Cards render as standalone system notices, never

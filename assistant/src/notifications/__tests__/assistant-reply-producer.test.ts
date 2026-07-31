@@ -7,6 +7,8 @@
  *   - Every non-"user" kind of the shared `resolveConversationKind` classifier
  *     is silent.
  *   - An `automated: true` initiating user message is silent.
+ *   - A hidden lifecycle row (subagent / ACP notification) opening the turn is
+ *     silent.
  *   - An already-seen reply is silent.
  *   - A tool-only reply (empty text preview) is silent.
  *   - A throwing dependency is swallowed, not propagated.
@@ -299,6 +301,38 @@ describe("emitAssistantReplyNotification", () => {
 
     expect(emitCalls).toHaveLength(0);
   });
+
+  // Hidden lifecycle rows persist with role "user" and are neither tool
+  // results nor `automated`, so only the shared echo-suppression classifier
+  // keeps a subagent or ACP completion turn from pushing a reply.
+  const LIFECYCLE_ROW_CASES: Array<{ name: string; metadata: unknown }> = [
+    {
+      name: "subagent notification",
+      metadata: {
+        subagentNotification: {
+          subagentId: "sub-1",
+          label: "researcher",
+          status: "running",
+          conversationId: "conv-child-1",
+          objective: "look something up",
+        },
+      },
+    },
+    {
+      name: "ACP notification",
+      metadata: { acpNotification: { acpSessionId: "acp-1", agent: "codex" } },
+    },
+  ];
+
+  for (const { name, metadata } of LIFECYCLE_ROW_CASES) {
+    test(`stays silent when the turn was opened by a ${name} row`, async () => {
+      userRows = [makeMessage({ metadata: JSON.stringify(metadata) })];
+
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+    });
+  }
 
   test("stays silent when no real user message opened the turn", async () => {
     userRows = [];
