@@ -51,6 +51,7 @@ afterAll(() => {
 import {
   getEffectiveProfile,
   getEffectiveProfiles,
+  getEffectiveProfilesForProvider,
   MANAGED_PROFILE_NAMES,
   materializeProfile,
   OS_BETA_PROFILE_TEMPLATE,
@@ -70,6 +71,7 @@ import { migrateProviderConnectionStatusLabel } from "../persistence/migrations/
 import { migrateProviderConnectionBaseUrlAndModels } from "../persistence/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../persistence/schema/index.js";
 import { getConnection } from "../providers/inference/connections.js";
+import { getProviderDefaultModel } from "../providers/model-intents.js";
 import { getConfigQuarantineNoticePath } from "../util/platform.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
@@ -142,7 +144,6 @@ function fullSeededCallSites(): Record<string, Record<string, unknown>> {
 function mergeDefaultConfigAndSeedInferenceProfiles(db?: DrizzleDb): void {
   const defaultConfigMerge = mergeDefaultWorkspaceConfig();
   seedInferenceProfiles({
-    preserveProfileNames: defaultConfigMerge.providedLlmProfileNames,
     preserveActiveProfile: defaultConfigMerge.providedLlmActiveProfile,
     isHatch: defaultConfigMerge.hadOverlay,
     db,
@@ -150,12 +151,18 @@ function mergeDefaultConfigAndSeedInferenceProfiles(db?: DrizzleDb): void {
 }
 
 /**
- * The exact thin stub `seedInferenceProfiles` writes for a default profile on
- * a fresh BYOK hatch: no content fields, only the workspace-owned overlays.
+ * Profile names that must stay absent from `llm.profiles` after a BYOK
+ * hatch: the default keys (no disabled stubs) and their `custom-*`
+ * counterparts (no materialized copies).
  */
-function managedStub(label: string): Record<string, unknown> {
-  return { source: "managed", status: "disabled", label: `${label} (Managed)` };
-}
+const LEGACY_HATCH_PROFILE_NAMES = [
+  "balanced",
+  "quality-optimized",
+  "cost-optimized",
+  "custom-balanced",
+  "custom-quality-optimized",
+  "custom-cost-optimized",
+] as const;
 
 function createProviderConnectionsDb(): DrizzleDb {
   const sqlite = new Database(":memory:");
@@ -555,7 +562,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.dataDir).toBeUndefined();
   });
 
-  test("off-platform hatch seeds user anthropic profiles and thin managed stubs", () => {
+  test("off-platform hatch writes no profile entries; defaults resolve through the hatch provider", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
@@ -573,34 +580,43 @@ describe("loadConfig startup behavior", () => {
       ) + "\n",
     );
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
 
-    mergeDefaultConfigAndSeedInferenceProfiles();
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
     const config = loadConfig();
 
     // `llm.default` is not part of the schema — the overlay blob stays on
     // disk as inert user intent but never reaches the parsed config.
     expect((config.llm as Record<string, unknown>).default).toBeUndefined();
-    // Off-platform: user profiles are active, backed by the user's API key.
-    expect(config.llm.activeProfile).toBe("custom-balanced");
-    expect(config.llm.profiles["custom-balanced"]?.provider).toBe("anthropic");
-    expect(config.llm.profiles["custom-balanced"]?.provider_connection).toBe(
-      "anthropic-personal",
-    );
+    expect(config.llm.activeProfile).toBe("balanced");
+    expect(config.llm.advisorProfile).toBe("quality-optimized");
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     expect(raw.llm.default).toEqual({
       provider: "anthropic",
       model: "claude-opus-4-7",
     });
-    expect(raw.llm.activeProfile).toBe("custom-balanced");
-    // The managed defaults exist only as thin disabled stubs — their content
-    // is code-owned and never written to the workspace.
-    expect(raw.llm.profiles.balanced).toEqual(managedStub("Balanced"));
-    // Default content resolves from the code catalog via the effective view.
-    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
-    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(effectiveBalanced?.provider).toBe("vellum");
-    expect(effectiveBalanced?.provider_connection).toBeUndefined();
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.defaultProvider).toEqual({ provider: "anthropic" });
+    // The hatch materializes no profile entries: default content is
+    // code-owned and resolves through `llm.defaultProvider`'s matrix column.
+    for (const name of LEGACY_HATCH_PROFILE_NAMES) {
+      expect(raw.llm.profiles[name]).toBeUndefined();
+    }
+    // The personal connection the BYOK column stamps is created at hatch.
+    expect(getConnection(db, "anthropic-personal")).not.toBeNull();
+
+    // Resolution contract the hatch relies on: the defaults resolve active
+    // through the hatch provider with the personal connection.
+    const effective = getEffectiveProfilesForProvider(
+      raw.llm.profiles,
+      raw.llm.defaultProvider,
+    );
+    expect(effective.balanced?.provider).toBe("anthropic");
+    expect(effective.balanced?.provider_connection).toBe("anthropic-personal");
+    expect(effective.balanced?.model).toBe("claude-sonnet-4-6");
+    expect(effective.balanced?.source).toBe("managed");
+    expect("status" in (effective.balanced ?? {})).toBe(false);
   });
 
   test("on-platform hatch writes no profile entries; defaults resolve from the catalog", () => {
@@ -639,7 +655,7 @@ describe("loadConfig startup behavior", () => {
     expect(effectiveBalanced?.provider_connection).toBeUndefined();
   });
 
-  test("re-hatch from openai to anthropic creates user anthropic profiles off-platform", () => {
+  test("re-hatch from openai to anthropic leaves the user profile untouched and re-anchors the defaults", () => {
     // Pre-seed an OpenAI-style workspace: user-defined custom-balanced profile
     // is active, default is openai. Simulates a workspace that hatched against
     // OpenAI under the pre-1.2 model.
@@ -668,19 +684,25 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-    // Off-platform re-hatch: user profiles are overwritten for the new
-    // provider and custom-balanced becomes active.
-    expect(raw.llm.activeProfile).toBe("custom-balanced");
-    expect(raw.llm.profiles["custom-balanced"].provider).toBe("anthropic");
-    expect(raw.llm.profiles["custom-balanced"].provider_connection).toBe(
-      "anthropic-personal",
+    // Off-platform re-hatch: the default profiles become active, anchored on
+    // the new hatch provider.
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.defaultProvider).toEqual({ provider: "anthropic" });
+    // The pre-existing custom profile is user-owned and never rewritten.
+    expect(raw.llm.profiles["custom-balanced"]).toEqual({
+      source: "user",
+      provider: "openai",
+      model: "gpt-5.4-mini",
+    });
+    // No stubs under the default keys; content resolves through the new
+    // default provider's matrix column.
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    const effective = getEffectiveProfilesForProvider(
+      raw.llm.profiles,
+      raw.llm.defaultProvider,
     );
-    // The managed defaults get only thin disabled stubs; content stays
-    // code-owned and resolves from the catalog.
-    expect(raw.llm.profiles.balanced).toEqual(managedStub("Balanced"));
-    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
-    expect(effectiveBalanced?.provider).toBe("vellum");
-    expect(effectiveBalanced?.provider_connection).toBeUndefined();
+    expect(effective.balanced?.provider).toBe("anthropic");
+    expect(effective.balanced?.provider_connection).toBe("anthropic-personal");
   });
 
   test("on-platform re-hatch resets active profile to balanced", () => {
@@ -748,7 +770,7 @@ describe("loadConfig startup behavior", () => {
 
     expect(raw.llm.profiles.placeholder).toBeUndefined();
     expect(raw.llm.profileOrder).not.toContain("placeholder");
-    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    expect(raw.llm.activeProfile).toBe("balanced");
   });
 
   test("boot removes non-dispatchable profile references", () => {
@@ -811,7 +833,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.default.model).toBe("codellama");
   });
 
-  test("off-platform hatch with openai seeds user profiles and thin managed stubs", () => {
+  test("off-platform hatch with openai resolves the defaults through the openai column", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
@@ -823,46 +845,111 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    // User profiles for the hatch provider (openai).
-    expect(raw.llm.activeProfile).toBe("custom-balanced");
-    expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
-    expect(raw.llm.profiles["custom-balanced"].model).toBe("gpt-5.4-mini");
-    expect(raw.llm.profiles["custom-balanced"].provider_connection).toBe(
-      "openai-personal",
-    );
-    expect(raw.llm.profiles["custom-balanced"].source).toBe("user");
-    expect(raw.llm.profiles["custom-quality-optimized"].provider).toBe(
-      "openai",
-    );
-    expect(raw.llm.profiles["custom-quality-optimized"].model).toBe("gpt-5.4");
-    expect(raw.llm.profiles["custom-cost-optimized"].provider).toBe("openai");
-    expect(raw.llm.profiles["custom-cost-optimized"].model).toBe(
-      "gpt-5.4-nano",
-    );
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.defaultProvider).toEqual({ provider: "openai" });
+    for (const name of LEGACY_HATCH_PROFILE_NAMES) {
+      expect(raw.llm.profiles[name]).toBeUndefined();
+    }
 
-    // The managed defaults exist only as thin disabled stubs on a BYOK hatch.
-    expect(raw.llm.profiles.balanced).toEqual(managedStub("Balanced"));
-    expect(raw.llm.profiles["quality-optimized"]).toEqual(
-      managedStub("Quality"),
+    // The defaults resolve active through the openai column of the matrix,
+    // stamped with the personal connection.
+    const effective = getEffectiveProfilesForProvider(
+      raw.llm.profiles,
+      raw.llm.defaultProvider,
     );
-    expect(raw.llm.profiles["cost-optimized"]).toEqual(managedStub("Speed"));
-
-    // Default content resolves from the code catalog via the effective view.
-    // Balanced serves GLM 5.2 on Fireworks.
-    const effective = getEffectiveProfiles(raw.llm.profiles);
-    expect(effective.balanced?.provider).toBe("vellum");
-    expect(effective.balanced?.provider_connection).toBeUndefined();
-    expect(effective.balanced?.model).toBe("accounts/fireworks/models/glm-5p2");
-    expect(effective.balanced?.effort).toBe("high");
+    expect(effective.balanced?.provider).toBe("openai");
+    expect(effective.balanced?.model).toBe("gpt-5.4-mini");
+    expect(effective.balanced?.provider_connection).toBe("openai-personal");
     expect(effective.balanced?.source).toBe("managed");
-    // Quality pins OpenAI Sol, the most capable managed model.
-    expect(effective["quality-optimized"]?.provider).toBe("vellum");
-    expect(effective["quality-optimized"]?.model).toBe("gpt-5.6-sol");
-    // Speed is served by DeepSeek V4 Flash on Fireworks.
-    expect(effective["cost-optimized"]?.provider).toBe("vellum");
-    expect(effective["cost-optimized"]?.model).toBe(
-      "accounts/fireworks/models/deepseek-v4-flash",
+    expect(effective["quality-optimized"]?.provider).toBe("openai");
+    expect(effective["quality-optimized"]?.model).toBe("gpt-5.4");
+    expect(effective["cost-optimized"]?.provider).toBe("openai");
+    expect(effective["cost-optimized"]?.model).toBe("gpt-5.6-luna");
+  });
+
+  test("off-platform hatch with a provider outside the named matrix columns resolves through the shared BYOK templates", () => {
+    // `together` has no column in PROFILE_IMPLS and no intent table: the
+    // defaults must still anchor on it (not fall back to anthropic), backed
+    // by the `together-personal` connection and its catalog defaultModel.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "together" } } }, null, 2) +
+        "\n",
     );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    const config = loadConfig();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.defaultProvider).toEqual({ provider: "together" });
+    // The parsed schema keeps the value — `.catch(undefined)` must not drop it.
+    expect(config.llm.defaultProvider).toEqual({ provider: "together" });
+    for (const name of LEGACY_HATCH_PROFILE_NAMES) {
+      expect(raw.llm.profiles[name]).toBeUndefined();
+    }
+    expect(getConnection(db, "together-personal")).not.toBeNull();
+
+    const effective = getEffectiveProfilesForProvider(
+      raw.llm.profiles,
+      raw.llm.defaultProvider,
+    );
+    for (const name of [
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+    ] as const) {
+      expect(effective[name]?.provider).toBe("together");
+      expect(effective[name]?.provider_connection).toBe("together-personal");
+      expect(effective[name]?.model).toBe(getProviderDefaultModel("together"));
+      expect(effective[name]?.source).toBe("managed");
+    }
+  });
+
+  test("off-platform hatch with a connection-eligible provider that is not a default-provider choice falls back to anthropic", () => {
+    // `litellm` passes the connection gate (API-key catalog provider with a
+    // fixed base URL requirement absent) but its catalog defaultModel is
+    // empty, so it is not a DEFAULT_PROVIDER_CHOICES member. The key and
+    // `litellm-personal` connection are still stored for manually-created
+    // profiles, but the defaults anchor on anthropic. The pre-code-defined
+    // rail was no better: materializing `custom-*` copies threw on the empty
+    // defaultModel and aborted seeding entirely.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify({ llm: { default: { provider: "litellm" } } }, null, 2) +
+        "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    const config = loadConfig();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.defaultProvider).toEqual({ provider: "anthropic" });
+    expect(config.llm.defaultProvider).toEqual({ provider: "anthropic" });
+    for (const name of LEGACY_HATCH_PROFILE_NAMES) {
+      expect(raw.llm.profiles[name]).toBeUndefined();
+    }
+    expect(getConnection(db, "litellm-personal")).not.toBeNull();
+
+    const effective = getEffectiveProfilesForProvider(
+      raw.llm.profiles,
+      raw.llm.defaultProvider,
+    );
+    for (const name of [
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+    ] as const) {
+      expect(effective[name]?.provider).toBe("anthropic");
+      expect(effective[name]?.provider_connection).toBe("anthropic-personal");
+    }
   });
 
   test("off-platform boot leaves an existing managed entry byte-identical", () => {
@@ -1281,13 +1368,19 @@ describe("loadConfig startup behavior", () => {
       provider: "anthropic",
       model: "claude-opus-4-7",
     });
-    // Off-platform hatch: user profiles are active; the managed defaults get
-    // only thin disabled stubs.
-    expect(raw.llm.activeProfile).toBe("custom-balanced");
-    expect(raw.llm.profiles["custom-balanced"].provider).toBe("anthropic");
-    expect(raw.llm.profiles.balanced).toEqual(managedStub("Balanced"));
-    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
-    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
+    // Off-platform hatch: nothing is materialized; the defaults resolve
+    // through the hatch provider.
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.defaultProvider).toEqual({ provider: "anthropic" });
+    for (const name of LEGACY_HATCH_PROFILE_NAMES) {
+      expect(raw.llm.profiles[name]).toBeUndefined();
+    }
+    const effective = getEffectiveProfilesForProvider(
+      raw.llm.profiles,
+      raw.llm.defaultProvider,
+    );
+    expect(effective.balanced?.provider).toBe("anthropic");
+    expect(effective.balanced?.provider_connection).toBe("anthropic-personal");
   });
 
   test("still quarantines corrupt JSON", () => {
@@ -1312,18 +1405,15 @@ describe("loadConfig startup behavior", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: BYOK-mode seed behavior (issues #2/#3/#4 of the May 12 provider UX
-// queue). Off-platform managed defaults share base labels with the personal
-// "custom-*" profiles (Balanced / Quality / Speed), so the thin stubs written
-// at BYOK hatch time carry a " (Managed)" label suffix and status "disabled"
-// — a fresh BYOK user has no platform auth, so managed defaults must not
-// surface as enabled in the picker on day one. Boots never touch managed
-// entries, so post-hatch user toggles persist — the "never auto-disable BYOK
-// connections" rule applies to RESTART, not to hatch. On platform, no
-// managed entries are written at all; defaults resolve from the code catalog.
+// Tests: BYOK-mode seed behavior. A BYOK hatch writes no profile entries at
+// all: the default names resolve through the hatch provider's column of the
+// intent × provider matrix (via `llm.defaultProvider`), active and
+// connection-stamped. Boots never touch managed entries, so pre-existing
+// stubs and user toggles on them persist until the conversion pass removes
+// them.
 // ---------------------------------------------------------------------------
 
-describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
+describe("seedInferenceProfiles BYOK-mode default profiles", () => {
   beforeEach(() => {
     ensureTestDir();
     const resetPaths = [
@@ -1353,7 +1443,7 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     invalidateConfigCache();
   });
 
-  test("off-platform hatch suffixes managed profile labels with ' (Managed)'", () => {
+  test("off-platform hatch writes no stubs; defaults resolve active with bare labels", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
@@ -1370,28 +1460,24 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
     mergeDefaultConfigAndSeedInferenceProfiles();
-    const config = loadConfig();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    // Managed profile labels carry the suffix so they're visibly distinct
-    // from the personal "custom-*" profiles (which retain bare labels).
-    expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
-    expect(config.llm.profiles["quality-optimized"]?.label).toBe(
-      "Quality (Managed)",
+    // No workspace entries at all: no disabled stubs, no label suffixes, no
+    // custom-* copies. The catalog serves the bare labels, active.
+    expect(raw.llm.profiles).toEqual({});
+    const effective = getEffectiveProfilesForProvider(
+      raw.llm.profiles,
+      raw.llm.defaultProvider,
     );
-    expect(config.llm.profiles["cost-optimized"]?.label).toBe(
-      "Speed (Managed)",
-    );
-
-    // Personal profiles keep their bare labels — they're the daily driver.
-    expect(config.llm.profiles["custom-balanced"]?.label).toBe("Balanced");
+    expect(effective.balanced?.label).toBe("Balanced");
+    expect(effective["quality-optimized"]?.label).toBe("Quality");
+    expect(effective["cost-optimized"]?.label).toBe("Speed");
+    expect("status" in (effective.balanced ?? {})).toBe(false);
+    expect("status" in (effective["quality-optimized"] ?? {})).toBe(false);
+    expect("status" in (effective["cost-optimized"] ?? {})).toBe(false);
   });
 
-  test("off-platform hatch initializes managed profile status to 'disabled'", () => {
-    // On a fresh BYOK hatch the user has no platform auth, so managed
-    // profiles must not surface as enabled in the picker on day one. We
-    // flip the three canonical managed profiles to status="disabled"
-    // ONCE at hatch time. (The complementary "user re-enable persists
-    // across restarts" guarantee is covered by the test further down.)
+  test("off-platform BYOK hatch defaults advisor to quality-optimized", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
@@ -1403,34 +1489,11 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
-    expect(config.llm.profiles.balanced?.status).toBe("disabled");
-    expect(config.llm.profiles["quality-optimized"]?.status).toBe("disabled");
-    expect(config.llm.profiles["cost-optimized"]?.status).toBe("disabled");
+    expect(config.llm.activeProfile).toBe("balanced");
+    expect(config.llm.advisorProfile).toBe("quality-optimized");
   });
 
-  test("off-platform BYOK hatch defaults advisor to the personal quality profile", () => {
-    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
-    writeFileSync(
-      overlayPath,
-      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
-        "\n",
-    );
-    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
-
-    mergeDefaultConfigAndSeedInferenceProfiles();
-    const config = loadConfig();
-
-    expect(config.llm.activeProfile).toBe("custom-balanced");
-    expect(config.llm.advisorProfile).toBe("custom-quality-optimized");
-    expect(config.llm.profiles["custom-quality-optimized"]?.provider).toBe(
-      "anthropic",
-    );
-    expect(
-      config.llm.profiles["custom-quality-optimized"]?.provider_connection,
-    ).toBe("anthropic-personal");
-  });
-
-  test("off-platform boot repairs a disabled managed advisor to a personal profile when no active managed replacement exists", () => {
+  test("off-platform boot clears a disabled managed advisor even when a personal profile exists", () => {
     writeConfig({
       llm: {
         advisorProfile: "frontier",
@@ -1477,7 +1540,9 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const config = loadConfig();
 
-    expect(config.llm.advisorProfile).toBe("custom-quality-optimized");
+    // Advisor repair only considers the managed defaults; a user profile is
+    // never auto-selected, so a fully-disabled managed set clears the field.
+    expect(config.llm.advisorProfile).toBeUndefined();
   });
 
   test("platform boot repairs a disabled managed advisor to an active managed profile", () => {

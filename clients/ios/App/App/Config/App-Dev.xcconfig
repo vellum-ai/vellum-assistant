@@ -8,3 +8,6 @@ BUNDLE_DISPLAY_NAME = Vellum Dev
 BUNDLE_URL_SCHEME = vellum-assistant-dev
 CODE_SIGN_ENTITLEMENTS = App/App-Dev.entitlements
 PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios.dev
+
+// Exact portal profile name; must equal release-ios.yaml's `profile_name`.
+PROVISIONING_PROFILE_SPECIFIER_Manual = Vellum Assistant iOS Dev Distribution

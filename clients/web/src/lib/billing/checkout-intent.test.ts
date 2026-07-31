@@ -156,6 +156,26 @@ describe("readPurchasedCheckoutIntent", () => {
     expect(readPurchasedCheckoutIntent()).toMatchObject({ kind: "custom" });
   });
 
+  test("suppresses a signup-marked custom config: no hand-off ever ran", () => {
+    // The marker means the same thing whatever the intent names: a stash the
+    // Stripe hand-off never rewrote, so nobody paid for what it describes.
+    saveCheckoutIntent({
+      kind: "custom",
+      machineTier: "large",
+      storageTier: "s",
+      creditTier: "credits_50",
+      resumeAfterOnboarding: true,
+    });
+
+    expect(readPurchasedCheckoutIntent()).toBeNull();
+    // The stash itself is untouched: the privacy screen still resumes from it.
+    expect(readCheckoutIntent()).toMatchObject({
+      kind: "custom",
+      storageTier: "s",
+      resumeAfterOnboarding: true,
+    });
+  });
+
   test("returns null when nothing is stashed", () => {
     expect(readPurchasedCheckoutIntent()).toBeNull();
   });

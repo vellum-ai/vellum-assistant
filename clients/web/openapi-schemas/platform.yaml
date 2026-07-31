@@ -1310,6 +1310,89 @@ paths:
           description: No response body
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{assistant_id}/live-activity/tokens/:
+    post:
+      operationId: assistants_live_activity_tokens_upsert
+      description: |-
+        Register the ActivityKit update token for a running voice session.
+
+        Called by the web layer inside the iOS WebView the moment ActivityKit
+        mints a token for the Live Activity it just started, and again whenever
+        that token rotates. Session-authenticated like its device-token sibling —
+        the requesting user must own the assistant in the URL.
+
+        The row is replaced rather than accumulated: a token identifies one
+        activity, and the plugin holds at most one at a time, so re-registering
+        under the same ``(user, token)`` is an update of the same activity.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LiveActivityTokenUpsertRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LiveActivityTokenUpsertRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LiveActivityTokenUpsertRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveActivityTokenUpsert'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/assistants/{assistant_id}/live-activity/tokens/{token}/:
+    delete:
+      operationId: assistants_live_activity_tokens_delete
+      description: |-
+        Deregister a Live Activity token when its session ends.
+
+        Idempotent — 204 whether or not the row existed. Best-effort by nature:
+        the client calls this as the session ends, which is precisely when the app
+        may be backgrounded, suspended, or already gone. That is why the row also
+        carries ``expires_at``; this endpoint is the fast path, not the guarantee.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: token
+        schema:
+          type: string
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      - AssistantAPIKey: []
+      responses:
+        '204':
+          description: No response body
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{assistant_id}/maintenance-mode/enter/:
     post:
       operationId: assistants_maintenance_mode_enter_create
@@ -1348,6 +1431,12 @@ paths:
                 additionalProperties: {}
           description: ''
         '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '409':
           content:
             application/json:
               schema:
@@ -4356,7 +4445,7 @@ paths:
   /v1/organizations/billing/invoices/:
     get:
       operationId: organizations_billing_invoices_retrieve
-      description: Return the org's Stripe invoices, newest first.
+      description: Return one page of the org's Stripe invoices, newest first.
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -4365,6 +4454,12 @@ paths:
           format: uuid
         description: Required if using Cookie-based or X-Session-Token authentication
           methods.
+      - in: query
+        name: starting_after
+        schema:
+          type: string
+        description: 'Cursor: return invoices older than the invoice with this id
+          (from the previous page''s last entry).'
       tags:
       - organizations
       security:
@@ -4379,6 +4474,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/InvoiceListResponse'
           description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: Invalid or expired starting_after cursor.
       x-vellum-api-clients:
       - platform
   /v1/organizations/billing/invoices/download/:
@@ -6392,6 +6493,16 @@ components:
           type: boolean
           description: True when a daily limit is set and today's spend has reached
             it.
+        low_balance_threshold_usd:
+          type: string
+          description: Effective low-balance alert threshold in USD as a decimal string
+            (per-org override when set, else the global default). Same threshold that
+            gates the low-balance warning email.
+        low_balance_warning:
+          type: boolean
+          description: True when the balance is above zero but below the low-balance
+            threshold and auto-top-up is not enabled. Drives the in-app low-credits
+            banner.
       required:
       - allowed_top_up_amounts
       - daily_credit_limit_usd
@@ -6400,6 +6511,8 @@ components:
       - effective_balance
       - effective_balance_usd
       - is_degraded
+      - low_balance_threshold_usd
+      - low_balance_warning
       - maximum_balance
       - maximum_balance_usd
       - maximum_top_up
@@ -7399,8 +7512,72 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Invoice'
+        has_more:
+          type: boolean
+          description: True if older invoices exist beyond this page. Pass the last
+            invoice's id as ?starting_after= to fetch the next page.
       required:
+      - has_more
       - invoices
+    LiveActivityTokenUpsert:
+      type: object
+      description: |-
+        Request/response body for registering one activity's update token.
+
+        ``labels`` must cover every phase this activity can be pushed into: a
+        dispatch for a phase with no label has nothing to render, and the server is
+        deliberately not allowed to invent wording of its own (see the model).
+        Validating it here makes that a 400 at registration rather than a silently
+        dropped push mid-session.
+      properties:
+        token:
+          type: string
+          maxLength: 512
+        bundle_id:
+          type: string
+          maxLength: 128
+        apns_environment:
+          $ref: '#/components/schemas/ApnsEnvironmentEnum'
+        conversation_id:
+          type: string
+          maxLength: 64
+        labels: {}
+      required:
+      - apns_environment
+      - bundle_id
+      - conversation_id
+      - token
+    LiveActivityTokenUpsertRequest:
+      type: object
+      description: |-
+        Request/response body for registering one activity's update token.
+
+        ``labels`` must cover every phase this activity can be pushed into: a
+        dispatch for a phase with no label has nothing to render, and the server is
+        deliberately not allowed to invent wording of its own (see the model).
+        Validating it here makes that a 400 at registration rather than a silently
+        dropped push mid-session.
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 512
+        bundle_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        apns_environment:
+          $ref: '#/components/schemas/ApnsEnvironmentEnum'
+        conversation_id:
+          type: string
+          minLength: 1
+          maxLength: 64
+        labels: {}
+      required:
+      - apns_environment
+      - bundle_id
+      - conversation_id
+      - token
     LiveVoiceTokenRequestRequest:
       type: object
       properties:

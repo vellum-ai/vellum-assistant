@@ -26,6 +26,39 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
   ),
 }));
 
+// The iOS audio-session bridge. Stubbed at the module boundary (rather than by
+// faking `isNativeIOS`) so the controller's lifecycle wiring is asserted
+// directly; the bridge's own off-native/skew behavior is pinned by
+// `runtime/native-audio-session.test.ts`.
+type InterruptionEvent = { type: "began" | "ended" };
+const activateVoiceAudioSession = mock(async () => true);
+const deactivateVoiceAudioSession = mock(async () => undefined);
+const unsubscribeInterruptions = mock(() => undefined);
+let interruptionHandlers: ((event: InterruptionEvent) => void)[] = [];
+
+// A whole-module mock, so every export the controller's import graph reaches
+// has to be present here or the module fails to load.
+mock.module("@/runtime/native-audio-session", () => ({
+  activateVoiceAudioSession,
+  deactivateVoiceAudioSession,
+  subscribeVoiceAudioInterruptions: (
+    handler: (event: InterruptionEvent) => void,
+  ) => {
+    interruptionHandlers.push(handler);
+    return () => {
+      unsubscribeInterruptions();
+      interruptionHandlers = interruptionHandlers.filter((h) => h !== handler);
+    };
+  },
+}));
+
+/** Deliver a native `AVAudioSession` interruption to every live subscriber. */
+function emitInterruption(event: InterruptionEvent): void {
+  for (const handler of interruptionHandlers) {
+    handler(event);
+  }
+}
+
 import type { LiveVoiceChannelClient } from "@/domains/chat/voice/live-voice/live-voice-client";
 import type { LiveVoiceAudioCapture } from "@/domains/chat/voice/live-voice/pcm-capture";
 import type { LiveVoiceAudioPlayer } from "@/domains/chat/voice/live-voice/tts-playback";
@@ -41,6 +74,12 @@ import {
 const { useLiveVoiceSessionController } =
   await import("@/domains/chat/voice/live-voice/use-live-voice-session-controller");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
+const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
+  await import("@/stores/pending-deep-link-store");
 const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 
@@ -54,7 +93,10 @@ function renderPersistentController() {
   const captures: FakeCapture[] = [];
   const player = new FakePlayer();
 
-  const view = renderHook(() =>
+  let renderCount = 0;
+
+  const view = renderHook(() => {
+    renderCount += 1;
     useLiveVoiceSessionController({
       createClient: () => {
         const client = new FakeClient();
@@ -67,8 +109,8 @@ function renderPersistentController() {
         captures.push(capture);
         return capture as unknown as LiveVoiceAudioCapture;
       },
-    }),
-  );
+    });
+  });
 
   return {
     view,
@@ -77,6 +119,7 @@ function renderPersistentController() {
     captures,
     lastClient: () => clients[clients.length - 1]!,
     lastCapture: () => captures[captures.length - 1]!,
+    renderCount: () => renderCount,
   };
 }
 
@@ -114,12 +157,22 @@ beforeEach(() => {
     pauseBeforeReplyMs: null,
     interruptSensitivity: null,
   });
+  __resetPendingDeepLinkForTesting();
+  useAssistantIdentityStore.setState({ assistantId: null, version: null });
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  interruptionHandlers = [];
+  activateVoiceAudioSession.mockClear();
+  activateVoiceAudioSession.mockImplementation(async () => true);
+  deactivateVoiceAudioSession.mockClear();
+  deactivateVoiceAudioSession.mockImplementation(async () => undefined);
+  unsubscribeInterruptions.mockClear();
 });
 
 afterEach(() => {
   cleanup();
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setStarter(null);
+  __resetPendingDeepLinkForTesting();
 });
 
 // ---------------------------------------------------------------------------
@@ -175,6 +228,37 @@ describe("starter registration", () => {
       turnDetection: "server_vad",
     });
     expect(useLiveVoiceStore.getState().startedConversationId).toBeNull();
+  });
+
+  test("drains a start-voice deep link parked before this mount (cold launch)", async () => {
+    useAssistantIdentityStore.setState({
+      assistantId: "assistant-1",
+      version: "0.10.12",
+    });
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+
+    const h = renderPersistentController();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(h.lastClient().connectArgs).toEqual({
+      assistantId: "assistant-1",
+      conversationId: undefined,
+      turnDetection: "server_vad",
+    });
+    expect(usePendingDeepLinkStore.getState().pendingVoiceStartAt).toBeNull();
+  });
+
+  test("mounting with nothing parked starts no session", async () => {
+    const h = renderPersistentController();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(h.clients).toHaveLength(0);
   });
 });
 
@@ -244,5 +328,145 @@ describe("session lifetime", () => {
     expect(h.lastCapture().shutdownCount).toBe(1);
     expect(useLiveVoiceStore.getState().state).toBe("idle");
     expect(useLiveVoiceStore.getState().starter).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Native audio session — held for exactly the span of a voice session
+// ---------------------------------------------------------------------------
+
+describe("native audio session", () => {
+  // The regression guard. Activating our own AVAudioSession alongside the one
+  // WebKit holds for getUserMedia has broken live voice on a handset twice:
+  // #39331 (no capture at all, reverted in #39345) and again in #39306, where
+  // a session died ~60ms after its socket opened. Nothing may reintroduce it
+  // without a device test, and the Simulator cannot provide one.
+  test("never activates an audio session of its own", async () => {
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+
+    // The churn a real turn produces, none of which may reach the bridge.
+    for (const phase of [
+      "transcribing",
+      "thinking",
+      "speaking",
+      "listening",
+    ] as const) {
+      await act(async () => {
+        useLiveVoiceStore.getState().setState(phase);
+        await Promise.resolve();
+      });
+    }
+
+    expect(activateVoiceAudioSession).not.toHaveBeenCalled();
+    expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
+  });
+
+  test("never deactivates one either, through idle, failure or unmount", async () => {
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+
+    await act(async () => {
+      useLiveVoiceStore.getState().fail("velay unreachable");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      useLiveVoiceStore.getState().setState("idle");
+      await Promise.resolve();
+    });
+    act(() => {
+      h.view.unmount();
+    });
+
+    expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
+  });
+
+  test("drops the interruption listener on unmount", async () => {
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+
+    act(() => {
+      h.view.unmount();
+    });
+
+    expect(unsubscribeInterruptions).toHaveBeenCalledTimes(1);
+  });
+
+  test("an interruption ends the active session", async () => {
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+
+    await act(async () => {
+      emitInterruption({ type: "began" });
+      await Promise.resolve();
+    });
+
+    // A phone call took the mic; the session ends rather than listening into
+    // a dead input. The interruption arrives on WebKit's session, which is why
+    // this still works without us owning one.
+    expect(h.lastClient().ended).toBe(true);
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+  });
+
+  test("an interruption ending does not resume or disturb the session", async () => {
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+
+    await act(async () => {
+      emitInterruption({ type: "ended" });
+      await Promise.resolve();
+    });
+
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(h.lastClient().closed).toBe(false);
+  });
+
+  test("an interruption with no session running is a no-op", async () => {
+    const h = renderPersistentController();
+
+    await act(async () => {
+      emitInterruption({ type: "began" });
+      await Promise.resolve();
+    });
+
+    expect(h.clients).toHaveLength(0);
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+  });
+
+  // The skew case: an App Store shell older than the `VoiceAudioSession`
+  // plugin, where even the interruption listener never fires. Voice must behave
+  // exactly as it does with one. `runtime/native-audio-session.test.ts` pins the
+  // bridge's own off-native and missing-plugin behavior directly.
+  test("a bridge with no plugin behind it neither blocks nor breaks a session", async () => {
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+
+    await act(async () => {
+      useLiveVoiceStore.getState().controls?.stop();
+      await Promise.resolve();
+    });
+
+    expect(h.lastClient().ended).toBe(true);
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+  });
+
+  test("amplitude and transcript churn never re-renders the controller's host", async () => {
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+    const renders = h.renderCount();
+
+    // The `observeAudioState: false` contract. The audio-session lifecycle
+    // reads `state` through `useLiveVoiceStore.subscribe` inside an effect,
+    // never a reactive selector, so the per-frame amplitude and transcript
+    // deltas a live session emits stay free for the mounting layout.
+    act(() => {
+      const store = useLiveVoiceStore.getState();
+      store.setInputAmplitude(0.4);
+      store.setPartialTranscript("hello");
+      store.appendAssistantTranscript("hi");
+    });
+
+    expect(h.renderCount()).toBe(renders);
   });
 });

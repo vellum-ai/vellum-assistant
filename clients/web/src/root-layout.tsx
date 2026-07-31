@@ -20,7 +20,7 @@ import {
   useHasPlatformSession,
 } from "@/stores/auth-store";
 import { handleLogout } from "@/lib/auth/handle-logout";
-import { getSelectedAssistant, isLocalMode } from "@/lib/local-mode";
+import { getSelectedAssistant, isLocalClient } from "@/lib/local-mode";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
@@ -50,6 +50,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAvatarAccentVar } from "@/hooks/use-avatar-accent-var";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
+import { useIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import { useElectronIdentitySync } from "@/hooks/use-electron-identity-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
@@ -109,7 +110,6 @@ export function RootLayout() {
   useEffect(() => {
     void setMenuPlatformSession(hasPlatformSession);
   }, [hasPlatformSession]);
-  useClientFeatureFlagSync(!isSessionInitializing);
   useAssistantLifecycle({
     sessionStatus,
     hasPlatformSession,
@@ -127,6 +127,7 @@ export function RootLayout() {
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
+  useClientFeatureFlagSync(!isSessionInitializing, isAssistantActive);
   // Hydrate the assistant identity store (name + version) at the app root so
   // the name is ready on every authenticated route — chat, settings, logs —
   // and the Electron window title / tray / About panel (published below by
@@ -152,7 +153,10 @@ export function RootLayout() {
   useDynamicFavicon(avatar.customImageUrl, avatar.components, avatar.traits);
   // Publish the avatar accent as `--avatar-accent` so chat loading shimmers
   // (and any future accent-tinted UI) can read it from plain CSS.
-  useAvatarAccentVar(avatar.components, avatar.traits);
+  useAvatarAccentVar(avatar.components, avatar.traits, avatar.customImageUrl);
+  // Publish the same avatar for the iOS Live Activity, which cannot fetch an
+  // image at render time and needs the bytes to travel with the activity.
+  useIslandAvatarSource(avatar.customImageUrl, avatar.components, avatar.traits);
 
   // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
   // the live connection status to the menu-bar dot. Both no-op off Electron.
@@ -230,7 +234,7 @@ export function RootLayout() {
       // The chooser route is local-only — navigation-resolver redirects
       // platform users away — so platform sessions switch via the Switch
       // Assistant picker on the settings page instead.
-      if (isLocalMode()) {
+      if (isLocalClient()) {
         void navigate(`${routes.selectAssistant}?noAutoSkip=1`);
       } else {
         void navigate(routes.settings.general);

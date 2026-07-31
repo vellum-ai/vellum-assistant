@@ -4,6 +4,19 @@ Native iOS wrapper built with [Capacitor](https://capacitorjs.com/).
 This is _not_ a port of the web app — it's a thin `WKWebView` shell in
 `server.url` mode that loads the live web app directly over HTTPS.
 
+**Minimum iOS version: 17.0.** Set in `App/App/Config/Base.xcconfig`
+(`IPHONEOS_DEPLOYMENT_TARGET`) and `App/project.yml`
+(`options.deploymentTarget.iOS`) — both, because the xcconfig wins for
+targets that carry one and the `project.yml` value covers those that
+don't. Do not lower it: Live Activities need 16.1, interactive Live
+Activity content 17.0, and the Action Button 17.1. The Control Center
+control needs 18.0 and is therefore `@available`-gated rather than
+holding the whole app back.
+
+**Native voice mode** — the Live Activity, App Intents, Siri phrases, the
+Action Button, and the `<scheme>://voice` deep-link contract — is
+documented in [`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md).
+
 ## Web content delivery
 
 **What:** The iOS app loads the web UI live over HTTPS from the deployed
@@ -30,9 +43,13 @@ which URL is baked into the build.
   process. With `server.url`, only native shell changes (Swift code,
   entitlements, Capacitor plugin updates) require a store submission.
 - **Thin native surface** — the IPC bridge between the WKWebView and
-  native code is minimal (two plugins: `NativeAuthPlugin` and
-  `NativeBiometricPlugin`), so version skew risk between the web app
-  and native shell is low. Contrast with the Electron app, where the
+  native code is minimal (four plugins: `NativeAuthPlugin`,
+  `NativeBiometricPlugin`, `VoiceAudioSessionPlugin`, and
+  `VoiceLiveActivityPlugin`), so version
+  skew risk between the web app and native shell is low. Every plugin
+  call from the web side must still be capability-probed, because a new
+  web bundle always ships ahead of the shell that hosts it. Contrast
+  with the Electron app, where the
   `window.vellum.*` IPC surface is broad and tightly coupled.
 - **WKWebView security model** — unlike Electron's renderer, `WKWebView`
   runs in a full iOS process sandbox with no access to native APIs
@@ -133,7 +150,7 @@ Apple's reference for the toolbar controls:
 
 The app has two layers — the **WKWebView contents** (the React app loaded
 from the configured server URL) and the **native Swift shell** (Capacitor
-bridge, `MyViewController`, the two native plugins). Each has its own
+bridge, `MyViewController`, the four native plugins). Each has its own
 debugger.
 
 ### Safari Web Inspector — for the web side (JS / CSS / network / `console.log`)
@@ -180,7 +197,8 @@ For a **physical iPhone**:
 
 ⌘R runs with `lldb` already attached. Click in the gutter next to any
 line in `AppDelegate.swift`, `MyViewController.swift`,
-`NativeAuthPlugin.swift`, or `NativeBiometricPlugin.swift` to set a
+`NativeAuthPlugin.swift`, `NativeBiometricPlugin.swift`,
+`VoiceAudioSessionPlugin.swift`, or `VoiceLiveActivityPlugin.swift` to set a
 breakpoint.
 
 - **Console / log output**: View → Debug Area → Activate Console (⇧⌘Y),
@@ -199,7 +217,8 @@ breakpoint.
 
 ### Common debugging recipes
 
-- **A native plugin call (`NativeAuth`, `NativeBiometric`) seems broken**:
+- **A native plugin call (`NativeAuth`, `NativeBiometric`,
+  `VoiceAudioSession`, `VoiceLiveActivity`) seems broken**:
   set a Swift breakpoint in the relevant `@objc func` inside the plugin
   file and trigger the action from the web app. If the breakpoint never
   hits, the JS-side `Capacitor.Plugins.NativeAuth` lookup is wrong (check
@@ -222,8 +241,10 @@ breakpoint.
 > **Web-side conventions for iOS code paths**: any change to the web app
 > that might run inside this WKWebView shell needs to follow the patterns
 > in [`clients/web/docs/CAPACITOR.md`](../web/docs/CAPACITOR.md) — Capacitor plugin
-> lazy imports, native auth, deep links, autogrowing textareas,
-> streaming watchdogs, OS permission UI, etc.
+> lazy imports, native auth, deep links, the native voice bridge,
+> autogrowing textareas, streaming watchdogs, OS permission UI, etc.
+> For the native half of voice mode, see
+> [`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md).
 
 ### `server.url` mode, not static export
 
@@ -246,9 +267,15 @@ experience works. Do not enable it.
 
 ### Targets and environments
 
-The Xcode project has three targets — one per environment. Each has its own
+The Xcode project has three _app_ targets — one per environment. Each has its own
 bundle ID, display name, and icon colour so they can be installed side by
-side on the same device.
+side on the same device. Each also embeds its own `VoiceActivity` widget
+extension target (`<app bundle id>.VoiceActivity`), so `xcodegen generate`
+produces six targets in total; only the three app schemes are worth
+building, since the extensions build as embedded dependencies. See
+[`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md) for what the extension
+contains and [Signing: two profiles per environment](#signing-two-profiles-per-environment)
+for what it costs at release time.
 
 | Target | Bundle ID | Display Name | Icon | Server |
 |--------|-----------|-------------|------|--------|
@@ -281,15 +308,14 @@ There's a deliberate mismatch:
 | Where                       | Value                                      |
 | --------------------------- | ------------------------------------------ |
 | Xcode `PRODUCT_BUNDLE_IDENTIFIER` | `ai.vocify-inc.vellum-assistant-ios` ← real one |
-| `capacitor.config.ts` `appId`     | `ai.vocify.vellumassistantios`                  |
+| `capacitor.config.ts` `appId`     | `ai.vocify.vellumassistant`                     |
 
-Capacitor's CLI rejects `appId`s with hyphens (it requires Java package
-form), but Apple's bundle ID rules _do_ allow hyphens — and our existing
-App Store Connect app, signing cert, and provisioning profile all use
-the hyphenated form. The hyphen-free `appId` exists only to satisfy
-`cap init` / `cap add` / `cap sync` validation. **Do not "fix" this
-mismatch** — doing so would require re-provisioning the entire app.
-See the inline comment in `capacitor.config.ts`.
+Capacitor requires `appId` to use Java package form because Android uses it as
+the application namespace. The iOS project is generated from `project.yml`
+after `cap sync`, and its xcconfigs keep the existing hyphenated App Store
+bundle IDs. **Do not align the iOS bundle IDs with `appId`** because doing so
+would require re-provisioning the app. See the inline comment in
+`capacitor.config.ts`.
 
 ## Common tasks
 
@@ -508,6 +534,122 @@ workflow called from the release pipelines — it intentionally has no
 extracted into their own reusable workflow because it's the only iOS
 workflow.
 
+### Signing: two profiles per environment
+
+Each app target embeds a `VoiceActivity` widget extension whose bundle ID
+is prefixed by its host app's (`<app bundle id>.VoiceActivity`). Apple
+treats that appex as its own App ID with its own provisioning profile, so
+**every environment signs with two profiles, not one**: the app's and the
+extension's.
+
+That has three consequences in the pipeline:
+
+- The **install step** writes both profiles into
+  `~/Library/MobileDevice/Provisioning Profiles/` under distinct
+  filenames (`ios_distribution.mobileprovision` and
+  `ios_distribution_ext.mobileprovision`). Writing both to one name
+  silently clobbers the first.
+- **`ExportOptions.plist`** carries a `provisioningProfiles` entry for
+  each bundle ID. `xcodebuild -exportArchive` fails when an embedded
+  extension has no entry, and the error does not name the extension.
+- **`PROVISIONING_PROFILE_SPECIFIER` is not an `xcodebuild` CLI
+  override.** A CLI override applies to every target in the archive,
+  which would push the app profile onto the appex it does not cover.
+  Instead each target's specifier lives in its own xcconfig
+  (`App/App/Config/App*.xcconfig` and `Extension*.xcconfig`), next to the
+  `PRODUCT_BUNDLE_IDENTIFIER` it has to agree with. Those files set
+  `PROVISIONING_PROFILE_SPECIFIER_Manual` and resolve
+  `PROVISIONING_PROFILE_SPECIFIER =
+  $(PROVISIONING_PROFILE_SPECIFIER_$(CODE_SIGN_STYLE))`, so the specifier
+  applies only under the workflow's `CODE_SIGN_STYLE=Manual` override —
+  local Xcode builds stay on automatic signing and see no specifier,
+  which matters because the distribution profiles are not on developer
+  machines.
+
+Profile names are therefore written down in three places that must agree
+character for character: the Apple Developer portal, the xcconfig, and
+the `profile_name` / `ext_profile_name` outputs of the `config` step in
+`release-ios.yaml`. A mismatch fails the build with an unhelpful message.
+
+### Manual Apple Developer portal setup
+
+The extension App IDs and profiles are **not** created by any script —
+an Apple Developer team admin (Vocify, Inc., team `7FZDXZR8P5`) has to
+register them by hand. Until all three environments are done, a release
+build of the affected environment fails while signing or exporting.
+
+> **What happens today, with the secrets absent.** This is expected, not a
+> regression. `release-ios.yaml` does not hard-fail on a missing
+> `IOS_PROVISIONING_PROFILE_EXT*`: "Install provisioning profiles" logs a
+> `::warning::` naming the secret, skips the install, and — kept consistent
+> through the step's `ext_profile_installed` output — omits the extension
+> from `ExportOptions.plist`, since an entry naming an uninstalled profile
+> fails `-exportArchive` on its own.
+>
+> The run still fails, one step later, at **Archive**, with Xcode's own
+> error: `No profile for team '7FZDXZR8P5' matching '<profile name>' found
+> … (in target 'VoiceActivity …')`. That is unavoidable — every app target
+> embeds its extension, and the release archives with
+> `CODE_SIGN_STYLE=Manual`, which never auto-provisions. **No iOS release,
+> of any environment, can be produced until the rows below are done.**
+> Deleting the extension's `PROVISIONING_PROFILE_SPECIFIER_Manual` does not
+> help either; manual signing then fails with `"VoiceActivity …" requires a
+> provisioning profile` instead. The fix is the portal work below, not a
+> workflow change.
+
+| Environment | Extension bundle ID | Profile name (exact) | GitHub secret |
+|-------------|---------------------|----------------------|---------------|
+| production | `ai.vocify-inc.vellum-assistant-ios.VoiceActivity` | `Vellum Assistant iOS VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT` |
+| staging | `ai.vocify-inc.vellum-assistant-ios.staging.VoiceActivity` | `Vellum Assistant iOS Staging VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT_STAGING` |
+| dev | `ai.vocify-inc.vellum-assistant-ios.dev.VoiceActivity` | `Vellum Assistant iOS Dev VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT_DEV` |
+
+Repeat these steps once per row (start with **dev** — it is the only
+track that releases hourly, so it is the fastest way to prove the setup):
+
+1. **Register the App ID.** [Certificates, Identifiers &
+   Profiles](https://developer.apple.com/account/resources/identifiers/list)
+   → **Identifiers** → **+** → **App IDs** → **App**. Set
+   **Bundle ID** to **Explicit** and paste the exact string from the
+   table. Description can be anything descriptive
+   (e.g. "Vellum Assistant iOS Dev VoiceActivity"). **Enable no
+   capabilities** — the extension deliberately ships no entitlements
+   file (no App Group, no push; see the comment at the top of
+   `App/App/Config/Extension-Base.xcconfig`), and a capability enabled
+   here produces a profile the build cannot satisfy. **Register**.
+2. **Create the distribution profile.** **Profiles** → **+** →
+   **Distribution → App Store Connect** → pick the App ID from step 1 →
+   pick the Apple Distribution certificate that matches the
+   `DIST_CERTIFICATE_P12` secret → **Provisioning Profile Name**: type
+   the profile name from the table exactly, including capitalisation and
+   spacing → **Generate** → **Download**.
+3. **Base64-encode it**, matching how the existing profile secrets are
+   stored (the workflow pipes the secret through `base64 -D`):
+
+   ```bash
+   base64 -i ~/Downloads/<downloaded>.mobileprovision | pbcopy
+   ```
+
+4. **Add the GitHub secret.** Repo **Settings → Secrets and variables →
+   Actions → New repository secret**. Name it exactly as in the table,
+   paste the clipboard contents. Use the same scope as the existing
+   `IOS_PROVISIONING_PROFILE*` secrets.
+5. **Nothing to do in App Store Connect.** The extension ships inside
+   its host app's record — it gets no app record and no
+   `APPLE_APP_ID_*` of its own.
+
+Once all three rows are done, verify end to end by dispatching
+`dev-release.yaml`, downloading the `ios-ipa-dev` artifact, and checking
+that the appex is signed with the *extension* profile:
+
+```bash
+unzip -q ios-ipa-dev.zip && unzip -q *.ipa
+codesign -dvvv "Payload/App Dev.app/PlugIns/VoiceActivity Dev.appex" 2>&1 | grep -i profile
+```
+
+> **Profiles expire after one year.** Renewal is the same loop:
+> regenerate in the portal under the identical name, re-encode, update
+> the secret. Nothing in the repo changes.
+
 ### Secrets (GitHub Actions)
 
 All iOS signing secrets are stored as GitHub Actions secrets:
@@ -517,6 +659,7 @@ All iOS signing secrets are stored as GitHub Actions secrets:
 - `ASC_KEY_P8` (base64-encoded) / `ASC_KEY_ID` / `ASC_ISSUER_ID` — App Store Connect API key for [`xcrun altool`](https://keith.github.io/xcode-man-pages/altool.1.html) uploads. The workflow `base64 -D` decodes `ASC_KEY_P8` before writing the `.p8` file.
 - `IOS_PROVISIONING_PROFILE` — Production provisioning profile (App Store Distribution)
 - `IOS_PROVISIONING_PROFILE_STAGING` / `_DEV` — Per-environment profiles
+- `IOS_PROVISIONING_PROFILE_EXT` / `_EXT_STAGING` / `_EXT_DEV` — Per-environment profiles for the embedded `VoiceActivity` widget extension. See [Manual Apple Developer portal setup](#manual-apple-developer-portal-setup).
 - `APPLE_APP_ID_PROD` / `_STAGING` / `_DEV` — Numeric App Store Connect app IDs (e.g. `123456789`), passed as `--apple-id` to [`xcrun altool --upload-package`](https://keith.github.io/xcode-man-pages/altool.7.html). Each environment has its own ASC app record with its own ID.
 - `SLACK_WEBHOOK_URL` — Slack incoming webhook for `#build-alerts` notifications
 
@@ -537,6 +680,8 @@ clients/
 └── ios/
     ├── .gitignore                    # Ignores Pods, DerivedData, xcuserdata,
     │                                 # generated capacitor.config.json, etc.
+    ├── docs/
+    │   └── NATIVE_VOICE.md           # Live Activity, App Intents, deep links
     ├── App/
     │   ├── App.xcodeproj/            # Open this in Xcode
     │   │   └── xcshareddata/xcschemes/  # Shared schemes for all 3 targets
@@ -551,7 +696,13 @@ clients/
     │   │   ├── MyViewController.swift  # CAPBridgeViewController subclass
     │   │   ├── NativeAuthPlugin.swift  # ASWebAuthenticationSession OIDC flow
     │   │   ├── NativeBiometricPlugin.swift # Face ID / Touch ID Keychain
+    │   │   ├── VoiceAudioSessionPlugin.swift # AVAudioSession for live voice
+    │   │   ├── VoiceLiveActivityPlugin.swift # Dynamic Island for live voice
+    │   │   ├── Intents/              # App Intents + AppShortcutsProvider
+    │   │   ├── Shared/               # Compiled into app + widget extension
     │   │   └── Info.plist
+    │   ├── VoiceActivity/            # WidgetKit extension: Live Activity
+    │   │                             # presentations + Control Center control
     │   └── CapApp-SPM/               # SPM local package: pulls in @capacitor/ios
     │                                 # and any Capacitor plugin native deps
     └── debug.xcconfig                # Sets CAPACITOR_DEBUG for Debug builds

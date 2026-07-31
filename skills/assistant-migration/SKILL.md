@@ -20,14 +20,14 @@ metadata:
 
 # Assistant Migration
 
-Help the creator migrate from another AI assistant into Vellum. Preserve as much of the source assistant as can be understood safely, but do not rely on deterministic adapters for OpenClaw, Hermes, Manus, or any other non-Vellum internals. These systems evolve quickly; inspect the actual source artifacts in front of you and map them into Vellum primitives.
+Help the creator migrate from another AI assistant into Vellum. Preserve as much of the source assistant as can be understood safely. Non-Vellum systems (OpenClaw, Hermes, Manus, and others) evolve quickly, so never assume their internals follow a fixed schema: inspect the actual source artifacts in front of you and map them into Vellum primitives. The bundled memory parsers in `scripts/` follow the same rule; they introspect whatever artifact they are given instead of hardcoding a layout, and everything they emit is a review candidate, never a finished import.
 
 ## Core Posture
 
 - Migrate internals opportunistically: prompts, memory exports, skill definitions, tool manifests, schedules, app code, workflow docs, MCP configs, browser/computer-use preferences, and integration metadata can often be preserved.
 - Do not pretend opaque runtime state is portable. If a file, database row, binary blob, or generated artifact cannot be confidently understood, mark it for review or rebuild.
 - Never import secrets from chat, logs, config dumps, browser profiles, or exported files. Secrets must be reconnected through Vellum's credential vault, OAuth flows, or setup skills.
-- Do not create scripts or deterministic code that encode assumptions about another assistant's private filesystem or database schema.
+- Do not write new ad-hoc scripts that encode assumptions about another assistant's private filesystem or database schema. For memory extraction, use the bundled parsers in `scripts/`: they avoid schema assumptions by design (ZIP entries matched by name/content heuristics, SQLite tables discovered via `sqlite_master` introspection) and their output always goes through creator review before anything is saved.
 - Be inviting. Migration can feel sensitive because the creator may have a real relationship with the source assistant; acknowledge that directly, move at the creator's pace, and keep them in control of what is inspected, imported, reviewed, or left alone.
 - Treat every source assistant, source machine, and source export as read-only unless the creator explicitly authorizes a specific write. Before accessing a source machine, say plainly that you will not modify anything there.
 - Be transparent with the creator: identify what will be ported, what needs review, what should be disregarded, and what must be re-set up from scratch.
@@ -152,43 +152,88 @@ When rebuilding, explain the Vellum equivalent and ask whether the creator wants
 
 ## Vellum Primitive Map
 
-| Source assistant concept                              | Vellum primitive                                             | Migration guidance                                                                                                                              |
-| ----------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Name, persona, tone, identity docs, system prompts    | Identity, Personality, Avatar, `SOUL.md`, user persona files | Preserve explicit creator-approved identity/personality material. Convert brittle prompt hacks into plain behavioral guidance.                  |
-| Current focus, scratchpads, working notes             | `NOW.md`, Workspace notes, Memory                            | Preserve active projects and open loops. Avoid importing stale scratch state as permanent truth.                                                |
-| Memory databases, summaries, profiles, user facts     | Memory                                                       | Prefer source-produced summaries or human-readable exports. Preserve attribution where possible. Use review for inferred or sensitive facts.    |
-| Conversation history                                  | Conversations and Memory                                     | Import supported structured exports when available. Otherwise summarize useful history into memory candidates rather than dumping logs blindly. |
-| Tools, skills, commands, plugins, playbooks           | Skills                                                       | Recreate as Vellum skills when the capability is still useful. Keep instructions portable; avoid foreign runtime assumptions.                   |
-| MCP servers                                           | MCP                                                          | Recreate server registrations and required environment through Vellum's MCP setup flow. Reconnect secrets through the credential vault.         |
-| Browser automation state, browsing tasks              | Browser capability                                           | Recreate workflows and permissions. Do not import cookies or browser profile secrets directly.                                                  |
-| Computer-use automations                              | Computer Use capability                                      | Recreate task intent and permission expectations. Verify host-computer access through Vellum's own consent model.                               |
-| Custom dashboards, tools, visual workflows            | Apps or Widgets                                              | Persistent interactive tools should become Apps. Transient conversation UI should become Widgets or normal chat flows.                          |
-| Slack, Telegram, email, phone, webhooks               | Channels and Integrations                                    | Reconnect channels through Vellum setup skills. Expect some providers, especially Slack, to need fresh setup.                                   |
-| Friends, coworkers, allowed users                     | Contacts and Trusted Contacts                                | Map relationships into Contacts. Grant channel access through trusted-contact and guardian flows, not direct database edits.                    |
-| Owner/admin identity, approval authority              | Guardian Verification                                        | Verify the creator/guardian on each channel needed for secure access and approvals.                                                             |
-| Secrets, API keys, tokens, OAuth refresh tokens       | Credential Vault and OAuth Integrations                      | Never paste or import raw secrets. Rebind through secure prompts, OAuth connect flows, or provider setup skills.                                |
-| Autonomy settings, allowlists, deny rules             | Trust Rules and Permissions                                  | Translate intent, not syntax. Start conservative when semantics are unclear.                                                                    |
-| Timed jobs and reminders                              | Schedules                                                    | Recreate one-shot and recurring tasks using Vellum schedules. Preserve the user-visible intent and delivery channel.                            |
-| Autonomous monitors and polling jobs                  | Watchers                                                     | Rebuild as watchers when the source monitors external events. Reconnect provider credentials first.                                             |
-| Periodic self-checks                                  | Heartbeats                                                   | Use Vellum heartbeats for agenda-free self-checking, not for specific timed jobs.                                                               |
-| Pending replies or nudges                             | Followups                                                    | Preserve expected-response workflows as followups when the source tracks sent messages awaiting replies.                                        |
-| Reusable action templates and queues                  | Task Queue                                                   | Recreate repeatable work as tasks or queued work items when the creator expects review before completion.                                       |
-| Model routing, fast/quality/cost modes, provider keys | Inference Profiles and Provider Connections                  | Map source behavior to named profiles such as balanced, quality, or cost/speed variants. Reconnect provider credentials safely.                 |
-| Files, projects, notes, attachments                   | Workspace                                                    | Copy useful, non-secret artifacts into the Vellum workspace with clear organization. Leave local worktree artifacts and foreign caches behind.  |
+| Source assistant concept                              | Vellum primitive                                             | Migration guidance                                                                                                                                                                                                         |
+| ----------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Name, persona, tone, identity docs, system prompts    | Identity, Personality, Avatar, `SOUL.md`, user persona files | Preserve explicit creator-approved identity/personality material. Convert brittle prompt hacks into plain behavioral guidance.                                                                                             |
+| Current focus, scratchpads, working notes             | `NOW.md`, Workspace notes, Memory                            | Preserve active projects and open loops. Avoid importing stale scratch state as permanent truth.                                                                                                                           |
+| Memory databases, summaries, profiles, user facts     | Memory                                                       | Extract candidates with the bundled parsers, review with the creator, then follow the Memory Import Guidance flow below. Provenance frontmatter (`source:`, `origin_date:`) preserves attribution and original chronology. |
+| Conversation history                                  | Conversations and Memory                                     | Import supported structured exports when available. Otherwise summarize useful history into memory candidates rather than dumping logs blindly.                                                                            |
+| Tools, skills, commands, plugins, playbooks           | Skills                                                       | Recreate as Vellum skills when the capability is still useful. Keep instructions portable; avoid foreign runtime assumptions.                                                                                              |
+| MCP servers                                           | MCP                                                          | Recreate server registrations and required environment through Vellum's MCP setup flow. Reconnect secrets through the credential vault.                                                                                    |
+| Browser automation state, browsing tasks              | Browser capability                                           | Recreate workflows and permissions. Do not import cookies or browser profile secrets directly.                                                                                                                             |
+| Computer-use automations                              | Computer Use capability                                      | Recreate task intent and permission expectations. Verify host-computer access through Vellum's own consent model.                                                                                                          |
+| Custom dashboards, tools, visual workflows            | Apps or Widgets                                              | Persistent interactive tools should become Apps. Transient conversation UI should become Widgets or normal chat flows.                                                                                                     |
+| Slack, Telegram, email, phone, webhooks               | Channels and Integrations                                    | Reconnect channels through Vellum setup skills. Expect some providers, especially Slack, to need fresh setup.                                                                                                              |
+| Friends, coworkers, allowed users                     | Contacts and Trusted Contacts                                | Map relationships into Contacts. Grant channel access through trusted-contact and guardian flows, not direct database edits.                                                                                               |
+| Owner/admin identity, approval authority              | Guardian Verification                                        | Verify the creator/guardian on each channel needed for secure access and approvals.                                                                                                                                        |
+| Secrets, API keys, tokens, OAuth refresh tokens       | Credential Vault and OAuth Integrations                      | Never paste or import raw secrets. Rebind through secure prompts, OAuth connect flows, or provider setup skills.                                                                                                           |
+| Autonomy settings, allowlists, deny rules             | Trust Rules and Permissions                                  | Translate intent, not syntax. Start conservative when semantics are unclear.                                                                                                                                               |
+| Timed jobs and reminders                              | Schedules                                                    | Recreate one-shot and recurring tasks using Vellum schedules. Preserve the user-visible intent and delivery channel.                                                                                                       |
+| Autonomous monitors and polling jobs                  | Watchers                                                     | Rebuild as watchers when the source monitors external events. Reconnect provider credentials first.                                                                                                                        |
+| Periodic self-checks                                  | Heartbeats                                                   | Use Vellum heartbeats for agenda-free self-checking, not for specific timed jobs.                                                                                                                                          |
+| Pending replies or nudges                             | Followups                                                    | Preserve expected-response workflows as followups when the source tracks sent messages awaiting replies.                                                                                                                   |
+| Reusable action templates and queues                  | Task Queue                                                   | Recreate repeatable work as tasks or queued work items when the creator expects review before completion.                                                                                                                  |
+| Model routing, fast/quality/cost modes, provider keys | Inference Profiles and Provider Connections                  | Map source behavior to named profiles such as balanced, quality, or cost/speed variants. Reconnect provider credentials safely.                                                                                            |
+| Files, projects, notes, attachments                   | Workspace                                                    | Copy useful, non-secret artifacts into the Vellum workspace with clear organization. Leave local worktree artifacts and foreign caches behind.                                                                             |
 
 ## Memory Import Guidance
 
-When the source assistant can answer questions, invite it to produce a portable self-summary instead of scraping every internal file. Ask for comprehensive but reviewable output:
+Memory import is a review-first pipeline: extract candidates deterministically, review every item with the creator, shape the approved items into v3 article pages, ingest them as a batch, then verify. Nothing is saved unreviewed at any step.
 
-- Identity and background.
-- Preferences and communication style.
-- Important relationships.
-- Active projects and open loops.
-- Durable instructions the creator gave it.
-- Meaningful history from recent conversations.
-- Uncertainties and low-confidence inferences clearly labeled.
+### 1. Extract candidates
 
-Then present the summary as memory candidates for creator review. Do not silently save sensitive, speculative, or emotionally loaded claims.
+Use the bundled parsers to pull candidates out of the source artifacts. Both emit `MemoryImportItem[]` JSON (`{ text, source, origin_date?, context? }`) on stdout and a human-readable inventory on stderr, and both redact credential-shaped values before anything reaches stdout:
+
+- **ChatGPT** non-conversation material (saved memories, custom instructions):
+
+  ```sh
+  bun run {baseDir}/scripts/parse-chatgpt-memory.ts --file /path/to/chatgpt-export.zip
+  ```
+
+- **Hermes / OpenClaw** `memory.db` snapshots (always a `.backup` snapshot, never a live DB; see the provider references):
+
+  ```sh
+  bun run {baseDir}/scripts/parse-agent-memory-db.ts --file /path/to/memory.db.snapshot --source hermes
+  ```
+
+  (or `--source openclaw`)
+
+- **Claude** has no deterministic importer. Fall back to the interview flow: invite the source assistant to produce a portable self-summary and treat its items as the candidate list. Ask for comprehensive but reviewable output: identity and background; preferences and communication style; important relationships; active projects and open loops; durable instructions the creator gave it; meaningful history from recent conversations; uncertainties and low-confidence inferences clearly labeled.
+
+The self-summary is worth collecting for any source assistant that can still answer questions; it complements parser output with material no export captures.
+
+### 2. Review with the creator
+
+Present the candidate inventory (the parsers' stderr census plus the items themselves) in conversation and let the creator decide what survives. Drop stale, inferred, speculative, or emotionally loaded items unless the creator explicitly keeps them. Never bulk-dump raw parser output into memory: parsers produce candidates, not memories.
+
+### 3. Shape approved items into v3 article pages
+
+Write the approved items as concept pages in a staging directory (for example `.mv3/staging/`), one `.md` file per page. Follow the `vellum-memory-v3-migration` skill's `references/v3-wiki-principles.md` for the article shape rather than improvising; the essentials are:
+
+- The lead paragraph is the summary (there is no `summary:` field; the lead is the retrieval card).
+- Detail lives in `## ` sections with names that work as navigation.
+- Flat kebab-case slug; the staged filename minus `.md` becomes the slug.
+- `links:` entries annotated with why-notes: each entry names a target slug plus one line on why the link exists, in the exact format the principles doc shows.
+- Provenance frontmatter on every imported page: `source: import:<provider>` (e.g. `import:chatgpt`). Add `origin_date:` (ISO 8601) when the source material carries a date (a parser-emitted `origin_date`, or a date the creator confirms); it drives the page's effective recency, so imported pages rank by when their content originally dates from, not by import time. When the original date is unknown, omit the field rather than inventing one; the page then ranks by its write time like any other new page.
+
+### 4. Ingest
+
+```sh
+assistant memory ingest --dir .mv3/staging --dry-run
+```
+
+Review the per-page dry-run results (written / skipped / invalid) with the creator, fix any invalid pages, then run the same command without `--dry-run`. Existing slugs are skipped unless `--overwrite` is passed. If the command fails because the consolidation lock is held, wait for consolidation to finish and retry; do not work around the lock.
+
+### 5. Verify
+
+- Check the summary counts: written, skipped, invalid.
+- Spot-check retrieval on two or three imported facts; that spot-check is the verification. (`assistant memory v3 eval` does not apply here: it compares two complete corpora, and an import's staging directory holds only the new pages, not a corpus.)
+
+### Small volumes
+
+A handful of approved facts does not need the staging pipeline; save them through the normal `remember` tool instead.
+
+**Warning:** never bulk-append imported facts to `memory/buffer.md`. Bulk appends share one minute-stamp and force consolidation to process the whole buffer in a single run; `assistant memory ingest` exists precisely to bypass that hazard.
 
 ## Internals Salvage Guidance
 

@@ -5,7 +5,7 @@ import {
   useIsPlatformSessionSettled,
 } from "@/stores/auth-store";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
+import { isLocalClient, isPlatformDisabled } from "@/lib/local-mode";
 
 /**
  * How a platform-dependent UI surface should behave, given the app mode,
@@ -318,7 +318,7 @@ function usePlatformGateDecision(
     return "full";
   }
 
-  const local = isLocalMode();
+  const local = isLocalClient();
   if (local && platformDisabled) {
     return "gated";
   }

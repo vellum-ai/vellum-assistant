@@ -1,6 +1,15 @@
 @import "tailwindcss";
 @import "@vellumai/design-library/tokens.css";
 
+/* Capacitor iOS shell variant. Keys off the data-native-platform marker
+ * set by initNativePlatformAttributes() at boot. Deliberately :is(), not
+ * :where(): the selector must carry :root[attr] specificity (0,3,0 with
+ * the utility class) so native-ios: utilities outrank the design
+ * library's touch-mobile: pill classes, which are single-class rules
+ * inside a media query (0,1,0) and would otherwise win or lose on
+ * emission order. */
+@custom-variant native-ios (&:is(:root[data-native-platform="ios"] *));
+
 /* Base element styles — theme-aware defaults inherited by all descendants. */
 body {
   color: var(--content-default);
@@ -359,6 +368,79 @@ body {
   animation: provision-grow-shadow 1.1s cubic-bezier(0.36, 0.02, 0.24, 1) both;
 }
 
+/* A plan that steps down runs the same choreography backwards: the creature
+ * waits at the grown size and settles into the resting one, so it ends smaller
+ * than it began. The stage already reserves the grown height, so nothing around
+ * it moves and both directions cost the same layout. */
+.provision-avatar-evolve.is-downsizing .provision-avatar-current {
+  transform: scale(var(--provision-avatar-growth));
+}
+
+.provision-avatar-evolve.is-downsizing .provision-avatar-shadow {
+  transform: scaleX(1.16);
+}
+
+/* The step down is a ratchet run backwards: it lets go a notch at a time and
+ * catches itself on each one, rather than sinking in a single motion. A smooth
+ * descent reads as deflating, which is the wrong feeling for a plan that is
+ * still working. The per-keyframe easing is what does it: the release into each
+ * notch accelerates, and the catch overshoots slightly and recovers, so each
+ * step lands with a click. The outer timing function stays linear so these
+ * carry the motion.
+ *
+ * The notches interpolate between the grown scale and rest, so they hold
+ * whatever `--provision-avatar-growth` is set to. */
+@keyframes provision-shrink {
+  0% {
+    transform: scale(var(--provision-avatar-growth));
+    animation-timing-function: cubic-bezier(0.45, 0, 0.75, 0);
+  }
+  10% {
+    transform: scale(calc(var(--provision-avatar-growth) * 1.012));
+    animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
+  }
+  28% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.62)) scaleY(0.985);
+    animation-timing-function: cubic-bezier(0.2, 1.5, 0.4, 1);
+  }
+  40% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.62));
+    animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
+  }
+  58% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.28)) scaleY(0.985);
+    animation-timing-function: cubic-bezier(0.2, 1.5, 0.4, 1);
+  }
+  70% {
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.28));
+    animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
+  }
+  86% {
+    transform: scale(0.975) scaleY(0.955);
+    animation-timing-function: cubic-bezier(0.2, 1.6, 0.4, 1);
+  }
+  100% { transform: scale(1); }
+}
+
+/* The shadow tightens a notch behind each drop and spreads as it is caught. */
+@keyframes provision-shrink-shadow {
+  0% { transform: scaleX(1.16); opacity: 1; }
+  28% { transform: scaleX(1.12); opacity: 0.9; }
+  40% { transform: scaleX(1.13); opacity: 0.92; }
+  58% { transform: scaleX(1.06); opacity: 0.82; }
+  70% { transform: scaleX(1.07); opacity: 0.84; }
+  86% { transform: scaleX(0.98); opacity: 0.94; }
+  100% { transform: scaleX(1); opacity: 0.85; }
+}
+
+.provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-current {
+  animation: provision-shrink 1.25s linear both;
+}
+
+.provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-shadow {
+  animation: provision-shrink-shadow 1.25s linear both;
+}
+
 /* The creature fades in over the placeholder as soon as something is drawable:
  * the live query settling, or the stash captured at the Stripe hand-off. The
  * stage has already reserved its height, so this fades in place with nothing
@@ -456,6 +538,17 @@ body {
   .provision-avatar-evolve.is-evolved .provision-avatar-shadow {
     animation: none;
     transform: scaleX(1.16);
+  }
+
+  /* Both endpoints still hold for a step down; only the travel is dropped. */
+  .provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-current {
+    animation: none;
+    transform: scale(1);
+  }
+
+  .provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-shadow {
+    animation: none;
+    transform: scaleX(1);
   }
 
   /* The stalled tilt stays — it reports a state rather than animating one. */
@@ -557,6 +650,28 @@ body {
 [data-theme="velvet"] ::-webkit-scrollbar-thumb:hover {
   background: rgba(232, 63, 91, 0.5);
   background-clip: padding-box;
+}
+
+/* Capacitor iOS shell: hide scrollbars entirely. Styling
+ * ::-webkit-scrollbar above replaces WKWebView's auto-hiding overlay
+ * indicator with an always-visible bar, which reads as broken on iOS.
+ * Scrolling and momentum are unaffected. The
+ * :root[data-native-platform="ios"] prefix covers the document scrollbar,
+ * every inner scroller, and the ::before / ::after pseudo-elements, mirroring
+ * the :root * selector list above, and outranks both it and the [data-theme]
+ * scrollbar rules on specificity. */
+:root[data-native-platform="ios"],
+:root[data-native-platform="ios"] *,
+:root[data-native-platform="ios"] *::before,
+:root[data-native-platform="ios"] *::after {
+  scrollbar-width: none;
+}
+
+:root[data-native-platform="ios"]::-webkit-scrollbar,
+:root[data-native-platform="ios"] ::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -833,6 +948,93 @@ body {
   to {
     transform: translateX(-1200px);
   }
+}
+
+/* Audio-reactive eyes (use-reactive-eyes.ts). `--eye-amp` is written per frame
+ * from the live amplitude; the gesture is picked by `data-eye-reaction`.
+ * Deliberately small — the eyes are the room's fixed point, so this is meant to
+ * read as alive, not as dancing. Composes with (rather than replaces) the
+ * entrance keyframes and the per-state size tween, which live on ancestors. */
+.voice-room-eyes-reactive {
+  --eye-amp: 0;
+  transform-origin: center;
+  will-change: transform;
+}
+
+/* Listening: the eyes open up toward the speaker — mostly vertical, so it
+ * reads as widening rather than as zooming — and lift very slightly. */
+.voice-room-eyes-reactive[data-eye-reaction="listening"] {
+  transform: translateY(calc(var(--eye-amp) * -1.5%))
+    scaleX(calc(1 + var(--eye-amp) * 0.03))
+    scaleY(calc(1 + var(--eye-amp) * 0.1));
+}
+
+/* Responding: a rounder pulse on the assistant's own output amplitude, with a
+ * small bounce — the "energy going out" language of the responding treatment
+ * radiating behind them. */
+.voice-room-eyes-reactive[data-eye-reaction="responding"] {
+  transform: translateY(calc(var(--eye-amp) * -2.5%))
+    scale(calc(1 + var(--eye-amp) * 0.055));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-room-eyes-reactive {
+    transform: none;
+  }
+}
+
+/* Mesh band (voice-mesh-waves.tsx): the canvas already answers amplitude in its
+ * own geometry — the sheet expands and contracts as the envelope swells — so the
+ * container must NOT also translate or scale with `--voice-amp`. Two responses
+ * stacked on one signal read as the whole band bouncing up and down behind a
+ * sheet that is separately breathing, which is the tell that this is an effect
+ * rather than a picture of the voice. Keep the static anchoring (and the
+ * brightness, which composes fine); drop the movement. */
+.voice-listening-waves--mesh,
+.voice-listening-waves--mesh.voice-listening-waves--top,
+.voice-listening-waves--mesh.voice-listening-waves--inline {
+  transform: none;
+  /* Fade all the way out with the voice, rather than to the shared band's 0.28
+   * floor. The sheet's displacement already drops to nothing as amplitude does
+   * (`idleEnvelope: 0`), so a floored opacity would leave a flat, permanently
+   * visible line across the room between turns. `--band-peak-opacity` is the
+   * per-voice ceiling the room sets (see `BAND_VOICE`); `--band-presence` is a
+   * saturating curve on the amplitude rather than the raw value, so the ceiling
+   * is reached at ordinary speaking level instead of only at a shout — see
+   * `opacityKnee`. Multiplying two linear ramps was what made the band read as
+   * barely there. */
+  opacity: calc(var(--band-presence, 0) * var(--band-peak-opacity, 1));
+}
+/* The centered band still needs its own -50% or it drops half a band height;
+ * only the amplitude-driven scaleY comes off. */
+.voice-listening-waves--mesh.voice-listening-waves--center {
+  transform: translateY(-50%);
+}
+
+/* Push the two edge bands further out of frame than the filled band sits.
+ *
+ * The mesh centers its sheet inside whatever box it is given, so a band
+ * spanning 0–42% puts the weave's spine at 21% — close enough to the middle
+ * that it crowds the eyes and reads as two competing centerpieces. Hanging the
+ * box off the edge moves the spine to ~11% (and its mirror at ~89%), which
+ * both clears the eyes and lets the sheet run off the top and bottom of the
+ * screen rather than terminating inside it — the energy arrives from outside
+ * the room instead of starting at a visible boundary. The room's own
+ * `overflow-hidden` does the clipping. */
+.voice-listening-waves--mesh.voice-listening-waves--top {
+  top: -10%;
+}
+.voice-listening-waves--mesh.voice-listening-waves--bottom {
+  bottom: -10%;
+}
+
+/* Reactive band (voice-reactive-waves.tsx): the path geometry is rebuilt every
+ * frame from a rolling history of the live amplitude, so the horizontal motion
+ * *is* the signal scrolling by. The drift keyframe above would slide that
+ * terrain a second time, so it comes off — everything else (palette, style,
+ * placement, the `--voice-amp` rise/brightness) still applies. */
+.voice-listening-waves--reactive path {
+  animation: none;
 }
 
 /* Line style: stroke the open curve; no fill. */

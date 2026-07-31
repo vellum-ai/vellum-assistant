@@ -6,17 +6,29 @@ mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => true,
 }));
 
+let capacitorPlatform = "ios";
+mock.module("@capacitor/core", () => ({
+  Capacitor: {
+    getPlatform: () => capacitorPlatform,
+  },
+}));
+
 let urlOpenHandler: AppUrlOpenHandler | null = null;
+let launchUrl: string | undefined;
 const addListenerMock = mock(
   (_event: "appUrlOpen", handler: AppUrlOpenHandler) => {
     urlOpenHandler = handler;
     return Promise.resolve({ remove: async () => {} });
   },
 );
+const getLaunchUrlMock = mock(async () =>
+  launchUrl === undefined ? undefined : { url: launchUrl },
+);
 
 mock.module("@capacitor/app", () => ({
   App: {
     addListener: addListenerMock,
+    getLaunchUrl: getLaunchUrlMock,
   },
 }));
 
@@ -39,18 +51,22 @@ import {
 const { publishCapacitorDeepLinksSource } =
   await import("@/runtime/event-sources/capacitor-deep-links");
 
-// The dynamic `import("@capacitor/app")` and its `.then` chain each
-// queue a microtask, so listener registration lags synchronous test
-// code — flush before driving the captured handler.
-const flushMicrotasks = async (rounds = 4) => {
+// The dynamic `import("@capacitor/app")` can resolve on a loader turn before
+// its promise chain queues listener registration. Flush both queues before
+// driving the captured handler.
+const flushAsyncWork = async (rounds = 4) => {
+  await new Promise((resolve) => setTimeout(resolve, 0));
   for (let i = 0; i < rounds; i++) {
     await Promise.resolve();
   }
 };
 
 beforeEach(() => {
+  capacitorPlatform = "ios";
   urlOpenHandler = null;
+  launchUrl = undefined;
   addListenerMock.mockClear();
+  getLaunchUrlMock.mockClear();
   captureErrorMock.mockClear();
 });
 
@@ -59,6 +75,52 @@ beforeEach(() => {
 // `runtime/capacitor-listener.test.ts`. This suite covers only this
 // source's wiring: URL routing and its error context.
 describe("publishCapacitorDeepLinksSource", () => {
+  test("routes the launch URL when a deep link cold-starts Android", async () => {
+    const received: unknown[] = [];
+    const unsubscribeBus = subscribe(
+      "deeplink.billingCheckoutComplete",
+      (payload) => {
+        received.push(payload);
+      },
+    );
+    launchUrl =
+      "vellum-assistant://billing/checkout-complete?status=success&session_id=cs_test_a1B2";
+    capacitorPlatform = "android";
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork(6);
+
+      expect(received).toEqual([
+        { status: "success", sessionId: "cs_test_a1B2" },
+      ]);
+    } finally {
+      unsubscribeBus();
+    }
+  });
+
+  test("does not replay the retained launch URL on iOS", async () => {
+    const received: unknown[] = [];
+    const unsubscribeBus = subscribe(
+      "deeplink.billingCheckoutComplete",
+      (payload) => {
+        received.push(payload);
+      },
+    );
+    launchUrl =
+      "vellum-assistant://billing/checkout-complete?status=success&session_id=cs_test_a1B2";
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      expect(getLaunchUrlMock).not.toHaveBeenCalled();
+      expect(received).toEqual([]);
+    } finally {
+      unsubscribeBus();
+    }
+  });
+
   test("dispatches the OAuth-complete window CustomEvent for an oauth-complete deep link", async () => {
     const received: OAuthCompleteDeepLinkPayload[] = [];
     const windowListener = (
@@ -70,7 +132,7 @@ describe("publishCapacitorDeepLinksSource", () => {
 
     try {
       publishCapacitorDeepLinksSource();
-      await flushMicrotasks();
+      await flushAsyncWork();
 
       const payload: OAuthCompleteDeepLinkPayload = {
         requestId: "req-123",
@@ -102,7 +164,7 @@ describe("publishCapacitorDeepLinksSource", () => {
 
     try {
       publishCapacitorDeepLinksSource();
-      await flushMicrotasks();
+      await flushAsyncWork();
 
       urlOpenHandler!({
         url: "vellum-assistant://billing/checkout-complete?status=success&session_id=cs_test_a1B2",
@@ -127,7 +189,7 @@ describe("publishCapacitorDeepLinksSource", () => {
 
     try {
       publishCapacitorDeepLinksSource();
-      await flushMicrotasks();
+      await flushAsyncWork();
 
       urlOpenHandler!({
         url: "vellum-assistant://billing/checkout-complete?status=cancel",
@@ -151,7 +213,7 @@ describe("publishCapacitorDeepLinksSource", () => {
 
     try {
       publishCapacitorDeepLinksSource();
-      await flushMicrotasks();
+      await flushAsyncWork();
 
       urlOpenHandler!({
         url: "vellum-assistant://billing/checkout-complete?status=success&session_id=not-a-session",
@@ -169,6 +231,54 @@ describe("publishCapacitorDeepLinksSource", () => {
     }
   });
 
+  test("publishes deeplink.startVoice, keeping the mode the unknown fallback would strip", async () => {
+    const starts: unknown[] = [];
+    const unknowns: unknown[] = [];
+    const unsubStart = subscribe("deeplink.startVoice", (p) => {
+      starts.push(p);
+    });
+    const unsubUnknown = subscribe("deeplink.unknown", (p) => {
+      unknowns.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({ url: "vellum-assistant://voice?mode=resume" });
+
+      expect(starts).toEqual([{ mode: "resume", prompt: null }]);
+      expect(unknowns).toEqual([]);
+    } finally {
+      unsubStart();
+      unsubUnknown();
+    }
+  });
+
+  test("a look-alike scheme falls through to unknown rather than starting voice", async () => {
+    const starts: unknown[] = [];
+    const unknowns: unknown[] = [];
+    const unsubStart = subscribe("deeplink.startVoice", (p) => {
+      starts.push(p);
+    });
+    const unsubUnknown = subscribe("deeplink.unknown", (p) => {
+      unknowns.push(p);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushAsyncWork();
+
+      urlOpenHandler!({ url: "vellum-assistant-evil://voice?mode=new" });
+
+      expect(starts).toEqual([]);
+      expect(unknowns).toEqual([{ url: "vellum-assistant-evil://voice" }]);
+    } finally {
+      unsubStart();
+      unsubUnknown();
+    }
+  });
+
   test("publishes deeplink.unknown on the bus for a non-OAuth URL", async () => {
     const received: { url: string }[] = [];
     const unsubscribeBus = subscribe("deeplink.unknown", (payload) => {
@@ -177,7 +287,7 @@ describe("publishCapacitorDeepLinksSource", () => {
 
     try {
       publishCapacitorDeepLinksSource();
-      await flushMicrotasks();
+      await flushAsyncWork();
 
       urlOpenHandler!({ url: "vellum-assistant://some-future-link" });
 
@@ -197,7 +307,7 @@ describe("publishCapacitorDeepLinksSource", () => {
 
     try {
       publishCapacitorDeepLinksSource();
-      await flushMicrotasks();
+      await flushAsyncWork();
 
       urlOpenHandler!({
         url: "vellum-assistant://oauth-done/path?oauth_code=secret-code&x=1#frag-token",
@@ -217,7 +327,7 @@ describe("publishCapacitorDeepLinksSource", () => {
 
     try {
       publishCapacitorDeepLinksSource();
-      await flushMicrotasks();
+      await flushAsyncWork();
 
       urlOpenHandler!({ url: "::not-a-parseable-url?oauth_code=secret" });
 
@@ -232,7 +342,7 @@ describe("publishCapacitorDeepLinksSource", () => {
     addListenerMock.mockImplementationOnce(() => Promise.reject(err));
 
     publishCapacitorDeepLinksSource();
-    await flushMicrotasks();
+    await flushAsyncWork();
 
     expect(captureErrorMock).toHaveBeenCalledWith(err, {
       context: "capacitor_deep_links",

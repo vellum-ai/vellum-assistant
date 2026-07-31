@@ -4,8 +4,12 @@
  *
  * Invariant (managed) profiles expose enable-only actions and no Delete,
  * user profiles get the full kebab, the status re-enable PATCHes exactly
- * `{status: "active"}`, and the Default/Advisor chips track
- * `llm.activeProfile` / `llm.advisorProfile`.
+ * `{status: "active"}`, and the Default chip tracks `llm.activeProfile`.
+ *
+ * The advisor selection is not surfaced here at all - it lives in the
+ * Action Overrides panel. `llm.advisorProfile` still appears below because
+ * deleting the profile it points at must clear the reference in the same
+ * patch, which is this section's job.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -180,9 +184,8 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("ProfilesSection - chips", () => {
-  test("Default and Advisor chips track the config selections", () => {
+  test("the Default chip tracks llm.activeProfile", () => {
     activeProfileState = "balanced";
-    advisorProfileState = "my-custom";
     renderSection();
 
     const rows = Array.from(
@@ -191,12 +194,18 @@ describe("ProfilesSection - chips", () => {
     const balancedRow = rows.find((r) => r.textContent?.includes("Balanced"));
     const customRow = rows.find((r) => r.textContent?.includes("My Custom"));
     expect(balancedRow?.textContent).toContain("Default");
-    expect(balancedRow?.textContent).not.toContain("Advisor");
-    expect(customRow?.textContent).toContain("Advisor");
     expect(customRow?.textContent).not.toContain("Default");
   });
 
-  test("a disabled profile shows the Disabled chip and no Default/Advisor chip", () => {
+  test("no row carries an Advisor chip, whatever llm.advisorProfile says", () => {
+    activeProfileState = "balanced";
+    advisorProfileState = "my-custom";
+    renderSection();
+
+    expect(document.body.textContent).not.toContain("Advisor");
+  });
+
+  test("a disabled profile shows the Disabled chip", () => {
     renderSection();
     const rows = Array.from(
       document.querySelectorAll<HTMLElement>('[data-slot="list-row"]'),
@@ -218,26 +227,25 @@ describe("ProfilesSection - chips", () => {
 });
 
 describe("ProfilesSection - kebab menus", () => {
-  test("an active managed profile offers View/Make Default/Make Advisor but no Disable or Delete", async () => {
+  test("an active managed profile offers View/Make Default but no Disable or Delete", async () => {
     renderSection();
     const menu = await openKebab("Balanced");
     const items = menuItems(menu);
     expect(items).toContain("View");
     expect(items).toContain("Make Default");
-    expect(items).toContain("Make Advisor");
+    expect(items).not.toContain("Make Advisor");
     expect(items).not.toContain("Disable");
     expect(items).not.toContain("Delete");
     expect(items).not.toContain("Edit");
   });
 
-  test("a disabled managed profile offers Enable and hides Make Default/Advisor", async () => {
+  test("a disabled managed profile offers Enable and hides Make Default", async () => {
     renderSection();
     const menu = await openKebab("Speed");
     const items = menuItems(menu);
     expect(items).toContain("Enable");
     expect(items).not.toContain("Disable");
     expect(items).not.toContain("Make Default");
-    expect(items).not.toContain("Make Advisor");
     expect(items).not.toContain("Delete");
   });
 
@@ -251,7 +259,7 @@ describe("ProfilesSection - kebab menus", () => {
     expect(items).not.toContain("View");
   });
 
-  test("the current default profile hides Make Default; the advisor gains Remove as Advisor", async () => {
+  test("the current default profile hides Make Default and offers no advisor actions", async () => {
     activeProfileState = "my-custom";
     advisorProfileState = "my-custom";
     renderSection();
@@ -259,7 +267,7 @@ describe("ProfilesSection - kebab menus", () => {
     const items = menuItems(menu);
     expect(items).not.toContain("Make Default");
     expect(items).not.toContain("Make Advisor");
-    expect(items).toContain("Remove as Advisor");
+    expect(items).not.toContain("Remove as Advisor");
   });
 
   test("re-enabling a disabled invariant profile PATCHes status:'active' and nothing else", async () => {

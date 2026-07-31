@@ -3,10 +3,52 @@
  *  Separated from the React hook (`useCommandPaletteSections`) so they
  *  can be unit-tested without a component render cycle. */
 
-import { Calendar, Contact, MessageSquare } from "lucide-react";
+import {
+  Calendar,
+  Contact,
+  Globe,
+  LayoutGrid,
+  MessageSquare,
+  Monitor,
+  Settings,
+  SquarePen,
+} from "lucide-react";
 
 import type { CommandPaletteSection } from "@/components/command-palette/command-palette";
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
+import { isElectron } from "@/runtime/is-electron";
+
+/** Build the static "Actions" section with keyboard shortcuts. */
+export function buildActionsSection(
+  assistantName: string,
+): CommandPaletteSection {
+  return {
+    id: "actions",
+    label: "Actions",
+    items: [
+      {
+        id: "action-new-conversation",
+        icon: SquarePen,
+        title: "New Conversation",
+        shortcutHint: isElectron() ? "⌘N" : "⌘⇧O",
+      },
+      {
+        id: "action-current-conversation",
+        icon: Monitor,
+        title: "Current Conversation",
+        shortcutHint: "⌘⇧N",
+      },
+      {
+        id: "action-settings",
+        icon: Settings,
+        title: "Settings",
+        shortcutHint: "⌘,",
+      },
+      { id: "action-library", icon: LayoutGrid, title: "Library" },
+      { id: "action-intelligence", icon: Globe, title: assistantName },
+    ],
+  };
+}
 
 /**
  * Build sections from server search results, deduplicating conversations
@@ -24,7 +66,7 @@ export function buildServerResultSections(
       id: `search-conv-${c.id}`,
       icon: MessageSquare,
       title: c.title ?? "Untitled",
-      subtitle: c.excerpt,
+      snippet: c.excerpt || undefined,
     }));
   if (serverConvItems.length > 0) {
     sections.push({

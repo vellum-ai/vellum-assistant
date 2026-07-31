@@ -51,10 +51,12 @@ export type ProfileMatrixKey = DefaultProfileKey | InternalProfileKey;
 export const OS_BETA_PROFILE_KEY = "os-beta";
 
 /**
- * Providers that can serve the default profiles. `vellum` is the
+ * The named columns of the intent × provider matrix. `vellum` is the
  * platform-managed column (routed through the single `vellum` connection to
  * an underlying provider per profile); the rest are BYOK columns whose
- * models resolve per provider via `resolveModelIntent`.
+ * models resolve per provider via `resolveModelIntent`. The full set of
+ * providers that can back `llm.defaultProvider` is wider, see
+ * `DEFAULT_PROVIDER_CHOICES` in `schemas/llm.ts`.
  *
  * Lives in this import-free module rather than `default-profile-catalog.ts`
  * so `schemas/llm.ts` can import it without a circular dependency (the
@@ -69,3 +71,15 @@ export const DEFAULT_PROFILE_PROVIDERS = [
   "vellum",
 ] as const;
 export type DefaultProfileProvider = (typeof DEFAULT_PROFILE_PROVIDERS)[number];
+
+/**
+ * Whether a provider has its own named column in the matrix. Providers
+ * outside this set can still back the default profiles: they materialize
+ * from the shared BYOK templates with the intent falling back to the
+ * provider's catalog `defaultModel` (see `defaultProfileBodyForProvider`).
+ */
+export function isDefaultProfileProvider(
+  value: string,
+): value is DefaultProfileProvider {
+  return (DEFAULT_PROFILE_PROVIDERS as readonly string[]).includes(value);
+}

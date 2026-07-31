@@ -298,6 +298,7 @@ mock.module("../../substrate/page-index.js", () => ({
         edges: [],
         leaves: [],
         modifiedAt: 0,
+        freshAt: null,
       },
       {
         slug: "page-2",
@@ -306,6 +307,7 @@ mock.module("../../substrate/page-index.js", () => ({
         edges: [],
         leaves: [],
         modifiedAt: 0,
+        freshAt: null,
       },
       // A synthetic capability row — same shape the v2 page index appends for
       // skills/CLI commands. `initLanes` must route it through the capability
@@ -317,6 +319,7 @@ mock.module("../../substrate/page-index.js", () => ({
         edges: [],
         leaves: [],
         modifiedAt: 0,
+        freshAt: null,
       },
       // Extra real concept rows (modifiedAt > 0) a test can request to cross the
       // v3 full-profile page threshold; default 0 keeps the corpus sparse (lean).
@@ -327,6 +330,7 @@ mock.module("../../substrate/page-index.js", () => ({
         edges: [],
         leaves: [],
         modifiedAt: 1,
+        freshAt: 1,
       })),
     ],
     bySlug: new Map(),

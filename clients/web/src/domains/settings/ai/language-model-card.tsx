@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -7,7 +5,6 @@ import { Notice } from "@vellumai/design-library/components/notice";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { ByoServiceCard } from "@/domains/settings/ai/shared-ui";
-import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { LanguageModelSection } from "@/domains/settings/ai/language-model-section";
 import { ProfilesSection } from "@/domains/settings/ai/profiles-section";
 import { ProvidersSection } from "@/domains/settings/ai/providers-section";
@@ -26,7 +23,8 @@ export type LanguageModelPanelState =
   | { kind: "profile"; name: string }
   | { kind: "create-profile" }
   | { kind: "provider"; name: string }
-  | { kind: "add-provider" };
+  | { kind: "add-provider" }
+  | { kind: "overrides" };
 
 interface LanguageModelCardProps {
   panel: LanguageModelPanelState | null;
@@ -35,10 +33,9 @@ interface LanguageModelCardProps {
 }
 
 /**
- * The V2 Language Model card (Figma 7412:133089): Profiles and Providers as
- * inline sections whose details open in the settings sidepanel, and
- * Overrides collapsed to a count + Manage row (its own sidepanel conversion
- * is the remaining LUM-2881 follow-up).
+ * The V2 Language Model card (Figma 7412:133089): Profiles and Providers
+ * as inline sections and Overrides collapsed to a count + Manage row, with
+ * every detail surface opening in the settings sidepanel.
  */
 export function LanguageModelCard({
   panel,
@@ -79,12 +76,8 @@ export function LanguageModelCard({
       (s?.profile != null || s?.provider != null || s?.model != null),
   ).length;
 
-  // Modal toggle - ephemeral UI state, correct as useState
-  const [overridesOpen, setOverridesOpen] = useState(false);
-
   return (
-    <>
-      <ByoServiceCard
+    <ByoServiceCard
         title="Language Model"
         subtitle="Profiles choose which model answers. Providers supply access to it"
       >
@@ -144,22 +137,13 @@ export function LanguageModelCard({
               <Button
                 variant="outlined"
                 size="compact"
-                onClick={() => setOverridesOpen(true)}
+                onClick={() => onOpenPanel({ kind: "overrides" })}
               >
                 Manage
               </Button>
             }
           />
         </div>
-      </ByoServiceCard>
-
-      {assistantId && (
-        <CallSiteOverridesModal
-          isOpen={overridesOpen}
-          onClose={() => setOverridesOpen(false)}
-          assistantId={assistantId}
-        />
-      )}
-    </>
+    </ByoServiceCard>
   );
 }

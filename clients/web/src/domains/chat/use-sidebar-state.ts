@@ -2,9 +2,15 @@
  * Data-shaping hook for the assistant sidebar.
  *
  * Owns conversation grouping, pagination ("show more"), collapse/expand
- * state, and attention-forced expansion. Returns a typed object the
- * presentational `AssistantSideMenu` renders without any inline
- * computation, `useEffect`, or derived state.
+ * state, attention-forced expansion, and the user's section order. Returns a
+ * typed object the presentational `AssistantSideMenu` renders without any
+ * inline computation, `useEffect`, or derived state.
+ *
+ * The headline output is {@link SidebarState.sections}: one flat, ordered
+ * list of every renderable section (Pinned, Chats, each channel, each custom
+ * group) as a discriminated union. The sidebar walks that list in order -
+ * it does not know which section types exist or where they "belong", which
+ * is what lets the user put a custom group above Recents.
  *
  * Memoizes grouping per `conversations` reference so parent re-renders
  * that don't change the conversation list skip the grouping work.
@@ -29,23 +35,37 @@ import {
   groupConversations,
   type CustomGroup,
 } from "@/domains/chat/utils/group-conversations";
-import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
+import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import {
   channelSectionKey,
+  isKnownCategoryKey,
   isKnownPrimaryKey,
 } from "@/domains/chat/utils/sidebar-group-collapse-storage";
+import {
+  mergeSectionOrder,
+  moveSectionKey,
+  nextStoredOrder,
+} from "@/domains/chat/utils/sidebar-section-order";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
   useBackgroundConversationListQuery,
   useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { getChannelLabel } from "@/utils/channel-presentation";
 
 // ---------------------------------------------------------------------------
 // Public constants
 // ---------------------------------------------------------------------------
 
 export const SIDEBAR_CONVERSATION_LIMIT = 5;
+
+/**
+ * Shared empty array for the "no attention anywhere" case - the common one.
+ * Returning a fresh `[]` would give every dependent memo a new identity on
+ * each render.
+ */
+const EMPTY_KEYS: string[] = [];
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,6 +131,37 @@ function buildPaginatedSection(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Sections
+// ---------------------------------------------------------------------------
+
+interface SidebarSectionBase {
+  /**
+   * Collapse key *and* section-order key - one namespace, so the two can
+   * never disagree about what a section is called.
+   */
+  key: string;
+  /** Header label. */
+  label: string;
+  /** Every conversation in the section, ignoring "show more" truncation. */
+  all: Conversation[];
+}
+
+/**
+ * One renderable sidebar section. Discriminated by `type` so the sidebar can
+ * render a heterogeneous, user-ordered list without re-deriving which bucket
+ * each section came from.
+ */
+export type SidebarSection =
+  | (SidebarSectionBase & { type: "pinned" })
+  | (SidebarSectionBase & { type: "recents"; pagination: PaginatedSection })
+  | (SidebarSectionBase & {
+      type: "channel";
+      channelId: string;
+      pagination: ChannelSectionState;
+    })
+  | (SidebarSectionBase & { type: "group"; group: CustomGroup });
+
 export interface SidebarState {
   pinned: Conversation[];
   channelSections: ChannelSectionState[];
@@ -119,16 +170,32 @@ export interface SidebarState {
   customGroups: CustomGroup[];
 
   /**
-   * Open keys for the single accordion root that holds Pinned, Chats, and
-   * every channel section — merged from the primary and category storage
-   * buckets so all of them share one root (and therefore one uniform gap).
+   * Every section in the user's chosen order - the list the sidebar renders.
+   * Sections the user has never touched fall back to the default order
+   * (Pinned, custom groups, Chats, channel sections).
+   */
+  sections: SidebarSection[];
+  /**
+   * Persist a new section order. Takes the full ordered key list of the
+   * sections currently on screen.
+   */
+  onReorderSections: (orderedKeys: string[]) => void;
+  /**
+   * Nudge one section one slot up (`-1`) or down (`+1`) - the keyboard- and
+   * touch-reachable equivalent of dragging it, since HTML5 drag events fire
+   * for neither.
+   */
+  onMoveSection: (key: string, delta: -1 | 1) => void;
+
+  /**
+   * Open keys for the single accordion root that holds *every* section -
+   * merged from the primary, category, and custom-group storage buckets.
+   * One root keeps section spacing uniform and lets the three section types
+   * interleave in any order.
    */
   effectiveOpenSections: string[];
-  /** Splits the accordion's value array back into its two storage buckets. */
+  /** Splits the accordion's value array back into its three storage buckets. */
   onOpenSectionsChange: (next: string[]) => void;
-
-  effectiveOpenCustomGroups: string[];
-  onOpenCustomGroupsChange: (next: string[]) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,25 +219,27 @@ export function useSidebarState({
     (s) => s.assistantState.kind === "active",
   );
 
-  // --- Collapse store hydration ---
+  // --- Layout store hydration ---
 
   useEffect(() => {
     if (assistantId) {
       startTransition(() => {
-        useSidebarCollapseStore.getState().setAssistantId(assistantId);
+        useSidebarLayoutStore.getState().setAssistantId(assistantId);
       });
     }
   }, [assistantId]);
 
-  const openCategories = useSidebarCollapseStore.use.openCategories();
-  const openCustomGroups = useSidebarCollapseStore.use.openCustomGroups();
-  const openPrimary = useSidebarCollapseStore.use.openPrimary();
-  const setOpenCategories = useSidebarCollapseStore.use.setOpenCategories();
-  const setOpenCustomGroups = useSidebarCollapseStore.use.setOpenCustomGroups();
-  const setOpenPrimary = useSidebarCollapseStore.use.setOpenPrimary();
-  const backgroundActivated = useSidebarCollapseStore.use.backgroundActivated();
-  const scheduledActivated = useSidebarCollapseStore.use.scheduledActivated();
-  const collapseAssistantId = useSidebarCollapseStore.use.assistantId();
+  const openCategories = useSidebarLayoutStore.use.openCategories();
+  const openCustomGroups = useSidebarLayoutStore.use.openCustomGroups();
+  const openPrimary = useSidebarLayoutStore.use.openPrimary();
+  const setOpenCategories = useSidebarLayoutStore.use.setOpenCategories();
+  const setOpenCustomGroups = useSidebarLayoutStore.use.setOpenCustomGroups();
+  const setOpenPrimary = useSidebarLayoutStore.use.setOpenPrimary();
+  const sectionOrder = useSidebarLayoutStore.use.sectionOrder();
+  const setSectionOrder = useSidebarLayoutStore.use.setSectionOrder();
+  const backgroundActivated = useSidebarLayoutStore.use.backgroundActivated();
+  const scheduledActivated = useSidebarLayoutStore.use.scheduledActivated();
+  const collapseAssistantId = useSidebarLayoutStore.use.assistantId();
 
   // Background and scheduled jobs each load through their own lazy query,
   // co-located here with the sections that toggle them. A query is enabled
@@ -257,146 +326,150 @@ export function useSidebarState({
     [grouped.channelSections, visibleChannelCounts, attentionConversationIds],
   );
 
-  // --- Attention-forced expansion ---
+  // --- Section order ---
 
-  const hasAttentionIn = useCallback(
-    (convs: Conversation[]) =>
-      attentionConversationIds
-        ? convs.some((c) => attentionConversationIds.has(c.conversationId))
-        : false,
-    [attentionConversationIds],
-  );
-
-  const effectiveOpenCategories = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0) {
-      return openCategories;
+  // Default layout: Pinned, then the user's custom groups, then Chats and the
+  // channel sections. Groups lead because they are the deliberate, curated
+  // organization layer, and they hold their place while channel sections come
+  // and go with traffic.
+  const defaultSections = useMemo((): SidebarSection[] => {
+    const list: SidebarSection[] = [];
+    if (grouped.pinned.length > 0) {
+      list.push({
+        type: "pinned",
+        key: "pinned",
+        label: "Pinned",
+        all: grouped.pinned,
+      });
     }
-    const extra: string[] = [];
-    for (const section of grouped.channelSections) {
-      if (
-        section.conversations.length > 0 &&
-        hasAttentionIn(section.conversations)
-      ) {
-        extra.push(channelSectionKey(section.channelId));
-      }
-    }
-    if (extra.length === 0) {
-      return openCategories;
-    }
-    if (extra.every((c) => openCategories.includes(c))) {
-      return openCategories;
-    }
-    return [...new Set([...openCategories, ...extra])];
-  }, [
-    openCategories,
-    attentionConversationIds,
-    grouped.channelSections,
-    hasAttentionIn,
-  ]);
-
-  const effectiveOpenCustomGroups = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0) {
-      return openCustomGroups;
-    }
-    const extra: string[] = [];
     for (const group of grouped.customGroups) {
-      if (
-        group.conversations.some((c) =>
-          attentionConversationIds.has(c.conversationId),
-        )
-      ) {
-        extra.push(group.id);
-      }
+      list.push({
+        type: "group",
+        key: group.id,
+        label: group.name,
+        all: group.conversations,
+        group,
+      });
     }
-    if (extra.length === 0) {
-      return openCustomGroups;
+    list.push({
+      type: "recents",
+      key: "recents",
+      label: "Chats",
+      all: recentsSection.all,
+      pagination: recentsSection,
+    });
+    for (const section of channelSections) {
+      list.push({
+        type: "channel",
+        key: channelSectionKey(section.channelId),
+        label: getChannelLabel(section.channelId),
+        all: section.all,
+        channelId: section.channelId,
+        pagination: section,
+      });
     }
-    if (extra.every((g) => openCustomGroups.includes(g))) {
-      return openCustomGroups;
-    }
-    return [...new Set([...openCustomGroups, ...extra])];
-  }, [openCustomGroups, attentionConversationIds, grouped.customGroups]);
-
-  // Pinned and Chats default open; force-open still applies if the user
-  // collapsed one and a conversation in it needs attention.
-  const effectiveOpenPrimary = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0) {
-      return openPrimary;
-    }
-    const extra: string[] = [];
-    if (grouped.pinned.length > 0 && hasAttentionIn(grouped.pinned)) {
-      extra.push("pinned");
-    }
-    if (grouped.recents.length > 0 && hasAttentionIn(grouped.recents)) {
-      extra.push("recents");
-    }
-    if (extra.length === 0) {
-      return openPrimary;
-    }
-    if (extra.every((k) => openPrimary.includes(k))) {
-      return openPrimary;
-    }
-    return [...new Set([...openPrimary, ...extra])];
+    return list;
   }, [
-    openPrimary,
-    attentionConversationIds,
     grouped.pinned,
-    grouped.recents,
-    hasAttentionIn,
+    grouped.customGroups,
+    recentsSection,
+    channelSections,
   ]);
 
-  // Pinned/Chats and the channel sections render in one accordion root, so
-  // their two storage buckets are merged into a single value array here and
-  // split apart again on change. The buckets stay separate because they have
-  // different defaults (primary open, categories closed) and because
-  // `setOpenCategories` owns the lazy-fetch activation side effects.
-  const effectiveOpenSections = useMemo(
-    () => [...effectiveOpenPrimary, ...effectiveOpenCategories],
-    [effectiveOpenPrimary, effectiveOpenCategories],
+  const sections = useMemo((): SidebarSection[] => {
+    if (sectionOrder.length === 0) {
+      return defaultSections;
+    }
+    const byKey = new Map(defaultSections.map((s) => [s.key, s]));
+    return mergeSectionOrder(
+      defaultSections.map((s) => s.key),
+      sectionOrder,
+    ).map((key) => byKey.get(key)!);
+  }, [defaultSections, sectionOrder]);
+
+  const onReorderSections = useCallback(
+    (orderedKeys: string[]) => {
+      setSectionOrder(nextStoredOrder(sectionOrder, orderedKeys));
+    },
+    [sectionOrder, setSectionOrder],
   );
 
-  // Sections held open by attention rather than by the user. Radix builds each
+  const onMoveSection = useCallback(
+    (key: string, delta: -1 | 1) => {
+      const moved = moveSectionKey(
+        sections.map((s) => s.key),
+        key,
+        delta,
+      );
+      if (moved) {
+        setSectionOrder(nextStoredOrder(sectionOrder, moved));
+      }
+    },
+    [sections, sectionOrder, setSectionOrder],
+  );
+
+  // --- Open/closed state ---
+
+  // The three storage buckets exist because they have different defaults
+  // (Pinned/Chats open, the rest closed) and because `setOpenCategories` owns
+  // the lazy-fetch activation side effects. That split is a *storage* concern:
+  // every section shares one accordion root, so reads merge the buckets into
+  // one value array and writes route each key back to its owner.
+  const storedOpenSections = useMemo(
+    () => [...openPrimary, ...openCategories, ...openCustomGroups],
+    [openPrimary, openCategories, openCustomGroups],
+  );
+
+  // Sections a conversation needing attention forces open, whatever the user
+  // last chose. One pass over `sections` covers every type - each section
+  // already carries its own conversations, so there's nothing type-specific
+  // left to special-case here.
+  const attentionOpenKeys = useMemo(() => {
+    if (!attentionConversationIds || attentionConversationIds.size === 0) {
+      return EMPTY_KEYS;
+    }
+    const keys = sections
+      .filter((section) =>
+        section.all.some((c) =>
+          attentionConversationIds.has(c.conversationId),
+        ),
+      )
+      .map((section) => section.key);
+    return keys.length > 0 ? keys : EMPTY_KEYS;
+  }, [sections, attentionConversationIds]);
+
+  // Held open by attention rather than by the user. Radix builds each
   // `onValueChange` payload from the current value array, so these ride along
   // when the user toggles some *other* section — persisting them would outlive
   // the attention that opened them and leave the section stuck open.
   const forcedOpenKeys = useMemo(() => {
-    const stored = new Set([
-      ...openPrimary,
-      ...openCategories,
-      ...openCustomGroups,
-    ]);
-    return new Set(
-      [
-        ...effectiveOpenPrimary,
-        ...effectiveOpenCategories,
-        ...effectiveOpenCustomGroups,
-      ].filter((key) => !stored.has(key)),
-    );
-  }, [
-    openPrimary,
-    openCategories,
-    openCustomGroups,
-    effectiveOpenPrimary,
-    effectiveOpenCategories,
-    effectiveOpenCustomGroups,
-  ]);
+    const stored = new Set(storedOpenSections);
+    return new Set(attentionOpenKeys.filter((key) => !stored.has(key)));
+  }, [storedOpenSections, attentionOpenKeys]);
 
+  const effectiveOpenSections = useMemo(
+    () =>
+      forcedOpenKeys.size === 0
+        ? storedOpenSections
+        : [...new Set([...storedOpenSections, ...attentionOpenKeys])],
+    [storedOpenSections, attentionOpenKeys, forcedOpenKeys],
+  );
+
+  // Routes each key from the shared root back to the bucket that owns it.
+  // Anything that is neither a primary key nor a built-in category key is a
+  // custom group id.
   const onOpenSectionsChange = useCallback(
     (next: string[]) => {
       const toPersist = next.filter((key) => !forcedOpenKeys.has(key));
       setOpenPrimary(toPersist.filter(isKnownPrimaryKey));
-      setOpenCategories(toPersist.filter((key) => !isKnownPrimaryKey(key)));
+      setOpenCategories(toPersist.filter(isKnownCategoryKey));
+      setOpenCustomGroups(
+        toPersist.filter(
+          (key) => !isKnownPrimaryKey(key) && !isKnownCategoryKey(key),
+        ),
+      );
     },
-    [forcedOpenKeys, setOpenPrimary, setOpenCategories],
-  );
-
-  // Custom groups render in their own root but are force-opened by attention
-  // the same way, so their writes need the same filter.
-  const onOpenCustomGroupsChange = useCallback(
-    (next: string[]) => {
-      setOpenCustomGroups(next.filter((key) => !forcedOpenKeys.has(key)));
-    },
-    [forcedOpenKeys, setOpenCustomGroups],
+    [forcedOpenKeys, setOpenPrimary, setOpenCategories, setOpenCustomGroups],
   );
 
   return {
@@ -404,9 +477,10 @@ export function useSidebarState({
     channelSections,
     recents: recentsSection,
     customGroups: grouped.customGroups,
+    sections,
+    onReorderSections,
+    onMoveSection,
     effectiveOpenSections,
     onOpenSectionsChange,
-    effectiveOpenCustomGroups,
-    onOpenCustomGroupsChange,
   };
 }

@@ -49,6 +49,7 @@ import {
   toolDetailPayloadFromToolCall,
   type ToolCallCardStep,
 } from "@/domains/chat/utils/tool-call-card-utils";
+import { thinkingPreview } from "@/domains/chat/utils/thinking-preview";
 import { truncate } from "@/domains/chat/utils/truncate";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
@@ -223,7 +224,7 @@ function TimelineStep({
     return (
       <ToolStepPill
         iconName="brain"
-        label={truncate(step.text, THINKING_PILL_MAX_CHARS)}
+        label={truncate(thinkingPreview(step.text), THINKING_PILL_MAX_CHARS)}
         ariaLabel="View thinking"
         active={false}
         onClick={() =>

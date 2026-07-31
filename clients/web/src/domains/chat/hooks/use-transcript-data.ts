@@ -101,6 +101,7 @@ export function useTranscriptData({
               requestId: pendingContactRequest.requestId,
               channel: pendingContactRequest.channel,
               placeholder: pendingContactRequest.placeholder,
+              defaultValue: pendingContactRequest.defaultValue,
               label: pendingContactRequest.label,
               description: pendingContactRequest.description,
               role: pendingContactRequest.role,

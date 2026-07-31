@@ -15,6 +15,11 @@ import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { searchMessageIdsLexical } from "./conversation-search-lexical.js";
 import type { ConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
+import { tokenize } from "./embeddings/sparse-tokenize.js";
+import {
+  parseContentRef,
+  resolveMessageContentBlocks,
+} from "./message-content-file.js";
 import { rawAll } from "./raw-query.js";
 import { conversations, messages } from "./schema/index.js";
 
@@ -815,51 +820,84 @@ function buildExcerptWithExternalContentMode(
 ): string {
   // Try to extract plain text from JSON content blocks first.
   let text = rawContent;
-  try {
-    const parsed = JSON.parse(rawContent);
-    if (Array.isArray(parsed)) {
-      const parts: string[] = [];
-      let preservedExternalContent = false;
-      for (const block of parsed) {
-        if (typeof block === "object" && block != null) {
-          if (block.type === "text" && typeof block.text === "string") {
-            if (externalContentMode === "display") {
-              parts.push(unwrapExternalContentForDisplay(block.text));
-            } else {
-              const excerpt = buildRecallEvidenceText(block.text, query);
-              parts.push(excerpt.text);
-              preservedExternalContent ||= excerpt.preservedExternalContent;
+  let sawStructuredContent = false;
+  const parts: string[] = [];
+  let preservedExternalContent = false;
+
+  const pushPart = (value: string): void => {
+    if (externalContentMode === "display") {
+      parts.push(unwrapExternalContentForDisplay(value));
+    } else {
+      const excerpt = buildRecallEvidenceText(value, query);
+      parts.push(excerpt.text);
+      preservedExternalContent ||= excerpt.preservedExternalContent;
+    }
+  };
+
+  const walkBlocks = (blocks: unknown[]): void => {
+    for (const block of blocks) {
+      if (typeof block !== "object" || block == null) {
+        continue;
+      }
+      const rec = block as Record<string, unknown>;
+      if (rec.type === "text" && typeof rec.text === "string") {
+        pushPart(rec.text);
+      } else if (rec.type === "thinking" && typeof rec.thinking === "string") {
+        pushPart(rec.thinking);
+      } else if (
+        rec.type === "file" &&
+        typeof rec.extracted_text === "string"
+      ) {
+        pushPart(rec.extracted_text);
+      } else if (
+        rec.type === "tool_result" ||
+        rec.type === "web_search_tool_result"
+      ) {
+        if (typeof rec.content === "string") {
+          pushPart(rec.content);
+        } else if (Array.isArray(rec.content)) {
+          for (const inner of rec.content) {
+            if (typeof inner !== "object" || inner == null) {
+              continue;
             }
-          } else if (
-            block.type === "tool_result" ||
-            block.type === "web_search_tool_result"
-          ) {
-            const inner = Array.isArray(block.content) ? block.content : [];
-            for (const ib of inner) {
-              if (ib?.type === "text" && typeof ib.text === "string") {
-                if (externalContentMode === "display") {
-                  parts.push(unwrapExternalContentForDisplay(ib.text));
-                } else {
-                  const excerpt = buildRecallEvidenceText(ib.text, query);
-                  parts.push(excerpt.text);
-                  preservedExternalContent ||= excerpt.preservedExternalContent;
-                }
-              }
+            const innerRec = inner as Record<string, unknown>;
+            if (innerRec.type === "text" && typeof innerRec.text === "string") {
+              pushPart(innerRec.text);
             }
           }
         }
       }
-      if (parts.length > 0) {
-        text = parts.join(" ");
-        if (externalContentMode === "preserve" && preservedExternalContent) {
-          return text;
-        }
-      }
-    } else if (typeof parsed === "string") {
-      text = parsed;
     }
-  } catch {
-    // Not JSON — use as-is
+  };
+
+  if (parseContentRef(rawContent)) {
+    sawStructuredContent = true;
+    walkBlocks(resolveMessageContentBlocks(rawContent));
+  } else {
+    try {
+      const parsed = JSON.parse(rawContent);
+      if (Array.isArray(parsed)) {
+        sawStructuredContent = true;
+        walkBlocks(parsed);
+      } else if (typeof parsed === "string") {
+        text = parsed;
+      } else if (typeof parsed === "object" && parsed != null) {
+        sawStructuredContent = true;
+      }
+    } catch {
+      // Not JSON, legacy plain-text rows are used as-is.
+    }
+  }
+
+  if (parts.length > 0) {
+    text = parts.join(" ");
+    if (externalContentMode === "preserve" && preservedExternalContent) {
+      return text;
+    }
+  } else if (sawStructuredContent && externalContentMode === "display") {
+    // Structured content with no legible text (tool_use or image-only
+    // blocks, unresolved refs): an empty excerpt beats raw JSON in the UI.
+    return "";
   }
 
   if (externalContentMode === "display") {
@@ -908,20 +946,58 @@ function wrapRecallEvidenceExcerpt(
     : wrapUntrustedContent(excerpt, { source });
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Earliest case-insensitive match of the query in `text`: the contiguous
+ * query when present, otherwise the earliest of its lexical tokens (same
+ * tokenizer as the sparse index, which matches tokens independently).
+ * Both branches are anchored to the tokenizer's alphanumeric boundaries
+ * so neither the query nor a token ever matches inside a larger word the
+ * index would tokenize differently. Matching runs on the original string
+ * so offsets stay aligned even when lowercasing would change string
+ * length (e.g. Turkish dotted I).
+ */
+function findEarliestMatch(
+  text: string,
+  query: string,
+): { index: number; length: number } | null {
+  const execAnchored = (pattern: string): RegExpExecArray | null => {
+    return new RegExp(
+      `(?<![\\p{L}\\p{N}])(?:${pattern})(?![\\p{L}\\p{N}])`,
+      "iu",
+    ).exec(text);
+  };
+
+  const whole = execAnchored(escapeRegExp(query));
+  if (whole) {
+    return { index: whole.index, length: whole[0].length };
+  }
+  const tokens = [...new Set(tokenize(query))].sort(
+    (a, b) => b.length - a.length,
+  );
+  if (tokens.length === 0) {
+    return null;
+  }
+  const match = execAnchored(tokens.map(escapeRegExp).join("|"));
+  return match ? { index: match.index, length: match[0].length } : null;
+}
+
 function buildExcerptFromText(text: string, query: string): string {
   const WINDOW = 100;
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  const idx = lowerText.indexOf(lowerQuery);
-  if (idx === -1) {
-    // Query matched the raw JSON but not the extracted text — fall back to raw start
+  const match = findEarliestMatch(text, query);
+  if (!match) {
+    // Neither the query nor any of its tokens is present (e.g. the lexical
+    // index matched JSON structure instead); fall back to the text start.
     return text
       .slice(0, WINDOW * 2)
       .replace(/\s+/g, " ")
       .trim();
   }
-  const start = Math.max(0, idx - WINDOW);
-  const end = Math.min(text.length, idx + query.length + WINDOW);
+  const start = Math.max(0, match.index - WINDOW);
+  const end = Math.min(text.length, match.index + match.length + WINDOW);
   const excerpt =
     (start > 0 ? "\u2026" : "") +
     text.slice(start, end).replace(/\s+/g, " ").trim() +

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
-const isLocalModeMock = mock(() => false);
+const isLocalClientMock = mock(() => false);
 const isPlatformDisabledMock = mock(() => false);
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: isLocalModeMock,
+  isLocalClient: isLocalClientMock,
   isPlatformDisabled: isPlatformDisabledMock,
 }));
 
@@ -26,7 +26,7 @@ function setLifecycle(assistantState: AssistantState) {
 }
 
 beforeEach(() => {
-  isLocalModeMock.mockImplementation(() => false);
+  isLocalClientMock.mockImplementation(() => false);
   isPlatformDisabledMock.mockImplementation(() => false);
   useAuthStore.setState(initialAuthState, true);
   useAssistantLifecycleStore.setState(initialLifecycleState, true);
@@ -50,7 +50,7 @@ describe("usePlatformGate — default (standard pattern)", () => {
   });
 
   test('returns "full" in local mode when logged in and platform not disabled', () => {
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     useAuthStore.setState({ platformSession: "present" });
     isPlatformDisabledMock.mockImplementation(() => false);
     const { result } = renderHook(() => usePlatformGate());
@@ -58,7 +58,7 @@ describe("usePlatformGate — default (standard pattern)", () => {
   });
 
   test('returns "gated" in local mode when VELLUM_DISABLE_PLATFORM is set', () => {
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     useAuthStore.setState({ platformSession: "present" });
     isPlatformDisabledMock.mockImplementation(() => true);
     const { result } = renderHook(() => usePlatformGate());
@@ -71,7 +71,7 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   // five user states the platform gating contract documents (CONVENTIONS.md).
 
   test('1. platform-hosted + logged in → "full"', () => {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     isPlatformDisabledMock.mockImplementation(() => false);
     useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() => usePlatformGate());
@@ -79,7 +79,7 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   });
 
   test('2. platform-hosted + NOT logged in → "disabled"', () => {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     isPlatformDisabledMock.mockImplementation(() => false);
     useAuthStore.setState({ platformSession: "absent" });
     const { result } = renderHook(() => usePlatformGate());
@@ -87,7 +87,7 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   });
 
   test('3. self-hosted + platform ON + logged in → "full"', () => {
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     isPlatformDisabledMock.mockImplementation(() => false);
     useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() => usePlatformGate());
@@ -95,7 +95,7 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   });
 
   test('4. self-hosted + platform ON + NOT logged in → "disabled"', () => {
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     isPlatformDisabledMock.mockImplementation(() => false);
     useAuthStore.setState({ platformSession: "absent" });
     const { result } = renderHook(() => usePlatformGate());
@@ -103,7 +103,7 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   });
 
   test('5. self-hosted + platform OFF (VELLUM_DISABLE_PLATFORM) → "gated"', () => {
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     isPlatformDisabledMock.mockImplementation(() => true);
     // Session value is irrelevant once platform features are off; assert both.
     for (const platformSession of ["present", "absent"] as const) {
@@ -117,7 +117,7 @@ describe("usePlatformGate — five documented user states (CONVENTIONS.md)", () 
   test('pre-settle "unknown" session gates the surface as "disabled"', () => {
     // The optimistic tri-state: "unknown" is not a live session, so the
     // default branch treats it like "absent" until the probe settles.
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     isPlatformDisabledMock.mockImplementation(() => false);
     useAuthStore.setState({ platformSession: "unknown" });
     const { result } = renderHook(() => usePlatformGate());
@@ -202,7 +202,7 @@ describe("usePlatformGateWithPending", () => {
   test('"gated" wins over the unsettled window in both branches', () => {
     // Nothing the probe can answer changes a gated surface, so it must not
     // report a wait no caller should honor.
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     isPlatformDisabledMock.mockImplementation(() => true);
     useAuthStore.setState({ platformSession: "unknown" });
     const { result, unmount } = renderHook(() => usePlatformGateWithPending());
@@ -260,7 +260,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     // The local-mode gateway-auth short-circuit path:
     // lifecycle-service.applyGatewayAuthShortCircuit transitions to
     // { kind: "active", isLocal: true }.
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     setLifecycle({ kind: "active", isLocal: true });
     useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() =>
@@ -273,7 +273,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     // A local-mode app can be managing a platform-hosted assistant.
     // The lifecycle service projects { kind: "active", isLocal: false }
     // in that case — platform-hosted-only UI IS meaningful here.
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     setLifecycle({ kind: "active", isLocal: false });
     useAuthStore.setState({ platformSession: "present" });
     const { result } = renderHook(() =>
@@ -285,7 +285,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
   test("ignores VELLUM_DISABLE_PLATFORM when active assistant is platform-hosted", () => {
     // The env var gates the daemon-side API interceptor in local mode —
     // it has no bearing on UI that targets a platform-hosted assistant.
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     setLifecycle({ kind: "active", isLocal: false });
     useAuthStore.setState({ platformSession: "present" });
     isPlatformDisabledMock.mockImplementation(() => true);

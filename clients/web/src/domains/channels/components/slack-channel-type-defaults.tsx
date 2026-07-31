@@ -1,4 +1,5 @@
 import { Hash, MessageSquare } from "lucide-react";
+import { Link } from "react-router";
 
 import { Card } from "@vellumai/design-library/components/card";
 import { ListRow } from "@vellumai/design-library/components/list-row";
@@ -8,6 +9,7 @@ import { SlackChannelTierLegend } from "@/domains/channels/components/slack-chan
 import { TierPicker } from "@/domains/channels/components/tier-picker";
 import type { ChannelDefaultBucket } from "@/domains/channels/slack-channel-overrides";
 import type { RiskThreshold } from "@/utils/threshold-presets";
+import { routes } from "@/utils/routes";
 
 interface BucketRow {
   bucket: ChannelDefaultBucket;
@@ -78,13 +80,22 @@ export function SlackChannelTypeDefaults({
       <Card.Header>
         <div className="flex flex-col gap-1">
           Default access
+          {/* body-small-lighter: this subtitle wraps to two lines, and
+              body-small-default is a line-height-1 single-line label style. */}
           <Typography
             as="p"
-            variant="body-small-default"
+            variant="body-small-lighter"
             className="text-[color:var(--content-tertiary)]"
           >
             How much {assistantName} does on its own, by conversation type.
-            Individual channels can override this below.
+            Individual channels can override this below, and{" "}
+            <Link
+              to={routes.settings.privacy}
+              className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
+            >
+              Trust Rules
+            </Link>{" "}
+            fine-tune when it asks.
           </Typography>
         </div>
       </Card.Header>
@@ -124,10 +135,7 @@ export function SlackChannelTypeDefaults({
         })}
       </Card.Body>
       <Card.Footer className="p-0">
-        <SlackChannelTierLegend
-          assistantName={assistantName}
-          defaultTier={globalDefaultTier}
-        />
+        <SlackChannelTierLegend defaultTier={globalDefaultTier} />
       </Card.Footer>
     </Card.Root>
   );

@@ -10,6 +10,7 @@ import {
   type DiscoveredPluginIngress,
   type DiscoverPluginIngressOptions,
   type IngressRoute,
+  type IngressRouteKind,
   type PluginIngressDiscovery,
   type PluginIngressProblem,
 } from "./plugin-ingress.js";
@@ -47,11 +48,11 @@ export interface ApprovedPluginIngress extends DiscoveredPluginIngress {
 }
 
 export interface PluginIngressResolution {
-  /** Declarations a guardian has approved, and only these may be served. */
+  /** Declarations a guardian has approved. */
   approved: ApprovedPluginIngress[];
   /**
-   * Declarations awaiting a decision. Surfaced so a guardian request can be
-   * raised for them; never served.
+   * Declarations awaiting a decision. Served only where {@link
+   * findServableRoute} says a decision is not required.
    */
   pending: PendingPluginIngress[];
   problems: PluginIngressProblem[];
@@ -126,4 +127,43 @@ function resolveDiscoveredPluginIngress(
   }
 
   return { approved, pending, problems };
+}
+
+/**
+ * The declared route the gateway may serve at `plugin`/`path`, if any.
+ *
+ * Approval is the general gate, with one exception: a route declaring
+ * `signer: "vellum"` is served without it. Such a route only opens to a
+ * caller holding the platform's own webhook secret, which is to say us, and
+ * the user extended that trust when they connected their account, so asking
+ * them to approve it again buys nothing. A route signed by anyone else still
+ * needs a guardian decision, because approval is what establishes who that
+ * signer is allowed to be.
+ *
+ * Note this is reach the plugin can grant itself: a manifest can name a
+ * `vellum`-signed path and have it served unreviewed. What it gets is a path
+ * only Vellum can drive, carrying no authority over the assistant and
+ * nothing a plugin could not already reach by running its own code.
+ *
+ * Declarations that failed validation are in `problems` and are never
+ * servable, regardless of signer.
+ */
+export function findServableRoute(
+  resolution: PluginIngressResolution,
+  plugin: string,
+  path: string,
+  kind: IngressRouteKind,
+): IngressRoute | undefined {
+  const matches = (routes: readonly IngressRoute[]) =>
+    routes.find((route) => route.kind === kind && route.path === path);
+
+  const approved = resolution.approved.find((d) => d.plugin === plugin);
+  const fromApproved = approved && matches(approved.routes);
+  if (fromApproved) {
+    return fromApproved;
+  }
+
+  const pending = resolution.pending.find((d) => d.plugin === plugin);
+  const fromPending = pending && matches(pending.routes);
+  return fromPending?.signer === "vellum" ? fromPending : undefined;
 }

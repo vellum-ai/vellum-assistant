@@ -12,8 +12,8 @@ import {
   tierRelation,
 } from "@/domains/settings/billing/package-types";
 import {
+  currentTierRows,
   machineLabel,
-  STANDARD_MACHINE_LABEL,
 } from "@/domains/settings/billing/plan-spec";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
 import {
@@ -33,9 +33,13 @@ import {
   downgradeLabel,
   getPlanTierCopy,
 } from "@/domains/settings/billing/plans/plans-copy";
-import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
+import {
+  BillingOnboardingModal,
+  type ResizeTakeoverContext,
+} from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
+import type { TakeoverDirection } from "@/domains/settings/billing/pro-onboarding/takeover-copy";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
-import { findCreditTier } from "@/domains/settings/billing/pro-onboarding/use-provisioning-credits";
+import { usePreferredOrActiveAssistant } from "@/domains/settings/billing/pro-onboarding/use-preferred-or-active-assistant";
 import { useChangePackage } from "@/domains/settings/billing/use-change-package";
 import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
@@ -60,6 +64,7 @@ import type {
   ProPlan,
   SubscriptionUpgradeRequestRequest,
 } from "@/generated/api/types.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   useActiveAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading,
@@ -67,7 +72,7 @@ import {
 } from "@/hooks/use-platform-gate";
 import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
-import { MACHINE_TIER_LABEL } from "@/lib/billing/machine-sizes";
+import { lowersMachineCeiling } from "@/lib/billing/machine-sizes";
 import { openUrl } from "@/runtime/browser";
 import { isElectron } from "@/runtime/is-electron";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
@@ -86,6 +91,15 @@ const DOCS_URL = "https://www.vellum.ai/docs/pricing";
 // How long the `?package=` deep link waits for its forced re-read of the
 // billing data before deciding on whatever the cache already holds.
 const DEEP_LINK_REFRESH_TIMEOUT_MS = 8_000;
+
+// How the takeover describes a package switch. The neutral "switch" relation is
+// a Custom sub, which has no catalog rank to compare against the target, so its
+// move has no knowable direction and the copy must not claim one.
+const TAKEOVER_DIRECTION: Record<SwitchRelation, TakeoverDirection> = {
+  upgrade: "upgrade",
+  downgrade: "downgrade",
+  switch: "change",
+};
 
 // The screen is a wall of creature avatars; warm the bundled component chunk at
 // module load so they resolve before first paint instead of popping in.
@@ -120,30 +134,11 @@ function packageFeatures(pkg: ProPackage, extra: readonly string[]): string[] {
 
 /**
  * A one-line recap of a custom sub's current tiers for the Custom row, e.g.
- * "Medium Machine · 30 GB · 50 credits". The machine reads from the tier label
- * map (or the standard-machine baseline), storage from the resolved GiB, and
- * the credit label from the live catalog's `CreditTier.label`; a dimension with
- * no value is dropped. The wording mirrors `packageSpecs` in `plan-spec.ts`.
+ * "Medium Machine · 30 GB · 50 credits". Row wording is shared with the
+ * adjust-plan modal's current-plan card via `currentTierRows`.
  */
 function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
-  const machine = current.machineTier
-    ? (MACHINE_TIER_LABEL[current.machineTier] ?? current.machineTier)
-    : STANDARD_MACHINE_LABEL;
-  const parts = [`${machine} Machine`];
-  if (current.storageGib != null) {
-    parts.push(`${current.storageGib} GB`);
-  }
-  if (current.creditTier != null) {
-    // A held/deprecated credit tier absent from the catalog can't resolve to a
-    // catalog label; derive the amount from the tier key (credits_<usd>) so the
-    // paid bundle still shows instead of being silently dropped.
-    const usd = current.creditTier.match(/^credits_(\d+)$/)?.[1];
-    parts.push(
-      findCreditTier(proPlan, current.creditTier)?.label ??
-        (usd != null ? `${usd} credits` : "Credit bundle"),
-    );
-  }
-  return parts.join(" · ");
+  return currentTierRows(current, proPlan).join(" · ");
 }
 
 /**
@@ -183,6 +178,8 @@ export function PlansPage() {
     isPending: changeTiersPending,
     current,
     currentReady,
+    currentKnown,
+    primaryAssistantId,
   } = useChangeTiers({ enabled: platformReady });
   // Native iOS keeps Checkout inside an in-app sheet, so the page holds
   // pre-checkout data until the sheet closes.
@@ -199,10 +196,11 @@ export function PlansPage() {
   // the grow-only resize the platform already fired server-side (no redundant
   // client-driven resize).
   const [resizeTakeoverOpen, setResizeTakeoverOpen] = useState(false);
-  // The credit tier applied by an in-place change, threaded to the takeover's
-  // terminal confirmation. See `ProvisioningStateProps.resizeCredits`.
-  const [resizeCreditTier, setResizeCreditTier] = useState<
-    CreditTierEnum | null | undefined
+  // What the plan looked like before the in-place change this takeover is
+  // watching. Captured pre-dispatch, because every read here reports the applied
+  // change once it returns. See `ResizeTakeoverContext`.
+  const [resizeContext, setResizeContext] = useState<
+    ResizeTakeoverContext | undefined
   >(undefined);
   // `?package=<key>` is a one-shot deep link (from marketing / the checkout
   // no-op bail); once acted on it must never re-fire.
@@ -222,6 +220,37 @@ export function PlansPage() {
   const packages = proPlan?.packages ?? [];
   const hasPackages = packages.length > 0;
   const isProUser = subscription?.plan_id === "pro";
+
+  // The pod whose `machine_size` an in-place change moves, resolved the way the
+  // takeover resolves the assistant it watches: the onboarding payload's primary
+  // when it names one, else the active assistant. Both sides of a machine chip
+  // must describe the same machine in a multi-assistant org. The real size is
+  // what makes that chip honest: a cap that finds the pod already at or below
+  // the new ceiling skips it and creates no resize marker, so a ceiling-derived
+  // from-side would draw a downsize that never runs.
+  //
+  // Held until `currentKnown`, because `primaryAssistantId` rides the same
+  // onboarding read. Asking earlier resolves a null id to the ACTIVE assistant,
+  // which is a different pod in a multi-assistant org, and that real-but-wrong
+  // size is what the takeover would then state for the life of the change. A
+  // read that failed or went stale names a primary just as confidently, so
+  // settling is not enough; the payload has to be one worth believing.
+  //
+  // When it is not, the from-sides stay null, which the takeover resolves per
+  // dimension and the chips drop. A missing chip beats one describing another
+  // machine. Nothing the user clicks waits on this: a plan change must not
+  // depend on an assistant read.
+  //
+  // Discarding the value is the gate, not disabling the query. Disabling stops
+  // a fetch but leaves whatever the cache already holds, and a null primary
+  // makes the hook answer with the active assistant, so the pod it names is
+  // precisely the wrong one in the org where this matters.
+  const orgReady = useIsOrgReady();
+  const resolvedAssistant = usePreferredOrActiveAssistant(
+    primaryAssistantId,
+    platformReady && orgReady && isProUser && currentKnown,
+  );
+  const assistant = currentKnown ? resolvedAssistant : undefined;
 
   // A Custom sub (unpinned or customized) has no meaningful catalog rank, so
   // it has no current tier: every named card is offered as a switch target —
@@ -540,12 +569,64 @@ export function PlansPage() {
       portalMutation.mutate({});
     };
 
+    /**
+     * The plan's from-sides as they stand at the moment of the call. Both
+     * in-place paths take this BEFORE they dispatch: the server caps the machine
+     * before it answers and the mutation hooks then invalidate the subscription
+     * and onboarding queries `current` derives from, so every read afterwards
+     * reports the change that just landed.
+     *
+     * Both resource dimensions come off the assistant rather than the billed
+     * tiers, which is what the takeover compares them against. A volume never
+     * shrinks, so an org that lowered its storage tier keeps the larger disk
+     * while `selected_storage_gib` reports the smaller billed one: raising the
+     * tier again would draw a move from a size the disk left long ago, and a
+     * raise that stays under the retained size would draw a growth that never
+     * happens.
+     */
+    const capturePlanBefore = () => ({
+      creditTier: current.creditTier,
+      fromSnapshot: {
+        machineSize: assistant?.machine_size ?? null,
+        storageGib: assistant?.provisioned_storage_gib ?? null,
+      },
+    });
+
+    // A Custom sub (currentTierKey null) can't be ranked against the target, so
+    // it stays direction-neutral ("switch"); a clean-pinned sub gets the
+    // directional up/down relation. Drives the confirm copy and, once
+    // confirmed, the takeover's.
+    const switchRelation: SwitchRelation = switchTarget
+      ? currentTierKey === null
+        ? "switch"
+        : tierRelation(currentTierKey, switchTarget.key) === "downgrade"
+          ? "downgrade"
+          : "upgrade"
+      : "upgrade";
+
     const confirmSwitch = async () => {
       if (!switchTarget) {
         return;
       }
       const target = switchTarget;
-      const relation = tierRelation(currentTierKey, target.key);
+      const before = capturePlanBefore();
+      // Whether the switch can cap the pod's machine down, which is what
+      // decides if targets that read met can stand in for "nothing was owed".
+      // Only the machine ceiling moves that way: a volume never shrinks, and
+      // credits are not a provisioned resource at all.
+      //
+      // A Custom sub has no catalog rank, so its own ceiling can sit anywhere
+      // relative to the target's, and an unranked ceiling can't be compared at
+      // all. Neither may claim the fast inference. `currentKnown` is what
+      // separates a tier that is absent from one that was never read: a failed
+      // onboarding read settles `currentReady` while leaving `machineTier`
+      // null, which is indistinguishable from a package that names no machine
+      // and would rank an Ultra sub as if it sat on the floor.
+      const canLowerResources =
+        currentTierKey === null ||
+        !currentReady ||
+        !currentKnown ||
+        lowersMachineCeiling(current.machineTier, target.machine_tier);
       const result = await changePackage(target.key);
       if (!result) {
         // The hook already toasted; keep the confirm dialog open so the user
@@ -558,31 +639,23 @@ export function PlansPage() {
         toast.success("You're already on this plan.");
         return;
       }
-      // status === "ok": only an upgrade grows the machine, so only it needs
-      // the resize/provisioning takeover. A downgrade caps the machine down
-      // immediately server-side with no apply/restart step, so just confirm it.
-      // A Custom-sub switch has unknown direction, so it lands here as "upgrade"
-      // and opens the takeover — the provisioning step is grow-only/idempotent
-      // server-side, so it is the safe default when direction is unknown.
-      if (relation === "downgrade") {
-        toast.success(`Downgraded to ${target.name}.`);
-      } else {
-        // The switch path owes no credit confirmation; clear any prior tier.
-        setResizeCreditTier(undefined);
-        setResizeTakeoverOpen(true);
-      }
+      // status === "ok": every direction restarts the pod, a downgrade included
+      // (the server caps the machine down and the resize rolls out from there),
+      // so all of them watch the provisioning takeover. The direction only
+      // steers the copy.
+      const toCreditTier = (target.credit_tier ??
+        null) as CreditTierEnum | null;
+      setResizeContext({
+        fromSnapshot: before.fromSnapshot,
+        credits:
+          toCreditTier !== before.creditTier
+            ? { fromTier: before.creditTier, toTier: toCreditTier }
+            : null,
+        direction: TAKEOVER_DIRECTION[switchRelation],
+        canLowerResources,
+      });
+      setResizeTakeoverOpen(true);
     };
-
-    // A Custom sub (currentTierKey null) can't be ranked against the target, so
-    // the confirm copy stays direction-neutral ("switch"); a clean-pinned sub
-    // gets the directional up/down copy.
-    const switchRelation: SwitchRelation = switchTarget
-      ? currentTierKey === null
-        ? "switch"
-        : tierRelation(currentTierKey, switchTarget.key) === "downgrade"
-          ? "downgrade"
-          : "upgrade"
-      : "upgrade";
 
     const startCustomCheckout = (selection: CustomPlanSelection) =>
       startCheckout({
@@ -596,6 +669,14 @@ export function PlansPage() {
     // Active Pro orgs edit their tiers in place via the change-tier endpoints;
     // the upgrade/checkout endpoint no-ops for an active Pro sub.
     const applyCustomTierChange = async (selection: CustomPlanSelection) => {
+      const before = capturePlanBefore();
+      // The modal seeds from `current`, so the machine tier it is moving away
+      // from is read here rather than guessed. A credit-only or storage-only
+      // edit leaves the ceiling alone and keeps its fast no-op inference, while
+      // a tier that was never read cannot be ranked and so cannot claim it.
+      const canLowerResources =
+        !currentKnown ||
+        lowersMachineCeiling(current.machineTier, selection.machineTier);
       const result = await changeTiers(selection);
       if (!result) {
         // The hook toasted; keep the modal open so the user can retry.
@@ -604,10 +685,17 @@ export function PlansPage() {
       setCustomPlanOpen(false);
       if (result.needsResize || result.creditChanged) {
         // Both a resize and a credit-only change open the takeover; thread the
-        // applied tier only when credits actually changed.
-        setResizeCreditTier(
-          result.creditChanged ? selection.creditTier : undefined,
-        );
+        // tier move only when credits actually changed.
+        setResizeContext({
+          fromSnapshot: before.fromSnapshot,
+          credits: result.creditChanged
+            ? { fromTier: before.creditTier, toTier: selection.creditTier }
+            : null,
+          // A per-dimension edit can raise one dimension and lower another, so
+          // it has no single direction to state.
+          direction: "change",
+          canLowerResources,
+        });
         setResizeTakeoverOpen(true);
       } else {
         toast.success("Plan updated.");
@@ -761,11 +849,11 @@ export function PlansPage() {
           open={resizeTakeoverOpen}
           onClose={() => {
             setResizeTakeoverOpen(false);
-            // Fail-safe: clear the tier so a stale credit chip can't resurface
-            // if an open path forgot to set it.
-            setResizeCreditTier(undefined);
+            // Fail-safe: drop the captured context so stale chips can't
+            // resurface if an open path forgot to set it.
+            setResizeContext(undefined);
           }}
-          resizeCredits={resizeCreditTier}
+          resizeContext={resizeContext}
         />
 
         <p className="mt-6 text-center text-[12px] font-medium text-[var(--content-tertiary)] sm:mt-10">

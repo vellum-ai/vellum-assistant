@@ -123,6 +123,7 @@ export const outlookProvider: WatcherProvider = {
   id: "outlook",
   displayName: "Outlook",
   requiredCredentialService: "outlook",
+  untrustedContentSource: "email",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
     const connection = await resolveOAuthConnection(credentialService);

@@ -22,14 +22,14 @@ import {
   organizationsBillingSubscriptionOnboardingRetrieve,
   organizationsBillingSubscriptionRetrieve,
 } from "@/generated/api/sdk.gen";
-import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
+import { machineCeilingForTier } from "@/lib/billing/machine-sizes";
 import {
   isEntitlementRaceVerdict,
   isResizeOperationInFlight,
   targetsMet,
   type ProvisioningDimensions,
 } from "@/lib/billing/provisioning-targets";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalClient } from "@/lib/local-mode";
 
 // Owned here: `MAX_HATCH_WAIT_MS` decides the `health_timeout` outcome below.
 export const POLL_INTERVAL_MS = 3000;
@@ -92,7 +92,7 @@ export async function awaitPurchasedProvisioning(
   // local-mode run without the managed marker can reach here off a preflight
   // that resolved the lockfile assistant, which has no billing surface —
   // short-circuit there.
-  if (isLocalMode() && !managedHatch) {
+  if (isLocalClient() && !managedHatch) {
     return "ready";
   }
 
@@ -202,8 +202,7 @@ export async function awaitPurchasedProvisioning(
       const data = onboarding.data;
       if (data) {
         targets = {
-          machineSize:
-            allowedMachineSizesForTier(data.max_machine_tier).at(-1) ?? null,
+          machineSize: machineCeilingForTier(data.max_machine_tier),
           storageGib: data.selected_storage_gib ?? null,
         };
       }

@@ -9,7 +9,7 @@ import { routes } from "@/utils/routes";
 // ---------------------------------------------------------------------------
 
 export interface NavigationState {
-  isLocalMode: boolean;
+  isLocalClient: boolean;
   isPlatformDisabled: boolean;
   isRemoteGateway: boolean;
   remoteGatewayPublicPathPrefix: string;
@@ -124,8 +124,8 @@ function isOnboardingPath(pathname: string): boolean {
   );
 }
 
-function onboardingEntrypoint(isLocalMode: boolean): string {
-  return isLocalMode ? routes.welcome : routes.onboarding.privacy;
+function onboardingEntrypoint(isLocalClient: boolean): string {
+  return isLocalClient ? routes.welcome : routes.onboarding.privacy;
 }
 
 /**
@@ -422,7 +422,7 @@ function requirePostCheckoutProvisioning(
   // deciding on that default would funnel an established user out of their own
   // billing page. Local mode is excluded for the same reason as in
   // `requireAssistant` — its list is lockfile-driven.
-  if (!state.isLocalMode && !state.assistantsHydrated) {
+  if (!state.isLocalClient && !state.assistantsHydrated) {
     return { action: "wait" };
   }
   // A local-mode client reaches "authenticated" on its gateway session alone,
@@ -431,7 +431,7 @@ function requirePostCheckoutProvisioning(
   // probe boots `"unknown"`, so hold until it settles. When it settles absent
   // there is no account to provision into: fall through to billing, whose login
   // notice carries `session_id` through sign-in and lands back here.
-  if (state.isLocalMode) {
+  if (state.isLocalClient) {
     if (state.platformSession === "unknown") {
       return { action: "wait", waitFor: "platform-session" };
     }
@@ -513,7 +513,7 @@ function requireAuth(
   }
 
   if (
-    state.isLocalMode &&
+    state.isLocalClient &&
     (isOnboardingPath(path) || LOCAL_ONLY_STANDALONE_PATHS.has(path))
   ) {
     if (path === routes.selectAssistant && !state.hasAssistants) {
@@ -521,10 +521,10 @@ function requireAuth(
     }
     return { action: "allow" };
   }
-  if (state.isLocalMode && !state.hasAssistants) {
+  if (state.isLocalClient && !state.hasAssistants) {
     return { action: "redirect", to: routes.welcome };
   }
-  if (state.isLocalMode) {
+  if (state.isLocalClient) {
     return { action: "redirect", to: routes.selectAssistant };
   }
   return {
@@ -538,7 +538,7 @@ function enforceModeBoundary(
   path: string,
 ): NavigationDecision | null {
   if (LOCAL_ONLY_STANDALONE_PATHS.has(path)) {
-    if (!state.isLocalMode) {
+    if (!state.isLocalClient) {
       return { action: "redirect", to: routes.assistant };
     }
     if (path === routes.selectAssistant && !state.hasAssistants) {
@@ -547,7 +547,7 @@ function enforceModeBoundary(
     return { action: "allow" };
   }
 
-  if (LOCAL_ONLY_ONBOARDING_PATHS.has(path) && !state.isLocalMode) {
+  if (LOCAL_ONLY_ONBOARDING_PATHS.has(path) && !state.isLocalClient) {
     return { action: "redirect", to: routes.assistant };
   }
 
@@ -571,7 +571,7 @@ function consentBounceDestination(
   state: NavigationState,
   pathnameWithSearch: string,
 ): string {
-  const entrypoint = onboardingEntrypoint(state.isLocalMode);
+  const entrypoint = onboardingEntrypoint(state.isLocalClient);
   if (entrypoint !== routes.onboarding.privacy) {
     return entrypoint;
   }
@@ -626,7 +626,7 @@ function enforceFunnelConsent(
     // Local mode is excluded for the same reason as in `requireConsent`: its
     // consent either hydrates synchronously during session init or never does,
     // so waiting would hang navigation.
-    if (!state.isLocalMode && !state.consentHydrated) {
+    if (!state.isLocalClient && !state.consentHydrated) {
       return { action: "wait" };
     }
     // A hydration that never landed leaves those boot defaults behind a forced
@@ -688,7 +688,7 @@ function requireAssistant(
     return null;
   }
 
-  if (state.isLocalMode) {
+  if (state.isLocalClient) {
     if (state.platformSession === "unknown") {
       return { action: "wait", waitFor: "platform-session" };
     }
@@ -729,7 +729,7 @@ function requireConsent(
   // Consent is a platform-account concern: only enforce it when there is a
   // live platform session to consent against. A disabled platform or an
   // absent/unknown session has no server consent record to gate on. Note this
-  // is NOT gated on isLocalMode — a local-mode client with a platform session
+  // is NOT gated on isLocalClient — a local-mode client with a platform session
   // still re-reviews stale terms.
   if (
     state.isPlatformDisabled ||
@@ -744,7 +744,7 @@ function requireConsent(
   // Local mode decides immediately: its platform-session paths that enforce
   // consent hydrate synchronously during session init, and the gateway-probe
   // path never hydrates, so waiting there would hang navigation.
-  if (!state.consentHydrated && !state.isLocalMode) {
+  if (!state.consentHydrated && !state.isLocalClient) {
     return { action: "wait" };
   }
 
@@ -763,7 +763,7 @@ function resolveOnboardingIntercept(
   state: NavigationState,
   intendedDestination: string,
 ): NavigationDecision {
-  if (state.isLocalMode && state.hasAssistants) {
+  if (state.isLocalClient && state.hasAssistants) {
     return { action: "allow" };
   }
   if (hasCompletedOnboarding(state)) {
@@ -783,7 +783,7 @@ function resolveOnboardingIntercept(
 
   return {
     action: "redirect",
-    to: onboardingEntrypoint(state.isLocalMode),
+    to: onboardingEntrypoint(state.isLocalClient),
   };
 }
 
@@ -795,14 +795,14 @@ function resolveHatchGate(state: NavigationState): NavigationDecision {
   if (!state.sessionSettled) {
     return { action: "wait" };
   }
-  if (!state.isAuthenticated && !state.isLocalMode) {
+  if (!state.isAuthenticated && !state.isLocalClient) {
     return { action: "redirect", to: routes.account.login };
   }
   if (!hasCompletedOnboarding(state)) {
-    return { action: "redirect", to: onboardingEntrypoint(state.isLocalMode) };
+    return { action: "redirect", to: onboardingEntrypoint(state.isLocalClient) };
   }
   // A stale toggle must be re-reviewed before hatching, even via direct navigation.
-  if (!state.isLocalMode && !consentIsCurrent(state)) {
+  if (!state.isLocalClient && !consentIsCurrent(state)) {
     return { action: "redirect", to: routes.reviewTerms };
   }
   return { action: "allow" };
@@ -857,10 +857,10 @@ function resolvePostRetire(state: NavigationState): NavigationDecision {
     // select-assistant is local-only; platform users go straight to /assistant
     return {
       action: "redirect",
-      to: state.isLocalMode ? routes.selectAssistant : routes.assistant,
+      to: state.isLocalClient ? routes.selectAssistant : routes.assistant,
     };
   }
-  if (!state.isLocalMode) {
+  if (!state.isLocalClient) {
     return { action: "redirect", to: routes.onboarding.privacy };
   }
   if (state.platformSession === "present") {

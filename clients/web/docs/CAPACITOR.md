@@ -1,8 +1,8 @@
-# Capacitor / iOS Conventions
+# Capacitor / Native Conventions
 
-The web app ships as both a browser SPA and the JS layer of a [Capacitor](https://capacitorjs.com/) iOS shell that loads it in a `WKWebView`. The patterns below are mandatory for any code path that might run inside Capacitor iOS — most of them address real iOS-specific failure modes that desktop browsers silently tolerate.
+The web app ships as both a browser SPA and the JS layer of [Capacitor](https://capacitorjs.com/) iOS and Android shells that load it in native WebViews. The patterns below are mandatory for any code path that might run inside a Capacitor shell. Several sections call out iOS-specific failure modes that desktop browsers silently tolerate.
 
-> **Read this only if your change touches iOS code paths.** For browser-only contributions you can skip this document. Building the iOS app itself additionally requires macOS and Xcode; the native shell lives in [`clients/ios/`](../../../clients/ios/).
+> **Read this only if your change touches native Capacitor code paths.** For browser-only contributions you can skip this document. The native shells live in [`clients/ios/`](../../../clients/ios/) and [`clients/android/`](../../../clients/android/).
 
 If you're touching anything in `clients/web/src/runtime/`, anything that calls a `@capacitor/*` plugin, anything that streams from the daemon, anything that auto-resizes based on content, or anything that gates a browser API that triggers an OS permission alert — start here.
 
@@ -35,6 +35,21 @@ References:
 - `@capacitor/core` proxy `get` trap — [`global.ts` in `ionic-team/capacitor`](https://github.com/ionic-team/capacitor/blob/main/core/src/global.ts) (search `createPluginMethod`).
 - ECMAScript spec — [`PromiseResolveThenableJob`](https://tc39.es/ecma262/#sec-promiseresolvethenablejob) (the runtime hook this footgun rides on).
 
+### Linking a plugin runs its native `load()`
+
+Capacitor calls every linked plugin's `load()` at bridge init, before any JS imports it and whether or not `capacitor.config.ts` configures it. An iOS Capacitor plugin dependency is therefore never runtime-neutral, and "we only added the dependency, nothing imports it" says nothing about behavior.
+
+**Before adding an iOS Capacitor plugin dependency, read its native `load()` and account for every side effect it has.** A plugin is not dependency-only until that read says so.
+
+`@capacitor/keyboard` is the worked example. Its `load()`:
+
+- Sets `hideFormAccessoryBar = YES` with no config gate (`Keyboard.m:187`). That is the mechanism that hides the input accessory bar (prev/next chevrons plus Done) above the iOS keyboard in this shell. The `setAccessoryBarVisible({ isVisible: false })` call in [`src/runtime/native-keyboard.ts`](../src/runtime/native-keyboard.ts) only states the same intent explicitly and pins it against an upstream default change.
+- Removes `WKWebView`'s own keyboard-avoidance observers, unsubscribing the web view from the `UIKeyboardWillShow`, `UIKeyboardWillHide`, and keyboard frame-change notifications (`Keyboard.m:196-199`), and substitutes a web view frame resize the plugin drives itself. On show, that resize is deferred by the keyboard animation duration plus `0.2` seconds (`Keyboard.m:256-257`); on hide it runs at `delay:0.01` (`Keyboard.m:214`). So `visualViewport` learns the keyboard height well after the system animation has started.
+
+[`useVisibleViewport`](../src/hooks/use-visible-viewport.ts) bridges that gap through [`subscribeNativeKeyboardHeight`](../src/runtime/native-keyboard.ts), which registers a `keyboardWillShow` plugin listener and so reports the keyboard height at the leading edge of the animation instead of after the deferred resize.
+
+Register these through `Keyboard.addListener`, not the same-named `window` events the bridge also dispatches: `cap.createEvent` builds those with `document.createEvent('Events')` and copies each payload key straight onto the event object, so `event.detail` is always `undefined` and a `detail.keyboardHeight` read silently yields `0`.
+
 ---
 
 ## Native auth on iOS
@@ -45,7 +60,7 @@ Native auth uses [`ASWebAuthenticationSession`](https://developer.apple.com/docu
 - **iOS login — single AuthKit button**: the iOS login form must use a single "Sign in" button that hands off to WorkOS AuthKit. Do NOT add individual provider buttons (Google/Apple/etc.) or otherwise pin the flow to a specific provider — see [Apple App Store Review Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Guideline 4.8 — Sign in with Apple](https://developer.apple.com/app-store/review/guidelines/#login-services). AuthKit hosts the provider selection, so the app never names a provider itself.
 - **Pre-fill identity-derived inputs from the auth claim**: when the platform / IdP returns identity claims on signup (Apple SIWA `given_name`/`family_name`, Google `given_name`/`family_name`, etc.), pre-fill any user-facing input that asks for that identity (e.g. "Your name") from the claim instead of forcing the user to retype it — [Apple Guideline 4](https://developer.apple.com/app-store/review/guidelines/#design) and [Apple HIG: Sign in with Apple](https://developer.apple.com/design/human-interface-guidelines/sign-in-with-apple) treat asking again as a violation. The field stays editable so users can pick a preferred nickname.
 - **Sign-in actions outside the app shell**: wrap sign-in links in a shared component that renders a native `startAuthFlow()` button on Capacitor iOS and a router `<Link>` on web — never a plain `<a href="/account/login">`, which on iOS would navigate the WKWebView away from the running SPA.
-- **Platform detection in JSX**: use a `useIsNativePlatform()` hook (which returns `false` during the first paint and settles to the real value on mount) — not the bare `isNativePlatform()` function — to avoid render flicker and hydration mismatches in any SSR/prerender path. If the hook doesn't exist yet at the call site, add it next to [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts).
+- **Platform detection in JSX**: prefer the hook form (`useIsNativePlatform()`, `useIsNativeIOS()`) over the bare `isNativePlatform()` / `isNativeIOS()` functions. Capacitor injects `native-bridge.js` as a `WKUserScript` at `.atDocumentStart`, so the value is already correct on the first render and constant thereafter; there is no first-paint flicker to settle. The hook exists for render-safety, for consistency across the platform hooks, and so call sites stay correct if an SSR or prerender path is ever added. Inside effects and event handlers the bare function is fine. `useIsNativePlatform()` lives in [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts); the rest live in [`src/runtime/platform-detection.ts`](../src/runtime/platform-detection.ts), which is where new ones belong.
 
 ### Platform short-circuits in capability detection
 
@@ -116,11 +131,79 @@ Native OAuth completion auto-dismisses `SFSafariViewController` by redirecting t
 - **Parse via `parseOAuthCompleteDeepLink()`.** It exact-matches the scheme against the apex allow-list, rejects look-alikes (e.g. `vellum-assistant-evil://`), requires the `oauth-complete` host, and enforces a non-empty `requestId`. Adding a new scheme means adding it to the allow-list — do not loosen the matcher to a `startsWith` check.
 - **Consume via a typed window-event listener hook** that registers for the `"vellum:oauth-complete-deeplink"` event and cleans up on unmount.
 - **Pair the deep-link listener with a `browserFinished` poll fallback** when the consumer must work on builds where the listener doesn't fire (e.g. iOS dispatch hiccups, user-cancel paths). Today's UX must remain the worst case in every failure mode.
+- **Read `App.getLaunchUrl()` only on Android.** The iOS `AppDelegate` replays cold-launch URLs through `appUrlOpen`, while Capacitor retains its last iOS URL for the process. Reading it again would duplicate the deep link.
+- **`<scheme>://voice?mode=new|resume[&prompt=…]`** is the start-voice contract (`parseStartVoiceDeepLink` → `deeplink.startVoice`). Siri, the Action Button, Control Center, the Live Activity's `widgetURL`, and a link typed into Safari all converge on it — see [`clients/ios/docs/NATIVE_VOICE.md` § The deep-link contract](../../../clients/ios/docs/NATIVE_VOICE.md#the-deep-link-contract). `prompt` is untrusted free-form text and is bounded and sanitized *in the parser*, not at the consumer.
 
 References:
 - Apple — [`SFSafariViewControllerDelegate.safariViewController(_:initialLoadDidRedirectTo:)`](https://developer.apple.com/documentation/safariservices/sfsafariviewcontrollerdelegate/safariviewcontroller(_:initialloaddidredirectto:)) — custom URL scheme dismissal is the recommended pattern.
 - Capacitor — [`App` plugin · `appUrlOpen`](https://capacitorjs.com/docs/apis/app#addlistenerappurlopen).
 - Apple HIG — [Supporting universal links and custom URL schemes](https://developer.apple.com/documentation/xcode/allowing-apps-and-websites-to-link-to-your-content).
+
+---
+
+## Native voice bridge
+
+Live voice is a web feature with native accessories. The session — mic capture, the velay socket, TTS playback, every user-facing string — lives entirely under `src/domains/chat/voice/live-voice/`. The iOS shell adds an `AVAudioSession`, a Dynamic Island / Lock Screen presence, and a set of App Intents on top of it.
+
+The shell registers **four** Capacitor plugins in [`MyViewController.capacitorDidLoad()`](../../../clients/ios/App/App/MyViewController.swift) — count them there, not from prose:
+
+| Plugin | Web module | What it does |
+| --- | --- | --- |
+| `NativeAuth` | [`src/runtime/native-auth.ts`](../src/runtime/native-auth.ts) | `ASWebAuthenticationSession` OIDC flow |
+| `NativeBiometric` | [`src/runtime/native-biometric.ts`](../src/runtime/native-biometric.ts) | Face ID / Touch ID Keychain |
+| `VoiceAudioSession` | [`src/runtime/native-audio-session.ts`](../src/runtime/native-audio-session.ts) | `.playAndRecord` / `.voiceChat` session + interruption events. **Unproven on hardware** — see the background-audio contract below |
+| `VoiceLiveActivity` | [`src/runtime/native-live-activity.ts`](../src/runtime/native-live-activity.ts) | The one ActivityKit activity mirroring a session |
+
+The two voice plugins are consumed only through `use-live-voice-session-controller.ts` (audio session) and `use-live-activity-mirror.ts` (Live Activity), both mounted at `ChatLayout` scope so their lifetime is exactly the session's.
+
+### The skew rule
+
+**A native voice call may always be absent. A missing plugin must degrade to a working voice session, never to an error.**
+
+This is a rule, not a caveat. The iOS app is a `server.url` shell: it bundles no web assets and navigates `WKWebView` straight at the deployed origin at launch (see [`clients/ios/README.md` § Web content delivery](../../../clients/ios/README.md#web-content-delivery)). So this bundle is live for every iOS user on their next app load, while the shell hosting it only changes after an App Store review cycle. At any moment an arbitrarily old shell can be running an arbitrarily new bundle. There is no build flag that tells you which.
+
+**Route every JS → native voice call through `callNativeVoice`** ([`src/runtime/native-voice.ts`](../src/runtime/native-voice.ts) — read it there, it is twenty lines). It short-circuits off-iOS, swallows any bridge failure into the caller's fallback, and never throws or rejects.
+
+Three things follow from the rule:
+
+- **Pick a fallback the caller can proceed with.** `startVoiceLiveActivity()` resolves `false`, `endVoiceLiveActivity()` resolves `undefined`. There is no error branch to write, and no call site may treat a `false` as a reason not to start a session.
+- **Fire and forget at the call site.** A bare `void` is enough: because every export in these modules goes through `callNativeVoice`, none of them can reject, so there is no rejection for a call site to handle. A hung or failed bridge call must never delay a voice session.
+- **Destructure the plugin inline inside `invoke`.** The lazy-import rule at the top of this document applies verbatim: only the *result* may cross the `async` boundary, never the plugin Proxy.
+
+**No capability probes.** Neither voice plugin exposes an `isAvailable`, and neither web module wants one: `startVoiceLiveActivity()` resolving `false` already covers every reason there is no native side: off-iOS, an older shell, and the user having switched Live Activities off in Settings. A probe that can itself be absent just moves the problem, and it is the only answer a caller could act on anyway.
+
+### The background-audio contract
+
+**Read § "Full-duplex TTS must render through a MediaStream track" before you touch any of this.** That section warns against reconfiguring the shared `AVAudioSession` around microphone capture. `VoiceAudioSession` is the one plugin in the tree that can do it, and **nothing calls it any more**: `activateVoiceAudioSession()` has no production caller, by the decision recorded below. The bridge function and the native plugin both remain, so reintroducing activation is one line away and must not be taken casually.
+
+That history is the reason this is device-only territory. A change here that looks obviously correct and passes in the Simulator is precisely the failure mode that has now shipped twice.
+
+**Echo cancellation does not depend on this.** It used to be the argument for `.voiceChat`; since #39347 it comes from WebKit's own voice-processing unit, reached by routing TTS through a `MediaStreamAudioDestinationNode`. So if this plugin ever has to go, AEC does not go with it.
+
+**The rule: the web layer does not activate an audio session.** Settled the hard way, because the pattern broke live voice on a handset twice. First as #39331 (no capture at all, reverted in #39345), then again when it returned in #39306, where a session died roughly 60ms after its WebSocket opened while the Simulator sustained one normally against the same backend. The second failure went unattributed for a day because every #39306 upload was rejected by App Store Connect until #39556, so the plugin had never actually run on a device. `useNativeAudioSessionLifecycle` now only subscribes to interruptions; it never calls `activate`. Do not reintroduce the activation without a device test, and note that a green Simulator run is not one.
+
+The `VoiceAudioSession` plugin stays in the shell: its interruption reporting listens to `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri taking the input from WebKit's session, which is unrelated to owning a session ourselves.
+
+What is genuinely still open is **background audio**, and note that the list below describes what an active session *would* buy. None of it is in effect today, because nothing activates one. `UIBackgroundModes: audio` in `clients/ios/App/App/Info.plist`, plus an active `.playAndRecord` / `.voiceChat` session, would buy:
+
+- audio keeps playing while the app is backgrounded or the screen is locked;
+- the mic route survives backgrounding;
+- output goes to the loudspeaker rather than the earpiece (`.defaultToSpeaker`);
+- AirPods / Bluetooth-HFP routing (`.voiceChat`);
+- other apps' audio resumes on `deactivate` (`.notifyOthersOnDeactivation`).
+
+It does **not** buy a running web layer. WebKit throttles and eventually suspends JS timers and main-thread work in a backgrounded web process. The AudioWorklet runs on the audio render thread, but the socket send happens on the main JS thread — so "audio is allowed in the background" and "this voice session keeps working in the background" are different claims.
+
+**Both claims are unverified, and the first one may not even need this plugin.** WebKit already holds a play-and-record session with voice processing for `getUserMedia`, so a locked session may survive on `UIBackgroundModes: audio` alone. Worth measuring before assuming the plugin is what is carrying it — if it is not, the safest version of this feature is the one that deletes the plugin and keeps the plist entry. The device spike that was meant to answer any of this — does `getUserMedia` keep producing PCM, does the velay socket keep pumping, and for how long — was never run, and there is no findings document. The background/foreground hardening planned on top of it (`AudioContext.resume()` on `app.resume`, a socket-liveness probe, a bounded background grace period) was never implemented.
+
+**The Simulator cannot answer any of it.** It exposes a mock audio device — no mic, no speaker, no acoustic path — so it neither reproduces the capture regression nor exercises background audio. Every Simulator run passed while the device was dead in #39331. Measure on a physical handset or do not claim it.
+
+For the native side of all of this — the enum-parity rule, the deep-link contract, the App Intents availability duplication, the extension compilation condition, and the v1 scope decisions — see [`clients/ios/docs/NATIVE_VOICE.md`](../../../clients/ios/docs/NATIVE_VOICE.md).
+
+References:
+- Apple — [Playing audio in the background](https://developer.apple.com/documentation/avfaudio/audio_session/enabling_background_audio).
+- Apple — [`AVAudioSession.Mode.voiceChat`](https://developer.apple.com/documentation/avfaudio/avaudiosession/mode/voicechat).
+- Apple — [ActivityKit](https://developer.apple.com/documentation/activitykit).
 
 ---
 
@@ -162,6 +245,14 @@ requested. Do not add a Capacitor plugin that reconfigures or reactivates that
 session around microphone capture. Changing the active session underneath
 WebKit can leave its live capture unit detached from the microphone.
 
+One such plugin exists — `VoiceAudioSession`, for background/lock-screen audio,
+which echo cancellation no longer needs. It activates once at a session's
+leading edge and never re-asserts mid-session, which is the narrowest form of
+the thing this section warns about rather than an exemption from it. It is
+unproven on hardware; see § "Native voice bridge" → "The background-audio
+contract" for what has to be measured before trusting it. Treat it as the single
+exception under measurement, not as a precedent.
+
 Direct `AudioContext.destination` playback is not supplied to WebKit's capture
 unit as far-end audio for acoustic echo cancellation. On Capacitor iOS, route
 full-duplex TTS into a `MediaStreamAudioDestinationNode` and play that stream
@@ -175,6 +266,52 @@ work. On teardown, pause it, clear `srcObject`, and stop every track owned by
 the destination stream. Automatic reconnects must reuse the already-started
 player and MediaStream element: creating a replacement from a backoff timer
 loses the original user activation and can make `play()` fail.
+
+**Re-render the track once the microphone is live.** WebKit binds a MediaStream
+renderer to whichever capture unit is active when the renderer starts, and the
+echo reference belongs to that unit. Starting the element in the entry gesture
+is therefore necessary but not sufficient: at that moment `getUserMedia` has not
+run, so the renderer can come up bound to a plain output unit and never acquire
+a reference. `LiveVoiceAudioPlayer.restartOutputRoute()` pauses and replays the
+element, and the session calls it once capture reports running. The queue is
+silent at that point, so the restart is inaudible.
+
+It also **rebuilds a route that has already fallen back**, which is what the
+gesture-less entry points depend on. A session started from Siri, the Action
+Button, or a Live Activity has no activation to borrow, so its prewarm `play()`
+is refused and the fallback tears the route down; by capture time the page holds
+a live `getUserMedia` stream, which is grounds for playing a MediaStream element
+that an unactivated page could not. Treating a fallen-back route as nothing to
+retry would strand exactly those sessions on the direct path for their whole
+lifetime.
+
+**The route degrades silently.** A refused `play()` falls back to
+`AudioContext.destination`: audio still plays and echo cancellation is simply
+gone, which surfaces only as the assistant transcribing fragments of its own
+speech. `getOutputRouteDiagnostics()` reports the resolved route, the `play()`
+rejection, and live element state. It exists so the fallback path is testable
+(`tts-playback.test.ts`), and nothing in production consumes it.
+
+**The live-voice path writes nothing to the diagnostics rings, deliberately.** A
+voice session is the most private surface the app has, and the rings are carried
+off the device inside support bundles. Anything derived from the microphone is
+out of bounds outright: not only speech, but aggregates over it, such as an
+amplitude envelope, a correlation, or a room noise floor. Those characterise a
+user's home. This was instrumented once, in #39687, to prove the rebind above
+engaged; it did, on device and on the web, and the instrumentation was removed
+with the question it answered.
+
+Console output is held to the same intent but is not yet the same rule. The
+session's own logging is error-path `console.warn`s carrying codes and reasons,
+never content. The one exception is a per-turn
+`console.debug("[live-voice] turn latency", ...)` in `use-live-voice.ts`,
+carrying a turn id and timings (added in #37710, awaiting a debug panel). It
+predates this section and is listed here so the paragraph stays honest, not as a
+precedent: new per-turn logging does not belong on this path.
+
+If echo returns, that is a device-debugging session with a build that carries a
+probe, not a reason to reinstate one in the shipped bundle. Prefer a temporary
+branch over a permanent field, and delete it the same way.
 
 References:
 
@@ -225,3 +362,4 @@ References:
 - [`STATE_MANAGEMENT.md`](./STATE_MANAGEMENT.md) — Zustand stores, atomic selectors, TanStack Query.
 - [`STYLE_GUIDE.md`](./STYLE_GUIDE.md) — naming, imports, TypeScript, component authoring.
 - [`clients/ios/README.md`](../../../clients/ios/README.md) — Capacitor iOS shell setup, Xcode targets, release pipeline.
+- [`clients/ios/docs/NATIVE_VOICE.md`](../../../clients/ios/docs/NATIVE_VOICE.md) — the native voice surfaces: Live Activity, App Intents, the deep-link contract, and the v1 scope decisions.

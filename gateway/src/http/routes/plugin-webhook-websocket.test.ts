@@ -172,6 +172,61 @@ describe("upgrade gate", () => {
     expect(upgrades).toEqual([]);
   });
 
+  it("upgrades a vellum-signed declaration nobody approved", async () => {
+    // Only a caller holding the platform secret can open it, and the user
+    // extended that trust when they connected their account.
+    const handle = makeHandler({
+      resolve: () =>
+        resolution({
+          pending: [
+            {
+              plugin: "meeting-bot",
+              routes: [{ ...ROUTE, signer: "vellum" as const }],
+              digest: "d".repeat(32),
+            },
+          ],
+        }),
+    });
+    const { server, upgrades } = fakeServer();
+
+    const res = await handle(
+      upgradeRequest({ secret: VELLUM_SECRET }),
+      server,
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res).toBeUndefined();
+    expect(upgrades).toHaveLength(1);
+  });
+
+  it("still demands the platform signature on an unapproved vellum route", async () => {
+    // Skipping approval did not skip authentication.
+    const handle = makeHandler({
+      resolve: () =>
+        resolution({
+          pending: [
+            {
+              plugin: "meeting-bot",
+              routes: [{ ...ROUTE, signer: "vellum" as const }],
+              digest: "d".repeat(32),
+            },
+          ],
+        }),
+    });
+    const { server, upgrades } = fakeServer();
+
+    const res = await handle(
+      upgradeRequest({ secret: PLUGIN_SECRET }),
+      server,
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res?.status).toBe(403);
+    expect(upgrades).toEqual([]);
+  });
+
   it("404s an http-kind route rather than upgrading it", async () => {
     // Approving an HTTP route did not approve a socket at that path.
     const handle = makeHandler({
@@ -388,10 +443,14 @@ function evt(value: string): string {
 
 describe("frame delivery", () => {
   it("hands each frame to the plugin's route over IPC", async () => {
-    const calls: { method: string; params?: Record<string, unknown> }[] = [];
+    const calls: {
+      method: string;
+      params?: Record<string, unknown>;
+      binary?: Uint8Array;
+    }[] = [];
     const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async (method, params) => {
-      calls.push({ method, params });
+    const data = socketData(async (method, params, opts) => {
+      calls.push({ method, params, binary: opts?.binary });
       return null;
     });
     const { ws } = fakeSocket(data);
@@ -403,8 +462,45 @@ describe("frame delivery", () => {
     expect(calls[0]!.method).toBe("user_route_post");
     expect(calls[0]!.params).toMatchObject({
       pathParams: { path: "plugins/meeting-bot/realtime" },
-      body: { event: "joined" },
     });
+    // The frame travels as the raw body, byte-for-byte.
+    expect(new TextDecoder().decode(calls[0]!.binary)).toBe(evt("joined"));
+  });
+
+  it("delivers a frame that is not JSON at all, unchanged", async () => {
+    // The transport does not decide what a frame means. Anything the caller
+    // sent reaches the plugin as the bytes it sent.
+    const seen: string[] = [];
+    const handlers = getPluginWebhookWebsocketHandlers();
+    const data = socketData(async (_method, _params, opts) => {
+      seen.push(new TextDecoder().decode(opts?.binary));
+      return null;
+    });
+    const { ws, closes } = fakeSocket(data);
+
+    for (const frame of ["not json", '"a bare string"', "42", "[1,2,3]"]) {
+      handlers.message(ws, frame);
+    }
+    await settle();
+
+    expect(seen).toEqual(["not json", '"a bare string"', "42", "[1,2,3]"]);
+    expect(closes).toEqual([]);
+  });
+
+  it("delivers a binary frame as the same bytes", async () => {
+    const seen: Uint8Array[] = [];
+    const handlers = getPluginWebhookWebsocketHandlers();
+    const data = socketData(async (_method, _params, opts) => {
+      seen.push(opts!.binary!);
+      return null;
+    });
+    const { ws, closes } = fakeSocket(data);
+
+    handlers.message(ws, new Uint8Array([0, 255, 10, 123]).buffer);
+    await settle();
+
+    expect(seen).toEqual([new Uint8Array([0, 255, 10, 123])]);
+    expect(closes).toEqual([]);
   });
 
   it("delivers frames one at a time, in order", async () => {
@@ -415,8 +511,8 @@ describe("frame delivery", () => {
     let release: (() => void) | undefined;
 
     const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async (_method, params) => {
-      const event = (params!.body as { event: string }).event;
+    const data = socketData(async (_method, _params, opts) => {
+      const event = JSON.parse(new TextDecoder().decode(opts?.binary)).event;
       started.push(event);
       if (event === "first") {
         await new Promise<void>((resolve) => {
@@ -445,8 +541,8 @@ describe("frame delivery", () => {
     // behind frames that already arrived.
     const seen: string[] = [];
     const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async (_method, params) => {
-      const event = (params!.body as { event: string }).event;
+    const data = socketData(async (_method, _params, opts) => {
+      const event = JSON.parse(new TextDecoder().decode(opts?.binary)).event;
       seen.push(event);
       if (event === "boom") throw new Error("assistant unreachable");
       return null;
@@ -458,43 +554,6 @@ describe("frame delivery", () => {
     await settle();
 
     expect(seen).toEqual(["boom", "after"]);
-  });
-
-  it("refuses a frame that is not a JSON object", async () => {
-    // Until the IPC envelope carries raw frames, `body` must be an object.
-    // Queueing anything else would drop it silently at the far end.
-    for (const frame of ["not json", '"a bare string"', "42", "[1,2,3]"]) {
-      const calls: unknown[] = [];
-      const handlers = getPluginWebhookWebsocketHandlers();
-      const data = socketData(async (method) => {
-        calls.push(method);
-        return null;
-      });
-      const { ws, closes } = fakeSocket(data);
-
-      handlers.message(ws, frame);
-      await settle();
-
-      expect(closes).toHaveLength(1);
-      expect(closes[0]!.code).toBe(1003);
-      expect(calls).toEqual([]);
-    }
-  });
-
-  it("refuses a binary frame rather than mangling it", async () => {
-    const calls: unknown[] = [];
-    const handlers = getPluginWebhookWebsocketHandlers();
-    const data = socketData(async (method) => {
-      calls.push(method);
-      return null;
-    });
-    const { ws, closes } = fakeSocket(data);
-
-    handlers.message(ws, new Uint8Array([1, 2, 3]).buffer);
-    await settle();
-
-    expect(closes[0]!.code).toBe(1003);
-    expect(calls).toEqual([]);
   });
 
   it("refuses a single frame larger than the webhook payload cap", async () => {
@@ -570,8 +629,8 @@ describe("frame delivery", () => {
     const seen: string[] = [];
     const handlers = getPluginWebhookWebsocketHandlers();
     let release: (() => void) | undefined;
-    const data = socketData(async (_method, params) => {
-      seen.push((params!.body as { event: string }).event);
+    const data = socketData(async (_method, _params, opts) => {
+      seen.push(JSON.parse(new TextDecoder().decode(opts?.binary)).event);
       await new Promise<void>((resolve) => {
         release = resolve;
       });

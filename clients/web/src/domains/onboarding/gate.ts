@@ -1,7 +1,7 @@
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { routes } from "@/utils/routes";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalClient } from "@/lib/local-mode";
 
 export function resolveOnboardingRedirect({
   intendedDestination,
@@ -16,5 +16,5 @@ export function resolveOnboardingRedirect({
 }
 
 export function getOnboardingEntrypoint(): string {
-  return isLocalMode() ? routes.welcome : routes.onboarding.privacy;
+  return isLocalClient() ? routes.welcome : routes.onboarding.privacy;
 }

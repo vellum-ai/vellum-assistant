@@ -5,6 +5,7 @@
     "assistant",
     "assistant/src/api",
     "cli",
+    "clients/docs",
     "clients/macos",
     "clients/web",
     "credential-executor",

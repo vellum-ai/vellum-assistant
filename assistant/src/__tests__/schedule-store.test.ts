@@ -18,10 +18,16 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
+  hasOwnerDeferProvenance,
+  LEGACY_DEFER_CREATED_BY,
+  OWNER_DEFER_CREATED_BY,
+} from "../schedule/defer-provenance.js";
+import {
   cancelSchedule,
   claimDueSchedules,
   completeOneShot,
   completeScheduleRun,
+  createOwnerDeferredWake,
   createSchedule,
   createScheduleRun,
   deleteSchedule,
@@ -31,6 +37,7 @@ import {
   listSchedules,
   updateSchedule,
 } from "../schedule/schedule-store.js";
+import { UserError } from "../util/errors.js";
 
 await initializeDb();
 
@@ -231,15 +238,8 @@ describe("createSchedule (cron)", () => {
     expect(getSchedule(job.id)!.createdFromConversationId).toBe("conv-source");
     expect(listSchedules()[0].createdFromConversationId).toBe("conv-source");
 
-    const updated = await updateSchedule(job.id, {
-      createdFromConversationId: "conv-updated",
-    });
-    expect(updated!.createdFromConversationId).toBe("conv-updated");
-
-    const cleared = await updateSchedule(job.id, {
-      createdFromConversationId: null,
-    });
-    expect(cleared!.createdFromConversationId).toBeNull();
+    // Create-only: `updateSchedule` does not accept it, so a wake's
+    // source-conversation binding cannot drift from what creation recorded.
   });
 
   test("stores schedule_syntax in the DB row", async () => {
@@ -1400,5 +1400,109 @@ describe("describeCronExpression", () => {
 
   test("returns description for valid cron expression", () => {
     expect(describeCronExpression("0 9 * * *")).toBe("Every day at 9:00 AM");
+  });
+});
+
+// ── Owner-defer provenance is durable ────────────────────────────────────
+
+describe("owner-defer provenance", () => {
+  beforeEach(() => {
+    getDb().run("DELETE FROM cron_runs");
+    getDb().run("DELETE FROM cron_jobs");
+  });
+
+  async function trustedDefer() {
+    return createOwnerDeferredWake({
+      conversationId: "conv-target",
+      hint: "check the build",
+      fireAt: Date.now() + 60_000,
+    });
+  }
+
+  test("the narrow constructor sets marker, target, and source binding together", async () => {
+    const job = await trustedDefer();
+
+    expect(job.mode).toBe("wake");
+    expect(job.wakeConversationId).toBe("conv-target");
+    expect(job.createdFromConversationId).toBe("conv-target");
+    expect(hasOwnerDeferProvenance(job.createdBy)).toBe(true);
+    expect(job.quiet).toBe(true);
+  });
+
+  test("generic createSchedule cannot mint the marker", async () => {
+    await expect(
+      createSchedule({
+        name: "forged",
+        message: "hello",
+        mode: "wake",
+        wakeConversationId: "conv-target",
+        // Only reachable by casting; the parameter type excludes the reserved
+        // value, so ordinary code cannot even express this call.
+        createdBy: OWNER_DEFER_CREATED_BY as "agent",
+        nextRunAt: Date.now() + 60_000,
+      }),
+    ).rejects.toThrow(/only by createOwnerDeferredWake/);
+  });
+
+  test("a trusted row refuses a trigger-text rewrite", async () => {
+    const job = await trustedDefer();
+    // UserError specifically: transport surfaces map it to a 4xx that carries
+    // the actionable message, rather than a generic 500.
+    await expect(
+      updateSchedule(job.id, { message: "do something else" }),
+    ).rejects.toThrow(UserError);
+    await expect(
+      updateSchedule(job.id, { message: "do something else" }),
+    ).rejects.toThrow(/fixed at creation/);
+    expect(getSchedule(job.id)!.message).toBe("check the build");
+  });
+
+  test("a trusted row refuses a target rewrite", async () => {
+    const job = await trustedDefer();
+    await expect(
+      updateSchedule(job.id, { wakeConversationId: "conv-elsewhere" }),
+    ).rejects.toThrow(/fixed at creation/);
+    expect(getSchedule(job.id)!.wakeConversationId).toBe("conv-target");
+  });
+
+  test("a trusted row refuses a mode change", async () => {
+    const job = await trustedDefer();
+    await expect(updateSchedule(job.id, { mode: "execute" })).rejects.toThrow(
+      /fixed at creation/,
+    );
+    expect(getSchedule(job.id)!.mode).toBe("wake");
+  });
+
+  test("a trusted row still accepts unrelated edits and same-value writes", async () => {
+    const job = await trustedDefer();
+
+    const updated = await updateSchedule(job.id, {
+      enabled: false,
+      message: "check the build",
+      mode: "wake",
+      wakeConversationId: "conv-target",
+    });
+
+    expect(updated!.enabled).toBe(false);
+  });
+
+  test("a legacy defer stays fully editable", async () => {
+    const legacy = await createSchedule({
+      name: "Deferred wake",
+      message: "check the build",
+      mode: "wake",
+      wakeConversationId: "conv-target",
+      createdBy: LEGACY_DEFER_CREATED_BY,
+      nextRunAt: Date.now() + 60_000,
+    });
+
+    const updated = await updateSchedule(legacy.id, {
+      message: "something else",
+      wakeConversationId: "conv-elsewhere",
+    });
+
+    expect(updated!.message).toBe("something else");
+    expect(updated!.wakeConversationId).toBe("conv-elsewhere");
+    expect(hasOwnerDeferProvenance(updated!.createdBy)).toBe(false);
   });
 });
