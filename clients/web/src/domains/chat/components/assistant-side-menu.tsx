@@ -145,9 +145,10 @@ function SearchButton() {
  *     • Your Assistant → Intelligence view, with New Chat beneath it
  *     • ───────────────
  *   Body · one section list, in the user's own order (default shown)
+ *     • [ All | Grouped ] - the view switch, always first
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
- *     • [ All | Grouped ] - the switch for everything below it
+ *     • ───────────────  - when anything is curated above it
  *     • All view: every remaining conversation as one headerless,
  *       virtualized list, newest first
  *     • Grouped view: Chats ▾ then one collapsible section per origin
@@ -602,24 +603,28 @@ export function AssistantSideMenu({
                 value={sidebar.effectiveOpenSections}
                 onValueChange={sidebar.onOpenSectionsChange}
               >
-                {/* No dividers anywhere in the list. A custom group is a peer
-                    of Pinned, Chats, and a channel section, not a different
-                    class of thing, so nothing here may hint at a grouping the
-                    user didn't create - they order these however they like.
-                    The header's own indent (SIDEBAR_SECTION_INDENT) is what
-                    marks where a section starts, and the switch's own tab
-                    shape is what marks the tier boundary. */}
-                {sidebar.sections
-                  .slice(0, sidebar.curatedSectionCount)
-                  .map(renderSection)}
-                {/* The switch governs only what follows it - the flat list, or
-                    Chats and the channel sections - so it sits at that
-                    boundary. Inside the one accordion root, not above it, so
-                    it shares the same gap as everything else. */}
+                {/* The switch leads the whole list: it is the sidebar's
+                    top-level choice, not a header on any one part of it, and
+                    keeping it at a fixed spot means it never travels as
+                    sections are reordered under it. */}
                 <SidebarViewModeToggle
                   value={sidebar.viewMode}
                   onChange={sidebar.onViewModeChange}
                 />
+                {/* Pinned and the custom groups: the user's own curation,
+                    identical in both views. No dividers *between* them, since
+                    a custom group is a peer of Pinned rather than a different
+                    class of thing. */}
+                {sidebar.sections
+                  .slice(0, sidebar.curatedSectionCount)
+                  .map(renderSection)}
+                {/* The list's one rule, marking where curation ends and the
+                    conversations begin. Absent when nothing is curated yet, so
+                    a fresh sidebar never opens on a stray line. `my-0` keeps it
+                    on the root's own gap instead of adding to it. */}
+                {sidebar.curatedSectionCount > 0 ? (
+                  <SideMenu.Separator className="my-0" />
+                ) : null}
                 {sidebar.sections
                   .slice(sidebar.curatedSectionCount)
                   .map(renderSection)}

@@ -254,10 +254,8 @@ describe("AssistantSideMenu · All view", () => {
     expect(html).toContain('data-slot="virtual-list"');
   });
 
-  // The switch is the tier boundary, so a stored order that would put Chats
-  // above the curated layer is pulled back rather than honored. That is what
-  // makes "the switch controls everything below it" structural: there is no
-  // reachable order in which it renders under a list it governs.
+  // A stored order that would lift Chats above the curated layer is pulled
+  // back, so the tiers hold however the order was arrived at.
   test("a stored order that lifts Chats above a group is pulled back", () => {
     localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
     localStorage.setItem(
@@ -291,13 +289,8 @@ describe("AssistantSideMenu · All view", () => {
     const children = Array.from(root.children);
     const indexOfText = (text: string) =>
       children.findIndex((el) => (el.textContent ?? "").includes(text));
-    const switchIndex = children.findIndex((el) =>
-      el.querySelector('[data-slot="segment-control"]'),
-    );
 
-    // Alpha leads, then the switch, then Chats - not the stored order.
-    expect(indexOfText("Alpha")).toBeLessThan(switchIndex);
-    expect(switchIndex).toBeLessThan(indexOfText("Chats"));
+    expect(indexOfText("Alpha")).toBeLessThan(indexOfText("Chats"));
   });
 
   test("offers the view switch", () => {
@@ -952,7 +945,10 @@ describe("AssistantSideMenu · equal section treatment", () => {
   // Custom groups are peers of Pinned, Chats, and the channel sections - not
   // a separate class. Nothing in the list may imply a grouping the user
   // didn't create, because they order these however they like.
-  test("no dividers separate the sections", () => {
+  // One rule in the list, and it is not a section break: it marks where the
+  // user's curation ends and the conversations begin. Two sections never have
+  // a rule between them, whatever their type.
+  test("the only rule follows the curated sections", () => {
     const container = parse(
       renderMenu({
         conversations: LAYOUT_CONVERSATIONS,
@@ -960,13 +956,68 @@ describe("AssistantSideMenu · equal section treatment", () => {
       }),
     );
 
-    const separatorsInList = Array.from(
-      container.querySelectorAll<HTMLElement>(
-        '[data-slot="side-menu-separator"]',
-      ),
-    ).filter((hr) => hr.closest('[data-slot="collapsible"]'));
+    const root = container.querySelector<HTMLElement>(
+      '[data-slot="collapsible"]',
+    );
+    if (!root) {
+      throw new Error("expected the section list's accordion root");
+    }
+    const children = Array.from(root.children);
+    const indexOfText = (text: string) =>
+      children.findIndex((el) => (el.textContent ?? "").includes(text));
+    const ruleIndex = children.findIndex((el) =>
+      el.matches('[data-slot="side-menu-separator"]'),
+    );
 
-    expect(separatorsInList).toHaveLength(0);
+    expect(
+      root.querySelectorAll('[data-slot="side-menu-separator"]'),
+    ).toHaveLength(1);
+    // Pinned and Alpha above it, Chats and Slack below.
+    expect(indexOfText("Pinned")).toBeLessThan(ruleIndex);
+    expect(indexOfText("Alpha")).toBeLessThan(ruleIndex);
+    expect(indexOfText("Chats")).toBeGreaterThan(ruleIndex);
+    expect(indexOfText("Slack")).toBeGreaterThan(ruleIndex);
+  });
+
+  test("the rule is absent until something is curated", () => {
+    const container = parse(
+      renderMenu({
+        conversations: [makeConversation({ conversationId: "r1" })],
+      }),
+    );
+
+    // Scoped to the section list: the rail footer carries its own separator.
+    const root = container.querySelector<HTMLElement>(
+      '[data-slot="collapsible"]',
+    );
+    if (!root) {
+      throw new Error("expected the section list's accordion root");
+    }
+
+    expect(
+      root.querySelectorAll('[data-slot="side-menu-separator"]'),
+    ).toHaveLength(0);
+  });
+
+  test("the view switch leads the whole list", () => {
+    const container = parse(
+      renderMenu({
+        conversations: LAYOUT_CONVERSATIONS,
+        conversationGroups: LAYOUT_GROUPS,
+      }),
+    );
+
+    const root = container.querySelector<HTMLElement>(
+      '[data-slot="collapsible"]',
+    );
+    if (!root) {
+      throw new Error("expected the section list's accordion root");
+    }
+    const switchIndex = Array.from(root.children).findIndex((el) =>
+      el.querySelector('[data-slot="segment-control"]'),
+    );
+
+    expect(switchIndex).toBe(0);
   });
 
   test("every section renders through the same component with the same affordances", () => {
