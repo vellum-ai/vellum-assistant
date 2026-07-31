@@ -4,9 +4,18 @@ CLI tools for provisioning and managing Vellum assistant instances.
 
 ## Installation
 
-This package is used internally by the `vel` CLI. You typically don't need to install it directly.
+Install the complete `vellum` command with Bun:
 
-To run it standalone with [Bun](https://bun.sh):
+```bash
+bun install -g vellum
+```
+
+The published `vellum` package installs a Bun wrapper that imports this
+TypeScript package. The CLI's `compile:check` script validates that Bun can
+compile the entry point, but the compiled executable is not the published
+artifact.
+
+To run `@vellumai/cli` from a source checkout:
 
 ```bash
 bun run ./src/index.ts <command> [options]
@@ -36,6 +45,45 @@ vellum sleep
 ```
 
 > **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically.
+
+### `voice`
+
+Talk to a local or Vellum-managed assistant from a foreground Linux ARM64
+terminal:
+
+```bash
+vellum voice devices
+vellum voice doctor assistant-123
+vellum voice assistant-123
+```
+
+Push-to-talk is the default. Press Enter to start and release capture, `s` to
+interrupt, `c` to cycle captions, and `q` to quit. Open mic is available only
+when `voice doctor --mode open-mic` verifies the exact PipeWire echo-cancel
+source and sink:
+
+```bash
+vellum voice doctor assistant-123 --mode open-mic
+vellum voice assistant-123 --mode open-mic
+```
+
+An explicit `--url` always selects a directly reachable gateway, including for
+a manually provisioned local assistant that uses platform-managed providers:
+
+```bash
+vellum voice doctor \
+  --url http://127.0.0.1:7830 \
+  --assistant-id assistant-123
+```
+
+A Vellum-managed assistant uses the session created by `vellum login`, mints a
+short-lived live-voice credential, and connects through Velay. Docker,
+paired-remote, and non-interactive service topologies are not supported by
+this command.
+
+See [Raspberry Pi live voice](../docs/raspberry-pi-voice.md) for installation,
+headless PipeWire setup, device selection, echo cancellation, recovery, and the
+current hardware-validation status.
 
 ### `hatch`
 

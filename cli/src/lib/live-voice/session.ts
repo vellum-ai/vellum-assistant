@@ -186,7 +186,7 @@ export class LiveVoiceForegroundSession {
       }
       if (this.state === "ready") {
         await this.beginCapture();
-      } else if (this.state === "listening") {
+      } else if (this.captureSession !== null) {
         await this.releaseCapture();
       }
     });
@@ -225,7 +225,9 @@ export class LiveVoiceForegroundSession {
         this.recordEchoSample(microphoneAmplitude);
         if (
           generation === this.captureGeneration &&
-          (this.mode === "open-mic" || this.state === "listening") &&
+          (this.mode === "open-mic" ||
+            this.captureSession !== null ||
+            this.state === "listening") &&
           this.channel === channel
         ) {
           channel.sendAudio(this.muted ? Buffer.alloc(frame.length) : frame);
@@ -498,7 +500,9 @@ export class LiveVoiceForegroundSession {
         return;
       case "stt_partial":
       case "stt_final":
-        this.setState("transcribing");
+        if (this.mode === "open-mic" || this.captureSession === null) {
+          this.setState("transcribing");
+        }
         if (this.captionMode === "user" || this.captionMode === "both") {
           this.options.onCaption?.("user", frame.text);
         }
