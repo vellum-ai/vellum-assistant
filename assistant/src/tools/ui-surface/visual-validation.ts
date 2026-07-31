@@ -267,6 +267,60 @@ function collectViewBoxOverrunProblems(html: string): string[] {
 }
 
 /**
+ * `transform` attributes anywhere in the fragment. The layout system is built
+ * on absolute viewBox coordinates (grid slots, extent checks, label centring),
+ * and a translated group invites mixing local and absolute coordinates on its
+ * children — the classic symptom is every label rendering below or beside its
+ * box. Banning the attribute keeps one coordinate system for everything.
+ */
+function collectTransformProblems(html: string): string[] {
+  const count = [...html.matchAll(/\stransform\s*=\s*["']/g)].length;
+  if (count === 0) {
+    return [];
+  }
+  return [
+    `${count} element(s) carry a transform attribute. Every coordinate in the fragment is an absolute viewBox coordinate; ` +
+      "remove each transform and place the element directly. A node's text centres at the rect's own position: " +
+      'x = rect x + width/2 with text-anchor="middle", y = rect y + 22 for a single line (or +20 and +38 for a two-line node). ' +
+      "Translated groups mix local and absolute coordinates and put labels outside their boxes.",
+  ];
+}
+
+/**
+ * Style rules that paint a surface token as an inheritable fill. `fill`
+ * inherits from a group to its text children, so `.note{fill:var(--surface-sunken)}`
+ * declared after the text classes silently repaints every label in the tile's
+ * own background colour. A surface fill is legitimate only when the rule is
+ * scoped to shape elements.
+ */
+const SHAPE_SCOPED_SELECTOR_PATTERN =
+  /\b(?:rect|path|circle|ellipse|line|polyline|polygon)\b/;
+
+function collectSurfaceFillOnTextProblems(html: string): string[] {
+  const offenders: string[] = [];
+  for (const rule of html.matchAll(/([^{}<>]{1,120})\{([^{}]*)\}/g)) {
+    const selector = rule[1].trim();
+    const body = rule[2];
+    if (!/fill\s*:\s*var\(--surface-/.test(body)) {
+      continue;
+    }
+    if (SHAPE_SCOPED_SELECTOR_PATTERN.test(selector)) {
+      continue;
+    }
+    offenders.push(selector);
+  }
+  if (offenders.length === 0) {
+    return [];
+  }
+  return [
+    `Style rule(s) ${quote(offenders)} set fill to a surface token without scoping to a shape. ` +
+      "fill inherits to text, so a group-level surface fill repaints the labels inside it in the background colour " +
+      "and they disappear. Scope background fills to the shape (`.note rect{fill:var(--surface-sunken)}`) and keep " +
+      "text fills on content tokens or ramp stops.",
+  ];
+}
+
+/**
  * Problems with how an `<svg>` is sized. Without a `viewBox` the drawing has no
  * intrinsic coordinate system to scale, so it renders at its literal size and
  * the frame crops whatever does not fit.
@@ -726,6 +780,8 @@ export function validateVisualHtml(html: string): string[] {
   problems.push(...collectSvgSizingProblems(html));
   problems.push(...collectViewBoxOverrunProblems(html));
   problems.push(...collectRampContrastProblems(html));
+  problems.push(...collectTransformProblems(html));
+  problems.push(...collectSurfaceFillOnTextProblems(html));
 
   return problems;
 }

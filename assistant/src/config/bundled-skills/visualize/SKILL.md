@@ -118,9 +118,20 @@ Anything with nodes and arrows is ONE inline SVG with `width="100%"` and `viewBo
   - Node width 140, height 44 (single line, text at y + 22) or 56 (title at y + 20, subtitle at y + 38).
   - 4 nodes across: x = 30, 200, 370, 540. 3 across: x = 60, 270, 480. 2 across: x = 120, 420.
   - Rows at y = 20, 110, 200, 290. viewBox height = last row's y + 80.
-  - Horizontal arrows run between node edges at the node's mid height; a label above an arrow sits 12 above it at the midpoint x, and fits when it is under 20 characters at 12px.
+  - Horizontal arrows run between node edges at the node's mid height. Arrow labels fit only at 2 or 3 nodes across (12 above the arrow, centred on the gap); at 4 across the gaps are 30px, nothing fits, so leave those arrows unlabeled and carry the verbs in your prose.
   - Containers wrap a row group with 16 of margin; free-form shapes for illustrative drawings stay inside one grid cell or one row band.
+- Every coordinate is an absolute viewBox coordinate. Never use the transform attribute: translated groups mix local and absolute positions and labels land outside their boxes (the validator rejects transforms). A node is a rect plus its text at the rect's own position:
+
+```html
+<g class="n-forest">
+  <rect x="200" y="110" width="140" height="56" rx="8" />
+  <text class="th" x="270" y="130" text-anchor="middle" dominant-baseline="central">Resolver</text>
+  <text class="ts" x="270" y="148" text-anchor="middle" dominant-baseline="central">checks cache</text>
+</g>
+```
+
 - Node titles fit at about 13 characters; subtitles at 5 words. Longer means shorten the words, never the spacing. SVG text never wraps; no rotated text.
+- Background fills scope to the shape, never the group: `.note rect{fill:var(--surface-sunken)}`, not `.note{fill:...}`. fill inherits to text, so a group-level surface fill silently repaints the labels inside it in the background colour.
 - Every text element needs `dominant-baseline="central"` with y at the centre of its slot. Two sizes only: 14px titles, 12px everything else.
 - Any path or polyline used as a line carries `fill="none"` or it renders as a black blob. Strokes: 1px structure, 2px chart line. One arrowhead marker is the whole of defs; no filters, no gradients.
 - A coloured node applies its matched ramp triple as one class on the group containing rect and text together.

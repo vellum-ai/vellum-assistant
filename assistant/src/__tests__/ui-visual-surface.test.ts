@@ -458,6 +458,44 @@ describe("an svg that cannot scale to the frame", () => {
   });
 });
 
+describe("coordinate-system guards", () => {
+  test("a transform attribute is rejected with the absolute-coordinates fix", () => {
+    const problems = validateVisualHtml(
+      '<svg width="100%" viewBox="0 0 680 200"><g transform="translate(30 55)"><rect width="140" height="56" fill="var(--surface-lift)"/><text x="70" y="77" fill="var(--content-strong)">Browser</text></g></svg>',
+    );
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("transform attribute");
+    expect(problems[0]).toContain("absolute viewBox coordinate");
+  });
+
+  test("transform-free absolute placement passes", () => {
+    expect(
+      validateVisualHtml(
+        '<svg width="100%" viewBox="0 0 680 200"><g><rect x="30" y="55" width="140" height="56" fill="var(--surface-lift)"/><text x="100" y="77" text-anchor="middle" fill="var(--content-strong)">Browser</text></g></svg>',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a group-level surface fill that would repaint text is rejected", () => {
+    const problems = validateVisualHtml(
+      '<style>.th{fill:var(--content-strong)}.note{fill:var(--surface-sunken)}</style><svg width="100%" viewBox="0 0 680 120"><g class="note"><rect x="120" y="20" width="440" height="54"/><text class="th" x="340" y="47">Caching makes repeat visits fast</text></g></svg>',
+    );
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(".note");
+    expect(problems[0]).toContain("fill inherits to text");
+  });
+
+  test("a surface fill scoped to the shape passes", () => {
+    expect(
+      validateVisualHtml(
+        '<style>.th{fill:var(--content-strong)}.note rect{fill:var(--surface-sunken);stroke:var(--border-subtle)}</style><svg width="100%" viewBox="0 0 680 120"><g class="note"><rect x="120" y="20" width="440" height="54"/><text class="th" x="340" y="47">Caching makes repeat visits fast</text></g></svg>',
+      ),
+    ).toEqual([]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Skill reference examples
 // ---------------------------------------------------------------------------
@@ -477,7 +515,7 @@ describe("the visualize skill examples pass the fragment guards", () => {
   );
 
   test("every fenced example is present", () => {
-    expect(examples.length).toBe(5);
+    expect(examples.length).toBe(6);
   });
 
   for (const example of examples) {
