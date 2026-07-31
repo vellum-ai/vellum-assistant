@@ -702,7 +702,7 @@ export function ChatComposer({
               hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"
             }`}
           >
-            {/* overflow-hidden lives here, not on the form itself — the form
+            {/* overflow-hidden lives here, not on the form itself: the form
                 casts the shadow above, and overflow-hidden on the same box
                 would clip that shadow along with the rounded corners. */}
             <div

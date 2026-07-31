@@ -219,7 +219,7 @@ export function AssistantNavItem({
       components.colors.find((c) => c.id === traits.color)?.hex) ||
     null;
 
-  // The row wears the identity page's feature-card wash — 14% of the
+  // The row wears the identity page's feature-card wash: 14% of the
   // avatar color mixed into the lifted surface, the Personality card's
   // recipe (see `identity-overview.tsx` `--card-feature-bg`) — falling
   // back to the plain hover treatment when there's no character avatar.
