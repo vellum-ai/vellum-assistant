@@ -101,14 +101,55 @@ async function resolvePlatformClientConfig(): Promise<PlatformClientConfig | nul
   return { baseUrl, apiKey, assistantId };
 }
 
+// Bounds the configured probe: resolution can hit up to three credential-store
+// reads, and urgent-notification dispatch awaits this probe, so a slow
+// credential backend must answer from cache instead of stalling the banner.
+const CONFIGURED_PROBE_DEADLINE_MS = 500;
+
+let lastKnownConfigured: boolean | null = null;
+
+export function _resetConfiguredProbeCacheForTests(): void {
+  lastKnownConfigured = null;
+}
+
 /**
- * Whether the platform client's auth prerequisites are present. A cheap
- * availability probe for callers that only need to know if platform calls
- * can be attempted: reads config and the credential store, constructs no
- * client, and makes no network requests.
+ * Whether the platform client can actually dispatch: auth prerequisites plus
+ * a nonempty platform assistant id (`PlatformPushAdapter.send()` fails fast
+ * without one). Constructs no client and makes no network requests.
+ *
+ * Bounded by {@link CONFIGURED_PROBE_DEADLINE_MS}: when config resolution is
+ * slower than the deadline, returns the last settled result (or `false` when
+ * none exists yet). The abandoned resolution still settles in the background
+ * and refreshes the cache for the next call.
  */
 export async function isPlatformClientConfigured(): Promise<boolean> {
-  return (await resolvePlatformClientConfig()) !== null;
+  const probe = resolvePlatformClientConfig()
+    .then((config) => config !== null && config.assistantId.length > 0)
+    .catch((err: unknown) => {
+      log.debug(
+        { err },
+        "Configured probe failed -- treating as not configured",
+      );
+      return false;
+    })
+    .then((value) => {
+      lastKnownConfigured = value;
+      return value;
+    });
+
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<"deadline">((resolve) => {
+    deadlineTimer = setTimeout(
+      () => resolve("deadline"),
+      CONFIGURED_PROBE_DEADLINE_MS,
+    );
+  });
+  const raced = await Promise.race([probe, deadline]);
+  clearTimeout(deadlineTimer);
+  if (raced === "deadline") {
+    return lastKnownConfigured ?? false;
+  }
+  return raced;
 }
 
 export class VellumPlatformClient {
