@@ -147,7 +147,6 @@ function SearchButton() {
  *   Body · one section list, in the user's own order (default shown)
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
- *     • ───────────────  - the list's only rule, when anything is above it
  *     • [ All | Grouped ] - the switch for everything below it
  *     • All view: every remaining conversation as one headerless,
  *       virtualized list, newest first
@@ -603,27 +602,16 @@ export function AssistantSideMenu({
                 value={sidebar.effectiveOpenSections}
                 onValueChange={sidebar.onOpenSectionsChange}
               >
-                {/* No dividers *between* sections. A custom group is a peer
+                {/* No dividers anywhere in the list. A custom group is a peer
                     of Pinned, Chats, and a channel section, not a different
                     class of thing, so nothing here may hint at a grouping the
                     user didn't create - they order these however they like.
                     The header's own indent (SIDEBAR_SECTION_INDENT) is what
-                    marks where a section starts. The single rule below is not
-                    a section break: it separates the curated layer from the
-                    switch that governs everything under it. */}
+                    marks where a section starts, and the switch's own tab
+                    shape is what marks the tier boundary. */}
                 {sidebar.sections
                   .slice(0, sidebar.curatedSectionCount)
                   .map(renderSection)}
-                {/* The one divider in the list, and the only place a rule is
-                    honest: it marks where the user's own curation ends and
-                    the switch takes over, which is a real boundary rather
-                    than a grouping they didn't create. Absent when nothing is
-                    pinned and no group exists, so the list never opens on a
-                    rule. `my-0` keeps it on the root's own gap instead of
-                    adding to it. */}
-                {sidebar.curatedSectionCount > 0 ? (
-                  <SideMenu.Separator className="my-0" />
-                ) : null}
                 {/* The switch governs only what follows it - the flat list, or
                     Chats and the channel sections - so it sits at that
                     boundary. Inside the one accordion root, not above it, so

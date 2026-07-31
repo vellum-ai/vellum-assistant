@@ -952,10 +952,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
   // Custom groups are peers of Pinned, Chats, and the channel sections - not
   // a separate class. Nothing in the list may imply a grouping the user
   // didn't create, because they order these however they like.
-  // The list carries exactly one rule, and it is not a section break: it
-  // marks where the user's curated layer ends and the view switch takes over.
-  // Two sections never have a rule between them, whatever their type.
-  test("the list's only rule sits between the curated layer and the switch", () => {
+  test("no dividers separate the sections", () => {
     const container = parse(
       renderMenu({
         conversations: LAYOUT_CONVERSATIONS,
@@ -963,37 +960,15 @@ describe("AssistantSideMenu · equal section treatment", () => {
       }),
     );
 
-    const root = container.querySelector<HTMLElement>(
-      '[data-slot="collapsible"]',
-    );
-    if (!root) {
-      throw new Error("expected the section list's accordion root");
-    }
+    const separatorsInList = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-slot="side-menu-separator"]',
+      ),
+    ).filter((hr) => hr.closest('[data-slot="collapsible"]'));
 
-    const children = Array.from(root.children);
-    const ruleIndex = children.findIndex((el) =>
-      el.matches('[data-slot="side-menu-separator"]'),
-    );
-    const switchIndex = children.findIndex((el) =>
-      el.querySelector('[data-slot="segment-control"]'),
-    );
-
-    expect(
-      root.querySelectorAll('[data-slot="side-menu-separator"]'),
-    ).toHaveLength(1);
-    expect(switchIndex).toBe(ruleIndex + 1);
-
-    // Everything above the rule is Pinned and the custom groups.
-    const aboveLabels = children
-      .slice(0, ruleIndex)
-      .map((el) => el.textContent ?? "");
-    expect(aboveLabels.some((text) => text.includes("Pinned"))).toBe(true);
-    expect(aboveLabels.some((text) => text.includes("Alpha"))).toBe(true);
-    expect(aboveLabels.some((text) => text.includes("Slack"))).toBe(false);
+    expect(separatorsInList).toHaveLength(0);
   });
 
-  // Same shell, same drag wiring, same header treatment for every type - a
-  // group must not be distinguishable from a built-in section by its chrome.
   test("every section renders through the same component with the same affordances", () => {
     const container = parse(
       renderMenu({
