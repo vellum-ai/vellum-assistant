@@ -27,9 +27,8 @@
  */
 
 import { messagesPost } from "@/generated/daemon/sdk.gen";
-import type { MessagesPostData } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { detectClientOs } from "@/runtime/platform-detection";
+import { buildSideConversationMessageBody } from "@/lib/side-conversation-message";
 import { archiveResearchConversation } from "@/domains/onboarding/archive-research-conversation";
 
 export interface ResearchCorrection {
@@ -94,22 +93,13 @@ export async function sendResearchCorrection({
     return;
   }
   try {
-    const body: MessagesPostData["body"] = {
+    // Hidden rows stay in LLM-side history, so the correction still reaches
+    // the assistant.
+    const body = buildSideConversationMessageBody({
       conversationId,
       content,
-      sourceChannel: "vellum",
-      // `interface` is the transport ("web"); the real OS travels in `clientOs`
-      // so the correction turn keeps the assistant's `client_os` context too,
-      // matching the initial research send (`research-runner.ts`).
-      interface: "web",
-      clientOs: detectClientOs(),
-      // A machine signal the user never typed: hidden keeps the daemon from
-      // pushing this turn's reply to the user's phone, deep-linked into the
-      // thread re-archived below. The correction still reaches the assistant,
-      // since hidden rows stay in LLM-side history.
-      hidden: true,
-      clientMessageId: crypto.randomUUID(),
-    };
+      transport: "web",
+    });
     await messagesPost({
       path: { assistant_id: assistantId },
       body,
