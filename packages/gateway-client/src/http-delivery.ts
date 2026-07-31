@@ -325,12 +325,7 @@ export async function deliverChannelReply(
 ): Promise<ChannelDeliveryResult> {
   const managedCallback = parseManagedOutboundCallback(callbackUrl);
   if (managedCallback) {
-    await deliverManagedOutboundReply(
-      managedCallback,
-      payload,
-      bearerToken,
-      log,
-    );
+    await deliverManagedOutboundReply(managedCallback, payload, bearerToken, log);
     return { ok: true };
   }
 

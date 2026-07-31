@@ -165,31 +165,3 @@ export const RuntimeInboundPayloadSchema = z.object({
 });
 
 export type RuntimeInboundPayload = z.infer<typeof RuntimeInboundPayloadSchema>;
-
-// ---------------------------------------------------------------------------
-// Channel conversation reset (gateway -> daemon, DELETE /v1/channels/conversation)
-// ---------------------------------------------------------------------------
-
-/**
- * Reset request. Carries the actor's verdict + channel floor so the runtime
- * can authorize. The daemon parses this before authorizing: authenticated
- * transport is not a substitute for validation.
- */
-export const ChannelResetRequestSchema = z.object({
-  sourceChannel: z.string().min(1),
-  conversationExternalId: z.string().min(1),
-  sourceThreadId: z.string().optional(),
-  trustVerdict: TrustVerdictSchema.optional(),
-  admissionPolicy: AdmissionPolicySchema.optional(),
-});
-
-export type ChannelResetRequest = z.infer<typeof ChannelResetRequestSchema>;
-
-/**
- * Reset response. Success is the ONLY 2xx shape: an unauthorized reset is a
- * 403, so no successful-looking body can mean "refused". A gateway predating
- * that check inspects only `response.ok`, so it too sees a denial as failure.
- */
-export const ChannelResetResponseSchema = z.object({ ok: z.literal(true) });
-
-export type ChannelResetResponse = z.infer<typeof ChannelResetResponseSchema>;

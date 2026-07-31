@@ -197,15 +197,7 @@ import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { fetchImpl } from "./fetch.js";
 import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
-import { RejectionRateLimiter } from "./rejection-rate-limiter.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
-
-/**
- * Throttles the Slack `/new` transient-failure notice, mirroring the limiter
- * the Telegram and WhatsApp routes use, so a retry loop against an
- * unavailable runtime cannot amplify into one message per inbound event.
- */
-const slackNoticeLimiter = new RejectionRateLimiter();
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
 import { hasTwilioSetupStarted } from "./twilio/setup-state.js";
@@ -2294,42 +2286,29 @@ async function main() {
         const isEdit = !!normalized.event.message.isEdit;
         const isCallback = !!normalized.event.message.callbackData;
 
-        // Handle /new command: reset the conversation before it reaches the
-        // runtime. Authorization happens inside handleNewCommand so an
-        // unauthorized sender gets no reply at all.
+        // Handle /new command — reset conversation before it reaches the runtime
         if (isNewCommand(normalized.event.message.content)) {
-          const postToSlack = async (text: string) => {
-            await fetchImpl("https://slack.com/api/chat.postMessage", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${botToken}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                channel,
-                text,
-                ...(threadTs ? { thread_ts: threadTs } : {}),
-              }),
-            });
-          };
-          void handleNewCommand({
+          handleNewCommand(
             config,
-            sourceChannel: "slack",
-            conversationExternalId:
-              normalized.event.message.conversationExternalId,
-            actorExternalId: normalized.event.actor.actorExternalId,
-            sendReply: postToSlack,
-            sendNotice: (text) => {
-              if (!slackNoticeLimiter.shouldSend(channel)) {
-                return;
-              }
-              void postToSlack(text).catch((err) => {
-                log.error({ err, channel }, "Failed to send /new notice");
+            "slack",
+            normalized.event.message.conversationExternalId,
+            async (text) => {
+              await fetchImpl("https://slack.com/api/chat.postMessage", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${botToken}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  channel,
+                  text,
+                  ...(threadTs ? { thread_ts: threadTs } : {}),
+                }),
               });
             },
-            logger: log,
-            sourceThreadId: threadTs,
-          });
+            log,
+            threadTs,
+          );
           return;
         }
 

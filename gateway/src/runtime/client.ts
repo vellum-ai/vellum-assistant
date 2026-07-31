@@ -8,12 +8,7 @@ import {
 } from "@vellumai/service-contracts/twilio-ingress";
 import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
 
-import {
-  type AdmissionPolicy,
-  ChannelResetResponseSchema,
-  type RuntimeInboundPayload,
-  type TrustVerdict,
-} from "@vellumai/gateway-client";
+import type { RuntimeInboundPayload } from "@vellumai/gateway-client";
 import type { ChannelId } from "../channels/types.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import {
@@ -311,26 +306,12 @@ export async function forwardToRuntime(
   throw lastError ?? new Error("Runtime forward failed after retries");
 }
 
-export type ResetConversationInput = {
-  sourceChannel: ChannelId;
-  conversationExternalId: string;
-  sourceThreadId?: string;
-  /**
-   * Forwarded so the RUNTIME authorizes the reset. The gateway's calls carry
-   * a service principal, so the verdict is how the actor's identity arrives.
-   */
-  trustVerdict?: TrustVerdict;
-  admissionPolicy?: AdmissionPolicy;
-};
-
-/**
- * `{ denied: true }` means the runtime refused on authorization grounds, which
- * callers surface silently. Transport and server failures throw instead.
- */
 export async function resetConversation(
   config: GatewayConfig,
-  input: ResetConversationInput,
-): Promise<{ denied: boolean; reason?: string }> {
+  sourceChannel: ChannelId,
+  conversationExternalId: string,
+  sourceThreadId?: string,
+): Promise<void> {
   cbBeforeRequest();
 
   const url = buildUpstreamUrl(
@@ -346,15 +327,9 @@ export async function resetConversation(
         method: "DELETE",
         headers: serviceHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
-          sourceChannel: input.sourceChannel,
-          conversationExternalId: input.conversationExternalId,
-          ...(input.sourceThreadId
-            ? { sourceThreadId: input.sourceThreadId }
-            : {}),
-          ...(input.trustVerdict ? { trustVerdict: input.trustVerdict } : {}),
-          ...(input.admissionPolicy
-            ? { admissionPolicy: input.admissionPolicy }
-            : {}),
+          sourceChannel,
+          conversationExternalId,
+          ...(sourceThreadId ? { sourceThreadId } : {}),
         }),
       },
       config.runtimeTimeoutMs,
@@ -368,25 +343,10 @@ export async function resetConversation(
     const body = await response.text();
     if (response.status >= 500) cbOnFailure();
     else cbOnSuccess();
-    // The runtime refuses an unauthorized reset with 403. That is a decision,
-    // not a fault, and callers surface it silently.
-    if (response.status === 403) {
-      return { denied: true, reason: body || "forbidden" };
-    }
     throw new Error(`Reset conversation failed (${response.status}): ${body}`);
   }
 
   cbOnSuccess();
-
-  // Fail closed: an unparseable 2xx must not read as a completed reset.
-  const raw = await response.json().catch(() => undefined);
-  const parsed = ChannelResetResponseSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(
-      `Reset conversation returned a malformed response: ${parsed.error.issues[0]?.message ?? "unparseable body"}`,
-    );
-  }
-  return { denied: false };
 }
 
 export type UploadAttachmentInput = {

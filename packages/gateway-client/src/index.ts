@@ -44,16 +44,12 @@ export type {
 
 // Inbound contract (gateway → daemon) — Zod schemas + derived types
 export {
-  ChannelResetRequestSchema,
-  ChannelResetResponseSchema,
   CommandIntentSchema,
   RuntimeInboundPayloadSchema,
   SourceMetadataSchema,
 } from "./inbound-contract.js";
 
 export type {
-  ChannelResetRequest,
-  ChannelResetResponse,
   CommandIntent,
   RuntimeInboundPayload,
   SourceMetadata,
@@ -90,20 +86,6 @@ export {
   TrustClassSchema,
   TrustVerdictSchema,
 } from "./trust-verdict-contract.js";
-
-// Admission enforcement (shared gateway ↔ daemon). The single
-// rank-vs-floor decision, evaluated by the runtime admission stage and the
-// gateway's channel-command authorization seam
-export {
-  enforceAdmissionPolicy,
-  TRUST_CLASS_RANK,
-} from "./admission-enforcement.js";
-
-export type {
-  AdmissionDenyReason,
-  AdmissionPolicyInput,
-  AdmissionPolicyResult,
-} from "./admission-enforcement.js";
 
 export type {
   ResolveInboundTrustRequest,

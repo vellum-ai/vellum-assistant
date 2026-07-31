@@ -1,16 +1,8 @@
-import {
-  type AdmissionPolicy,
-  ADMISSION_POLICY_DEFAULT,
-  isAdmissionPolicyExemptChannel,
-  type TrustVerdict,
-} from "@vellumai/gateway-client";
 import type { Logger } from "pino";
 import type { ChannelId } from "./channels/types.js";
 import type { GatewayConfig } from "./config.js";
 import type { StringDedupCache } from "./dedup-cache.js";
 import type { InboundResult } from "./handlers/handle-inbound.js";
-import { resolveAdmissionPolicy } from "./risk/admission-policy-cache.js";
-import { resolveTrustVerdictOrSentinel } from "./risk/trust-verdict-resolver.js";
 import {
   CircuitBreakerOpenError,
   resetConversation,
@@ -49,143 +41,39 @@ export function handleCircuitBreakerError(
 }
 
 /**
- * Gateway-owned half of authorizing a gateway-terminal command (`/new`, and
- * the planned `/stop` / `/fork` / `/rename`): the `no_one` kill switch,
- * before any I/O so a killed channel denies everyone with zero lookups.
- *
- * It decides nothing else. `handleDeleteConversation` authorizes the actor in
- * the runtime; this only resolves the verdict + floor and forwards them, the
- * way `sourceMetadata` carries them for a message. Never re-derive that
- * decision here (see gateway/AGENTS.md, Channel Command Authorization).
+ * Handles the /new command flow: resets the conversation and sends a
+ * success or error reply via the provided callback.
+ * Returns `{ handled: true }` in all cases since both success and error
+ * are terminal for this message.
  */
-export type ChannelCommandGate =
-  | {
-      killed: false;
-      trustVerdict: TrustVerdict;
-      admissionPolicy?: AdmissionPolicy;
-    }
-  | { killed: true };
-
-export async function resolveChannelCommandGate(
-  sourceChannel: ChannelId,
-  actorExternalId: string | undefined,
-): Promise<ChannelCommandGate> {
-  // Exempt channels (platform/a2a) sit outside the human-trust model.
-  const admissionPolicy = isAdmissionPolicyExemptChannel(sourceChannel)
-    ? undefined
-    : (resolveAdmissionPolicy(sourceChannel) ?? ADMISSION_POLICY_DEFAULT);
-
-  if (admissionPolicy === "no_one") {
-    return { killed: true };
-  }
-
-  const trustVerdict = await resolveTrustVerdictOrSentinel({
-    channelType: sourceChannel,
-    actorExternalId,
-  });
-
-  return {
-    killed: false,
-    trustVerdict,
-    ...(admissionPolicy ? { admissionPolicy } : {}),
-  };
-}
-
-/**
- * The /new flow: resolve the gateway gate, ask the runtime to reset (it
- * authorizes the actor), reply. Always terminal for the message.
- *
- * Denials are silent, so a killed channel does not reveal the bot is alive
- * and an actor below the bar does not learn the command exists. Only
- * transient failures send text, via the throttled `sendNotice`.
- *
- * Routing is not consulted: the reset uses no `assistantId`, and
- * `resolveAssistant` rejects only events with no identity to reply to.
- */
-export interface NewCommandRequest {
-  config: GatewayConfig;
-  sourceChannel: ChannelId;
-  conversationExternalId: string;
-  actorExternalId: string | undefined;
-  /** Reply to an authorized actor. Not throttled. */
-  sendReply: (text: string) => Promise<void>;
-  /** Throttled notice, used only for transient failures. */
-  sendNotice: (text: string) => void;
-  logger: Logger;
-  sourceThreadId?: string;
-}
-
-export type NewCommandOutcome = "reset" | "denied" | "killed" | "unavailable";
-
 export async function handleNewCommand(
-  req: NewCommandRequest,
-): Promise<{ handled: true; outcome: NewCommandOutcome }> {
-  const {
-    config,
-    sourceChannel,
-    conversationExternalId,
-    actorExternalId,
-    logger,
-  } = req;
-
-  let gate: ChannelCommandGate;
+  config: GatewayConfig,
+  sourceChannel: ChannelId,
+  conversationExternalId: string,
+  sendReply: (text: string) => Promise<void>,
+  logger: Logger,
+  sourceThreadId?: string,
+): Promise<{ handled: true }> {
   try {
-    gate = await resolveChannelCommandGate(sourceChannel, actorExternalId);
-  } catch (err) {
-    // Fail closed: an unreadable policy or a broken resolver must not reset.
-    logger.warn(
-      { err, sourceChannel, conversationExternalId },
-      "Could not resolve the channel command gate, denying /new",
-    );
-    req.sendNotice(NEW_COMMAND_ERROR);
-    return { handled: true, outcome: "unavailable" };
-  }
-
-  if (gate.killed) {
-    logger.warn(
-      { sourceChannel, conversationExternalId, actorExternalId },
-      "Denied /new command: channel admission policy is no_one",
-    );
-    return { handled: true, outcome: "killed" };
-  }
-
-  try {
-    const result = await resetConversation(config, {
+    await resetConversation(
+      config,
       sourceChannel,
       conversationExternalId,
-      sourceThreadId: req.sourceThreadId,
-      trustVerdict: gate.trustVerdict,
-      ...(gate.admissionPolicy
-        ? { admissionPolicy: gate.admissionPolicy }
-        : {}),
-    });
-
-    if (result.denied) {
-      logger.warn(
-        {
-          sourceChannel,
-          conversationExternalId,
-          actorExternalId,
-          trustClass: gate.trustVerdict.trustClass,
-          reason: result.reason,
-        },
-        "Denied /new command: runtime refused the reset",
-      );
-      return { handled: true, outcome: "denied" };
-    }
-
-    req.sendReply(NEW_COMMAND_SUCCESS).catch(() => {
-      // fire-and-forget. Callers log send failures at their own level.
+      sourceThreadId,
+    );
+    sendReply(NEW_COMMAND_SUCCESS).catch(() => {
+      // fire-and-forget — callers log send failures at their own level
     });
   } catch (err) {
     logger.error(
       { err, conversationExternalId },
       "Failed to reset conversation for /new command",
     );
-    req.sendNotice(NEW_COMMAND_ERROR);
-    return { handled: true, outcome: "unavailable" };
+    sendReply(NEW_COMMAND_ERROR).catch(() => {
+      // fire-and-forget
+    });
   }
-  return { handled: true, outcome: "reset" };
+  return { handled: true };
 }
 
 /**

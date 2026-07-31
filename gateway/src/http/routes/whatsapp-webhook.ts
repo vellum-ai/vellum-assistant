@@ -177,52 +177,46 @@ export function createWhatsAppWebhookHandler(
         "WhatsApp webhook received",
       );
 
-      // Best-effort, do not await. Deferred for /new so a channel killed by
-      // `no_one` emits no read receipt revealing the bot is alive.
-      const markRead = () => {
-        markWhatsAppMessageRead(whatsappMessageId, apiCaches).catch((err) => {
-          tlog.debug(
-            { err, messageId: whatsappMessageId },
-            "Failed to mark WhatsApp message as read",
-          );
-        });
-      };
-      if (!isNewCommand(event.message.content)) {
-        markRead();
-      }
+      // Mark message as read (best-effort, do not await)
+      markWhatsAppMessageRead(whatsappMessageId, apiCaches).catch((err) => {
+        tlog.debug(
+          { err, messageId: whatsappMessageId },
+          "Failed to mark WhatsApp message as read",
+        );
+      });
 
       // Resolve routing once so we can gate further operations on it
       const routing = resolveAssistant(config, from, from);
 
-      // Handle /new command: reset the conversation before it reaches the
-      // runtime. Authorization (and the routing check) happen inside
-      // handleNewCommand so an unauthorized sender gets no reply at all.
+      // Handle /new command — reset conversation before it reaches the runtime
       if (isNewCommand(event.message.content)) {
-        const { outcome } = await handleNewCommand({
-          config,
-          sourceChannel: event.sourceChannel,
-          conversationExternalId: event.message.conversationExternalId,
-          actorExternalId: event.actor.actorExternalId,
-          sendReply: async (text) => {
-            await sendWhatsAppReply(config, from, text, undefined, apiCaches);
-          },
-          sendNotice: (text) => {
-            if (!rejectionLimiter.shouldSend(from)) {
-              return;
-            }
-            sendWhatsAppReply(config, from, text, undefined, apiCaches).catch(
-              (err) => {
-                tlog.error({ err, to: from }, "Failed to send /new notice");
-              },
+        if (isRejection(routing)) {
+          tlog.warn(
+            { from, reason: routing.reason },
+            "Routing rejected /new command",
+          );
+          sendWhatsAppReply(
+            config,
+            from,
+            ROUTING_REJECTION_NOTICE,
+            undefined,
+            apiCaches,
+          ).catch((err) => {
+            tlog.error(
+              { err, to: from },
+              "Failed to send /new routing rejection notice",
             );
-          },
-          logger: tlog,
-        });
-
-        // Denied and killed commands stay entirely silent, read receipts
-        // included: a receipt would confirm the command was processed.
-        if (outcome !== "killed" && outcome !== "denied") {
-          markRead();
+          });
+        } else {
+          await handleNewCommand(
+            config,
+            event.sourceChannel,
+            event.message.conversationExternalId,
+            async (text) => {
+              await sendWhatsAppReply(config, from, text, undefined, apiCaches);
+            },
+            tlog,
+          );
         }
 
         dedupCache.mark(whatsappMessageId);

@@ -501,47 +501,56 @@ export function createTelegramWebhookHandler(
       return respond({ ok: true });
     }
 
-    // The gateway applies only the `no_one` kill switch; the runtime
-    // authorizes the actor when it services the reset.
+    // Handle /new command — reset conversation before it reaches the runtime
     if (isNewCommand(normalized.message.content)) {
-      await handleNewCommand({
+      const routing = resolveAssistant(
         config,
-        sourceChannel: normalized.sourceChannel,
-        conversationExternalId: normalized.message.conversationExternalId,
-        actorExternalId: normalized.actor.actorExternalId,
-        sendReply: async (text) => {
-          await sendTelegramReply(
-            config,
-            normalized.message.conversationExternalId,
-            text,
-            undefined,
-            replyOpts,
-          );
-        },
-        sendNotice: (text) => {
-          if (
-            !rejectionLimiter.shouldSend(
-              normalized.message.conversationExternalId,
-            )
-          ) {
-            return;
-          }
+        normalized.message.conversationExternalId,
+        normalized.actor.actorExternalId,
+      );
+
+      if (isRejection(routing)) {
+        tlog.warn(
+          {
+            chatId: normalized.message.conversationExternalId,
+            reason: routing.reason,
+          },
+          "Routing rejected /new command",
+        );
+        if (
+          rejectionLimiter.shouldSend(normalized.message.conversationExternalId)
+        ) {
           sendTelegramReply(
             config,
             normalized.message.conversationExternalId,
-            `\u26a0\ufe0f ${text}`,
+            `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
             undefined,
             replyOpts,
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
-              "Failed to send /new notice",
+              "Failed to send /new routing rejection notice",
             );
           });
-        },
-        logger: tlog,
-        sourceThreadId: topicThreadId,
-      });
+        }
+      } else {
+        await handleNewCommand(
+          config,
+          normalized.sourceChannel,
+          normalized.message.conversationExternalId,
+          async (text) => {
+            await sendTelegramReply(
+              config,
+              normalized.message.conversationExternalId,
+              text,
+              undefined,
+              replyOpts,
+            );
+          },
+          tlog,
+          topicThreadId,
+        );
+      }
 
       // Acknowledge callback query so the button spinner clears
       acknowledgeCallbackQuery(

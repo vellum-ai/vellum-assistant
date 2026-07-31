@@ -7,16 +7,7 @@ import {
   initAdmissionPolicyCache,
   resetAdmissionPolicyCache,
 } from "../risk/admission-policy-cache.js";
-import {
-  initGatewayDb,
-  resetGatewayDb,
-  getGatewayDb,
-} from "../db/connection.js";
-import { AdmissionPolicyStore } from "../db/admission-policy-store.js";
-import {
-  contacts as gwContacts,
-  contactChannels as gwContactChannels,
-} from "../db/schema.js";
+import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -115,67 +106,12 @@ let fetchCalls: {
   headers?: Record<string, string>;
 }[];
 
-/** Telegram `from.id` used by {@link makeTelegramPayload}. */
-const ACTOR_ID = "67890";
-
-/**
- * Seed a gateway contact channel for the payload actor so the channel-command
- * authorization seam classifies them above the admission floor. Telegram ids
- * canonicalize to themselves, so `address` is the raw `from.id`.
- */
-function seedActorContact(opts: { role?: string; status?: string } = {}): void {
-  const now = Date.now();
-  getGatewayDb()
-    .insert(gwContacts)
-    .values({
-      id: "contact-1",
-      displayName: "Test User",
-      role: opts.role ?? "contact",
-      principalId: opts.role === "guardian" ? "principal-1" : null,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
-  getGatewayDb()
-    .insert(gwContactChannels)
-    .values({
-      id: "channel-1",
-      contactId: "contact-1",
-      type: "telegram",
-      address: ACTOR_ID,
-      externalChatId: null,
-      status: opts.status ?? "active",
-      policy: "allow",
-      verifiedAt: now,
-      verifiedVia: "challenge",
-      interactionCount: 0,
-      createdAt: now,
-    })
-    .run();
-}
-
-/** Persist an admission policy floor for telegram and refresh the cache. */
-function setTelegramPolicy(policy: Parameters<AdmissionPolicyStore["set"]>[1]) {
-  new AdmissionPolicyStore().set("telegram", policy);
-  resetAdmissionPolicyCache();
-  initAdmissionPolicyCache();
-}
-
 beforeEach(async () => {
   // P3 admission policy cache is required by `handleInbound`; init fresh
   // per test so the cache state mirrors the freshly-reset gateway DB.
   resetGatewayDb();
   resetAdmissionPolicyCache();
   await initGatewayDb();
-  // initGatewayDb reconnects to the same on-disk DB; clear leftover ACL rows
-  // (channels first, FK cascade from contacts) so trust resolution is
-  // deterministic across sibling suites.
-  getGatewayDb().delete(gwContactChannels).run();
-  getGatewayDb().delete(gwContacts).run();
-  const policyStore = new AdmissionPolicyStore();
-  for (const row of policyStore.list()) {
-    policyStore.remove(row.channelType);
-  }
   initAdmissionPolicyCache();
   fetchCalls = [];
 });
@@ -218,12 +154,7 @@ function extractHeaders(
  * Install a mock fetch that records calls and returns a 200 JSON response.
  * Runtime forward calls get an eventId response; Telegram API calls get { ok: true }.
  */
-function installFetchMock(
-  opts: {
-    resetResponse?: Record<string, unknown>;
-    resetStatus?: number;
-  } = {},
-) {
+function installFetchMock() {
   fetchMock = mock(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url =
@@ -259,16 +190,12 @@ function installFetchMock(
         );
       }
 
-      // Runtime reset conversation endpoint. The runtime owns the
-      // authorization decision, so tests can stand in a denial here.
+      // Runtime reset conversation endpoint
       if (url.includes("/channels/conversation") && method === "DELETE") {
-        return new Response(
-          JSON.stringify(opts.resetResponse ?? { ok: true }),
-          {
-            status: opts.resetStatus ?? 200,
-            headers: { "content-type": "application/json" },
-          },
-        );
+        return new Response("{}", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       // Telegram API calls (sendMessage, etc.)
@@ -460,7 +387,6 @@ describe("telegram webhook handler: /new rejection", () => {
 
   test("/new on an unrouted chat resets instead of sending a rejection notice", async () => {
     const config = makeConfig();
-    seedActorContact();
     installFetchMock();
     const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
@@ -486,8 +412,6 @@ describe("telegram webhook handler: /new rejection", () => {
         { type: "conversation_id", key: "12345", assistantId: "assistant-a" },
       ],
     });
-    // Clears the default `trusted_contacts` floor as an active contact.
-    seedActorContact();
     installFetchMock();
     const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
@@ -518,149 +442,6 @@ describe("telegram webhook handler: /new rejection", () => {
       );
     });
     expect(confirmCall).toBeDefined();
-  });
-});
-
-describe("telegram webhook handler: /new admission", () => {
-  const ROUTED = {
-    routingEntries: [
-      {
-        type: "conversation_id" as const,
-        key: "12345",
-        assistantId: "assistant-a",
-      },
-    ],
-  };
-
-  const resetCall = () =>
-    fetchCalls.find((c) => c.url.includes("/channels/conversation"));
-
-  test("`no_one` kills /new at the gateway: the runtime is never called", async () => {
-    // The kill switch is the gateway's own decision, enforced before any I/O
-    // so a channel the guardian turned off denies everyone, guardian included.
-    seedActorContact({ role: "guardian" });
-    setTelegramPolicy("no_one");
-    installFetchMock();
-    const { handler } = createTelegramWebhookHandler(
-      makeConfig(ROUTED),
-      makeCaches(),
-    );
-
-    const res = await handler(
-      makeWebhookRequest(makeTelegramPayload("/new", 5002)),
-    );
-
-    expect(res.status).toBe(200);
-    expect(resetCall()).toBeUndefined();
-    expect(
-      fetchCalls.find((c) => c.url.includes("/sendMessage")),
-    ).toBeUndefined();
-  });
-
-  test("forwards the actor's trust verdict and floor for the runtime to judge", async () => {
-    // The gateway does not decide admission for a command; it resolves the
-    // identity and hands it to the runtime, exactly as it stamps
-    // sourceMetadata on a message. The deny decision itself is covered by
-    // assistant/src/runtime/routes/__tests__/inbound-conversation-authorization.test.ts
-    seedActorContact();
-    installFetchMock();
-    const { handler } = createTelegramWebhookHandler(
-      makeConfig(ROUTED),
-      makeCaches(),
-    );
-
-    await handler(makeWebhookRequest(makeTelegramPayload("/new", 5004)));
-
-    const call = resetCall();
-    expect(call).toBeDefined();
-    expect(call!.method).toBe("DELETE");
-    const body = call!.body as {
-      trustVerdict?: { trustClass?: string };
-      admissionPolicy?: string;
-    };
-    expect(body.trustVerdict?.trustClass).toBe("trusted_contact");
-    expect(body.admissionPolicy).toBe("trusted_contacts");
-  });
-
-  test("a stranger is still forwarded: the runtime, not the gateway, denies", async () => {
-    installFetchMock();
-    const { handler } = createTelegramWebhookHandler(
-      makeConfig(ROUTED),
-      makeCaches(),
-    );
-
-    await handler(makeWebhookRequest(makeTelegramPayload("/new", 5005)));
-
-    const body = resetCall()!.body as {
-      trustVerdict?: { trustClass?: string };
-    };
-    expect(body.trustVerdict?.trustClass).toBe("unknown");
-  });
-
-  test("a runtime denial is silent: no confirmation reaches the sender", async () => {
-    // The runtime refuses an unauthorized reset with 403.
-    installFetchMock({ resetStatus: 403, resetResponse: { error: "denied" } });
-    const { handler } = createTelegramWebhookHandler(
-      makeConfig(ROUTED),
-      makeCaches(),
-    );
-
-    const res = await handler(
-      makeWebhookRequest(makeTelegramPayload("/new", 5006)),
-    );
-
-    expect(res.status).toBe(200);
-    expect(
-      fetchCalls.find((c) => c.url.includes("/sendMessage")),
-    ).toBeUndefined();
-  });
-
-  test("a non-success 2xx body is a failure, not a silent success", async () => {
-    // Success is the only 2xx shape, so anything else must not read as a
-    // completed reset.
-    seedActorContact();
-    installFetchMock({ resetResponse: { ok: false } });
-    const { handler } = createTelegramWebhookHandler(
-      makeConfig(ROUTED),
-      makeCaches(),
-    );
-
-    await handler(makeWebhookRequest(makeTelegramPayload("/new", 5011)));
-
-    const confirmation = fetchCalls.find(
-      (c) =>
-        c.url.includes("/sendMessage") &&
-        String((c.body as any)?.text ?? "").includes("new conversation"),
-    );
-    expect(confirmation).toBeUndefined();
-  });
-
-  test("a malformed runtime response fails closed instead of claiming success", async () => {
-    // Treating an unparseable 2xx as "not denied" would announce a reset that
-    // never happened.
-    seedActorContact();
-    installFetchMock({ resetResponse: { unexpected: "shape" } });
-    const { handler } = createTelegramWebhookHandler(
-      makeConfig(ROUTED),
-      makeCaches(),
-    );
-
-    const res = await handler(
-      makeWebhookRequest(makeTelegramPayload("/new", 5010)),
-    );
-
-    expect(res.status).toBe(200);
-    const confirmation = fetchCalls.find(
-      (c) =>
-        c.url.includes("/sendMessage") &&
-        String((c.body as any)?.text ?? "").includes("new conversation"),
-    );
-    // The transient notice is deliberately throttled by the shared rejection
-    // limiter, so the load-bearing assertion is that success is never claimed.
-    expect(confirmation).toBeUndefined();
-    expect(
-      fetchCalls.find((c) => c.url.includes("/channels/conversation")),
-    ).toBeDefined();
   });
 });
 
