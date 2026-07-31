@@ -28,6 +28,7 @@ import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
 import { clearLifecycleQuiesce } from "../persistence/lifecycle-quiesce.js";
+import { isPlatformClientConfigured } from "../platform/client.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -468,6 +469,12 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Periodic managed connection cache refresh failed"),
     );
   }, MANAGED_CONNECTION_REFRESH_INTERVAL_MS);
+
+  // Warms the configured-probe cache (credential reads only, no DB) so the
+  // first urgent signal after a restart is not decided on an empty cache.
+  void isPlatformClientConfigured().catch((err) =>
+    log.warn({ err }, "Platform configured-probe warmup failed"),
+  );
 
   // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
   // into the workspace config file before profile seeding and the first
