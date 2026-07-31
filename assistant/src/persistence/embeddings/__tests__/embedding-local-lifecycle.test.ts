@@ -512,3 +512,60 @@ describe("shutdown versus in-flight initialization", () => {
     expect(backend.workerProc).toBeNull();
   });
 });
+
+/**
+ * Two parent-exit orderings that could still strand a child.
+ */
+describe("parent exit orderings", () => {
+  /**
+   * A process being evicted cannot wait: staying alive to reap would let it
+   * keep running a job its successor has already reclaimed. But it also cannot
+   * defer to the successor's sweep, because eviction is noticed on a 15s poll,
+   * long after that single sweep classified the child as another live
+   * process's and left it alone. So it kills its own child on the way out.
+   */
+  test("terminateNow kills the worker and releases the entry without waiting", () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const signals: string[] = [];
+    const proc = {
+      pid: 909,
+      exited: new Promise<number>(() => {}),
+      kill(signal?: string) {
+        signals.push(signal ?? "SIGTERM");
+      },
+      stdin: { write() {}, flush() {} },
+    };
+    backend.workerProc = proc;
+    writeFileSync(getEmbedWorkerPidPath(), "909");
+
+    backend.terminateNow();
+
+    expect(signals).toEqual(["SIGKILL"]);
+    expect(backend.workerProc).toBeNull();
+    expect(existsSync(getEmbedWorkerPidPath())).toBe(false);
+  });
+
+  /**
+   * `waitForReady` allows two minutes for a cold model load. Shutdown must not
+   * inherit that: the caller's own deadline would fire first and exit the
+   * process while the child was still being adopted.
+   */
+  test("shutdown does not inherit the model-load wait when init never settles", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.terminateGraceMs = 50;
+    // An initialization that never resolves, as during a cold model load.
+    backend.initInFlight = new Promise<void>(() => {});
+
+    const started = Date.now();
+    await backend.shutdown();
+
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  test("a backend already shutting down refuses to spawn a replacement", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.disposeRequested = true;
+
+    await expect(backend.embed(["hello"])).rejects.toThrow(/shutting down/);
+  });
+});

@@ -96,6 +96,18 @@ export interface EmbeddingBackend {
    * in flight, this must not leave a child process behind.
    */
   shutdown?(): Promise<void>;
+  /**
+   * Release owned OS resources synchronously, for a process that must exit this
+   * tick. Unlike {@link shutdown} it cannot wait for confirmation, so it uses
+   * the uncatchable signal rather than the graceful one.
+   */
+  terminateNow?(): void;
+  /**
+   * Reap any owned child still attributable to this process, without needing a
+   * handle for it. Backstop for a teardown that could not resolve its handle in
+   * time.
+   */
+  sweepOwnedWorkers?(): Promise<void>;
 }
 
 /**

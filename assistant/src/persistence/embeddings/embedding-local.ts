@@ -444,6 +444,12 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     // gone, before spawning so two same-owner workers never overlap.
     await this.reclaimOwnedWorkers(workerPath);
 
+    // Shutdown may have been requested while the reclaim above was running.
+    // Spawning now would hand a fresh child to a backend nobody will tear down.
+    if (this.disposeRequested) {
+      throw new Error("Local embedding backend is shutting down");
+    }
+
     log.info(
       { bunPath, workerPath, model: this.model },
       "Spawning embedding worker process",
@@ -973,6 +979,30 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   }
 
   /**
+   * SIGKILL this backend's worker without waiting, for a process that must exit
+   * this tick and cannot afford the graceful path.
+   *
+   * The fail-closed retention that {@link shutdown} uses is meaningless here:
+   * we are about to exit, so there is nobody left to hold ownership for. What
+   * matters is that the child does not outlive us as an orphan the next owner's
+   * single reclaim sweep has already passed by. SIGKILL cannot be caught, so
+   * delivery is disposal.
+   */
+  terminateNow(): void {
+    const proc = this.workerProc;
+    if (!proc) {
+      return;
+    }
+    this.workerProc = null;
+    try {
+      proc.kill("SIGKILL");
+    } catch {
+      // Already gone.
+    }
+    this.releasePidFile(proc.pid);
+  }
+
+  /**
    * Terminate this backend's worker and wait for the child to exit.
    *
    * The deterministic counterpart to {@link dispose} for daemon shutdown: it
@@ -988,9 +1018,15 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     // the model to load. Returning now would sweep the cache and let that
     // initializer spawn a worker afterwards, with nobody left to reap it. Wait
     // for it to settle so there is a handle to tear down.
+    // Bounded. `waitForReady` allows two minutes for a cold model load, far
+    // longer than any caller's shutdown budget, so an unbounded wait here would
+    // let the parent's own deadline fire first and orphan the child.
     const inFlight = this.initInFlight;
     if (inFlight) {
-      await inFlight.catch(() => undefined);
+      await Promise.race([
+        inFlight.catch(() => undefined),
+        Bun.sleep(this.terminateGraceMs),
+      ]);
     }
 
     const proc = this.workerProc;
@@ -1015,5 +1051,23 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     // Leave the publication in place: the child may outlive us, and the entry
     // is what lets the next owner's reclaim sweep find and reap it.
     this.retainUnconfirmedWorker(proc.pid);
+  }
+
+  /**
+   * Reap any worker still parented to this process.
+   *
+   * Backstop for {@link shutdown}: an initializer that did not settle inside the
+   * bounded wait can still spawn a child afterwards, and that child has no
+   * handle anyone is holding. Ownership by parentage finds it regardless.
+   */
+  async sweepOwnedWorkers(): Promise<void> {
+    if (!this.workerPath) {
+      return;
+    }
+    try {
+      await this.reclaimOwnedWorkers(this.workerPath);
+    } catch (err) {
+      log.warn({ err, model: this.model }, "Owned-worker sweep incomplete");
+    }
   }
 }

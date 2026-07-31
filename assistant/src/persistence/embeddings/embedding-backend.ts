@@ -87,6 +87,14 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
     this.delegate?.dispose?.();
   }
 
+  terminateNow(): void {
+    this.delegate?.terminateNow?.();
+  }
+
+  async sweepOwnedWorkers(): Promise<void> {
+    await this.delegate?.sweepOwnedWorkers?.();
+  }
+
   async shutdown(): Promise<void> {
     // A delegate under construction still ends up owning a worker, so settle
     // the in-flight import before tearing down rather than skipping it.
@@ -253,6 +261,7 @@ export async function shutdownEmbeddingBackends(): Promise<void> {
     [...backends].map(async (backend) => {
       try {
         await backend.shutdown?.();
+        await backend.sweepOwnedWorkers?.();
       } catch (err) {
         log.warn(
           { err, provider: backend.provider, model: backend.model },
@@ -261,6 +270,28 @@ export async function shutdownEmbeddingBackends(): Promise<void> {
       }
     }),
   );
+}
+
+/**
+ * SIGKILL every cached backend's worker synchronously.
+ *
+ * For a process that must exit immediately and cannot run the graceful
+ * teardown: the memory worker on PID-file eviction, where staying alive to reap
+ * would let it keep executing a job its successor has already reclaimed.
+ * Without this the child is orphaned only after the successor's single reclaim
+ * sweep has passed, leaving two workers alive (JARVIS-1125).
+ */
+export function terminateEmbeddingWorkersNow(): void {
+  for (const backend of new Set(backendCache.values())) {
+    try {
+      backend.terminateNow?.();
+    } catch (err) {
+      log.warn(
+        { err, provider: backend.provider, model: backend.model },
+        "Failed to terminate embedding worker",
+      );
+    }
+  }
 }
 
 /** Reset the sticky local-backend failure flag without evicting live backends. */

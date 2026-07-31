@@ -16,7 +16,10 @@ import { getConfig } from "../../../config/loader.js";
 import { isMemoryEnabled } from "../../../config/memory-v3-gate.js";
 import { rehydratePlatformCredentials } from "../../../config/platform-rehydration.js";
 import { resetDb } from "../../../persistence/db-connection.js";
-import { shutdownEmbeddingBackends } from "../../../persistence/embeddings/embedding-backend.js";
+import {
+  shutdownEmbeddingBackends,
+  terminateEmbeddingWorkersNow,
+} from "../../../persistence/embeddings/embedding-backend.js";
 import { disableStreamSeqStamping } from "../../../runtime/assistant-stream-state.js";
 import { initializeTools } from "../../../tools/registry.js";
 import {
@@ -104,10 +107,14 @@ async function main(): Promise<void> {
     // Eviction means a successor is already live and about to reset every
     // `running` job to `pending`. `worker.stop()` does not cancel the tick
     // already in flight, so staying alive to reap would let this process keep
-    // executing a job the successor has just reclaimed. Exit now instead; the
-    // embed worker is reparented to init and the successor's sweep reaps it
-    // as an orphan.
+    // executing a job the successor has just reclaimed.
+    //
+    // Exit now, but kill the owned embed worker first. Waiting for the
+    // successor's reclaim sweep to adopt it does not work: eviction is detected
+    // on a 15s poll, by which point that sweep has already run and classified
+    // the child as another live process's, leaving two workers alive.
     if (opts.immediate) {
+      terminateEmbeddingWorkersNow();
       process.exit(0);
     }
 
