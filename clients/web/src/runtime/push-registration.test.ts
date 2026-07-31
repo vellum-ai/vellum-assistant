@@ -149,6 +149,7 @@ mock.module("@/lib/sentry/capture-error", () => ({
 
 const {
   extractPushConversationId,
+  hasSessionConfirmedRemotePushRegistration,
   isRemotePushSupported,
   registerForRemotePush,
   unregisterFromRemotePush,
@@ -426,6 +427,62 @@ describe("extractPushConversationId", () => {
     expect(extractPushConversationId({ deep_link: null })).toBeUndefined();
     expect(extractPushConversationId({ deep_link: {} })).toBeUndefined();
     expect(extractPushConversationId({ conversationId: 42 })).toBeUndefined();
+  });
+});
+
+describe("hasSessionConfirmedRemotePushRegistration", () => {
+  test("false when nothing has been registered", () => {
+    expect(hasSessionConfirmedRemotePushRegistration("assistant-1")).toBe(
+      false,
+    );
+  });
+
+  test("true after a successful upsert for the same assistant", async () => {
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+
+    expect(hasSessionConfirmedRemotePushRegistration("assistant-1")).toBe(true);
+  });
+
+  test("false for a different assistant than the registered one", async () => {
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+
+    expect(hasSessionConfirmedRemotePushRegistration("assistant-2")).toBe(
+      false,
+    );
+  });
+
+  test("ignores a persisted-only registration (reload before any re-upsert)", () => {
+    // A record surviving from an earlier session proves nothing about
+    // whether the platform still holds the token row (the server prunes
+    // rows on APNs BadDeviceToken), so it must not count as confirmed.
+    localStorage.setItem(
+      "vellum:push_registration",
+      JSON.stringify({
+        token: "persisted-token",
+        bundleId: "ai.vocify-inc.vellum-assistant-ios",
+        assistantId: "assistant-9",
+      }),
+    );
+
+    expect(hasSessionConfirmedRemotePushRegistration("assistant-9")).toBe(
+      false,
+    );
+  });
+
+  test("false again after unregister clears the registration", async () => {
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+
+    await unregisterFromRemotePush();
+
+    expect(hasSessionConfirmedRemotePushRegistration("assistant-1")).toBe(
+      false,
+    );
   });
 });
 

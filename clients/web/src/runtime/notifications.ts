@@ -32,6 +32,10 @@ import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
 import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
+import {
+  hasSessionConfirmedRemotePushRegistration,
+  isRemotePushSupported,
+} from "@/runtime/push-registration";
 
 /**
  * Payload stored alongside each native notification so the tap handler can
@@ -272,6 +276,13 @@ export interface PostLocalNotificationArgs {
    * directly with `success=true`.
    */
   assistantId?: string;
+  /**
+   * True when the daemon confirmed the platform (APNs) channel accepted a
+   * remote push for this delivery. A native app that is hidden at intent
+   * arrival with a session-confirmed push registration skips the local
+   * banner so the remote push is the only one.
+   */
+  remotePushDispatched?: boolean;
 }
 
 /**
@@ -361,6 +372,10 @@ export async function postLocalNotification(
     return;
   }
 
+  // Snapshot before the awaits below: the remote-push dedup skip must see
+  // visibility at intent arrival, not after an async native-bridge gap.
+  const visibilityAtIntent = document.visibilityState;
+
   const permission = await ensureNotificationPermission();
   if (permission !== "granted") {
     if (args.assistantId && args.deliveryId) {
@@ -385,6 +400,40 @@ export async function postLocalNotification(
   let errorMessage: string | undefined;
 
   if (isNativePlatform()) {
+    // iOS suppresses remote pushes while the app is foregrounded (no
+    // presentationOptions configured), so the local banner is the only
+    // foreground surface. The banner is skipped only when the daemon
+    // confirmed an accepted remote push, this device holds a
+    // session-confirmed APNs registration (an upsert succeeded in this JS
+    // session, proving the platform held a live token row for this device
+    // at mount), and the app was hidden when the intent arrived; the
+    // remote push banners on its own there, and scheduling the local one
+    // too would double-notify during the SSE grace window after
+    // backgrounding.
+    //
+    // Residual limitation: `remotePushDispatched` is an aggregate
+    // account-level outcome (any device token accepted), so on a
+    // multi-device account a token pruned mid-session can still suppress
+    // this banner while only another device received the push. Closing
+    // that gap requires per-token dispatch results from the platform's
+    // dispatch endpoint.
+    if (
+      args.remotePushDispatched === true &&
+      isRemotePushSupported() &&
+      args.assistantId !== undefined &&
+      hasSessionConfirmedRemotePushRegistration(args.assistantId) &&
+      visibilityAtIntent === "hidden"
+    ) {
+      if (args.deliveryId) {
+        await sendNotificationIntentAck(
+          args.assistantId,
+          args.deliveryId,
+          true,
+        );
+      }
+      return;
+    }
+
     const seed =
       args.deliveryId ?? `${args.sourceEventName}:${args.title}:${args.body}`;
     const notification: LocalNotificationSchema = {

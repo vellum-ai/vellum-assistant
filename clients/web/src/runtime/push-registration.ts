@@ -311,9 +311,7 @@ export async function unregisterFromRemotePush(): Promise<void> {
     await Promise.allSettled([...pendingUpserts]);
   }
 
-  // Fall back to persisted storage: a process reload before re-registration
-  // leaves `lastRegistered` null even though a token is still registered.
-  const registered = lastRegistered ?? persistedRegistration.load();
+  const registered = loadCurrentRegistration();
   lastRegistered = null;
   persistedRegistration.remove();
 
@@ -348,6 +346,39 @@ export async function unregisterFromRemotePush(): Promise<void> {
       bestEffort: true,
     });
   }
+}
+
+/**
+ * The registration this device currently holds: module memory, falling
+ * back to persisted storage (a process reload wipes `lastRegistered`
+ * while the token stays registered server-side).
+ */
+function loadCurrentRegistration(): RegisteredToken | null {
+  return lastRegistered ?? persistedRegistration.load();
+}
+
+/**
+ * True when this device holds a push registration for `assistantId` that was
+ * confirmed in the current JS session (module-memory `lastRegistered`, set
+ * only when an upsert succeeded after this process started).
+ *
+ * Deliberately ignores the persisted-storage registration: a record from an
+ * earlier session only proves an upsert once succeeded, not that the platform
+ * still holds a token row for this device (APNs BadDeviceToken responses
+ * prune rows server-side). A session-confirmed upsert proves the platform
+ * held a live token row for this device at mount time, which is the evidence
+ * the remote-push banner dedup in `runtime/notifications.ts` needs before
+ * suppressing a local banner. The logout path is different: deleting a
+ * possibly-stale token is harmless, so `unregisterFromRemotePush` falls back
+ * to the persisted registration.
+ *
+ * Pure state read, never touches Capacitor plugins, so it is safe to call
+ * synchronously on any platform.
+ */
+export function hasSessionConfirmedRemotePushRegistration(
+  assistantId: string,
+): boolean {
+  return lastRegistered?.assistantId === assistantId;
 }
 
 /** Test-only: reset module + persisted state between cases. */
