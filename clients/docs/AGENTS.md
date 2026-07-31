@@ -10,6 +10,7 @@ Ingress only routes `/docs/*` to this app. Every URL the app emits publicly MUST
 
 - Pages are authored under `src/app/docs/` with no `basePath`.
 - The search API is `/docs/api/search`, markdown mirrors are `/docs/<path>.md` (index: `/docs/index.md`), the agent index is `/docs/llms.txt`, the sitemap is `/docs/sitemap.xml`, and assets are served from `public/docs/`.
+- Next's build assets are served under the prefix too: `assetPrefix: "/docs"` in `next.config.ts` plus the first `beforeFiles` rewrite (`/docs/_next/*` → `/_next/*`). Without both halves, stylesheets and scripts resolve to `/_next/*`, which ingress routes to a different backend. `verify-parity.ts` asserts asset subresources load.
 - The only exception is `/api/health`: GKE BackendConfig health checks hit the pod directly and bypass ingress path rules.
 - Canonical URLs are absolute `https://www.vellum.ai<path>` via `createMetadata` (`src/lib/metadata.ts`). Never change a page's `path:` value; URLs did not change in the migration, and native clients link the legal paths (`/docs/privacy-policy`, `/docs/vellum-terms-of-use`, `/docs/prohibited-use`) directly.
 - Links to non-docs Vellum surfaces (signup, login, the assistant app) are cross-app now: absolute URLs from `src/lib/routes.ts`.

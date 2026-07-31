@@ -154,11 +154,19 @@ describe("next config rewrite sources", () => {
   test("every beforeFiles rewrite source is a known pattern", async () => {
     const sources = (await beforeFilesRewrites()).map((rule) => rule.source);
     expect(sources).toEqual([
+      "/docs/_next/:path*",
       "/docs/index.md",
       "/docs/:path*.md",
       "/docs",
       "/docs/:path((?!llms\\.txt$)(?!api(?:\\/|$))(?!_md(?:\\/|$)).*)",
     ]);
+  });
+
+  test("the asset rewrite is first and maps the assetPrefix back to /_next", async () => {
+    const [assetRule] = await beforeFilesRewrites();
+    expect(assetRule.source).toBe("/docs/_next/:path*");
+    expect(assetRule.destination).toBe("/_next/:path*");
+    expect(hasMarkdownAcceptCondition(assetRule)).toBe(false);
   });
 
   test("docsPathForSource rejects unrecognized sources", () => {
