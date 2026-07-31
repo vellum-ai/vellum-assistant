@@ -437,30 +437,29 @@ export function useConversationHistory({
   // landed, and the buffered event tail is replayed so anything that raced the
   // fetch isn't lost.
   //
-  // The billing summary is invalidated on the same edge: every turn (including
-  // one that fails on exhausted credits) can move the credit balance, and the
-  // balance surfaces should reflect it without waiting for the staleTime
-  // window. Gated exactly like `useBillingBalanceStatus` so self-hosted /
-  // org-not-ready contexts, where the query never runs, skip it.
   // -------------------------------------------------------------------------
-  const billingSummaryEnabled = useBillingBalanceQueryEnabled();
   const refetchHistoryOnTurnEnd = useCallback(() => {
     if (!assistantId || !activeConversationId) {
       return;
     }
     void pagination.invalidate();
+  }, [assistantId, activeConversationId, pagination]);
+
+  // The billing summary is invalidated on its own falling edge below: every
+  // turn in ANY conversation (including a background turn run from an
+  // external channel or another client, and one that fails on exhausted
+  // credits) can move the org-wide credit balance, and the balance surfaces
+  // should reflect it without waiting for the staleTime window. Gated exactly
+  // like `useBillingBalanceStatus` so self-hosted / org-not-ready contexts,
+  // where the query never runs, skip it.
+  const billingSummaryEnabled = useBillingBalanceQueryEnabled();
+  const invalidateBillingSummary = useCallback(() => {
     if (billingSummaryEnabled) {
       void queryClient.invalidateQueries({
         queryKey: organizationsBillingSummaryRetrieveQueryKey(),
       });
     }
-  }, [
-    assistantId,
-    activeConversationId,
-    pagination,
-    billingSummaryEnabled,
-    queryClient,
-  ]);
+  }, [billingSummaryEnabled, queryClient]);
 
   // A turn is in progress for the active conversation when either the local
   // turn store is sending (a `useSendMessage` turn this client started) or the
@@ -484,6 +483,22 @@ export function useConversationHistory({
       refetchHistoryOnTurnEnd();
     }
   }, [activeInProgress, refetchHistoryOnTurnEnd]);
+
+  // Billing tracks turns across ALL conversations, not just the active one:
+  // a background turn (external channel, other client) spends the same
+  // org-wide balance. Falling edge over the combined signal, so a background
+  // turn ending while another is still running defers the invalidation to
+  // the last turn's end.
+  const anyInProgress =
+    isSending(turnPhase) || processingConversationIds.size > 0;
+  const anyWasInProgressRef = useRef(false);
+  useEffect(() => {
+    const justFinished = anyWasInProgressRef.current && !anyInProgress;
+    anyWasInProgressRef.current = anyInProgress;
+    if (justFinished) {
+      invalidateBillingSummary();
+    }
+  }, [anyInProgress, invalidateBillingSummary]);
 
   // -------------------------------------------------------------------------
   // Refetch history when the SSE connection reopens after a disconnect.

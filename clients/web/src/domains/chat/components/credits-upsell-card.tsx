@@ -39,7 +39,7 @@ export function CreditsUpsellCard() {
   // platform-hosted gate (like `MaintenanceModeBanner` and the billing
   // settings tab): "full" renders the real CTA, "disabled" renders the login
   // treatment, "gated" renders nothing. The gate also keys the subscription
-  // fetch inside `useIsFreePlan` — without a platform session `useIsOrgReady`
+  // fetch inside `useIsFreePlan`: without a platform session `useIsOrgReady`
   // still reports ready, so an ungated fetch would fire unauthenticated.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const billingCtaArm = useBillingCtaExperimentArm();

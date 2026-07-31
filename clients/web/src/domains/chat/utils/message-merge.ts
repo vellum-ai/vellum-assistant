@@ -208,7 +208,7 @@ function canFoldAdjacentAssistant(
   ) {
     return false;
   }
-  // Standalone display turns — mirrors the daemon's
+  // Standalone display turns, mirroring the daemon's
   // `isStandaloneAssistantRow` (message-consolidation.ts): system cards and
   // provider-error notices never merge with adjacent assistant rows. The fold
   // keeps only the survivor's metadata, so merging would either drop the

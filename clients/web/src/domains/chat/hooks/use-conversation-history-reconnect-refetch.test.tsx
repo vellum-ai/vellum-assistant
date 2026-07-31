@@ -245,9 +245,9 @@ describe("useConversationHistory — refetch on SSE reopen", () => {
 
   test("invalidates the billing summary once per falling edge, not per turn tick", () => {
     /**
-     * The billing refresh rides the same falling edge as the history reseed:
-     * one invalidation per finished turn, none while the turn is streaming,
-     * and no repeats until another turn completes.
+     * The billing refresh rides a falling edge over in-progress turns: one
+     * invalidation per finished turn, none while the turn is streaming, and
+     * no repeats until another turn completes.
      */
     // GIVEN two back-to-back turns on the active conversation
     renderHistory("conv-A");
@@ -266,6 +266,57 @@ describe("useConversationHistory — refetch on SSE reopen", () => {
 
     // THEN exactly one billing invalidation per completed turn
     expect(billingInvalidations()).toBe(2);
+  });
+
+  test("invalidates the billing summary when a background conversation's turn ends", () => {
+    /**
+     * A turn in another conversation (external channel, other client) spends
+     * the same org-wide balance, so its end must refresh the billing summary
+     * even though the active conversation's history is untouched.
+     */
+    // GIVEN conversation A open while a background turn streams in B
+    renderHistory("conv-A");
+    act(() => {
+      useConversationStore.getState().markConversationProcessing("conv-B");
+    });
+    expect(billingInvalidations()).toBe(0);
+
+    // WHEN the background turn finishes
+    act(() => {
+      useConversationStore.getState().removeProcessingConversationId("conv-B");
+    });
+
+    // THEN the billing summary refreshes but A's history is not reseeded
+    expect(billingInvalidations()).toBe(1);
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  test("defers the billing invalidation until the last overlapping turn ends", () => {
+    /**
+     * The billing edge watches the combined in-progress signal, so a
+     * background turn ending while the active turn still streams fires
+     * nothing; the single invalidation lands when the last turn finishes.
+     */
+    // GIVEN overlapping turns in A (active) and B (background)
+    renderHistory("conv-A");
+    act(() => {
+      useConversationStore.getState().markConversationProcessing("conv-A");
+      useConversationStore.getState().markConversationProcessing("conv-B");
+    });
+
+    // WHEN only the background turn ends
+    act(() => {
+      useConversationStore.getState().removeProcessingConversationId("conv-B");
+    });
+    // THEN nothing fires while A still streams
+    expect(billingInvalidations()).toBe(0);
+
+    // WHEN the active turn ends too
+    act(() => {
+      useConversationStore.getState().removeProcessingConversationId("conv-A");
+    });
+    // THEN exactly one billing invalidation for the overlapping pair
+    expect(billingInvalidations()).toBe(1);
   });
 
   test("skips the billing invalidation when the billing query is gated off", () => {
