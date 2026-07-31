@@ -107,21 +107,41 @@ async function resolvePlatformClientConfig(): Promise<PlatformClientConfig | nul
 const CONFIGURED_PROBE_DEADLINE_MS = 500;
 
 let lastKnownConfigured: boolean | null = null;
-// Single-flight slot: concurrent probes share one resolution, so the cache is
-// written once per flight and an out-of-order settle cannot overwrite a newer
-// result.
-let inFlightConfiguredProbe: Promise<boolean> | null = null;
+// Single-flight slot with rotation: probes started inside the deadline window
+// share one resolution, while a flight older than the deadline is replaced so
+// a hung credential backend cannot pin the slot (and the cache) stale until a
+// 45s credential timeout finally settles it. Generation fencing keeps an
+// out-of-order settle from a rotated-out flight from overwriting the result a
+// newer flight already wrote.
+interface ConfiguredProbeFlight {
+  promise: Promise<boolean>;
+  startedAt: number;
+  generation: number;
+}
+let inFlightConfiguredProbe: ConfiguredProbeFlight | null = null;
+let probeGeneration = 0;
+let lastWrittenGeneration = 0;
 
 export function _resetConfiguredProbeCacheForTests(): void {
   lastKnownConfigured = null;
   inFlightConfiguredProbe = null;
+  // Outstanding flights all carry generations at or below the current
+  // counter; raising the written floor to it blocks their settles from
+  // resurrecting the cache after a reset.
+  lastWrittenGeneration = probeGeneration;
 }
 
 function startOrJoinConfiguredProbe(): Promise<boolean> {
-  if (inFlightConfiguredProbe) {
-    return inFlightConfiguredProbe;
+  const existing = inFlightConfiguredProbe;
+  if (
+    existing !== null &&
+    Date.now() - existing.startedAt < CONFIGURED_PROBE_DEADLINE_MS
+  ) {
+    return existing.promise;
   }
-  const flight = resolvePlatformClientConfig()
+  probeGeneration += 1;
+  const generation = probeGeneration;
+  const promise = resolvePlatformClientConfig()
     .then((config) => config !== null && config.assistantId.length > 0)
     .catch((err: unknown) => {
       log.debug(
@@ -131,16 +151,17 @@ function startOrJoinConfiguredProbe(): Promise<boolean> {
       return false;
     })
     .then((value) => {
-      // A cleared slot means a test reset invalidated this flight, so its
-      // result must not resurrect the cache.
-      if (inFlightConfiguredProbe === flight) {
+      if (generation > lastWrittenGeneration) {
         lastKnownConfigured = value;
+        lastWrittenGeneration = generation;
+      }
+      if (inFlightConfiguredProbe?.generation === generation) {
         inFlightConfiguredProbe = null;
       }
       return value;
     });
-  inFlightConfiguredProbe = flight;
-  return flight;
+  inFlightConfiguredProbe = { promise, startedAt: Date.now(), generation };
+  return promise;
 }
 
 /**
@@ -150,9 +171,11 @@ function startOrJoinConfiguredProbe(): Promise<boolean> {
  *
  * Bounded by {@link CONFIGURED_PROBE_DEADLINE_MS}: when config resolution is
  * slower than the deadline, returns the last settled result (or `false` when
- * none exists yet). The probe is single-flight: concurrent calls share one
- * resolution, and a resolution abandoned at the deadline still settles in
- * the background and refreshes the cache for the next call.
+ * none exists yet). Calls inside the deadline window share one in-flight
+ * resolution; a call that finds a flight older than the deadline starts a
+ * fresh one, so a hung backend never pins the cache stale, and generation
+ * fencing keeps a rotated-out flight's late settle from overwriting a newer
+ * result.
  */
 export async function isPlatformClientConfigured(): Promise<boolean> {
   const probe = startOrJoinConfiguredProbe();

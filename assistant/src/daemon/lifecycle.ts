@@ -199,6 +199,14 @@ export async function runDaemon(): Promise<void> {
   // failure is non-fatal — the daemon falls back to IPC-only operation.
   await startRuntimeHttpServer();
 
+  // Warms the configured-probe cache (credential reads only, no DB). Fired
+  // immediately after the transport binds, ahead of DB init and readiness,
+  // so an urgent signal arriving the moment requests are admitted is not
+  // decided on an empty cache.
+  void isPlatformClientConfigured().catch((err) =>
+    log.warn({ err }, "Platform configured-probe warmup failed"),
+  );
+
   // Pre-populate feature flag overrides so subsequent sync
   // isAssistantFeatureFlagEnabled() calls have data. Fired non-blocking
   // so a slow or unreachable gateway doesn't delay daemon startup (the
@@ -469,12 +477,6 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Periodic managed connection cache refresh failed"),
     );
   }, MANAGED_CONNECTION_REFRESH_INTERVAL_MS);
-
-  // Warms the configured-probe cache (credential reads only, no DB) so the
-  // first urgent signal after a restart is not decided on an empty cache.
-  void isPlatformClientConfigured().catch((err) =>
-    log.warn({ err }, "Platform configured-probe warmup failed"),
-  );
 
   // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
   // into the workspace config file before profile seeding and the first
