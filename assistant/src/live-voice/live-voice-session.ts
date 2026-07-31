@@ -5264,7 +5264,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // site: every frame that moves the session's phase passes through this one
     // method, and a per-call-site hook would drift from it on the first frame
     // anyone added. Fire-and-forget by contract — see the reporter.
-    this.liveActivityReporter.report(frame.type);
+    this.liveActivityReporter.report(frame);
     let sent = false;
     this.outboundFrames = this.outboundFrames
       .catch(() => {})

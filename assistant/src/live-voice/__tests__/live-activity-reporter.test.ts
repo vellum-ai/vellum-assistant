@@ -15,6 +15,22 @@ import {
   LiveActivityReporter,
   phaseForFrame,
 } from "../live-activity-reporter.js";
+import type { LiveVoiceServerFramePayload } from "../protocol.js";
+
+/**
+ * A server frame of `type`, with whatever else that variant requires.
+ *
+ * Cast rather than fully constructed: these tests care only about the
+ * discriminant, and the protocol's frames carry fields (turn ids, audio
+ * payloads) that say nothing about the phase.
+ */
+function frame(type: string): LiveVoiceServerFramePayload {
+  return { type } as LiveVoiceServerFramePayload;
+}
+
+function sttFinal(text: string): LiveVoiceServerFramePayload {
+  return { type: "stt_final", text } as LiveVoiceServerFramePayload;
+}
 
 /** A reporter whose dispatches are captured instead of sent. */
 class RecordingReporter extends LiveActivityReporter {
@@ -30,21 +46,42 @@ class RecordingReporter extends LiveActivityReporter {
 
 describe("phaseForFrame", () => {
   test("maps the frames the client derives phases from", () => {
-    expect(phaseForFrame("utterance_ended")).toBe("transcribing");
-    expect(phaseForFrame("stt_final")).toBe("thinking");
-    expect(phaseForFrame("thinking")).toBe("thinking");
-    expect(phaseForFrame("tts_audio")).toBe("speaking");
+    expect(phaseForFrame(frame("utterance_end"), "listening")).toBe(
+      "transcribing",
+    );
+    expect(phaseForFrame(frame("thinking"), "transcribing")).toBe("thinking");
+    expect(phaseForFrame(frame("tts_audio"), "thinking")).toBe("speaking");
   });
 
   test("a discarded utterance returns the floor to the user", () => {
-    expect(phaseForFrame("utterance_discarded")).toBe("listening");
-    expect(phaseForFrame("tts_done")).toBe("listening");
+    expect(phaseForFrame(frame("utterance_discarded"), "transcribing")).toBe(
+      "listening",
+    );
+    expect(phaseForFrame(frame("tts_done"), "speaking")).toBe("listening");
   });
 
   test("frames that say nothing about the phase move nothing", () => {
-    expect(phaseForFrame("stt_partial")).toBeNull();
-    expect(phaseForFrame("ready")).toBeNull();
-    expect(phaseForFrame("some_frame_added_later")).toBeNull();
+    expect(phaseForFrame(frame("stt_partial"), "listening")).toBeNull();
+    expect(phaseForFrame(frame("ready"), "listening")).toBeNull();
+  });
+
+  // Semantic endpointing holds an utterance open past a final: the session
+  // suppresses `utterance_end`, the floor is still the user's, and the room
+  // stays on "Listening…". An island claiming "Thinking…" here would be
+  // telling the user to stop talking.
+  test("a final only means thinking once the utterance has closed", () => {
+    expect(
+      phaseForFrame(sttFinal("what's the weather"), "listening"),
+    ).toBeNull();
+    expect(phaseForFrame(sttFinal("what's the weather"), "transcribing")).toBe(
+      "thinking",
+    );
+  });
+
+  // An empty final never starts a turn — its utterance is about to be
+  // discarded.
+  test("an empty final moves nothing", () => {
+    expect(phaseForFrame(sttFinal("   "), "transcribing")).toBeNull();
   });
 });
 
@@ -52,7 +89,7 @@ describe("LiveActivityReporter", () => {
   test("reports a phase change once", () => {
     const reporter = new RecordingReporter("conv-1");
 
-    reporter.report("thinking");
+    reporter.report(frame("thinking"));
 
     expect(reporter.dispatched).toEqual([
       { phase: "thinking", event: "update" },
@@ -63,9 +100,9 @@ describe("LiveActivityReporter", () => {
   test("does not re-report a phase it is already in", () => {
     const reporter = new RecordingReporter("conv-1");
 
-    reporter.report("tts_audio");
-    reporter.report("tts_audio");
-    reporter.report("tts_audio");
+    reporter.report(frame("tts_audio"));
+    reporter.report(frame("tts_audio"));
+    reporter.report(frame("tts_audio"));
 
     expect(reporter.dispatched).toEqual([
       { phase: "speaking", event: "update" },
@@ -75,11 +112,11 @@ describe("LiveActivityReporter", () => {
   test("reports each genuine transition through a turn", () => {
     const reporter = new RecordingReporter("conv-1");
 
-    reporter.report("utterance_ended");
-    reporter.report("stt_final");
-    reporter.report("tts_audio");
-    reporter.report("tts_audio");
-    reporter.report("tts_done");
+    reporter.report(frame("utterance_end"));
+    reporter.report(sttFinal("hello there"));
+    reporter.report(frame("tts_audio"));
+    reporter.report(frame("tts_audio"));
+    reporter.report(frame("tts_done"));
 
     expect(reporter.dispatched.map((d) => d.phase)).toEqual([
       "transcribing",
@@ -92,15 +129,15 @@ describe("LiveActivityReporter", () => {
   test("frames that do not move the phase are ignored", () => {
     const reporter = new RecordingReporter("conv-1");
 
-    reporter.report("stt_partial");
-    reporter.report("ready");
+    reporter.report(frame("stt_partial"));
+    reporter.report(frame("ready"));
 
     expect(reporter.dispatched).toEqual([]);
   });
 
   test("ending retires the activity", () => {
     const reporter = new RecordingReporter("conv-1");
-    reporter.report("tts_audio");
+    reporter.report(frame("tts_audio"));
 
     reporter.end();
 
@@ -126,8 +163,32 @@ describe("LiveActivityReporter", () => {
     const reporter = new RecordingReporter("conv-1");
 
     reporter.end();
-    reporter.report("tts_audio");
+    reporter.report(frame("tts_audio"));
 
     expect(reporter.dispatched).toEqual([{ phase: "ending", event: "end" }]);
+  });
+});
+
+describe("LiveActivityReporter and held utterances", () => {
+  // End to end through the reporter, not just the mapping: a session using
+  // semantic endpointing emits finals while the user still holds the floor.
+  test("a final during a held utterance pushes nothing", () => {
+    const reporter = new RecordingReporter("conv-1");
+
+    reporter.report(sttFinal("i was thinking maybe"));
+
+    expect(reporter.dispatched).toEqual([]);
+  });
+
+  test("the same final after utterance_end advances to thinking", () => {
+    const reporter = new RecordingReporter("conv-1");
+
+    reporter.report(frame("utterance_end"));
+    reporter.report(sttFinal("i was thinking maybe"));
+
+    expect(reporter.dispatched.map((d) => d.phase)).toEqual([
+      "transcribing",
+      "thinking",
+    ]);
   });
 });

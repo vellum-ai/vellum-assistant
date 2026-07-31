@@ -29,6 +29,7 @@
 
 import { VellumPlatformClient } from "../platform/client.js";
 import { getLogger } from "../util/logger.js";
+import type { LiveVoiceServerFramePayload } from "./protocol.js";
 
 const log = getLogger("live-activity-reporter");
 
@@ -45,22 +46,47 @@ export type LiveActivityPhase =
  * The phase a frame puts the session into, or `null` for frames that do not
  * move it.
  *
- * Mirrors the client's handlers in
- * `clients/web/src/domains/chat/voice/live-voice/use-live-voice.ts`. Frames
- * absent from this map are not oversights — most say nothing about the phase
- * (`stt_partial` streams inside `listening`; `tts_audio` after the first chunk
- * is already `speaking`).
+ * `frame` is typed as the protocol's own payload union rather than a bare
+ * string, so a `case` for a frame that does not exist is a compile error. The
+ * first version of this function matched `"utterance_ended"` — a frame no part
+ * of the system emits — and silently never fired.
+ *
+ * **This mirrors the client's handlers** in
+ * `clients/web/src/domains/chat/voice/live-voice/use-live-voice.ts`, which stay
+ * authoritative. Frames absent here are not oversights: most say nothing about
+ * the phase (`stt_partial` streams inside `listening`, and every `tts_audio`
+ * after the first is already `speaking`).
+ *
+ * `lastPhase` is a parameter because two of the client's rules are stateful,
+ * and dropping them would put wrong wording on a Lock Screen the user cannot
+ * correct.
  */
-export function phaseForFrame(frameType: string): LiveActivityPhase | null {
-  switch (frameType) {
-    case "utterance_ended":
+export function phaseForFrame(
+  frame: LiveVoiceServerFramePayload,
+  lastPhase: LiveActivityPhase | null,
+): LiveActivityPhase | null {
+  switch (frame.type) {
+    case "utterance_end":
       return "transcribing";
     case "utterance_discarded":
       // The utterance held no usable speech, so the turn never happens and the
       // session drops back to listening.
       return "listening";
     case "stt_final":
+      // **Not every final means the assistant is thinking.** Semantic
+      // endpointing can hold an utterance open past a final — the session
+      // suppresses `utterance_end`, and the floor is still the user's — so
+      // only a *closed* utterance advances. An empty final never starts a turn
+      // either; its utterance is about to be discarded. Both conditions are
+      // the client's, restated here only because this side cannot observe the
+      // store: see the `sttFinal` handler in `use-live-voice.ts`.
+      if (lastPhase !== "transcribing" || frame.text.trim().length === 0) {
+        return null;
+      }
+      return "thinking";
     case "thinking":
+      // Unconditional, unlike `stt_final`: the session sends this frame
+      // precisely when it has committed to a turn.
       return "thinking";
     case "tts_audio":
       return "speaking";
@@ -91,8 +117,8 @@ export class LiveActivityReporter {
    * Report the phase a frame implies, if it changed. Fire-and-forget: callers
    * are on the session's send path and must not await this.
    */
-  report(frameType: string): void {
-    const phase = phaseForFrame(frameType);
+  report(frame: LiveVoiceServerFramePayload): void {
+    const phase = phaseForFrame(frame, this.lastPhase);
     if (phase === null || phase === this.lastPhase || this.ended) {
       return;
     }

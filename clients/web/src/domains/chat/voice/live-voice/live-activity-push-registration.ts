@@ -87,7 +87,10 @@ interface ActivityRegistration {
 
 function parseRegistration(raw: string): ActivityRegistration | null {
   const value = JSON.parse(raw) as Partial<ActivityRegistration>;
-  if (typeof value.token === "string" && typeof value.assistantId === "string") {
+  if (
+    typeof value.token === "string" &&
+    typeof value.assistantId === "string"
+  ) {
     return { token: value.token, assistantId: value.assistantId };
   }
   return null;
@@ -106,17 +109,36 @@ function parseRegistration(raw: string): ActivityRegistration | null {
  * The stored value is a push-routing address, not auth material; losing it to
  * XSS grants nothing.
  */
-const persistedRegistration = createStorageAccessor<ActivityRegistration | null>(
-  {
+const persistedRegistration =
+  createStorageAccessor<ActivityRegistration | null>({
     key: "vellum:live_activity_registration",
     scope: "user",
     parse: parseRegistration,
     serialize: JSON.stringify,
     fallback: null,
-  },
-);
+  });
 
 let registered: ActivityRegistration | null = null;
+
+/**
+ * Upserts still in flight.
+ *
+ * A registration is only recorded once its POST resolves, so an unregister that
+ * lands mid-POST would see nothing to delete, return — and then the POST would
+ * complete, leaving a token registered for an activity that has already ended
+ * or a user who has already logged out. Draining first closes that window.
+ * `runtime/push-registration.ts` carries the same machinery for device tokens
+ * and for the same reason; a set rather than a single promise, because a token
+ * rotation can overlap the upsert it supersedes.
+ */
+const pendingUpserts = new Set<Promise<void>>();
+
+function trackUpsert(upsert: Promise<void>): void {
+  pendingUpserts.add(upsert);
+  void upsert.finally(() => {
+    pendingUpserts.delete(upsert);
+  });
+}
 
 /**
  * Register (or re-register) the activity's push token for a conversation.
@@ -126,6 +148,16 @@ let registered: ActivityRegistration | null = null;
  * `(user, token)`, so a rotation replaces the row rather than accumulating one.
  */
 export async function registerLiveActivityPushToken(
+  token: string,
+  assistantId: string,
+  conversationId: string,
+): Promise<void> {
+  const upsert = upsertToken(token, assistantId, conversationId);
+  trackUpsert(upsert);
+  await upsert;
+}
+
+async function upsertToken(
   token: string,
   assistantId: string,
   conversationId: string,
@@ -177,6 +209,11 @@ export async function registerLiveActivityPushToken(
  * expires registrations on its own; this is the fast path, not the guarantee.
  */
 export async function unregisterLiveActivityPushToken(): Promise<void> {
+  // Let any in-flight upsert finish first, or its registration lands *after*
+  // this decides there is nothing to delete and outlives the session.
+  if (pendingUpserts.size > 0) {
+    await Promise.allSettled([...pendingUpserts]);
+  }
   // Falls back to storage: a reload between registering and ending leaves the
   // module state empty while the registration is still very much live.
   const current = registered ?? persistedRegistration.load();
