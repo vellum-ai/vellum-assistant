@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildProviderRedirectFields,
   readAttributionParams,
+  withPreservedAttribution,
 } from "@/domains/account/social-auth";
 
 const ORIGIN = "https://www.vellum.ai";
@@ -37,6 +38,43 @@ describe("readAttributionParams", () => {
     const collected = readAttributionParams(`?fbclid=${"x".repeat(5000)}`);
 
     expect(collected["fbclid"]).toHaveLength(512);
+  });
+});
+
+describe("withPreservedAttribution", () => {
+  test("appends attribution after an existing returnTo", () => {
+    const href = withPreservedAttribution(
+      "/account/signup?returnTo=%2Fassistant",
+      "?utm_source=ig&fbclid=abc123",
+    );
+
+    expect(href).toBe(
+      "/account/signup?returnTo=%2Fassistant&utm_source=ig&fbclid=abc123",
+    );
+  });
+
+  test("starts the query string on a bare route", () => {
+    expect(withPreservedAttribution("/account/signup", "?utm_source=ig")).toBe(
+      "/account/signup?utm_source=ig",
+    );
+  });
+
+  test("leaves the href untouched for an organic arrival", () => {
+    expect(
+      withPreservedAttribution(
+        "/account/signup?returnTo=%2Fassistant",
+        "?returnTo=%2Fassistant",
+      ),
+    ).toBe("/account/signup?returnTo=%2Fassistant");
+    expect(withPreservedAttribution("/account/signup", "")).toBe(
+      "/account/signup",
+    );
+  });
+
+  test("does not carry non-allowlisted params", () => {
+    expect(
+      withPreservedAttribution("/account/signup", "?debug=1&utm_source=ig"),
+    ).toBe("/account/signup?utm_source=ig");
   });
 });
 
