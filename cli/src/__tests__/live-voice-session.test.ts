@@ -365,6 +365,43 @@ describe("LiveVoiceForegroundSession", () => {
     await harness.session.shutdown();
   });
 
+  test("keeps push-to-talk capture active when STT arrives before release", async () => {
+    const harness = makeHarness(
+      [
+        {
+          type: "ready",
+          sessionId: "session-1",
+          conversationId: "conversation-1",
+        },
+      ],
+      { captions: "user" },
+    );
+
+    await harness.session.start();
+    await harness.session.handleKey("enter");
+    harness.capture.emit(Buffer.from([1, 2]));
+    harness.channels[0].emit("frame", {
+      type: "stt_partial",
+      seq: 2,
+      text: "hello",
+    });
+    await waitFor(() => harness.captions.length === 1);
+
+    expect(harness.session.currentState).toBe("listening");
+    harness.capture.emit(Buffer.from([3, 4]));
+    await harness.session.handleKey("enter");
+
+    expect(harness.channels[0].audio.map((value) => [...value])).toEqual([
+      [1, 2],
+      [3, 4],
+      [5, 6],
+    ]);
+    expect(harness.capture.sessions[0].stopCount).toBe(1);
+    expect(harness.channels[0].pttReleaseCount).toBe(1);
+    expect(harness.session.currentState).toBe("transcribing");
+    await harness.session.shutdown();
+  });
+
   test("retries when a same-session busy frame is followed by the client's immediate close", async () => {
     const harness = makeHarness([
       {
