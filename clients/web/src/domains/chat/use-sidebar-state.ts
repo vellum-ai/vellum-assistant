@@ -16,9 +16,9 @@
  * list of every renderable section (Pinned, Chats, each channel, each custom
  * group) as a discriminated union. The sidebar walks that list in order -
  * it does not know which section types exist or where they "belong", which
- * is what lets the user put a custom group above Recents. Channel sections
- * are the one constrained case: they can never order above Pinned or a
- * custom group.
+ * is what lets the user reorder them at all. The one constraint is the view
+ * switch: Pinned and the custom groups always lead it, Chats and the channel
+ * sections always follow, and sections reorder freely within their own tier.
  *
  * Memoizes grouping per `conversations` reference so parent re-renders
  * that don't change the conversation list skip the grouping work.
@@ -51,7 +51,7 @@ import {
   isKnownPrimaryKey,
 } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import {
-  enforceChannelFloor,
+  enforceCuratedLead,
   mergeSectionOrder,
   moveSectionKey,
   nextStoredOrder,
@@ -144,18 +144,16 @@ function buildPaginatedSection(
 }
 
 /**
- * How a section key orders against the others. Pinned and the custom groups
- * are the curated layer that channel sections may never rise above; Chats is
- * free to sit anywhere.
+ * Which side of the view switch a section sits on. Chats and the channel
+ * sections are what the switch changes, so they sit under it; Pinned and the
+ * custom groups are untouched by it and lead. Anything that is neither a
+ * primary nor a category key is a custom group id.
  */
 function classifySectionKey(key: string): SectionOrderClass {
-  if (key === "recents") {
-    return "free";
+  if (key === "recents" || isChannelSectionKey(key)) {
+    return "governed";
   }
-  if (isChannelSectionKey(key)) {
-    return "channel";
-  }
-  return "anchor";
+  return "curated";
 }
 
 // ---------------------------------------------------------------------------
@@ -229,8 +227,8 @@ export interface SidebarState {
   onMoveSection: (key: string, delta: -1 | 1) => void;
   /**
    * Whether {@link SidebarState.onMoveSection} would actually move anything -
-   * false at the ends of the list, and for a channel section that would have
-   * to cross Pinned or a custom group to make the move.
+   * false at the ends of the list, and for a move that would carry a section
+   * across the view switch into the other tier.
    */
   canMoveSection: (key: string, delta: -1 | 1) => boolean;
 
@@ -438,7 +436,7 @@ export function useSidebarState({
         ? defaultKeys
         : mergeSectionOrder(defaultKeys, sectionOrder);
     const byKey = new Map(defaultSections.map((s) => [s.key, s]));
-    return enforceChannelFloor(ordered, classifySectionKey).map(
+    return enforceCuratedLead(ordered, classifySectionKey).map(
       (key) => byKey.get(key)!,
     );
   }, [defaultSections, sectionOrder]);
@@ -448,7 +446,7 @@ export function useSidebarState({
       setSectionOrder(
         nextStoredOrder(
           sectionOrder,
-          enforceChannelFloor(orderedKeys, classifySectionKey),
+          enforceCuratedLead(orderedKeys, classifySectionKey),
         ),
       );
     },
@@ -456,8 +454,8 @@ export function useSidebarState({
   );
 
   // The order `key` would land in after a nudge, or null when the nudge
-  // changes nothing - either end of the list, or a channel section the
-  // channel floor pushes straight back where it was.
+  // changes nothing - either end of the list, or a move across the tier
+  // boundary that the curated-lead rule pushes straight back.
   const orderAfterMove = useCallback(
     (key: string, delta: -1 | 1): string[] | null => {
       const current = sections.map((s) => s.key);
@@ -465,7 +463,7 @@ export function useSidebarState({
       if (!moved) {
         return null;
       }
-      const settled = enforceChannelFloor(moved, classifySectionKey);
+      const settled = enforceCuratedLead(moved, classifySectionKey);
       return settled.join(" ") === current.join(" ") ? null : settled;
     },
     [sections],

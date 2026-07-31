@@ -154,48 +154,37 @@ export function nextStoredOrder(
 // ---------------------------------------------------------------------------
 
 /**
- * How a section key participates in ordering:
+ * Which side of the view switch a section sits on:
  *
- * - `anchor` - Pinned and the custom groups. The user's own curation layer,
- *   which always sits above the channel sections.
- * - `channel` - a per-origin-channel section. Reorderable among its peers,
- *   never above an anchor.
- * - `free` - everything else (Chats). Orderable anywhere.
+ * - `curated` - Pinned and the custom groups. The user's own organization
+ *   layer, which the switch does not affect and which always leads.
+ * - `governed` - Chats and the per-channel sections. What the switch actually
+ *   changes, so it always follows.
+ *
+ * Sections reorder freely within their own tier and never cross between them.
  */
-export type SectionOrderClass = "anchor" | "channel" | "free";
+export type SectionOrderClass = "curated" | "governed";
 
 /**
- * `keys` with every `channel` section pushed below the last `anchor` section,
- * preserving relative order within each class.
+ * `keys` with every `curated` section ahead of every `governed` one,
+ * preserving relative order within each tier.
  *
- * Channel sections come and go with traffic, so letting one settle above the
- * user's pinned rows or curated groups would rearrange the deliberate part of
- * the sidebar on its own. Applied to the render order and to what gets
- * persisted, so the stored preference always describes a layout that renders.
+ * The switch renders on the tier boundary, so this is what makes "the switch
+ * controls everything below it" structural rather than a convention: no
+ * stored order, however it was arrived at, can put a governed section above
+ * the curated layer or the switch below a list it governs. Applied to the
+ * render order and to what gets persisted, so the stored preference always
+ * describes a layout that renders.
  */
-export function enforceChannelFloor(
+export function enforceCuratedLead(
   keys: readonly string[],
   classify: (key: string) => SectionOrderClass,
 ): string[] {
-  let lastAnchor = -1;
-  keys.forEach((key, index) => {
-    if (classify(key) === "anchor") {
-      lastAnchor = index;
-    }
-  });
-  if (lastAnchor <= 0) {
+  const curated = keys.filter((key) => classify(key) === "curated");
+  if (curated.length === 0 || curated.length === keys.length) {
     return [...keys];
   }
-  const head = keys.slice(0, lastAnchor + 1);
-  const displaced = head.filter((key) => classify(key) === "channel");
-  if (displaced.length === 0) {
-    return [...keys];
-  }
-  return [
-    ...head.filter((key) => classify(key) !== "channel"),
-    ...displaced,
-    ...keys.slice(lastAnchor + 1),
-  ];
+  return [...curated, ...keys.filter((key) => classify(key) === "governed")];
 }
 
 /**

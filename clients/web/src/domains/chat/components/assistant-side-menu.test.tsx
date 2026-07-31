@@ -258,11 +258,11 @@ describe("AssistantSideMenu · All view", () => {
     expect(html).toContain('data-slot="virtual-list"');
   });
 
-  // The switch governs everything below it, so it must never end up under a
-  // list it controls. Chats is free to order anywhere (only channel sections
-  // are floored), so dragging it above a custom group is a legal order that
-  // would otherwise push the switch below it.
-  test("stays above Chats even when the user drags Chats to the top", () => {
+  // The switch is the tier boundary, so a stored order that would put Chats
+  // above the curated layer is pulled back rather than honored. That is what
+  // makes "the switch controls everything below it" structural: there is no
+  // reachable order in which it renders under a list it governs.
+  test("a stored order that lifts Chats above a group is pulled back", () => {
     localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
     localStorage.setItem(
       "vellum:sidebar-section-order:asst-1",
@@ -293,15 +293,15 @@ describe("AssistantSideMenu · All view", () => {
       throw new Error("expected the section list's accordion root");
     }
     const children = Array.from(root.children);
+    const indexOfText = (text: string) =>
+      children.findIndex((el) => (el.textContent ?? "").includes(text));
     const switchIndex = children.findIndex((el) =>
       el.querySelector('[data-slot="segment-control"]'),
     );
-    const chatsIndex = children.findIndex((el) =>
-      (el.textContent ?? "").includes("Chats"),
-    );
 
-    expect(chatsIndex).toBeGreaterThan(-1);
-    expect(switchIndex).toBeLessThan(chatsIndex);
+    // Alpha leads, then the switch, then Chats - not the stored order.
+    expect(indexOfText("Alpha")).toBeLessThan(switchIndex);
+    expect(switchIndex).toBeLessThan(indexOfText("Chats"));
   });
 
   test("offers the view switch", () => {
@@ -1121,10 +1121,14 @@ describe("AssistantSideMenu · section reordering", () => {
 
   // Drag events fire on neither touch nor the keyboard, so the header menu
   // carries the same reordering.
+  // The layout is Pinned, Alpha, Chats, Slack: two curated sections then two
+  // governed ones. A section is offered only the moves that stay inside its
+  // own tier, so the pair at the boundary (Alpha, Chats) each offer one
+  // direction just like the pair at the ends (Pinned, Slack).
   test.each([
-    ["Alpha", ["Move Section Up", "Move Section Down"]],
-    // Pinned leads and Slack trails, so each offers only one direction.
     ["Pinned", ["Move Section Down"]],
+    ["Alpha", ["Move Section Up"]],
+    ["Chats", ["Move Section Down"]],
     ["Slack", ["Move Section Up"]],
   ])(
     "%s offers the move actions its position allows",

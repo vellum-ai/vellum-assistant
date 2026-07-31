@@ -393,21 +393,21 @@ describe("useSidebarState section order", () => {
 
     act(() =>
       result.current.onReorderSections([
-        "recents",
         "grp-a",
         "channel:slack",
+        "recents",
       ]),
     );
 
     expect(useSidebarLayoutStore.getState().sectionOrder).toEqual([
-      "recents",
       "grp-a",
       "channel:slack",
+      "recents",
     ]);
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "recents",
       "grp-a",
       "channel:slack",
+      "recents",
     ]);
   });
 
@@ -452,22 +452,25 @@ describe("useSidebarState section order", () => {
     expect(result.current.canMoveSection("channel:slack", -1)).toBe(false);
   });
 
-  test("onMoveSection nudges one section and is a no-op at the ends", () => {
+  test("onMoveSection nudges within a tier and stops at its boundary", () => {
     const { result } = renderSidebar();
 
-    act(() => result.current.onMoveSection("recents", -1));
+    // Slack and Chats are both governed by the switch, so they swap freely.
+    act(() => result.current.onMoveSection("channel:slack", -1));
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "recents",
       "grp-a",
       "channel:slack",
+      "recents",
     ]);
 
-    // Already first - nothing to persist, and nothing moves.
-    act(() => result.current.onMoveSection("recents", -1));
+    // The next nudge would cross into the curated tier - refused, and
+    // nothing is persisted.
+    expect(result.current.canMoveSection("channel:slack", -1)).toBe(false);
+    act(() => result.current.onMoveSection("channel:slack", -1));
     expect(result.current.sections.map((s) => s.key)).toEqual([
-      "recents",
       "grp-a",
       "channel:slack",
+      "recents",
     ]);
   });
 
