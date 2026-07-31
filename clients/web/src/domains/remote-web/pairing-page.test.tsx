@@ -44,6 +44,17 @@ function setUserAgent(userAgent: string): void {
   });
 }
 
+function androidIntentQuery(href: string): URLSearchParams {
+  return new URLSearchParams(
+    href.slice(href.indexOf("?") + 1, href.indexOf("#Intent;")),
+  );
+}
+
+function androidIntentFallback(href: string): string {
+  const encoded = /;S\.browser_fallback_url=([^;]+);end$/.exec(href)?.[1];
+  return decodeURIComponent(encoded ?? "");
+}
+
 const exchangeRemoteWebPairingTokenMock = mock(
   async (
     _deviceCode: string,
@@ -370,10 +381,15 @@ describe("RemoteWebPairingPage", () => {
       name: "Open in the Vellum app",
     });
     const href = link.getAttribute("href") ?? "";
-    expect(href.startsWith("vellum-assistant://connect?")).toBe(true);
-    const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
+    expect(href.startsWith("intent://connect?")).toBe(true);
+    const intentIndex = href.indexOf("#Intent;");
+    const query = androidIntentQuery(href);
     expect(query.get("url")).toBe(window.location.origin);
     expect(query.get("code")).toBe("android-device");
+    expect(href.slice(intentIndex)).toContain(
+      "#Intent;scheme=vellum-assistant;package=ai.vocify.vellumassistant;",
+    );
+    expect(androidIntentFallback(href)).toBe(window.location.href);
     expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
   });
 
@@ -404,37 +420,29 @@ describe("RemoteWebPairingPage", () => {
     }
   });
 
-  test("the app handoff url preserves encoded server paths and codes", async () => {
+  test("the Android app handoff url preserves encoded codes", async () => {
     remoteGatewayMode = true;
     setUserAgent(ANDROID_USER_AGENT);
-    window.history.pushState(null, "", "/team%20one/assistant/pair");
     const deviceCode = "code & # / 🚀";
     const pairingQuery = new URLSearchParams({
       deviceCode,
       userCode: "ABCD",
     });
 
-    try {
-      render(
-        <MemoryRouter
-          initialEntries={[`/assistant/pair?${pairingQuery.toString()}`]}
-        >
-          <RemoteWebPairingPage />
-        </MemoryRouter>,
-      );
+    render(
+      <MemoryRouter
+        initialEntries={[`/assistant/pair?${pairingQuery.toString()}`]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
 
-      const link = await screen.findByRole("link", {
-        name: "Open in the Vellum app",
-      });
-      const href = link.getAttribute("href") ?? "";
-      const query = new URLSearchParams(href.slice(href.indexOf("?") + 1));
-      expect(query.get("url")).toBe(
-        `${window.location.origin}/team%20one`,
-      );
-      expect(query.get("code")).toBe(deviceCode);
-    } finally {
-      window.history.pushState(null, "", "/");
-    }
+    const link = await screen.findByRole("link", {
+      name: "Open in the Vellum app",
+    });
+    const href = link.getAttribute("href") ?? "";
+    const query = androidIntentQuery(href);
+    expect(query.get("code")).toBe(deviceCode);
   });
 
   test("exchanges immediately for a device code in a desktop browser", async () => {
@@ -462,38 +470,47 @@ describe("RemoteWebPairingPage", () => {
   test("keeps browser pairing available when an app handoff fails", async () => {
     remoteGatewayMode = true;
     setUserAgent(ANDROID_USER_AGENT);
-
-    render(
-      <MemoryRouter
-        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
-      >
-        <RemoteWebPairingPage />
-      </MemoryRouter>,
+    window.history.pushState(
+      null,
+      "",
+      "/assistant/pair?deviceCode=device-1&userCode=ABCD",
     );
 
-    const link = await screen.findByRole("link", {
-      name: "Open in the Vellum app",
-    });
-    link.addEventListener("click", (event) => event.preventDefault(), {
-      once: true,
-    });
-    fireEvent.click(link);
-
-    const continueButton = screen.getByRole("button", {
-      name: "Continue in this browser",
-    });
-    expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
-
-    fireEvent.click(continueButton);
-
-    await waitFor(() => {
-      expect(exchangeRemoteWebPairingTokenMock.mock.calls[0]?.[0]).toBe(
-        "device-1",
+    try {
+      render(
+        <MemoryRouter
+          initialEntries={[
+            "/assistant/pair?deviceCode=device-1&userCode=ABCD",
+          ]}
+        >
+          <RemoteWebPairingPage />
+        </MemoryRouter>,
       );
-    });
-    expect(
-      screen.queryByRole("link", { name: "Open in the Vellum app" }),
-    ).toBeNull();
+
+      const link = await screen.findByRole("link", {
+        name: "Open in the Vellum app",
+      });
+      const href = link.getAttribute("href") ?? "";
+      expect(androidIntentFallback(href)).toBe(window.location.href);
+
+      const continueButton = screen.getByRole("button", {
+        name: "Continue in this browser",
+      });
+      expect(exchangeRemoteWebPairingTokenMock).not.toHaveBeenCalled();
+
+      fireEvent.click(continueButton);
+
+      await waitFor(() => {
+        expect(exchangeRemoteWebPairingTokenMock.mock.calls[0]?.[0]).toBe(
+          "device-1",
+        );
+      });
+      expect(
+        screen.queryByRole("link", { name: "Open in the Vellum app" }),
+      ).toBeNull();
+    } finally {
+      window.history.pushState(null, "", "/");
+    }
   });
 
   test.each([

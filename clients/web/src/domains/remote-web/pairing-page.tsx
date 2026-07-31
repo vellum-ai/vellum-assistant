@@ -126,6 +126,8 @@ function clearDeviceCodeFromUrl(): void {
  * a phone that scanned a pairing QR with its camera.
  */
 const VELLUM_APP_SCHEME = "vellum-assistant";
+const VELLUM_ANDROID_PACKAGE = "ai.vocify.vellumassistant";
+type AppHandoffPlatform = "ios" | "android";
 
 /**
  * Build the `vellum-assistant://connect?url=<base>&code=<device-code>` deep
@@ -134,12 +136,25 @@ const VELLUM_APP_SCHEME = "vellum-assistant";
  * so the app reconnects to the same self-hosted assistant this browser is
  * already on.
  */
-function buildAppHandoffUrl(deviceCode: string): string {
+function buildAppHandoffUrl(
+  deviceCode: string,
+  platform: AppHandoffPlatform,
+): string {
   const query = new URLSearchParams({
     url: remoteGatewayPublicBaseUrl(),
     code: deviceCode,
   });
-  return `${VELLUM_APP_SCHEME}://connect?${query.toString()}`;
+  if (platform === "ios") {
+    return `${VELLUM_APP_SCHEME}://connect?${query.toString()}`;
+  }
+
+  const fallbackUrl = encodeURIComponent(window.location.href);
+  return (
+    `intent://connect?${query.toString()}` +
+    `#Intent;scheme=${VELLUM_APP_SCHEME};` +
+    `package=${VELLUM_ANDROID_PACKAGE};` +
+    `S.browser_fallback_url=${fallbackUrl};end`
+  );
 }
 
 /**
@@ -150,12 +165,17 @@ function buildAppHandoffUrl(deviceCode: string): string {
  */
 function PairingHandoffActions({
   deviceCode,
+  platform,
   onContinueInBrowser,
 }: {
   deviceCode: string;
+  platform: AppHandoffPlatform;
   onContinueInBrowser: () => void;
 }) {
-  const appLink = useMemo(() => buildAppHandoffUrl(deviceCode), [deviceCode]);
+  const appLink = useMemo(
+    () => buildAppHandoffUrl(deviceCode, platform),
+    [deviceCode, platform],
+  );
 
   return (
     <div className="mt-6 flex flex-col gap-3">
@@ -195,11 +215,16 @@ export function RemoteWebPairingPage() {
   // A phone that scanned the pairing QR with its camera lands here in a browser.
   // If the Vellum app is installed we offer to hand the pairing to it before
   // burning the single-use code, never inside a native shell that pairs directly.
-  const mobileAppHandoff = useMemo(
-    () =>
-      Boolean(params.deviceCode) &&
-      (isIOSBrowser() || isAndroidBrowser()) &&
-      !isNativePlatform(),
+  const appHandoffPlatform = useMemo<AppHandoffPlatform | null>(
+    () => {
+      if (!params.deviceCode || isNativePlatform()) {
+        return null;
+      }
+      if (isAndroidBrowser()) {
+        return "android";
+      }
+      return isIOSBrowser() ? "ios" : null;
+    },
     [params.deviceCode],
   );
 
@@ -216,11 +241,11 @@ export function RemoteWebPairingPage() {
   // screen it waits until the user picks "Continue in this browser"; every
   // other surface starts it immediately.
   const [browserExchangeAllowed, setBrowserExchangeAllowed] = useState(
-    () => !mobileAppHandoff,
+    () => !appHandoffPlatform,
   );
 
   const [state, setState] = useState<PairingState>(() => {
-    if (mobileAppHandoff) {
+    if (appHandoffPlatform) {
       return { kind: "handoff_choice" };
     }
     return params.deviceCode ? { kind: "verifying" } : { kind: "starting" };
@@ -380,9 +405,10 @@ export function RemoteWebPairingPage() {
           {copy.body}
         </p>
 
-        {state.kind === "handoff_choice" && pairing ? (
+        {state.kind === "handoff_choice" && pairing && appHandoffPlatform ? (
           <PairingHandoffActions
             deviceCode={pairing.deviceCode}
+            platform={appHandoffPlatform}
             onContinueInBrowser={handleContinueInBrowser}
           />
         ) : null}
