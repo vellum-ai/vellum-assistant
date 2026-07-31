@@ -1204,7 +1204,7 @@ describe("LiveVoiceSession STT", () => {
 
   test("keeps parked newer speech separate from an older late final", async () => {
     const { frames, session, startVoiceTurn, transcriber } =
-      createEmptyFinalizeGraceSession(100);
+      createEmptyFinalizeGraceSession(500);
 
     await session.start();
     await session.handleBinaryAudio(loudPcmChunk());
@@ -1212,8 +1212,12 @@ describe("LiveVoiceSession STT", () => {
     await waitFor(() => transcriber.finalizeCalls === 1);
     transcriber.emit({ type: "finalized" });
 
-    await session.handleBinaryAudio(loudPcmChunk());
+    const parkedChunks = 40;
+    for (let index = 0; index < parkedChunks; index += 1) {
+      await session.handleBinaryAudio(loudPcmChunk());
+    }
     await session.handleClientFrame({ type: "ptt_release" });
+    expect(transcriber.audioChunks).toHaveLength(1);
 
     transcriber.respondToFinalize = true;
     transcriber.emit({ type: "final", text: "late first utterance" });
@@ -1225,6 +1229,7 @@ describe("LiveVoiceSession STT", () => {
       "late first utterance",
       "utterance 2",
     ]);
+    expect(transcriber.audioChunks).toHaveLength(parkedChunks + 1);
     expect(
       frames.filter((frame) => frame.type === "utterance_discarded"),
     ).toHaveLength(0);

@@ -813,6 +813,18 @@ function createUtteranceCycle(): UtteranceCycle {
   };
 }
 
+function trimOldestAudioChunksToByteLimit(
+  chunks: Buffer[],
+  totalBytes: number,
+  maxBytes: number,
+): number {
+  while (totalBytes > maxBytes && chunks.length > 1) {
+    const dropped = chunks.shift();
+    totalBytes -= dropped?.byteLength ?? 0;
+  }
+  return totalBytes;
+}
+
 // Carrier cycle for an assistant-initiated turn: the turn machinery is
 // utterance-shaped (metrics marks, audio archival, turn ids all hang off a
 // cycle), but an announcement has no capture behind it. The record starts fully
@@ -1015,8 +1027,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // to an utterance so the metric lands on the right turn.
   private vadSpeechStartPending = false;
   // Bounded ring of idle-mic chunks skipped while the VAD detector is idle;
-  // flushed ahead of the first routed chunk on speech onset.
+  // flushed ahead of the first routed chunk on speech onset. Once it holds
+  // speech parked behind a released cycle, it expands to the pending-audio
+  // byte budget so a follow-up can outlast the idle pre-roll window.
   private vadPreRollChunks: Buffer[] = [];
+  private vadPreRollBytes = 0;
   // The ring holds speech parked during the release→turn-start window;
   // protected from silent-chunk eviction until it flushes.
   private vadPreRollHasSpeech = false;
@@ -1648,25 +1663,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private pushVadPreRoll(chunk: Buffer, hasSpeech: boolean): void {
-    // A full ring never lets idle silence evict parked speech.
-    if (
-      !hasSpeech &&
-      this.vadPreRollHasSpeech &&
-      this.vadPreRollChunks.length >= SERVER_VAD_PRE_ROLL_MAX_CHUNKS
-    ) {
-      return;
-    }
     if (hasSpeech) {
       this.vadPreRollHasSpeech = true;
     }
-    this.vadPreRollChunks.push(Buffer.from(chunk));
+    const copy = Buffer.from(chunk);
+    this.vadPreRollChunks.push(copy);
+    this.vadPreRollBytes += copy.byteLength;
+    if (this.vadPreRollHasSpeech) {
+      this.vadPreRollBytes = trimOldestAudioChunksToByteLimit(
+        this.vadPreRollChunks,
+        this.vadPreRollBytes,
+        this.maxPendingAudioBytes,
+      );
+      return;
+    }
     while (this.vadPreRollChunks.length > SERVER_VAD_PRE_ROLL_MAX_CHUNKS) {
-      this.vadPreRollChunks.shift();
+      const dropped = this.vadPreRollChunks.shift();
+      this.vadPreRollBytes -= dropped?.byteLength ?? 0;
     }
   }
 
   private takeVadPreRoll(): Buffer[] {
     this.vadPreRollHasSpeech = false;
+    this.vadPreRollBytes = 0;
     return this.vadPreRollChunks.splice(0);
   }
 
@@ -1691,13 +1710,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   ): void {
     utterance.pendingAudioChunks.push(Buffer.from(chunk));
     utterance.pendingAudioBytes += chunk.byteLength;
-    while (
-      utterance.pendingAudioBytes > this.maxPendingAudioBytes &&
-      utterance.pendingAudioChunks.length > 1
-    ) {
-      const dropped = utterance.pendingAudioChunks.shift();
-      utterance.pendingAudioBytes -= dropped?.byteLength ?? 0;
-    }
+    utterance.pendingAudioBytes = trimOldestAudioChunksToByteLimit(
+      utterance.pendingAudioChunks,
+      utterance.pendingAudioBytes,
+      this.maxPendingAudioBytes,
+    );
   }
 
   private async forwardAudioToTranscriber(
