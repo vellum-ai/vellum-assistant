@@ -31,6 +31,10 @@ import { getWorkspacePluginsDir } from "../util/platform.js";
 registerDefaultPluginInjectors();
 
 let testDataDir: string;
+// Restored after each test so the workspace override never outlives this file:
+// leaving it pointed at a directory we just deleted breaks whatever module a
+// sibling test file loads next.
+const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 
 beforeEach(() => {
   testDataDir = join(
@@ -43,6 +47,11 @@ beforeEach(() => {
 afterEach(() => {
   if (existsSync(testDataDir)) {
     rmSync(testDataDir, { recursive: true, force: true });
+  }
+  if (originalWorkspaceDir === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+  } else {
+    process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
   }
 });
 
