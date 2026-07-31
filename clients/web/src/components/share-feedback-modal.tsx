@@ -30,7 +30,10 @@ import { createPortal } from "react-dom";
 import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
-import type { ClassificationEnum } from "@/generated/api/types.gen";
+import type {
+  ClassificationEnum,
+  ClientEnum,
+} from "@/generated/api/types.gen";
 import { logsExportPost } from "@/generated/daemon/sdk.gen";
 import type { LogsExportPostData } from "@/generated/daemon/types.gen";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
@@ -128,12 +131,24 @@ const CLASSIFICATION_MAP: Record<FeedbackReason, ClassificationEnum> = {
   other: "other",
 };
 
-function getFeedbackClient(): "electron" | "ios" | "android" | "web" {
+/**
+ * Which client this feedback is being sent from.
+ *
+ * Typed as the API's own `ClientEnum` rather than a restated union, so a value
+ * the platform stops accepting is a compile error here instead of a rejected
+ * submission at runtime — which is exactly how `android` got here: it was
+ * removed from the enum server-side, and nothing on this side noticed.
+ *
+ * Android reports as `web` deliberately. No native Capacitor Android shell
+ * ships (see `runtime/push-registration.ts`), so an Android device reaching
+ * this is in a browser and *is* a web client. This field is triage metadata,
+ * and failing the whole submission over it would cost the report itself.
+ */
+function getFeedbackClient(): ClientEnum {
   if (isElectron()) {
     return "electron";
   }
-  const platform = Capacitor.getPlatform();
-  return platform === "ios" || platform === "android" ? platform : "web";
+  return Capacitor.getPlatform() === "ios" ? "ios" : "web";
 }
 
 type FeedbackDiagnosticsProvider = () => Record<string, unknown> | null;
