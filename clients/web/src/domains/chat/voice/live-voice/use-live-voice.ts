@@ -1398,14 +1398,23 @@ async function finishCaptureStartup(
  * it starts, and the echo reference belongs to that unit, so a renderer started
  * before `getUserMedia` may hold no reference at all.
  *
- * The restart is synchronous and inaudible (nothing is queued yet). The record
- * that follows is fire-and-forget: it waits on a native bridge call, and a
- * session must never be gated on diagnostics.
+ * The restart itself is inaudible (nothing is queued yet). The record that
+ * follows is fire-and-forget: it waits on a native bridge call, and a session
+ * must never be gated on diagnostics.
+ *
+ * It does wait for the restart's own play attempt to settle, though. A refused
+ * attempt disposes the route and reconnects playback to the direct path from
+ * its rejection handler, so a snapshot taken while that rejection is still
+ * pending would report `media-stream` for a session that is about to lose it.
+ * This event is the primary evidence that echo cancellation engaged, so it has
+ * to describe where playback actually ended up.
  */
 function rebindOutputRouteToCapture(session: SessionContext): void {
-  session.player.restartOutputRoute();
   const generation = session.generation;
-  void describeVoiceAudioSession().then((audioSession) => {
+  void Promise.all([
+    session.player.restartOutputRoute(),
+    describeVoiceAudioSession(),
+  ]).then(([, audioSession]) => {
     if (session.generation !== generation) {
       return;
     }

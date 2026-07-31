@@ -210,8 +210,32 @@ export class FakePlayer {
   readOutputLevel(): number {
     return this.outputAmplitude;
   }
-  restartOutputRoute(): void {
+  /**
+   * Mirrors the real player, whose restart resolves only once its `play()`
+   * attempt has settled. `deferRestart` holds that promise open so a test can
+   * model the attempt landing *after* everything else the caller waits on, which
+   * is the ordering that lets a premature snapshot read the pre-fallback route.
+   */
+  deferRestart = false;
+  private restartResolve: (() => void) | null = null;
+  restartOutputRoute(): Promise<void> {
     this.restartOutputRouteCount++;
+    if (!this.deferRestart) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.restartResolve = resolve;
+    });
+  }
+
+  /** Settle a deferred restart, optionally on a different route than it began. */
+  settleRestart(route?: TtsOutputRoute): void {
+    if (route) {
+      this.outputRoute = route;
+    }
+    const resolve = this.restartResolve;
+    this.restartResolve = null;
+    resolve?.();
   }
   getOutputRouteDiagnostics(): TtsOutputRouteDiagnostics {
     return {

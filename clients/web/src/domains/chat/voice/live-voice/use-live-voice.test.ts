@@ -3176,6 +3176,36 @@ describe("echo-cancellation diagnostics", () => {
     expect(h.player.restartOutputRouteCount).toBe(1);
   });
 
+  test("records the route the restart actually settled on", async () => {
+    const h = renderController();
+    h.player.outputRoute = "media-stream";
+    // Hold the restart open so everything else the recorder waits on (the
+    // native describe) resolves first. That is the window in which a premature
+    // snapshot reads the route the pending rejection is about to tear down.
+    h.player.deferRestart = true;
+
+    await reachListening(h);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The retry is refused: the player disposes the route and reconnects
+    // playback to the direct path from its rejection handler.
+    await act(async () => {
+      h.player.settleRestart("direct");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Recording before that rejection settles would claim echo cancellation
+    // for a session that lost it, and this event is the primary evidence that
+    // the route engaged at all.
+    expect(lastEvent("live_voice_output_route")?.details).toMatchObject({
+      route: "direct",
+    });
+  });
+
   test("records the player's gesture provenance at session start", async () => {
     const h = renderController();
 

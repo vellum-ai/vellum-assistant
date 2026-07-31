@@ -661,7 +661,7 @@ export class LiveVoiceAudioPlayer {
         this.analyser = analyser;
         this.analyserSamples = new Float32Array(analyser.fftSize);
       }
-      this.startMediaStreamOutput(context);
+      void this.startMediaStreamOutput(context);
     }
     return this.context;
   }
@@ -683,15 +683,22 @@ export class LiveVoiceAudioPlayer {
     return destination;
   }
 
-  private startMediaStreamOutput(context: AudioContextLike): void {
+  /**
+   * Begin (or resume) rendering the MediaStream track.
+   *
+   * Resolves once the attempt has settled, including any fallback the rejection
+   * triggers, so a caller can read the resulting route rather than whatever it
+   * happens to be mid-flight. Never rejects.
+   */
+  private startMediaStreamOutput(context: AudioContextLike): Promise<void> {
     const route = this.mediaStreamOutput;
     if (!route) {
-      return;
+      return Promise.resolve();
     }
 
     this.playAttempts += 1;
     const epoch = ++this.playEpoch;
-    void route.element.play().catch((error: unknown) => {
+    return route.element.play().catch((error: unknown) => {
       // A newer attempt has taken over, so this rejection is the pause() that
       // started it and says nothing about whether playback is allowed. Recording
       // it would also report a refusal the route never suffered.
@@ -754,26 +761,29 @@ export class LiveVoiceAudioPlayer {
    * Safe to call at any point: it no-ops off the route entirely, and it runs
    * while the queue is silent, so the pause is inaudible. Never throws; a
    * refused retry degrades exactly like a refused initial start.
+   *
+   * Resolves once the attempt has settled, fallback included. Anything that
+   * reports which route a session ended up on has to await this, or it can
+   * observe a route that the pending rejection is about to tear down.
    */
-  restartOutputRoute(): void {
+  restartOutputRoute(): Promise<void> {
     const context = this.context;
     if (!context) {
-      return;
+      return Promise.resolve();
     }
 
     const route = this.mediaStreamOutput;
     if (route) {
       route.element.pause();
-      this.startMediaStreamOutput(context);
-      return;
+      return this.startMediaStreamOutput(context);
     }
 
     if (!this.useMediaStreamOutput || !context.createMediaStreamDestination) {
-      return;
+      return Promise.resolve();
     }
     const destination = this.createOutputNode(context);
     this.connectOutputTail(destination);
-    this.startMediaStreamOutput(context);
+    return this.startMediaStreamOutput(context);
   }
 
   /**
