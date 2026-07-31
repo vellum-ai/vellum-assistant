@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Globe, Lock, Users } from "lucide-react";
+import { useArgs } from "storybook/preview-api";
 import { useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 
@@ -46,7 +47,6 @@ const meta: Meta<SelectProps<string>> = {
     menuMinWidth: { control: "number" },
     "aria-label": { control: "text" },
     options: { control: false },
-    value: { control: false },
     onChange: { control: false },
   },
 };
@@ -55,29 +55,31 @@ export default meta;
 type Story = StoryObj<SelectProps<string>>;
 
 export const Default: Story = {
-  args: {
+  args: { value: "apple",
     "aria-label": "Fruit",
   },
   render: function DefaultSelect(args) {
-    const [value, setValue] = useState("apple");
+    const [{ value }, updateArgs] = useArgs();
     return (
       <div className="w-64">
-        <Select {...args} options={fruits} value={value} onChange={setValue} />
+        <Select {...args} options={fruits} value={value}
+          onChange={(next) => updateArgs({ value: next })} />
       </div>
     );
   },
 };
 
 export const WithPlaceholder: Story = {
-  args: {
+  args: { value: "",
     placeholder: "Select a fruit…",
     "aria-label": "Fruit",
   },
   render: function PlaceholderSelect(args) {
-    const [value, setValue] = useState("");
+    const [{ value }, updateArgs] = useArgs();
     return (
       <div className="w-64">
-        <Select {...args} options={fruits} value={value} onChange={setValue} />
+        <Select {...args} options={fruits} value={value}
+          onChange={(next) => updateArgs({ value: next })} />
       </div>
     );
   },
@@ -90,18 +92,18 @@ const visibilityOptions: SelectOption<"public" | "team" | "private">[] = [
 ];
 
 export const WithIcons: Story = {
-  args: {
+  args: { value: "public",
     "aria-label": "Visibility",
   },
   render: function IconSelect(args) {
-    const [value, setValue] = useState<"public" | "team" | "private">("public");
+    const [{ value }, updateArgs] = useArgs();
     return (
       <div className="w-64">
         <Select
           {...(args as SelectProps<"public" | "team" | "private">)}
           options={visibilityOptions}
           value={value}
-          onChange={setValue}
+          onChange={(next) => updateArgs({ value: next })}
         />
       </div>
     );
@@ -126,19 +128,19 @@ const manyOptions: SelectOption<string>[] = Array.from(
 );
 
 export const LongList: Story = {
-  args: {
+  args: { value: "option-1",
     menuMaxHeight: 200,
     "aria-label": "Option",
   },
   render: function LongListSelect(args) {
-    const [value, setValue] = useState("option-1");
+    const [{ value }, updateArgs] = useArgs();
     return (
       <div className="w-64">
         <Select
           {...args}
           options={manyOptions}
           value={value}
-          onChange={setValue}
+          onChange={(next) => updateArgs({ value: next })}
         />
       </div>
     );
@@ -146,12 +148,12 @@ export const LongList: Story = {
 };
 
 export const EndAligned: Story = {
-  args: {
+  args: { value: "apple",
     menuAlign: "end",
     "aria-label": "Fruit",
   },
   render: function EndAlignedSelect(args) {
-    const [value, setValue] = useState("apple");
+    const [{ value }, updateArgs] = useArgs();
     return (
       <div className="flex w-96 justify-end">
         <div className="w-48">
@@ -159,7 +161,7 @@ export const EndAligned: Story = {
             {...args}
             options={fruits}
             value={value}
-            onChange={setValue}
+            onChange={(next) => updateArgs({ value: next })}
           />
         </div>
       </div>
@@ -178,18 +180,18 @@ const machineSizes: SelectOption<"small" | "medium" | "large">[] = [
 ];
 
 export const WithSuffix: Story = {
-  args: {
+  args: { value: "small",
     "aria-label": "Machine size",
   },
   render: function SuffixSelect(args) {
-    const [value, setValue] = useState<"small" | "medium" | "large">("small");
+    const [{ value }, updateArgs] = useArgs();
     return (
       <div className="w-80">
         <Select
           {...(args as SelectProps<"small" | "medium" | "large">)}
           options={machineSizes}
           value={value}
-          onChange={setValue}
+          onChange={(next) => updateArgs({ value: next })}
         />
       </div>
     );
@@ -197,15 +199,16 @@ export const WithSuffix: Story = {
 };
 
 export const Compact: Story = {
-  args: {
+  args: { value: "apple",
     size: "compact",
     "aria-label": "Fruit",
   },
   render: function CompactSelect(args) {
-    const [value, setValue] = useState("apple");
+    const [{ value }, updateArgs] = useArgs();
     return (
       <div className="w-48">
-        <Select {...args} options={fruits} value={value} onChange={setValue} />
+        <Select {...args} options={fruits} value={value}
+          onChange={(next) => updateArgs({ value: next })} />
       </div>
     );
   },
@@ -218,9 +221,9 @@ export const Compact: Story = {
  * lands offscreen. Radix portals out of the subtree, so it cannot happen here.
  */
 export const InsideTransformedAncestor: Story = {
-  args: { "aria-label": "Fruit" },
+  args: { value: "apple", "aria-label": "Fruit" },
   render: function TransformedAncestorSelect(args) {
-    const [value, setValue] = useState("apple");
+    const [{ value }, updateArgs] = useArgs();
     return (
       <div style={{ transform: "translate(80px, 40px)" }}>
         <div className="w-64">
@@ -228,7 +231,7 @@ export const InsideTransformedAncestor: Story = {
             {...args}
             options={fruits}
             value={value}
-            onChange={setValue}
+            onChange={(next) => updateArgs({ value: next })}
           />
         </div>
       </div>
@@ -255,10 +258,10 @@ export const InsideTransformedAncestor: Story = {
  * downward, so the same trigger puts its menu below the fold.
  */
 export const OpensUpwardWhenLow: Story = {
-  args: { "aria-label": "Fruit" },
+  args: { value: "apple", "aria-label": "Fruit" },
   parameters: { layout: "fullscreen" },
   render: function LowSelect(args) {
-    const [value, setValue] = useState("apple");
+    const [{ value }, updateArgs] = useArgs();
     return (
       <div className="flex h-screen flex-col justify-end p-4">
         <div className="w-64">
@@ -266,7 +269,7 @@ export const OpensUpwardWhenLow: Story = {
             {...args}
             options={fruits}
             value={value}
-            onChange={setValue}
+            onChange={(next) => updateArgs({ value: next })}
           />
         </div>
       </div>
@@ -289,6 +292,17 @@ export const OpensUpwardWhenLow: Story = {
 };
 
 /**
+ * NOTE ON STATE: this story holds its value in `useState` rather than
+ * `useArgs`, unlike the presentational stories above.
+ *
+ * `updateArgs` round-trips through Storybook's manager channel, which does not
+ * exist in the Playwright test runner, so the arg never changes and the play
+ * function cannot observe the selection it just made. Verified: after clicking
+ * an option the trigger still reads the placeholder. `useArgs` is right for
+ * stories whose job is to drive Controls; these two exist purely as regression
+ * guards, so they own their state.
+ */
+/**
  * Clearing the value from the parent returns the trigger to its placeholder.
  *
  * Worth pinning because it is easy to break: Radix decides controlled versus
@@ -297,15 +311,16 @@ export const OpensUpwardWhenLow: Story = {
  * a caller resets, leaving the previous choice on screen.
  */
 export const ClearedByParent: Story = {
-  args: {
+  args: { value: "",
     placeholder: "Select a fruit…",
     "aria-label": "Fruit",
   },
   render: function ClearableSelect(args) {
-    const [value, setValue] = useState("");
+    const [value, setValue] = useState<string>("");
     return (
       <div className="flex w-64 flex-col gap-2">
-        <Select {...args} options={fruits} value={value} onChange={setValue} />
+        <Select {...args} options={fruits} value={value}
+          onChange={setValue} />
         <button type="button" data-testid="clear" onClick={() => setValue("")}>
           Clear
         </button>
@@ -335,14 +350,25 @@ export const ClearedByParent: Story = {
 };
 
 /**
+ * NOTE ON STATE: this story holds its value in `useState` rather than
+ * `useArgs`, unlike the presentational stories above.
+ *
+ * `updateArgs` round-trips through Storybook's manager channel, which does not
+ * exist in the Playwright test runner, so the arg never changes and the play
+ * function cannot observe the selection it just made. Verified: after clicking
+ * an option the trigger still reads the placeholder. `useArgs` is right for
+ * stories whose job is to drive Controls; these two exist purely as regression
+ * guards, so they own their state.
+ */
+/**
  * Inside a modal the menu is portaled out of the dialog, so it must still be
  * clickable under the dialog's `pointer-events: none` on `body`, and choosing
  * an option must not read as an outside click and dismiss the modal.
  */
 export const InsideModal: Story = {
-  args: { "aria-label": "Fruit" },
+  args: { value: "apple", "aria-label": "Fruit" },
   render: function ModalSelect(args) {
-    const [value, setValue] = useState("apple");
+    const [value, setValue] = useState<string>("apple");
     return (
       <Modal.Root>
         <Modal.Trigger asChild>
