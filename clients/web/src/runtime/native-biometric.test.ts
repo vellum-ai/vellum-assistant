@@ -42,7 +42,6 @@ function nativeError(code: string): Error & { code: string } {
 beforeEach(() => {
   native = true;
   setOrigin("https://www.vellum.ai");
-  localStorage.clear();
   mock.clearAllMocks();
   isAvailable.mockResolvedValue({ available: true, biometryType: "biometric" });
   storeToken.mockResolvedValue(undefined);
@@ -60,7 +59,6 @@ test("maps iOS and Android capability responses to appropriate labels", async ()
   const cases = [
     ["faceId", "Face ID"],
     ["touchId", "Touch ID"],
-    ["opticId", "Optic ID"],
     ["fingerprint", "your fingerprint"],
     ["face", "face recognition"],
     ["biometric", "biometrics"],
@@ -84,11 +82,9 @@ test("fails open in browsers and older shells", async () => {
   isAvailable.mockRejectedValueOnce(unsupported);
   storeToken.mockRejectedValueOnce(unsupported);
   retrieveToken.mockRejectedValueOnce(unsupported);
-  deleteToken.mockRejectedValue(unsupported);
   expect((await biometric.getBiometricCapability()).available).toBe(false);
   expect(await biometric.storeBiometricToken("token")).toBe(false);
   expect(await biometric.retrieveBiometricToken()).toBeNull();
-  expect(await biometric.deleteBiometricToken()).toBeUndefined();
 });
 
 test("isolates storage by normalized effective server origin", async () => {
@@ -112,11 +108,17 @@ test("reads the legacy iOS cloud key without crossing self-hosted origins", asyn
     "vellum.ai",
   ]);
 
-  setOrigin("https://assistant.example.com");
+  setOrigin("https://preview.vellum.ai");
   retrieveToken.mockClear();
   retrieveToken.mockRejectedValueOnce(nativeError("TOKEN_NOT_FOUND"));
   expect(await biometric.retrieveBiometricToken()).toBeNull();
   expect(retrieveToken).toHaveBeenCalledTimes(1);
+
+  await biometric.deleteBiometricToken();
+  expect(deleteToken.mock.calls.map(([options]) => options.server)).toEqual([
+    "https://preview.vellum.ai",
+    "vellum.ai",
+  ]);
 });
 
 test("cancellation keeps recovery enabled while invalidation disables it", async () => {

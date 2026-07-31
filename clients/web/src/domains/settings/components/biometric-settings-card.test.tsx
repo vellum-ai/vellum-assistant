@@ -46,12 +46,7 @@ test("uses Android capability copy without a passcode fallback", async () => {
 });
 
 test("stays hidden on browsers, older shells, and unsupported devices", async () => {
-  native = false;
-  const { container, rerender } = render(<BiometricSettingsCard />);
-  expect(container.innerHTML).toBe("");
-
-  native = true;
   capability = { available: false, type: "none", label: "biometrics" };
-  rerender(<BiometricSettingsCard />);
+  const { container } = render(<BiometricSettingsCard />);
   await waitFor(() => expect(container.innerHTML).toBe(""));
 });

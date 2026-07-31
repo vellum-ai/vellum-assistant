@@ -1,7 +1,8 @@
 import { registerPlugin } from "@capacitor/core";
 
 import { isNativePlatform } from "@/runtime/native-auth";
-import { APEX_DOMAIN, isVellumDomain } from "@/utils/domains";
+import { getNativeUrlSchemeForHost } from "@/runtime/native-deep-link";
+import { APEX_DOMAIN } from "@/utils/domains";
 import { getDeviceBool, setDeviceBool } from "@/utils/device-settings";
 
 /**
@@ -81,8 +82,8 @@ function nativeErrorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
-function biometricServers(origin: string): string[] {
-  return isVellumDomain(new URL(origin).hostname)
+function biometricRetrievalServers(origin: string): string[] {
+  return getNativeUrlSchemeForHost(new URL(origin).hostname)
     ? [origin, APEX_DOMAIN]
     : [origin];
 }
@@ -147,7 +148,9 @@ export async function retrieveBiometricToken(): Promise<string | null> {
   }
 
   pendingRetrieval = (async () => {
-    for (const server of biometricServers(getBiometricServerOrigin())) {
+    for (const server of biometricRetrievalServers(
+      getBiometricServerOrigin(),
+    )) {
       try {
         return await retrieveTokenForServer(server);
       } catch (error) {
@@ -177,7 +180,7 @@ export async function deleteBiometricToken(): Promise<void> {
     return;
   }
 
-  for (const server of biometricServers(getBiometricServerOrigin())) {
+  for (const server of [getBiometricServerOrigin(), APEX_DOMAIN]) {
     try {
       await NativeBiometric.deleteToken({ server });
     } catch {
