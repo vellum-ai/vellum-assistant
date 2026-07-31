@@ -103,6 +103,11 @@ export async function sendResearchCorrection({
       // matching the initial research send (`research-runner.ts`).
       interface: "web",
       clientOs: detectClientOs(),
+      // A machine signal the user never typed: hidden keeps the daemon from
+      // pushing this turn's reply to the user's phone, deep-linked into the
+      // thread re-archived below. The correction still reaches the assistant,
+      // since hidden rows stay in LLM-side history.
+      hidden: true,
       clientMessageId: crypto.randomUUID(),
     };
     await messagesPost({
