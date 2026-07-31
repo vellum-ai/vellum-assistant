@@ -33,7 +33,6 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
 type InterruptionEvent = { type: "began" | "ended" };
 const activateVoiceAudioSession = mock(async () => true);
 const deactivateVoiceAudioSession = mock(async () => undefined);
-const describeVoiceAudioSession = mock(async () => null);
 const unsubscribeInterruptions = mock(() => undefined);
 let interruptionHandlers: ((event: InterruptionEvent) => void)[] = [];
 
@@ -42,7 +41,6 @@ let interruptionHandlers: ((event: InterruptionEvent) => void)[] = [];
 mock.module("@/runtime/native-audio-session", () => ({
   activateVoiceAudioSession,
   deactivateVoiceAudioSession,
-  describeVoiceAudioSession,
   subscribeVoiceAudioInterruptions: (
     handler: (event: InterruptionEvent) => void,
   ) => {
