@@ -1,6 +1,7 @@
 import type { ReadStream, WriteStream } from "node:tty";
 
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
+import { GATEWAY_PORT } from "../lib/constants.js";
 import {
   LiveVoiceChannelClient,
   type LiveVoiceChannelClientOptions,
@@ -671,7 +672,7 @@ function printVoiceHelp(stdout: VoiceOutput): void {
   stdout.write("Examples:\n");
   stdout.write("  vellum voice assistant-123\n");
   stdout.write(
-    "  vellum voice --url http://127.0.0.1:7821 --assistant-id assistant-123\n",
+    `  vellum voice --url http://127.0.0.1:${GATEWAY_PORT} --assistant-id assistant-123\n`,
   );
   stdout.write("  vellum voice doctor assistant-123 --json\n");
 }

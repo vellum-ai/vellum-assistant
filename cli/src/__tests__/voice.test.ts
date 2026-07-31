@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 
 import { voice } from "../commands/voice.js";
+import { GATEWAY_PORT } from "../lib/constants.js";
 import type {
   LiveVoiceChannelClientEventHandler,
   LiveVoiceChannelClientEventMap,
@@ -296,7 +297,9 @@ describe("vellum voice", () => {
     expect(stdout.value).toContain("vellum voice devices [--json]");
     expect(stdout.value).toContain("--input-device <node>");
     expect(stdout.value).toContain("--captions <mode>");
-    expect(stdout.value).toContain("--assistant-id assistant-123");
+    expect(stdout.value).toContain(
+      `--url http://127.0.0.1:${GATEWAY_PORT} --assistant-id assistant-123`,
+    );
   });
 
   test("lists PipeWire devices as JSON without requiring a TTY", async () => {
