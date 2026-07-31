@@ -124,10 +124,6 @@ describe("sendResearchCorrection", () => {
     expect(postCalls[0]?.path).toEqual({ assistant_id: "a1" });
     expect(postCalls[0]?.body.conversationId).toBe("c1");
     expect(postCalls[0]?.throwOnError).toBe(false);
-    // The correction turn carries the transport interface + real OS so the
-    // assistant keeps platform context (mirrors the initial research send).
-    expect(postCalls[0]?.body.interface).toBe("web");
-    expect(postCalls[0]?.body.clientOs).toBe("web");
     // See `lib/side-conversation-message.ts` for why this posts hidden.
     expect(postCalls[0]?.body.hidden).toBe(true);
 

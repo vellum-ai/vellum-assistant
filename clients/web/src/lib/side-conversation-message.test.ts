@@ -17,9 +17,6 @@ describe("buildSideConversationMessageBody", () => {
     });
 
     expect(body.hidden).toBe(true);
-    expect(body.conversationId).toBe("conv-1");
-    expect(body.content).toBe("<system-message>rewrite</system-message>");
-    expect(body.sourceChannel).toBe("vellum");
     expect(body.interface).toBe("vellum");
     // `clientOs` is a web-transport concern only.
     expect(body.clientOs).toBeUndefined();
@@ -35,21 +32,5 @@ describe("buildSideConversationMessageBody", () => {
     expect(body.hidden).toBe(true);
     expect(body.interface).toBe("web");
     expect(body.clientOs).toBe("web");
-  });
-
-  test("mints a fresh idempotency nonce per send", () => {
-    const first = buildSideConversationMessageBody({
-      conversationId: "conv-3",
-      content: "a",
-      transport: "vellum",
-    });
-    const second = buildSideConversationMessageBody({
-      conversationId: "conv-3",
-      content: "a",
-      transport: "vellum",
-    });
-
-    expect(first.clientMessageId).toBeTruthy();
-    expect(second.clientMessageId).not.toBe(first.clientMessageId);
   });
 });

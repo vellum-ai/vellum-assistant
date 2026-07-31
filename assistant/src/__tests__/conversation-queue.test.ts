@@ -1799,55 +1799,62 @@ describe("Batched drain correctness fixes", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
-  // The batch's shared reply answers the person's prompt; the hidden marker
-  // only rode along behind it. Pointing the producer at the last row would
-  // read the marker's metadata and suppress a push the user is waiting on.
-  test("drainBatch notifies about the genuine prompt, not a trailing hidden marker", async () => {
-    emitAssistantReplyNotificationMock.mockClear();
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
+  // The batch's shared reply answers the person's prompt; the trailing row
+  // only rode along behind it. A channel send gets its reply delivered back to
+  // Slack and a hidden marker is nobody's prompt, so pointing the producer at
+  // either would suppress a push the user is waiting on.
+  const TRAILING_INELIGIBLE_ROW_CASES: Array<{
+    name: string;
+    metadata: Record<string, unknown>;
+  }> = [
+    { name: "hidden marker", metadata: { hidden: true } },
+    { name: "channel send", metadata: { userMessageChannel: "slack" } },
+  ];
 
-    const p1 = conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      requestId: "req-1",
+  for (const { name, metadata } of TRAILING_INELIGIBLE_ROW_CASES) {
+    test(`drainBatch notifies about the genuine prompt, not a trailing ${name}`, async () => {
+      emitAssistantReplyNotificationMock.mockClear();
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+
+      conversation.enqueueMessage({
+        content: "batch-prompt-genuine",
+        requestId: "req-prompt",
+      });
+      conversation.enqueueMessage({
+        content: "batch-prompt-trailing",
+        requestId: "req-trailing",
+        metadata,
+      });
+
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+      await resolveRun(1);
+      // Two turns finish here: msg-1's own run, then the batch's shared run.
+      await waitForCondition(
+        () => emitAssistantReplyNotificationMock.mock.calls.length >= 2,
+      );
+
+      const genuineRow = capturedAddMessages.find((m) =>
+        m.content.includes("batch-prompt-genuine"),
+      );
+      expect(genuineRow?.id).toBeDefined();
+
+      const notifyCalls = emitAssistantReplyNotificationMock.mock
+        .calls as unknown as Array<[{ userMessageId: string | undefined }]>;
+      expect(notifyCalls.at(-1)?.[0].userMessageId).toBe(genuineRow!.id);
+
+      await new Promise((r) => setTimeout(r, 10));
     });
-    await waitForPendingRun(1);
-
-    conversation.enqueueMessage({
-      content: "batch-prompt-genuine",
-      requestId: "req-prompt",
-    });
-    conversation.enqueueMessage({
-      content: "batch-prompt-hidden-marker",
-      requestId: "req-hidden",
-      metadata: { hidden: true },
-    });
-
-    await resolveRun(0);
-    await p1;
-    await waitForPendingRun(2);
-    await resolveRun(1);
-    // Two turns finish here: msg-1's own run, then the batch's shared run.
-    await waitForCondition(
-      () => emitAssistantReplyNotificationMock.mock.calls.length >= 2,
-    );
-
-    const genuineRow = capturedAddMessages.find((m) =>
-      m.content.includes("batch-prompt-genuine"),
-    );
-    const hiddenRow = capturedAddMessages.find((m) =>
-      m.content.includes("batch-prompt-hidden-marker"),
-    );
-    expect(genuineRow?.id).toBeDefined();
-    expect(hiddenRow?.metadata?.hidden).toBe(true);
-
-    const notifyCalls = emitAssistantReplyNotificationMock.mock
-      .calls as unknown as Array<[{ userMessageId: string | undefined }]>;
-    expect(notifyCalls.at(-1)?.[0].userMessageId).toBe(genuineRow!.id);
-
-    await new Promise((r) => setTimeout(r, 10));
-  });
+  }
 
   // Defensive recovery path: buildPassthroughBatch is designed to make
   // the invariant throw unreachable in practice, so neither the head

@@ -74,6 +74,7 @@ import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete
 import {
   BACKGROUND_CONVERSATION_TYPES,
   type ConversationCreateType,
+  isHiddenMessageMetadata,
 } from "./conversation-types.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
@@ -354,78 +355,17 @@ export const messageMetadataSchema = z
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
 /**
- * Shared predicate for the transcript-suppression flag on user-message
- * metadata (see the `hidden` field on {@link messageMetadataSchema}). One
- * definition so the sites that must agree — echo suppression, list-messages
- * filtering, queued-snapshot filtering, indexing exclusion, and downstream
- * consumers of message text — cannot drift.
+ * Pure predicates over the `metadata` record above. They live in the
+ * `conversation-types` leaf so a caller that only classifies a row does not
+ * pull in this module's DB graph, and are re-exported here alongside the
+ * schema they read.
  */
-export function isHiddenMessageMetadata(
-  metadata: Record<string, unknown> | null | undefined,
-): boolean {
-  return metadata?.hidden === true;
-}
-
-/**
- * True when the row is a persisted `<background_event source="...">` trigger.
- * Every wake, scheduled run, and backgrounded-tool completion stamps one (see
- * `persistWakeTriggerMessage`). The permission mode such a turn ran under
- * varies (most run interactive; clientless/headless wakes do not) and is
- * recorded separately in `backgroundEventInteractive`; this predicate only
- * identifies the row as a background event.
- */
-export function isBackgroundEventMetadata(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  return typeof metadata?.backgroundEventSource === "string";
-}
-
-/**
- * True when a role-`"user"` row is internal scaffolding rather than a person's
- * prompt: a daemon-injected run lifecycle notification (subagent
- * `subagentNotification`, ACP run `acpNotification`, or any wake trigger, the
- * persisted `<background_event source="...">` row every wake reads), or a row
- * explicitly flagged `hidden` (e.g. a hidden `POST /messages` send that queued
- * behind an in-flight turn, like the channel-setup wizard-close marker).
- *
- * These rows are persisted so the orchestrator wakes and reads the trigger,
- * but the user sees the wake through its inline card ("Conversation Woke", or
- * a terminal card for a backgrounded bash run), not a chat turn. One
- * definition so the sites that must agree cannot drift: the
- * `user_message_echo` broadcast (never render a live user bubble), the retry
- * route's hidden-prompt re-run, and the assistant-reply notification producer
- * (a turn opened by one of these rows is not a user prompt awaiting a reply).
- */
-export function isEchoSuppressedUserMessage(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  return (
-    isHiddenMessageMetadata(metadata) ||
-    metadata?.subagentNotification != null ||
-    metadata?.acpNotification != null ||
-    isBackgroundEventMetadata(metadata)
-  );
-}
-
-/**
- * True when a role-`"user"` row was persisted by the voice bridge for a live
- * phone call or in-app voice session (every row `startVoiceTurn` persists, see
- * `calls/voice-session-bridge.ts`).
- *
- * The reply to such a turn is spoken back over the still-open session, so any
- * consumer that treats a finished reply as something the user has yet to see
- * (the assistant-reply notification producer) must skip it rather than push a
- * notification for audio the user is hearing right now.
- *
- * This marker is the only durable signal for that: the channel/interface fields
- * cannot stand in, because an in-app live-voice turn persists as
- * `vellum`/`macos`, indistinguishable from a typed desktop send.
- */
-export function isVoiceSessionUserMessage(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  return metadata?.voiceSessionTurn === true;
-}
+export {
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
+  isHiddenMessageMetadata,
+  isVoiceSessionUserMessage,
+} from "./conversation-types.js";
 
 /**
  * `messageKind` value marking a daemon-authored system card — a pre-composed
