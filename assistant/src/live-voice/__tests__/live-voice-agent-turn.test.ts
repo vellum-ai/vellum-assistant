@@ -221,7 +221,7 @@ function assistantDeltaTexts(frames: LiveVoiceServerFrame[]): string[] {
 }
 
 describe("LiveVoiceSession assistant turn", () => {
-  test("runs final transcripts through the voice bridge and forwards ordered assistant events", async () => {
+  test("runs final transcripts through the voice bridge, forwards ordered events, and preserves the omitted-interface fallback", async () => {
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
       options.callbacks?.assistant_text_delta?.({
         type: "assistant_text_delta",
@@ -286,6 +286,30 @@ describe("LiveVoiceSession assistant turn", () => {
     expect(frames[6]).toMatchObject({
       type: "tts_done",
       turnId: "live-turn-1",
+    });
+  });
+
+  test("attributes both persisted messages to the supplied CLI interface", async () => {
+    const startVoiceTurn = mock(async (_options: VoiceTurnOptions) => ({
+      turnId: "bridge-turn-1",
+      abort: mock(),
+    }));
+    const { session, transcriber } = createSessionHarness({
+      startFrame: {
+        ...START_FRAME,
+        sourceInterface: "cli",
+      },
+      startVoiceTurn,
+    });
+
+    await session.start();
+    transcriber.emit({ type: "final", text: "hello" });
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => startVoiceTurn.mock.calls.length === 1);
+
+    expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
+      userMessageInterface: "cli",
+      assistantMessageInterface: "cli",
     });
   });
 

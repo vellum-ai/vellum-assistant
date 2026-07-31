@@ -39,6 +39,57 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
+  test("preserves a canonical source interface and ignores unknown extra fields", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      sourceInterface: "cli",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 24_000,
+        channels: 1,
+      },
+      futureOption: true,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      frame: {
+        type: "start",
+        sourceInterface: "cli",
+        audio: {
+          mimeType: "audio/pcm",
+          sampleRate: 24_000,
+          channels: 1,
+        },
+      },
+    });
+  });
+
+  test.each(["terminal", "vellum", 42])(
+    "rejects invalid source interface %p",
+    (sourceInterface) => {
+      const result = validateLiveVoiceClientFrame({
+        type: "start",
+        sourceInterface,
+        audio: {
+          mimeType: "audio/pcm",
+          sampleRate: 24_000,
+          channels: 1,
+        },
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        return;
+      }
+      expect(result.error).toMatchObject({
+        code: "invalid_field",
+        field: "sourceInterface",
+        frameType: "start",
+      });
+    },
+  );
+
   test("parses base64 JSON audio frames", () => {
     const result = parseLiveVoiceClientTextFrame(
       JSON.stringify({ type: "audio", dataBase64: "AQIDBA==" }),
