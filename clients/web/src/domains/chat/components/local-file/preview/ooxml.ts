@@ -197,7 +197,14 @@ function spend(budget: TextBudget, text: string): void {
 }
 
 function parseXml(text: string, entryPath: string): Element {
-  const document = new DOMParser().parseFromString(text, "application/xml");
+  // The declaration carries nothing the parser needs, and real-world
+  // producers vary its shape (python-docx writes single-quoted attributes,
+  // which some DOM implementations refuse). Strip it, and any BOM, first.
+  const withoutDeclaration = text.replace(/^﻿?\s*<\?xml[^>]*\?>\s*/, "");
+  const document = new DOMParser().parseFromString(
+    withoutDeclaration,
+    "application/xml",
+  );
   const root = document.documentElement;
   if (
     root === null ||
@@ -212,7 +219,9 @@ function parseXml(text: string, entryPath: string): Element {
 async function loadPackage(blob: Blob): Promise<JSZip> {
   let zip: JSZip;
   try {
-    zip = await JSZip.loadAsync(blob);
+    // ArrayBuffer rather than the Blob itself: JSZip reads Blobs through
+    // FileReader, which not every runtime provides.
+    zip = await JSZip.loadAsync(await blob.arrayBuffer());
   } catch {
     throw new ParseError("This file is not a readable Office package.");
   }
@@ -408,6 +417,32 @@ function headingLevelOf(properties: Element | null): number | null {
   return match === null ? null : Number(match[1]);
 }
 
+/**
+ * List membership carried by the paragraph style alone. Word writes `w:numPr`
+ * inline, but python-docx and some templates rely on the built-in
+ * `ListBullet`/`ListNumber` styles (optionally suffixed 2-3 for depth) whose
+ * numbering lives in styles.xml.
+ */
+function styleListPropertiesOf(
+  properties: Element,
+): { ordered: boolean; level: number } | null {
+  const style = firstChildNamed(properties, "pStyle");
+  const value = style === null ? null : attrNamed(style, "val");
+  if (value === null) {
+    return null;
+  }
+  const match = /^list(bullet|number)([2-9])?$/.exec(
+    value.replace(/[\s_-]/g, "").toLowerCase(),
+  );
+  if (match === null) {
+    return null;
+  }
+  return {
+    ordered: match[1] === "number",
+    level: match[2] === undefined ? 0 : Number(match[2]) - 1,
+  };
+}
+
 function listPropertiesOf(
   properties: Element | null,
   numbering: Map<string, boolean>,
@@ -417,7 +452,7 @@ function listPropertiesOf(
   }
   const numPr = firstChildNamed(properties, "numPr");
   if (numPr === null) {
-    return null;
+    return styleListPropertiesOf(properties);
   }
   const levelElement = firstChildNamed(numPr, "ilvl");
   const idElement = firstChildNamed(numPr, "numId");

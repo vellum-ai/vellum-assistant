@@ -343,7 +343,7 @@ The path after \`workspace/\` is relative to your working directory. The file re
 
 Use the same link form to reference a file you are discussing: in the app, the link lets the user open or download it.
 
-Embed media inline with standard markdown: \`![description](URL or vellum://workspace/path)\`. In the app, workspace images, audio, video, and PDFs render inline; other file types render as a file card.
+Embed images, audio, and video inline with \`![description](URL or vellum://workspace/path)\`. Reference every other file type, including PDFs and documents, as a plain link: \`[name](vellum://workspace/path)\`.
 `,
   },
   {

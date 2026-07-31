@@ -452,8 +452,9 @@ describe("LocalFileCard open state", () => {
     expect(card.className).toContain("border-[var(--border-active)]");
     expect(card.className).toContain("bg-[var(--surface-active)]");
 
-    const hint = screen.getByText("Close editor").parentElement;
-    expect(hint?.className).not.toContain("opacity-0");
+    // The highlighted state carries the open signal on its own; no hint chip.
+    expect(screen.queryByText("Close editor")).toBeNull();
+    expect(screen.queryByText("Open in editor")).toBeNull();
   });
 
   test("the card for the previewed file reads as open", () => {
@@ -476,7 +477,8 @@ describe("LocalFileCard open state", () => {
     });
     expect(card.getAttribute("aria-expanded")).toBe("true");
     expect(card.className).toContain("border-[var(--border-active)]");
-    expect(screen.getByText("Close preview")).toBeTruthy();
+    expect(screen.queryByText("Close preview")).toBeNull();
+    expect(screen.queryByText("Open preview")).toBeNull();
   });
 
   test("clicking an open preview card closes the drawer", () => {

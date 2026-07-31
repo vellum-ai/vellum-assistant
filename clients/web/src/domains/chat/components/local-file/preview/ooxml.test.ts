@@ -526,3 +526,42 @@ describe("parsePptx", () => {
     await expect(parsePptx(blob)).rejects.toBeInstanceOf(ParseError);
   });
 });
+
+describe("real-world producer quirks", () => {
+  test("a single-quoted XML declaration parses (python-docx, lxml)", async () => {
+    const declared = documentXml(paragraph("hello")).replace(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+      "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>",
+    );
+    const blob = await zipBlob({ "word/document.xml": declared });
+
+    const { blocks } = await parseDocx(blob);
+
+    expect(blocks).toHaveLength(1);
+    expect(textOf(blocks[0]!)).toBe("hello");
+  });
+
+  test("style-based lists without inline numPr become list items", async () => {
+    const blob = await docxBlob(
+      [
+        `<w:p><w:pPr><w:pStyle w:val="ListBullet"/></w:pPr>${run("first")}</w:p>`,
+        `<w:p><w:pPr><w:pStyle w:val="ListBullet2"/></w:pPr>${run("nested")}</w:p>`,
+        `<w:p><w:pPr><w:pStyle w:val="ListNumber"/></w:pPr>${run("step")}</w:p>`,
+      ].join(""),
+    );
+
+    const { blocks } = await parseDocx(blob);
+
+    expect(
+      blocks.map((b) =>
+        b.type === "listItem"
+          ? { o: b.ordered, l: b.level, t: textOf(b) }
+          : b.type,
+      ),
+    ).toEqual([
+      { o: false, l: 0, t: "first" },
+      { o: false, l: 1, t: "nested" },
+      { o: true, l: 0, t: "step" },
+    ]);
+  });
+});

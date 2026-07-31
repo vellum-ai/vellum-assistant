@@ -6,7 +6,7 @@
  * Rendered inside a markdown paragraph, so every element is inline-level.
  */
 
-import { ExternalLink, PanelRight, PanelRightClose } from "lucide-react";
+import { ExternalLink, PanelRight } from "lucide-react";
 import type { ComponentType, KeyboardEvent, ReactNode } from "react";
 
 import { cn, Typography } from "@vellumai/design-library";
@@ -65,18 +65,14 @@ function clickTargetFor(filename: string, assistantId?: string): ClickTarget {
   return previewKindFor(filename) !== null ? "preview" : "editor";
 }
 
-function clickHintFor(target: ClickTarget, isOpen: boolean): ClickHint {
+function clickHintFor(target: ClickTarget): ClickHint {
   if (target === "workspace") {
     return { label: "Open in workspace", Icon: ExternalLink };
   }
   if (target === "preview") {
-    return isOpen
-      ? { label: "Close preview", Icon: PanelRightClose }
-      : { label: "Open preview", Icon: PanelRight };
+    return { label: "Open preview", Icon: PanelRight };
   }
-  return isOpen
-    ? { label: "Close editor", Icon: PanelRightClose }
-    : { label: "Open in editor", Icon: PanelRight };
+  return { label: "Open in editor", Icon: PanelRight };
 }
 
 function secondaryLineFor(
@@ -109,10 +105,7 @@ export function LocalFileCard({
   const isOpenInDrawer =
     useIsWorkspaceFileOpen(canOpen ? workspacePath : null) && opensDrawer;
   const secondary = secondaryLineFor(state, displayName, filename);
-  const { label: hintLabel, Icon: HintIcon } = clickHintFor(
-    clickTarget,
-    isOpenInDrawer,
-  );
+  const { label: hintLabel, Icon: HintIcon } = clickHintFor(clickTarget);
   const actionLabel = isOpenInDrawer
     ? `Close ${clickTarget} for ${filename}`
     : `Open ${filename}`;
@@ -187,15 +180,16 @@ export function LocalFileCard({
           </Typography>
         )}
       </span>
-      {canOpen && (
+      {/* An open card relies on its highlighted state alone; the hint only
+          previews what a click will do before the drawer is open. */}
+      {canOpen && !isOpenInDrawer && (
         // Named by the card's own aria-label, so it is decorative here.
         <span
           aria-hidden="true"
           className={cn(
             "flex shrink-0 items-center gap-1",
-            isOpenInDrawer
-              ? "text-[var(--content-secondary)]"
-              : cn(HINT_REVEAL_CLASSES, "text-[var(--content-tertiary)]"),
+            HINT_REVEAL_CLASSES,
+            "text-[var(--content-tertiary)]",
           )}
         >
           <HintIcon className="h-3.5 w-3.5" />
