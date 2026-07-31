@@ -187,15 +187,20 @@ export const ChannelResetRequestSchema = z.object({
 export type ChannelResetRequest = z.infer<typeof ChannelResetRequestSchema>;
 
 /**
- * Reset response. `denied` distinguishes an authorization refusal (which the
- * caller surfaces silently) from a transport or server failure. The gateway
- * parses this rather than casting: a malformed 2xx body must not read as an
- * admitted reset, or `/new` would announce a success it never earned.
+ * Reset response, a semantic union so a failure cannot be read as a success.
+ * `{ ok: true }` is the only shape that means the conversation was reset;
+ * every failure must name itself, so a caller cannot announce success from a
+ * body that says it did not happen. The gateway parses this rather than
+ * casting: an unparseable OR merely unsuccessful body must never read as an
+ * admitted reset.
  */
-export const ChannelResetResponseSchema = z.object({
-  ok: z.boolean(),
-  denied: z.boolean().optional(),
-  reason: z.string().optional(),
-});
+export const ChannelResetResponseSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true) }),
+  z.object({
+    ok: z.literal(false),
+    denied: z.literal(true),
+    reason: z.string().min(1),
+  }),
+]);
 
 export type ChannelResetResponse = z.infer<typeof ChannelResetResponseSchema>;

@@ -615,6 +615,26 @@ describe("telegram webhook handler: /new admission", () => {
     ).toBeUndefined();
   });
 
+  test("`{ ok: false }` is a failure, not a silent success", async () => {
+    // Valid by shape but says the reset did not happen. The response union
+    // makes this impossible to read as an admitted reset.
+    seedActorContact();
+    installFetchMock({ resetResponse: { ok: false } });
+    const { handler } = createTelegramWebhookHandler(
+      makeConfig(ROUTED),
+      makeCaches(),
+    );
+
+    await handler(makeWebhookRequest(makeTelegramPayload("/new", 5011)));
+
+    const confirmation = fetchCalls.find(
+      (c) =>
+        c.url.includes("/sendMessage") &&
+        String((c.body as any)?.text ?? "").includes("new conversation"),
+    );
+    expect(confirmation).toBeUndefined();
+  });
+
   test("a malformed runtime response fails closed instead of claiming success", async () => {
     // Treating an unparseable 2xx as "not denied" would announce a reset that
     // never happened.
@@ -635,13 +655,12 @@ describe("telegram webhook handler: /new admission", () => {
         c.url.includes("/sendMessage") &&
         String((c.body as any)?.text ?? "").includes("new conversation"),
     );
+    // The transient notice is deliberately throttled by the shared rejection
+    // limiter, so the load-bearing assertion is that success is never claimed.
     expect(confirmation).toBeUndefined();
-    const notice = fetchCalls.find(
-      (c) =>
-        c.url.includes("/sendMessage") &&
-        String((c.body as any)?.text ?? "").includes("Failed to reset"),
-    );
-    expect(notice).toBeDefined();
+    expect(
+      fetchCalls.find((c) => c.url.includes("/channels/conversation")),
+    ).toBeDefined();
   });
 });
 

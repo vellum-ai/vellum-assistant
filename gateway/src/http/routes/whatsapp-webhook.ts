@@ -177,13 +177,21 @@ export function createWhatsAppWebhookHandler(
         "WhatsApp webhook received",
       );
 
-      // Mark message as read (best-effort, do not await)
-      markWhatsAppMessageRead(whatsappMessageId, apiCaches).catch((err) => {
-        tlog.debug(
-          { err, messageId: whatsappMessageId },
-          "Failed to mark WhatsApp message as read",
-        );
-      });
+      // Mark message as read (best-effort, do not await). Deferred for /new
+      // so a channel killed by `no_one` emits no read receipt: that receipt is
+      // outbound I/O that would reveal the bot is alive on a channel the
+      // guardian turned off.
+      const markRead = () => {
+        markWhatsAppMessageRead(whatsappMessageId, apiCaches).catch((err) => {
+          tlog.debug(
+            { err, messageId: whatsappMessageId },
+            "Failed to mark WhatsApp message as read",
+          );
+        });
+      };
+      if (!isNewCommand(event.message.content)) {
+        markRead();
+      }
 
       // Resolve routing once so we can gate further operations on it
       const routing = resolveAssistant(config, from, from);
@@ -192,7 +200,7 @@ export function createWhatsAppWebhookHandler(
       // runtime. Authorization (and the routing check) happen inside
       // handleNewCommand so an unauthorized sender gets no reply at all.
       if (isNewCommand(event.message.content)) {
-        await handleNewCommand({
+        const { outcome } = await handleNewCommand({
           config,
           sourceChannel: event.sourceChannel,
           conversationExternalId: event.message.conversationExternalId,
@@ -212,6 +220,11 @@ export function createWhatsAppWebhookHandler(
           },
           logger: tlog,
         });
+
+        // A killed channel stays entirely silent, including read receipts.
+        if (outcome !== "killed") {
+          markRead();
+        }
 
         dedupCache.mark(whatsappMessageId);
         continue;

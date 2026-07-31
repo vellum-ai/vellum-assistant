@@ -8,16 +8,18 @@
  *   (`assistant/src/runtime/routes/inbound-stages/admission-policy.ts`)
  *   evaluates it for every forwarded inbound message, against the
  *   gateway-stamped verdict + floor.
- * - The gateway's channel-command authorization seam
- *   (`authorizeChannelCommand` in `gateway/src/webhook-pipeline.ts`)
- *   evaluates it for gateway-terminal commands (`/new`) that never reach the
- *   runtime.
+ * - The channel conversation reset endpoint
+ *   (`assistant/src/runtime/routes/inbound-conversation.ts`) evaluates it for
+ *   gateway-terminal commands (`/new`), which never run the inbound message
+ *   pipeline. That endpoint authorizes itself; the gateway only applies the
+ *   `no_one` kill switch and forwards the verdict + floor.
  *
- * Living here keeps it one model: a channel command is authorized by exactly
- * the decision a channel message would get, not by a per-channel or
+ * Living here keeps it one model: a channel command clears exactly the
+ * admission decision a channel message would get, not a per-channel or
  * per-command re-implementation. Capabilities (what an admitted actor may
  * do) are NOT computed here. That axis stays in the runtime
- * (`assistant/src/runtime/capabilities.ts`).
+ * (`assistant/src/runtime/capabilities.ts`), where the reset endpoint also
+ * consults `resolveCapabilities` before mutating state.
  */
 
 import {

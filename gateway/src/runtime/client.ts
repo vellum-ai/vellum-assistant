@@ -390,10 +390,10 @@ export async function resetConversation(
       `Reset conversation returned a malformed response: ${parsed.error.issues[0]?.message ?? "unparseable body"}`,
     );
   }
-  return {
-    denied: parsed.data.denied === true,
-    ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
-  };
+  if (parsed.data.ok) {
+    return { denied: false };
+  }
+  return { denied: true, reason: parsed.data.reason };
 }
 
 export type UploadAttachmentInput = {

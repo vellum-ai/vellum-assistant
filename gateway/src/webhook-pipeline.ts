@@ -133,9 +133,11 @@ export interface NewCommandRequest {
   sourceThreadId?: string;
 }
 
+export type NewCommandOutcome = "reset" | "denied" | "killed" | "unavailable";
+
 export async function handleNewCommand(
   req: NewCommandRequest,
-): Promise<{ handled: true }> {
+): Promise<{ handled: true; outcome: NewCommandOutcome }> {
   const {
     config,
     sourceChannel,
@@ -154,7 +156,7 @@ export async function handleNewCommand(
       "Could not resolve the channel command gate, denying /new",
     );
     req.sendNotice(NEW_COMMAND_ERROR);
-    return { handled: true };
+    return { handled: true, outcome: "unavailable" };
   }
 
   if (gate.killed) {
@@ -162,7 +164,7 @@ export async function handleNewCommand(
       { sourceChannel, conversationExternalId, actorExternalId },
       "Denied /new command: channel admission policy is no_one",
     );
-    return { handled: true };
+    return { handled: true, outcome: "killed" };
   }
 
   try {
@@ -187,7 +189,7 @@ export async function handleNewCommand(
         },
         "Denied /new command: runtime refused the reset",
       );
-      return { handled: true };
+      return { handled: true, outcome: "denied" };
     }
 
     req.sendReply(NEW_COMMAND_SUCCESS).catch(() => {
@@ -199,8 +201,9 @@ export async function handleNewCommand(
       "Failed to reset conversation for /new command",
     );
     req.sendNotice(NEW_COMMAND_ERROR);
+    return { handled: true, outcome: "unavailable" };
   }
-  return { handled: true };
+  return { handled: true, outcome: "reset" };
 }
 
 /**
