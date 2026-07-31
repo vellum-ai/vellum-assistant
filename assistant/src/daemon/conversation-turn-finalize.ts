@@ -22,6 +22,7 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
+import { emitAssistantReplyNotification } from "../notifications/assistant-reply-producer.js";
 import { projectAssistantMessage } from "../persistence/conversation-attention-store.js";
 import {
   getConversation,
@@ -142,8 +143,13 @@ export async function runDeferredTurnTail(params: {
   state: TurnTailState;
   rlog: pino.Logger;
   generationCompletedAt: number;
+  /**
+   * True only for a `message_complete` turn. A handed-off generation is not
+   * the end of the run, and a cancelled one has no final reply.
+   */
+  turnCompleted: boolean;
 }): Promise<void> {
-  const { ctx, state, rlog, generationCompletedAt } = params;
+  const { ctx, state, rlog, generationCompletedAt, turnCompleted } = params;
   const tailStartedAt = Date.now();
 
   // Per-message memory/attention finalize side-effects deferred from
@@ -155,6 +161,19 @@ export async function runDeferredTurnTail(params: {
     } catch (err) {
       rlog.warn({ err }, "Deferred finalize side-effect failed (non-fatal)");
     }
+  }
+
+  // Notify about a finished reply the user is no longer looking at. Ordered
+  // after the loop above so the producer's unseen check reads the attention
+  // cursor this turn's last row just projected. Not awaited: the pipeline
+  // awaits the platform adapter's HTTP dispatch, which retries with backoff,
+  // and nothing below here depends on the emit. The producer never rejects.
+  if (turnCompleted && state.lastAssistantMessageId) {
+    void emitAssistantReplyNotification({
+      conversationId: ctx.conversationId,
+      assistantMessageId: state.lastAssistantMessageId,
+      rlog,
+    });
   }
 
   // Post-turn tool-result truncation: spool oversized results to disk and

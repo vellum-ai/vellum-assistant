@@ -29,11 +29,7 @@ import {
   discardLastAssistantDisplayTurn,
   extractUserPromptText,
 } from "../../daemon/conversation-history.js";
-import {
-  formatSummarizeUpToResult,
-  isBackgroundEventMetadata,
-  isEchoSuppressedUserMessage,
-} from "../../daemon/conversation-process.js";
+import { formatSummarizeUpToResult } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   destroyActiveConversation,
@@ -55,6 +51,8 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
   setConversationEnabledPlugins,
   setConversationSurfaced,
   unarchiveConversation,

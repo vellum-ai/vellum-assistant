@@ -24,13 +24,6 @@ mock.module("../config/env.js", () => ({
 
 mock.module("../daemon/conversation-process.js", () => ({
   formatSummarizeUpToResult: () => "",
-  isEchoSuppressedUserMessage: (
-    metadata: Record<string, unknown> | undefined,
-  ) =>
-    metadata?.hidden === true ||
-    typeof metadata?.backgroundEventSource === "string",
-  isBackgroundEventMetadata: (metadata: Record<string, unknown> | undefined) =>
-    typeof metadata?.backgroundEventSource === "string",
 }));
 
 mock.module("../daemon/handlers/conversations.js", () => ({
@@ -77,6 +70,13 @@ mock.module("../persistence/conversation-crud.js", () => ({
   extractImageSourcePaths: () => undefined,
   forkConversation: () => ({ id: "forked" }),
   getConversation: getConversationMock,
+  isBackgroundEventMetadata: (metadata: Record<string, unknown> | undefined) =>
+    typeof metadata?.backgroundEventSource === "string",
+  isEchoSuppressedUserMessage: (
+    metadata: Record<string, unknown> | undefined,
+  ) =>
+    metadata?.hidden === true ||
+    typeof metadata?.backgroundEventSource === "string",
   provenanceFromTrustContext: () => ({ provenanceTrustClass: "unknown" }),
   setConversationSurfaced: () => null,
   unarchiveConversation: () => true,

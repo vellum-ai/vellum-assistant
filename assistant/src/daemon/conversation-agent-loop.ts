@@ -620,6 +620,10 @@ export async function runAgentLoopImpl(
   // has been emitted. Guards the catch block: an error thrown afterwards
   // (deferred turn-tail bookkeeping) must not relabel a visibly-replied turn.
   let turnReplied = false;
+  // Narrower than `turnReplied`: true only for the `message_complete` branch.
+  // A handed-off generation continues the run, so the deferred tail must not
+  // treat its reply as final.
+  let turnCompleted = false;
 
   const publishLoopMessagesChanged = (): void => {
     if (
@@ -1506,6 +1510,7 @@ export async function runAgentLoopImpl(
         publishLoopMessagesChanged();
       } else {
         turnReplied = true;
+        turnCompleted = true;
         ctx.emitActivityState("idle", "message_complete", {
           anchor: "global",
           requestId: reqId,
@@ -1541,7 +1546,13 @@ export async function runAgentLoopImpl(
     // drain the deferred bookkeeping — after the SSE, before the `finally`
     // commits and drains the queue for the next turn.
     await settlePendingPartialFlush(state, deps);
-    await runDeferredTurnTail({ ctx, state, rlog, generationCompletedAt });
+    await runDeferredTurnTail({
+      ctx,
+      state,
+      rlog,
+      generationCompletedAt,
+      turnCompleted,
+    });
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
     const errorCtx = {

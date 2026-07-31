@@ -298,6 +298,14 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
+     * Marks a role-`"user"` row that opened a live phone or in-app voice turn
+     * (every row `startVoiceTurn` persists, see `calls/voice-session-bridge.ts`).
+     * The channel/interface fields cannot stand in for it: a live-voice turn
+     * persists as `vellum`/`macos`, exactly like a typed desktop send. Test with
+     * {@link isVoiceSessionUserMessage}.
+     */
+    voiceSessionTurn: z.boolean().optional(),
+    /**
      * Discriminates daemon-authored rows from ordinary turns.
      * `"system_card"` marks pre-composed status cards (the /compact, /clean,
      * and summarize-up-to results); see {@link SYSTEM_CARD_MESSAGE_KIND}.
@@ -358,6 +366,63 @@ export function isHiddenMessageMetadata(
   metadata: Record<string, unknown> | null | undefined,
 ): boolean {
   return metadata?.hidden === true;
+}
+
+/**
+ * True when the row is a persisted `<background_event source="...">` trigger.
+ * Every wake, scheduled run, and backgrounded-tool completion stamps one (see
+ * `persistWakeTriggerMessage`). The permission mode such a turn ran under
+ * varies (most run interactive; clientless/headless wakes do not) and is
+ * recorded separately in `backgroundEventInteractive`; this predicate only
+ * identifies the row as a background event.
+ */
+export function isBackgroundEventMetadata(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return typeof metadata?.backgroundEventSource === "string";
+}
+
+/**
+ * True when a role-`"user"` row is internal scaffolding rather than a person's
+ * prompt: a daemon-injected run lifecycle notification (subagent
+ * `subagentNotification`, ACP run `acpNotification`, or any wake trigger, the
+ * persisted `<background_event source="...">` row every wake reads), or a row
+ * explicitly flagged `hidden` (e.g. a hidden `POST /messages` send that queued
+ * behind an in-flight turn, like the channel-setup wizard-close marker).
+ *
+ * These rows are persisted so the orchestrator wakes and reads the trigger,
+ * but the user sees the wake through its inline card ("Conversation Woke", or
+ * a terminal card for a backgrounded bash run), not a chat turn. One
+ * definition so the sites that must agree cannot drift: the
+ * `user_message_echo` broadcast (never render a live user bubble), the retry
+ * route's hidden-prompt re-run, and the assistant-reply notification producer
+ * (a turn opened by one of these rows is not a user prompt awaiting a reply).
+ */
+export function isEchoSuppressedUserMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return (
+    isHiddenMessageMetadata(metadata) ||
+    metadata?.subagentNotification != null ||
+    metadata?.acpNotification != null ||
+    isBackgroundEventMetadata(metadata)
+  );
+}
+
+/**
+ * True when a role-`"user"` row was persisted by the voice bridge for a live
+ * phone call or in-app voice session (see the `voiceSessionTurn` field on
+ * {@link messageMetadataSchema}).
+ *
+ * The reply to such a turn is spoken back over the still-open session, so any
+ * consumer that treats a finished reply as something the user has yet to see
+ * (the assistant-reply notification producer) must skip it rather than push a
+ * notification for audio the user is hearing right now.
+ */
+export function isVoiceSessionUserMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  return metadata?.voiceSessionTurn === true;
 }
 
 /**

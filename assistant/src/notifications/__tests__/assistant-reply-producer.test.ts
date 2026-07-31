@@ -7,6 +7,11 @@
  *   - Every non-"user" kind of the shared `resolveConversationKind` classifier
  *     is silent.
  *   - An `automated: true` initiating user message is silent.
+ *   - A hidden lifecycle row (subagent / ACP notification) opening the turn is
+ *     silent.
+ *   - A live phone / in-app voice utterance opening the turn is silent.
+ *   - A turn opened from a messaging channel (Slack, Telegram, …) is silent,
+ *     while the in-app `vellum` channel and an unstamped row still emit.
  *   - An already-seen reply is silent.
  *   - A tool-only reply (empty text preview) is silent.
  *   - A throwing dependency is swallowed, not propagated.
@@ -298,6 +303,121 @@ describe("emitAssistantReplyNotification", () => {
     await run();
 
     expect(emitCalls).toHaveLength(0);
+  });
+
+  // Hidden lifecycle rows persist with role "user" and are neither tool
+  // results nor `automated`, so only the shared echo-suppression classifier
+  // keeps a subagent or ACP completion turn from pushing a reply.
+  const LIFECYCLE_ROW_CASES: Array<{ name: string; metadata: unknown }> = [
+    {
+      name: "subagent notification",
+      metadata: {
+        subagentNotification: {
+          subagentId: "sub-1",
+          label: "researcher",
+          status: "running",
+          conversationId: "conv-child-1",
+          objective: "look something up",
+        },
+      },
+    },
+    {
+      name: "ACP notification",
+      metadata: { acpNotification: { acpSessionId: "acp-1", agent: "codex" } },
+    },
+  ];
+
+  for (const { name, metadata } of LIFECYCLE_ROW_CASES) {
+    test(`stays silent when the turn was opened by a ${name} row`, async () => {
+      userRows = [makeMessage({ metadata: JSON.stringify(metadata) })];
+
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+    });
+  }
+
+  // A voice utterance persists as an ordinary visible user row on a standard
+  // conversation, so only the `voiceSessionTurn` marker the bridge stamps keeps
+  // every spoken reply from also pushing. The phone case carries a `phone`
+  // channel; the in-app live-voice case is `vellum`/`macos`, identical to a
+  // typed desktop send, which is why the channel field cannot stand in for the
+  // marker.
+  const VOICE_ROW_CASES: Array<{ name: string; metadata: unknown }> = [
+    {
+      name: "phone call",
+      metadata: {
+        voiceSessionTurn: true,
+        userMessageChannel: "phone",
+        userMessageInterface: "phone",
+      },
+    },
+    {
+      name: "in-app live voice",
+      metadata: {
+        voiceSessionTurn: true,
+        userMessageChannel: "vellum",
+        userMessageInterface: "macos",
+      },
+    },
+  ];
+
+  for (const { name, metadata } of VOICE_ROW_CASES) {
+    test(`stays silent when the turn was opened by a ${name} utterance`, async () => {
+      userRows = [makeMessage({ metadata: JSON.stringify(metadata) })];
+
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+    });
+  }
+
+  test("still emits for a typed desktop send on the same channel", async () => {
+    userRows = [
+      makeMessage({
+        metadata: JSON.stringify({
+          userMessageChannel: "vellum",
+          userMessageInterface: "macos",
+        }),
+      }),
+    ];
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+  });
+
+  // A channel turn's reply is delivered back to the originating surface, so the
+  // sender already has it in Slack/Telegram; a push would be a second copy.
+  for (const channel of ["slack", "telegram"] as const) {
+    test(`stays silent for a turn opened from ${channel}`, async () => {
+      userRows = [
+        makeMessage({
+          metadata: JSON.stringify({
+            userMessageChannel: channel,
+            assistantMessageChannel: channel,
+          }),
+        }),
+      ];
+
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+    });
+  }
+
+  // Rows predating the channel stamp (and the daemon paths that omit it) are
+  // in-app turns, so an absent channel must not suppress the push.
+  test("still emits when the initiating row carries no channel", async () => {
+    userRows = [
+      makeMessage({
+        metadata: JSON.stringify({ userMessageInterface: "web" }),
+      }),
+    ];
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
   });
 
   test("stays silent when no real user message opened the turn", async () => {

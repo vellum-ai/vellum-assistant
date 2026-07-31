@@ -16,6 +16,8 @@ import {
   getConversation,
   getMessageById,
   getMessagesPaginated,
+  isEchoSuppressedUserMessage,
+  isVoiceSessionUserMessage,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { resolveConversationKind } from "../persistence/conversation-types.js";
@@ -26,6 +28,29 @@ import { truncate } from "./notification-utils.js";
 
 /** Roughly one notification body's worth of reply text. */
 const PREVIEW_MAX_CHARS = 200;
+
+/**
+ * The channel id a native-app send carries, and `resolveTurnChannel`'s default
+ * when a caller supplies none (see `daemon/process-message.ts`).
+ */
+const IN_APP_CHANNEL = "vellum";
+
+/**
+ * True when the row that opened the turn arrived over an external messaging
+ * surface (Slack, Telegram, WhatsApp, email, a phone call, …) rather than the
+ * native app.
+ *
+ * An absent channel counts as in-app: every external ingress path stamps its
+ * channel via buildChannelMetadata, so the rows that omit the field are
+ * daemon-internal persists on native-app conversations (for example the
+ * deliberate omission in calls/call-pointer-messages.ts).
+ */
+function isChannelOriginatedUserMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  const channel = metadata?.userMessageChannel;
+  return typeof channel === "string" && channel !== IN_APP_CHANNEL;
+}
 
 /**
  * Same unseen predicate the sidebar renders from (`buildAssistantAttention` in
@@ -111,7 +136,28 @@ export async function emitAssistantReplyNotification(params: {
     if (!initiatingMessage) {
       return;
     }
-    if (parseMessageMetadata(initiatingMessage.metadata)?.automated === true) {
+    const initiatingMetadata = parseMessageMetadata(initiatingMessage.metadata);
+    if (initiatingMetadata?.automated === true) {
+      return;
+    }
+    // Hidden lifecycle rows (subagent/ACP completions, wake triggers, hidden
+    // sends) are persisted with role "user" but are internal scaffolding, so
+    // the turn they open is nobody's prompt awaiting a reply.
+    if (isEchoSuppressedUserMessage(initiatingMetadata)) {
+      return;
+    }
+    // A phone or in-app voice utterance is answered out loud over the session
+    // the user is still on, so the reply is never unseen in the sense this
+    // producer notifies about; pushing here would fire once per spoken turn.
+    if (isVoiceSessionUserMessage(initiatingMetadata)) {
+      return;
+    }
+    // A turn started from a messaging channel has its finished reply delivered
+    // back to that channel (`finalizeEventDelivery`), so the sender already has
+    // it; pushing here would duplicate it on their phone. The voice gate above
+    // cannot stand in for this one: an in-app live-voice turn persists as
+    // `vellum`, exactly like a typed send.
+    if (isChannelOriginatedUserMessage(initiatingMetadata)) {
       return;
     }
 
