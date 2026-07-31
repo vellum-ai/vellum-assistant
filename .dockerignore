@@ -6,6 +6,10 @@
 !bun.lock
 !patches/
 !patches/**
+# Docs site image: the builder copies the full clients/docs sources (this also
+# covers the clients/docs/package.json manifest the other images install from).
+!clients/docs/
+!clients/docs/**
 !clients/macos/package.json
 !clients/web/package.json
 !cli/package.json
@@ -14,6 +18,7 @@
 # beneath that directory. This manifests as an extremely long build context load time.
 # Adding an explicit exclusion rule seems to help with this.
 clients/.build
+clients/docs/.next
 clients/ios
 clients/chrome-extension
 clients/macos/apple-containers-runtime
@@ -53,6 +58,8 @@ assistant/.env
 assistant/.env.*
 # Authoring-reference example plugins are not shipped with the production image.
 assistant/examples/
+clients/docs/.env
+clients/docs/.env.*
 credential-executor/.env
 credential-executor/.env.*
 gateway/.env
