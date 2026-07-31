@@ -66,6 +66,12 @@ const pressBack = async (canGoBack: boolean) => {
   await flushAsyncWork();
 };
 
+const mountActiveChatView = () => {
+  const marker = document.createElement("span");
+  marker.dataset.slot = "active-chat-view";
+  document.body.append(marker);
+};
+
 beforeEach(() => {
   nativeAndroid = true;
   viewerMainView = "chat";
@@ -146,7 +152,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     historyBackSpy.mockRestore();
   });
 
-  test("falls through when an open layer does not handle Escape", async () => {
+  test("does not navigate behind a layer that blocks Escape", async () => {
     const historyBackSpy = spyOn(window.history, "back").mockImplementation(
       () => undefined,
     );
@@ -158,8 +164,34 @@ describe("subscribeAndroidBackButtonSource", () => {
     await flushAsyncWork();
     await pressBack(true);
 
-    expect(historyBackSpy).toHaveBeenCalledTimes(1);
+    expect(historyBackSpy).not.toHaveBeenCalled();
     expect(minimizeAppMock).not.toHaveBeenCalled();
+    historyBackSpy.mockRestore();
+  });
+
+  test("closes an active process overlay before changing history", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    const panel = document.createElement("div");
+    panel.dataset.slot = "active-overlay-panel";
+    panel.dataset.state = "open";
+    document.body.append(panel);
+    const escapeHandler = mock((event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        panel.remove();
+      }
+    });
+    document.addEventListener("keydown", escapeHandler);
+
+    subscribeAndroidBackButtonSource();
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(escapeHandler).toHaveBeenCalledTimes(1);
+    expect(historyBackSpy).not.toHaveBeenCalled();
+    document.removeEventListener("keydown", escapeHandler);
     historyBackSpy.mockRestore();
   });
 
@@ -205,6 +237,7 @@ describe("subscribeAndroidBackButtonSource", () => {
       () => undefined,
     );
     viewerMainView = "tool-detail";
+    mountActiveChatView();
 
     subscribeAndroidBackButtonSource();
     await flushAsyncWork();
@@ -218,6 +251,7 @@ describe("subscribeAndroidBackButtonSource", () => {
 
   test("minimizes an expanded app viewer before leaving it", async () => {
     viewerMainView = "app";
+    mountActiveChatView();
 
     subscribeAndroidBackButtonSource();
     await flushAsyncWork();
@@ -225,6 +259,21 @@ describe("subscribeAndroidBackButtonSource", () => {
 
     expect(minimizeViewerAppMock).toHaveBeenCalledTimes(1);
     expect(closeAppMock).not.toHaveBeenCalled();
+  });
+
+  test("ignores stale viewer state outside the active chat route", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    viewerMainView = "app";
+
+    subscribeAndroidBackButtonSource();
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(minimizeViewerAppMock).not.toHaveBeenCalled();
+    expect(historyBackSpy).toHaveBeenCalledTimes(1);
+    historyBackSpy.mockRestore();
   });
 
   test("minimizes the app at the WebView history root", async () => {

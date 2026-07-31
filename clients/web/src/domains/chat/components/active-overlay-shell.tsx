@@ -223,6 +223,8 @@ export function ActiveOverlayShell({
           // from the row's width (Figma 6063:149685). Width is fitted to the
           // chat column (see `fittedWidth`) rather than the viewport.
           <motion.div
+            data-slot="active-overlay-panel"
+            data-state="open"
             // Horizontal centering lives in motion's `x: "-50%"` (not a
             // `-translate-x-1/2` class) so it composes with the animated
             // `scale`/`y` in the same inline `transform` — version-independent

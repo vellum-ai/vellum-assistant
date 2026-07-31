@@ -12,8 +12,11 @@ const OPEN_LAYER_SELECTOR = [
   '[data-slot="context-menu-sub-content"][data-state="open"]',
   '[data-slot="popover-content"][data-state="open"]',
   '[data-slot="dropdown-menu"]',
+  '[data-slot="active-overlay-panel"][data-state="open"]',
   '[role="dialog"]',
 ].join(",");
+
+const ACTIVE_CHAT_SELECTOR = '[data-slot="active-chat-view"]';
 
 function wasLayerDismissed(
   layer: HTMLElement,
@@ -63,10 +66,13 @@ async function dismissOpenLayer(): Promise<boolean> {
   await new Promise<void>((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
-  return wasLayerDismissed(layer, event);
+  return true;
 }
 
 function dismissViewerLayer(): boolean {
+  if (!document.querySelector(ACTIVE_CHAT_SELECTOR)) {
+    return false;
+  }
   const viewer = useViewerStore.getState();
   switch (viewer.mainView) {
     case "app":
