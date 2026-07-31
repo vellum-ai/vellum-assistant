@@ -87,9 +87,11 @@ export interface OnboardingChoiceItem extends TranscriptItemBase {
  *  before the next send fails. */
 export interface CreditsUpsellItem extends TranscriptItemBase {
   kind: "creditsUpsell";
-  /** Id of the provider-error message row this card renders in place of.
+  /** The provider-error message row this card renders in place of. Carries
+   *  the full row so the render layer can keep its `msg-<id>` DOM anchor and
+   *  expose the standard message affordances (hover actions, inspect) for it.
    *  Absent on the proactive tail card, which has no backing message row. */
-  messageId?: string;
+  message?: DisplayMessage;
 }
 
 export interface EphemeralMetaItem extends TranscriptItemBase {

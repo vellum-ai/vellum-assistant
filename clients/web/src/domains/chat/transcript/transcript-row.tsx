@@ -2,6 +2,7 @@ import { memo, type ReactNode } from "react";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { CreditsUpsellCard } from "@/domains/chat/components/credits-upsell-card";
+import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
@@ -208,22 +209,45 @@ export const TranscriptRow = memo(function TranscriptRow({
       }
       return null;
 
-    case "creditsUpsell":
+    case "creditsUpsell": {
       // Substituted in place of a credits-exhausted provider-error row by
       // `buildTranscriptItems`: a standalone card, outside the persona
-      // bubble/avatar/hover-action machinery like `SystemCardRow`. Substituted
-      // items carry the underlying row's `messageId`, so they keep the
-      // `msg-<id>` DOM anchor that `TranscriptHandle.scrollToMessage` and the
-      // `?message=<id>` deep link resolve via `getElementById`; the proactive
-      // tail card has no backing message and needs no anchor.
-      if (item.messageId) {
+      // bubble/avatar machinery like `SystemCardRow`. Substituted items carry
+      // the underlying row (`message`), so they keep the `msg-<id>` DOM
+      // anchor that `TranscriptHandle.scrollToMessage` and the `?message=<id>`
+      // deep link resolve via `getElementById`, and expose the same
+      // hover-revealed Inspect affordance as ordinary rows: the daemon
+      // backfills the failed request's LLM logs onto this row's message id,
+      // and inspection is their only entry point while the bubble is
+      // substituted. The proactive tail card has no backing message and needs
+      // neither.
+      if (item.message) {
+        const messageId = item.message.id;
+        const inspectHandler =
+          onInspectMessage && messageId
+            ? () => onInspectMessage(messageId)
+            : undefined;
         return (
-          <div id={`msg-${item.messageId}`} data-message-id={item.messageId}>
+          <div
+            id={messageId ? `msg-${messageId}` : undefined}
+            data-message-id={messageId || undefined}
+            className="group/msg flex flex-col gap-2"
+          >
             <CreditsUpsellCard />
+            {inspectHandler && (
+              <div className="h-6 overflow-hidden opacity-0 transition-opacity duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 motion-reduce:transition-none">
+                <MessageHoverActions
+                  message={item.message}
+                  conversationId={conversationId}
+                  onInspect={inspectHandler}
+                />
+              </div>
+            )}
           </div>
         );
       }
       return <CreditsUpsellCard />;
+    }
 
     default: {
       // Exhaustiveness guard — TypeScript narrows `item` to `never` here.

@@ -18,20 +18,15 @@ const MANAGED_CREDITS_EXHAUSTED_CATEGORY = "credits_exhausted";
 const PROVIDER_BILLING_CATEGORY = "provider_billing";
 const DAILY_LIMIT_REACHED_CATEGORY = "daily_limit_reached";
 
-/** Whether a classified error category denotes managed-credits exhaustion
- *  (suffix match, so namespaced categories like `billing.credits_exhausted`
- *  classify too). */
-function isCreditsExhaustedCategory(category: string | undefined): boolean {
-  return category?.endsWith(MANAGED_CREDITS_EXHAUSTED_CATEGORY) ?? false;
-}
-
 /**
  * Whether a provider-error marker denotes managed-credits exhaustion. The
- * category decides when present; a bare `PROVIDER_BILLING` code with no
- * category also classifies (the daemon builds `providerError` with each field
- * conditional on being a string, so persisted rows can carry a code alone).
- * Shared by the live error classification (`getChatBillingBannerDecision`)
- * and the transcript's persisted-row substitution so the two never disagree.
+ * category decides when present (suffix match, so namespaced categories like
+ * `billing.credits_exhausted` classify too); a bare `PROVIDER_BILLING` code
+ * with no category also classifies (the daemon builds `providerError` with
+ * each field conditional on being a string, so persisted rows can carry a
+ * code alone). Shared by the live error classification
+ * (`getChatBillingBannerDecision`) and the transcript's persisted-row
+ * substitution so the two never disagree.
  */
 export function isCreditsExhaustedProviderError(
   providerError: { code?: string; category?: string } | null | undefined,
@@ -42,7 +37,7 @@ export function isCreditsExhaustedProviderError(
   if (!providerError.category) {
     return providerError.code === PROVIDER_BILLING_CODE;
   }
-  return isCreditsExhaustedCategory(providerError.category);
+  return providerError.category.endsWith(MANAGED_CREDITS_EXHAUSTED_CATEGORY);
 }
 
 function isManagedCreditsExhausted(

@@ -2,10 +2,12 @@
  * Dispatch tests for `TranscriptRow`'s `creditsUpsell` kind. The card itself
  * is stubbed (its CTA behavior is covered by `credits-upsell-card.test.tsx`);
  * these tests pin that the transcript renders the substituted item through the
- * card component rather than any message-body machinery.
+ * card component rather than any message-body machinery, keeps the replaced
+ * row's DOM anchor, and exposes the standard Inspect affordance for the
+ * backing message.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
 mock.module("@/domains/chat/components/credits-upsell-card", () => ({
   CreditsUpsellCard: () => <div data-testid="credits-upsell-card-stub" />,
@@ -13,21 +15,39 @@ mock.module("@/domains/chat/components/credits-upsell-card", () => ({
 
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import type { CreditsUpsellItem } from "@/domains/chat/transcript/types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 
 afterEach(() => {
   cleanup();
 });
 
+function makeErrorRow(id: string): DisplayMessage {
+  return {
+    id,
+    role: "assistant",
+    ...textBody("I hit a snag: your credits ran out."),
+    providerError: { code: "PROVIDER_BILLING", category: "credits_exhausted" },
+  };
+}
+
+function substitutedItem(id: string): CreditsUpsellItem {
+  return {
+    kind: "creditsUpsell",
+    key: `credits-upsell-${id}`,
+    message: makeErrorRow(id),
+  };
+}
+
+const PROACTIVE_ITEM: CreditsUpsellItem = {
+  kind: "creditsUpsell",
+  key: "credits-upsell-proactive",
+};
+
 describe("TranscriptRow creditsUpsell dispatch", () => {
   test("renders a creditsUpsell item via CreditsUpsellCard", () => {
-    const item: CreditsUpsellItem = {
-      kind: "creditsUpsell",
-      key: "credits-upsell-m1",
-      messageId: "m1",
-    };
-
     const { getByTestId } = render(
-      <TranscriptRow item={item} onSurfaceAction={() => {}} />,
+      <TranscriptRow item={substitutedItem("m1")} onSurfaceAction={() => {}} />,
     );
 
     expect(getByTestId("credits-upsell-card-stub")).toBeTruthy();
@@ -37,14 +57,8 @@ describe("TranscriptRow creditsUpsell dispatch", () => {
     // `TranscriptHandle.scrollToMessage` and the `?message=<id>` deep link
     // resolve rows via `getElementById("msg-<id>")`, so the substitution must
     // not drop the anchor the underlying message row would have had.
-    const item: CreditsUpsellItem = {
-      kind: "creditsUpsell",
-      key: "credits-upsell-m1",
-      messageId: "m1",
-    };
-
     const { container } = render(
-      <TranscriptRow item={item} onSurfaceAction={() => {}} />,
+      <TranscriptRow item={substitutedItem("m1")} onSurfaceAction={() => {}} />,
     );
 
     const anchor = container.querySelector("#msg-m1");
@@ -53,17 +67,51 @@ describe("TranscriptRow creditsUpsell dispatch", () => {
       .toBeTruthy();
   });
 
-  test("the proactive card (no messageId) renders without a msg anchor", () => {
-    const item: CreditsUpsellItem = {
-      kind: "creditsUpsell",
-      key: "credits-upsell-proactive",
-    };
-
+  test("the proactive card (no backing message) renders without a msg anchor", () => {
     const { container, getByTestId } = render(
-      <TranscriptRow item={item} onSurfaceAction={() => {}} />,
+      <TranscriptRow item={PROACTIVE_ITEM} onSurfaceAction={() => {}} />,
     );
 
     expect(getByTestId("credits-upsell-card-stub")).toBeTruthy();
     expect(container.querySelector('[id^="msg-"]')).toBeNull();
+  });
+
+  test("substituted cards expose the Inspect affordance wired to the backing message", () => {
+    // The daemon backfills the failed request's LLM logs onto the
+    // provider-error row's message id; while the card substitutes the bubble,
+    // the hover Inspect action is the only path to those logs.
+    const inspected: string[] = [];
+    const { getByTitle } = render(
+      <TranscriptRow
+        item={substitutedItem("m1")}
+        onSurfaceAction={() => {}}
+        onInspectMessage={(id) => inspected.push(id)}
+      />,
+    );
+
+    fireEvent.click(getByTitle("Inspect"));
+    expect(inspected).toEqual(["m1"]);
+  });
+
+  test("no Inspect affordance without an onInspectMessage handler", () => {
+    // Mirrors ordinary rows: the inspector entry point only exists when the
+    // LLM inspector is enabled (the parent passes the handler).
+    const { container } = render(
+      <TranscriptRow item={substitutedItem("m1")} onSurfaceAction={() => {}} />,
+    );
+
+    expect(container.querySelector('[title="Inspect"]')).toBeNull();
+  });
+
+  test("the proactive card gets no Inspect affordance", () => {
+    const { container } = render(
+      <TranscriptRow
+        item={PROACTIVE_ITEM}
+        onSurfaceAction={() => {}}
+        onInspectMessage={() => {}}
+      />,
+    );
+
+    expect(container.querySelector('[title="Inspect"]')).toBeNull();
   });
 });

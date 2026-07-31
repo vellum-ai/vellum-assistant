@@ -46,22 +46,14 @@ export interface BuildTranscriptItemsInput {
   ephemeralMetaResults?: EphemeralMetaResult[];
   showOnboardingChoice?: boolean;
   /**
-   * When true (the org's credit balance is exhausted), append the proactive
-   * credits upsell card directly after the message-derived items, ahead of
-   * trailers (thinking slot, pending prompts, onboarding choice). Skipped
-   * when the last message row already substituted a `creditsUpsell` card for
-   * its provider-error row, so an open conversation never shows two cards.
-   */
-  appendCreditsUpsell?: boolean;
-  /**
-   * Whether the org's credit balance is currently exhausted (from the same
-   * `useBillingBalanceStatus().isExhausted` read that drives
-   * `appendCreditsUpsell`). Gates the per-row card substitution for
-   * credits-exhausted provider-error rows: only while true does a tagged row
-   * render as a `creditsUpsell` card. When false, tagged rows keep the normal
-   * message rendering, whose persisted assistant-voice text reads as
-   * historical context. That covers both a balance that has since been topped
-   * up and contexts where the billing hook is inert (self-hosted/gated
+   * Whether the org's credit balance is currently exhausted (from
+   * `useBillingBalanceStatus().isExhausted`). Drives both credits-upsell
+   * surfaces of the projection: the per-row card substitution for
+   * credits-exhausted provider-error rows and the proactive tail card
+   * appended after the message-derived items. When false, tagged rows keep
+   * the normal message rendering, whose persisted assistant-voice text reads
+   * as historical context. That covers both a balance that has since been
+   * topped up and contexts where the billing hook is inert (self-hosted/gated
    * assistants, no platform session), so the card, which renders nothing when
    * platform billing is unreachable, is never substituted for a visible
    * bubble it cannot replace.
@@ -110,16 +102,15 @@ function toCreditsUpsellItem(message: DisplayMessage): CreditsUpsellItem {
   const item: CreditsUpsellItem = {
     kind: "creditsUpsell",
     key: `credits-upsell-${message.clientMessageId ?? message.id}`,
-    messageId: message.id,
+    message,
   };
   creditsUpsellItemCache.set(message, item);
   return item;
 }
 
 /** Singleton for the proactive exhausted-balance card appended after the
- *  message-derived items (see `appendCreditsUpsell`). Not tied to any message row;
- *  the stable reference keeps `TranscriptRow`'s `memo()` effective across
- *  rebuilds. */
+ *  message-derived items. Not tied to any message row; the stable reference
+ *  keeps `TranscriptRow`'s `memo()` effective across rebuilds. */
 const PROACTIVE_CREDITS_UPSELL_ITEM: CreditsUpsellItem = {
   kind: "creditsUpsell",
   key: "credits-upsell-proactive",
@@ -199,12 +190,20 @@ export function buildTranscriptItems(
     items.push(toMessageItem(message));
   }
 
-  // The proactive exhausted-balance card lands directly after the message
-  // rows; deduping here means trailers pushed below (thinking slot, pending
-  // prompts, onboarding choice) can never mask a just-failed turn's
-  // substituted card and cause a doubled card.
+  // While the balance is exhausted, the proactive upsell card lands directly
+  // after the message rows of an open conversation, so the credit wall shows
+  // before the next send fails. Empty conversations render the chat empty
+  // state (which mounts its own card), not the transcript, so a message-less
+  // build appends nothing. In-flight turns suppress the card so it never
+  // sits under the live progress indicator; the turn-settled billing refetch
+  // re-shows it as soon as the turn ends. Deduping against a trailing
+  // substituted card here, before trailers are pushed below (thinking slot,
+  // pending prompts, onboarding choice), means a just-failed turn's card can
+  // never be doubled.
   if (
-    input.appendCreditsUpsell &&
+    input.creditsExhausted &&
+    !input.turnActive &&
+    messages.length > 0 &&
     items[items.length - 1]?.kind !== "creditsUpsell"
   ) {
     items.push(PROACTIVE_CREDITS_UPSELL_ITEM);
