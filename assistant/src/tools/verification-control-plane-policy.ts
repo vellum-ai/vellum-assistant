@@ -10,6 +10,8 @@
  *   /v1/channel-verification-sessions/revoke
  */
 
+import { resolveCapabilities } from "../runtime/capabilities.js";
+
 const VERIFICATION_ENDPOINT_PATHS = [
   "/v1/channel-verification-sessions",
   "/v1/channel-verification-sessions/resend",
@@ -67,10 +69,14 @@ function containsVerificationEndpointPath(value: string): boolean {
   const normalized = normalizeForMatching(value);
   // Check exact hardcoded paths against the normalized string
   for (const path of VERIFICATION_ENDPOINT_PATHS) {
-    if (normalized.includes(path)) return true;
+    if (normalized.includes(path)) {
+      return true;
+    }
   }
   // Broad pattern match to catch any /v1/channel-verification-sessions... path
-  if (VERIFICATION_PATH_REGEX.test(normalized)) return true;
+  if (VERIFICATION_PATH_REGEX.test(normalized)) {
+    return true;
+  }
   return false;
 }
 
@@ -99,9 +105,13 @@ export function isVerificationControlPlaneInvocation(
     const command = input.command;
     if (typeof command === "string") {
       // Primary: exact/normalized path matching
-      if (containsVerificationEndpointPath(command)) return true;
+      if (containsVerificationEndpointPath(command)) {
+        return true;
+      }
       // Fallback: detect shell-expanded construction of verification paths
-      if (containsVerificationFragments(command)) return true;
+      if (containsVerificationFragments(command)) {
+        return true;
+      }
     }
   }
 
@@ -128,7 +138,7 @@ export function enforceVerificationControlPlanePolicy(
     return { denied: false };
   }
 
-  if (trustClass === "guardian") {
+  if (resolveCapabilities(trustClass).canUseVerificationControlPlane) {
     return { denied: false };
   }
 

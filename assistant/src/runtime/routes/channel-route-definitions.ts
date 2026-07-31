@@ -1,6 +1,8 @@
 /**
  * Static ROUTES array for channel endpoints.
  */
+import { RuntimeInboundPayloadSchema } from "@vellumai/gateway-client";
+
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import {
   handleChannelDeliveryAck,
@@ -38,6 +40,7 @@ export const CHANNEL_ROUTES: RouteDefinition[] = [
     summary: "Process inbound channel message",
     description: "Receive an inbound message from a channel integration.",
     tags: ["channels"],
+    requestBody: RuntimeInboundPayloadSchema,
     handler: handleChannelInbound,
   },
   {

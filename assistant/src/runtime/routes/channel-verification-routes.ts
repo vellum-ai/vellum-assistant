@@ -6,10 +6,23 @@
  * DELETE /v1/channel-verification-sessions         — cancel all active sessions (inbound + outbound)
  * POST   /v1/channel-verification-sessions/revoke  — cancel all sessions and revoke binding
  * GET    /v1/channel-verification-sessions/status   — check guardian binding status
+ *
+ * Source of truth:
+ * - Verification SESSION state (pending sessions, codes, resend counters) is
+ *   gateway-owned; the daemon relays lifecycle ops over the
+ *   `verification_sessions_*` IPC client and fails loudly when the gateway is
+ *   unreachable. The in-memory initiation throttle (`verificationRateLimiter`)
+ *   stays daemon-side.
+ * - The channel-verified OUTCOME (status / verifiedAt / verifiedVia) is gateway-owned, written
+ *   in-process by the HTTP guardian-attest handler (`ContactStore.markChannelVerified`) and by the
+ *   inbound code-match path (`gateway/src/verification/text-verification.ts`).
+ * - The revoke/downgrade OUTCOME is relayed from the daemon via
+ *   `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
  */
 
 import { z } from "zod";
 
+import { revokePendingSessions } from "../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../channels/types.js";
 import {
   createInboundChallenge,
@@ -20,7 +33,6 @@ import {
 import { normalizePhoneNumber } from "../../util/phone.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { revokePendingSessions } from "../channel-verification-service.js";
 import {
   cancelOutbound,
   deliverVerificationEmail,
@@ -168,7 +180,7 @@ export async function handleCreateVerificationSession({
   }
 
   // Inbound challenge path
-  const result = createInboundChallenge(channel, rebind, conversationId);
+  const result = await createInboundChallenge(channel, rebind, conversationId);
   if (!result.success) {
     throw new BadRequestError(
       (result as { message?: string }).message ??
@@ -181,12 +193,13 @@ export async function handleCreateVerificationSession({
 /**
  * GET /v1/channel-verification-sessions/status
  */
-function handleGetVerificationStatus({
+async function handleGetVerificationStatus({
   queryParams = {},
   body = {},
 }: RouteHandlerArgs) {
-  const channel = (queryParams.channel ?? (body as Record<string, unknown>).channel) as ChannelId | undefined;
-  return getVerificationStatus(channel);
+  const channel = (queryParams.channel ??
+    (body as Record<string, unknown>).channel) as ChannelId | undefined;
+  return await getVerificationStatus(channel);
 }
 
 /**
@@ -207,7 +220,7 @@ export async function handleResendVerificationSession({
     throw new BadRequestError('The "channel" field is required.');
   }
 
-  const result = resendOutbound({ channel, originConversationId });
+  const result = await resendOutbound({ channel, originConversationId });
 
   // Dispatch delivery from the daemon process (not sandboxed).
   if (result._pendingSlackDm) {
@@ -249,8 +262,8 @@ export async function handleCancelVerificationSession({
     throw new BadRequestError('The "channel" field is required.');
   }
 
-  cancelOutbound({ channel });
-  revokePendingSessions(channel);
+  await cancelOutbound({ channel });
+  await revokePendingSessions(channel);
 
   return { success: true, channel };
 }
@@ -263,7 +276,7 @@ async function handleRevokeVerificationBinding({
 }: RouteHandlerArgs) {
   const { channel } = body as { channel?: ChannelId };
 
-  const result = revokeVerificationForChannel(channel);
+  const result = await revokeVerificationForChannel(channel);
   if (!result.success) {
     throw new BadRequestError(
       (result as { message?: string }).message ?? "Revocation failed",

@@ -11,20 +11,13 @@ import { describe, expect, mock, test } from "bun:test";
 // Mocks — must be defined before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const mockGetConversationByKey = mock(
   (_key: string): { conversationId: string } | null => ({
     conversationId: "conv-test",
   }),
 );
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getConversationByKey: mockGetConversationByKey,
 }));
 
@@ -33,7 +26,7 @@ const mockGetMessages = mock((_conversationId: string) => [
     id: "msg-user-1",
     conversationId: "conv-test",
     role: "user",
-    content: JSON.stringify([{ type: "text", text: "Hello there" }]),
+    content: [{ type: "text", text: "Hello there" }],
     createdAt: Date.now() - 2000,
     metadata: null,
   },
@@ -41,15 +34,15 @@ const mockGetMessages = mock((_conversationId: string) => [
     id: "msg-asst-1",
     conversationId: "conv-test",
     role: "assistant",
-    content: JSON.stringify([
-      { type: "text", text: "Hi! How can I help you today?" },
-    ]),
+    content: [{ type: "text", text: "Hi! How can I help you today?" }],
     createdAt: Date.now() - 1000,
     metadata: null,
   },
 ]);
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getMessages: mockGetMessages,
   getConversation: (_id: string) => null,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
@@ -110,9 +103,12 @@ import { handleGetSuggestion } from "../runtime/routes/conversation-routes.js";
 
 function makeArgs(params: { conversationKey?: string; messageId?: string }) {
   const queryParams: Record<string, string> = {};
-  if (params.conversationKey)
+  if (params.conversationKey) {
     queryParams.conversationKey = params.conversationKey;
-  if (params.messageId) queryParams.messageId = params.messageId;
+  }
+  if (params.messageId) {
+    queryParams.messageId = params.messageId;
+  }
   return { queryParams };
 }
 
@@ -151,7 +147,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-user-1",
         conversationId: "conv-test",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+        content: [{ type: "text", text: "Hello" }],
         createdAt: Date.now() - 2000,
         metadata: null,
       },
@@ -159,9 +155,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-1",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([
-          { type: "text", text: "Hi! How can I help you today?" },
-        ]),
+        content: [{ type: "text", text: "Hi! How can I help you today?" }],
         createdAt: Date.now() - 1000,
         metadata: null,
       },
@@ -213,7 +207,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-1",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello there" }]),
+        content: [{ type: "text", text: "Hello there" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -249,7 +243,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-1",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello there" }]),
+        content: [{ type: "text", text: "Hello there" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -275,7 +269,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-1",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello there" }]),
+        content: [{ type: "text", text: "Hello there" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -300,7 +294,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-1",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello there" }]),
+        content: [{ type: "text", text: "Hello there" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -325,7 +319,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-cache",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Some response" }]),
+        content: [{ type: "text", text: "Some response" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -357,7 +351,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-latest",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Latest response" }]),
+        content: [{ type: "text", text: "Latest response" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -391,7 +385,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-1",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Want to go?" }]),
+        content: [{ type: "text", text: "Want to go?" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -416,7 +410,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-user-1",
         conversationId: "conv-test",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "heading out" }]),
+        content: [{ type: "text", text: "heading out" }],
         createdAt: Date.now() - 1000,
         metadata: null,
       },
@@ -424,9 +418,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-shape",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([
-          { type: "text", text: "see you there — which door?" },
-        ]),
+        content: [{ type: "text", text: "see you there — which door?" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -468,9 +460,9 @@ describe("GET /v1/suggestion", () => {
         id: "msg-user-1",
         conversationId: "conv-test",
         role: "user",
-        content: JSON.stringify([
+        content: [
           { type: "text", text: "running late, should I grab coffee?" },
-        ]),
+        ],
         createdAt: Date.now() - 1000,
         metadata: null,
       },
@@ -478,9 +470,9 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-1",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([
+        content: [
           { type: "text", text: "yes please, an americano would be great" },
-        ]),
+        ],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -514,7 +506,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-first",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "hi there!" }]),
+        content: [{ type: "text", text: "hi there!" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -545,7 +537,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-intent",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello!" }]),
+        content: [{ type: "text", text: "Hello!" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -583,7 +575,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-thinking",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello!" }]),
+        content: [{ type: "text", text: "Hello!" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -625,9 +617,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-1",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([
-          { type: "text", text: "Want to meet tomorrow?" },
-        ]),
+        content: [{ type: "text", text: "Want to meet tomorrow?" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -663,9 +653,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-untagged",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([
-          { type: "text", text: "Want to meet tomorrow?" },
-        ]),
+        content: [{ type: "text", text: "Want to meet tomorrow?" }],
         createdAt: Date.now(),
         metadata: null,
       },
@@ -695,7 +683,7 @@ describe("GET /v1/suggestion", () => {
         id: "msg-asst-preamble",
         conversationId: "conv-test",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Ready to ship it?" }]),
+        content: [{ type: "text", text: "Ready to ship it?" }],
         createdAt: Date.now(),
         metadata: null,
       },

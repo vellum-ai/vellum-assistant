@@ -53,6 +53,15 @@ describe("TTS provider catalog", () => {
     }
   });
 
+  test("every entry declares a valid mediaStreamPlayback output format", () => {
+    const validFormats = new Set(["pcm", "none"]);
+    for (const entry of entries) {
+      expect(validFormats.has(entry.mediaStreamPlayback.outputFormat)).toBe(
+        true,
+      );
+    }
+  });
+
   test("every entry has at least one secret requirement", () => {
     for (const entry of entries) {
       expect(entry.secretRequirements.length).toBeGreaterThan(0);
@@ -112,12 +121,17 @@ describe("ElevenLabs catalog entry", () => {
     expect(entry.callMode).toBe("native-twilio");
   });
 
-  test("does not support streaming", () => {
-    expect(entry.capabilities.supportsStreaming).toBe(false);
+  test("supports streaming", () => {
+    expect(entry.capabilities.supportsStreaming).toBe(true);
   });
 
-  test("supports mp3 format", () => {
+  test("supports mp3 and pcm formats", () => {
     expect(entry.capabilities.supportedFormats).toContain("mp3");
+    expect(entry.capabilities.supportedFormats).toContain("pcm");
+  });
+
+  test("plays over media-stream via PCM output", () => {
+    expect(entry.mediaStreamPlayback.outputFormat).toBe("pcm");
   });
 
   test("requires a credential stored under 'credential/elevenlabs/api_key'", () => {
@@ -140,10 +154,15 @@ describe("Fish Audio catalog entry", () => {
     expect(entry.capabilities.supportsStreaming).toBe(true);
   });
 
-  test("supports mp3, wav, and opus formats", () => {
+  test("supports mp3, wav, opus, and pcm formats", () => {
     expect(entry.capabilities.supportedFormats).toContain("mp3");
     expect(entry.capabilities.supportedFormats).toContain("wav");
     expect(entry.capabilities.supportedFormats).toContain("opus");
+    expect(entry.capabilities.supportedFormats).toContain("pcm");
+  });
+
+  test("plays over media-stream via PCM output", () => {
+    expect(entry.mediaStreamPlayback.outputFormat).toBe("pcm");
   });
 
   test("requires an API key stored under 'credential/fish-audio/api_key'", () => {
@@ -162,14 +181,19 @@ describe("Deepgram catalog entry", () => {
     expect(entry.callMode).toBe("synthesized-play");
   });
 
-  test("does not support streaming", () => {
-    expect(entry.capabilities.supportsStreaming).toBe(false);
+  test("supports streaming", () => {
+    expect(entry.capabilities.supportsStreaming).toBe(true);
   });
 
-  test("supports mp3, wav, and opus formats", () => {
+  test("supports mp3, wav, opus, and pcm formats", () => {
     expect(entry.capabilities.supportedFormats).toContain("mp3");
     expect(entry.capabilities.supportedFormats).toContain("wav");
     expect(entry.capabilities.supportedFormats).toContain("opus");
+    expect(entry.capabilities.supportedFormats).toContain("pcm");
+  });
+
+  test("plays over media-stream via PCM output", () => {
+    expect(entry.mediaStreamPlayback.outputFormat).toBe("pcm");
   });
 
   test("requires an API key stored under 'credential/deepgram/api_key'", () => {
@@ -179,5 +203,35 @@ describe("Deepgram catalog entry", () => {
     expect(apiKeySecret).toBeDefined();
     expect(apiKeySecret!.displayName).toContain("Deepgram");
     expect(apiKeySecret!.setCommand).toContain("assistant keys set deepgram");
+  });
+});
+
+describe("xAI catalog entry", () => {
+  const entry = getCatalogProvider("xai");
+
+  test("uses synthesized-play call mode", () => {
+    expect(entry.callMode).toBe("synthesized-play");
+  });
+
+  test("supports streaming", () => {
+    expect(entry.capabilities.supportsStreaming).toBe(true);
+  });
+
+  test("supports mp3, wav, and pcm formats", () => {
+    expect(entry.capabilities.supportedFormats).toContain("mp3");
+    expect(entry.capabilities.supportedFormats).toContain("wav");
+    expect(entry.capabilities.supportedFormats).toContain("pcm");
+  });
+
+  test("plays over media-stream via PCM output", () => {
+    expect(entry.mediaStreamPlayback.outputFormat).toBe("pcm");
+  });
+
+  test("requires an API key stored under 'credential/xai/api_key'", () => {
+    const apiKeySecret = entry.secretRequirements.find(
+      (s) => s.credentialStoreKey === "credential/xai/api_key",
+    );
+    expect(apiKeySecret).toBeDefined();
+    expect(apiKeySecret!.displayName).toContain("xAI");
   });
 });

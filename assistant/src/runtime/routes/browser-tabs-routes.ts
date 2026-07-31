@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-registry.js";
+import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import { getCdpClient } from "../../tools/browser/cdp-client/factory.js";
 import {
   clearPinnedTab,
@@ -18,6 +19,7 @@ import type { ToolContext } from "../../tools/types.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { browserCliConversationKey } from "./browser-routes.js";
 import { BadRequestError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const BrowserTabsParams = z.object({
@@ -33,7 +35,7 @@ const BrowserTabsParams = z.object({
 
 async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
   const { command, sessionId, conversationId, tabId, url, targetClientId } =
-    BrowserTabsParams.parse(body);
+    parseBody(BrowserTabsParams, body);
 
   const conversation = conversationId
     ? findConversation(conversationId)
@@ -50,6 +52,14 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
   } as unknown as ToolContext;
 
   const cdpOptions = { mode: "extension" as const, targetClientId };
+
+  // Every tabs command pins extension mode. Absorb a brief extension SSE
+  // reconnect blip so a flapping connection doesn't surface as a hard
+  // "no Chrome Extension connected" error.
+  await HostBrowserProxy.instance.waitForExtensionClient(
+    context.sourceActorPrincipalId,
+    targetClientId,
+  );
 
   if (command === "list") {
     const cdp = getCdpClient(context, cdpOptions);

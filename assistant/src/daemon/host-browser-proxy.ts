@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import type { HostBrowserRequestEvent } from "../api/events/host-browser.js";
 import {
   assistantEventHub,
   broadcastMessage,
@@ -9,7 +10,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { HostBrowserRequest } from "./message-types/host-browser.js";
+import { sleep } from "../util/retry.js";
 
 /** Distributive omit that preserves union variant fields. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
@@ -18,11 +19,21 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 
 /** Clean input type for callers — transport envelope fields are added by the proxy. */
 export type HostBrowserInput = DistributiveOmit<
-  HostBrowserRequest,
+  HostBrowserRequestEvent,
   "type" | "requestId" | "conversationId"
 >;
 
 const log = getLogger("host-browser-proxy");
+
+/**
+ * Grace window for a flapping extension SSE connection. The Chrome
+ * extension's stream can briefly drop and reconnect (MV3 service-worker
+ * churn); without a short wait, a dispatch landing in a "down" blip
+ * hard-fails even though the extension is effectively connected. Well
+ * under the request-layer timeout (default 30s).
+ */
+const EXTENSION_RECONNECT_GRACE_MS = 3_000;
+const EXTENSION_RECONNECT_POLL_MS = 250;
 
 /**
  * Extension-only pseudo-CDP methods (Vellum.listTabs, Vellum.selectTab,
@@ -101,10 +112,10 @@ function hasClientForActor(
   clients: ReadonlyArray<{ actorPrincipalId?: string }>,
   sourceActorPrincipalId?: string,
 ): boolean {
-  if (sourceActorPrincipalId == null) return clients.length > 0;
-  return clients.some(
-    (c) => c.actorPrincipalId === sourceActorPrincipalId,
-  );
+  if (sourceActorPrincipalId == null) {
+    return clients.length > 0;
+  }
+  return clients.some((c) => c.actorPrincipalId === sourceActorPrincipalId);
 }
 
 function resolveTargetClient(
@@ -121,14 +132,15 @@ function resolveTargetClient(
   const extension = all.filter((c) => c.interfaceId === "chrome-extension");
   const candidates = isExtensionOnlyMethod(cdpMethod)
     ? extension
-    : [...extension, ...all.filter((c) => c.interfaceId !== "chrome-extension")];
+    : [
+        ...extension,
+        ...all.filter((c) => c.interfaceId !== "chrome-extension"),
+      ];
 
   if (sourceActorPrincipalId == null) {
     return candidates[0];
   }
-  return candidates.find(
-    (c) => c.actorPrincipalId === sourceActorPrincipalId,
-  );
+  return candidates.find((c) => c.actorPrincipalId === sourceActorPrincipalId);
 }
 
 export class HostBrowserProxy {
@@ -197,6 +209,40 @@ export class HostBrowserProxy {
   }
 
   /**
+   * Poll until the extension client that dispatch will route to is
+   * connected, or `timeoutMs` elapses. Absorbs brief SSE reconnect blips
+   * so extension-pinned dispatch doesn't hard-fail on a momentary gap.
+   *
+   * When `targetClientId` is supplied, waits for that *exact* client —
+   * `request()` resolves the target by id, so waiting for any sibling
+   * extension (multi-install setups) would return early and still fail.
+   * Otherwise waits for any extension owned by the actor, matching the
+   * auto-resolution preference. Returns the final availability; callers
+   * proceed to dispatch regardless (which still surfaces the typed "no
+   * Chrome Extension connected" error if absent).
+   */
+  async waitForExtensionClient(
+    sourceActorPrincipalId?: string,
+    targetClientId?: string,
+    timeoutMs = EXTENSION_RECONNECT_GRACE_MS,
+  ): Promise<boolean> {
+    const connected = () =>
+      targetClientId != null
+        ? assistantEventHub.getClientById(targetClientId) !== undefined
+        : this.hasExtensionClient(sourceActorPrincipalId);
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if (connected()) {
+        return true;
+      }
+      if (Date.now() >= deadline) {
+        return false;
+      }
+      await sleep(EXTENSION_RECONNECT_POLL_MS);
+    }
+  }
+
+  /**
    * Send a host_browser request to the connected extension/macOS bridge.
    *
    * When `targetClientId` is supplied, the proxy dispatches to that specific
@@ -253,7 +299,9 @@ export class HostBrowserProxy {
         targetClientId: preferredClient.clientId,
         op: "host_browser",
       });
-      if (rejection) return Promise.resolve(rejection);
+      if (rejection) {
+        return Promise.resolve(rejection);
+      }
     }
 
     // Pseudo-methods can only be served by the Chrome extension. Fail fast

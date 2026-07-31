@@ -57,12 +57,9 @@ mock.module("../runtime/gateway-client.js", () => ({
 }));
 
 // ── Guardian binding mock ──
-// mockGuardianContact controls what findGuardianForChannel returns.
-// When non-null, it should look like { contact: { displayName: "..." }, channel: { ... } }.
-let mockGuardianContact: {
-  contact: { displayName: string };
-  channel: Record<string, unknown>;
-} | null = null;
+// mockGuardianDelivery controls what the gateway guardian-delivery reader
+// returns for the source channel; non-null carries at least a displayName.
+let mockGuardianDelivery: { displayName: string } | null = null;
 
 mock.module("../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: () => null,
@@ -82,9 +79,19 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   }),
 }));
 
-// ── Contact store mock ──
-mock.module("../contacts/contact-store.js", () => ({
-  findGuardianForChannel: () => mockGuardianContact,
+// ── Guardian delivery reader mock ──
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async (input?: { channelTypes?: string[] }) => {
+    if (!mockGuardianDelivery) {
+      return [];
+    }
+    const channelType = input?.channelTypes?.[0] ?? "telegram";
+    return [{ channelType, status: "active", ...mockGuardianDelivery }];
+  },
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 // ── Pending interactions mock ──
@@ -116,7 +123,9 @@ mock.module("../prompts/user-reference.js", () => ({
   resolveGuardianName: (guardianDisplayName?: string | null): string => {
     // Mirror the real implementation: guardian persona name (from users/<slug>.md) > guardianDisplayName > default
     const userRef = "my human"; // In tests, resolveUserReference() returns this
-    if (userRef !== "my human") return userRef;
+    if (userRef !== "my human") {
+      return userRef;
+    }
     if (guardianDisplayName && guardianDisplayName.trim().length > 0) {
       return guardianDisplayName.trim();
     }
@@ -126,8 +135,11 @@ mock.module("../prompts/user-reference.js", () => ({
 
 // Import module under test AFTER mocks are set up
 import type { ChannelId } from "../channels/types.js";
-import { findGuardianForChannel } from "../contacts/contact-store.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { resolveGuardianName } from "../prompts/user-reference.js";
 
 // We need to test the private functions by importing the module.
@@ -169,8 +181,10 @@ async function simulateNotifierPoll(params: {
     notifiedRequestIds,
   } = params;
 
-  // Gate check: only trusted contacts with guardian route
-  if (trustClass !== "trusted_contact" || !guardianExternalUserId) {
+  // Gate check: only identity-known non-guardian contacts with guardian route
+  const isIdentityKnownNonGuardian =
+    trustClass === "trusted_contact" || trustClass === "unverified_contact";
+  if (!isIdentityKnownNonGuardian || !guardianExternalUserId) {
     return false;
   }
 
@@ -195,9 +209,14 @@ async function simulateNotifierPoll(params: {
 
   notifiedRequestIds.set(info.requestId, conversationId);
 
-  // Resolve guardian name via the contacts-based approach
-  const guardian = findGuardianForChannel(params.sourceChannel);
-  const guardianName = resolveGuardianName(guardian?.contact.displayName);
+  // Resolve guardian name via the gateway guardian-delivery reader
+  const guardians = await getGuardianDelivery({
+    channelTypes: [params.sourceChannel],
+  });
+  const guardian = guardians
+    ? guardianForChannel(guardians, params.sourceChannel)
+    : undefined;
+  const guardianName = resolveGuardianName(guardian?.displayName ?? undefined);
 
   const waitingText = `Waiting for ${guardianName}'s approval...`;
 
@@ -223,7 +242,7 @@ describe("trusted-contact pending-approval notifier", () => {
     deliveredReplies.length = 0;
     deliverShouldFail = false;
     mockPendingApprovals = [];
-    mockGuardianContact = null;
+    mockGuardianDelivery = null;
   });
 
   test("sends waiting message to trusted contact when pending approval exists", async () => {
@@ -236,10 +255,7 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianContact = {
-      contact: { displayName: "Mom" },
-      channel: {},
-    };
+    mockGuardianDelivery = { displayName: "Mom" };
 
     const notified = new Map<string, string>();
     const sent = await simulateNotifierPoll({
@@ -271,10 +287,7 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianContact = {
-      contact: { displayName: "Guardian User" },
-      channel: {},
-    };
+    mockGuardianDelivery = { displayName: "Guardian User" };
 
     const notified = new Map<string, string>();
     await simulateNotifierPoll({
@@ -304,10 +317,7 @@ describe("trusted-contact pending-approval notifier", () => {
     ];
 
     // Guardian contact exists but has an empty displayName
-    mockGuardianContact = {
-      contact: { displayName: "" },
-      channel: {},
-    };
+    mockGuardianDelivery = { displayName: "" };
 
     const notified = new Map<string, string>();
     await simulateNotifierPoll({
@@ -336,7 +346,7 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianContact = null;
+    mockGuardianDelivery = null;
 
     const notified = new Map<string, string>();
     await simulateNotifierPoll({
@@ -365,10 +375,7 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianContact = {
-      contact: { displayName: "Guardian" },
-      channel: {},
-    };
+    mockGuardianDelivery = { displayName: "Guardian" };
 
     const notified = new Map<string, string>();
     const baseParams = {
@@ -393,10 +400,7 @@ describe("trusted-contact pending-approval notifier", () => {
   });
 
   test("sends separate messages for different requestIds", async () => {
-    mockGuardianContact = {
-      contact: { displayName: "Guardian" },
-      channel: {},
-    };
+    mockGuardianDelivery = { displayName: "Guardian" };
 
     const notified = new Map<string, string>();
     const baseParams = {
@@ -435,10 +439,7 @@ describe("trusted-contact pending-approval notifier", () => {
   });
 
   test("concurrent pollers for different conversations do not evict each other", async () => {
-    mockGuardianContact = {
-      contact: { displayName: "Guardian" },
-      channel: {},
-    };
+    mockGuardianDelivery = { displayName: "Guardian" };
 
     // Shared dedupe map simulating the module-level global
     const notified = new Map<string, string>();
@@ -587,10 +588,7 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianContact = {
-      contact: { displayName: "Guardian" },
-      channel: {},
-    };
+    mockGuardianDelivery = { displayName: "Guardian" };
 
     const notified = new Map<string, string>();
     const baseParams = {
@@ -645,10 +643,7 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianContact = {
-      contact: { displayName: "Sarah" },
-      channel: {},
-    };
+    mockGuardianDelivery = { displayName: "Sarah" };
 
     const notified = new Map<string, string>();
     await simulateNotifierPoll({
@@ -677,10 +672,7 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianContact = {
-      contact: { displayName: "   " },
-      channel: {},
-    };
+    mockGuardianDelivery = { displayName: "   " };
 
     const notified = new Map<string, string>();
     await simulateNotifierPoll({

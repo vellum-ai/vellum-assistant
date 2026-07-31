@@ -1,78 +1,55 @@
 import type { Command } from "commander";
 
+import { applyCommandHelp } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
+import { completionsHelp } from "./completions.help.js";
 
 export function registerCompletionsCommand(program: Command): void {
   registerCommand(program, {
-    name: "completions",
+    name: completionsHelp.name,
     transport: "local",
-    description: "Generate shell completion script (e.g. assistant completions bash >> ~/.bashrc)",
+    description: completionsHelp.description,
     build: (cmd) => {
-      cmd
-    .argument("<shell>", "Shell type: bash, zsh, or fish")
-    .addHelpText(
-      "after",
-      `
-Arguments:
-  shell   Shell to generate completions for: bash, zsh, or fish
+      applyCommandHelp(cmd, completionsHelp);
+      cmd.action((shell: string) => {
+        const subcommands: Record<string, string[]> = {
+          conversations: ["list", "new", "export", "clear"],
+          config: ["set", "get", "list", "validate-allowlist"],
+          keys: ["list", "set", "delete"],
+          trust: ["list"],
+          memory: ["status", "backfill", "cleanup", "query", "rebuild-index"],
+          contacts: ["list", "invites", "get", "merge"],
+        };
+        const topLevel = [
+          "conversations",
+          "config",
+          "keys",
+          "trust",
+          "memory",
+          "contacts",
+          "audit",
+          "completions",
+          "help",
+        ];
 
-Generates a completion script that enables tab-completion for common assistant
-commands, subcommands, and flags. The script is written to stdout so you
-can redirect it to a file or eval it directly.
-
-Installation per shell:
-  bash   Append to ~/.bashrc or eval in your shell profile:
-           eval "$(assistant completions bash)"
-  zsh    Append to ~/.zshrc or eval in your shell profile:
-           eval "$(assistant completions zsh)"
-  fish   Pipe to source or save to the fish completions directory:
-           assistant completions fish | source
-           assistant completions fish > ~/.config/fish/completions/assistant.fish
-
-Examples:
-  $ assistant completions bash >> ~/.bashrc
-  $ eval "$(assistant completions zsh)"
-  $ assistant completions fish | source`,
-    )
-    .action((shell: string) => {
-      const subcommands: Record<string, string[]> = {
-        conversations: ["list", "new", "export", "clear"],
-        config: ["set", "get", "list", "validate-allowlist"],
-        keys: ["list", "set", "delete"],
-        trust: ["list"],
-        memory: ["status", "backfill", "cleanup", "query", "rebuild-index"],
-        contacts: ["list", "invites", "get", "merge"],
-      };
-      const topLevel = [
-        "conversations",
-        "config",
-        "keys",
-        "trust",
-        "memory",
-        "contacts",
-        "audit",
-        "completions",
-        "help",
-      ];
-
-      switch (shell) {
-        case "bash":
-          process.stdout.write(generateBashCompletion(topLevel, subcommands));
-          break;
-        case "zsh":
-          process.stdout.write(generateZshCompletion(subcommands));
-          break;
-        case "fish":
-          process.stdout.write(generateFishCompletion(topLevel, subcommands));
-          break;
-        default:
-          log.error(
-            `Unknown shell: ${shell}. Supported shells: bash, zsh, fish`,
-          );
-          process.exit(1);
-      }
-    });
+        switch (shell) {
+          case "bash":
+            process.stdout.write(generateBashCompletion(topLevel, subcommands));
+            break;
+          case "zsh":
+            process.stdout.write(generateZshCompletion(subcommands));
+            break;
+          case "fish":
+            process.stdout.write(generateFishCompletion(topLevel, subcommands));
+            break;
+          default:
+            log.error(
+              `Unknown shell: ${shell}. Supported shells: bash, zsh, fish`,
+            );
+            process.exit(1);
+        }
+      });
     },
   });
 }

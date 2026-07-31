@@ -17,7 +17,7 @@ Before any Bun command:
 export PATH="$HOME/.bun/bin:$PATH"
 ```
 
-Run commands from the package directory that owns the changed files, usually `assistant`, `gateway`, `cli`, `clients/macos`, or `clients/tauri`.
+Run commands from the package directory that owns the changed files, usually `assistant`, `gateway`, `cli`, `clients/web`, or `clients/macos`.
 
 ## Selection Workflow
 
@@ -68,7 +68,7 @@ Add typecheck when edits touch:
 
 Add migration tests when edits touch:
 
-- `assistant/src/memory/migrations/`
+- `assistant/src/persistence/migrations/`
 - `assistant/src/workspace/migrations/`
 - persisted workspace files
 - database schema modules

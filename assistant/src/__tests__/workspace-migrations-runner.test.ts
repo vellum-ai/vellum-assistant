@@ -123,6 +123,61 @@ describe("runWorkspaceMigrations", () => {
     expect(m2.run).toHaveBeenCalledTimes(1);
   });
 
+  test("logs a start line and returns applied/skipped/failed counts", async () => {
+    // One already applied, one new — exercises both applied and skipped counts.
+    mockCheckpointContents = JSON.stringify({
+      applied: {
+        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "completed" },
+      },
+    });
+
+    const m1 = makeMigration("001");
+    const m2 = makeMigration("002");
+
+    const summary = await runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
+
+    // One info log before all migrations, naming how many are registered.
+    expect(logInfoFn).toHaveBeenCalledWith(
+      "Running workspace migrations (2 registered)",
+    );
+
+    // One info log for the new migration that actually ran.
+    expect(logInfoFn).toHaveBeenCalledWith(
+      expect.stringContaining("Running workspace migration: 002"),
+    );
+
+    // Counts are returned for the caller to fold into its own startup log —
+    // the runner no longer emits a standalone summary line.
+    expect(summary).toEqual({ applied: 1, skipped: 1, failed: 0 });
+  });
+
+  test("counts a migration that throws as failed, not applied", async () => {
+    const m1 = makeMigration("001");
+    const m2 = makeMigration("002");
+    (m2.run as ReturnType<typeof mock>).mockImplementation(() => {
+      throw new Error("boom");
+    });
+
+    const summary = await runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
+
+    expect(summary).toEqual({ applied: 1, skipped: 0, failed: 1 });
+  });
+
+  test("counts a pre-existing failed checkpoint as failed, not skipped", async () => {
+    mockCheckpointContents = JSON.stringify({
+      applied: {
+        "001": { appliedAt: "2025-01-01T00:00:00.000Z", status: "failed" },
+      },
+    });
+
+    const m1 = makeMigration("001");
+    const summary = await runWorkspaceMigrations(WORKSPACE_DIR, [m1]);
+
+    // Non-retryable failed checkpoint: not re-run, surfaced as failed.
+    expect(m1.run).not.toHaveBeenCalled();
+    expect(summary).toEqual({ applied: 0, skipped: 0, failed: 1 });
+  });
+
   test("writes checkpoint after each migration", async () => {
     const m1 = makeMigration("001");
     const m2 = makeMigration("002");

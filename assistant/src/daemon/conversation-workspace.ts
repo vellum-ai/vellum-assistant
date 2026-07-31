@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
-import { getConversation } from "../memory/conversation-crud.js";
-import { resolveConversationDirectoryPaths } from "../memory/conversation-directories.js";
+import { getConversation } from "../persistence/conversation-crud.js";
+import { resolveConversationDirectoryPaths } from "../persistence/conversation-directories.js";
 import { renderWorkspaceTopLevelContext } from "../workspace/top-level-renderer.js";
 import { scanTopLevelDirectories } from "../workspace/top-level-scanner.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
@@ -37,7 +37,9 @@ export function resolveWorkspaceTopLevelContext(
   conversationId: string | undefined,
 ): string | null {
   const conversation = findConversationOrSubagent(conversationId);
-  if (!conversation) return null;
+  if (!conversation) {
+    return null;
+  }
   refreshWorkspaceTopLevelContextIfNeeded(conversation);
   return conversation.workspaceTopLevelContext;
 }
@@ -46,8 +48,9 @@ export function resolveWorkspaceTopLevelContext(
 export function refreshWorkspaceTopLevelContextIfNeeded(
   ctx: WorkspaceConversationContext,
 ): void {
-  if (!ctx.workspaceTopLevelDirty && ctx.workspaceTopLevelContext != null)
+  if (!ctx.workspaceTopLevelDirty && ctx.workspaceTopLevelContext != null) {
     return;
+  }
   const snapshot = scanTopLevelDirectories(ctx.workingDir);
   const conversation = getConversation(ctx.conversationId);
   let currentConversationPath: string | null = null;

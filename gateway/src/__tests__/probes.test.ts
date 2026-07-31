@@ -21,6 +21,8 @@ const config = await loadConfig();
 const { handler: handleTelegramWebhook } = createTelegramWebhookHandler(config);
 
 let draining = false;
+let postAssistantReadyComplete = true;
+let assistantMigrating = false;
 
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -33,7 +35,33 @@ async function handleRequest(req: Request): Promise<Response> {
     if (draining) {
       return Response.json({ status: "draining" }, { status: 503 });
     }
-    return Response.json({ status: "ok" });
+    // Mirrors gateway/src/index.ts: while post-assistant-ready work is
+    // incomplete, a still-migrating assistant keeps the pod in service
+    // (200, truthful ready:false body), but an assistant-ready gateway
+    // that is only waiting on its own backfills reports 503 "starting"
+    // so the orchestrator doesn't route traffic into the closed gate.
+    if (!postAssistantReadyComplete) {
+      if (assistantMigrating) {
+        return Response.json({
+          status: "migrating",
+          ready: false,
+          dbMigrations: { ready: false, state: "running" },
+        });
+      }
+      return Response.json(
+        { status: "starting", ready: false },
+        { status: 503 },
+      );
+    }
+    return Response.json({ status: "ok", ready: true });
+  }
+
+  if (!postAssistantReadyComplete) {
+    return Response.json({ status: "starting" }, { status: 503 });
+  }
+
+  if (url.pathname === "/schema") {
+    return Response.json({ openapi: "3.1.0" });
   }
 
   if (url.pathname === "/webhooks/telegram") {
@@ -57,6 +85,20 @@ describe("/healthz", () => {
     const body = await res.json();
     expect(body.status).toBe("ok");
   });
+
+  test("returns 200 while post-assistant-ready startup work is incomplete", async () => {
+    postAssistantReadyComplete = false;
+    try {
+      const res = await handleRequest(
+        new Request("http://gateway.test/healthz"),
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.status).toBe("ok");
+    } finally {
+      postAssistantReadyComplete = true;
+    }
+  });
 });
 
 describe("/readyz", () => {
@@ -78,6 +120,70 @@ describe("/readyz", () => {
       expect(body.status).toBe("draining");
     } finally {
       draining = false;
+    }
+  });
+
+  test("returns 200 with ready:false while the assistant is still migrating", async () => {
+    postAssistantReadyComplete = false;
+    assistantMigrating = true;
+    try {
+      const res = await handleRequest(
+        new Request("http://gateway.test/readyz"),
+      );
+      // 200 keeps the pod in service during minutes-long migrations; the
+      // truthful body tells body-aware CLI waits the stack can't serve them.
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.status).toBe("migrating");
+      expect(body.ready).toBe(false);
+    } finally {
+      postAssistantReadyComplete = true;
+      assistantMigrating = false;
+    }
+  });
+
+  test("returns 503 when the assistant is ready but gateway startup work is incomplete", async () => {
+    postAssistantReadyComplete = false;
+    try {
+      const res = await handleRequest(
+        new Request("http://gateway.test/readyz"),
+      );
+      // Seconds-long window: every route 503s "starting", so the pod must
+      // not advertise ready and CLI waits must keep waiting.
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body.status).toBe("starting");
+      expect(body.ready).toBe(false);
+    } finally {
+      postAssistantReadyComplete = true;
+    }
+  });
+
+  test("blocks regular traffic while post-assistant-ready startup work is incomplete", async () => {
+    postAssistantReadyComplete = false;
+    try {
+      const res = await handleRequest(
+        new Request("http://gateway.test/webhooks/telegram"),
+      );
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body.status).toBe("starting");
+    } finally {
+      postAssistantReadyComplete = true;
+    }
+  });
+
+  test("blocks schema while post-assistant-ready startup work is incomplete", async () => {
+    postAssistantReadyComplete = false;
+    try {
+      const res = await handleRequest(
+        new Request("http://gateway.test/schema"),
+      );
+      expect(res.status).toBe(503);
+      const body = await res.json();
+      expect(body.status).toBe("starting");
+    } finally {
+      postAssistantReadyComplete = true;
     }
   });
 });

@@ -25,15 +25,23 @@
 
 import { z } from "zod";
 
-// Type-only import: keeps the dependency direction one-way at runtime
-// (install-from-github resolves sources *through* this module) while still
-// sharing the injected-`fetch` shape.
-import type { FetchLike } from "./install-from-github.js";
+import type { FetchLike } from "./fetch-like.js";
 
 /** Canonical location of the marketplace manifest. */
 const MARKETPLACE_SOURCE_OWNER = "vellum-ai";
 const MARKETPLACE_SOURCE_REPO = "vellum-assistant";
 const MARKETPLACE_FILE_PATH = "plugins/marketplace.json";
+
+/**
+ * Canonical GitHub coordinates of the marketplace manifest, exported so
+ * sibling readers (e.g. {@link ./plugin-pin-history}) resolve the same
+ * `owner/repo:path` rather than re-declaring it.
+ */
+export const MARKETPLACE_MANIFEST_LOCATION = {
+  owner: MARKETPLACE_SOURCE_OWNER,
+  repo: MARKETPLACE_SOURCE_REPO,
+  path: MARKETPLACE_FILE_PATH,
+} as const;
 
 // ---------------------------------------------------------------------------
 // Manifest schema (subset of the Claude Code marketplace schema)
@@ -51,7 +59,7 @@ const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
  */
 const COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 
-const githubSourceSchema = z.object({
+export const githubSourceSchema = z.object({
   /** Discriminator. Only GitHub sources are resolved today. */
   source: z.literal("github"),
   /** `owner/repo` of the external plugin repository. */
@@ -90,9 +98,22 @@ const marketplaceEntrySchema = z.object({
   category: z.string().optional(),
   homepage: z.string().optional(),
   license: z.string().optional(),
+  /**
+   * A single curated author/curator emoji shown as the plugin's icon (e.g. on
+   * the marketing catalog). Not a URL or file path — bounded to a short
+   * emoji-length string; a multi-code-point emoji (skin tone, ZWJ sequence)
+   * still fits comfortably under the cap.
+   */
+  icon: z
+    .string()
+    .refine(
+      (s) => [...s].length <= 8 && !/[/\\]|^https?:/i.test(s),
+      "expected a short emoji, not a URL or path",
+    )
+    .optional(),
 });
 
-const marketplaceManifestSchema = z.object({
+export const marketplaceManifestSchema = z.object({
   name: z.string(),
   owner: z
     .object({
@@ -152,7 +173,9 @@ export class MarketplaceFetchError extends Error {
     super(message);
     this.name = "MarketplaceFetchError";
     this.transient = opts?.transient ?? false;
-    if (opts?.status !== undefined) this.status = opts.status;
+    if (opts?.status !== undefined) {
+      this.status = opts.status;
+    }
   }
 }
 
@@ -163,7 +186,9 @@ export class MarketplaceFetchError extends Error {
  * without it is a genuine authorization failure and stays hard.
  */
 function isTransientUpstreamStatus(res: Response): boolean {
-  if (res.status === 429 || res.status >= 500) return true;
+  if (res.status === 429 || res.status >= 500) {
+    return true;
+  }
   if (res.status === 403) {
     return res.headers.get("x-ratelimit-remaining") === "0";
   }
@@ -196,7 +221,9 @@ export async function fetchMarketplaceEntries(
     },
   });
 
-  if (res.status === 404) return [];
+  if (res.status === 404) {
+    return [];
+  }
   if (!res.ok) {
     throw new MarketplaceFetchError(
       `Marketplace manifest fetch failed for ${MARKETPLACE_FILE_PATH} @ ${ref}: HTTP ${res.status}`,
@@ -232,7 +259,9 @@ export function resolveMarketplaceSource(
   entries: readonly MarketplaceEntry[],
 ): ResolvedPluginSource | null {
   const entry = entries.find((e) => e.name === name);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   const [owner, repo] = entry.source.repo.split("/", 2) as [string, string];
   return {
     owner,

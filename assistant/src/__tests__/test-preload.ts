@@ -17,7 +17,7 @@
  * some environments.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll } from "bun:test";
@@ -37,6 +37,16 @@ process.env.VELLUM_WORKSPACE_DIR = testDir;
 process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
 process.exitCode = 0;
 
+// Seed this workspace from the prebuilt "migrated" fixture (a pre-migrated set
+// of the four assistant DBs) so a test's initializeDb() finds an already-migrated
+// DB and the migration runner no-ops instead of re-running the whole chain; when
+// VELLUM_TEST_FIXTURES_DIR is unset (a lone `bun test`) nothing is copied and the
+// full chain runs. Plain recursive file copy — no `src/` import.
+const fixturesDir = process.env.VELLUM_TEST_FIXTURES_DIR;
+if (fixturesDir) {
+  cpSync(join(fixturesDir, "migrated"), testDir, { recursive: true });
+}
+
 // Prevent tests from routing credential writes through the real CES
 // (Credential Execution Service). Without this, setSecureKeyAsync() in
 // containerized environments writes to the live credential store.
@@ -44,6 +54,15 @@ const savedIsContainerized = process.env.IS_CONTAINERIZED;
 const savedCesCredentialUrl = process.env.CES_CREDENTIAL_URL;
 delete process.env.IS_CONTAINERIZED;
 delete process.env.CES_CREDENTIAL_URL;
+
+// A test runs daemon code in-process, so it acts as the main daemon for the
+// event hub's publish routing (a non-daemon forwards publishes over IPC to a
+// daemon that isn't there). Default the shared process-role slot to true; a
+// test simulating a worker overrides it. Written directly (not via
+// `runtime/process-role.ts`) to keep the preload free of source-module imports;
+// the slot is typed by the ambient `VellumAssistantNamespace` global (declared
+// in `src/vellum-assistant-namespace.d.ts`), so no import is needed to touch it.
+(globalThis.vellumAssistant ??= {}).mainDaemonProcess = true;
 
 // --- Phase 2: install the IPC mock (no source-module imports) ---
 

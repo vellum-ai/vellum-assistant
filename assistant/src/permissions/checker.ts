@@ -1,12 +1,20 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
+import {
+  loadSkillCatalog,
+  resolveSkillSelector,
+  type SkillSummary,
+} from "../config/skills.js";
 import { ipcClassifyRisk } from "../ipc/gateway-client.js";
-import { indexCatalogById } from "../skills/include-graph.js";
+import {
+  MEMORY_RETROSPECTIVE_ORIGIN,
+  SKILL_MANAGEMENT_SKILL_ID,
+} from "../plugins/defaults/memory/memory-retrospective-constants.js";
+import { indexCatalogById, validateIncludes } from "../skills/include-graph.js";
 import { getSkillRoots } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
@@ -15,19 +23,25 @@ import {
   looksLikeHostPortShorthand,
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
-import { getTool, getToolOwner } from "../tools/registry.js";
+import { getTool, getToolOwner, resolveTool } from "../tools/registry.js";
+import { resolveRealPath } from "../tools/shared/filesystem/path-policy.js";
 import type { Tool } from "../tools/types.js";
 import {
   getDeprecatedDir,
+  getMonitoringDataDir,
   getProtectedDir,
   getWorkspaceDir,
   getWorkspaceHooksDir,
   getWorkspacePluginsDir,
+  getWorkspaceRoutesDir,
+  getWorkspaceToolsDir,
+  getWorkspaceWorkflowsDir,
 } from "../util/platform.js";
 import {
   type ApprovalContext,
   DefaultApprovalPolicy,
 } from "./approval-policy.js";
+import { buildChannelPermissionCellQuery } from "./channel-permission-query.js";
 import {
   getAutoApproveThreshold,
   refreshAutoApproveThreshold,
@@ -40,7 +54,11 @@ import {
   RiskLevel,
   type ScopeOption,
 } from "./types.js";
-import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
+import {
+  isPathWithinWorkspaceRoot,
+  isWorkspaceScopedInvocation,
+  resolveSandboxBase,
+} from "./workspace-policy.js";
 
 // ── Risk classification cache ────────────────────────────────────────────────
 // classifyRisk() is called on every permission check and delegates to the
@@ -67,6 +85,12 @@ interface RiskClassificationWithMeta extends RiskClassification {
   actionKeys?: string[];
   /** Whether the command qualifies for sandbox auto-approve (bash tools). */
   sandboxAutoApprove?: boolean;
+  /**
+   * Lexically-resolved path args from the gateway for bash sandbox
+   * auto-approve. Stored in the cache so the symlink escape check can be
+   * re-run on cache hits (symlink targets may change between calls).
+   */
+  sandboxPathArgs?: string[];
   /** Allowlist options from the gateway for generateAllowlistOptions(). */
   allowlistOptions?: AllowlistOption[];
   /** Resolved filesystem path arguments for directory-scoped rule matching. */
@@ -99,6 +123,7 @@ function riskCacheKey(
   input: Record<string, unknown>,
   workingDir?: string,
   manifestOverride?: ManifestOverride,
+  fsStateKey?: string,
 ): string {
   // Strip `reason` and `activity` before computing the cache key — they are
   // cosmetic status text that varies per invocation even for identical tool
@@ -111,8 +136,31 @@ function riskCacheKey(
     .update(workingDir ?? "")
     .update("\0")
     .update(manifestOverride ? JSON.stringify(manifestOverride) : "")
+    // For file tools, fold in the symlink-resolved target path(s). File risk
+    // depends on filesystem state (a symlink can be retargeted under a
+    // protected dir between calls), so the same raw input must miss the cache
+    // when its canonicalized target changes.
+    .update("\0")
+    .update(fsStateKey ?? "")
     .digest("hex");
   return `${toolName}\0${hash}`;
+}
+
+/**
+ * Compute the filesystem-state component of the risk cache key for file tools:
+ * the symlink-resolved target path(s). Returns `undefined` for non-file tools
+ * (whose risk does not depend on filesystem state).
+ */
+function fileToolFsStateKey(
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir?: string,
+): string | undefined {
+  if (!FILE_TOOL_NAMES.has(toolName)) {
+    return undefined;
+  }
+  const resolved = resolveFileToolPaths(toolName, input, workingDir);
+  return `${resolved.resolvedPath ?? ""}\0${resolved.resolvedTransferDestPath ?? ""}\0${resolved.resolvedWorkingDir ?? ""}`;
 }
 
 /** Clear the risk classification cache. Called when trust rules change. Exported for test setup. */
@@ -130,7 +178,9 @@ function getStringField(
 ): string {
   for (const key of keys) {
     const value = input[key];
-    if (typeof value === "string") return value;
+    if (typeof value === "string") {
+      return value;
+    }
   }
   return "";
 }
@@ -144,7 +194,9 @@ function resolveSkillIdAndHash(
   selector: string,
 ): { id: string; versionHash?: string } | null {
   const resolved = resolveSkillSelector(selector);
-  if (!resolved.skill) return null;
+  if (!resolved.skill) {
+    return null;
+  }
 
   try {
     const hash = computeSkillVersionHash(resolved.skill.directoryPath);
@@ -163,12 +215,27 @@ function resolveSkillIdAndHash(
  * registry (`getToolOwner(name)`) rather than read from the `Tool` object,
  * since ownership lives on the registry, not on the tool itself.
  */
-function isToolOwnerSkillBundled(tool: Tool | undefined): boolean {
-  if (!tool) return false;
+export function isToolOwnerSkillBundled(tool: Tool | undefined): boolean {
+  if (!tool) {
+    return false;
+  }
   const owner = getToolOwner(tool.name);
-  if (owner?.kind !== "skill") return false;
+  if (owner?.kind !== "skill") {
+    return false;
+  }
   const skill = loadSkillCatalog().find((s) => s.id === owner.id);
   return skill?.bundled ?? false;
+}
+
+/**
+ * Whether a catalog entry carries parsed inline command expansions, which
+ * execute shell commands at load time. Returns false for an absent entry.
+ */
+function summaryHasInlineExpansions(skill: SkillSummary | undefined): boolean {
+  return (
+    skill?.inlineCommandExpansions != null &&
+    skill.inlineCommandExpansions.length > 0
+  );
 }
 
 /**
@@ -177,11 +244,92 @@ function isToolOwnerSkillBundled(tool: Tool | undefined): boolean {
  */
 function hasInlineExpansions(skillId: string): boolean {
   const catalog = loadSkillCatalog();
-  const skill = catalog.find((s) => s.id === skillId);
-  return (
-    skill?.inlineCommandExpansions != null &&
-    skill.inlineCommandExpansions.length > 0
-  );
+  return summaryHasInlineExpansions(catalog.find((s) => s.id === skillId));
+}
+
+/**
+ * The id of the skill a `skill_load` invocation targets, or `null` for any
+ * other tool, a blank selector, or a selector that names no skill in the
+ * local catalog.
+ */
+function resolveSkillLoadTargetId(
+  toolName: string,
+  input: Record<string, unknown>,
+): string | null {
+  if (toolName !== "skill_load") {
+    return null;
+  }
+  const selector = getStringField(input, "skill").trim();
+  if (!selector) {
+    return null;
+  }
+  return resolveSkillIdAndHash(selector)?.id ?? null;
+}
+
+/**
+ * Whether this invocation is an inline-command ("dynamic") skill load: a
+ * `skill_load` whose resolved skill carries inline command expansions,
+ * which execute shell commands at load time via child_process.spawn.
+ * Exported for the non-interactive guardian gate in
+ * tools/permission-checker.ts — a prompted dynamic load must never be
+ * silently auto-approved without a human present. (A pinned trust rule
+ * that covers the load lowers its classified risk upstream, so covered
+ * loads resolve to "allow" before that gate is reached.)
+ */
+export function isDynamicSkillLoadInvocation(
+  toolName: string,
+  input: Record<string, unknown>,
+): boolean {
+  const skillId = resolveSkillLoadTargetId(toolName, input);
+  return skillId !== null && hasInlineExpansions(skillId);
+}
+
+/**
+ * Whether a `skill_load` invocation is a pure read: the target skill and every
+ * skill reachable through its `includes` graph are installed locally and carry
+ * no inline command expansions.
+ *
+ * The whole graph matters because the load executor (tools/skills/load.ts)
+ * auto-installs missing includes from the remote catalog
+ * (`autoInstallFromCatalog`) and renders inline command expansions for both the
+ * target and its included children. So a missing include anywhere in the graph
+ * writes to the workspace, an inline expansion anywhere in it executes shell,
+ * and either makes the load something other than a read.
+ *
+ * Fails closed and never throws — an unresolvable selector, a target absent
+ * from the catalog, a missing include, a cycle, or an unreadable catalog all
+ * return false. Selector resolution and catalog reads both touch the
+ * filesystem, so both sit inside the guard: callers include a synchronous
+ * live-voice event callback where a throw would abort the rest of the frame's
+ * dispatch. Exported for gates that must not proceed on anything capable of
+ * writing local state.
+ */
+export function isInstalledStaticSkillLoad(
+  toolName: string,
+  input: Record<string, unknown>,
+): boolean {
+  try {
+    const skillId = resolveSkillLoadTargetId(toolName, input);
+    if (skillId === null) {
+      return false;
+    }
+    const catalogIndex = indexCatalogById(loadSkillCatalog());
+    if (!catalogIndex.has(skillId)) {
+      return false;
+    }
+    // `validateIncludes` is the shared include-graph walk: it reports the first
+    // missing child or cycle, and on success yields every transitively included
+    // id in DFS order.
+    const validation = validateIncludes(skillId, catalogIndex);
+    if (!validation.ok) {
+      return false;
+    }
+    return validation.visited.every(
+      (id) => !summaryHasInlineExpansions(catalogIndex.get(id)),
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -221,7 +369,9 @@ function canonicalizeWebFetchUrl(parsed: URL): URL {
 
 function normalizeWebFetchUrl(rawUrl: string): URL | null {
   const trimmed = rawUrl.trim();
-  if (!trimmed) return null;
+  if (!trimmed) {
+    return null;
+  }
 
   if (looksLikeHostPortShorthand(trimmed)) {
     try {
@@ -273,22 +423,156 @@ import type {
 
 function buildFileContext(): FileContext {
   const config = getConfig();
+  // Canonicalize the protected directories via realpath so that a symlinked
+  // component anywhere in their path still prefix-matches the canonicalized
+  // target path computed in buildClassifyRiskParams. Both sides must be
+  // symlink-resolved for the gateway's lexical prefix checks to be sound.
+  const protectedDir = resolveRealPath(getProtectedDir());
   return {
-    protectedDir: getProtectedDir(),
-    deprecatedDir: getDeprecatedDir(),
-    hooksDir: getWorkspaceHooksDir(),
-    pluginsDir: getWorkspacePluginsDir(),
-    actorTokenSigningKeyPath: join(
-      getProtectedDir(),
-      "actor-token-signing-key",
+    protectedDir,
+    deprecatedDir: resolveRealPath(getDeprecatedDir()),
+    hooksDir: resolveRealPath(getWorkspaceHooksDir()),
+    pluginsDir: resolveRealPath(getWorkspacePluginsDir()),
+    toolsDir: resolveRealPath(getWorkspaceToolsDir()),
+    routesDir: resolveRealPath(getWorkspaceRoutesDir()),
+    workflowsDir: resolveRealPath(getWorkspaceWorkflowsDir()),
+    monitoringDir: resolveRealPath(getMonitoringDataDir()),
+    actorTokenSigningKeyPath: join(protectedDir, "actor-token-signing-key"),
+    skillSourceDirs: getSkillRoots(config.skills.load.extraDirs).map(
+      resolveRealPath,
     ),
-    skillSourceDirs: getSkillRoots(config.skills.load.extraDirs),
+  };
+}
+
+/**
+ * Canonicalize the security-sensitive path of a file tool invocation by
+ * resolving symlinks before it is sent to the gateway risk classifier.
+ *
+ * The gateway classifies file risk by lexically prefix-matching the target
+ * path against protected directories (skill source, hooks, plugins, the actor
+ * token signing key). Lexical resolution alone does not follow symlinks, so a
+ * symlink whose name looks benign but whose real target is a protected
+ * directory would be under-classified and could skip the High-risk approval
+ * prompt. Resolving symlinks here — on the daemon, which owns the workspace
+ * filesystem — closes that gap while keeping the gateway free of filesystem
+ * access (it cannot see the workspace in Docker mode).
+ *
+ * `resolveRealPath` falls back to the lexical path when the target lives on a
+ * filesystem this process cannot see (e.g. host_file paths proxied to a remote
+ * client), so this never regresses below today's lexical behavior.
+ */
+function resolveClassificationPath(
+  filePath: string,
+  workingDir: string,
+  isHostTool: boolean,
+): string | undefined {
+  if (!filePath) {
+    return undefined;
+  }
+  // Mirror the gateway classifier's lexical base: host tools resolve the path
+  // as absolute/relative-to-cwd; sandbox tools apply the /workspace remap and
+  // resolve against workingDir. Then follow symlinks so a benign-looking name
+  // whose real target is a protected directory is still escalated.
+  const base = isHostTool
+    ? resolve(filePath)
+    : resolveSandboxBase(filePath, workingDir);
+  return resolveRealPath(base);
+}
+
+const FILE_TOOL_NAMES = new Set([
+  "file_read",
+  "file_write",
+  "file_edit",
+  "host_file_read",
+  "host_file_write",
+  "host_file_edit",
+  "host_file_transfer",
+]);
+
+interface FileToolResolution {
+  filePath: string;
+  effectiveWorkingDir: string;
+  isHostTool: boolean;
+  resolvedPath?: string;
+  /**
+   * Symlink-canonicalized working dir for sandbox file tools, paired with
+   * `resolvedPath` so the gateway's workspace-boundary check compares
+   * canonical against canonical (a symlinked workspace prefix, e.g. macOS
+   * /var → /private/var, must not read as an escape). Unset for host tools.
+   */
+  resolvedWorkingDir?: string;
+  transferSandboxDestPath?: string;
+  transferSandboxWorkingDir?: string;
+  resolvedTransferDestPath?: string;
+}
+
+/**
+ * Resolve the security-sensitive path(s) of a file tool invocation, including
+ * symlink canonicalization. Shared by the IPC param builder and the risk cache
+ * key so both observe the same filesystem state — file risk now depends on
+ * symlink targets, so the cache must key on the canonicalized path, not just
+ * the raw tool input.
+ */
+function resolveFileToolPaths(
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir?: string,
+): FileToolResolution {
+  const isHostTool = toolName.startsWith("host_");
+  let filePath: string;
+  // For host_file_transfer to_sandbox, the file is written into the workspace
+  // at dest_path — capture it (plus the sandbox working dir) so the gateway can
+  // escalate writes that land in a code-injection sink, since `path` carries
+  // the host-side source.
+  let transferSandboxDestPath: string | undefined;
+  let transferSandboxWorkingDir: string | undefined;
+  if (toolName === "host_file_transfer") {
+    // The security-sensitive host-side path is source_path when reading from
+    // the host (to_sandbox), dest_path when writing to the host (to_host).
+    const direction = getStringField(input, "direction");
+    if (direction === "to_sandbox") {
+      filePath = getStringField(input, "source_path");
+      transferSandboxDestPath = getStringField(input, "dest_path");
+      transferSandboxWorkingDir = workingDir ?? process.cwd();
+    } else {
+      filePath = getStringField(input, "dest_path");
+    }
+  } else {
+    filePath = getStringField(input, "path", "file_path");
+  }
+  const effectiveWorkingDir = isHostTool ? "/" : (workingDir ?? process.cwd());
+  return {
+    filePath,
+    effectiveWorkingDir,
+    isHostTool,
+    resolvedPath: resolveClassificationPath(
+      filePath,
+      effectiveWorkingDir,
+      isHostTool,
+    ),
+    resolvedWorkingDir: isHostTool
+      ? undefined
+      : resolveRealPath(effectiveWorkingDir),
+    transferSandboxDestPath,
+    transferSandboxWorkingDir,
+    // The to_sandbox destination is a workspace write — symlink-resolve it too
+    // so it can't mask a code-injection sink.
+    resolvedTransferDestPath:
+      transferSandboxDestPath != null
+        ? resolveClassificationPath(
+            transferSandboxDestPath,
+            transferSandboxWorkingDir ?? process.cwd(),
+            false,
+          )
+        : undefined,
   };
 }
 
 function resolveSkillMetadata(selector: string): SkillMetadata | undefined {
   const resolved = resolveSkillIdAndHash(selector);
-  if (!resolved) return undefined;
+  if (!resolved) {
+    return undefined;
+  }
 
   const inlineExpansions = hasInlineExpansions(resolved.id);
 
@@ -347,25 +631,18 @@ function buildClassifyRiskParams(
       "host_file_transfer",
     ].includes(toolName)
   ) {
-    const isHostTool = toolName.startsWith("host_");
-    let filePath: string;
-    if (toolName === "host_file_transfer") {
-      // For host_file_transfer the security-sensitive path is the host-side
-      // path: source_path when reading from the host (to_sandbox), dest_path
-      // when writing to the host (to_host).
-      const direction = getStringField(input, "direction");
-      filePath =
-        direction === "to_sandbox"
-          ? getStringField(input, "source_path")
-          : getStringField(input, "dest_path");
-    } else {
-      filePath = getStringField(input, "path", "file_path");
-    }
+    const resolved = resolveFileToolPaths(toolName, input, workingDir);
     return {
       tool: toolName,
-      path: filePath,
-      workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
+      path: resolved.filePath,
+      resolvedPath: resolved.resolvedPath,
+      resolvedWorkingDir: resolved.resolvedWorkingDir,
+      workingDir: resolved.effectiveWorkingDir,
+      isContainerized: getIsContainerized(),
       fileContext: buildFileContext(),
+      transferSandboxDestPath: resolved.transferSandboxDestPath,
+      transferSandboxWorkingDir: resolved.transferSandboxWorkingDir,
+      resolvedTransferDestPath: resolved.resolvedTransferDestPath,
     };
   }
 
@@ -437,6 +714,37 @@ function riskStringToLevel(risk: string): RiskLevel {
   }
 }
 
+/**
+ * Re-check bash sandbox auto-approve path args against the workspace root
+ * with symlink resolution. The gateway's lexical check cannot follow
+ * symlinks (no filesystem access), so the daemon resolves each path arg
+ * through {@link isPathWithinWorkspaceRoot} (which uses realpathSync) and
+ * revokes auto-approve if any escapes the workspace boundary.
+ *
+ * Called both on fresh gateway results and on cache hits, because symlink
+ * targets can change between invocations — a path that was safe on the
+ * first call may escape on the second if the symlink was retargeted.
+ */
+function applyBashSymlinkEscapeCheck(
+  result: RiskClassificationWithMeta,
+  sandboxPathArgs?: string[],
+): void {
+  if (
+    !result.sandboxAutoApprove ||
+    !sandboxPathArgs ||
+    sandboxPathArgs.length === 0
+  ) {
+    return;
+  }
+  const wsRoot = getWorkspaceDir();
+  const escaped = sandboxPathArgs.some(
+    (p) => !isPathWithinWorkspaceRoot(p, wsRoot),
+  );
+  if (escaped) {
+    result.sandboxAutoApprove = false;
+  }
+}
+
 export async function classifyRisk(
   toolName: string,
   input: Record<string, unknown>,
@@ -448,12 +756,26 @@ export async function classifyRisk(
   signal?.throwIfAborted();
 
   // Check cache first.
-  const cacheKey = riskCacheKey(toolName, input, workingDir, manifestOverride);
+  const cacheKey = riskCacheKey(
+    toolName,
+    input,
+    workingDir,
+    manifestOverride,
+    fileToolFsStateKey(toolName, input, workingDir),
+  );
   const cached = riskCache.get(cacheKey);
   if (cached !== undefined) {
     // LRU refresh
     riskCache.delete(cacheKey);
     riskCache.set(cacheKey, cached);
+    // Re-run the symlink escape check on cache hits: symlink targets can
+    // change between invocations, so a path that was safe when cached may
+    // now escape. Return a shallow copy so the cache entry is not mutated.
+    if (cached.sandboxPathArgs && cached.sandboxPathArgs.length > 0) {
+      const fresh = { ...cached };
+      applyBashSymlinkEscapeCheck(fresh, cached.sandboxPathArgs);
+      return fresh;
+    }
     return cached;
   }
 
@@ -464,7 +786,10 @@ export async function classifyRisk(
     workingDir,
     manifestOverride,
   );
-  const gatewayResult = await ipcClassifyRisk(ipcParams);
+  const gatewayResult = await ipcClassifyRisk(ipcParams, signal);
+  // A mid-retry cancellation should surface as an AbortError, not the
+  // misleading fail-closed "gateway unreachable" message.
+  signal?.throwIfAborted();
 
   if (!gatewayResult) {
     throw new Error(
@@ -478,14 +803,28 @@ export async function classifyRisk(
     commandCandidates: gatewayResult.commandCandidates,
     actionKeys: gatewayResult.actionKeys,
     sandboxAutoApprove: gatewayResult.sandboxAutoApprove,
+    sandboxPathArgs: gatewayResult.sandboxPathArgs,
     allowlistOptions: gatewayResult.allowlistOptions,
     resolvedPaths: gatewayResult.resolvedPaths,
   };
 
+  // ── Symlink escape check for bash sandbox auto-approve ───────────────
+  // The gateway checks bash path args against the workspace root
+  // lexically (path.resolve) — it has no filesystem access to follow
+  // symlinks. A symlink inside the workspace pointing outside (e.g.
+  // `ln -s /etc /workspace/escape`) would pass the lexical check and
+  // be auto-approved. Resolve the gateway-provided path args through
+  // symlinks here and revoke auto-approve if any escapes the workspace.
+  // The check is also re-run on cache hits (see above) because symlink
+  // targets can change between invocations.
+  applyBashSymlinkEscapeCheck(result, gatewayResult.sandboxPathArgs);
+
   // Cache the result.
   if (riskCache.size >= RISK_CACHE_MAX) {
     const oldest = riskCache.keys().next().value;
-    if (oldest !== undefined) riskCache.delete(oldest);
+    if (oldest !== undefined) {
+      riskCache.delete(oldest);
+    }
   }
   riskCache.set(cacheKey, result);
 
@@ -505,11 +844,59 @@ export async function classifyRisk(
   const aKey = assessmentCacheKey(toolName, input);
   if (assessmentCache.size >= RISK_CACHE_MAX) {
     const oldest = assessmentCache.keys().next().value;
-    if (oldest !== undefined) assessmentCache.delete(oldest);
+    if (oldest !== undefined) {
+      assessmentCache.delete(oldest);
+    }
   }
   assessmentCache.set(aKey, assessment);
 
   return result;
+}
+
+// ── Background memory-retrospective skill-authoring auto-grant ────────────────
+// Skill scaffolding (`scaffold_managed_skill`, risk: high + allowlist-gated),
+// finding similar skills (`find_similar_skills`), and loading the
+// `skill-management` skill (`skill_load skill-management`, which exposes the
+// scaffold tool) require an interactive approval. The memory-retrospective
+// background job runs without any connected client, so it can never answer that
+// prompt. The grant resolves these tools to ALLOW non-interactively, and ONLY
+// when all of these hold:
+//   - procedural-memory-as-skills is active (`policyContext.procToSkillsActive`,
+//     precomputed by buildPolicyContext: the v3 tier is active — memory is on
+//     and memory-v3 is live),
+//   - the turn is the retrospective background source — guardian trust, `vellum`
+//     source channel, `memory_retrospective` origin (set in
+//     memory-retrospective-job.ts).
+//
+// The grant is intentionally narrow: it matches exactly these tools AND the
+// retrospective origin on a v3-live assistant, so no interactive session, other
+// origin, or non-v3-live install is affected.
+function isRetrospectiveSkillAuthoringGrant(
+  toolName: string,
+  input: Record<string, unknown>,
+  policyContext?: PolicyContext,
+): boolean {
+  if (
+    policyContext?.procToSkillsActive !== true ||
+    policyContext.requestOrigin !== MEMORY_RETROSPECTIVE_ORIGIN ||
+    policyContext.trustClass !== "guardian" ||
+    policyContext.sourceChannel !== "vellum"
+  ) {
+    return false;
+  }
+  if (toolName === "scaffold_managed_skill") {
+    return true;
+  }
+  if (toolName === "find_similar_skills") {
+    return true;
+  }
+  if (toolName === "skill_load") {
+    return (
+      getStringField(input, "skill", "skill_id").trim() ===
+      SKILL_MANAGEMENT_SKILL_ID
+    );
+  }
+  return false;
 }
 
 export async function check(
@@ -522,6 +909,14 @@ export async function check(
 ): Promise<PermissionCheckResult> {
   signal?.throwIfAborted();
 
+  if (isRetrospectiveSkillAuthoringGrant(toolName, input, policyContext)) {
+    return {
+      decision: "allow",
+      reason:
+        "Memory retrospective background session: skill authoring auto-approved",
+    };
+  }
+
   const classification = await classifyRisk(
     toolName,
     input,
@@ -531,16 +926,35 @@ export async function check(
     signal,
   );
 
-  const { level: risk, reason: riskReason } = classification;
+  const { level: classifiedRisk, reason: riskReason } = classification;
+
+  // Inline-command ("dynamic") skill loads execute embedded shell at load time
+  // via child_process.spawn, outside the tool-approval pipeline that the
+  // auto-approve threshold governs. Treat an uncovered one as High so the
+  // standard threshold decides it like any other high-risk action: it runs at
+  // Full access (autoApproveUpTo "high") and prompts below it. A covering user
+  // trust rule arrives as matchType
+  // "user_rule" with the risk already lowered (the escape hatch), so leave it
+  // untouched. The gateway classifier is authoritative and also returns High;
+  // this local elevation is defense-in-depth for the gateway-unreachable or
+  // under-classified path. The separate non-interactive denial (no human to
+  // approve embedded shell) lives in tools/permission-checker.ts.
+  const risk =
+    isDynamicSkillLoadInvocation(toolName, input) &&
+    getCachedAssessment(toolName, input)?.matchType !== "user_rule"
+      ? RiskLevel.High
+      : classifiedRisk;
 
   // Use gateway-provided sandboxAutoApprove instead of evaluating locally.
   const hasSandboxAutoApprove = classification.sandboxAutoApprove ?? false;
 
   // Build approval context from local variables
-  const tool = getTool(toolName);
+  const tool = await resolveTool(toolName);
+  const cellQuery = buildChannelPermissionCellQuery(policyContext);
   const threshold = await getAutoApproveThreshold(
     policyContext?.conversationId,
     policyContext?.executionContext,
+    cellQuery,
   );
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
@@ -571,6 +985,7 @@ export async function check(
     const freshThreshold = await refreshAutoApproveThreshold(
       policyContext?.conversationId,
       policyContext?.executionContext,
+      cellQuery,
     );
     if (freshThreshold !== null && freshThreshold !== threshold) {
       approvalDecision = defaultApprovalPolicy.evaluate({
@@ -585,7 +1000,7 @@ export async function check(
   // incorporate the classifier reason so the user sees *why* the command
   // was classified at that level (e.g. "High risk (Recursive force delete): requires approval").
   let enrichedReason = approvalDecision.reason;
-  if (riskReason && !approvalDecision.matchedRule) {
+  if (riskReason) {
     const riskLabelMatch = enrichedReason.match(
       /^(High|Medium|Low|high|medium|low) risk(.*)/i,
     );
@@ -600,7 +1015,6 @@ export async function check(
   return {
     decision: approvalDecision.decision,
     reason: enrichedReason,
-    matchedRule: approvalDecision.matchedRule,
     hasSandboxAutoApprove:
       approvalDecision.reason ===
         "Workspace filesystem operation (sandbox auto-approve)" || undefined,
@@ -680,9 +1094,13 @@ function fileAllowlistStrategy(
       description: `Anything in ${dirName}/`,
       pattern: `${toolName}:${dir}/**`,
     });
-    if (dir === home) break;
+    if (dir === home) {
+      break;
+    }
     const parent = dirname(dir);
-    if (parent === dir) break;
+    if (parent === dir) {
+      break;
+    }
     dir = parent;
     levels++;
   }
@@ -731,7 +1149,9 @@ function urlAllowlistStrategy(
 
   const seen = new Set<string>();
   return options.filter((o) => {
-    if (seen.has(o.pattern)) return false;
+    if (seen.has(o.pattern)) {
+      return false;
+    }
     seen.add(o.pattern);
     return true;
   });

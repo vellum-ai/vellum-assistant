@@ -22,6 +22,7 @@ import type { OAuthConnectionRequest } from "../../oauth/connection.js";
 import {
   resolveOAuthConnection,
   type ResolveOAuthConnectionOptions,
+  resolveOAuthConnectionWithMeta,
 } from "../../oauth/connection-resolver.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
@@ -58,13 +59,17 @@ interface PlatformConnectionEntry {
 function getManagedServiceConfigKey(provider: string): string | null {
   const providerRow = getProvider(provider);
   const managedKey = providerRow?.managedServiceConfigKey;
-  if (!managedKey || !(managedKey in ServicesSchema.shape)) return null;
+  if (!managedKey || !(managedKey in ServicesSchema.shape)) {
+    return null;
+  }
   return managedKey;
 }
 
 function isManagedMode(provider: string): boolean {
   const managedKey = getManagedServiceConfigKey(provider);
-  if (!managedKey) return false;
+  if (!managedKey) {
+    return false;
+  }
   try {
     const services: Services = getConfig().services;
     return getServiceMode(services, managedKey as keyof Services) === "managed";
@@ -122,7 +127,9 @@ async function fetchActiveConnections(
 async function countManagedConnections(provider: string): Promise<number> {
   try {
     const client = await VellumPlatformClient.create();
-    if (!client || !client.platformAssistantId) return 0;
+    if (!client || !client.platformAssistantId) {
+      return 0;
+    }
     const entries = await fetchActiveConnections(client, provider);
     return entries.length;
   } catch {
@@ -131,7 +138,9 @@ async function countManagedConnections(provider: string): Promise<number> {
 }
 
 function parseUrl(value: string | null | undefined): URL | undefined {
-  if (!value) return undefined;
+  if (!value) {
+    return undefined;
+  }
   try {
     return new URL(value);
   } catch {
@@ -157,7 +166,9 @@ function getAllowedRequestHostPatterns(
             const hostPattern = (
               entry as { hostPattern: string }
             ).hostPattern.trim();
-            if (hostPattern) patterns.push(hostPattern);
+            if (hostPattern) {
+              patterns.push(hostPattern);
+            }
           }
         }
       }
@@ -168,7 +179,9 @@ function getAllowedRequestHostPatterns(
 
   if (patterns.length === 0) {
     const baseUrl = parseUrl(providerRow.baseUrl);
-    if (baseUrl) patterns.push(baseUrl.hostname);
+    if (baseUrl) {
+      patterns.push(baseUrl.hostname);
+    }
   }
 
   return [...new Set(patterns)];
@@ -217,7 +230,9 @@ async function handleDisconnect({ body = {} }: RouteHandlerArgs) {
     connection_id?: string;
   };
 
-  if (!b.provider) throw new BadRequestError("provider is required");
+  if (!b.provider) {
+    throw new BadRequestError("provider is required");
+  }
 
   const providerRow = getProvider(b.provider);
   if (!providerRow) {
@@ -293,7 +308,9 @@ async function handleDisconnect({ body = {} }: RouteHandlerArgs) {
       provider: b.provider,
       connectionId,
     };
-    if (accountLabel) result.account = accountLabel;
+    if (accountLabel) {
+      result.account = accountLabel;
+    }
     return result;
   }
 
@@ -352,7 +369,9 @@ async function handleDisconnect({ body = {} }: RouteHandlerArgs) {
     provider: b.provider,
     connectionId,
   };
-  if (accountLabel) result.account = accountLabel;
+  if (accountLabel) {
+    result.account = accountLabel;
+  }
   return result;
 }
 
@@ -362,7 +381,9 @@ async function handleDisconnect({ body = {} }: RouteHandlerArgs) {
 
 function handleModeGet({ queryParams = {} }: RouteHandlerArgs) {
   const provider = queryParams.provider;
-  if (!provider) throw new BadRequestError("provider query param is required");
+  if (!provider) {
+    throw new BadRequestError("provider query param is required");
+  }
 
   const providerRow = getProvider(provider);
   if (!providerRow) {
@@ -394,8 +415,12 @@ function handleModeGet({ queryParams = {} }: RouteHandlerArgs) {
 
 async function handleModeSet({ body = {} }: RouteHandlerArgs) {
   const b = body as { provider: string; mode: string };
-  if (!b.provider) throw new BadRequestError("provider is required");
-  if (!b.mode) throw new BadRequestError("mode is required");
+  if (!b.provider) {
+    throw new BadRequestError("provider is required");
+  }
+  if (!b.mode) {
+    throw new BadRequestError("mode is required");
+  }
 
   const providerRow = getProvider(b.provider);
   if (!providerRow) {
@@ -477,7 +502,9 @@ async function handleModeSet({ body = {} }: RouteHandlerArgs) {
     changed: true,
     managedModeSupported: true,
   };
-  if (hint) result.hint = hint;
+  if (hint) {
+    result.hint = hint;
+  }
   return result;
 }
 
@@ -487,7 +514,9 @@ async function handleModeSet({ body = {} }: RouteHandlerArgs) {
 
 async function handleStatus({ queryParams = {} }: RouteHandlerArgs) {
   const provider = queryParams.provider;
-  if (!provider) throw new BadRequestError("provider query param is required");
+  if (!provider) {
+    throw new BadRequestError("provider query param is required");
+  }
 
   const providerRow = getProvider(provider);
   if (!providerRow) {
@@ -562,7 +591,9 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
     client_id?: string;
   };
 
-  if (!b.provider) throw new BadRequestError("provider is required");
+  if (!b.provider) {
+    throw new BadRequestError("provider is required");
+  }
 
   const providerRow = getProvider(b.provider);
   if (!providerRow) {
@@ -588,8 +619,12 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
   }
 
   const resolveOptions: ResolveOAuthConnectionOptions = {};
-  if (b.account) resolveOptions.account = b.account;
-  if (b.client_id) resolveOptions.clientId = b.client_id;
+  if (b.account) {
+    resolveOptions.account = b.account;
+  }
+  if (b.client_id) {
+    resolveOptions.clientId = b.client_id;
+  }
 
   const connection = await resolveOAuthConnection(b.provider, resolveOptions);
 
@@ -643,7 +678,9 @@ async function handleToken({ body = {} }: RouteHandlerArgs) {
     client_id?: string;
   };
 
-  if (!b.provider) throw new BadRequestError("provider is required");
+  if (!b.provider) {
+    throw new BadRequestError("provider is required");
+  }
 
   if (isManagedMode(b.provider)) {
     throw new BadRequestError(
@@ -694,8 +731,13 @@ function tryJsonParse(raw: string): unknown {
 
 function readBodyData(data: string): unknown {
   if (data === "@-") {
-    const raw = readFileSync("/dev/stdin", "utf-8");
-    return tryJsonParse(raw);
+    // This handler runs inside the daemon, whose stdin is a supervisor pipe
+    // or /dev/null — never the caller's terminal. Stdin-based body input is
+    // resolved CLI-side and arrives pre-parsed via `parsed_data`.
+    throw new BadRequestError(
+      'Stdin body input ("@-") is not supported on this endpoint. ' +
+        "Pass the body inline, reference a file with @<path>, or use the assistant CLI.",
+    );
   }
 
   if (data.startsWith("@")) {
@@ -723,8 +765,12 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
     client_id?: string;
   };
 
-  if (!b.provider) throw new BadRequestError("provider is required");
-  if (!b.url) throw new BadRequestError("url is required");
+  if (!b.provider) {
+    throw new BadRequestError("provider is required");
+  }
+  if (!b.url) {
+    throw new BadRequestError("url is required");
+  }
 
   const providerRow = getProvider(b.provider);
   if (!providerRow) {
@@ -863,7 +909,8 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
     resolveOptions.account = b.account;
   }
 
-  const connection = await resolveOAuthConnection(b.provider, resolveOptions);
+  const { connection, ambiguous, allAccounts } =
+    await resolveOAuthConnectionWithMeta(b.provider, resolveOptions);
 
   const headers = b.headers ?? {};
 
@@ -883,7 +930,20 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
     status: response.status,
     headers: response.headers,
     body: response.body,
+    // Which connected account actually served the request, so the caller can
+    // tell whether the intended account was used.
+    account: connection.accountInfo,
   };
+
+  // Surface a caller-visible warning when the provider had several active
+  // connections and no account was pinned — the model must see that a
+  // silent pick happened, not just the daemon log.
+  if (ambiguous && allAccounts.length > 1) {
+    const selected = allAccounts[0];
+    result.accountWarning =
+      `Multiple ${b.provider} accounts are connected (${allAccounts.join(", ")}); ` +
+      `used "${selected}". Pass --account to select a specific one.`;
+  }
 
   if (response.status === 401 || response.status === 403) {
     result.hint = managed
@@ -893,9 +953,33 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
       : `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
         `Run 'assistant oauth status ${b.provider}' to check connection status.\n` +
         `To reconnect, run 'assistant oauth connect --help'.`;
+  } else if (response.status === 404 && isHtmlResponse(response.headers)) {
+    // An HTML 404 (rather than a JSON API error) is the signature of a request
+    // reaching a valid host but a path that host does not serve — e.g. a
+    // relative path resolved against a base URL that points at the wrong
+    // product. Surface the resolved base so the caller can tell where the path
+    // landed, and steer them to an absolute URL for non-default services.
+    const resolvedBaseUrl =
+      baseUrl ?? providerRow.baseUrl ?? "(none configured)";
+    result.hint =
+      `Request returned HTTP ${response.status} with an HTML body, which usually means ` +
+      `the path does not exist on the base URL it resolved against.\n\n` +
+      `This request used base URL "${resolvedBaseUrl}" (relative paths are joined onto it). ` +
+      `If you meant a different service on this provider, pass an absolute URL ` +
+      `(e.g. https://host/full/path) so the host and full path are set explicitly.`;
   }
 
   return result;
+}
+
+/** True when the response's Content-Type header indicates an HTML body. */
+function isHtmlResponse(headers: Record<string, string>): boolean {
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === "content-type") {
+      return value.toLowerCase().includes("text/html");
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -909,7 +993,9 @@ async function handleManagedConnect({ body = {} }: RouteHandlerArgs) {
     redirect_after_connect?: string;
   };
 
-  if (!b.provider) throw new BadRequestError("provider is required");
+  if (!b.provider) {
+    throw new BadRequestError("provider is required");
+  }
 
   const client = await requirePlatformClient();
 
@@ -954,7 +1040,9 @@ async function handleManagedConnectPoll({
   queryParams = {},
 }: RouteHandlerArgs) {
   const provider = queryParams.provider;
-  if (!provider) throw new BadRequestError("provider query param is required");
+  if (!provider) {
+    throw new BadRequestError("provider query param is required");
+  }
 
   const client = await requirePlatformClient();
   const entries = await fetchActiveConnections(client, provider);

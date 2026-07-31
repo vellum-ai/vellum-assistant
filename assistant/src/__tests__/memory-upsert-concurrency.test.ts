@@ -20,14 +20,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../memory/qdrant-client.js", () => ({
+mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => ({
     searchWithFilter: async () => [],
     hybridSearch: async () => [],
@@ -38,42 +31,37 @@ mock.module("../memory/qdrant-client.js", () => ({
   resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
-import { DEFAULT_CONFIG } from "../config/defaults.js";
+import { getConfig } from "../config/loader.js";
+import {
+  getDb,
+  getMemoryDb,
+  getMemorySqlite,
+} from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  conversations,
+  memorySegments,
+  messages,
+} from "../persistence/schema/index.js";
+import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
+import { setConfig } from "./helpers/set-config.js";
 
-const TEST_CONFIG = {
-  ...DEFAULT_CONFIG,
-  memory: {
-    ...DEFAULT_CONFIG.memory,
-    enabled: true,
-    extraction: {
-      ...DEFAULT_CONFIG.memory.extraction,
-      useLLM: false,
-    },
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => TEST_CONFIG,
-  getConfig: () => TEST_CONFIG,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
-
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { indexMessageNow } from "../memory/indexer.js";
-import { conversations, memorySegments, messages } from "../memory/schema.js";
+// Deterministic extraction: keep the LLM out of the indexer path. Everything
+// else (including `memory.enabled: true`) is the schema default.
+setConfig("memory", { extraction: { useLLM: false } });
 
 // Initialize DB once for the entire file. Each test cleans its own tables.
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();
-  db.run("DELETE FROM memory_embeddings");
-  db.run("DELETE FROM memory_graph_nodes");
-  db.run("DELETE FROM memory_segments");
-  db.run("DELETE FROM memory_jobs");
+  // memory_embeddings and memory_segments live on the memory connection,
+  // alongside memory_graph_nodes and memory_jobs.
+  const memory = getMemorySqlite()!;
+  memory.run("DELETE FROM memory_embeddings");
+  memory.run("DELETE FROM memory_graph_nodes");
+  memory.run("DELETE FROM memory_segments");
+  memory.run("DELETE FROM memory_jobs");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }
@@ -132,8 +120,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
 
     seedConversationAndMessage(conversationId, messageId, text);
 
-    const db = getDb();
-    const config = TEST_CONFIG.memory;
+    const config = getConfig().memory;
 
     // Call indexMessageNow N times for the same messageId.  Even though we use
     // Promise.all, these synchronous calls still run sequentially — the point is
@@ -157,7 +144,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       ),
     );
 
-    const segments = db
+    const segments = getMemoryDb()!
       .select()
       .from(memorySegments)
       .where(eq(memorySegments.messageId, messageId))
@@ -215,7 +202,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
         .run();
     }
 
-    const config = TEST_CONFIG.memory;
+    const config = getConfig().memory;
 
     // Call indexMessageNow once per distinct messageId.  The calls run
     // sequentially (synchronous functions), but grouping them here mirrors
@@ -248,7 +235,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
     // for the wrong messageId.
     for (let i = 0; i < MSG_COUNT; i++) {
       const msgId = `msg-distinct-${i}`;
-      const segs = db
+      const segs = getMemoryDb()!
         .select()
         .from(memorySegments)
         .where(eq(memorySegments.messageId, msgId))
@@ -277,7 +264,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
 
     seedConversationAndMessage(conversationId, messageId, text);
 
-    const config = TEST_CONFIG.memory;
+    const config = getConfig().memory;
 
     const firstResult = await indexMessageNow(
       {
@@ -290,8 +277,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       config,
     );
 
-    const db = getDb();
-    const segmentsAfterFirst = db
+    const segmentsAfterFirst = getMemoryDb()!
       .select()
       .from(memorySegments)
       .where(eq(memorySegments.messageId, messageId))
@@ -319,7 +305,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       config,
     );
 
-    const segmentsAfterRehash = db
+    const segmentsAfterRehash = getMemoryDb()!
       .select()
       .from(memorySegments)
       .where(eq(memorySegments.messageId, messageId))
@@ -355,7 +341,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
 
     seedConversationAndMessage(conversationId, messageId, textV1);
 
-    const config = TEST_CONFIG.memory;
+    const config = getConfig().memory;
 
     // Call indexMessageNow twice with different content for the same messageId,
     // running sequentially.  The ON CONFLICT DO UPDATE must absorb both calls
@@ -387,8 +373,7 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
       ),
     ]);
 
-    const db = getDb();
-    const segments = db
+    const segments = getMemoryDb()!
       .select()
       .from(memorySegments)
       .where(eq(memorySegments.messageId, messageId))
@@ -452,7 +437,7 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
         .run();
     }
 
-    const config = TEST_CONFIG.memory;
+    const config = getConfig().memory;
 
     // Repeat indexMessageNow REPEATS times for each of MSG_COUNT messages.  All
     // calls run sequentially; the test verifies that repeated indexing of the
@@ -486,7 +471,7 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
     // duplicates regardless of how many indexer calls ran.
     for (let i = 0; i < MSG_COUNT; i++) {
       const msgId = `msg-atomicity-${i}`;
-      const segs = db
+      const segs = getMemoryDb()!
         .select()
         .from(memorySegments)
         .where(eq(memorySegments.messageId, msgId))
@@ -510,7 +495,7 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
 
     seedConversationAndMessage(conversationId, messageId, text);
 
-    const config = TEST_CONFIG.memory;
+    const config = getConfig().memory;
 
     // Index the same message RUNS times sequentially.  The test verifies that
     // the returned indexedSegments count is stable across all runs and matches
@@ -533,8 +518,7 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
       ),
     );
 
-    const db = getDb();
-    const storedSegments = db
+    const storedSegments = getMemoryDb()!
       .select()
       .from(memorySegments)
       .where(eq(memorySegments.messageId, messageId))
@@ -550,4 +534,3 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
     expect(storedSegments.length).toBe(firstCount);
   });
 });
-

@@ -1,30 +1,65 @@
 /**
  * Cloud authentication for the Vellum Chrome extension.
  *
- * Handles WorkOS-based sign-in via `chrome.identity.launchWebAuthFlow`.
- * The flow opens a browser tab to the Vellum Chrome extension login
- * endpoint; after the user authenticates, the platform redirects back
- * to a `chromiumapp.org` callback URL that Chrome intercepts, returning
- * the final URL (with token fragment) to the extension.
+ * Handles WorkOS sign-in via app-held PKCE, mirroring the macOS app. The
+ * extension drives WorkOS User Management directly:
  *
- * The existing Django endpoint at `/accounts/chrome-extension/start`
- * handles the full flow: login → assistant ownership check → guardian
- * token mint → redirect with token. However, it requires an
- * `assistant_id` upfront, so the login flow is two-phase:
+ *   1. Discover the public WorkOS client id from the platform's headless
+ *      allauth config (`/_allauth/app/v1/config`).
+ *   2. Generate an S256 PKCE pair with Web Crypto.
+ *   3. Authorize via `chrome.identity.launchWebAuthFlow`, which terminates on
+ *      a `chromiumapp.org` redirect URL that Chrome intercepts and returns to
+ *      the extension.
+ *   4. Exchange the authorization code at WorkOS as a public client.
+ *   5. Swap the WorkOS access token for a platform session token via allauth's
+ *      headless provider-token endpoint (`meta.session_token`, the Django
+ *      session key).
  *
- *   1. Fetch assistants via the headless allauth session API
- *   2. User picks an assistant in the popup
- *   3. `launchWebAuthFlow` with the selected assistant_id
+ * The resulting session token is stored in `chrome.storage.local` and sent as
+ * `X-Session-Token` on platform API calls (SameSite=Lax prevents session
+ * cookies from being sent cross-site from the extension service worker).
  *
- * For now, we use a simpler approach: `launchWebAuthFlow` opens the
- * platform login page. After auth completes, the extension's session
- * cookie grants access to the assistants API. The popup then shows the
- * assistant picker.
+ * The legacy `/accounts/chrome-extension/start` Django endpoint is no longer
+ * used by this client; it remains alive server-side for older extension
+ * versions.
  */
 
 import { fetchOrganizationId } from './cloud-api.js';
 import type { ExtensionEnvironment } from './extension-environment.js';
 import { cloudUrlsForEnvironment } from './extension-environment.js';
+import {
+  buildAuthorizeUrl,
+  exchangeAccessTokenForSession,
+  exchangeCodeWithWorkos,
+  fetchWorkosClientId,
+  generatePkcePair,
+  generateState,
+  parseRedirectUrl,
+} from './workos-pkce.js';
+
+/**
+ * Path component of the `chromiumapp.org` redirect URI.
+ *
+ * Resolves to `https://<extension-id>.chromiumapp.org/cloud-auth`. This exact
+ * URL MUST be registered as a redirect on the WorkOS User Management app per
+ * environment — see this package's README "WorkOS redirect URIs" section.
+ */
+const REDIRECT_PATH = 'cloud-auth';
+
+/**
+ * Thrown when the user dismisses the auth window. `launchWebAuthFlow`'s
+ * promise rejects (rather than resolving undefined) on cancel; callers
+ * should treat this as a no-op rather than a login failure.
+ */
+export class CloudLoginCancelledError extends Error {
+  constructor() {
+    super('Login cancelled.');
+    this.name = 'CloudLoginCancelledError';
+  }
+}
+
+/** launchWebAuthFlow rejection messages that mean "user dismissed the window". */
+const CANCEL_PATTERN = /did not approve|cancell?ed|closed the window/i;
 
 // ── Storage keys ────────────────────────────────────────────────────
 
@@ -40,10 +75,11 @@ export interface CloudSession {
   /** The user's active organization ID (first org from the API). */
   organizationId: string | null;
   /**
-   * Allauth session token (= Django session key) returned by the OAuth
-   * callback in the URL fragment.  Sent as X-Session-Token on platform API
-   * calls because SameSite=Lax prevents session cookies from being sent
-   * cross-site from the extension service worker.
+   * Allauth session token (= Django session key) obtained by exchanging the
+   * WorkOS access token at the headless provider-token endpoint.  Sent as
+   * X-Session-Token on platform API calls because SameSite=Lax prevents
+   * session cookies from being sent cross-site from the extension service
+   * worker.
    */
   sessionToken?: string;
   /** Timestamp when the session was created. */
@@ -116,77 +152,86 @@ export async function clearSelectedAssistant(): Promise<void> {
 // ── Login flow ──────────────────────────────────────────────────────
 
 /**
- * Initiate WorkOS login via `chrome.identity.launchWebAuthFlow`.
+ * Initiate WorkOS sign-in via app-held PKCE.
  *
- * Uses the existing `/accounts/chrome-extension/start` Django endpoint
- * which handles: login_required → WorkOS OAuth → session → redirect
- * back to the chromiumapp.org callback URL with auth result.
+ * Discovers the public WorkOS client id, runs the PKCE authorize flow through
+ * `chrome.identity.launchWebAuthFlow`, exchanges the code at WorkOS as a public
+ * client, then swaps the access token for a platform session token. The session
+ * token is stored and used as `X-Session-Token` on platform API calls.
  *
- * We pass `redirect_uri` and `client_id` as required by the endpoint.
- * Since we don't have an `assistant_id` yet (user hasn't picked one),
- * we omit it — the endpoint will return an error fragment, but the
- * important thing is the user's Django session is now authenticated.
- * We catch the error and proceed to fetch assistants.
+ * Mirrors the macOS app's `workos-pkce` flow; the redirect transport is a
+ * `chromiumapp.org` URL Chrome intercepts rather than a loopback listener.
  */
 export async function startCloudLogin(
   environment: ExtensionEnvironment,
 ): Promise<CloudSession> {
   const { apiBaseUrl } = cloudUrlsForEnvironment(environment);
 
-  // The redirect URI that Chrome intercepts after the flow completes.
-  const redirectUri = chrome.identity.getRedirectURL('cloud-auth');
+  // The redirect URI Chrome intercepts when WorkOS redirects back. This exact
+  // URL must be registered on the WorkOS UM app for `environment` — see README.
+  const redirectUri = chrome.identity.getRedirectURL(REDIRECT_PATH);
 
-  // Build the login URL using the Django chrome-extension start endpoint.
-  // The endpoint lives on the API host (Django), not the web frontend.
-  // Flow: Django @login_required → WorkOS OAuth → redirect back → validate
-  //       → redirect to chromiumapp.org callback URL.
-  const loginUrl = new URL('/accounts/chrome-extension/start', apiBaseUrl);
-  loginUrl.searchParams.set('redirect_uri', redirectUri);
-  loginUrl.searchParams.set('client_id', 'vellum-chrome-extension');
+  // 1. Discover the public WorkOS client id from the platform's headless config.
+  const clientId = await fetchWorkosClientId(apiBaseUrl);
+
+  // 2. Generate the PKCE pair and CSRF state.
+  const { verifier, challenge } = await generatePkcePair();
+  const state = generateState();
+
+  // 3. Authorize via WorkOS in the browser; Chrome returns the redirect URL.
+  const authorizeUrl = buildAuthorizeUrl({
+    clientId,
+    redirectUri,
+    challenge,
+    state,
+  });
 
   let resultUrl: string | undefined;
   try {
     resultUrl = await chrome.identity.launchWebAuthFlow({
-      url: loginUrl.toString(),
+      url: authorizeUrl,
       interactive: true,
     });
   } catch (err) {
-    throw new Error(
-      `Login failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    // The promise form rejects on cancel/error (it never resolves
+    // undefined — that's the callback form). Surface a user-initiated
+    // cancel distinctly so the caller treats it as a no-op.
+    const message = err instanceof Error ? err.message : String(err);
+    if (CANCEL_PATTERN.test(message)) {
+      throw new CloudLoginCancelledError();
+    }
+    throw new Error(`Login failed: ${message}`);
   }
 
+  // The promise form resolves a string on success; the typed signature
+  // still permits undefined, so narrow it (and treat that as a cancel).
   if (!resultUrl) {
-    throw new Error('Login was cancelled.');
+    throw new CloudLoginCancelledError();
   }
 
-  // The result URL may contain an error fragment (e.g. missing_assistant_id)
-  // because we didn't pass assistant_id. That's fine — the user's session
-  // is now authenticated. Parse the session token and email from the fragment.
-  const fragment = new URL(resultUrl).hash.slice(1);
-  const fragmentParams = new URLSearchParams(fragment);
+  // 4. Parse + verify the authorization code (state CSRF check inside).
+  const { code } = parseRedirectUrl(resultUrl, state);
 
-  // Check for auth-level errors (not missing_assistant_id, which is expected)
-  const error = fragmentParams.get('error');
-  if (error && error !== 'missing_assistant_id') {
-    const desc = fragmentParams.get('error_description') ?? error;
-    throw new Error(`Login failed: ${desc}`);
-  }
+  // 5. Exchange the code at WorkOS as a public client → access token.
+  const accessToken = await exchangeCodeWithWorkos({ clientId, code, verifier });
 
-  // The OAuth callback returns the allauth session token and user email in
-  // the fragment.  The token is required because SameSite=Lax session cookies
-  // are not sent cross-site from the extension service worker.
-  const sessionToken = fragmentParams.get('session_token') ?? undefined;
-  let email = fragmentParams.get('email') ?? 'signed in';
+  // 6. Swap the WorkOS access token for a platform session token.
+  const { sessionToken, email: exchangedEmail } =
+    await exchangeAccessTokenForSession(apiBaseUrl, clientId, accessToken);
 
-  // Fall back to the allauth session API if the fragment didn't include an
-  // email (e.g. against older platform deployments).
+  let email = exchangedEmail ?? 'signed in';
+
+  // Fall back to the allauth session API if the token exchange didn't include
+  // an email (e.g. against older platform deployments).
   if (email === 'signed in') {
     try {
-      const sessionResponse = await fetch(`${apiBaseUrl}/_allauth/browser/v1/auth/session`, {
-        credentials: 'include',
-        headers: { Accept: 'application/json' },
-      });
+      const sessionResponse = await fetch(
+        `${apiBaseUrl}/_allauth/browser/v1/auth/session`,
+        {
+          credentials: 'include',
+          headers: { Accept: 'application/json' },
+        },
+      );
       if (sessionResponse.ok) {
         const sessionData = (await sessionResponse.json()) as {
           data?: { user?: { email?: string } };

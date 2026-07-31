@@ -50,7 +50,9 @@ function snapshotTree(
 ): Record<string, { mtimeMs: number; content: string }> {
   const out: Record<string, { mtimeMs: number; content: string }> = {};
   function walk(dir: string): void {
-    if (!existsSync(dir)) return;
+    if (!existsSync(dir)) {
+      return;
+    }
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const abs = join(dir, entry.name);
       if (entry.isDirectory()) {

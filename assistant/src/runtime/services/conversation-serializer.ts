@@ -2,32 +2,27 @@
  * Standalone helpers for serializing conversation summaries and detail
  * responses.
  *
- * Extracted from RuntimeHttpServer so that route handlers (e.g.
- * conversation-analysis-routes) can build detail responses without
- * depending on the server class.
+ * Extracted from RuntimeHttpServer so that route handlers can build
+ * detail responses without depending on the server class.
  */
 
 import { parseChannelId } from "../../channels/types.js";
-import { getConfig } from "../../config/loader.js";
-import { findConversation } from "../../daemon/conversation-registry.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
+import { buildChannelBindingMetadata } from "../../messaging/channel-binding-metadata.js";
 import {
   type AttentionState,
   type Confidence,
   getAttentionStateByConversationIds,
   type SignalType,
-} from "../../memory/conversation-attention-store.js";
+} from "../../persistence/conversation-attention-store.js";
 import {
   type ConversationRow,
   getConversation,
   getDisplayMetaForConversations,
-} from "../../memory/conversation-crud.js";
-import type { ExternalConversationBinding } from "../../memory/external-conversation-store.js";
-import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
-import {
-  buildSlackMessageDeepLinks,
-  buildSlackWebChannelUrl,
-} from "../../messaging/providers/slack/deep-link.js";
+  isConversationProcessing,
+} from "../../persistence/conversation-crud.js";
+import type { ExternalConversationBinding } from "../../persistence/external-conversation-store.js";
+import { getBindingsForConversations } from "../../persistence/external-conversation-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,7 +37,9 @@ function buildAssistantAttention(attentionState: AttentionState | undefined):
       lastSeenSignalType?: SignalType;
     }
   | undefined {
-  if (!attentionState) return undefined;
+  if (!attentionState) {
+    return undefined;
+  }
 
   return {
     hasUnseenLatestAssistantMessage:
@@ -75,7 +72,9 @@ function buildForkParent(
 ): { conversationId: string; messageId: string; title: string } | undefined {
   const parentConversationId = conversation.forkParentConversationId;
   const parentMessageId = conversation.forkParentMessageId;
-  if (!parentConversationId || !parentMessageId) return undefined;
+  if (!parentConversationId || !parentMessageId) {
+    return undefined;
+  }
 
   let parentConversation: ConversationRow | null | undefined =
     parentCache.get(parentConversationId);
@@ -114,7 +113,9 @@ function resolveSerializedGroupId(
   conversation: ConversationRow,
   persistedGroupId: string | null,
 ): string | null {
-  if (conversation.surfacedAt == null) return persistedGroupId;
+  if (conversation.surfacedAt == null) {
+    return persistedGroupId;
+  }
   if (
     persistedGroupId == null ||
     persistedGroupId === "system:background" ||
@@ -126,48 +127,7 @@ function resolveSerializedGroupId(
 }
 
 function buildChannelBinding(binding: ExternalConversationBinding) {
-  const externalChatName =
-    binding.externalChatName?.trim() ||
-    (binding.sourceChannel === "slack" ? binding.externalChatId : undefined);
-  const slackConfig =
-    binding.sourceChannel === "slack" ? getConfig().slack : undefined;
-  const slackThreadLink =
-    slackConfig && binding.externalThreadId
-      ? buildSlackMessageDeepLinks({
-          teamId: slackConfig.teamId,
-          teamUrl: slackConfig.teamUrl,
-          channelId: binding.externalChatId,
-          messageTs: binding.externalThreadId,
-        })
-      : undefined;
-  const slackThread =
-    binding.sourceChannel === "slack" && binding.externalThreadId
-      ? {
-          channelId: binding.externalChatId,
-          threadTs: binding.externalThreadId,
-          ...(slackThreadLink ? { link: slackThreadLink } : {}),
-        }
-      : undefined;
-  const slackChannelWebUrl = slackConfig
-    ? buildSlackWebChannelUrl({
-        teamUrl: slackConfig.teamUrl,
-        channelId: binding.externalChatId,
-      })
-    : undefined;
-  const slackChannel =
-    binding.sourceChannel === "slack"
-      ? {
-          channelId: binding.externalChatId,
-          name: externalChatName,
-          ...(slackChannelWebUrl
-            ? {
-                link: {
-                  webUrl: slackChannelWebUrl,
-                },
-              }
-            : {}),
-        }
-      : undefined;
+  const externalChatName = binding.externalChatName?.trim() || undefined;
 
   return {
     sourceChannel: binding.sourceChannel,
@@ -179,8 +139,10 @@ function buildChannelBinding(binding: ExternalConversationBinding) {
     externalUserId: binding.externalUserId,
     displayName: binding.displayName,
     username: binding.username,
-    ...(slackThread ? { slackThread } : {}),
-    ...(slackChannel ? { slackChannel } : {}),
+    // Channel-specific enrichment (e.g. Slack deep links) is contributed by
+    // the source channel's binding-metadata builder, keeping this serializer
+    // channel-agnostic.
+    ...buildChannelBindingMetadata(binding),
   };
 }
 
@@ -196,9 +158,9 @@ export function serializeConversationSummary(params: {
   parentCache: Map<string, ConversationRow | null>;
   /**
    * Whether the agent loop is currently mid-turn for this conversation.
-   * Sourced from the in-memory daemon `Conversation.isProcessing()` flag
-   * — callers resolve via `findConversation(id)?.isProcessing() ?? false`
-   * so cold (evicted / never-loaded) rows report `false`. Plumbed in
+   * Resolved by `isConversationProcessing(id)`, which checks the in-memory
+   * daemon flag first and falls back to the persisted
+   * `processing_started_at` column for cold conversations. Plumbed in
    * rather than read here so the serializer stays a pure shape mapper
    * with no daemon-store coupling.
    */
@@ -258,6 +220,11 @@ export function serializeConversationSummary(params: {
     ...(conversation.inferenceProfile != null
       ? { inferenceProfile: conversation.inferenceProfile }
       : {}),
+    // Include when non-null so an explicit `[]` (user cleared all plugins) is
+    // preserved; `null`/default is omitted.
+    ...(conversation.enabledPlugins != null
+      ? { enabledPlugins: conversation.enabledPlugins }
+      : {}),
     isProcessing,
   };
 }
@@ -286,11 +253,9 @@ export function buildConversationDetailResponse(
       attentionState: attentionStates.get(conversation.id),
       displayMeta: displayMeta.get(conversation.id),
       parentCache,
-      // Cold (evicted / never-loaded) rows aren't in the in-memory
-      // store, so `findConversation` returns `undefined` and they
-      // report `isProcessing: false` — by definition they aren't
-      // mid-turn since the agent loop only runs on resident convs.
-      isProcessing: findConversation(conversation.id)?.isProcessing() ?? false,
+      // Checks in-memory flag first (hot path), falls back to the
+      // persisted `processing_started_at` column for cold conversations.
+      isProcessing: isConversationProcessing(conversation.id),
     }),
   };
 }

@@ -4,7 +4,7 @@ import {
   getMediaAssetsByStatus,
   getProcessingStagesForAsset,
   type MediaAssetStatus,
-} from "../../../../memory/media-store.js";
+} from "../../../../persistence/media-store.js";
 import type {
   ToolContext,
   ToolExecutionResult,

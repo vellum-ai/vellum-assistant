@@ -4,21 +4,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
 
-let mockPublicBaseUrl = "";
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({
-    ingress: { publicBaseUrl: mockPublicBaseUrl },
-  }),
-  getConfig: () => ({
-    ui: {},
-
-    ingress: { publicBaseUrl: mockPublicBaseUrl },
-  }),
-  loadRawConfig: () => ({}),
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
@@ -59,10 +44,12 @@ mock.module("../security/oauth-callback-registry.js", () => ({
 
 let mockOAuthCallbackUrl = "";
 
+// The flow passes the real loaded config (seeded via setConfig below) into
+// getPublicBaseUrl.
 mock.module("../inbound/public-ingress-urls.js", () => ({
   getOAuthCallbackUrl: () => mockOAuthCallbackUrl,
   getPublicBaseUrl: (config?: { ingress?: { publicBaseUrl?: string } }) => {
-    const url = config?.ingress?.publicBaseUrl ?? mockPublicBaseUrl;
+    const url = config?.ingress?.publicBaseUrl ?? "";
     if (!url) {
       throw new Error("No public base URL configured.");
     }
@@ -148,6 +135,12 @@ import {
   refreshOAuth2Token,
   startOAuth2Flow,
 } from "../security/oauth2.js";
+import { setConfig } from "./helpers/set-config.js";
+
+/** Seed `ingress.publicBaseUrl` in the real workspace config. */
+function setPublicBaseUrl(url: string): void {
+  setConfig("ingress", { publicBaseUrl: url });
+}
 
 const BASE_OAUTH_CONFIG: OAuth2Config = {
   authorizeUrl: "https://provider.example.com/authorize",
@@ -158,7 +151,7 @@ const BASE_OAUTH_CONFIG: OAuth2Config = {
 };
 
 beforeEach(() => {
-  mockPublicBaseUrl = "";
+  setPublicBaseUrl("");
   mockOAuthCallbackUrl = "https://gw.example.com/webhooks/oauth/callback";
   pendingCallbacks.clear();
   lastTokenRequestBody = null;
@@ -184,17 +177,22 @@ beforeEach(() => {
 describe("OAuth2 gateway transport", () => {
   describe("auto-detection", () => {
     test("selects gateway transport when ingress.publicBaseUrl is configured", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
-      let capturedAuthUrl = "";
+      let resolveOpenUrl!: (url: string) => void;
+      const openUrlPromise = new Promise<string>((resolve) => {
+        resolveOpenUrl = resolve;
+      });
       const flowPromise = startOAuth2Flow(BASE_OAUTH_CONFIG, {
         openUrl: (url) => {
-          capturedAuthUrl = url;
+          resolveOpenUrl(url);
         },
       });
 
-      // Give the flow a tick to register the callback and open the browser
-      await new Promise((r) => setTimeout(r, 10));
+      // Wait for the flow to register the callback and open the browser.
+      // Awaiting the openUrl callback instead of a fixed timer avoids racing
+      // the real config loader's cold start on the file's first test.
+      const capturedAuthUrl = await openUrlPromise;
 
       // The auth URL should contain the gateway redirect_uri, not a loopback one
       expect(capturedAuthUrl).toContain("redirect_uri=");
@@ -215,7 +213,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("falls back to loopback transport when ingress.publicBaseUrl is not configured", async () => {
-      mockPublicBaseUrl = "";
+      setPublicBaseUrl("");
 
       let resolveOpenUrl!: (url: string) => void;
       const openUrlPromise = new Promise<string>((resolve) => {
@@ -252,7 +250,7 @@ describe("OAuth2 gateway transport", () => {
 
   describe("explicit transport", () => {
     test("uses gateway transport when explicitly specified", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       let capturedAuthUrl = "";
       const flowPromise = startOAuth2Flow(
@@ -280,7 +278,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("uses loopback transport when explicitly specified", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       let resolveOpenUrl!: (url: string) => void;
       const openUrlPromise = new Promise<string>((resolve) => {
@@ -315,7 +313,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("throws when gateway transport is explicitly requested without public URL", async () => {
-      mockPublicBaseUrl = "";
+      setPublicBaseUrl("");
 
       await expect(
         startOAuth2Flow(
@@ -329,7 +327,7 @@ describe("OAuth2 gateway transport", () => {
 
   describe("gateway transport flow", () => {
     test("success: register callback, consume with code, exchange for tokens", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const flowPromise = startOAuth2Flow(
         BASE_OAUTH_CONFIG,
@@ -358,7 +356,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("error: register callback, consume with error, rejects", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const flowPromise = startOAuth2Flow(
         BASE_OAUTH_CONFIG,
@@ -381,7 +379,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("token exchange failure propagates error", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
       mockTokenResponse = {
         ok: false,
         status: 400,
@@ -554,7 +552,7 @@ describe("OAuth2 gateway transport", () => {
 
   describe("PKCE with client secret", () => {
     test("includes PKCE params in auth URL even when clientSecret is provided", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const configWithSecret: OAuth2Config = {
         ...BASE_OAUTH_CONFIG,
@@ -587,7 +585,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("sends Basic Auth header and omits client_id/client_secret from body when tokenEndpointAuthMethod is client_secret_basic", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const configWithSecret: OAuth2Config = {
         ...BASE_OAUTH_CONFIG,
@@ -624,7 +622,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("sends client_id and client_secret in body when tokenEndpointAuthMethod is client_secret_post (default)", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const configWithSecret: OAuth2Config = {
         ...BASE_OAUTH_CONFIG,
@@ -654,7 +652,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("sends client_id in body without Basic Auth when no clientSecret", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const flowPromise = startOAuth2Flow(BASE_OAUTH_CONFIG, {
         openUrl: () => {},
@@ -679,7 +677,7 @@ describe("OAuth2 gateway transport", () => {
 
   describe("scope separator", () => {
     test("authorize URL joins scopes with space when scopeSeparator is ' '", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       let capturedAuthUrl = "";
       const flowPromise = startOAuth2Flow(
@@ -703,7 +701,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("authorize URL joins scopes with comma when scopeSeparator is ','", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const commaConfig: OAuth2Config = {
         ...BASE_OAUTH_CONFIG,
@@ -732,7 +730,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("token response with comma-separated scope splits into individual scopes when scopeSeparator is ','", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
       mockTokenResponse = {
         ok: true,
         status: 200,
@@ -766,7 +764,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("token response with whitespace around comma separators is trimmed", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
       mockTokenResponse = {
         ok: true,
         status: 200,
@@ -804,7 +802,7 @@ describe("OAuth2 gateway transport", () => {
       // separator but return comma-separated scopes in token responses.
       // The defensive split MUST tolerate that without requiring providers
       // to opt into scopeSeparator: ",".
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
       mockTokenResponse = {
         ok: true,
         status: 200,
@@ -838,7 +836,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("default-space provider parses space-separated token response scopes", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
       mockTokenResponse = {
         ok: true,
         status: 200,
@@ -869,7 +867,7 @@ describe("OAuth2 gateway transport", () => {
 
   describe("tokenExchangeBodyFormat", () => {
     test("sends JSON body when tokenExchangeBodyFormat is 'json'", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const jsonConfig: OAuth2Config = {
         ...BASE_OAUTH_CONFIG,
@@ -904,7 +902,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("sends form-encoded body by default (tokenExchangeBodyFormat omitted)", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const flowPromise = startOAuth2Flow(
         BASE_OAUTH_CONFIG,
@@ -933,7 +931,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("sends form-encoded body when tokenExchangeBodyFormat is explicitly 'form'", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const formConfig: OAuth2Config = {
         ...BASE_OAUTH_CONFIG,
@@ -966,7 +964,7 @@ describe("OAuth2 gateway transport", () => {
     });
 
     test("JSON body format works with client_secret_basic auth method", async () => {
-      mockPublicBaseUrl = "https://gw.example.com";
+      setPublicBaseUrl("https://gw.example.com");
 
       const jsonBasicConfig: OAuth2Config = {
         ...BASE_OAUTH_CONFIG,

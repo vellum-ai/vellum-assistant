@@ -17,6 +17,7 @@ import type {
   OutlookMessageRule,
   OutlookMessageRuleListResponse,
   OutlookRecipient,
+  OutlookSendFileAttachment,
   OutlookSendMessagePayload,
   OutlookUserProfile,
 } from "./types.js";
@@ -148,11 +149,21 @@ export async function listMessages(
     : "/v1.0/me/messages";
 
   const query: Record<string, string> = {};
-  if (options?.top !== undefined) query["$top"] = String(options.top);
-  if (options?.skip !== undefined) query["$skip"] = String(options.skip);
-  if (options?.filter) query["$filter"] = options.filter;
-  if (options?.orderby) query["$orderby"] = options.orderby;
-  if (options?.select) query["$select"] = options.select;
+  if (options?.top !== undefined) {
+    query["$top"] = String(options.top);
+  }
+  if (options?.skip !== undefined) {
+    query["$skip"] = String(options.skip);
+  }
+  if (options?.filter) {
+    query["$filter"] = options.filter;
+  }
+  if (options?.orderby) {
+    query["$orderby"] = options.orderby;
+  }
+  if (options?.select) {
+    query["$select"] = options.select;
+  }
 
   return request<OutlookMessageListResponse>(
     connection,
@@ -175,8 +186,12 @@ export async function searchMessages(
     $search: `"${searchQuery.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
     $count: "true",
   };
-  if (options?.top !== undefined) query["$top"] = String(options.top);
-  if (options?.skip !== undefined) query["$skip"] = String(options.skip);
+  if (options?.top !== undefined) {
+    query["$top"] = String(options.top);
+  }
+  if (options?.skip !== undefined) {
+    query["$skip"] = String(options.skip);
+  }
 
   return request<OutlookMessageListResponse>(
     connection,
@@ -201,18 +216,26 @@ export async function sendMessage(
   });
 }
 
-/** Reply to an existing message. */
+/** Reply to an existing message, optionally with file attachments. */
 export async function replyToMessage(
   connection: OAuthConnection,
   messageId: string,
   comment: string,
+  attachments?: OutlookSendFileAttachment[],
 ): Promise<void> {
+  const body: {
+    comment: string;
+    message?: { attachments: OutlookSendFileAttachment[] };
+  } = { comment };
+  if (attachments?.length) {
+    body.message = { attachments };
+  }
   await request<void>(
     connection,
     `/v1.0/me/messages/${encodeURIComponent(messageId)}/reply`,
     {
       method: "POST",
-      body: JSON.stringify({ comment }),
+      body: JSON.stringify(body),
     },
   );
 }
@@ -231,7 +254,9 @@ export async function listMailFolders(
       undefined,
       nextQuery,
     );
-    if (resp.value) allFolders.push(...resp.value);
+    if (resp.value) {
+      allFolders.push(...resp.value);
+    }
     if (resp["@odata.nextLink"]) {
       const nextUrl = new URL(resp["@odata.nextLink"]);
       nextQuery = {};
@@ -326,8 +351,12 @@ export async function createForwardDraft(
   comment?: string,
 ): Promise<OutlookMessage> {
   const body: Record<string, unknown> = {};
-  if (toRecipients !== undefined) body.toRecipients = toRecipients;
-  if (comment !== undefined) body.comment = comment;
+  if (toRecipients !== undefined) {
+    body.toRecipients = toRecipients;
+  }
+  if (comment !== undefined) {
+    body.comment = comment;
+  }
 
   return request<OutlookMessage>(
     connection,

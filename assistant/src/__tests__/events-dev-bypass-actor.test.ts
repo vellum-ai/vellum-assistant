@@ -4,8 +4,8 @@
  *
  * In `DISABLE_HTTP_AUTH=true` (platform-managed) deployments the synthetic
  * dev-bypass `AuthContext` injects `actorPrincipalId="dev-bypass"` for every
- * request. Tool-side trust resolution still resolves to the real local
- * guardian's principalId via `resolveLocalTrustContext`. Without translation,
+ * request. Trust resolution still resolves to the real local guardian's
+ * principalId via `resolveLocalPrincipalTrustContext`. Without translation,
  * `ClientEntry.actorPrincipalId === "dev-bypass"` and
  * `ToolContext.sourceActorPrincipalId === "<real-guardian>"` mismatch, so the
  * same-user check in HostBashProxy / HostFileProxy / HostCuProxy /
@@ -29,14 +29,15 @@ mock.module("../config/env.js", () => ({
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
-  findLocalGuardianPrincipalId: () => fakeGuardianPrincipalId,
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  findLocalGuardianPrincipalIdFromStore: () => fakeGuardianPrincipalId,
+  resolveActorPrincipalIdForLocalGuardianSync: (
+    rawHeader: string | undefined,
+  ) => {
+    if (rawHeader !== "dev-bypass" || !fakeHttpAuthDisabled) {
+      return rawHeader;
+    }
+    return fakeGuardianPrincipalId;
+  },
 }));
 
 // ── Real imports (after mocks) ────────────────────────────────────────────

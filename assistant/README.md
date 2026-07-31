@@ -145,7 +145,7 @@ All approval prompt delivery paths use a **fail-closed** policy -- if the prompt
 
 ### Plain-Text Fallback for Non-Rich Channels
 
-Channels that do not support rich inline approval UI (e.g., inline keyboards) receive plain-text instructions embedded in the message body. The `channelSupportsRichApprovalUI()` check determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). The fallback text includes instructions so the user can respond via text; the conversational approval engine then classifies the free-text response.
+Channels that do not support rich inline approval UI (e.g., inline keyboards) receive plain-text instructions embedded in the message body. The `supportsInlineOptions` channel capability (`channelSupportsInlineOptions()`) determines whether to send the structured `promptText` (for channels whose adapter renders inline buttons like Telegram) or the `plainTextFallback` string (for all other channels). The fallback text includes instructions so the user can respond via text; the conversational approval engine then classifies the free-text response.
 
 ### Key modules
 
@@ -174,7 +174,7 @@ Guardian actor-role _classification_ (determining whether a sender is guardian, 
 
 ### Ingress Boundary Guarantees (Gateway-Only Mode)
 
-The runtime operates in **gateway-only mode**: all public-facing webhook paths are blocked at the runtime level. Direct access to Twilio webhook routes (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/twilio/connect-action`) and their legacy equivalents (`/v1/calls/twilio/*`) returns `410 GATEWAY_ONLY`. This ensures external webhook traffic can only reach the runtime through the gateway, which performs signature validation before forwarding.
+The runtime operates in **gateway-only mode**: all public-facing webhook paths are blocked at the runtime level. Direct access to Twilio webhook routes (`/webhooks/twilio/voice`, `/webhooks/twilio/status`) and their legacy equivalents (`/v1/calls/twilio/*`) returns `410 GATEWAY_ONLY`. This ensures external webhook traffic can only reach the runtime through the gateway, which performs signature validation before forwarding.
 
 Internal forwarding routes (`/v1/internal/twilio/*`) are unaffected — these accept pre-validated payloads from the gateway over the private network.
 
@@ -252,7 +252,7 @@ The channel guardian service generates verification challenge instructions with 
 The vellum channel (macOS) uses JWTs to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop channel, paralleling how external channels (Telegram) use `actorExternalId` for guardian identity. The CLI authenticates using its bearer token obtained during `hatch`.
 
 - **Bootstrap**: After hatch, the macOS client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint fresh credentials. The CLI does not bootstrap separately; it uses the bearer token minted during `hatch`.
-- **Local identity**: Local connections resolve identity server-side via `resolveLocalGuardianContext()` without requiring a JWT.
+- **Local identity**: Local connections get a server-side synthetic `AuthContext` via `resolveLocalAuthContext()` (`runtime/local-actor-identity.ts`) without requiring a JWT; trust derives from the gateway guardian binding via `resolveLocalPrincipalTrustContext()` (`runtime/local-principal-trust.ts`), failing closed to unknown.
 - **HTTP enforcement**: All vellum HTTP routes require a valid JWT via the `Authorization: Bearer <jwt>` header. The JWT carries identity claims (`sub` with principal type and ID) and scope permissions. Route-level enforcement in `route-policy.ts` checks scopes and principal types.
 - **Startup migration**: On gateway start, `ensureVellumGuardianBinding()` in `gateway/src/auth/guardian-bootstrap.ts` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
 
@@ -281,25 +281,13 @@ The ingress ACL runs at the top of the channel inbound handler, before guardian 
 4. **Policy check** — The member's `policy` field determines routing:
    - `allow` — Message proceeds to normal agent processing.
    - `deny` — Message is rejected with `policy_deny`.
-   - `escalate` — Message is held for guardian approval (see Escalation Flow below).
-
-### Escalation Flow
-
-When a member's policy is `escalate`:
-
-1. The handler looks up the guardian binding for the `(assistantId, channel)` pair. If no binding exists, the message is denied with `escalate_no_guardian` (fail-closed).
-2. The raw message payload is stored so it can be recovered on approval.
-3. A `channel_guardian_approval_request` is created with a 30-minute TTL.
-4. The guardian is notified via the canonical notification pipeline (`emitNotificationSignal`), which routes the escalation alert to all configured channels (Telegram push, desktop notification).
-5. On **approve**, the stored payload is replayed through the agent pipeline and the assistant's response is delivered to the external user. On **deny**, a refusal message is sent.
 
 ### How the Systems Connect
 
 Guardian verification and ingress contact management are complementary but independent systems:
 
-- **Guardian verification** establishes _who controls the assistant_ on a given channel. The guardian can approve sensitive actions, approve escalated messages, and is the trust anchor.
+- **Guardian verification** establishes _who controls the assistant_ on a given channel. The guardian can approve sensitive actions and is the trust anchor.
 - **Ingress contacts** control _who can interact with the assistant_ on a given channel. Contacts are created via invite redemption, not via guardian verification.
-- **Dependency**: Escalation requires a guardian binding — if no guardian has been verified for the channel, `escalate` policy messages are denied. This means guardian verification must precede any escalation-based access control.
 
 ### Key Modules
 
@@ -307,9 +295,8 @@ Guardian verification and ingress contact management are complementary but indep
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `src/runtime/channel-verification-service.ts`       | Verification lifecycle: `createInboundVerificationSession`, `validateAndConsumeVerification`, `getGuardianBinding`, `isGuardian` |
 | `src/runtime/trust-context-resolver.ts`             | Actor role classification: guardian / non-guardian / unverified_channel                                                          |
-| `src/runtime/routes/inbound-message-handler.ts`     | Ingress ACL enforcement, verification-code intercept, escalation creation                                                        |
+| `src/runtime/routes/inbound-message-handler.ts`     | Ingress ACL enforcement, verification-code intercept                                                                             |
 | `src/contacts/contact-store.ts`                     | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                           |
-| `src/memory/invite-store.ts`                        | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                              |
 | `src/memory/channel-verification-sessions.ts`       | Guardian binding types and verification challenge persistence                                                                    |
 | `src/memory/guardian-approvals.ts`                  | Approval request persistence                                                                                                     |
 | `src/runtime/verification-outbound-actions.ts`      | Shared business logic for outbound verification (start/resend/cancel)                                                            |
@@ -367,11 +354,11 @@ All endpoints are bearer-authenticated. Skills and clients should call the gatew
 | `src/runtime/channel-readiness-service.ts`       | Service class with probe registration, cached readiness evaluation, and built-in channel probes |
 | `src/runtime/routes/channel-readiness-routes.ts` | HTTP route handlers for `/v1/channels/readiness` and `/v1/channels/readiness/refresh`           |
 
-## Ingress Membership + Escalation
+## Ingress Membership
 
 Secure cross-user messaging allows external users (non-guardians) to interact with the assistant through channels (Telegram) under the owner's control. Access is governed by an invite-based membership system with per-member policy enforcement.
 
-### Ingress Membership
+### Invite-Based Onboarding
 
 External users join through **invite tokens**. There are two invite flows:
 
@@ -383,7 +370,7 @@ External users join through **invite tokens**. There are two invite flows:
 1. **Guardian requests invite** — The guardian asks the assistant (via desktop chat) to create a Telegram invite link. The `guardian-invite-intent.ts` module detects the intent and routes the request into the `contacts` skill.
 2. **Invite creation** — The skill creates an invite token via the ingress HTTP API, looks up the Telegram bot username from the integration config endpoint, and constructs a shareable deep link: `https://t.me/<bot>?start=iv_<token>`.
 3. **Guardian shares link** — The guardian copies the deep link and shares it with the invitee through any messaging channel.
-4. **Invitee redeems** — The invitee clicks the link, which opens Telegram and sends `/start iv_<token>` to the bot. The inbound message handler extracts the token via the transport adapter, redeems it through the invite redemption service, and auto-creates an active member record.
+4. **Invitee redeems** — The invitee clicks the link, which opens Telegram and sends `/start iv_<token>` to the bot. The gateway intercepts the token at ingress, redeems it against its canonical invite row, activates the member channel in the gateway ACL, and notifies the daemon to mirror the contact info.
 5. **Access granted** — The invitee receives a welcome message and all subsequent messages pass the ingress ACL.
 
 The `iv_` prefix distinguishes invite tokens from `gv_` (guardian verification) tokens, which use the same Telegram `/start` deep-link mechanism.
@@ -392,7 +379,7 @@ The `iv_` prefix distinguishes invite tokens from `gv_` (guardian verification) 
 
 The invite redemption system uses a three-layer architecture:
 
-- **Core redemption engine** (`invite-redemption-service.ts`) — Channel-agnostic business logic that validates tokens, enforces expiry/use-count/channel-match constraints, handles member reactivation, and returns a discriminated-union `InviteRedemptionOutcome`. Deterministic reply templates (`invite-redemption-templates.ts`) map each outcome to a user-facing message without passing through the LLM.
+- **Core redemption engine** (gateway-native, `gateway/src/verification/invite-redemption.ts`) — Channel-agnostic business logic that validates tokens and codes, enforces expiry/use-count/channel-match constraints, handles member reactivation, and returns a discriminated-union `InviteRedemptionOutcome`. Deterministic reply templates map each outcome to a user-facing message without passing through the LLM.
 - **Channel transport adapters** (`channel-invite-transport.ts` + `channel-invite-transports/`) — A registry of per-channel adapters that know how to build shareable links (`buildShareLink`) and extract inbound tokens (`extractInboundToken`). Adapters are implemented for Telegram, Voice, Email, WhatsApp, and Slack.
 - **Conversational orchestration** (`guardian-invite-intent.ts`) — Pattern-based intent detection that intercepts guardian invite management requests (create, list, revoke) in the session pipeline and forces immediate entry into the `contacts` skill, bypassing the normal agent loop.
 
@@ -400,17 +387,8 @@ Redemption auto-creates a **member** record with an access policy:
 
 - **`allow`** — Messages are processed normally through the agent pipeline.
 - **`deny`** — Messages are rejected with a refusal notice.
-- **`escalate`** — Messages are held for guardian (owner) approval before processing.
 
 Non-members (senders with no invite redemption) are denied by default. Contacts can be listed, updated, revoked, or blocked via the HTTP API (`/v1/contacts` and `/v1/contact-channels`).
-
-### Escalation Flow
-
-When a member's policy is `escalate`, inbound messages create a `channel_guardian_approval_request` and the guardian is notified through the canonical notification pipeline (`emitNotificationSignal`). The pipeline routes the escalation alert to all configured channels (Telegram push, desktop notification).
-
-On **approve**: the original message payload is recovered from the channel delivery store and processed through the agent pipeline. The assistant's reply is delivered back to the external user via the gateway. On **deny**: a refusal message is sent to the external user.
-
-If no guardian binding exists, escalation fails closed — the message is denied rather than left in a silent wait state.
 
 ### HTTP API
 
@@ -420,18 +398,16 @@ If no guardian binding exists, escalation fails closed — the message is denied
 
 ### Key Modules
 
-| File                                                | Purpose                                                                                                          |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `src/memory/invite-store.ts`                        | CRUD for invite tokens with SHA-256 hashing and expiry                                                           |
-| `src/contacts/contact-store.ts`                     | Contact + channel CRUD with policy enforcement                                                                   |
-| `src/daemon/handlers/config-inbox.ts`               | HTTP handlers for invite operations                                                                              |
-| `src/runtime/routes/channel-routes.ts`              | ACL enforcement point — member lookup, policy check, escalation creation                                         |
-| `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, member creation, discriminated-union outcomes                         |
-| `src/runtime/invite-redemption-templates.ts`        | Deterministic reply templates for each redemption outcome                                                        |
-| `src/runtime/channel-invite-transport.ts`           | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel                          |
-| `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — builds `t.me/<bot>?start=iv_<token>` deep links, extracts `iv_` tokens from `/start` commands |
-| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes guardian invite management requests into the `contacts` skill                          |
-| `src/runtime/invite-service.ts`                     | Shared business logic for invite and contact operations                                                          |
+| File                                                      | Purpose                                                                                                          |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `src/contacts/contact-store.ts`                           | Contact + channel CRUD with policy enforcement                                                                   |
+| `src/runtime/routes/contact-routes.ts`                    | HTTP/IPC invite handlers — relay mint/list/revoke/redeem to the gateway's invite IPC routes                      |
+| `src/runtime/routes/inbound-message-handler.ts`           | ACL enforcement point — member lookup, policy check                                                              |
+| `gateway/src/verification/invite-redemption.ts` (gateway) | Core redemption engine — token/code validation, atomic claim, ACL activation, discriminated-union outcomes       |
+| `src/runtime/channel-invite-transport.ts`                 | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel                          |
+| `src/runtime/channel-invite-transports/telegram.ts`       | Telegram adapter — builds `t.me/<bot>?start=iv_<token>` deep links, extracts `iv_` tokens from `/start` commands |
+| `src/daemon/guardian-invite-intent.ts`                    | Intent detection — routes guardian invite management requests into the `contacts` skill                          |
+| `src/runtime/invite-service.ts`                           | Daemon-owned invite presentation (share link, guardian instruction) over gateway-minted invites                  |
 
 ## Database
 

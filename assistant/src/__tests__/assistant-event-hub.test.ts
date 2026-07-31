@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEventEnvelope } from "../api/index.js";
 import {
   AssistantEventHub,
   broadcastMessage,
   capabilityForMessageType,
 } from "../runtime/assistant-event-hub.js";
+import {
+  _resetStreamStateForTesting,
+  getReplayWindow,
+} from "../runtime/assistant-stream-state.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
-function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
+function makeEvent(
+  overrides: Partial<AssistantEventEnvelope> = {},
+): AssistantEventEnvelope {
   return {
     id: "evt_test",
     conversationId: "sess_1",
@@ -27,7 +33,7 @@ function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
 describe("AssistantEventHub — fanout", () => {
   test("delivers event to a single matching subscriber", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",
@@ -71,8 +77,8 @@ describe("AssistantEventHub — fanout", () => {
 
   test("conversationId filter further restricts delivery", async () => {
     const hub = new AssistantEventHub();
-    const receivedA: AssistantEvent[] = [];
-    const receivedB: AssistantEvent[] = [];
+    const receivedA: AssistantEventEnvelope[] = [];
+    const receivedB: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",
@@ -97,7 +103,7 @@ describe("AssistantEventHub — fanout", () => {
 
   test("subscriber without conversationId filter receives all conversations", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",
@@ -155,7 +161,7 @@ describe("AssistantEventHub — fanout", () => {
 describe("AssistantEventHub — unsubscribe cleanup", () => {
   test("dispose stops event delivery", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
 
     const s = hub.subscribe({
       type: "process",
@@ -230,8 +236,8 @@ describe("AssistantEventHub — unsubscribe cleanup", () => {
 
   test("disposing one subscription does not affect others", async () => {
     const hub = new AssistantEventHub();
-    const received1: AssistantEvent[] = [];
-    const received2: AssistantEvent[] = [];
+    const received1: AssistantEventEnvelope[] = [];
+    const received2: AssistantEventEnvelope[] = [];
 
     const s1 = hub.subscribe({
       type: "process",
@@ -337,7 +343,7 @@ describe("AssistantEventHub — exception isolation", () => {
 describe("AssistantEventHub — re-entrancy / snapshot isolation", () => {
   test("subscriber added during publish does not receive the in-flight event", async () => {
     const hub = new AssistantEventHub();
-    const lateReceived: AssistantEvent[] = [];
+    const lateReceived: AssistantEventEnvelope[] = [];
 
     hub.subscribe({
       type: "process",
@@ -359,7 +365,7 @@ describe("AssistantEventHub — re-entrancy / snapshot isolation", () => {
 
   test("subscriber that disposes itself mid-publish does not affect remaining subscribers", async () => {
     const hub = new AssistantEventHub();
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     let s: ReturnType<typeof hub.subscribe>;
 
     // eslint-disable-next-line prefer-const
@@ -528,5 +534,66 @@ describe("broadcastMessage — pending interaction registration", () => {
     } as never);
 
     expect(pendingInteractions.get("req-bash-1")).toBeUndefined();
+  });
+});
+
+// ── broadcastMessage — SSE replay ring ───────────────────────────────────────
+//
+// Every conversation-scoped event is buffered into the replay ring — there are
+// no per-type exceptions. `hook_event` replays on reconnect like any other
+// event; clients treat it as transient UI state at render time.
+describe("broadcastMessage — replay ring", () => {
+  beforeEach(() => {
+    _resetStreamStateForTesting();
+  });
+
+  test("hook_event is buffered for replay like any other event", () => {
+    broadcastMessage({
+      type: "hook_event",
+      conversationId: "sess_1",
+      hookName: "user-prompt-submit",
+      owner: { kind: "plugin", id: "default-memory" },
+      detail: { phase: "selecting" },
+    });
+    broadcastMessage({
+      type: "assistant_text_delta",
+      conversationId: "sess_1",
+      text: "hi",
+    });
+
+    // Replaying from before either event: the ring holds both, in order.
+    const replayed = getReplayWindow(0, undefined, "sess_1");
+    expect(replayed?.map((e) => e.message.type)).toEqual([
+      "hook_event",
+      "assistant_text_delta",
+    ]);
+  });
+
+  test("an unserializable payload does not throw and is not buffered", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    // The emit path must survive a payload JSON cannot represent — the event
+    // is left unstamped (no seq gap) and skipped by the replay ring, while
+    // later events buffer normally.
+    expect(() =>
+      broadcastMessage({
+        type: "hook_event",
+        conversationId: "sess_1",
+        hookName: "user-prompt-submit",
+        owner: { kind: "plugin", id: "default-memory" },
+        detail: circular,
+      }),
+    ).not.toThrow();
+    broadcastMessage({
+      type: "assistant_text_delta",
+      conversationId: "sess_1",
+      text: "hi",
+    });
+
+    const replayed = getReplayWindow(0, undefined, "sess_1");
+    expect(replayed?.map((e) => e.message.type)).toEqual([
+      "assistant_text_delta",
+    ]);
   });
 });

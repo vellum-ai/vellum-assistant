@@ -20,14 +20,6 @@ import type { ClawhubInspectResult } from "../skills/clawhub.js";
 // Mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
 
-// Suppress logger output
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 let mockInspectResult: { data?: ClawhubInspectResult; error?: string } = {};
 let inspectCallCount = 0;
 let mockInspectFileResult: string | null = null;

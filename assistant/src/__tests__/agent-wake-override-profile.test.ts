@@ -30,26 +30,14 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockOverrideProfile: string | undefined = undefined;
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversationOverrideProfile: (_id: string) => mockOverrideProfile,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-// Mutable stub for `getConfig().llm` consumed by `RetryProvider`'s
-// resolver path in the integration-style assertion below. Defined ahead of
-// import so the module-level `getConfig()` reference inside `retry.ts`
-// closes over our mutable holder.
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    services: { inference: { mode: "your-own" } },
-  }),
-}));
-
 import type { AgentLoopRunOptions } from "../agent/loop.js";
-import { LLMSchema } from "../config/schemas/llm.js";
 import type { Conversation } from "../daemon/conversation.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
@@ -62,6 +50,16 @@ import {
   __resetWakeChainForTests,
   wakeAgentForOpportunity,
 } from "../runtime/agent-wake.js";
+import { setConfig } from "./helpers/set-config.js";
+
+/**
+ * Seed the workspace `llm` config block for real. The loader schema-merges
+ * it, so `RetryProvider`'s resolver path reads the seeded values on its next
+ * `getConfig()` call.
+ */
+function setLlmConfig(raw: unknown): void {
+  setConfig("llm", raw);
+}
 
 interface RunArgs {
   messages: Message[];
@@ -94,6 +92,7 @@ function makeTarget(): {
     messages,
     getMessages: () => messages,
     isProcessing: () => processing,
+    waitForIdle: async () => !processing,
     setProcessing: (on: boolean) => {
       processing = on;
     },
@@ -103,13 +102,15 @@ function makeTarget(): {
     drainQueue: async () => {},
     // Pre-run auto-compaction gate — no-op for these tests.
     maybeCompact: async () => null,
+    buildCurrentSystemPrompt: () => "mock-system-prompt",
+    modelOverride: undefined,
   };
   return { target: target as unknown as Conversation, runArgs };
 }
 
 beforeEach(() => {
   __resetWakeChainForTests();
-  mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
+  setLlmConfig({});
 });
 
 afterEach(() => {
@@ -119,22 +120,20 @@ afterEach(() => {
 describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
   test("forwards the conversation's pinned overrideProfile + mainAgent callSite to agentLoop.run", async () => {
     mockOverrideProfile = "frontier";
-    mockLlmConfig = LLMSchema.parse({
-      default: {
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        maxTokens: 64000,
-        contextWindow: { maxInputTokens: 200000 },
-      },
+    setLlmConfig({
       profiles: {
+        // Complete (provider + model) so the pinned profile is a usable
+        // winner; its context window is what the wake must resolve.
         frontier: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
           contextWindow: { maxInputTokens: 150000 },
         },
       },
       callSites: {
         mainAgent: {},
       },
-    }) as Record<string, unknown>;
+    });
     const { target, runArgs } = makeTarget();
 
     const result = await wakeAgentForOpportunity(
@@ -159,6 +158,79 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     );
     // Sanity: the wake-source tag still propagates as requestId.
     expect(runArgs[0]!.options?.requestId).toBe("wake:scheduler");
+  });
+
+  test("forceOverrideProfile replaces the pinned-profile lookup and forwards the force flag to agentLoop.run", async () => {
+    // The conversation's own pinned profile must be ignored — the caller's
+    // forced profile (e.g. a fork-based retrospective matching the source
+    // conversation) takes its place and, as the override rung of the
+    // single-winner chain, beats the call site's own pinned profile.
+    mockOverrideProfile = "pinned-ignored";
+    setLlmConfig({
+      profiles: {
+        forced: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          contextWindow: { maxInputTokens: 120000 },
+        },
+        "retrospective-pinned": {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          contextWindow: { maxInputTokens: 180000 },
+        },
+      },
+      callSites: {
+        memoryRetrospective: { profile: "retrospective-pinned" },
+      },
+    });
+    const { target, runArgs } = makeTarget();
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "test hint",
+        source: "memory-retrospective",
+        callSite: "memoryRetrospective",
+        forceOverrideProfile: "forced",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result.invoked).toBe(true);
+    expect(runArgs).toHaveLength(1);
+    expect(runArgs[0]!.options?.overrideProfile).toBe("forced");
+    expect(runArgs[0]!.options?.forceOverrideProfile).toBe(true);
+    expect(runArgs[0]!.options?.callSite).toBe("memoryRetrospective");
+    // The effective context window resolves under the FORCED profile, which
+    // wins selection over the call site's own pinned profile (the forced
+    // profile's 120k beats the call-site profile's 180k).
+    expect(runArgs[0]!.options?.resolveContextWindow?.().maxInputTokens).toBe(
+      120000,
+    );
+  });
+
+  test("without forceOverrideProfile the wake never sets the force flag", async () => {
+    mockOverrideProfile = "frontier";
+    setLlmConfig({
+      profiles: {
+        frontier: { provider: "anthropic", model: "claude-sonnet-4-6" },
+      },
+      callSites: { mainAgent: {} },
+    });
+    const { target, runArgs } = makeTarget();
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "test hint",
+        source: "scheduler",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(runArgs).toHaveLength(1);
+    expect(runArgs[0]!.options?.overrideProfile).toBe("frontier");
+    expect(runArgs[0]!.options?.forceOverrideProfile).toBe(false);
   });
 
   test("passes undefined overrideProfile when the conversation has no pinned profile, but still forwards mainAgent callSite", async () => {
@@ -221,14 +293,10 @@ describe("wakeAgentForOpportunity — resolver actually engages", () => {
     // so we can detect whether the resolver engaged. If `callSite` were
     // undefined (the original bug), the retry layer would skip the resolver
     // entirely and the downstream provider would see only the wire defaults.
-    mockLlmConfig = LLMSchema.parse({
-      default: {
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        maxTokens: 64000,
-      },
+    setLlmConfig({
       profiles: {
         frontier: {
+          provider: "anthropic",
           model: "claude-opus-4-7",
           maxTokens: 32000,
         },
@@ -236,7 +304,7 @@ describe("wakeAgentForOpportunity — resolver actually engages", () => {
       callSites: {
         mainAgent: {},
       },
-    }) as Record<string, unknown>;
+    });
 
     let seen: SendMessageOptions | undefined;
     const wrapped = new RetryProvider(

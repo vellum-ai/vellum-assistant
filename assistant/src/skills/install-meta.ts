@@ -10,6 +10,10 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { getLogger } from "../util/logger.js";
+
+const log = getLogger("install-meta");
+
 // ─── SkillInstallMeta type ──────────────────────────────────────────────────
 
 export interface SkillInstallMeta {
@@ -21,6 +25,22 @@ export interface SkillInstallMeta {
   slug?: string; // registry slug
   sourceRepo?: string; // GitHub repo (e.g. "vercel-labs/agent-skills")
   contentHash?: string; // SHA-256 content hash (v2:hex format)
+  // Authorship provenance. Drives prune protection: only "assistant"-authored
+  // skills are eligible for the usage-based prune; "user" and untagged skills
+  // are protected. Set by install/scaffold callers, never defaulted here.
+  author?: "assistant" | "user";
+  // Conversation whose trace the retrospective distilled this skill from (the
+  // fork's parent). The durable lineage record for retrospective-authored
+  // skills.
+  sourceConversationId?: string;
+  // Retrospective background (fork) conversation that authored this skill.
+  // That conversation is GC'd once superseded, so this id is a debugging
+  // breadcrumb only — `sourceConversationId` is the durable lineage.
+  retrospectiveConversationId?: string;
+  // Day-granularity stamp of the last time the skill was loaded (ISO 8601).
+  // Stamped by `touchSkillLastUsed` on the managed-skill activation path; the
+  // usage-based prune reads its date portion as the last-used signal.
+  lastUsedAt?: string;
 }
 
 // ─── Atomic write helper ────────────────────────────────────────────────────
@@ -136,6 +156,42 @@ function inferFromLegacyVersionJson(
   };
 }
 
+// ─── Last-used stamp (day-debounced) ────────────────────────────────────────
+
+/**
+ * Stamp `lastUsedAt` on the skill's `install-meta.json` for `today` (a
+ * `YYYY-MM-DD` string), debounced to at most one write per calendar day.
+ *
+ * Returns `true` when a write happened, `false` otherwise (no install metadata,
+ * already stamped for `today`, or an IO failure). `today` is injected rather
+ * than read from a clock so the debounce window is testable.
+ *
+ * Best-effort: any IO failure is logged and swallowed — callers stamp on the
+ * hot tool-projection path and must never have it throw.
+ */
+export function touchSkillLastUsed(skillDir: string, today: string): boolean {
+  try {
+    const meta = readInstallMeta(skillDir);
+    if (!meta) {
+      return false;
+    }
+
+    // Compare only the date portion so multiple loads within a day are a no-op.
+    if (meta.lastUsedAt?.slice(0, 10) === today) {
+      return false;
+    }
+
+    writeInstallMeta(skillDir, {
+      ...meta,
+      lastUsedAt: new Date(`${today}T00:00:00.000Z`).toISOString(),
+    });
+    return true;
+  } catch (err) {
+    log.debug({ err, skillDir }, "Failed to stamp lastUsedAt (non-fatal)");
+    return false;
+  }
+}
+
 // ─── Content hash computation ───────────────────────────────────────────────
 
 /**
@@ -159,15 +215,18 @@ export function collectFileContents(
   prefix = "",
 ): Array<{ relPath: string; content: Buffer }> {
   const results: Array<{ relPath: string; content: Buffer }> = [];
-  if (!existsSync(dir)) return results;
+  if (!existsSync(dir)) {
+    return results;
+  }
 
   const entries = readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
     // Exclude metadata files at the root level (prefix === "").
     // Only exclude actual files — a directory with a metadata name should
     // still be traversed so nested content contributes to the hash.
-    if (!prefix && entry.isFile() && METADATA_FILENAMES.has(entry.name))
+    if (!prefix && entry.isFile() && METADATA_FILENAMES.has(entry.name)) {
       continue;
+    }
 
     const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
     const fullPath = join(dir, entry.name);
@@ -190,10 +249,14 @@ export function collectFileContents(
  * different hashing strategy (v1: prefix) for version identity.
  */
 export function computeSkillHash(skillDir: string): string | null {
-  if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) return null;
+  if (!existsSync(skillDir) || !statSync(skillDir).isDirectory()) {
+    return null;
+  }
 
   const files = collectFileContents(skillDir);
-  if (files.length === 0) return null;
+  if (files.length === 0) {
+    return null;
+  }
 
   const hasher = new Bun.CryptoHasher("sha256");
   for (const file of files) {

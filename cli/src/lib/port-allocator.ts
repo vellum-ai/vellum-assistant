@@ -21,10 +21,11 @@ import { createServer } from "net";
  */
 export async function findOpenPort(
   preferred: number,
-  options: { maxAttempts?: number; host?: string } = {},
+  options: { maxAttempts?: number; host?: string; exclude?: number[] } = {},
 ): Promise<number> {
   const maxAttempts = options.maxAttempts ?? 50;
   const host = options.host ?? "0.0.0.0";
+  const exclude = new Set(options.exclude ?? []);
 
   if (!Number.isInteger(preferred) || preferred < 1 || preferred > 65535) {
     throw new Error(
@@ -41,6 +42,7 @@ export async function findOpenPort(
   for (let offset = 0; offset < maxAttempts; offset++) {
     const port = preferred + offset;
     if (port > 65535) break;
+    if (exclude.has(port)) continue;
     try {
       await probePort(port, host);
       return port;

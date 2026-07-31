@@ -61,7 +61,7 @@ export const HeartbeatConfigSchema = z
       .int("heartbeat.maxDailyRuns must be an integer")
       .positive("heartbeat.maxDailyRuns must be a positive integer")
       .nullable()
-      .default(2)
+      .default(10)
       .describe(
         "Maximum heartbeats that can run per calendar day. Resets at midnight local time. Set to null for unlimited.",
       ),

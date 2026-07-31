@@ -8,8 +8,8 @@
 
 import { and, desc, eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { notificationEvents } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { notificationEvents } from "../persistence/schema/index.js";
 import type { AttentionHints } from "./signal.js";
 
 export interface NotificationEventRow {
@@ -69,7 +69,9 @@ export function createEvent(
       .from(notificationEvents)
       .where(and(eq(notificationEvents.dedupeKey, normalizedDedupeKey)))
       .get();
-    if (existing) return null;
+    if (existing) {
+      return null;
+    }
   }
 
   const row = {

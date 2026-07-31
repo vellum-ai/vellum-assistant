@@ -18,7 +18,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   },
   openai: {
     balanced: "gpt-5.4-mini",
-    "latency-optimized": "gpt-5.4-nano",
+    "latency-optimized": "gpt-5.6-luna",
     "quality-optimized": "gpt-5.4",
     "vision-optimized": "gpt-5.4",
   },
@@ -35,12 +35,18 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
     "vision-optimized": "llama3.2",
   },
   fireworks: {
-    balanced: "accounts/fireworks/models/kimi-k2p6",
-    "latency-optimized": "accounts/fireworks/models/kimi-k2p5",
+    balanced: "accounts/fireworks/models/minimax-m3",
+    "latency-optimized": "accounts/fireworks/models/deepseek-v4-flash",
     "quality-optimized": "accounts/fireworks/models/kimi-k2p6",
     "vision-optimized": "accounts/fireworks/models/kimi-k2p6",
   },
   openrouter: {
+    balanced: "anthropic/claude-sonnet-4.6",
+    "latency-optimized": "anthropic/claude-haiku-4.5",
+    "quality-optimized": "anthropic/claude-fable-5",
+    "vision-optimized": "anthropic/claude-opus-4.6",
+  },
+  "vercel-ai-gateway": {
     balanced: "anthropic/claude-sonnet-4.6",
     "latency-optimized": "anthropic/claude-haiku-4.5",
     "quality-optimized": "anthropic/claude-fable-5",

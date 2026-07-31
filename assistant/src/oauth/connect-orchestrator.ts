@@ -20,7 +20,7 @@
  */
 
 import { emitPostConnectNudge } from "../home/post-connect-feed.js";
-import { invalidateAssistantSuggestedPromptsCache } from "../home/suggested-prompts.js";
+import { invalidateAssistantSuggestedPromptsCache } from "../home/suggested-prompts-cache.js";
 import type { TokenEndpointAuthMethod } from "../security/oauth2.js";
 import { prepareOAuth2Flow, startOAuth2Flow } from "../security/oauth2.js";
 import { getLogger } from "../util/logger.js";
@@ -37,7 +37,9 @@ const log = getLogger("oauth-connect-orchestrator");
 
 /** Safely parse a JSON string, returning a fallback on failure or null/undefined input. */
 function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
-  if (value == null) return fallback;
+  if (value == null) {
+    return fallback;
+  }
   try {
     return JSON.parse(value) as T;
   } catch {

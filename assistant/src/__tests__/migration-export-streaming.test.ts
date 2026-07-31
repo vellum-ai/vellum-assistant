@@ -19,28 +19,10 @@ const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../permissions/trust-store.js", () => ({
   getAllRules: () => [],
   isStarterBundleAccepted: () => false,
   clearCache: () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
 }));
 
 mock.module("../config/env.js", () => ({
@@ -109,14 +91,20 @@ function parseTarEntries(gzippedData: Uint8Array): TarEntry[] {
 
   while (offset + BLOCK_SIZE <= tarData.length) {
     const header = tarData.subarray(offset, offset + BLOCK_SIZE);
-    if (header.every((b) => b === 0)) break;
+    if (header.every((b) => b === 0)) {
+      break;
+    }
 
     let end = 0;
-    while (end < 100 && header[end] !== 0) end++;
+    while (end < 100 && header[end] !== 0) {
+      end++;
+    }
     const name = new TextDecoder().decode(header.subarray(0, end));
 
     let sizeEnd = 124;
-    while (sizeEnd < 136 && header[sizeEnd] !== 0) sizeEnd++;
+    while (sizeEnd < 136 && header[sizeEnd] !== 0) {
+      sizeEnd++;
+    }
     const sizeStr = new TextDecoder().decode(header.subarray(124, sizeEnd));
     const size = parseInt(sizeStr, 8) || 0;
 

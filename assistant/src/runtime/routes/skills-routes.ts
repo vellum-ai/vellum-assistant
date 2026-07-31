@@ -83,6 +83,12 @@ const slimSkillSchema = z.discriminatedUnion("origin", [
     audit: z.record(z.string(), partnerAuditSchema).optional(),
   }),
   z.object({ ...slimSkillBaseWithOwner, origin: z.literal("custom") }),
+  // Managed skill authored by the assistant's retrospective. Same shape as
+  // custom; the distinct origin only changes how the UI badges it.
+  z.object({
+    ...slimSkillBaseWithOwner,
+    origin: z.literal("assistant-memory"),
+  }),
 ]);
 
 const skillDetailSchema = z.discriminatedUnion("origin", [
@@ -133,6 +139,16 @@ const skillDetailSchema = z.discriminatedUnion("origin", [
     audit: z.record(z.string(), partnerAuditSchema).optional(),
   }),
   z.object({ ...slimSkillBaseWithOwner, origin: z.literal("custom") }),
+  z.object({
+    ...slimSkillBaseWithOwner,
+    origin: z.literal("assistant-memory"),
+    sourceConversationId: z
+      .string()
+      .optional()
+      .describe(
+        "Conversation whose trace the retrospective distilled this skill from. Present only when recorded in install-meta.",
+      ),
+  }),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -163,7 +179,7 @@ export const ROUTES: RouteDefinition[] = [
         name: "origin",
         schema: { type: "string" },
         description:
-          "Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom').",
+          "Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom', 'assistant-memory').",
       },
       {
         name: "kind",
@@ -287,8 +303,12 @@ export const ROUTES: RouteDefinition[] = [
       }
       const result = await getSkillFileContent(pathParams!.id, path);
       if ("error" in result) {
-        if (result.status === 400) throw new BadRequestError(result.error);
-        if (result.status === 404) throw new NotFoundError(result.error);
+        if (result.status === 400) {
+          throw new BadRequestError(result.error);
+        }
+        if (result.status === 404) {
+          throw new NotFoundError(result.error);
+        }
         throw new InternalError(result.error);
       }
       return result;
@@ -323,7 +343,9 @@ export const ROUTES: RouteDefinition[] = [
     handler: async ({ pathParams }: RouteHandlerArgs) => {
       const result = await getSkillFiles(pathParams!.id);
       if ("error" in result) {
-        if (result.status === 404) throw new NotFoundError(result.error);
+        if (result.status === 404) {
+          throw new NotFoundError(result.error);
+        }
         throw new InternalError(result.error);
       }
       return result;
@@ -343,7 +365,9 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({ ok: z.boolean() }),
     handler: ({ pathParams }: RouteHandlerArgs) => {
       const result = enableSkill(pathParams!.id);
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true };
     },
   },
@@ -361,7 +385,9 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({ ok: z.boolean() }),
     handler: ({ pathParams }: RouteHandlerArgs) => {
       const result = disableSkill(pathParams!.id);
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true };
     },
   },
@@ -388,7 +414,9 @@ export const ROUTES: RouteDefinition[] = [
         apiKey: body.apiKey as string | undefined,
         config: body.config as Record<string, unknown> | undefined,
       });
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true };
     },
   },
@@ -408,7 +436,9 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: async () => {
       const result = await checkSkillUpdates();
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { data: result.data };
     },
   },
@@ -442,13 +472,17 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: async ({ queryParams = {} }: RouteHandlerArgs) => {
       const query = queryParams.q ?? "";
-      if (!query) throw new BadRequestError("q query parameter is required");
+      if (!query) {
+        throw new BadRequestError("q query parameter is required");
+      }
       const limitRaw = queryParams.limit;
       const limit = limitRaw
         ? Math.max(1, Number.parseInt(limitRaw, 10) || 25)
         : 25;
       const result = await searchSkills(query, limit);
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { skills: result.skills };
     },
   },
@@ -492,7 +526,9 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({ ok: z.boolean() }),
     handler: async ({ pathParams }: RouteHandlerArgs) => {
       const result = await updateSkill(pathParams!.id);
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true };
     },
   },
@@ -542,7 +578,9 @@ export const ROUTES: RouteDefinition[] = [
     handler: async ({ pathParams }: RouteHandlerArgs) => {
       const result = await getSkill(pathParams!.id);
       if ("error" in result) {
-        if (result.status === 404) throw new NotFoundError(result.error);
+        if (result.status === 404) {
+          throw new NotFoundError(result.error);
+        }
         throw new InternalError(result.error);
       }
       return result;
@@ -562,7 +600,9 @@ export const ROUTES: RouteDefinition[] = [
     responseStatus: "204",
     handler: async ({ pathParams }: RouteHandlerArgs) => {
       const result = await uninstallSkill(pathParams!.id);
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return null;
     },
   },
@@ -627,7 +667,9 @@ export const ROUTES: RouteDefinition[] = [
         catalogOnly: body.catalogOnly as boolean | undefined,
         overwrite: body.overwrite as boolean | undefined,
       });
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true, skillId: result.skillId };
     },
   },
@@ -666,7 +708,9 @@ export const ROUTES: RouteDefinition[] = [
         description,
         bodyMarkdown,
       });
-      if (!result.success) throw new InternalError(result.error);
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
       return { ok: true };
     },
   },
@@ -685,7 +729,9 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ pathParams }: RouteHandlerArgs) => {
       const result = getSkillLocalDetail(pathParams!.id);
       if (!result.ok) {
-        if (result.status === 404) throw new NotFoundError(result.error);
+        if (result.status === 404) {
+          throw new NotFoundError(result.error);
+        }
         throw new InternalError(result.error);
       }
       return result;

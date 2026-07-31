@@ -128,7 +128,6 @@ function makeSystemPrompt(size: "small" | "production" = "small"): string {
     "- `file_write` — Creating or overwriting files",
     "- `file_edit` — Modifying existing files",
     "- `file_delete` — Deleting files",
-    "- `credential_store set` — Storing credentials",
     "",
     "### Medium-Risk Tools (require approval on first use per session)",
     "- `web_fetch` — Fetching external URLs",
@@ -265,7 +264,9 @@ function makeSystemPrompt(size: "small" | "production" = "small"): string {
     while (sections.join("\n").length < 35000) {
       for (const g of guidelines) {
         sections.push(`- ${g}`);
-        if (sections.join("\n").length >= 35000) break;
+        if (sections.join("\n").length >= 35000) {
+          break;
+        }
       }
     }
   }
@@ -349,7 +350,7 @@ function makeToolDefinitions(): Array<{
     input_schema: object;
   }> = [];
 
-  // Core tools (11)
+  // Core tools (10)
   tools.push(
     {
       name: "bash",
@@ -564,33 +565,6 @@ function makeToolDefinitions(): Array<{
           },
         },
         required: ["query"],
-      },
-    },
-    {
-      name: "credential_store",
-      description:
-        "Securely store or retrieve credentials for external services. Credentials are encrypted at rest.",
-      input_schema: {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: ["get", "set", "delete", "list"],
-          },
-          service: {
-            type: "string",
-            description: "The service name (e.g., 'github', 'slack')",
-          },
-          key: {
-            type: "string",
-            description: "Credential key within the service",
-          },
-          value: {
-            type: "string",
-            description: "Credential value (required for 'set')",
-          },
-        },
-        required: ["action", "service"],
       },
     },
   );
@@ -1082,7 +1056,9 @@ function generateBundledSkillTools(
           `The ${pName} parameter for ${cat} ${action} operation. ` +
           `Used to ${action} ${cat} items matching the specified criteria.`,
       };
-      if (p < 2) required.push(pName); // First 2 params are required
+      if (p < 2) {
+        required.push(pName);
+      } // First 2 params are required
     }
 
     tools.push({

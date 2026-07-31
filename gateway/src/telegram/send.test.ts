@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
-import type { ApprovalPayload } from "./send.js";
+import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
@@ -24,7 +24,6 @@ const { buildInlineKeyboard, sendTelegramReply } = await import("./send.js");
 
 const baseConfig: GatewayConfig = {
   assistantRuntimeBaseUrl: "http://localhost:7821",
-  defaultAssistantId: undefined,
   gatewayInternalBaseUrl: "http://127.0.0.1:7830",
   logFile: { dir: undefined, retentionDays: 30 },
   maxAttachmentBytes: {
@@ -42,11 +41,10 @@ const baseConfig: GatewayConfig = {
   runtimeProxyRequireAuth: true,
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
-  unmappedPolicy: "reject",
   trustProxy: false,
 };
 
-const sampleApproval: ApprovalPayload = {
+const sampleApproval: ApprovalUIMetadata = {
   requestId: "req-456",
   actions: [
     { id: "approve_once", label: "Approve once" },
@@ -129,7 +127,7 @@ describe("buildInlineKeyboard", () => {
   });
 
   it("handles a single action", () => {
-    const approval: ApprovalPayload = {
+    const approval: ApprovalUIMetadata = {
       requestId: "rq1",
       actions: [{ id: "ok", label: "OK" }],
       plainTextFallback: "ok",
@@ -140,7 +138,7 @@ describe("buildInlineKeyboard", () => {
   });
 
   it("uses compact callback data format apr:<requestId>:<actionId>", () => {
-    const approval: ApprovalPayload = {
+    const approval: ApprovalUIMetadata = {
       requestId: "abc-def",
       actions: [{ id: "my_action", label: "Do it" }],
       plainTextFallback: "do it",
@@ -152,7 +150,7 @@ describe("buildInlineKeyboard", () => {
   });
 
   it("throws when callback_data exceeds 64 bytes", () => {
-    const approval: ApprovalPayload = {
+    const approval: ApprovalUIMetadata = {
       requestId: "r".repeat(60),
       actions: [{ id: "action", label: "Go" }],
       plainTextFallback: "go",
@@ -164,7 +162,7 @@ describe("buildInlineKeyboard", () => {
     // "apr:" = 4 bytes, ":" = 1 byte, so requestId + actionId = 59 bytes
     const requestId = "r".repeat(50);
     const actionId = "a".repeat(9);
-    const approval: ApprovalPayload = {
+    const approval: ApprovalUIMetadata = {
       requestId,
       actions: [{ id: actionId, label: "Go" }],
       plainTextFallback: "go",

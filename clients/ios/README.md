@@ -1,0 +1,709 @@
+# Capacitor iOS shell
+
+Native iOS wrapper built with [Capacitor](https://capacitorjs.com/).
+This is _not_ a port of the web app — it's a thin `WKWebView` shell in
+`server.url` mode that loads the live web app directly over HTTPS.
+
+**Minimum iOS version: 17.0.** Set in `App/App/Config/Base.xcconfig`
+(`IPHONEOS_DEPLOYMENT_TARGET`) and `App/project.yml`
+(`options.deploymentTarget.iOS`) — both, because the xcconfig wins for
+targets that carry one and the `project.yml` value covers those that
+don't. Do not lower it: Live Activities need 16.1, interactive Live
+Activity content 17.0, and the Action Button 17.1. The Control Center
+control needs 18.0 and is therefore `@available`-gated rather than
+holding the whole app back.
+
+**Native voice mode** — the Live Activity, App Intents, Siri phrases, the
+Action Button, and the `<scheme>://voice` deep-link contract — is
+documented in [`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md).
+
+## Web content delivery
+
+**What:** The iOS app loads the web UI live over HTTPS from the deployed
+web origin (e.g. `https://www.vellum.ai/assistant`). No web assets are
+bundled in the IPA — the `webDir` (`capacitor-shell/`) contains only a
+placeholder HTML page that is never shown at runtime.
+
+**How:** `capacitor.config.ts` sets
+[`server.url`](https://capacitorjs.com/docs/guides/server-url) to the
+environment-appropriate origin. `cap sync ios` bakes that URL into the
+native `capacitor.config.json`. At launch, `WKWebView` navigates
+straight to it. Each environment (production, staging, dev) has its own
+origin — set `VELLUM_ENVIRONMENT` before `bunx cap sync ios` to select
+which URL is baked into the build.
+
+**Why remote URL, not a local bundle (like the Electron app):**
+
+- **Instant web updates** — deploying to the web origin is immediately
+  live for every iOS user on their next app load. No App Store review,
+  no TestFlight build, no update prompt. This decouples web deploy
+  frequency from the native release cycle.
+- **App Store review avoidance** — Apple's review process can take hours
+  to days. Bundling web assets would gate every web change behind that
+  process. With `server.url`, only native shell changes (Swift code,
+  entitlements, Capacitor plugin updates) require a store submission.
+- **Thin native surface** — the IPC bridge between the WKWebView and
+  native code is minimal (four plugins: `NativeAuthPlugin`,
+  `NativeBiometricPlugin`, `VoiceAudioSessionPlugin`, and
+  `VoiceLiveActivityPlugin`), so version
+  skew risk between the web app and native shell is low. Every plugin
+  call from the web side must still be capability-probed, because a new
+  web bundle always ships ahead of the shell that hosts it. Contrast
+  with the Electron app, where the
+  `window.vellum.*` IPC surface is broad and tightly coupled.
+- **WKWebView security model** — unlike Electron's renderer, `WKWebView`
+  runs in a full iOS process sandbox with no access to native APIs
+  outside the Capacitor bridge. Loading remote content is the standard
+  pattern for Capacitor apps — see Capacitor's
+  [server.url guide](https://capacitorjs.com/docs/guides/server-url).
+
+**Tradeoff:** The app requires a network connection to load the UI. This
+is acceptable because the assistant needs its backend services for all
+functionality anyway — there is no useful offline state.
+
+## Prerequisites
+
+- macOS with **Xcode 16+** (16 or newer is required for the Icon
+  Composer `.icon` format; verified on Xcode 26.2)
+- [`xcodegen`](https://github.com/yonaskolb/XcodeGen) on `$PATH`:
+  `brew install xcodegen`
+- Membership in the Vocify, Inc. Apple Developer team for signing
+- Node + `bun` — the JS deps live in `../web/`, not here
+- No CocoaPods needed — native deps are vendored via Swift Package
+  Manager (see `App/CapApp-SPM/Package.swift`)
+
+## How the Xcode project is generated
+
+`App.xcodeproj/` is **not committed**. Everything inside it (`project.pbxproj`,
+all `.xcscheme` files, `contents.xcworkspacedata`, the SPM workspace
+state) is regenerated from `App/project.yml` by
+[XcodeGen](https://github.com/yonaskolb/XcodeGen) every time you build —
+locally via `bun run ios:setup`, in CI via the `xcodegen generate` step
+in `.github/workflows/release-ios.yaml`.
+
+What _is_ committed and what generates from where:
+
+| File / directory                           | Source of truth | Status     |
+| ------------------------------------------ | --------------- | ---------- |
+| `App/project.yml`                          | Hand-authored   | Committed  |
+| `App/App/Config/*.xcconfig`                | Hand-authored   | Committed  |
+| `App/CapApp-SPM/Package.swift`             | `cap sync ios`  | Committed  |
+| `App/App.xcodeproj/**`                     | `xcodegen`      | Gitignored |
+| `App/App/capacitor.config.json`            | `cap sync ios`  | Gitignored |
+| `App/App/config.xml`                       | `cap sync ios`  | Gitignored |
+| `App/App/public/`                          | `cap sync ios`  | Gitignored |
+
+A pre-build script wired into every target via `project.yml` fails the
+Xcode build with a clear error if `project.yml` is newer than the
+generated `App.xcodeproj/project.pbxproj` — i.e. you pulled a
+`project.yml` change but forgot to regenerate. The fix is always the
+same: `bun run ios:setup` from `clients/web/`.
+
+## First-time setup
+
+From `clients/web/`:
+
+```bash
+bun install            # installs @capacitor/cli and Capacitor plugin deps
+bun run ios:open        # cap sync + xcodegen generate + open Xcode
+```
+
+`bun run ios:open` is idempotent — running it on an already-up-to-date
+tree is a no-op. Two underlying scripts are also available individually:
+
+- `bun run ios:setup` — `cap sync ios` + `xcodegen generate`. Use when
+  you want to run `xcodebuild` headlessly (rare for local dev).
+- `bun run ios:open` — `bun run ios:setup` + `open ../ios/App/App.xcodeproj`.
+  Day-to-day local flow.
+
+First-time open takes ~30s while Xcode resolves the SPM graph and
+caches `capacitor-swift-pm@8.3.4` (pinned exactly in
+`CapApp-SPM/Package.swift`).
+
+> **No `App.xcworkspace`** — CocoaPods-based Capacitor projects ship
+> one; ours uses SPM, so the `.xcodeproj` is the entry point directly.
+
+## Pick a scheme and simulator
+
+When Xcode opens the regenerated project for the first time it picks
+**"App"** alphabetically as the active scheme — that's the production
+target, which is _not_ what you want for local dev.
+
+In the Xcode toolbar:
+
+1. **Scheme dropdown** (left of the run button): pick **App Dev** (or
+   App Staging — see the table below). Xcode
+   stores the choice in `xcuserdata/<user>.xcuserdatad/xcschememanagement.plist`,
+   which is gitignored and survives `xcodegen generate` runs, so you
+   only have to do this once per machine.
+2. **Run-destination dropdown** (right of the scheme): pick a
+   simulator — **iPhone 16 Pro · iOS 18+** is a good default — or
+   plug in a device and select it.
+3. **App target → Signing & Capabilities → Team**: pick **Vocify, Inc.**
+   Xcode auto-generates a local provisioning profile.
+4. **⌘R** to build and run.
+
+Apple's reference for the toolbar controls:
+[Running your app in Simulator or on a device](https://developer.apple.com/documentation/xcode/running-your-app-in-simulator-or-on-a-device).
+
+## Debugging
+
+The app has two layers — the **WKWebView contents** (the React app loaded
+from the configured server URL) and the **native Swift shell** (Capacitor
+bridge, `MyViewController`, the four native plugins). Each has its own
+debugger.
+
+### Safari Web Inspector — for the web side (JS / CSS / network / `console.log`)
+
+This is the one you'll use most. It's full Safari devtools attached to
+the WKWebView, so the Elements panel, Console, Network, Sources,
+debugger, and `console.log` output all work the way they do in a normal
+browser tab.
+
+One-time Safari setup on your Mac:
+
+1. Safari → Settings → **Advanced** → check **"Show features for web
+   developers"** (older macOS: "Show Develop menu in menu bar").
+
+Per-session, with the app running in the simulator (or on a tethered
+device):
+
+1. Safari → **Develop** menu → pick the simulator (e.g. "Simulator —
+   iPhone 16 Pro") or your connected device → click the entry under the
+   app's bundle ID (`…vellum-assistant-ios.dev` for App Dev).
+2. The Web Inspector window opens against the live WebView. Reloading the
+   app, navigating, or `cmd+R`-ing in Xcode all keep working — just
+   reopen the inspector entry from the Develop menu when the WebView
+   reloads.
+
+This works because Capacitor enables `WKWebView.isInspectable` on Debug
+builds automatically ([Capacitor 6+ default](https://capacitorjs.com/docs/ios/troubleshooting#using-safari-web-inspector));
+Release / TestFlight builds are not inspectable, which is intentional.
+
+For a **physical iPhone**:
+
+1. On the phone: Settings → Apps → Safari → Advanced → toggle **Web
+   Inspector** on.
+2. Plug it in via USB and trust the Mac.
+3. The device shows up in Safari's Develop menu the same way the
+   simulator does.
+
+> If the simulator/device shows up in the Develop menu but the app's
+> entry doesn't, the WebView hasn't loaded yet — wait for the splash
+> screen to dismiss, or you're running a Release build (only Debug is
+> inspectable).
+
+### Xcode debugger — for native Swift code
+
+⌘R runs with `lldb` already attached. Click in the gutter next to any
+line in `AppDelegate.swift`, `MyViewController.swift`,
+`NativeAuthPlugin.swift`, `NativeBiometricPlugin.swift`,
+`VoiceAudioSessionPlugin.swift`, or `VoiceLiveActivityPlugin.swift` to set a
+breakpoint.
+
+- **Console / log output**: View → Debug Area → Activate Console (⇧⌘Y),
+  or click the bottom-right console toggle. `print()` and `NSLog()` from
+  Swift show up here, as do Capacitor's plugin-bridge logs.
+- **`console.log` from the web side does NOT appear in the Xcode
+  console** — it goes to Safari Web Inspector only. Don't waste time
+  looking for it here.
+- **Pause on first load**: breakpoint on `capacitorDidLoad()` in
+  `MyViewController.swift` to inspect the bridge state before any plugin
+  has been called.
+- **View hierarchy**: Debug → View Debugging → Capture View Hierarchy
+  shows the native view tree (useful for confirming the WebView is
+  laid out correctly under the notch — though most layout debugging
+  belongs in the Web Inspector, not here).
+
+### Common debugging recipes
+
+- **A native plugin call (`NativeAuth`, `NativeBiometric`,
+  `VoiceAudioSession`, `VoiceLiveActivity`) seems broken**:
+  set a Swift breakpoint in the relevant `@objc func` inside the plugin
+  file and trigger the action from the web app. If the breakpoint never
+  hits, the JS-side `Capacitor.Plugins.NativeAuth` lookup is wrong (check
+  `src/runtime/native-auth.ts` / `native-biometric.ts`). If it hits but
+  doesn't return, step through and check `call.resolve` / `call.reject`.
+- **A streaming/SSE bug only reproduces in the iOS shell**: open Safari
+  Web Inspector → Network → filter for `text/event-stream`. You should
+  see the connection stay open with `data:` frames arriving. If you see
+  the whole response delivered in one chunk, CapacitorHttp has been
+  enabled somewhere (it shouldn't be — see the
+  [CapacitorHttp section](#capacitorhttp-is-deliberately-off)).
+- **The WebView never loads, just a blank green screen**: check the
+  Xcode console for a failed navigation. Common cause is a typo'd
+  `server.url` in `capacitor.config.ts` or `cleartext: true` missing for
+  an HTTP target. The placeholder `capacitor-shell/index.html` is also
+  what flashes briefly before the remote URL paints.
+
+## How it's set up
+
+> **Web-side conventions for iOS code paths**: any change to the web app
+> that might run inside this WKWebView shell needs to follow the patterns
+> in [`clients/web/docs/CAPACITOR.md`](../web/docs/CAPACITOR.md) — Capacitor plugin
+> lazy imports, native auth, deep links, the native voice bridge,
+> autogrowing textareas, streaming watchdogs, OS permission UI, etc.
+> For the native half of voice mode, see
+> [`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md).
+
+### `server.url` mode, not static export
+
+See [Web content delivery](#web-content-delivery) for the full
+what / how / why. The `/assistant` path suffix is deliberate — booting
+on the bare host lands on the marketing page, whose CTA redirects to
+`www.vellum.ai/assistant` and bounces non-prod shells off their own host.
+
+**Do not** switch to a static `vite build` output that bundles web
+assets into the IPA. We deliberately serve from the live web origin
+so SSE streaming, Sentry sourcemaps, auth cookies, and feature flags
+all keep working unchanged.
+
+### CapacitorHttp is deliberately off
+
+We use the native `WKWebView` `fetch` path, not the CapacitorHttp plugin.
+CapacitorHttp intercepts `fetch` and routes through native networking,
+which breaks Server-Sent Events (SSE) streaming — that's how the chat
+experience works. Do not enable it.
+
+### Targets and environments
+
+The Xcode project has three _app_ targets — one per environment. Each has its own
+bundle ID, display name, and icon colour so they can be installed side by
+side on the same device. Each also embeds its own `VoiceActivity` widget
+extension target (`<app bundle id>.VoiceActivity`), so `xcodegen generate`
+produces six targets in total; only the three app schemes are worth
+building, since the extensions build as embedded dependencies. See
+[`docs/NATIVE_VOICE.md`](docs/NATIVE_VOICE.md) for what the extension
+contains and [Signing: two profiles per environment](#signing-two-profiles-per-environment)
+for what it costs at release time.
+
+| Target | Bundle ID | Display Name | Icon | Server |
+|--------|-----------|-------------|------|--------|
+| App | `ai.vocify-inc.vellum-assistant-ios` | Vellum | Green | `www.vellum.ai` |
+| App Staging | `.staging` | Vellum Staging | Yellow | staging server |
+| App Dev | `.dev` | Vellum Dev | Pink | dev server |
+
+Build settings shared across all three targets live in
+`App/App/Config/Base.xcconfig`. Per-target overrides (bundle ID, display
+name, icon) live in `App/App/Config/App-<env>.xcconfig`. Debug-specific
+flags (`OTHER_SWIFT_FLAGS`, `SWIFT_ACTIVE_COMPILATION_CONDITIONS`) live
+inline in `App/project.yml` under the `AppEnvironment` template.
+
+### App icon + launch screen
+
+- `App/App/AppIcon.icon/` is an Icon Composer bundle (green background +
+  white "V"). It uses the same visual design as the macOS app icon
+  source SVG ([`vellum-assistant/clients/macos/build-resources/icons/production/Assets/white-V.svg`](https://github.com/vellum-ai/vellum-assistant/blob/main/clients/macos/build-resources/icons/production/Assets/white-V.svg)),
+  but is its own Icon Composer bundle living in this repo.
+- `AppIcon-Staging.icon` (yellow) and `AppIcon-Dev.icon` (pink) follow
+  the same structure — only the `fill.solid` colour differs.
+- `App/App/Base.lproj/LaunchScreen.storyboard` references the `Splash`
+  imageset in `Assets.xcassets/`. Those 2732×2732 PNGs are a solid green
+  background with a centered white V — same palette as the icon.
+
+### Bundle ID vs capacitor.config appId
+
+There's a deliberate mismatch:
+
+| Where                       | Value                                      |
+| --------------------------- | ------------------------------------------ |
+| Xcode `PRODUCT_BUNDLE_IDENTIFIER` | `ai.vocify-inc.vellum-assistant-ios` ← real one |
+| `capacitor.config.ts` `appId`     | `ai.vocify.vellumassistant`                     |
+
+Capacitor requires `appId` to use Java package form because Android uses it as
+the application namespace. The iOS project is generated from `project.yml`
+after `cap sync`, and its xcconfigs keep the existing hyphenated App Store
+bundle IDs. **Do not align the iOS bundle IDs with `appId`** because doing so
+would require re-provisioning the app. See the inline comment in
+`capacitor.config.ts`.
+
+## Common tasks
+
+### After editing `clients/web/capacitor.config.ts`
+
+```bash
+cd clients/web
+bun run ios:setup
+```
+
+`ios:setup` re-runs `cap sync ios` (regenerating
+`clients/ios/App/App/capacitor.config.json` and the `capacitor-shell/` webDir
+copy in `clients/ios/App/App/public/`) and then `xcodegen generate` to refresh
+`App.xcodeproj/`. All three of those output paths are gitignored.
+
+### Point at a different server (self-hosted origin or local dev)
+
+**HTTPS origin (self-hosted assistant, or any valid-TLS host):** set
+`VELLUM_SERVER_URL` when syncing. It overrides the environment-derived
+Vellum Cloud URL and is baked into `server.url` the same way:
+
+```bash
+cd clients/web
+VELLUM_SERVER_URL=https://your-host.ts.net bunx cap sync ios
+```
+
+Then rebuild in Xcode. The value must be a valid `https:` URL — `cap sync`
+fails loudly otherwise, because iOS App Transport Security requires valid
+TLS and `server.cleartext` stays `false`. Nothing to edit or revert: resync
+without the variable (e.g. `bun run ios:setup`) to return to the environment
+default.
+
+**Plain-HTTP local dev (e.g. a local Next.js on your LAN):** ATS blocks
+cleartext HTTP and `VELLUM_SERVER_URL` is https-only, so this path still
+requires temporarily editing `capacitor.config.ts`:
+
+```ts
+server: {
+  url: "http://192.168.x.x:3000", // your Mac's LAN IP — not localhost
+  cleartext: true,                 // HTTP, not HTTPS
+},
+```
+
+- Use your LAN IP, not `localhost` / `127.0.0.1` — the simulator shares
+  the host's loopback but a device won't
+- `cleartext: true` is needed because iOS App Transport Security blocks
+  HTTP by default
+- Run `bunx cap sync ios`, then rebuild in Xcode
+- **Revert before committing.** The default must remain
+  the dev server URL with `cleartext: false`.
+
+### Add a new Capacitor plugin
+
+`cap sync ios` auto-generates `CapApp-SPM/Package.swift` from the
+installed `@capacitor/*` packages — you **must** commit the resulting
+`Package.swift` change, otherwise the Xcode build will fail for anyone
+who clones fresh. ([Capacitor SPM docs](https://capacitorjs.com/docs/ios/spm))
+
+```bash
+cd clients/web
+bun add @capacitor/<plugin-name>   # adds to package.json + bun.lock
+bun run ios:setup                   # cap sync regenerates Package.swift; xcodegen wires it into the project
+```
+
+Then `git diff clients/ios/App/CapApp-SPM/Package.swift` — you should see
+the new dependency + product. **Commit `package.json`/`bun.lock` and
+`Package.swift` in the same PR.** The regenerated `App.xcodeproj/` is
+gitignored, so don't try to commit it.
+
+### Update Capacitor
+
+Version bumps live in `clients/web/package.json` (`@capacitor/core`, `@capacitor/ios`,
+`@capacitor/cli` — all pinned to exact versions per the repo rule). After
+bumping:
+
+```bash
+cd clients/web
+bun install
+bun run ios:setup
+bunx cap update ios   # only if @capacitor/ios major changed; re-run ios:setup after
+```
+
+`@capacitor/ios` major bumps may require updating the SPM pin in
+`CapApp-SPM/Package.swift` (`exact:` version) — `cap sync` writes
+that for you when the npm package version changes.
+
+## Testing checklist
+
+On first build after pulling:
+
+- [ ] Home-screen icon is Vellum green with a white "V" (not the blue X
+      Capacitor placeholder)
+- [ ] Launch screen briefly flashes green + V
+- [ ] WebView loads the configured server URL and you can sign in
+- [ ] Chat streams token-by-token (verifies SSE is intact — if tokens
+      arrive in one big blob, CapacitorHttp got turned on somewhere)
+- [ ] Photo / file attachments work (exercises the WKWebView file-picker
+      bridge)
+- [ ] Xcode → App target → General → Bundle Identifier reads
+      `ai.vocify-inc.vellum-assistant-ios`
+
+## Gotchas
+
+- **`open App.xcworkspace` doesn't exist** — we're on SPM, not
+  CocoaPods. Use `App.xcodeproj` (regenerated by `bun run ios:setup`).
+- **`error: project.yml is newer than App.xcodeproj`** — pre-build
+  guard fired. Run `bun run ios:setup` from `clients/web/` and rebuild.
+- **actool "no AppIcon stack" error** — `AppIcon.icon` must live at
+  `App/App/AppIcon.icon/` (alongside `Info.plist`), _not_ inside
+  `Assets.xcassets/`. It's wired into `project.yml` as a per-target
+  resource and shows up in the regenerated `project.pbxproj` as a
+  `folder.iconcomposer.icon` reference.
+- **Splash looks stretched** — the storyboard uses `scaleAspectFill`
+  on a 2732×2732 square. On phones this crops horizontally; the
+  centered V stays visible.
+- **`xcuserdata` and `App.xcodeproj/*` changes in `git status`** —
+  expected, both are gitignored. `xcuserdata` is per-user IDE state
+  (selected scheme, breakpoints); `App.xcodeproj/*` is regenerated by
+  xcodegen on every `bun run ios:setup`.
+
+## CI / Release pipeline
+
+iOS builds are produced by `.github/workflows/release-ios.yaml`, a
+reusable workflow called from both `dev-release.yaml` and `release.yml`
+in the same repo. This keeps iOS releases in sync with the macOS
+release pipeline without cross-repo dispatch complexity.
+
+### How it works
+
+There are three release tracks:
+
+**Dev release** — `dev-release.yaml` runs hourly (cron) or via manual
+`workflow_dispatch`. It builds from `main`, and the `release-ios` job
+calls `release-ios.yaml` with `environment=dev`.
+
+**Staging release** — `/release` (slash command) runs `create-release-branch.yml`,
+which creates a `release/v*` branch. Pushing to that branch triggers
+`release.yml` with `is_staging=true`, and the `release-ios` job
+calls `release-ios.yaml` with `environment=staging`. A manual
+`workflow_dispatch` of `release.yml` from `main` also produces a staging release.
+
+**Production release** — A manual `workflow_dispatch` of `release.yml` on
+the `release/v*` branch (not `main`) sets `is_staging=false`, and the
+`release-ios` job calls `release-ios.yaml` with `environment=production`.
+
+```
+dev-release.yaml (hourly / manual)
+  └─ release-ios (uses: release-ios.yaml)
+     environment=dev → builds App Dev → TestFlight
+
+release.yml (push to release/v* or manual dispatch from main)
+  └─ release-ios (uses: release-ios.yaml)
+     environment=staging → builds App Staging → TestFlight
+
+release.yml (manual dispatch on release/v* branch)
+  └─ release-ios (uses: release-ios.yaml)
+     environment=production → builds App → TestFlight
+```
+
+### Workflow
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `release-ios.yaml` | `workflow_call` from release workflows | Automated release builds (dev/staging/production) |
+
+### Environment → scheme mapping
+
+| Environment | Scheme | TestFlight | ExportOptions |
+|-------------|--------|------------|---------------|
+| `production` | App | External + App Store eligible | `app-store-connect` |
+| `staging` | App Staging | Internal only | `app-store-connect` + `testFlightInternalTestingOnly` |
+| `dev` | App Dev | Internal only | `app-store-connect` + `testFlightInternalTestingOnly` |
+
+Non-production builds set
+[`testFlightInternalTestingOnly`](https://developer.apple.com/documentation/xcode/creating-a-workflow-that-builds-your-app-for-distribution)
+in ExportOptions.plist — Apple enforces at the infrastructure level
+that these builds cannot be submitted for external testing or App Store
+review. This is a real Xcode 15+ key ([App Store Connect Help — Add
+internal testers](https://developer.apple.com/help/app-store-connect/test-a-beta-version/add-internal-testers/)).
+The export method stays `app-store-connect` for all environments; only
+the boolean differs.
+
+### Notifications
+
+The workflow uses the `.github/actions/send-build-alert` composite action
+on completion (`if: always()`). Failures surface in `#build-alerts` via
+`SLACK_WEBHOOK_URL`.
+
+### Why no `bun run build` before `cap sync`
+
+No web assets are bundled in the IPA (see
+[Web content delivery](#web-content-delivery)), so no web build step
+is needed before `cap sync`.
+
+### IPA validation before upload
+
+The workflow runs
+[`xcrun altool --validate-app`](https://keith.github.io/xcode-man-pages/altool.7.html)
+before `--upload-package`. This dry-run checks signing, entitlements,
+and App Store Connect requirements without uploading — catching errors
+before consuming the build number.
+
+### Xcode version
+
+Workflows pin `Xcode_26.2.app` via `xcode-select`. This path is
+confirmed on the `macos-15` GitHub Actions runner image
+([runner-images](https://github.com/actions/runner-images)).
+
+### Workflow file conventions
+
+Files are named `.yaml` (not `.yml`) to match the majority convention
+in this repo. The iOS release is a reusable `workflow_call`-only
+workflow called from the release pipelines — it intentionally has no
+`workflow_dispatch` trigger, so all iOS builds flow through the gated
+`release.yml` or `dev-release.yaml` chains. Signing steps are not
+extracted into their own reusable workflow because it's the only iOS
+workflow.
+
+### Signing: two profiles per environment
+
+Each app target embeds a `VoiceActivity` widget extension whose bundle ID
+is prefixed by its host app's (`<app bundle id>.VoiceActivity`). Apple
+treats that appex as its own App ID with its own provisioning profile, so
+**every environment signs with two profiles, not one**: the app's and the
+extension's.
+
+That has three consequences in the pipeline:
+
+- The **install step** writes both profiles into
+  `~/Library/MobileDevice/Provisioning Profiles/` under distinct
+  filenames (`ios_distribution.mobileprovision` and
+  `ios_distribution_ext.mobileprovision`). Writing both to one name
+  silently clobbers the first.
+- **`ExportOptions.plist`** carries a `provisioningProfiles` entry for
+  each bundle ID. `xcodebuild -exportArchive` fails when an embedded
+  extension has no entry, and the error does not name the extension.
+- **`PROVISIONING_PROFILE_SPECIFIER` is not an `xcodebuild` CLI
+  override.** A CLI override applies to every target in the archive,
+  which would push the app profile onto the appex it does not cover.
+  Instead each target's specifier lives in its own xcconfig
+  (`App/App/Config/App*.xcconfig` and `Extension*.xcconfig`), next to the
+  `PRODUCT_BUNDLE_IDENTIFIER` it has to agree with. Those files set
+  `PROVISIONING_PROFILE_SPECIFIER_Manual` and resolve
+  `PROVISIONING_PROFILE_SPECIFIER =
+  $(PROVISIONING_PROFILE_SPECIFIER_$(CODE_SIGN_STYLE))`, so the specifier
+  applies only under the workflow's `CODE_SIGN_STYLE=Manual` override —
+  local Xcode builds stay on automatic signing and see no specifier,
+  which matters because the distribution profiles are not on developer
+  machines.
+
+Profile names are therefore written down in three places that must agree
+character for character: the Apple Developer portal, the xcconfig, and
+the `profile_name` / `ext_profile_name` outputs of the `config` step in
+`release-ios.yaml`. A mismatch fails the build with an unhelpful message.
+
+### Manual Apple Developer portal setup
+
+The extension App IDs and profiles are **not** created by any script —
+an Apple Developer team admin (Vocify, Inc., team `7FZDXZR8P5`) has to
+register them by hand. Until all three environments are done, a release
+build of the affected environment fails while signing or exporting.
+
+> **What happens today, with the secrets absent.** This is expected, not a
+> regression. `release-ios.yaml` does not hard-fail on a missing
+> `IOS_PROVISIONING_PROFILE_EXT*`: "Install provisioning profiles" logs a
+> `::warning::` naming the secret, skips the install, and — kept consistent
+> through the step's `ext_profile_installed` output — omits the extension
+> from `ExportOptions.plist`, since an entry naming an uninstalled profile
+> fails `-exportArchive` on its own.
+>
+> The run still fails, one step later, at **Archive**, with Xcode's own
+> error: `No profile for team '7FZDXZR8P5' matching '<profile name>' found
+> … (in target 'VoiceActivity …')`. That is unavoidable — every app target
+> embeds its extension, and the release archives with
+> `CODE_SIGN_STYLE=Manual`, which never auto-provisions. **No iOS release,
+> of any environment, can be produced until the rows below are done.**
+> Deleting the extension's `PROVISIONING_PROFILE_SPECIFIER_Manual` does not
+> help either; manual signing then fails with `"VoiceActivity …" requires a
+> provisioning profile` instead. The fix is the portal work below, not a
+> workflow change.
+
+| Environment | Extension bundle ID | Profile name (exact) | GitHub secret |
+|-------------|---------------------|----------------------|---------------|
+| production | `ai.vocify-inc.vellum-assistant-ios.VoiceActivity` | `Vellum Assistant iOS VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT` |
+| staging | `ai.vocify-inc.vellum-assistant-ios.staging.VoiceActivity` | `Vellum Assistant iOS Staging VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT_STAGING` |
+| dev | `ai.vocify-inc.vellum-assistant-ios.dev.VoiceActivity` | `Vellum Assistant iOS Dev VoiceActivity Distribution` | `IOS_PROVISIONING_PROFILE_EXT_DEV` |
+
+Repeat these steps once per row (start with **dev** — it is the only
+track that releases hourly, so it is the fastest way to prove the setup):
+
+1. **Register the App ID.** [Certificates, Identifiers &
+   Profiles](https://developer.apple.com/account/resources/identifiers/list)
+   → **Identifiers** → **+** → **App IDs** → **App**. Set
+   **Bundle ID** to **Explicit** and paste the exact string from the
+   table. Description can be anything descriptive
+   (e.g. "Vellum Assistant iOS Dev VoiceActivity"). **Enable no
+   capabilities** — the extension deliberately ships no entitlements
+   file (no App Group, no push; see the comment at the top of
+   `App/App/Config/Extension-Base.xcconfig`), and a capability enabled
+   here produces a profile the build cannot satisfy. **Register**.
+2. **Create the distribution profile.** **Profiles** → **+** →
+   **Distribution → App Store Connect** → pick the App ID from step 1 →
+   pick the Apple Distribution certificate that matches the
+   `DIST_CERTIFICATE_P12` secret → **Provisioning Profile Name**: type
+   the profile name from the table exactly, including capitalisation and
+   spacing → **Generate** → **Download**.
+3. **Base64-encode it**, matching how the existing profile secrets are
+   stored (the workflow pipes the secret through `base64 -D`):
+
+   ```bash
+   base64 -i ~/Downloads/<downloaded>.mobileprovision | pbcopy
+   ```
+
+4. **Add the GitHub secret.** Repo **Settings → Secrets and variables →
+   Actions → New repository secret**. Name it exactly as in the table,
+   paste the clipboard contents. Use the same scope as the existing
+   `IOS_PROVISIONING_PROFILE*` secrets.
+5. **Nothing to do in App Store Connect.** The extension ships inside
+   its host app's record — it gets no app record and no
+   `APPLE_APP_ID_*` of its own.
+
+Once all three rows are done, verify end to end by dispatching
+`dev-release.yaml`, downloading the `ios-ipa-dev` artifact, and checking
+that the appex is signed with the *extension* profile:
+
+```bash
+unzip -q ios-ipa-dev.zip && unzip -q *.ipa
+codesign -dvvv "Payload/App Dev.app/PlugIns/VoiceActivity Dev.appex" 2>&1 | grep -i profile
+```
+
+> **Profiles expire after one year.** Renewal is the same loop:
+> regenerate in the portal under the identical name, re-encode, update
+> the secret. Nothing in the repo changes.
+
+### Secrets (GitHub Actions)
+
+All iOS signing secrets are stored as GitHub Actions secrets:
+
+- `DIST_CERTIFICATE_P12` / `DIST_CERTIFICATE_PASSWORD` — Apple Distribution certificate
+- `APPLE_TEAM_ID` — Vocify, Inc. team ID
+- `ASC_KEY_P8` (base64-encoded) / `ASC_KEY_ID` / `ASC_ISSUER_ID` — App Store Connect API key for [`xcrun altool`](https://keith.github.io/xcode-man-pages/altool.1.html) uploads. The workflow `base64 -D` decodes `ASC_KEY_P8` before writing the `.p8` file.
+- `IOS_PROVISIONING_PROFILE` — Production provisioning profile (App Store Distribution)
+- `IOS_PROVISIONING_PROFILE_STAGING` / `_DEV` — Per-environment profiles
+- `IOS_PROVISIONING_PROFILE_EXT` / `_EXT_STAGING` / `_EXT_DEV` — Per-environment profiles for the embedded `VoiceActivity` widget extension. See [Manual Apple Developer portal setup](#manual-apple-developer-portal-setup).
+- `APPLE_APP_ID_PROD` / `_STAGING` / `_DEV` — Numeric App Store Connect app IDs (e.g. `123456789`), passed as `--apple-id` to [`xcrun altool --upload-package`](https://keith.github.io/xcode-man-pages/altool.7.html). Each environment has its own ASC app record with its own ID.
+- `SLACK_WEBHOOK_URL` — Slack incoming webhook for `#build-alerts` notifications
+
+## Structure
+
+The iOS shell lives as a peer of `clients/web/`, not nested inside it.
+`capacitor.config.ts` in `clients/web/` points at it via `ios.path: "../ios"`,
+so `cd clients/web && bunx cap sync ios` writes generated files into
+`clients/ios/`.
+
+```
+clients/
+├── web/
+│   ├── capacitor.config.ts           # Capacitor config (edit this); ios.path: "../ios"
+│   ├── capacitor-shell/
+│   │   └── index.html                # Placeholder webDir (unused at runtime)
+│   └── package.json                  # @capacitor/* deps + ios:setup / ios:open scripts
+└── ios/
+    ├── .gitignore                    # Ignores Pods, DerivedData, xcuserdata,
+    │                                 # generated capacitor.config.json, etc.
+    ├── docs/
+    │   └── NATIVE_VOICE.md           # Live Activity, App Intents, deep links
+    ├── App/
+    │   ├── App.xcodeproj/            # Open this in Xcode
+    │   │   └── xcshareddata/xcschemes/  # Shared schemes for all 3 targets
+    │   ├── App/
+    │   │   ├── Config/               # xcconfig files (Base + per-target)
+    │   │   ├── AppIcon.icon/         # Production icon (green)
+    │   │   ├── AppIcon-Staging.icon/  # Staging icon (yellow)
+    │   │   ├── AppIcon-Dev.icon/      # Dev icon (pink)
+    │   │   ├── Assets.xcassets/      # Splash imageset lives here
+    │   │   ├── Base.lproj/           # LaunchScreen.storyboard, Main.storyboard
+    │   │   ├── AppDelegate.swift     # Universal Links + APNs token forwarding
+    │   │   ├── MyViewController.swift  # CAPBridgeViewController subclass
+    │   │   ├── NativeAuthPlugin.swift  # ASWebAuthenticationSession OIDC flow
+    │   │   ├── NativeBiometricPlugin.swift # Face ID / Touch ID Keychain
+    │   │   ├── VoiceAudioSessionPlugin.swift # AVAudioSession for live voice
+    │   │   ├── VoiceLiveActivityPlugin.swift # Dynamic Island for live voice
+    │   │   ├── Intents/              # App Intents + AppShortcutsProvider
+    │   │   ├── Shared/               # Compiled into app + widget extension
+    │   │   └── Info.plist
+    │   ├── VoiceActivity/            # WidgetKit extension: Live Activity
+    │   │                             # presentations + Control Center control
+    │   └── CapApp-SPM/               # SPM local package: pulls in @capacitor/ios
+    │                                 # and any Capacitor plugin native deps
+    └── debug.xcconfig                # Sets CAPACITOR_DEBUG for Debug builds
+```

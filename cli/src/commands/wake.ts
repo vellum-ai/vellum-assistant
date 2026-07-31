@@ -9,19 +9,36 @@ import {
 import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
 import {
   leaseGuardianToken,
-  loadGuardianToken,
   resetGuardianBootstrap,
   seedGuardianTokenFromSiblingEnv,
 } from "../lib/guardian-token.js";
-import { resolveProcessState, stopProcessByPidFile } from "../lib/process";
+import {
+  probeDaemonReadinessWithRetry,
+  waitForDaemonMigrationsReady,
+} from "../lib/http-client.js";
+import {
+  isProcessAlive,
+  resolveProcessState,
+  stopProcessByPidFile,
+} from "../lib/process";
 import {
   generateLocalSigningKey,
   isAssistantWatchModeAvailable,
   isGatewayWatchModeAvailable,
+  startCes,
   startLocalDaemon,
   startGateway,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
+import {
+  isAssistantFeatureFlagEnabled,
+  WEB_REMOTE_INGRESS_FLAG,
+} from "../lib/feature-flags.js";
+import { loadRawConfig } from "../lib/ingress-config.js";
+import {
+  isIngressRunning,
+  startRemoteWebIngress,
+} from "../lib/nginx-ingress.js";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -43,7 +60,7 @@ export async function wake(): Promise<void> {
       "  --foreground   Run assistant in foreground with logs printed to terminal",
     );
     console.log(
-      "  --repair-guardian  Re-provision the guardian token if missing (resets the\n" +
+      "  --repair-guardian  Force-re-provision the guardian token (resets the\n" +
         "                     gateway bootstrap and re-leases — REVOKES other device-bound\n" +
         "                     tokens, so only use deliberately, never from auto-repair)",
     );
@@ -109,13 +126,23 @@ export async function wake(): Promise<void> {
 
   const pidFile = getDaemonPidPath(resources);
 
+  // Budget anchor for the migration-coordination wait below: the host
+  // wrapper (packages/local-mode/src/wake.ts WAKE_TIMEOUT_MS) SIGTERMs wake
+  // after 180s, and the hung-daemon health wait + post-spawn wait + gateway
+  // start can already consume most of that.
+  const wakeStartedAt = Date.now();
+
   let daemonRunning = false;
+  let daemonUnready = false;
+  let daemonMigrationsFailed = false;
   const daemonState = await resolveProcessState(
     pidFile,
     resources.daemonPort,
     "Assistant",
+    60_000,
+    "readyz",
   );
-  if (daemonState.status === "healthy") {
+  if (daemonState.status !== "needs_start") {
     if (watch && isAssistantWatchModeAvailable()) {
       console.log(
         `Assistant running (pid ${daemonState.pid}) — restarting in watch mode...`,
@@ -123,9 +150,19 @@ export async function wake(): Promise<void> {
       await stopProcessByPidFile(pidFile, "assistant");
     } else {
       daemonRunning = true;
+      daemonUnready = daemonState.status !== "healthy";
+      daemonMigrationsFailed = daemonState.status === "migration_failed";
       if (watch) {
         console.log(
           `Assistant running (pid ${daemonState.pid}) — watch mode not available (no source files). Keeping existing process.`,
+        );
+      } else if (daemonMigrationsFailed) {
+        console.log(
+          `Assistant running (pid ${daemonState.pid}) but its database migrations failed.`,
+        );
+      } else if (daemonUnready) {
+        console.log(
+          `Assistant running (pid ${daemonState.pid}) — database migrations still running.`,
         );
       } else {
         console.log(`Assistant already running (pid ${daemonState.pid}).`);
@@ -177,10 +214,41 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
-    await startLocalDaemon(watch, resources, { foreground, signingKey });
+    // Spin up CES and the daemon in parallel, the way the Docker topology
+    // brings its sibling containers up together — the assistant polls for the
+    // CES socket during startup (discoverCesWithRetry), so it tolerates CES
+    // still binding. CES's lifecycle tracks the daemon (its only consumer):
+    // restarting it under a live daemon would sever the daemon's open
+    // connection, so it is only (re)started alongside the daemon. startCes
+    // always launches the CES sibling unconditionally.
+    await Promise.all([
+      startCes(watch, resources),
+      startLocalDaemon(watch, resources, { foreground, signingKey }),
+    ]);
+    // startLocalDaemon's post-spawn wait is bounded (60s) — a longer
+    // migration outlives it. Classify the fresh spawn the same way the
+    // attach path does, so the gateway-coordination wait below applies to
+    // both paths and wake's closing summary stays honest.
+    const readiness = await probeDaemonReadinessWithRetry(resources.daemonPort);
+    daemonUnready = readiness === "migrating";
+    daemonMigrationsFailed = readiness === "failed";
+  } else {
+    // Self-heal: the daemon is already healthy, but the CES sibling may have
+    // died independently (crash, OOM kill). A dead ces.pid under a live daemon
+    // means credential operations will fail until the next wake. Relaunch the
+    // sibling so the daemon's lazy reconnect (secure-keys.ts) picks it up on
+    // the next credential read. startCes always launches the sibling.
+    const vellumDir = join(resources.instanceDir, ".vellum");
+    const cesPidFile = join(vellumDir, "ces.pid");
+    const cesAlive = isProcessAlive(cesPidFile).alive;
+    if (!cesAlive) {
+      console.log("CES sibling not running — relaunching...");
+      await startCes(watch, resources);
+    }
   }
 
   // Start gateway
+  let gatewayStarted = false;
   {
     const vellumDir = join(resources.instanceDir, ".vellum");
     const gatewayPidFile = join(vellumDir, "gateway.pid");
@@ -207,6 +275,7 @@ export async function wake(): Promise<void> {
         signingKey,
         bootstrapSecret,
       });
+      gatewayStarted = true;
     } else if (gatewayAlive) {
       if (watch && isGatewayWatchModeAvailable()) {
         console.log(
@@ -214,6 +283,7 @@ export async function wake(): Promise<void> {
         );
         await stopProcessByPidFile(gatewayPidFile, "gateway");
         await startGateway(watch, resources, { signingKey, bootstrapSecret });
+        gatewayStarted = true;
       } else {
         if (watch) {
           console.log(
@@ -225,6 +295,32 @@ export async function wake(): Promise<void> {
       }
     } else {
       await startGateway(watch, resources, { signingKey, bootstrapSecret });
+      gatewayStarted = true;
+    }
+  }
+
+  // A freshly-(re)started gateway refuses all non-probe traffic until the
+  // daemon reports migration readiness, so consumers that act right after
+  // wake (the web connect-repair retry, the guardian re-provision below)
+  // would hit its closed gate. When the daemon is migrating AND the gateway
+  // was just started (or a guardian repair was requested), wait out the
+  // migration — capped at 60s and at whatever budget remains before the
+  // 180s host-wrapper SIGTERM (30s headroom kept), since earlier bounded
+  // waits may already have consumed most of it. Fast path (gateway already
+  // serving, no repair) stays ~1s.
+  if (
+    daemonUnready &&
+    !daemonMigrationsFailed &&
+    (gatewayStarted || repairGuardian)
+  ) {
+    const waitBudgetMs = Math.min(60_000, wakeStartedAt + 150_000 - Date.now());
+    if (waitBudgetMs > 0) {
+      const readiness = await waitForDaemonMigrationsReady(
+        resources.daemonPort,
+        Date.now() + waitBudgetMs,
+      );
+      daemonUnready = readiness !== "ready";
+      daemonMigrationsFailed = readiness === "failed";
     }
   }
 
@@ -238,8 +334,11 @@ export async function wake(): Promise<void> {
     console.log("   Seeded guardian token from sibling environment.");
   }
 
-  // Last-resort recovery (explicit `--repair-guardian` only): if no guardian
-  // token exists for this env even after sibling seeding, re-provision one. The
+  // Last-resort recovery (explicit `--repair-guardian` only): force a
+  // re-provision. Token health can't be judged locally — a connect can 401
+  // off a token whose local expiry looks fine (revoked, mis-seeded, wrong
+  // principal) — and the user explicitly confirmed the destructive repair,
+  // so guessing "looks healthy, skip" just recreates the no-op loop. The
   // single-use bootstrap secret may already be spent — a prior connect can
   // lease a token that's then lost, or the gateway marks the secret consumed
   // before the client persists it — which otherwise bricks connect into a
@@ -248,13 +347,17 @@ export async function wake(): Promise<void> {
   // by the lockfile secret — mirrors the macOS client's forceReBootstrap), then
   // re-lease. Gated behind the flag because the re-lease revokes other
   // device-bound tokens; it must never run from the automatic repair path.
-  if (repairGuardian && !loadGuardianToken(entry.assistantId)) {
+  if (repairGuardian) {
     const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         await resetGuardianBootstrap(loopbackUrl, bootstrapSecret);
-        await leaseGuardianToken(loopbackUrl, entry.assistantId, bootstrapSecret);
+        await leaseGuardianToken(
+          loopbackUrl,
+          entry.assistantId,
+          bootstrapSecret,
+        );
         console.log("   Re-provisioned guardian token.");
         break;
       } catch (err) {
@@ -264,6 +367,11 @@ export async function wake(): Promise<void> {
           console.warn(
             `   Guardian token re-provision failed after ${maxAttempts} attempts: ${err}`,
           );
+          // The user explicitly confirmed this destructive repair — a
+          // success exit here would make callers (the web recovery flow)
+          // treat a repair that never ran as done and drop their cached
+          // gateway token. Surface the failure through the exit code.
+          process.exitCode = 1;
         }
       }
     }
@@ -280,6 +388,26 @@ export async function wake(): Promise<void> {
     writeFileSync(ngrokPidFile, String(ngrokChild.pid));
   }
 
+  // Restore the nginx web ingress edge when the workspace config still wants
+  // it. A TLS-terminating front (tailscale serve / tunnel) persists across
+  // restarts and keeps proxying to the edge's loopback port, but the edge has
+  // a manual lifecycle — so a routine restart otherwise leaves the self-hosted
+  // remote-web path dead (502 / blank page) until someone runs it back up.
+  await restoreWebIngressIfEnabled(
+    entry.assistantId,
+    resources.gatewayPort,
+    workspaceDir,
+  );
+
+  if (daemonMigrationsFailed) {
+    console.log(
+      "Assistant database migrations FAILED — DB-backed routes will return 503 until the assistant is restarted. Check the daemon logs.",
+    );
+  } else if (daemonUnready) {
+    console.log(
+      "Assistant is still running database migrations; DB-backed routes return 503 until they finish.",
+    );
+  }
   console.log("Wake complete.");
 
   if (foreground) {
@@ -294,5 +422,145 @@ export async function wake(): Promise<void> {
       });
       process.on("SIGTERM", () => resolve());
     });
+  }
+}
+
+/**
+ * Retry policy for the flag probe that gates the web-ingress restore. The
+ * gateway has typically been up for milliseconds at this point and answers
+ * `503 {"status":"starting"}` (or refuses connections) until its startup
+ * completes, so a single probe races it. Mutable so tests can shrink the
+ * window.
+ */
+export const WEB_INGRESS_FLAG_RETRY = {
+  attempts: 15,
+  intervalMs: 2_000,
+};
+
+/**
+ * Probe the `web-remote-ingress` flag, riding out the gateway's startup
+ * window: transient failures retry on an interval until the attempt budget is
+ * spent, then the last error propagates to the caller's warn path.
+ */
+async function verifyWebIngressFlagWithRetry(
+  assistantId: string,
+  gatewayPort: number,
+): Promise<boolean> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= WEB_INGRESS_FLAG_RETRY.attempts; attempt++) {
+    try {
+      return await isAssistantFeatureFlagEnabled(
+        assistantId,
+        WEB_REMOTE_INGRESS_FLAG,
+        { runtimeUrl: `http://127.0.0.1:${gatewayPort}` },
+      );
+    } catch (err) {
+      lastError = err;
+      if (attempt === 1) {
+        console.log(
+          "   Waiting for the gateway before restoring the web ingress edge...",
+        );
+      }
+      if (attempt < WEB_INGRESS_FLAG_RETRY.attempts) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, WEB_INGRESS_FLAG_RETRY.intervalMs),
+        );
+      }
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Bring the nginx web ingress edge back up after a wake when the workspace
+ * config still wants it. Only restores when ingress is explicitly enabled with
+ * a saved public URL and the `web-remote-ingress` flag is on — the edge is
+ * pointless without the flag, so a disabled flag skips quietly with a hint.
+ *
+ * Reads the same workspace config the edge serves. Any failure to restore
+ * warns with the manual `vellum nginx-ingress up` command and never fails the
+ * wake — a down edge is a degraded remote-web path, not a broken assistant.
+ */
+async function restoreWebIngressIfEnabled(
+  assistantId: string,
+  gatewayPort: number,
+  workspaceDir: string,
+): Promise<void> {
+  const config = loadRawConfig(workspaceDir);
+  const ingress = config.ingress as
+    | { enabled?: unknown; publicBaseUrl?: unknown }
+    | undefined;
+  const enabled = ingress?.enabled === true;
+  const publicBaseUrl =
+    typeof ingress?.publicBaseUrl === "string"
+      ? ingress.publicBaseUrl.trim()
+      : "";
+  if (!enabled || !publicBaseUrl) {
+    return;
+  }
+
+  // The edge already survived (or was manually brought back) — nothing to do.
+  if (isIngressRunning(workspaceDir)) {
+    return;
+  }
+
+  let flagEnabled: boolean;
+  try {
+    flagEnabled = await verifyWebIngressFlagWithRetry(assistantId, gatewayPort);
+  } catch (err) {
+    console.warn(
+      `   Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` flag to restore the web ingress edge; leaving it down. Bring it up manually with \`vellum nginx-ingress up\`. ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return;
+  }
+  if (!flagEnabled) {
+    console.log(
+      `   Web ingress edge not restored: the \`${WEB_REMOTE_INGRESS_FLAG}\` flag is off. Enable it and run \`vellum nginx-ingress up\` to serve remote web access.`,
+    );
+    return;
+  }
+
+  try {
+    const result = await startRemoteWebIngress({
+      workspaceDir,
+      gatewayPort,
+      onStarting: ({ listenPort }) => {
+        console.log(
+          `Restoring web ingress edge on 127.0.0.1:${listenPort} (ingress.enabled)...`,
+        );
+      },
+    });
+    switch (result.status) {
+      case "started":
+        console.log(
+          `   Web ingress edge running: http://127.0.0.1:${result.listenPort}`,
+        );
+        break;
+      case "already-running":
+        break;
+      case "nginx-missing":
+        console.warn(
+          "   Could not restore the web ingress edge: nginx is not installed. Bring it up manually with `vellum nginx-ingress up`.",
+        );
+        break;
+      case "web-dist-missing":
+        console.warn(
+          "   Could not restore the web ingress edge: built web assets were not found. Bring it up manually with `vellum nginx-ingress up`.",
+        );
+        break;
+      case "unreachable":
+        console.warn(
+          `   Web ingress edge did not become reachable on 127.0.0.1:${result.listenPort}; check ${result.logPath}. Bring it up manually with \`vellum nginx-ingress up\`.`,
+        );
+        break;
+    }
+  } catch (err) {
+    console.warn(
+      `   Failed to restore the web ingress edge: ${
+        err instanceof Error ? err.message : String(err)
+      }. Bring it up manually with \`vellum nginx-ingress up\`.`,
+    );
   }
 }

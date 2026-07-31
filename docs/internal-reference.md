@@ -125,7 +125,7 @@ See [`assistant/docs/architecture/security.md`](../assistant/docs/architecture/s
 #### Credential References
 
 When using `credential_ids` in proxied shell commands, you can use either format:
-- **UUID**: The canonical credential ID (shown in `credential_store list` output and `store`/`prompt` success messages)
+- **UUID**: The canonical credential ID (shown in `assistant credentials list` output and `set`/`prompt` success messages)
 - **service/field**: A human-readable reference like `fal/api_key`
 
 Unknown references fail immediately with a clear error before the command executes.
@@ -154,9 +154,9 @@ Requests that match zero session credentials are handled in two ways: if the tar
 
 If a proxied command receives a 401 or 403 despite having the correct credential stored:
 
-1. **Check the credential reference**: Run `credential_store list` and verify the credential ID or `service/field` matches what you're passing to `credential_ids`.
+1. **Check the credential reference**: Run `assistant credentials list` and verify the credential ID or `service/field` matches what you're passing to `credential_ids`.
 2. **Check host pattern matching**: The credential's `hostPattern` must match the target host. A wildcard pattern `*.example.com` matches `api.example.com` and the bare domain `example.com`. An exact pattern `api.example.com` only matches that specific host.
-3. **Check for ambiguity**: If two credentials match the same host with equal specificity, injection is blocked. Use `credential_store list` to check for overlapping patterns.
+3. **Check for ambiguity**: If two credentials match the same host with equal specificity, injection is blocked. Use `assistant credentials list` to check for overlapping patterns.
 4. **Check the header template**: Ensure the credential has an `injectionTemplate` with `injectionType: "header"` and the correct `headerName` (e.g., `Authorization`) and `valuePrefix` (e.g., `Bearer `).
 5. **Enable debug logging**: Set `LOG_LEVEL=debug` to see decision traces from the policy engine and rewrite callback, including which patterns matched and which credential was selected.
 
@@ -325,7 +325,7 @@ The assistant can attach files and images to its replies. Attachments flow throu
 
 #### Desktop (HTTP+SSE)
 
-Attachments are sent inline (base64) in `message_complete`, `generation_handoff`, and `history_response` SSE events. The macOS app renders thumbnails for images and displays file metadata for documents.
+Attachments are sent inline (base64) in `message_complete` and `generation_handoff` SSE events; historical attachments are returned by the HTTP conversation-history route. The macOS app renders thumbnails for images and displays file metadata for documents.
 
 #### Runtime HTTP API
 
@@ -535,7 +535,7 @@ VELLUM_DAEMON_URL=http://localhost:8741 open -a Vellum
 
 ### Claude Code Workflow
 
-This repo includes Claude Code slash commands (in `.claude/commands/`) for agent-driven development.
+This repo includes Claude Code slash commands for agent-driven development. Most are shared from the [`claude-skills`](https://github.com/vellum-ai/claude-skills) repo via symlinks; repo-local commands live in `.claude/skills/<name>/` as local skill directories (see `.claude/README.md`).
 
 #### Single-task commands
 
@@ -584,8 +584,8 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 | Command | Purpose |
 |---------|---------|
 | `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
-| `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
-| `/triage [user\|assistant\|device]` | Search Sentry for recent errors and log reports by user, assistant, or device across both `vellum-assistant-brain` and `vellum-assistant-macos` projects, then cross-reference with Linear issues to produce a triage summary. |
+| `/release [bump]` | Cut a release in two steps: dispatch `create-release-branch.yml` (cuts `release/vX.Y.Z` from main → staging bake), then after the bake is green dispatch `release.yml` on the release branch for the full production release. |
+| `/triage [user\|assistant\|device]` | Search Sentry for recent errors and log reports by user, assistant, or device in the `vellum-assistant-brain` project, then cross-reference with Linear issues to produce a triage summary. |
 | `/update` | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary. |
 
 #### Review
@@ -611,79 +611,68 @@ All workflows use squash-merge (no merge commits), worktree isolation for parall
 
 ### Release Management
 
-Releases are cut using the `/release` Claude Code command and follow a fully automated pipeline from tag to client update.
+Releases are cut using the `/release` Claude Code command and follow a two-step pipeline: a branch cut with a staging bake, then a production dispatch on the release branch.
 
 #### Cutting a release
 
-Run `/release [version]` in Claude Code. If no version is provided, the patch version is auto-incremented from the latest git tag (e.g. `v0.1.5` becomes `v0.1.6`). The command:
+Run `/release [patch|minor|major|hotfix]` in Claude Code. The command:
 
-1. Pulls the latest `main` branch
-2. Generates release notes from commits since the last tag, grouped into Features, Fixes, and Infrastructure
-3. Creates a GitHub Release with the corresponding git tag
-4. Confirms the CI build was triggered
+1. Pulls the latest `main` branch and shows the commits the release will carry
+2. Dispatches `create-release-branch.yml` with the bump type. The workflow computes the version from the latest tag, deletes any stale `release/vX.Y.Z` branch, cuts a fresh one from `main` HEAD with the version-bump commit ("Release vX.Y.Z"), and pushes it — which triggers a **staging** `Release` run on the branch (push-triggered and main-dispatched `Release` runs are always staging; the scheduled Tue/Fri 8:52am ET cut is this same step)
+3. Waits for the staging bake to succeed — it is the CI bake for the exact release payload; a failure means fixing `main` and re-cutting
+4. Dispatches `release.yml` on `release/vX.Y.Z` — "manual dispatch on a release branch" is the **full production release**: tags `vX.Y.Z`, publishes npm packages, builds/signs/notarizes and publishes the macOS DMG, pushes Docker Hub images, uploads iOS to TestFlight, creates the GitHub Release, updates the `vellum-assistant-platform` dependency, and merges the release branch back to `main`
+
+A lingering `release/vX.Y.Z` branch with no matching GitHub Release means a scheduled cut was never promoted to production; re-running step 2 refreshes it from current `main`.
 
 #### What happens after a release is created
 
 Creating the GitHub Release triggers three workflows in parallel:
 
-- **Build and Release macOS App** (`build-and-release-macos.yml`): Builds the macOS `.app` from source, compiles the Bun assistant binary, code-signs it with a Developer ID certificate, notarizes it with Apple, creates a DMG installer, and publishes both the DMG and a Sparkle-compatible ZIP + `appcast.xml` to the releases on [vellum-ai/vellum-assistant](https://github.com/vellum-ai/vellum-assistant). This takes ~15-20 minutes.
+- **Build Electron macOS App** (`build-electron` job in `release.yml`): Builds the Electron `.app` for each architecture, code-signs it with a Developer ID certificate, notarizes it with Apple, creates a DMG installer, and publishes the per-arch update artifacts to the Google Cloud Storage generic feed at `mac-electron/{channel}/{arch}/`. The arm64 DMG is also attached to the GitHub Release as `vellum-assistant.dmg`.
 - **Publish velly to npm** (`publish-velly.yml`): Publishes the `velly` CLI package to npm with provenance.
 - **Slack Release Notification** (`slack-release-notification.yml`): Posts a summary message to the releases Slack channel with a threaded changelog.
 
 #### Auto-updates for macOS clients
 
-The macOS app uses [Sparkle](https://sparkle-project.org/) for automatic updates. When a new release is published to the public updates repo, existing client installations detect the update via the `appcast.xml` feed, download the new version, and install it automatically — no manual action required from users. The update check happens periodically in the background while the app is running.
+The macOS app updates via [`electron-updater`](https://www.electron.build/auto-update), which polls the GCS generic feed at `mac-electron/{arch}/`. Existing installations detect a newer version, download it in the background, and install it on the next launch. The feed is independent of GitHub Release assets.
 
 #### First-time installation
 
-New users download the latest DMG from the [releases page](https://github.com/vellum-ai/vellum-assistant/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by Sparkle.
+New users download `vellum-assistant.dmg` from the [releases page](https://github.com/vellum-ai/vellum-assistant/releases/latest), open it, and drag the app to their Applications folder. All subsequent updates are handled automatically by `electron-updater`.
 
 ---
 
 ## Telephony STT Architecture
 
-Telephony speech-to-text is driven by the unified `services.stt.provider` configuration. The voice webhook generates provider-conditional TwiML at call setup time, selecting between two Twilio integration paths based on the active STT provider's capabilities.
+Telephony speech-to-text is driven by the unified `services.stt.provider` configuration. Every call connects over Twilio Media Streams: the voice webhook emits `<Connect><Stream>` TwiML, and the daemon transcribes the raw mu-law audio itself.
 
 ### Overview
 
-The telephony STT routing resolver (`assistant/src/calls/telephony-stt-routing.ts`) reads `services.stt.provider` from config and maps it to a discriminated strategy:
+The media-stream STT session (`assistant/src/calls/media-stream-stt-session.ts`) selects a transcription mode once per call:
 
-- **`conversation-relay-native`** — Providers natively supported by Twilio ConversationRelay (Deepgram, Google). TwiML emits `<Connect><ConversationRelay>` with `transcriptionProvider` and `speechModel` attributes. Twilio handles audio ingestion and transcription; the daemon receives transcribed text.
+- **Streaming** (default) — when `calls.voice.telephonyStreaming` is enabled and the configured provider resolves a streaming transcriber (`resolveStreamingTranscriber()`), inbound audio is decoded (mu-law → PCM16, resampled 8 kHz → 16 kHz) and fed to the provider's realtime adapter. Replies trigger only on utterance-boundary finals; barge-in fires from local energy VAD, never from transcriber partials.
 
-- **`media-stream-custom`** — Providers not natively supported by Twilio (OpenAI Whisper). TwiML emits `<Connect><Stream>` pointing to the daemon's media-stream server. Raw audio flows from Twilio through the gateway's WebSocket proxy to the daemon, which transcribes server-side via the provider's batch API.
+- **Batch fallback** — otherwise turns are segmented with the energy-based `MediaTurnDetector` and each completed turn is transcribed via the provider's batch API.
 
-Both paths share the same `CallController`, `voice-session-bridge`, and `RunOrchestrator` pipeline downstream of transcription. The only difference is where audio-to-text conversion happens (Twilio-side vs daemon-side).
+Both modes share the same `CallController`, `voice-session-bridge`, and `RunOrchestrator` pipeline downstream of transcription.
 
-### Provider-Conditional Routing
-
-| `services.stt.provider` | Strategy                    | TwiML Element                  | Audio Path                                         |
-| ------------------------ | --------------------------- | ------------------------------ | -------------------------------------------------- |
-| `deepgram`               | `conversation-relay-native` | `<Connect><ConversationRelay>` | Twilio transcribes natively; daemon receives text   |
-| `google-gemini`          | `conversation-relay-native` | `<Connect><ConversationRelay>` | Twilio transcribes natively; daemon receives text   |
-| `openai-whisper`         | `media-stream-custom`       | `<Connect><Stream>`            | Raw audio to daemon; server-side batch transcription |
-| `xai`                    | `media-stream-custom`       | `<Connect><Stream>`            | Raw audio to daemon; server-side batch transcription |
-
-Model normalization for Twilio-native providers:
-- Deepgram defaults `speechModel` to `"nova-3"` when unset.
-- Google leaves `speechModel` undefined when unset. The legacy Deepgram default `"nova-3"` is treated as unset for Google so workspaces that switched providers do not send a Deepgram model name to Google's API.
+A credential preflight (`resolveTelephonyCredentialReadiness()` in `assistant/src/calls/telephony-credential-preflight.ts`) gates every call: it requires a credentialed, telephony-capable STT provider and a media-stream-playable TTS provider. Inbound calls that fail the preflight receive `<Say>` setup-required copy plus `<Hangup/>`; outbound placement fails before dialing via `preflightVoiceIngress()`.
 
 Workspace migration `034-remove-calls-voice-transcription-provider` preserves existing Google STT preferences from the former `calls.voice.transcriptionProvider` key into `services.stt.provider`.
 
 ### Troubleshooting Matrix
 
-| Symptom | Likely Provider | Check | Expected Log |
-| ------- | --------------- | ----- | ------------ |
-| Call connects but no transcription | Deepgram / Google | Verify Deepgram or Google API key is configured in credential store | `[twilio-routes] telephony STT strategy resolved: conversation-relay-native` |
-| Call connects, TTS works, but STT silent | OpenAI Whisper | Verify OpenAI API key is configured; check media-stream server is reachable via gateway | `[twilio-routes] telephony STT strategy resolved: media-stream-custom` |
-| TwiML error / call drops immediately | Any | Check `services.stt.provider` is a recognized catalog entry | `[twilio-routes] unknown STT provider — cannot resolve telephony routing` |
-| Deepgram transcription uses wrong model | Deepgram | The routing resolver defaults Deepgram to `nova-3`; custom model overrides are set via `services.stt.providers.deepgram` config | `speechModel="nova-3"` in TwiML output |
-| Google transcription sends Deepgram model | Google | Model normalization should suppress `nova-3` for Google; verify migration 034 ran | `speechModel` attribute absent from TwiML |
-| Media-stream WebSocket fails to connect | OpenAI Whisper | Verify gateway `/webhooks/twilio/media-stream` route is deployed and reachable | `[gateway] media-stream WebSocket proxy connected` |
-| Audio heard but transcription garbled | OpenAI Whisper | Check audio transcode pipeline (`media-stream-audio-transcode.ts`); verify sample rate matches provider expectations | `[media-stream-stt-session] transcription result` |
+| Symptom | Check | Where to Look |
+| ------- | ----- | ------------- |
+| Inbound call answers with "setup required" and hangs up | STT or TTS credentials missing — the credential preflight failed | `telephony_credential_preflight_failed` call event with the `missing` provider details |
+| Outbound call fails before dialing | Same preflight; the tool error names the missing provider credential | Calling tool result / `preflightVoiceIngress()` failure message |
+| Call connects, TTS works, but STT silent | Verify the configured STT provider's API key; check the media-stream server is reachable via gateway | `media-stream-stt-session` logs |
+| Media-stream WebSocket fails to connect | Verify gateway `/webhooks/twilio/media-stream` route is deployed and reachable | `[gateway] media-stream WebSocket proxy connected` |
+| Audio heard but transcription garbled | Check audio transcode pipeline (`media-stream-audio-transcode.ts`); verify sample rate matches provider expectations | `[media-stream-stt-session] transcription result` |
 
 ### Twilio Media-Stream Troubleshooting
 
-This section covers debugging media-stream calls that use the `media-stream-custom` STT strategy (OpenAI Whisper). The media-stream path handles raw audio ingestion, speech-aware turn segmentation, and server-side transcription.
+This section covers debugging media-stream calls. The media-stream path handles raw audio ingestion, speech-aware turn segmentation, and daemon-side transcription.
 
 #### Key Log Markers
 
@@ -733,10 +722,10 @@ For full architectural details, see the "Conversation streaming boundary" sectio
 ### Architecture Summary
 
 ```
-macOS/iOS Client                     Gateway                              Daemon (Runtime)
+Web/Electron Client                  Gateway                              Daemon (Runtime)
 ─────────────────                    ───────                              ────────────────
-STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  http-server.ts /v1/stt/stream
-  (URLSessionWebSocketTask)    (edge JWT auth → service token)     (SttStreamSession)
+dictation-stream.ts ──WSS──>  stt-stream-websocket.ts  ──WS──>  http-server.ts /v1/stt/stream
+  (WebSocket)                  (edge JWT auth → service token)     (SttStreamSession)
                                                                         │
                                                             resolveStreamingTranscriber()
                                                                         │
@@ -764,7 +753,7 @@ STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  
 
 #### 1. Verify provider supports streaming
 
-Check the configured STT provider in the assistant's config (`services.stt.provider`). All four providers (`deepgram`, `google-gemini`, `openai-whisper`, and `xai`) support conversation streaming. The client checks `STTProviderRegistry.isStreamingAvailable` before opening a WebSocket — if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted.
+Check the configured STT provider in the assistant's config (`services.stt.provider`). All four providers (`deepgram`, `google-gemini`, `openai-whisper`, and `xai`) support conversation streaming. The client checks streaming availability before opening a WebSocket — if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted.
 
 #### 2. Verify credentials are configured
 
@@ -879,14 +868,14 @@ Daemon: WS close 1000
 Client -> Gateway: WSS upgrade with invalid/expired edge JWT
 Gateway: "STT stream WS: authentication failed"
 Gateway -> Client: HTTP 401 Unauthorized (no WebSocket upgrade)
-Client: STTStreamFailure.rejected(statusCode: 401)
+Client: stream failure reported (statusCode 401)
 Client: Falls back to batch STT path
 ```
 
 **Unsupported provider (hypothetical provider with `conversationStreamingMode: "none"`):**
 
 ```
-Client: STTProviderRegistry.isStreamingAvailable -> false (provider has conversationStreamingMode "none")
+Client: streaming availability -> false (provider has conversationStreamingMode "none")
 Client: Does not open WebSocket; uses batch STT path directly
 ```
 
@@ -898,7 +887,7 @@ Deepgram -> Daemon: WS close 1008 (auth error)
 Daemon: "Deepgram realtime session closed unexpectedly" code=1008
 Daemon -> Client: {"type":"error","category":"auth","message":"Deepgram WebSocket closed (code=1008, ...)","seq":N}
 Daemon -> Client: {"type":"closed","seq":N+1}
-Client: streamingFailed = true / isStreamingActive = false
+Client: marks stream failed / inactive
 Client: Falls back to batch STT on recording stop
 ```
 
@@ -906,7 +895,7 @@ Client: Falls back to batch STT on recording stop
 
 | Symptom | Likely cause | Diagnosis |
 | --- | --- | --- |
-| No streaming session opened | Provider has `conversationStreamingMode: "none"` or STT not configured | Check `services.stt.provider` config; check `STTProviderRegistry.isStreamingAvailable` |
+| No streaming session opened | Provider has `conversationStreamingMode: "none"` or STT not configured | Check `services.stt.provider` config; check client streaming availability |
 | `ready` event never received | Gateway cannot reach daemon, or daemon failed to start transcriber | Check gateway logs for upstream connection errors; check daemon logs for `"Failed to start STT stream session"` |
 | Auth failure (HTTP 401 before upgrade) | Expired or invalid edge JWT; no `Authorization` header or `token` query param | Check gateway `stt-stream-ws` logs for `"authentication failed"` with reason |
 | Partials but no final (Deepgram) | Deepgram session closed before client sent `stop` | Check for `"Deepgram realtime session closed unexpectedly"` or `"inactivity timeout"` |
@@ -944,4 +933,4 @@ Use this checklist when rolling out conversation STT streaming to macOS and iOS.
 - [ ] Verify no regressions in voice mode (OpenAIVoiceService) -- voice mode does not use conversation streaming.
 - [ ] Verify gateway logs show `"Upstream STT stream WS connected"` for each streaming session.
 - [ ] Verify daemon logs show `"STT stream session started"` with the correct provider.
-- [ ] Verify no `<ConversationRelay>` or telephony STT paths are affected by conversation streaming changes.
+- [ ] Verify telephony media-stream STT paths are not affected by conversation streaming changes.

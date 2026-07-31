@@ -5,13 +5,23 @@ import {
 } from "node:https";
 import { Readable } from "node:stream";
 
-import type { WebFetchMetadata } from "../../daemon/message-types/web-activity.js";
+import { getConfig } from "../../config/loader.js";
+import type {
+  WebFetchMetadata,
+  WebFetchProviderId,
+} from "../../daemon/message-types/web-activity.js";
 import { RiskLevel } from "../../permissions/types.js";
+import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { faviconUrlForDomain } from "../../util/favicon.js";
 import { getLogger } from "../../util/logger.js";
+import {
+  DEFAULT_BASE_DELAY_MS,
+  DEFAULT_MAX_RETRIES,
+  getHttpRetryDelay,
+  sleep,
+} from "../../util/retry.js";
 import { safeStringSlice } from "../../util/unicode.js";
-import { registerTool } from "../registry.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -34,6 +44,8 @@ import {
 } from "./url-safety.js";
 
 const log = getLogger("web-fetch");
+
+const FIRECRAWL_SCRAPE_API_URL = "https://api.firecrawl.dev/v2/scrape";
 
 const DEFAULT_TIMEOUT_SECONDS = 20;
 const MAX_TIMEOUT_SECONDS = 60;
@@ -96,7 +108,9 @@ function clampInteger(
   min: number,
   max: number,
 ): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return defaultValue;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return defaultValue;
+  }
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
@@ -109,7 +123,9 @@ function decodeUrlCredential(value: string): string {
 }
 
 function buildAuthorizationHeader(url: URL): string | undefined {
-  if (!url.username && !url.password) return undefined;
+  if (!url.username && !url.password) {
+    return undefined;
+  }
   const username = decodeUrlCredential(url.username);
   const password = decodeUrlCredential(url.password);
   const encoded = Buffer.from(`${username}:${password}`, "utf8").toString(
@@ -163,7 +179,9 @@ const RESPONSE_STATUS_MIN = 200;
 const RESPONSE_STATUS_MAX = 599;
 
 function toConstructableStatus(status: number): number {
-  if (status === RESPONSE_STATUS_SWITCHING_PROTOCOLS) return status;
+  if (status === RESPONSE_STATUS_SWITCHING_PROTOCOLS) {
+    return status;
+  }
   if (status >= RESPONSE_STATUS_MIN && status <= RESPONSE_STATUS_MAX) {
     return status;
   }
@@ -300,9 +318,13 @@ const defaultRequestExecutor: WebFetchRequestExecutor = async (
 };
 
 function isTextLikeContentType(contentType: string): boolean {
-  if (!contentType) return true;
+  if (!contentType) {
+    return true;
+  }
   const mimeType = parseMimeType(contentType);
-  if (!mimeType) return true;
+  if (!mimeType) {
+    return true;
+  }
   return TEXT_LIKE_CONTENT_TYPES.some((pattern) => {
     if (pattern.endsWith("/")) {
       return mimeType.startsWith(pattern);
@@ -331,13 +353,17 @@ function decodeHtmlEntities(text: string): string {
     (match, entity: string) => {
       if (entity.startsWith("#x") || entity.startsWith("#X")) {
         const value = Number.parseInt(entity.slice(2), 16);
-        if (Number.isNaN(value) || value < 0 || value > 0x10ffff) return match;
+        if (Number.isNaN(value) || value < 0 || value > 0x10ffff) {
+          return match;
+        }
         return String.fromCodePoint(value);
       }
 
       if (entity.startsWith("#")) {
         const value = Number.parseInt(entity.slice(1), 10);
-        if (Number.isNaN(value) || value < 0 || value > 0x10ffff) return match;
+        if (Number.isNaN(value) || value < 0 || value > 0x10ffff) {
+          return match;
+        }
         return String.fromCodePoint(value);
       }
 
@@ -390,9 +416,13 @@ function extractFirstMatch(
   captureGroup = 1,
 ): string | undefined {
   const match = regex.exec(text);
-  if (!match) return undefined;
+  if (!match) {
+    return undefined;
+  }
   const captured = match[captureGroup];
-  if (typeof captured !== "string") return undefined;
+  if (typeof captured !== "string") {
+    return undefined;
+  }
   const value = normalizeText(decodeHtmlEntities(captured));
   return value || undefined;
 }
@@ -411,9 +441,13 @@ function parseHtmlTitle(html: string): string | undefined {
   // Bound the search to the first 200KB to avoid scanning huge bodies.
   const searchRegion = safeStringSlice(html, 0, 200_000);
   const match = /<title[^>]*>([^<]+)<\/title>/i.exec(searchRegion);
-  if (!match) return undefined;
+  if (!match) {
+    return undefined;
+  }
   const decoded = decodeHtmlEntities(match[1]).trim();
-  if (!decoded) return undefined;
+  if (!decoded) {
+    return undefined;
+  }
   return safeStringSlice(decoded, 0, MAX_TITLE_CHARS);
 }
 
@@ -477,8 +511,12 @@ async function readResponseText(
 
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
+    if (done) {
+      break;
+    }
+    if (!value) {
+      continue;
+    }
 
     const nextTotal = total + value.byteLength;
     if (nextTotal > maxBytes) {
@@ -531,8 +569,11 @@ function formatWebFetchOutput(params: {
   markdownTokens?: string;
 }): string {
   let mode = "extracted";
-  if (params.markdown) mode = "markdown";
-  else if (params.raw) mode = "raw";
+  if (params.markdown) {
+    mode = "markdown";
+  } else if (params.raw) {
+    mode = "raw";
+  }
 
   const lines: string[] = [
     `Requested URL: ${params.requestedUrl}`,
@@ -614,6 +655,7 @@ export async function executeWebFetch(
         webFetch: {
           url: safeUrl,
           finalUrl: safeFinalUrl,
+          provider: "default",
           status: meta.status ?? 0,
           contentType: meta.contentType,
           byteCount: 0,
@@ -774,7 +816,9 @@ export async function executeWebFetch(
       const location = response.headers.get("location");
       const isRedirect =
         upstreamStatus >= 300 && upstreamStatus < 400 && !!location;
-      if (!isRedirect) break;
+      if (!isRedirect) {
+        break;
+      }
 
       if (redirectCount >= MAX_REDIRECTS) {
         return buildErrorResult(
@@ -932,10 +976,14 @@ export async function executeWebFetch(
     }
     // Detect likely JS-rendered SPAs: text is absolutely tiny, or a non-trivial
     // HTML payload compresses to almost nothing (a shell page whose meaningful
-    // content is painted after fetch + document.body rewrite).
+    // content is painted after fetch + document.body rewrite). The ratio arm
+    // also requires a small absolute yield — markup-heavy pages (e.g. GitHub)
+    // extract at <5% while still producing thousands of chars of complete text.
     const lowAbsolute = processed.length < 200;
     const lowRatio =
-      body.bytesRead >= 10_000 && processed.length / body.bytesRead < 0.05;
+      processed.length < 5_000 &&
+      body.bytesRead >= 10_000 &&
+      processed.length / body.bytesRead < 0.05;
     const mayRequireJavaScript = html && !rawMode && (lowAbsolute || lowRatio);
     if (mayRequireJavaScript) {
       const pct =
@@ -972,6 +1020,7 @@ export async function executeWebFetch(
     const meta: WebFetchMetadata = {
       url: safeRequestedUrl,
       finalUrl: sanitizeUrlForOutput(currentUrl),
+      provider: "default",
       status: getUpstreamStatus(response),
       contentType: contentType || undefined,
       byteCount: body.bytesRead,
@@ -1029,6 +1078,363 @@ export async function executeWebFetch(
   }
 }
 
+// ----------------------------------------------------------------------------
+// Provider abstraction
+//
+// `web_fetch` defaults to the built-in fetcher above (`executeWebFetch`). When
+// `services.web-fetch.provider` selects a BYOK provider (e.g. `firecrawl`),
+// the tool routes through that provider's hosted API instead — which can read
+// JavaScript-rendered pages the static fetcher can't. The provider's stored
+// key is shared with its web-search counterpart (one `firecrawl` key powers
+// both tools). The dispatcher falls back to the built-in fetcher when the
+// provider has no key, or when the target is a private/local host the hosted
+// scraper can't reach.
+// ----------------------------------------------------------------------------
+
+interface FirecrawlScrapeMetadata {
+  title?: string;
+  description?: string;
+  sourceURL?: string;
+  url?: string;
+  statusCode?: number;
+  contentType?: string;
+  error?: string;
+}
+
+interface FirecrawlScrapeResponse {
+  success?: boolean;
+  data?: {
+    markdown?: string;
+    metadata?: FirecrawlScrapeMetadata;
+    warning?: string | null;
+  };
+  warning?: string | null;
+  error?: string;
+}
+
+function getWebFetchProvider(): WebFetchProviderId {
+  const configured = getConfig().services["web-fetch"]?.provider ?? "default";
+  return configured === "firecrawl" ? "firecrawl" : "default";
+}
+
+/**
+ * Decide whether a request may be routed to the hosted Firecrawl provider.
+ *
+ * Posting a URL to Firecrawl sends its path + query (which can hold secrets) to
+ * a third party, so we apply the SAME safety gate as the built-in fetcher
+ * BEFORE dispatching — not just the lexical host check:
+ *   - only http(s) URLs (Firecrawl can't do other schemes anyway),
+ *   - never `allow_private_network` requests (those are intentionally local;
+ *     Firecrawl can't reach them and the built-in path owns that mode),
+ *   - and a DNS resolution check so a public hostname that resolves to a
+ *     private/blocked address (e.g. `internal.example` → 10.x.x.x) is NOT
+ *     leaked to Firecrawl.
+ * Anything that fails falls back to the built-in fetcher, which enforces its
+ * own SSRF rules and returns the appropriate error.
+ */
+async function canRouteToFirecrawl(
+  input: Record<string, unknown>,
+): Promise<boolean> {
+  if (input.allow_private_network === true) {
+    return false;
+  }
+  const parsed = parseUrl(input.url);
+  if (!parsed) {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return false;
+  }
+  if (isPrivateOrLocalHost(parsed.hostname)) {
+    return false;
+  }
+  try {
+    const resolution = await resolveRequestAddress(
+      parsed.hostname,
+      resolveHostAddresses,
+      false,
+    );
+    if (resolution.blockedAddress || resolution.addresses.length === 0) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+function firecrawlErrorResult(
+  requestedUrl: string,
+  startedAt: number,
+  errorMessage: string,
+  status = 0,
+): ToolExecutionResult {
+  const domain = extractDomain(requestedUrl);
+  return {
+    content: `Error: ${errorMessage}`,
+    isError: true,
+    activityMetadata: {
+      webFetch: {
+        url: requestedUrl,
+        finalUrl: requestedUrl,
+        provider: "firecrawl",
+        status,
+        byteCount: 0,
+        charCount: 0,
+        truncated: false,
+        domain,
+        faviconUrl: faviconUrlForDomain(domain),
+        redirectCount: 0,
+        durationMs: Date.now() - startedAt,
+        errorMessage,
+      },
+    },
+  };
+}
+
+/**
+ * Fetch a page via Firecrawl's hosted `/v2/scrape` endpoint, returning clean
+ * markdown. Mirrors the built-in fetcher's output shape (same
+ * {@link formatWebFetchOutput} and {@link WebFetchMetadata}) so the model and
+ * client UIs can't tell which backend served the page apart from
+ * `metadata.provider`.
+ *
+ * Exported for direct unit testing; the registered tool dispatches here via
+ * {@link getWebFetchProvider}.
+ */
+export async function executeFirecrawlScrape(
+  input: Record<string, unknown>,
+  options: { apiKey: string; signal?: AbortSignal },
+): Promise<ToolExecutionResult> {
+  const startedAt = Date.now();
+  const parsedUrl = parseUrl(input.url);
+  const targetUrl =
+    parsedUrl?.href ?? (typeof input.url === "string" ? input.url : "");
+  const safeRequestedUrl = parsedUrl
+    ? sanitizeUrlForOutput(parsedUrl)
+    : sanitizeUrlStringForOutput(targetUrl);
+
+  if (!targetUrl) {
+    return firecrawlErrorResult(
+      safeRequestedUrl,
+      startedAt,
+      "url is required and must be a valid HTTP(S) URL",
+    );
+  }
+
+  // Never forward URL-embedded credentials (user:password@host) to the hosted
+  // Firecrawl API. The built-in fetcher turns them into a Basic-auth header to
+  // the target; Firecrawl can't, so reject rather than leak them to a third
+  // party.
+  if (parsedUrl?.username || parsedUrl?.password) {
+    return firecrawlErrorResult(
+      safeRequestedUrl,
+      startedAt,
+      "URLs with embedded credentials are not supported by the Firecrawl provider. Remove the user:password@ portion of the URL.",
+    );
+  }
+
+  const maxChars = clampInteger(
+    input.max_chars,
+    DEFAULT_MAX_CHARS,
+    1,
+    MAX_MAX_CHARS,
+  );
+  const startIndex = clampInteger(input.start_index, 0, 0, 10_000_000);
+  const timeoutSeconds = clampInteger(
+    input.timeout_seconds,
+    DEFAULT_TIMEOUT_SECONDS,
+    1,
+    MAX_TIMEOUT_SECONDS,
+  );
+
+  const requestBody = {
+    url: targetUrl,
+    formats: ["markdown"],
+    onlyMainContent: true,
+    timeout: timeoutSeconds * 1000,
+  };
+
+  for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(FIRECRAWL_SCRAPE_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${options.apiKey}`,
+          "X-Client-Source": "vellum-assistant",
+        },
+        body: JSON.stringify(requestBody),
+        signal: options.signal,
+      });
+    } catch (err) {
+      if (
+        options.signal?.aborted ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
+        return firecrawlErrorResult(
+          safeRequestedUrl,
+          startedAt,
+          "web fetch was cancelled",
+        );
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      return firecrawlErrorResult(
+        safeRequestedUrl,
+        startedAt,
+        `Firecrawl scrape failed: ${msg}`,
+      );
+    }
+
+    if (response.ok) {
+      let json: FirecrawlScrapeResponse;
+      try {
+        json = (await response.json()) as FirecrawlScrapeResponse;
+      } catch {
+        return firecrawlErrorResult(
+          safeRequestedUrl,
+          startedAt,
+          "Firecrawl scrape returned an invalid JSON payload.",
+          response.status,
+        );
+      }
+      const data = json.data ?? {};
+      const fcMeta = data.metadata ?? {};
+      // A 200 can still carry a payload-level failure (success:false, a
+      // top-level error, or a per-page error in data.metadata). Surface it
+      // instead of treating an empty body as a successful "no content" scrape.
+      const payloadError = json.error ?? fcMeta.error;
+      if (json.success === false || payloadError) {
+        return firecrawlErrorResult(
+          safeRequestedUrl,
+          startedAt,
+          payloadError ?? "Firecrawl scrape failed.",
+          response.status,
+        );
+      }
+      const processed = normalizeMarkdown(
+        (data.markdown ?? "").replace(/\0/g, ""),
+      );
+
+      const safeStart = Math.min(startIndex, processed.length);
+      const safeEnd = Math.min(processed.length, safeStart + maxChars);
+      const sliced = processed.slice(safeStart, safeEnd);
+      const bytesRead = Buffer.byteLength(processed, "utf8");
+
+      const finalUrlRaw = fcMeta.url ?? fcMeta.sourceURL ?? targetUrl;
+      const finalUrl = sanitizeUrlStringForOutput(finalUrlRaw);
+      const status = fcMeta.statusCode ?? 200;
+      const contentType = fcMeta.contentType ?? "text/markdown";
+
+      const notices: string[] = [];
+      const warning = data.warning ?? json.warning;
+      if (warning) {
+        notices.push(`Firecrawl: ${warning}`);
+      }
+      if (safeEnd < processed.length) {
+        notices.push(`Output truncated by max_chars=${maxChars}.`);
+      }
+      if (startIndex > processed.length) {
+        notices.push(
+          `start_index (${startIndex}) exceeded available content length (${processed.length}).`,
+        );
+      }
+
+      const content = formatWebFetchOutput({
+        requestedUrl: safeRequestedUrl,
+        finalUrl,
+        status,
+        statusText: "",
+        contentType,
+        bytesRead,
+        totalChars: processed.length,
+        startIndex: safeStart,
+        endIndex: safeEnd,
+        content: sliced,
+        title: fcMeta.title,
+        description: fcMeta.description,
+        notices,
+        raw: false,
+        markdown: true,
+      });
+
+      const finalDomain = extractDomain(finalUrl);
+      const meta: WebFetchMetadata = {
+        url: safeRequestedUrl,
+        finalUrl,
+        provider: "firecrawl",
+        status,
+        contentType,
+        byteCount: bytesRead,
+        charCount: sliced.length,
+        truncated: safeEnd < processed.length,
+        title: fcMeta.title,
+        domain: finalDomain,
+        faviconUrl: faviconUrlForDomain(finalDomain),
+        redirectCount: 0,
+        durationMs: Date.now() - startedAt,
+      };
+
+      return {
+        content,
+        isError: false,
+        status: notices.length > 0 ? notices.join("\n") : undefined,
+        activityMetadata: { webFetch: meta },
+      };
+    }
+
+    const bodyText = await response.text();
+
+    if (response.status === 401 || response.status === 403) {
+      return firecrawlErrorResult(
+        safeRequestedUrl,
+        startedAt,
+        "Invalid or expired Firecrawl API key",
+        response.status,
+      );
+    }
+
+    if (response.status === 429 && attempt < DEFAULT_MAX_RETRIES) {
+      const delayMs = getHttpRetryDelay(
+        response,
+        attempt,
+        DEFAULT_BASE_DELAY_MS,
+      );
+      log.warn(
+        { attempt: attempt + 1, delayMs },
+        "Firecrawl scrape rate limited, retrying",
+      );
+      await sleep(delayMs);
+      continue;
+    }
+
+    log.warn(
+      { status: response.status, body: safeStringSlice(bodyText, 0, 200) },
+      "Firecrawl scrape API error",
+    );
+    const errorMessage =
+      response.status === 429
+        ? "Firecrawl scrape rate limit exceeded after retries. Try again shortly."
+        : response.status === 402
+          ? "Firecrawl scrape failed: account balance/credits exhausted."
+          : `Firecrawl scrape API returned status ${response.status}`;
+    return firecrawlErrorResult(
+      safeRequestedUrl,
+      startedAt,
+      errorMessage,
+      response.status,
+    );
+  }
+
+  return firecrawlErrorResult(
+    safeRequestedUrl,
+    startedAt,
+    "Firecrawl scrape rate limit exceeded after retries. Try again shortly.",
+    429,
+  );
+}
+
 export const webFetchTool = {
   name: "web_fetch",
   description:
@@ -1076,8 +1482,22 @@ export const webFetchTool = {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
+    if (
+      getWebFetchProvider() === "firecrawl" &&
+      (await canRouteToFirecrawl(input))
+    ) {
+      const apiKey = await getProviderKeyAsync("firecrawl");
+      if (apiKey) {
+        return executeFirecrawlScrape(input, {
+          apiKey,
+          signal: context.signal,
+        });
+      }
+      log.info(
+        "web_fetch provider is firecrawl but no API key is configured; falling back to the built-in fetcher",
+      );
+      // Fall through to the built-in fetcher.
+    }
     return executeWebFetch(input, { signal: context.signal });
   },
 } satisfies ToolDefinition;
-
-registerTool(webFetchTool);

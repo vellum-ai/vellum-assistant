@@ -26,7 +26,13 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   gemini: "GEMINI_API_KEY",
   fireworks: "FIREWORKS_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
+  "vercel-ai-gateway": "AI_GATEWAY_API_KEY",
   minimax: "MINIMAX_API_KEY",
+  atlascloud: "ATLASCLOUD_API_KEY",
+  together: "TOGETHER_API_KEY",
+  litellm: "LITELLM_API_KEY",
+  baseten: "BASETEN_API_KEY",
+  poolside: "POOLSIDE_API_KEY",
 };
 
 /** Search-provider env var names. Mirrors `SEARCH_PROVIDER_CATALOG` BYOK entries. */
@@ -34,6 +40,8 @@ export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   perplexity: "PERPLEXITY_API_KEY",
   brave: "BRAVE_API_KEY",
   tavily: "TAVILY_API_KEY",
+  firecrawl: "FIRECRAWL_API_KEY",
+  keenable: "KEENABLE_API_KEY",
 };
 
 /**

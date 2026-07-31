@@ -10,11 +10,12 @@ export { type SyncChangedEvent, SyncChangedEventSchema };
 export const SYNC_TAGS = {
   assistantAvatar: "assistant:self:avatar",
   assistantIdentity: "assistant:self:identity",
-  assistantIdentityIntro: "assistant:self:identity-intro",
   assistantConfig: "assistant:self:config",
   assistantSounds: "assistant:self:sounds",
   assistantSchedules: "assistant:self:schedules",
+  assistantTheme: "assistant:self:theme",
   appsList: "apps:list",
+  pluginsList: "plugins:list",
   conversationsList: "conversations:list",
   featureFlagsClient: "feature-flags:client",
   featureFlagsAssistant: "feature-flags:assistant",
@@ -58,5 +59,3 @@ export function buildSyncChangedMessage(
     ...(trimmedOrigin ? { originClientId: trimmedOrigin } : {}),
   });
 }
-
-export type _SyncInvalidationServerMessages = SyncChangedEvent;

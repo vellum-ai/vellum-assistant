@@ -1,7 +1,9 @@
+import { LOCAL_ASSISTANT_ID } from "../../assistant-id.js";
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import { credentialKey } from "../../credential-key.js";
 import { getLogger } from "../../logger.js";
+import { resolveAdmissionPolicy } from "../../risk/admission-policy-cache.js";
 import {
   CircuitBreakerOpenError,
   forwardTwilioVoiceWebhook,
@@ -53,12 +55,26 @@ export function createTwilioVoiceWebhookHandler(
 
     // For inbound calls (no callSessionId in the URL), resolve the assistant
     // by the "To" phone number, then fall through to the standard routing
-    // chain (defaultAssistantId / unmapped policy).
+    // chain.
     const url = new URL(req.url);
     const hasCallSessionId = !!url.searchParams.get("callSessionId");
     let assistantId: string | undefined;
 
     if (!hasCallSessionId) {
+      // `no_one` kill switch — mirrors handle-inbound.ts. Only inbound is
+      // gated; outbound assistant-initiated calls are never kill-switched.
+      const phonePolicy = resolveAdmissionPolicy("phone");
+      if (phonePolicy === "no_one") {
+        log.info(
+          { callSid: params.CallSid, from: params.From, to: params.To },
+          "Inbound voice call hard-denied by admission policy 'no_one'",
+        );
+        return new Response(REJECT_TWIML, {
+          status: 200,
+          headers: TWIML_HEADERS,
+        });
+      }
+
       const phoneRouting = params.To
         ? resolveAssistantByPhoneNumber(config, params.To, caches?.configFile)
         : undefined;
@@ -70,39 +86,36 @@ export function createTwilioVoiceWebhookHandler(
           "Resolved assistant by phone number for inbound call",
         );
       } else {
-        // Phone-number lookup missed — fall through to standard routing so
-        // defaultAssistantId / unmapped policy is respected, instead of
-        // silently forwarding with no assistant ID.
+        // Phone-number lookup missed — fall through to standard routing
+        // instead of silently forwarding with no assistant ID.
         const fallbackRouting = resolveAssistant(
           config,
-          params.From || "",
-          params.From || "",
+          params.From,
+          params.From,
         );
 
         if (isRejection(fallbackRouting)) {
-          log.warn(
-            {
-              from: params.From,
-              to: params.To,
-              reason: fallbackRouting.reason,
-            },
-            "Inbound voice call rejected by routing — no phone number match and unmapped policy rejects",
+          // The only rejection resolveAssistant produces is a missing
+          // identity, which here means a caller-ID-withheld (anonymous) call.
+          // Voice lines are intentionally open, so answer it on the local
+          // assistant rather than dropping it; the callee is still protected
+          // by the `phone` admission floor checked above.
+          assistantId = LOCAL_ASSISTANT_ID;
+          log.info(
+            { to: params.To },
+            "Anonymous inbound call routed to the local assistant",
           );
-          return new Response(REJECT_TWIML, {
-            status: 200,
-            headers: TWIML_HEADERS,
-          });
+        } else {
+          assistantId = fallbackRouting.assistantId;
+          log.info(
+            {
+              assistantId,
+              routeSource: fallbackRouting.routeSource,
+              from: params.From,
+            },
+            "Resolved assistant via fallback routing for inbound call",
+          );
         }
-
-        assistantId = fallbackRouting.assistantId;
-        log.info(
-          {
-            assistantId,
-            routeSource: fallbackRouting.routeSource,
-            from: params.From,
-          },
-          "Resolved assistant via fallback routing for inbound call",
-        );
       }
 
       // ── Gateway-owned voice verification ────────────────────────────

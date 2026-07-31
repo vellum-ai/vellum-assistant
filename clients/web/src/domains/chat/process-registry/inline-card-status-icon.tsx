@@ -1,0 +1,66 @@
+import { AlertCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
+
+import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
+import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
+
+/**
+ * Shared five-state status indicator for the inline process cards, consumed by
+ * the generic {@link InlineProcessCard}.
+ *
+ * Renders the full five-state mapping:
+ *   - `loading`  → pulsing {@link ThreeDotIndicator} (no `data-state`)
+ *   - `complete` → green {@link CheckCircle2}
+ *   - `warning`  → amber {@link AlertTriangle} (e.g. a cancelled-but-completed
+ *     run = partial work — distinct from a red error)
+ *   - `denied` / `error` → red {@link AlertCircle}
+ *
+ * Terminal icons carry `data-state` so the detail panel and tests can read the
+ * settled state; the running indicator has none. Icons are `aria-hidden` — the
+ * card's open affordance owns the accessible label.
+ */
+export const INLINE_CARD_STATUS_TESTID = "inline-card-status-indicator";
+
+export function InlineCardStatusIcon({
+  state,
+}: {
+  state: ToolProgressCardState;
+}) {
+  switch (state) {
+    case "loading":
+      return (
+        <ThreeDotIndicator
+          data-testid={INLINE_CARD_STATUS_TESTID}
+          className="shrink-0"
+        />
+      );
+    case "complete":
+      return (
+        <CheckCircle2
+          data-testid={INLINE_CARD_STATUS_TESTID}
+          aria-hidden="true"
+          data-state="complete"
+          className="h-[14px] w-[14px] shrink-0 text-[var(--system-positive-strong)]"
+        />
+      );
+    case "warning":
+      return (
+        <AlertTriangle
+          data-testid={INLINE_CARD_STATUS_TESTID}
+          aria-hidden="true"
+          data-state="warning"
+          className="h-[14px] w-[14px] shrink-0 text-[var(--system-mid-strong)]"
+        />
+      );
+    case "denied":
+    case "error":
+    default:
+      return (
+        <AlertCircle
+          data-testid={INLINE_CARD_STATUS_TESTID}
+          aria-hidden="true"
+          data-state={state}
+          className="h-[14px] w-[14px] shrink-0 text-[var(--system-negative-strong)]"
+        />
+      );
+  }
+}

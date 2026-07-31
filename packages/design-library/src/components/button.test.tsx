@@ -228,10 +228,10 @@ describe("Button class output", () => {
     const html = renderToStaticMarkup(
       <Button variant="ghost" size="compact" iconOnly={<svg />} aria-label="a" />,
     );
-    expect(html).toContain("max-md:h-10");
-    expect(html).toContain("max-md:w-10");
-    expect(html).toContain("max-md:rounded-full");
-    expect(html).toContain("max-md:size-4");
+    expect(html).toContain("touch-mobile:h-10");
+    expect(html).toContain("touch-mobile:w-10");
+    expect(html).toContain("touch-mobile:rounded-full");
+    expect(html).toContain("touch-mobile:size-4");
   });
 
   test("expandOnMobile={false} keeps an icon-only button compact on mobile", () => {
@@ -244,15 +244,32 @@ describe("Button class output", () => {
         aria-label="a"
       />,
     );
-    // Desktop sizing/chrome is preserved on mobile — none of the max-md
-    // expansion classes are emitted.
-    expect(html).not.toContain("max-md:h-10");
-    expect(html).not.toContain("max-md:w-10");
-    expect(html).not.toContain("max-md:rounded-full");
-    expect(html).not.toContain("max-md:size-4");
+    // Desktop sizing is preserved — none of the touch-mobile expansion
+    // classes are emitted.
+    expect(html).not.toContain("touch-mobile:h-10");
+    expect(html).not.toContain("touch-mobile:w-10");
+    expect(html).not.toContain("touch-mobile:rounded-full");
+    expect(html).not.toContain("touch-mobile:size-4");
     // The compact desktop dimensions still apply.
     expect(html).toContain("h-6");
     expect(html).toContain("w-6");
+  });
+
+  test("link variant renders inline with no height, padding, or border-radius", () => {
+    const html = renderToStaticMarkup(<Button variant="link">Skip</Button>);
+    expect(html).toContain("[--vbtn-fg:var(--content-link)]");
+    expect(html).toContain("h-auto");
+    expect(html).toContain("p-0");
+    expect(html).toContain("rounded-none");
+    expect(html).toContain("hover:underline");
+    expect(html).not.toContain("h-8");
+    expect(html).not.toContain("px-2.5");
+  });
+
+  test("link variant inherits parent font size instead of applying its own", () => {
+    const html = renderToStaticMarkup(<Button variant="link">Link</Button>);
+    expect(html).toContain("text-[length:inherit]");
+    expect(html).toContain("leading-[inherit]");
   });
 
   test("no raw hex colors appear in rendered output", () => {
@@ -263,6 +280,7 @@ describe("Button class output", () => {
         <Button variant="danger">D</Button>
         <Button variant="dangerOutline">DO</Button>
         <Button variant="ghost">G</Button>
+        <Button variant="link">L</Button>
       </div>,
     );
     expect(html).not.toMatch(/#[0-9A-Fa-f]{6}\b/);

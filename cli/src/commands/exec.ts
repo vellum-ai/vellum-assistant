@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 
-import { resolveAssistant, resolveCloud } from "../lib/assistant-config";
+import { resolveAssistant } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
 import type { ServiceName } from "../lib/docker";
 import { execAppleContainer } from "../lib/exec-apple-container";
@@ -153,7 +153,7 @@ export async function exec(): Promise<void> {
     process.exit(1);
   }
 
-  const cloud = resolveCloud(entry);
+  const cloud = entry.cloud;
 
   if (cloud === "local") {
     const child = spawn(command[0], command.slice(1), { stdio: "inherit" });
@@ -220,7 +220,11 @@ export async function exec(): Promise<void> {
 
     if (interactive) {
       // Interactive mode: shell-escape argv and delegate to full terminal
-      await interactiveSession(assistant, shellEscapeArgs(command), serviceParam);
+      await interactiveSession(
+        assistant,
+        shellEscapeArgs(command),
+        serviceParam,
+      );
       return;
     }
 

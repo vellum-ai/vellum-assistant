@@ -46,28 +46,10 @@ const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../permissions/trust-store.js", () => ({
   getAllRules: () => [],
   isStarterBundleAccepted: () => false,
   clearCache: () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
 }));
 
 const realEnv = await import("../config/env.js");
@@ -135,7 +117,9 @@ const BLOCK_SIZE = 512;
 
 function padToBlock(data: Uint8Array): Uint8Array {
   const remainder = data.length % BLOCK_SIZE;
-  if (remainder === 0) return data;
+  if (remainder === 0) {
+    return data;
+  }
   const padded = new Uint8Array(data.length + (BLOCK_SIZE - remainder));
   padded.set(data);
   return padded;
@@ -904,7 +888,9 @@ describe("commitImport — workspace clearing", () => {
     writeFileSync(testConfigPath, JSON.stringify(EXISTING_CONFIG, null, 2));
     // Clean up skills/hooks dirs
     for (const dir of [skillsDir, hooksDir]) {
-      if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+      if (existsSync(dir)) {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
   });
 
@@ -925,7 +911,9 @@ describe("commitImport — workspace clearing", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     // New skill written
     expect(existsSync(join(skillsDir, "new-skill", "SKILL.md"))).toBe(true);
@@ -954,7 +942,9 @@ describe("commitImport — workspace clearing", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     // New skill written
     expect(existsSync(join(skillsDir, "new-skill", "SKILL.md"))).toBe(true);
@@ -981,7 +971,9 @@ describe("commitImport — workspace clearing", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     // Hook written to the external hooks dir, not workspace/hooks/
     expect(existsSync(join(externalHooksDir, "new-hook", "hook.sh"))).toBe(
@@ -1067,7 +1059,9 @@ describe("commitImport — config sanitization", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     // Read the written config from disk and verify sanitization
     const writtenConfig = JSON.parse(readFileSync(testConfigPath, "utf8"));
@@ -1111,7 +1105,9 @@ describe("commitImport — config sanitization", () => {
     });
 
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
+    if (!result.ok) {
+      return;
+    }
 
     const writtenConfig = JSON.parse(readFileSync(testConfigPath, "utf8"));
 
@@ -1130,7 +1126,8 @@ describe("commitImport — config sanitization", () => {
 describe("route policy registration", () => {
   test("migrations/import policy requires settings.write scope", async () => {
     const { ROUTES } = await import("../runtime/routes/index.js");
-    const policy = (ROUTES.find((r) => r.endpoint === "migrations/import")?.policy ?? null);
+    const policy =
+      ROUTES.find((r) => r.endpoint === "migrations/import")?.policy ?? null;
 
     expect(policy).not.toBeNull();
     expect(policy?.requiredScopes).toContain("settings.write");
@@ -1141,10 +1138,15 @@ describe("route policy registration", () => {
 
   test("import policy matches export/preflight but differs from validate on scopes", async () => {
     const { ROUTES } = await import("../runtime/routes/index.js");
-    const importPolicy = (ROUTES.find((r) => r.endpoint === "migrations/import")?.policy ?? null);
-    const validatePolicy = (ROUTES.find((r) => r.endpoint === "migrations/validate")?.policy ?? null);
-    const exportPolicy = (ROUTES.find((r) => r.endpoint === "migrations/export")?.policy ?? null);
-    const preflightPolicy = (ROUTES.find((r) => r.endpoint === "migrations/import-preflight")?.policy ?? null);
+    const importPolicy =
+      ROUTES.find((r) => r.endpoint === "migrations/import")?.policy ?? null;
+    const validatePolicy =
+      ROUTES.find((r) => r.endpoint === "migrations/validate")?.policy ?? null;
+    const exportPolicy =
+      ROUTES.find((r) => r.endpoint === "migrations/export")?.policy ?? null;
+    const preflightPolicy =
+      ROUTES.find((r) => r.endpoint === "migrations/import-preflight")
+        ?.policy ?? null;
 
     // import, export, and preflight all require settings.write
     expect(importPolicy!.requiredScopes).toEqual(exportPolicy!.requiredScopes);

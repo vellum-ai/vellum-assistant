@@ -23,33 +23,34 @@ import {
   applyRuntimeInjections,
   stripInjectionsForCompaction,
 } from "../daemon/conversation-runtime-assembly.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations, messages } from "../memory/schema.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations, messages } from "../persistence/schema/index.js";
+import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
+import { DEFAULT_INJECTOR_ORDER } from "../plugins/defaults/injector-order.js";
+import { buildUnifiedTurnContextBlock } from "../plugins/defaults/turn-context/unified-turn-context.js";
 import {
-  DEFAULT_INJECTOR_ORDER,
-  defaultInjectors,
   DISK_PRESSURE_WARNING_PROMPT,
-} from "../plugins/defaults/memory-retrieval/injectors.js";
-import { buildUnifiedTurnContextBlock } from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
+  workspaceInjectors,
+} from "../plugins/defaults/workspace/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 
 // `applyRuntimeInjections` self-resolves the Slack active-thread focus block
 // from the persisted message rows, so the schema must exist for Slack-channel
 // turns; with no seeded rows the focus loader resolves to null.
-initializeDb();
+await initializeDb();
 
 // `makeContext` and the workspace registry seed share this id so the
 // `workspace-context` injector resolves the seeded block for the turn.
 const TEST_CONVERSATION_ID = "conv-test";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectors.find(
+  const injector = workspaceInjectors.find(
     (candidate) => candidate.name === name,
   );
   if (!injector) {
@@ -70,7 +71,9 @@ function makeContext(overrides: Partial<TurnContext> = {}): TurnContext {
 
 function tailTexts(messages: Message[]): string[] {
   const tail = messages[messages.length - 1];
-  if (!tail || tail.role !== "user") return [];
+  if (!tail || tail.role !== "user") {
+    return [];
+  }
   return tail.content
     .filter((block): block is { type: "text"; text: string } => {
       return block.type === "text";
@@ -193,6 +196,7 @@ function seedSlackChannelRows(
 
 describe("disk-pressure-warning injector", () => {
   beforeEach(() => {
+    registerDefaultPluginInjectors();
     clearConversations();
     resetLiveConversation();
     const db = getDb();
@@ -204,7 +208,7 @@ describe("disk-pressure-warning injector", () => {
       .run();
   });
 
-  test("emits the exact cleanup prompt during disk pressure cleanup mode", async () => {
+  test("emits the concise cleanup skill prompt during disk pressure cleanup mode", async () => {
     seedDiskPressure(true);
     const block = await diskPressureInjector.produce(makeContext());
 
@@ -217,14 +221,19 @@ describe("disk-pressure-warning injector", () => {
       DEFAULT_INJECTOR_ORDER.diskPressureWarning,
     );
     expect(DISK_PRESSURE_WARNING_PROMPT).toBe(`<disk_pressure_warning>
-Disk usage is critically low: this assistant is in storage cleanup mode because the workspace volume is critically full.
+Storage is critically low and normal work is suspended until space is freed.
 
-In your first paragraph, warn the user that storage is critically low and that normal work is suspended until space is freed.
+Your first user-visible paragraph must warn the user that storage is critically low and normal work is suspended.
 
-Then help the user clean up storage. Prefer safe inspection steps first, such as checking available space and finding large directories. Ask before deleting files or caches unless the user has already clearly approved the specific cleanup action.
+Before taking cleanup actions, call \`skill_load\` with \`skill: "system-storage-cleanup"\` and follow the cleanup skill.
 
-Do not work on unrelated tasks until enough space is freed to clear the lock or the user explicitly overrides it. Background processes and messages from trusted contacts are blocked while this cleanup mode is active.
+Unrelated work remains blocked until disk usage drops below the critical threshold or the guardian explicitly overrides the lock. Background processes and trusted-contact messages remain blocked while this cleanup mode is active.
 </disk_pressure_warning>`);
+    expect(DISK_PRESSURE_WARNING_PROMPT).toContain("skill_load");
+    expect(DISK_PRESSURE_WARNING_PROMPT).toContain("system-storage-cleanup");
+    expect(DISK_PRESSURE_WARNING_PROMPT).not.toContain(
+      "Prefer safe inspection steps first",
+    );
   });
 
   test("omits the prompt when no cleanup context is registered or it is inactive", async () => {

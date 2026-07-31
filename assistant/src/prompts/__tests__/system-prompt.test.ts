@@ -6,9 +6,9 @@
  * user-message injection that replaced it.
  */
 
-import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
@@ -30,34 +30,6 @@ mock.module("../../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-const mockLoadedConfig: Record<string, unknown> = {};
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadConfig: () => mockLoadedConfig,
-  loadRawConfig: () => ({}),
-  saveConfig: () => {},
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 const { buildSystemPrompt, maybeReseedBootstrap } =
   await import("../system-prompt.js");
 
@@ -70,6 +42,246 @@ describe("buildSystemPrompt — tool routing guidance", () => {
     const result = buildSystemPrompt({});
     expect(result).not.toContain("## Clarifying questions");
     expect(result).not.toContain("ask_question");
+  });
+});
+
+describe("buildSystemPrompt — persona override", () => {
+  const DEFAULT_SENTINEL = "Sentinel: default persona body.";
+  const ALICE_SENTINEL = "Sentinel: alice persona body.";
+  const TELEGRAM_SENTINEL = "Sentinel: telegram channel persona body.";
+
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+    mkdirSync(join(TEST_DIR, "channels"), { recursive: true });
+    writeFileSync(join(TEST_DIR, "users", "default.md"), DEFAULT_SENTINEL);
+    writeFileSync(join(TEST_DIR, "users", "alice.md"), ALICE_SENTINEL);
+    writeFileSync(join(TEST_DIR, "channels", "telegram.md"), TELEGRAM_SENTINEL);
+  });
+
+  test("personaOverride renders the given user + channel persona sections", () => {
+    const result = buildSystemPrompt({
+      personaOverride: { userSlug: "alice", channelSlug: "telegram" },
+    });
+
+    expect(result).toContain(ALICE_SENTINEL);
+    expect(result).toContain(TELEGRAM_SENTINEL);
+    expect(result).not.toContain(DEFAULT_SENTINEL);
+  });
+
+  test("no override → trust-context-derived resolution (default persona, vellum channel)", () => {
+    // No trust context and no resolvable guardian contact in this test env,
+    // so the user persona falls back to users/default.md and the channel
+    // section resolves channels/vellum.md (absent → omitted).
+    const result = buildSystemPrompt({});
+
+    expect(result).toContain(DEFAULT_SENTINEL);
+    expect(result).not.toContain(ALICE_SENTINEL);
+    expect(result).not.toContain(TELEGRAM_SENTINEL);
+  });
+
+  test("partial override: userSlug alone leaves channel resolution untouched", () => {
+    const result = buildSystemPrompt({
+      personaOverride: { userSlug: "alice" },
+    });
+
+    expect(result).toContain(ALICE_SENTINEL);
+    expect(result).not.toContain(TELEGRAM_SENTINEL);
+  });
+
+  test("override userSlug with no matching file falls back to users/default.md", () => {
+    const result = buildSystemPrompt({
+      personaOverride: { userSlug: "missing-user" },
+    });
+
+    expect(result).toContain(DEFAULT_SENTINEL);
+  });
+});
+
+describe("buildSystemPrompt — default persona trust-class guardrail", () => {
+  // Marker strings from the bundled users/default.md template.
+  const GUARDRAIL = "Protect your guardian's privacy";
+  const TRUSTED_GREETING = "You're talking with a trusted contact";
+  const STRANGER_GREETING = "You're talking with someone you don't recognize";
+
+  const templatesDir = join(import.meta.dirname!, "..", "templates");
+  let priorAuthEnv: string | undefined;
+
+  beforeEach(() => {
+    // Captured so the DISABLE_HTTP_AUTH regression test below can restore it.
+    priorAuthEnv = process.env.DISABLE_HTTP_AUTH;
+
+    mkdirSync(join(TEST_DIR, "users"), { recursive: true });
+    // Render the real shipped template, not a sentinel.
+    copyFileSync(
+      join(templatesDir, "users", "default.md"),
+      join(TEST_DIR, "users", "default.md"),
+    );
+  });
+
+  afterEach(() => {
+    if (priorAuthEnv === undefined) {
+      delete process.env.DISABLE_HTTP_AUTH;
+    } else {
+      process.env.DISABLE_HTTP_AUTH = priorAuthEnv;
+    }
+  });
+
+  test("stranger (unknown) sees the guardrail and the stranger greeting", () => {
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "slack", trustClass: "unknown" },
+    });
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(STRANGER_GREETING);
+    expect(result).not.toContain(TRUSTED_GREETING);
+  });
+
+  test("trusted contact sees the guardrail and the trusted greeting", () => {
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "slack", trustClass: "trusted_contact" },
+    });
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(TRUSTED_GREETING);
+    expect(result).not.toContain(STRANGER_GREETING);
+  });
+
+  test("unverified contact is framed like a trusted contact", () => {
+    const result = buildSystemPrompt({
+      trustContext: {
+        sourceChannel: "slack",
+        trustClass: "unverified_contact",
+      },
+    });
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(TRUSTED_GREETING);
+    expect(result).not.toContain(STRANGER_GREETING);
+  });
+
+  test("guardian trust class gates the whole default persona off", () => {
+    // A guardian normally renders their own users/<slug>.md; if they ever fall
+    // back to default.md, every section is gated off and nothing leaks.
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+    });
+
+    expect(result).not.toContain(GUARDRAIL);
+    expect(result).not.toContain(TRUSTED_GREETING);
+    expect(result).not.toContain(STRANGER_GREETING);
+  });
+
+  test("renders for a non-guardian even when HTTP auth is disabled", () => {
+    // Platform-managed deployments run with DISABLE_HTTP_AUTH=true. A *present*
+    // trustContext must keep the actor's real class under that posture
+    // (resolveTrustClass only fail-safes *unresolved* actors), or the guardrail
+    // would silently switch off for the non-guardian channel actors it exists
+    // to protect.
+    process.env.DISABLE_HTTP_AUTH = "true";
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "slack", trustClass: "unknown" },
+    });
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(STRANGER_GREETING);
+  });
+
+  test("gates off for an unresolved local build when HTTP auth is disabled", () => {
+    // Initial-prompt warming, home generation, and btw sidechains build
+    // prompts with NO trustContext on behalf of the owner. In an auth-disabled
+    // (local / platform-managed) deployment that unresolved actor is the
+    // guardian, so the guardrail must not render into those guardian-facing
+    // prompts (fail-stranger would stonewall the owner about their own data).
+    process.env.DISABLE_HTTP_AUTH = "true";
+    const result = buildSystemPrompt({});
+
+    expect(result).not.toContain(GUARDRAIL);
+    expect(result).not.toContain(TRUSTED_GREETING);
+    expect(result).not.toContain(STRANGER_GREETING);
+  });
+
+  test("fails closed to the guardrail for an unresolved build when auth is enabled", () => {
+    // With auth enabled there is no basis to assume the unresolved actor is
+    // the guardian, so an unclassifiable build keeps the boundary.
+    delete process.env.DISABLE_HTTP_AUTH;
+    const result = buildSystemPrompt({});
+
+    expect(result).toContain(GUARDRAIL);
+    expect(result).toContain(STRANGER_GREETING);
+  });
+
+  test("boundary survives a per-contact persona file replacing default.md", () => {
+    // Every contact already has a `users/<slug>.md` filename reserved on
+    // their contact record; the moment that file exists with content it
+    // replaces `default.md` in the `10-user-persona` section. The privacy
+    // boundary must render regardless — it lives in the always-on
+    // `10a-non-guardian-boundary` section, not in the fallback file.
+    writeFileSync(
+      join(TEST_DIR, "users", "jane.md"),
+      "# Jane\n\nJane likes concise answers.\n",
+      "utf-8",
+    );
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "slack", trustClass: "trusted_contact" },
+      personaOverride: { userSlug: "jane" },
+    });
+
+    // The contact's own persona replaced the default greetings...
+    expect(result).toContain("Jane likes concise answers.");
+    expect(result).not.toContain(TRUSTED_GREETING);
+    // ...but the boundary still renders.
+    expect(result).toContain(GUARDRAIL);
+  });
+
+  test("boundary is omitted for a guardian rendering their own persona file", () => {
+    writeFileSync(
+      join(TEST_DIR, "users", "owner.md"),
+      "# Owner\n\nThe guardian's own profile.\n",
+      "utf-8",
+    );
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      personaOverride: { userSlug: "owner" },
+    });
+
+    expect(result).toContain("The guardian's own profile.");
+    expect(result).not.toContain(GUARDRAIL);
+  });
+
+  test("never leaks literal mustache tags or comment lines", () => {
+    for (const trustClass of [
+      "unknown",
+      "trusted_contact",
+      "unverified_contact",
+      "guardian",
+    ] as const) {
+      const result = buildSystemPrompt({
+        trustContext: { sourceChannel: "slack", trustClass },
+      });
+      expect(result).not.toContain("{{");
+      expect(result).not.toContain("}}");
+      expect(result).not.toContain("Lines starting with");
+    }
+  });
+});
+
+describe("buildSystemPrompt — hasNoClient no longer affects the prompt", () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  // No system-prompt section branches on hasNoClient, so neither the flag nor
+  // the SystemPromptPersonaOverride.hasNoClient pin changes prompt output.
+  // Guards against a future section re-coupling to the flag.
+  test("output is identical regardless of the flag or its pin", () => {
+    const base = buildSystemPrompt({ hasNoClient: false });
+    expect(buildSystemPrompt({ hasNoClient: true })).toBe(base);
+    expect(
+      buildSystemPrompt({
+        hasNoClient: true,
+        personaOverride: { hasNoClient: false },
+      }),
+    ).toBe(base);
   });
 });
 

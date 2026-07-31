@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
-import { resolveGatewayProxyTarget } from "../gateway-proxy";
+import {
+  readAllowedGatewayPorts,
+  resolveGatewayProxyTarget,
+} from "../gateway-proxy";
 
 const allow =
   (...ports: number[]) =>
@@ -62,6 +68,41 @@ describe("resolveGatewayProxyTarget", () => {
       kind: "forbidden-port",
       port: 8080,
     });
+  });
+
+  test("allowlists ports from resources, loopback URLs, and docker runtimeUrls — never remote URLs", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gateway-proxy-test-"));
+    const lockfilePath = path.join(dir, "assistants.json");
+    try {
+      fs.writeFileSync(
+        lockfilePath,
+        JSON.stringify({
+          assistants: [
+            { assistantId: "local-a", resources: { gatewayPort: 7830 } },
+            { assistantId: "local-b", localUrl: "http://127.0.0.1:7831" },
+            // Docker entries record their published gateway only as a
+            // loopback runtimeUrl.
+            {
+              assistantId: "docker-a",
+              cloud: "docker",
+              runtimeUrl: "http://localhost:7930",
+            },
+            // Remote runtimeUrls (managed / gcp / paired) must never widen
+            // the allowlist.
+            {
+              assistantId: "remote-a",
+              cloud: "gcp",
+              runtimeUrl: "https://assistant.example.com:8443",
+            },
+          ],
+        }),
+      );
+      expect(readAllowedGatewayPorts([lockfilePath])).toEqual(
+        new Set([7830, 7831, 7930]),
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("never reads the allowlist for non-gateway or invalid-port paths", () => {

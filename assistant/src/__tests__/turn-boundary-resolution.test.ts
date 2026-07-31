@@ -1,37 +1,22 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   addMessage,
   createConversation,
   getAssistantMessageIdsInTurn,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
+} from "../persistence/conversation-crud.js";
+import { getDb, getLogsDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  llmRequestLogs,
+  toolInvocations,
+} from "../persistence/schema/index.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
-  db.delete(llmRequestLogs).run();
+  getLogsDb()!.delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");

@@ -15,25 +15,17 @@ import {
   type FeedItemCategory,
   type FeedItemDetailPanelKind,
   feedItemSchema,
-  type FeedItemUrgency,
 } from "../home/feed-types.js";
 import { appendFeedItem } from "../home/feed-writer.js";
-import { getConversation } from "../memory/conversation-crud.js";
-import { isBackgroundConversationType } from "../memory/conversation-types.js";
+import { getConversation } from "../persistence/conversation-crud.js";
+import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { getLogger } from "../util/logger.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
-import { readPayloadString } from "./copy-composer.js";
+import { readPayloadString } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type { NotificationDecision, RenderedChannelCopy } from "./types.js";
 
 const log = getLogger("home-feed-side-effect");
-
-const FEED_ITEM_URGENCIES: ReadonlySet<string> = new Set<FeedItemUrgency>([
-  "low",
-  "medium",
-  "high",
-  "critical",
-]);
 
 /**
  * Append a `FeedItem` for the given notification signal when the
@@ -58,11 +50,11 @@ export async function writeHomeFeedItemForSignal(
   decision: NotificationDecision,
   fallbackConversationId?: string,
 ): Promise<FeedItem | null> {
-  const { mirror, sourceConversationId } = resolveHomeFeedMirror(
-    signal,
-    fallbackConversationId,
-  );
-  if (!mirror) return null;
+  const { mirror, sourceConversationId, sourceScheduleJobId } =
+    resolveHomeFeedMirror(signal, fallbackConversationId);
+  if (!mirror) {
+    return null;
+  }
 
   const renderedCopy =
     decision.renderedCopy.vellum ??
@@ -99,19 +91,32 @@ export async function writeHomeFeedItemForSignal(
     return null;
   }
 
-  const urgency = FEED_ITEM_URGENCIES.has(signal.attentionHints.urgency)
-    ? (signal.attentionHints.urgency as FeedItemUrgency)
-    : undefined;
+  const urgency = signal.attentionHints.urgency;
   const now = new Date().toISOString();
 
   const category = deriveCategory(signal);
   const panelKind = deriveDetailPanelKind(signal);
-  const metadata =
+
+  const baseMetadata =
     signal.contextPayload &&
     typeof signal.contextPayload === "object" &&
     !Array.isArray(signal.contextPayload)
-      ? (signal.contextPayload as Record<string, unknown>)
+      ? { ...signal.contextPayload }
       : undefined;
+
+  // Link scheduled-run notifications back to their schedule. `notify`-mode
+  // jobs put `scheduleId` directly in the context payload; `execute`-mode (and
+  // other agent-backed) jobs only tag their conversation, so fall back to the
+  // source conversation's `scheduleJobId`.
+  const scheduleId =
+    readPayloadString(signal.contextPayload, "scheduleId") ??
+    sourceScheduleJobId ??
+    undefined;
+
+  const metadata =
+    scheduleId !== undefined
+      ? { ...(baseMetadata ?? {}), scheduleId }
+      : baseMetadata;
 
   const item: FeedItem = {
     id: `notif:${signal.signalId}`,
@@ -156,7 +161,7 @@ const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
   "guardian.question": "security",
   "guardian.channel_activation": "security",
   "ingress.access_request": "security",
-  "ingress.escalation": "security",
+  "telegram.webhook_health_alert": "system",
 };
 
 function deriveCategory(signal: NotificationSignal): FeedItemCategory {
@@ -174,7 +179,7 @@ function deriveDetailPanelKind(
     const payload = signal.contextPayload;
     const kind =
       payload && typeof payload === "object" && "requestKind" in payload
-        ? (payload as Record<string, unknown>).requestKind
+        ? payload.requestKind
         : undefined;
     if (kind === "tool_approval" || kind === "tool_grant_request") {
       return "permissionChat";
@@ -202,8 +207,12 @@ function resolveHomeFeedMirror(
 ): {
   mirror: boolean;
   sourceConversationId?: string;
+  sourceScheduleJobId?: string;
 } {
-  let sourceRow: { conversationType?: string } | null = null;
+  let sourceRow: {
+    conversationType?: string;
+    scheduleJobId?: string | null;
+  } | null = null;
   if (signal.sourceContextId) {
     try {
       sourceRow = getConversation(signal.sourceContextId) ?? null;
@@ -219,15 +228,16 @@ function resolveHomeFeedMirror(
   const sourceConversationId = sourceRow
     ? signal.sourceContextId
     : fallbackConversationId;
+  const sourceScheduleJobId = sourceRow?.scheduleJobId ?? undefined;
 
   if (signal.sourceChannel === "assistant_tool") {
-    return { mirror: true, sourceConversationId };
+    return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   if (signal.attentionHints.isAsyncBackground) {
-    return { mirror: true, sourceConversationId };
+    return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   if (isBackgroundConversationType(sourceRow?.conversationType)) {
-    return { mirror: true, sourceConversationId };
+    return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   return { mirror: false };
 }
@@ -245,7 +255,9 @@ function firstSelectedRenderedCopy(
 ): RenderedChannelCopy | undefined {
   for (const channel of selectedChannels) {
     const copy = renderedCopy[channel];
-    if (copy && (copy.title?.trim() || copy.body?.trim())) return copy;
+    if (copy && (copy.title?.trim() || copy.body?.trim())) {
+      return copy;
+    }
   }
   return undefined;
 }
@@ -261,8 +273,10 @@ const NOTEWORTHY_EVENT_NAMES: ReadonlySet<string> = new Set([
   "guardian.question",
   "guardian.channel_activation",
   "ingress.access_request",
-  "ingress.escalation",
   "credential.health_alert",
+  // A dark messaging channel is inbox-worthy: the guardian may be waiting on
+  // replies that are silently queueing at Telegram.
+  "telegram.webhook_health_alert",
 ]);
 
 function deriveNoteworthy(signal: NotificationSignal): boolean {
@@ -274,7 +288,11 @@ function deriveNoteworthy(signal: NotificationSignal): boolean {
   if (signal.sourceEventName === "activity.failed") {
     return signal.attentionHints.urgency === "critical";
   }
-  if (signal.sourceChannel === "assistant_tool") return true;
-  if (NOTEWORTHY_EVENT_NAMES.has(signal.sourceEventName)) return true;
+  if (signal.sourceChannel === "assistant_tool") {
+    return true;
+  }
+  if (NOTEWORTHY_EVENT_NAMES.has(signal.sourceEventName)) {
+    return true;
+  }
   return false;
 }

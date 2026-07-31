@@ -7,10 +7,15 @@
 
 import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 
-import { getAttachmentContent } from "../../../memory/attachments-store.js";
+import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
-import { callTelegramBotApi, callTelegramBotApiMultipart } from "./api.js";
+import {
+  callTelegramBotApi,
+  callTelegramBotApiMultipart,
+  TelegramNonRetryableError,
+} from "./api.js";
+import { renderTelegramHtml } from "./render.js";
 
 const log = getLogger("telegram-send");
 
@@ -31,12 +36,43 @@ const TELEGRAM_IMAGE_MIME_PREFIXES = [
   "image/webp",
 ];
 
+/**
+ * Per-send options shared by the Telegram send helpers.
+ *
+ * `messageThreadId` targets a private-chat topic (the Telegram analog of a
+ * Slack thread); omitted, the send lands in the main chat. The value is the
+ * `message_thread_id` carried on the inbound update. Carried as a string
+ * because it originates as a URL param and multipart sends need the string
+ * form; payloads convert once in {@link threadIdPayloadFields}.
+ */
+export interface TelegramSendOptions {
+  messageThreadId?: string;
+}
+
+/**
+ * Topic-targeting field for a send payload, or undefined when the send
+ * targets the main chat — spread into the payload literal.
+ *
+ * `message_thread_id` is the Bot API topic field for both forum supergroups
+ * and private chats of bots with topic ("threaded") mode enabled — the same
+ * field inbound updates carry. (`direct_messages_topic_id` is a different
+ * surface — channel direct-messages/monoforum chats — and is not used here.)
+ */
+function threadIdPayloadFields(
+  opts?: TelegramSendOptions,
+): { message_thread_id: number } | undefined {
+  const id = opts?.messageThreadId?.trim();
+  return id ? { message_thread_id: Number(id) } : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Text splitting
 // ---------------------------------------------------------------------------
 
 function splitText(text: string, maxLen: number): string[] {
-  if (text.length <= maxLen) return [text];
+  if (text.length <= maxLen) {
+    return [text];
+  }
 
   const chunks: string[] = [];
   let cursor = 0;
@@ -93,6 +129,7 @@ export async function sendTelegramReply(
   chatId: string,
   text: string,
   approval?: ApprovalUIMetadata,
+  opts?: TelegramSendOptions,
 ): Promise<void> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
 
@@ -100,6 +137,7 @@ export async function sendTelegramReply(
     const payload: Record<string, unknown> = {
       chat_id: chatId,
       text: chunks[i],
+      ...threadIdPayloadFields(opts),
     };
 
     // Attach inline keyboard only to the last chunk so buttons appear after
@@ -112,6 +150,71 @@ export async function sendTelegramReply(
   }
 
   log.debug({ chatId, chunks: chunks.length }, "Telegram reply sent");
+}
+
+/**
+ * Send a Telegram reply as a rich message (Bot API 10.1) so tables, headings,
+ * code, and quotes render natively. On a non-retryable rejection of the rich
+ * send, fall back to the plain-text `sendTelegramReply` so the user still
+ * receives the message.
+ *
+ * The canonical reply markdown is rendered to Telegram rich HTML (see
+ * `render.ts`) and sent via `InputRichMessage.html`. HTML mode keeps text
+ * content literal, so canonical GFM that overlaps Telegram's Rich *Markdown*
+ * extensions (`$…$` math, `==highlight==`, `||spoiler||`) renders exactly as
+ * written instead of being reinterpreted. `skip_entity_detection` is set
+ * because the canonical parser already turns bare URLs and e-mails into links;
+ * leaving Telegram's auto-detection on would additionally linkify cashtags,
+ * hashtags, mentions, phone numbers, and bank-card-like digit runs that GFM
+ * treats as plain text.
+ *
+ * Old clients degrade the display client-side; the send itself does not fail on
+ * recipient version, so the only fallback trigger is a request-level rejection
+ * (content over Telegram's documented rich-message limits, or a Bot API server
+ * predating 10.1). The plain path splits at `TELEGRAM_MAX_MESSAGE_LEN`, so it
+ * also covers the rare oversize case the single-shot rich send cannot.
+ *
+ * Wire shapes verified against the official Bot API docs:
+ *   - sendRichMessage:  https://core.telegram.org/bots/api#sendrichmessage
+ *   - InputRichMessage: https://core.telegram.org/bots/api#inputrichmessage
+ *   - Rich HTML:        https://core.telegram.org/bots/api#rich-message-formatting-options
+ */
+export async function sendTelegramRichReply(
+  chatId: string,
+  markdown: string,
+  approval?: ApprovalUIMetadata,
+  opts?: TelegramSendOptions,
+): Promise<void> {
+  const html = renderTelegramHtml(markdown);
+  if (html === undefined) {
+    // No renderable rich content — send as plain text.
+    await sendTelegramReply(chatId, markdown, approval, opts);
+    return;
+  }
+
+  const payload: Record<string, unknown> = {
+    chat_id: chatId,
+    rich_message: { html, skip_entity_detection: true },
+    ...threadIdPayloadFields(opts),
+  };
+  if (approval) {
+    payload.reply_markup = buildInlineKeyboard(approval);
+  }
+
+  try {
+    await callTelegramBotApi("sendRichMessage", payload);
+    log.debug({ chatId }, "Telegram rich message sent");
+  } catch (err) {
+    if (err instanceof TelegramNonRetryableError) {
+      log.warn(
+        { chatId, description: err.description },
+        "Telegram rejected rich message; falling back to plain text",
+      );
+      await sendTelegramReply(chatId, markdown, approval, opts);
+      return;
+    }
+    throw err;
+  }
 }
 
 export type TelegramAttachmentResult = {
@@ -127,8 +230,10 @@ export type TelegramAttachmentResult = {
 export async function sendTelegramAttachments(
   chatId: string,
   attachments: RuntimeAttachmentMetadata[],
+  opts?: TelegramSendOptions,
 ): Promise<TelegramAttachmentResult> {
   const failures: string[] = [];
+  const threadFields = threadIdPayloadFields(opts);
 
   for (const meta of attachments) {
     // Skip oversized attachments when size is known upfront
@@ -170,6 +275,9 @@ export async function sendTelegramAttachments(
       const blob = new Blob([new Uint8Array(content)], { type: mimeType });
       const form = new FormData();
       form.set("chat_id", chatId);
+      if (threadFields) {
+        form.set("message_thread_id", String(threadFields.message_thread_id));
+      }
 
       const isImage = TELEGRAM_IMAGE_MIME_PREFIXES.some((p) =>
         mimeType.startsWith(p),
@@ -199,7 +307,7 @@ export async function sendTelegramAttachments(
   if (failures.length > 0) {
     const notice = `\u26a0\ufe0f ${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
     try {
-      await sendTelegramReply(chatId, notice);
+      await sendTelegramReply(chatId, notice, undefined, opts);
     } catch (err) {
       log.error({ err, chatId }, "Failed to send attachment failure notice");
     }
@@ -218,11 +326,13 @@ export async function sendTelegramAttachments(
  */
 export async function sendTelegramTypingIndicator(
   chatId: string,
+  opts?: TelegramSendOptions,
 ): Promise<boolean> {
   try {
     await callTelegramBotApi("sendChatAction", {
       chat_id: chatId,
       action: "typing",
+      ...threadIdPayloadFields(opts),
     });
     return true;
   } catch (err) {

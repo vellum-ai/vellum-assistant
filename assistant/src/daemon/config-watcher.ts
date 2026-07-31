@@ -4,26 +4,36 @@
  * for changes.
  */
 import {
-  type Dirent,
   existsSync,
   type FSWatcher,
   mkdirSync,
   readdirSync,
+  readFileSync,
   unwatchFile,
   watch,
   watchFile,
 } from "node:fs";
-import { join, relative } from "node:path";
+import { basename, join } from "node:path";
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js";
-import { resetCleanupScheduleThrottle } from "../memory/cleanup-schedule-state.js";
-import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
+import { resetCleanupScheduleThrottle } from "../persistence/cleanup-schedule-state.js";
+import { clearEmbeddingBackendCache } from "../persistence/embeddings/embedding-backend.js";
+import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
+import { refreshAuthenticatedApiRateLimit } from "../runtime/middleware/rate-limiter.js";
+import {
+  publishAvatarChanged,
+  publishConfigChanged,
+  publishIdentityChanged,
+  publishSoundsConfigUpdated,
+  publishWorkspaceThemeChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
 import { handleUserMessageSignal } from "../signals/user-message.js";
+import { WORKSPACE_THEME_RELATIVE_PATH } from "../theme/workspace-theme.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -32,9 +42,13 @@ import {
   getSignalsDir,
   getSoundsDir,
   getWorkspaceDir,
+  getWorkspacePromptPath,
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
+import { evictConversationsForReload } from "./conversation-store.js";
+import { parseIdentityFields } from "./handlers/identity.js";
 import { reloadMcpServers } from "./mcp-reload-service.js";
+import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 
 const log = getLogger("config-watcher");
 
@@ -51,10 +65,26 @@ const SKILL_WATCH_SKIPPED_DIRS = new Set([
 ]);
 
 function isSkippedSkillWatchPath(relativePath: string): boolean {
-  if (relativePath === "(unknown)") return false;
+  if (relativePath === "(unknown)") {
+    return false;
+  }
 
   const segments = relativePath.split(/[\\/]+/).filter(Boolean);
   return segments.some((segment) => SKILL_WATCH_SKIPPED_DIRS.has(segment));
+}
+
+/**
+ * Files whose contents feed the skill catalog: `SKILL.md` carries a skill's
+ * metadata and body, `TOOLS.json` its tool manifest. Both live at the top
+ * level of a skill directory. Every other file (scripts, reference docs, build
+ * output) is read fresh on demand or irrelevant to the catalog, so changes to
+ * them do not require a catalog reload.
+ */
+const SKILL_CATALOG_FILENAMES = new Set(["SKILL.md", "TOOLS.json"]);
+
+/** True when a changed path's basename is a skill-catalog file. */
+function isSkillCatalogFile(filename: string): boolean {
+  return SKILL_CATALOG_FILENAMES.has(basename(filename));
 }
 
 /**
@@ -162,7 +192,8 @@ export class ConfigWatcher {
     clearEmbeddingBackendCache();
     // If cleanup retention settings changed, reset the cleanup scheduler
     // throttle so the next worker tick re-enqueues jobs with the new values
-    // instead of waiting out the remaining enqueueIntervalMs (default 6h).
+    // instead of waiting out the remaining retention-derived cadence (which
+    // can be as long as the retention window itself).
     const nextCleanup = config.memory?.cleanup;
     if (cleanupSettingsChanged(prevCleanup, nextCleanup)) {
       resetCleanupScheduleThrottle();
@@ -175,23 +206,12 @@ export class ConfigWatcher {
   }
 
   /**
-   * Start all file watchers. `onConversationEvict` is called when watched
-   * files change and conversations need to be evicted for reload.
-   * `onIdentityChanged` is called when IDENTITY.md changes on disk.
-   * `onIdentityIntroChanged` is called when SOUL.md changes and identity
-   * intro subscribers should refetch.
-   * `onSkillsChanged` is called after skill directory changes evict
-   * conversations.
+   * Start all file watchers. On a detected change the watcher reacts directly:
+   * evicting conversations so the next turn rebuilds against the new config,
+   * broadcasting the relevant resource-changed events to clients, and
+   * refreshing skill capability memories after skill directory changes.
    */
-  start(
-    onConversationEvict: () => void,
-    onIdentityChanged?: () => void,
-    onSoundsConfigChanged?: () => void,
-    onAvatarChanged?: () => void,
-    onConfigChanged?: () => void,
-    onSkillsChanged?: () => void,
-    onIdentityIntroChanged?: () => void,
-  ): void {
+  start(): void {
     // Reset the stopped flag so a stop()→start() cycle on the same
     // instance resumes hot-reload instead of silently bailing in every
     // watchFile callback. This matters because getConfigWatcher() is a
@@ -202,13 +222,16 @@ export class ConfigWatcher {
 
     const workspaceHandlers: Record<string, () => void> = {
       "config.json": async () => {
-        if (this.suppressReload) return;
+        if (this.suppressReload) {
+          return;
+        }
         try {
           const prevMcpFingerprint = JSON.stringify(this.lastConfig?.mcp ?? {});
           const changed = await this.refreshConfigFromSources();
           if (changed) {
-            onConversationEvict();
-            onConfigChanged?.();
+            evictConversationsForReload();
+            refreshAuthenticatedApiRateLimit();
+            publishConfigChanged();
             const newConfig = this.lastConfig ?? getConfig();
             const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
             if (newMcpFingerprint !== prevMcpFingerprint) {
@@ -225,12 +248,14 @@ export class ConfigWatcher {
         }
       },
       "SOUL.md": () => {
-        onConversationEvict();
-        onIdentityIntroChanged?.();
+        evictConversationsForReload();
       },
       "IDENTITY.md": () => {
-        onConversationEvict();
-        onIdentityChanged?.();
+        evictConversationsForReload();
+        broadcastIdentityChange();
+      },
+      [WORKSPACE_THEME_RELATIVE_PATH]: () => {
+        publishWorkspaceThemeChanged();
       },
     };
 
@@ -240,16 +265,11 @@ export class ConfigWatcher {
       this.watchFile(join(workspaceDir, filename), handler, filename);
     }
 
-    if (onSoundsConfigChanged) {
-      this.startSoundsWatcher(onSoundsConfigChanged);
-    }
-    if (onAvatarChanged) {
-      this.startAvatarWatcher(onAvatarChanged);
-    }
-
+    this.startSoundsWatcher();
+    this.startAvatarWatcher();
     this.startSignalsWatcher();
-    this.startUsersWatcher(onConversationEvict);
-    this.startSkillsWatchers(onConversationEvict, onSkillsChanged);
+    this.startUsersWatcher();
+    this.startSkillsWatchers();
   }
 
   stop(): void {
@@ -276,8 +296,12 @@ export class ConfigWatcher {
     // edge case must not propagate up to DaemonServer.start().
     try {
       watchFile(filePath, { interval: this.pollIntervalMs }, (curr, prev) => {
-        if (this.stopped) return;
-        if (curr.ino === prev.ino && curr.mtimeMs === prev.mtimeMs) return;
+        if (this.stopped) {
+          return;
+        }
+        if (curr.ino === prev.ino && curr.mtimeMs === prev.mtimeMs) {
+          return;
+        }
         this.debounceTimers.schedule(`file:${filePath}`, () => {
           log.info({ file: filePath }, "File changed, reloading");
           handler();
@@ -293,7 +317,7 @@ export class ConfigWatcher {
     }
   }
 
-  private startSoundsWatcher(onSoundsConfigChanged: () => void): void {
+  private startSoundsWatcher(): void {
     const soundsDir = getSoundsDir();
     try {
       if (!existsSync(soundsDir)) {
@@ -305,13 +329,15 @@ export class ConfigWatcher {
 
     try {
       const watcher = watch(soundsDir, (_eventType, filename) => {
-        if (!filename) return;
+        if (!filename) {
+          return;
+        }
         this.debounceTimers.schedule("file:sounds", () => {
           log.info(
             { file: String(filename) },
             "Sounds directory changed, notifying clients",
           );
-          onSoundsConfigChanged();
+          publishSoundsConfigUpdated();
         });
       });
       attachWatcherErrorHandler(watcher, soundsDir);
@@ -325,7 +351,7 @@ export class ConfigWatcher {
     }
   }
 
-  private startUsersWatcher(onConversationEvict: () => void): void {
+  private startUsersWatcher(): void {
     const usersDir = join(getWorkspaceDir(), "users");
     try {
       if (!existsSync(usersDir)) {
@@ -337,12 +363,16 @@ export class ConfigWatcher {
 
     try {
       const watcher = watch(usersDir, (_eventType, filename) => {
-        if (!filename) return;
+        if (!filename) {
+          return;
+        }
         const file = String(filename);
-        if (!file.endsWith(".md")) return;
+        if (!file.endsWith(".md")) {
+          return;
+        }
         this.debounceTimers.schedule(`file:users/${file}`, () => {
           log.info({ file }, "Users persona file changed, reloading");
-          onConversationEvict();
+          evictConversationsForReload();
         });
       });
       attachWatcherErrorHandler(watcher, usersDir);
@@ -359,7 +389,7 @@ export class ConfigWatcher {
     }
   }
 
-  private startAvatarWatcher(onAvatarChanged: () => void): void {
+  private startAvatarWatcher(): void {
     const avatarDir = getAvatarDir();
     try {
       if (!existsSync(avatarDir)) {
@@ -371,14 +401,18 @@ export class ConfigWatcher {
 
     try {
       const watcher = watch(avatarDir, (_eventType, filename) => {
-        if (!filename) return;
-        if (String(filename) !== AVATAR_IMAGE_FILENAME) return;
+        if (!filename) {
+          return;
+        }
+        if (String(filename) !== AVATAR_IMAGE_FILENAME) {
+          return;
+        }
         this.debounceTimers.schedule("file:avatar", () => {
           log.info(
             { file: String(filename) },
             "Avatar image changed, notifying clients",
           );
-          onAvatarChanged();
+          publishAvatarChanged();
         });
       });
       attachWatcherErrorHandler(watcher, avatarDir);
@@ -417,7 +451,9 @@ export class ConfigWatcher {
 
     try {
       const watcher = watch(signalsDir, (_eventType, filename) => {
-        if (!filename) return;
+        if (!filename) {
+          return;
+        }
         const file = String(filename);
 
         if (exactSignalHandlers[file]) {
@@ -449,57 +485,70 @@ export class ConfigWatcher {
     }
   }
 
-  private startSkillsWatchers(
-    onConversationEvict: () => void,
-    onSkillsChanged?: () => void,
-  ): void {
+  private startSkillsWatchers(): void {
     const skillsDir = getWorkspaceSkillsDir();
-    if (!existsSync(skillsDir)) return;
+    if (!existsSync(skillsDir)) {
+      return;
+    }
 
     const scheduleSkillsReload = (file: string): void => {
-      if (isSkippedSkillWatchPath(file)) return;
+      if (isSkippedSkillWatchPath(file)) {
+        return;
+      }
 
       this.debounceTimers.schedule("skills:catalog", () => {
-        log.info({ file }, "Skill file changed, reloading");
-        onConversationEvict();
-        onSkillsChanged?.();
+        log.info({ file }, "Skill catalog changed, reloading");
+        evictConversationsForReload();
+        refreshSkillCapabilityMemories(getConfig());
       });
     };
 
+    // Only SKILL.md and TOOLS.json feed the skill catalog, and both live at the
+    // top level of a skill directory. Changes to any other file (scripts,
+    // reference docs, build output) never alter the catalog, so the watchers
+    // react only to those two files — plus skill directories appearing or
+    // disappearing, which is an install or removal.
     try {
       const recursiveWatcher = watch(
         skillsDir,
         { recursive: true },
         (_eventType, filename) => {
-          scheduleSkillsReload(filename ? String(filename) : "(unknown)");
+          if (!filename || isSkillCatalogFile(String(filename))) {
+            scheduleSkillsReload(filename ? String(filename) : "(unknown)");
+          }
         },
       );
       attachWatcherErrorHandler(recursiveWatcher, skillsDir);
       this.watchers.push(recursiveWatcher);
-      log.info({ dir: skillsDir }, "Watching skills directory recursively");
+      log.info({ dir: skillsDir }, "Watching skills catalog recursively");
       return;
     } catch (err) {
       log.info(
         { err, dir: skillsDir },
-        "Recursive skills watch unavailable; using per-directory watchers",
+        "Recursive skills watch unavailable; using per-skill-directory watchers",
       );
     }
 
-    const childWatchers = new Map<string, FSWatcher>();
+    // Fallback when recursive watches are unavailable: watch the skills root
+    // (to detect a skill being installed or removed) plus each immediate skill
+    // directory (to detect SKILL.md / TOOLS.json edits). Nested subdirectories
+    // are deliberately not watched, bounding the descriptor count to one per
+    // skill rather than one per subdirectory.
+    const skillDirWatchers = new Map<string, FSWatcher>();
 
     const watchDir = (
       dirPath: string,
-      onChange: (filename: string) => void,
+      onChange: (filename: string | null) => void,
     ): FSWatcher | null => {
       try {
         const watcher = watch(dirPath, (_eventType, filename) => {
-          onChange(filename ? String(filename) : "(unknown)");
+          onChange(filename ? String(filename) : null);
         });
         attachWatcherErrorHandler(watcher, dirPath);
         this.watchers.push(watcher);
         return watcher;
       } catch (err) {
-        log.warn({ err, dirPath }, "Failed to watch skills directory");
+        log.warn({ err, dirPath }, "Failed to watch skill directory");
         return null;
       }
     };
@@ -511,101 +560,97 @@ export class ConfigWatcher {
       }
     };
 
-    const formatSkillChangeLabel = (
-      dirPath: string,
-      filename: string,
-    ): string => {
-      if (filename === "(unknown)") {
-        const relativeDir = relative(skillsDir, dirPath);
-        return relativeDir || "(unknown)";
-      }
-      const relativeFile = relative(skillsDir, join(dirPath, filename));
-      return relativeFile || filename;
-    };
-
-    const enumerateSkillSubdirectories = (
-      dirPath: string,
-      acc: Set<string>,
-    ): boolean => {
-      let entries: Dirent[];
+    const listSkillDirs = (): string[] => {
       try {
-        entries = readdirSync(dirPath, { withFileTypes: true });
+        return readdirSync(skillsDir, { withFileTypes: true })
+          .filter(
+            (entry) =>
+              entry.isDirectory() && !SKILL_WATCH_SKIPPED_DIRS.has(entry.name),
+          )
+          .map((entry) => join(skillsDir, entry.name));
       } catch (err) {
-        log.warn({ err, dirPath }, "Failed to enumerate skill directories");
-        return dirPath !== skillsDir;
+        log.warn({ err, skillsDir }, "Failed to enumerate skill directories");
+        return [];
       }
-
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        if (SKILL_WATCH_SKIPPED_DIRS.has(entry.name)) continue;
-        const childDir = join(dirPath, entry.name);
-        acc.add(childDir);
-        enumerateSkillSubdirectories(childDir, acc);
-      }
-      return true;
     };
 
-    const closeChildWatcher = (dirPath: string, watcher: FSWatcher): void => {
-      watcher.close();
-      childWatchers.delete(dirPath);
-      removeWatcher(watcher);
-    };
+    // Reconcile the per-skill-directory watchers against what is on disk.
+    // Returns true when the set of watched directories changed — i.e. a skill
+    // was installed or removed — so the caller can reload the catalog.
+    const refreshSkillDirWatchers = (): boolean => {
+      const nextDirs = new Set(listSkillDirs());
+      let changed = false;
 
-    const refreshChildWatchers = (): void => {
-      const nextChildDirs = new Set<string>();
-      if (!enumerateSkillSubdirectories(skillsDir, nextChildDirs)) {
-        for (const [childDir, watcher] of childWatchers.entries()) {
-          closeChildWatcher(childDir, watcher);
+      for (const [dirPath, watcher] of skillDirWatchers.entries()) {
+        if (nextDirs.has(dirPath)) {
+          continue;
         }
-        return;
+        watcher.close();
+        skillDirWatchers.delete(dirPath);
+        removeWatcher(watcher);
+        changed = true;
       }
 
-      for (const [childDir, watcher] of childWatchers.entries()) {
-        if (nextChildDirs.has(childDir)) continue;
-        closeChildWatcher(childDir, watcher);
-      }
-
-      for (const childDir of nextChildDirs) {
-        if (childWatchers.has(childDir)) continue;
-
-        const watcher = watchDir(childDir, (filename) => {
-          const file = formatSkillChangeLabel(childDir, filename);
-          if (isSkippedSkillWatchPath(file)) return;
-
-          scheduleSkillsReload(file);
-          refreshChildWatchers();
+      for (const dirPath of nextDirs) {
+        if (skillDirWatchers.has(dirPath)) {
+          continue;
+        }
+        const watcher = watchDir(dirPath, (filename) => {
+          if (!filename || isSkillCatalogFile(filename)) {
+            scheduleSkillsReload(filename ?? "(unknown)");
+          }
         });
         if (watcher) {
-          childWatchers.set(childDir, watcher);
+          skillDirWatchers.set(dirPath, watcher);
+          changed = true;
         }
       }
+
+      return changed;
     };
 
-    const rootWatcher = watchDir(skillsDir, (filename) => {
-      if (isSkippedSkillWatchPath(filename)) return;
-
-      scheduleSkillsReload(filename);
-      refreshChildWatchers();
+    const rootWatcher = watchDir(skillsDir, () => {
+      // A change directly under the skills root means a skill directory was
+      // added, removed, or renamed. Re-sync the per-skill watchers and reload
+      // the catalog when the set actually changed.
+      if (refreshSkillDirWatchers()) {
+        scheduleSkillsReload("(skill installed or removed)");
+      }
     });
 
-    if (!rootWatcher) return;
+    if (!rootWatcher) {
+      return;
+    }
 
-    refreshChildWatchers();
+    refreshSkillDirWatchers();
     log.info(
       { dir: skillsDir },
-      "Watching skills directory with non-recursive fallback",
+      "Watching skills catalog with per-skill-directory fallback",
     );
   }
 }
 
 /**
- * Return true if any cleanup field the user can change via the UI differs
- * between the previous and next config snapshots. Used to decide whether to
- * reset the cleanup-scheduler throttle after a config reload so retention
- * changes take effect immediately instead of waiting up to 6 hours.
- *
- * Exported for unit testing.
+ * Re-read IDENTITY.md and broadcast the parsed fields to clients, best-effort
+ * syncing the assistant name to the platform record. The config watcher's
+ * IDENTITY.md-change reaction.
  */
+function broadcastIdentityChange(): void {
+  try {
+    const identityPath = getWorkspacePromptPath("IDENTITY.md");
+    const content = existsSync(identityPath)
+      ? readFileSync(identityPath, "utf-8")
+      : "";
+    const fields = parseIdentityFields(content);
+    publishIdentityChanged(fields);
+    if (fields.name) {
+      syncIdentityNameToPlatform(fields.name);
+    }
+  } catch (err) {
+    log.error({ err }, "Failed to broadcast identity change");
+  }
+}
+
 // ─── Module-level singleton ──────────────────────────────────────────────────
 
 let _instance: ConfigWatcher | undefined;
@@ -620,15 +665,31 @@ export function getConfigWatcher(): ConfigWatcher {
   return _instance;
 }
 
+/**
+ * Initialize the config fingerprint and start all workspace file watchers.
+ * Called once during daemon startup.
+ */
+export function startConfigWatcher(): void {
+  const watcher = getConfigWatcher();
+  watcher.initFingerprint(getConfig());
+  watcher.start();
+}
+
+/** Stop the config watcher during daemon shutdown. */
+export function stopConfigWatcher(): void {
+  getConfigWatcher().stop();
+}
+
 export function cleanupSettingsChanged(
   prev: MemoryCleanupConfig | undefined,
   next: MemoryCleanupConfig | undefined,
 ): boolean {
-  if (!prev || !next) return false;
+  if (!prev || !next) {
+    return false;
+  }
   return (
     prev.llmRequestLogRetentionMs !== next.llmRequestLogRetentionMs ||
     prev.conversationRetentionDays !== next.conversationRetentionDays ||
-    prev.traceEventRetentionDays !== next.traceEventRetentionDays ||
     prev.enabled !== next.enabled
   );
 }

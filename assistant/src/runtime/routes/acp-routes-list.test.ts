@@ -18,37 +18,43 @@ const inMemoryStates = new Map<string, AcpSessionState>();
 mock.module("../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     getStatus: (id?: string) => {
-      if (id === undefined) return Array.from(inMemoryStates.values());
+      if (id === undefined) {
+        return Array.from(inMemoryStates.values());
+      }
       const state = inMemoryStates.get(id);
-      if (!state) throw new Error(`ACP session "${id}" not found`);
+      if (!state) {
+        throw new Error(`ACP session "${id}" not found`);
+      }
       return state;
     },
+    getBufferedUpdates: () => [],
   }),
 }));
 
-// Spy on the drizzle limit() call to assert the exact value the handler
-// passes to SQL. The stub mirrors only the chained methods used by
-// listMergedSessions; calls fall through to a final `.all()` returning [].
+// Assert the exact SQL limit the handler passes by spying on the real
+// drizzle builder's `limit()` — we run the real DB (like the sibling
+// acp-routes suite) rather than stubbing `db-connection`. A process-global
+// module stub would omit named exports and poison `getDb` for adjacent route
+// tests that call `initializeDb()` in the same Bun invocation.
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { acpSessionHistory } from "../../persistence/schema/index.js";
+
+await initializeDb();
+
 const capturedLimits: number[] = [];
 
-mock.module("../../memory/db-connection.js", () => {
-  const builder: any = {};
-  builder.select = () => builder;
-  builder.from = () => builder;
-  builder.where = () => builder;
-  builder.orderBy = () => builder;
-  builder.limit = (n: number) => {
-    capturedLimits.push(n);
-    return builder;
-  };
-  builder.all = () => [];
-  return {
-    getDb: () => builder,
-    getSqlite: () => ({ __stub: true }),
-    getSqliteFrom: () => ({ __stub: true }),
-    resetDb: () => {},
-  };
-});
+// `.limit()` lives on the SQLiteSelect prototype and mutates/returns `this`.
+// Patch it once on the prototype so the spy survives across query chains, and
+// restore in `afterAll` so other suites see the unpatched builder.
+const selectProto = Object.getPrototypeOf(
+  getDb().select().from(acpSessionHistory),
+);
+const originalLimit = selectProto.limit;
+selectProto.limit = function patchedLimit(this: unknown, n: number) {
+  capturedLimits.push(n);
+  return originalLimit.call(this, n);
+};
 
 const { ROUTES } = await import("./acp-routes.js");
 
@@ -57,7 +63,9 @@ function getListHandler() {
     (r: { endpoint: string; method: string }) =>
       r.endpoint === "acp/sessions" && r.method === "GET",
   );
-  if (!route) throw new Error("GET acp/sessions route not registered");
+  if (!route) {
+    throw new Error("GET acp/sessions route not registered");
+  }
   return route.handler;
 }
 
@@ -78,6 +86,7 @@ function makeInMemoryState(
 afterAll(() => {
   inMemoryStates.clear();
   capturedLimits.length = 0;
+  selectProto.limit = originalLimit;
 });
 
 describe("GET /v1/acp/sessions — SQL pad amount", () => {

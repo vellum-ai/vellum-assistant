@@ -1,5 +1,6 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
 import { resolveConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Message } from "../providers/types.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
@@ -67,7 +68,9 @@ class ProviderCommitMessageGenerator {
   private isBreakerOpen(): boolean {
     const config = getConfig();
     const { openAfterFailures } = config.workspaceGit.commitMessageLLM.breaker;
-    if (this.consecutiveFailures < openAfterFailures) return false;
+    if (this.consecutiveFailures < openAfterFailures) {
+      return false;
+    }
     return Date.now() < this.nextAllowedAttemptMs;
   }
 
@@ -122,7 +125,7 @@ class ProviderCommitMessageGenerator {
 
     // Step 2: Resolve configured provider via the commit-message call site,
     // so model + maxTokens + temperature come from `llm.callSites.commitMessage`
-    // (with `llm.default` as the fallback). Operational fields (`enabled`,
+    // (with the shipped call-site default as the fallback). Operational fields (`enabled`,
     // `timeoutMs`, `breaker`, `maxFilesInPrompt`, `maxDiffBytes`,
     // `minRemainingTurnBudgetMs`) remain on `workspaceGit.commitMessageLLM`
     // and are read above. If nothing is resolvable, differentiate likely
@@ -158,8 +161,15 @@ class ProviderCommitMessageGenerator {
     const provider = resolved.provider;
     const providerName = resolved.configuredProviderName;
 
-    // Step 2b: API key preflight for the configured provider (skip keyless).
-    if (!KEYLESS_PROVIDERS.has(providerName)) {
+    // Step 2b: API key preflight for the configured provider. Skipped for
+    // keyless providers and for routing identities, which authenticate
+    // through their connection row (platform token / ChatGPT OAuth) — no
+    // provider API key exists for them, and resolution already verified the
+    // connection credential.
+    if (
+      !KEYLESS_PROVIDERS.has(providerName) &&
+      !ROUTING_IDENTITY_PROVIDERS.has(providerName)
+    ) {
       const providerApiKey = await getProviderKeyAsync(providerName);
       if (!providerApiKey) {
         log.debug(
@@ -241,8 +251,8 @@ class ProviderCommitMessageGenerator {
           signal: ac.signal,
           config: {
             // `callSite` lets the provider resolve model, max_tokens, and
-            // temperature from `llm.callSites.commitMessage` (with
-            // `llm.default` as the fallback). Operational fields
+            // temperature from `llm.callSites.commitMessage` (with the
+            // shipped call-site default as the fallback). Operational fields
             // (`enabled`, `timeoutMs`, `breaker`, `maxFilesInPrompt`,
             // `maxDiffBytes`, `minRemainingTurnBudgetMs`) remain on
             // `workspaceGit.commitMessageLLM` and are read above.

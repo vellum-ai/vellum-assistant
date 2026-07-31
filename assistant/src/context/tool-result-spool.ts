@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { ContentBlock, ToolResultContent } from "../providers/types.js";
 import {
   buildTruncatedContent,
+  FILE_READ_TOOL_NAMES,
   getToolResultFilePath,
   isTruncationEligible,
   TOOL_RESULT_DIR,
@@ -18,30 +19,45 @@ import {
 const AX_TREE_TAG = "<ax-tree>";
 
 /**
- * Tools whose results keep their full content at result time even when
- * oversized. `file_read` is the model's only way to page spooled content back
- * into context: stubbing a read of a `.tool-results/` file would spool a
- * fresh copy and hand back another stub, so oversized content could never be
- * read at all. Explicit reads are therefore honored in full; the post-turn
- * pass still truncates them at turn end, after the model has consumed the
- * content.
+ * Tools whose results are explicit, self-sized reads the model paginates
+ * itself: `web_fetch` takes `max_chars`/`start_index` and reports a
+ * "Character Window: X-Y of Z", so the model pages by character index against
+ * the window it requested. Stubbing such a result at result time hands the
+ * model ~a tenth of the window it just sized — and it keeps paging blind
+ * against content it never saw. Like the file-read tools, these explicit
+ * reads are honored in full for the turn that made them; the post-turn pass
+ * still truncates them at turn end, after the model has consumed the content.
  */
-const RESULT_TIME_STUB_EXEMPT_TOOLS = new Set<string>(["file_read"]);
+export const RESULT_TIME_SPOOL_EXEMPT_TOOLS = new Set<string>(["web_fetch"]);
 
 /**
- * Whether a tool result is eligible for the result-time spool/stub pass:
- * the post-turn pass's shared rules plus the AX-tree and `file_read`
- * exemptions above.
+ * Whether a tool result is eligible for the result-time spool/stub pass: the
+ * post-turn pass's shared rules plus the AX-tree exemption, minus the file-read
+ * tools ({@link FILE_READ_TOOL_NAMES}) and the explicit self-sized reads
+ * ({@link RESULT_TIME_SPOOL_EXEMPT_TOOLS}). The file-read tools are the model's
+ * only way to page spooled content back into context: stubbing a read of a
+ * `.tool-results/` file would spool a fresh copy and hand back another stub, so
+ * oversized content could never be read at all. Explicit reads are therefore
+ * honored in full; the post-turn pass still truncates them at turn end, after
+ * the model has consumed the content.
  */
 function isSpoolEligible(
   tr: ToolResultContent,
   toolName: string | undefined,
 ): boolean {
-  if (!isTruncationEligible(tr, toolName)) return false;
-  if (toolName !== undefined && RESULT_TIME_STUB_EXEMPT_TOOLS.has(toolName)) {
+  if (!isTruncationEligible(tr, toolName)) {
     return false;
   }
-  if (tr.content.includes(AX_TREE_TAG)) return false;
+  if (
+    toolName !== undefined &&
+    (FILE_READ_TOOL_NAMES.has(toolName) ||
+      RESULT_TIME_SPOOL_EXEMPT_TOOLS.has(toolName))
+  ) {
+    return false;
+  }
+  if (tr.content.includes(AX_TREE_TAG)) {
+    return false;
+  }
   return true;
 }
 
@@ -56,8 +72,8 @@ function isSpoolEligible(
  * rewriting an earlier message between calls would invalidate the cache from
  * that point on every iteration. The model still gets the head/tail preview
  * plus the on-disk path, so it can page the full content back in with
- * `file_read` (whose results are exempt from this pass) when it actually
- * needs it.
+ * `file_read` or `host_file_read` (whose results are exempt from this pass)
+ * when it actually needs it.
  *
  * Uses the same file paths, stub bytes, and eligibility rules as
  * `postTurnTruncateToolResults`, whose `TRUNCATION_MARKER` guard then skips
@@ -79,7 +95,9 @@ export function spoolAndStubOversizedToolResults(
   let stubbedCount = 0;
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
-    if (block.type !== "tool_result") continue;
+    if (block.type !== "tool_result") {
+      continue;
+    }
     if (!isSpoolEligible(block, options.toolNameById(block.tool_use_id))) {
       continue;
     }

@@ -8,7 +8,6 @@
 
 import type { OAuthConnection } from "../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
-import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   FetchResult,
@@ -97,10 +96,16 @@ async function listEvents(
 ): Promise<CalendarEventsListResponse> {
   const query: Record<string, string> = {};
 
-  if (options?.timeMin) query.timeMin = options.timeMin;
-  if (options?.timeMax) query.timeMax = options.timeMax;
+  if (options?.timeMin) {
+    query.timeMin = options.timeMin;
+  }
+  if (options?.timeMax) {
+    query.timeMax = options.timeMax;
+  }
   query.maxResults = String(options?.maxResults ?? 25);
-  if (options?.query) query.q = options.query;
+  if (options?.query) {
+    query.q = options.query;
+  }
 
   // Default to expanding recurring events into instances
   const singleEvents = options?.singleEvents ?? true;
@@ -112,8 +117,12 @@ async function listEvents(
     query.orderBy = "startTime";
   }
 
-  if (options?.pageToken) query.pageToken = options.pageToken;
-  if (options?.syncToken) query.syncToken = options.syncToken;
+  if (options?.pageToken) {
+    query.pageToken = options.pageToken;
+  }
+  if (options?.syncToken) {
+    query.syncToken = options.syncToken;
+  }
 
   const resp = await connection.request({
     method: "GET",
@@ -165,12 +174,14 @@ function eventToItem(event: CalendarEvent, eventType: string): WatcherItem {
       start,
       end,
       location: event.location ?? "",
-      description: event.description
-        ? wrapUntrustedContent(event.description, {
-            source: "calendar",
-            maxChars: 5000,
-          })
-        : "",
+      // Neither capped nor fenced here. The engine bounds every string in this
+      // payload before storing it (`capPayloadForStorage`) and fences the whole
+      // rendered event block in one `<external_content>` envelope before the
+      // model sees it, so both jobs are done once for every provider rather
+      // than per field here. Google's events.list reference documents no
+      // ceiling on `description`, and `location` has none either, so the
+      // engine's pass is the only bound on both.
+      description: event.description ?? "",
       status: event.status ?? "confirmed",
       organizer: event.organizer?.email ?? "",
       attendees:
@@ -204,8 +215,17 @@ async function incrementalSync(
   let nextSyncToken: string | undefined;
 
   do {
-    const query: Record<string, string> = { syncToken };
-    if (pageToken) query.pageToken = pageToken;
+    // Match fetchInitialSyncToken's query shape. Google's sync guide asks that
+    // allowed params stay consistent between initial and incremental requests.
+    // The sync stream is intentionally kept COLLAPSED (no singleEvents): a
+    // single change to a recurring series then yields one changed parent event
+    // rather than one event per expanded instance, which would otherwise flood
+    // the watcher/LLM. Instance expansion happens only in the bounded display
+    // query (fallbackFetch), which pairs singleEvents with a timeMin window.
+    const query: Record<string, string> = { syncToken, maxResults: "250" };
+    if (pageToken) {
+      query.pageToken = pageToken;
+    }
 
     const resp = await connection.request({
       method: "GET",
@@ -230,12 +250,82 @@ async function incrementalSync(
     }
 
     const page = resp.body as SyncResponse;
-    if (page.items) allItems = allItems.concat(page.items);
+    if (page.items) {
+      allItems = allItems.concat(page.items);
+    }
     pageToken = page.nextPageToken;
     nextSyncToken = page.nextSyncToken;
   } while (pageToken);
 
   return { items: allItems, nextSyncToken };
+}
+
+/**
+ * Establish the initial syncToken (stored as the watermark).
+ *
+ * Sends a bare listing request (maxResults only) that does NOT carry timeMin
+ * or other filter params — Google withholds nextSyncToken when the request is
+ * filtered. The resulting syncToken encodes the current calendar state so
+ * subsequent incrementalSync() calls detect changes without needing a time
+ * window.
+ *
+ * singleEvents is deliberately omitted so the sync stream stays collapsed: a
+ * change to a recurring series yields one changed parent event rather than one
+ * event per expanded instance (which would flood the watcher, especially for
+ * open-ended recurrences that have no expansion bound). Instances are expanded
+ * only in the bounded display query (fallbackFetch), which pairs singleEvents
+ * with a timeMin window.
+ *
+ * Google's sync guide says params must be "consistent" between initial and
+ * incremental requests to avoid undefined behavior: incrementalSync() omits
+ * timeMin (it's forbidden with syncToken) and sends the same consistent subset
+ * (syncToken + maxResults).
+ *
+ * Returns no items; the watermark marks the current point so the first
+ * incremental sync picks up only events that change afterward.
+ */
+async function fetchInitialSyncToken(
+  connection: OAuthConnection,
+): Promise<string | undefined> {
+  let pageToken: string | undefined;
+  let syncToken: string | undefined;
+
+  do {
+    // Google withholds nextSyncToken on filtered requests — no timeMin. Also no
+    // singleEvents: the token stream stays collapsed so a recurring-series edit
+    // surfaces as one changed parent, not one event per expanded instance.
+    const query: Record<string, string> = {
+      maxResults: "250",
+    };
+    if (pageToken) {
+      query.pageToken = pageToken;
+    }
+
+    const resp = await connection.request({
+      method: "GET",
+      path: "/calendars/primary/events",
+      query,
+      baseUrl: GOOGLE_CALENDAR_BASE_URL,
+    });
+
+    if (resp.status < 200 || resp.status >= 300) {
+      const bodyStr =
+        typeof resp.body === "string"
+          ? resp.body
+          : JSON.stringify(resp.body ?? "");
+      throw new CalendarApiError(
+        resp.status,
+        "",
+        `Calendar API ${resp.status}: ${bodyStr}`,
+      );
+    }
+
+    const page = (resp.body ?? {}) as CalendarEventsListResponse;
+    syncToken = page.nextSyncToken;
+    pageToken = page.nextPageToken;
+  } while (pageToken && !syncToken);
+
+  return syncToken;
 }
 
 class SyncTokenExpiredError extends Error {
@@ -249,28 +339,12 @@ export const googleCalendarProvider: WatcherProvider = {
   id: "google-calendar",
   displayName: "Google Calendar",
   requiredCredentialService: CREDENTIAL_SERVICE,
+  untrustedContentSource: "calendar",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
     const connection = await resolveOAuthConnection(credentialService);
 
-    // Do a full sync with a narrow window to get the initial syncToken.
-    // The API may paginate even for small result sets, so follow nextPageToken
-    // until we reach the final page that carries the nextSyncToken.
-    const now = new Date().toISOString();
-    let pageToken: string | undefined;
-    let syncToken: string | undefined;
-
-    do {
-      const result = await listEvents(connection, "primary", {
-        timeMin: now,
-        maxResults: 250,
-        singleEvents: true,
-        pageToken,
-      });
-      syncToken = result.nextSyncToken;
-      pageToken = result.nextPageToken;
-    } while (pageToken && !syncToken);
-
+    const syncToken = await fetchInitialSyncToken(connection);
     if (!syncToken) {
       throw new Error("Calendar API did not return a syncToken");
     }
@@ -286,22 +360,8 @@ export const googleCalendarProvider: WatcherProvider = {
     const connection = await resolveOAuthConnection(credentialService);
 
     if (!watermark) {
-      // No watermark — paginate through to get the initial syncToken, return no items
-      const now = new Date().toISOString();
-      let pageToken: string | undefined;
-      let syncToken: string | undefined;
-
-      do {
-        const result = await listEvents(connection, "primary", {
-          timeMin: now,
-          maxResults: 250,
-          singleEvents: true,
-          pageToken,
-        });
-        syncToken = result.nextSyncToken;
-        pageToken = result.nextPageToken;
-      } while (pageToken && !syncToken);
-
+      // No watermark — establish the initial syncToken and return no items.
+      const syncToken = await fetchInitialSyncToken(connection);
       return { items: [], watermark: syncToken ?? "" };
     }
 
@@ -316,7 +376,9 @@ export const googleCalendarProvider: WatcherProvider = {
       // Convert events to watcher items, distinguishing new vs updated
       const items: WatcherItem[] = [];
       for (const event of syncResp.items) {
-        if (event.status === "cancelled") continue;
+        if (event.status === "cancelled") {
+          continue;
+        }
 
         const eventType =
           event.created === event.updated
@@ -358,20 +420,10 @@ async function fallbackFetch(
     eventToItem(event, "new_calendar_event"),
   );
 
-  // Paginate through to get a fresh syncToken for the next watermark
-  let pageToken: string | undefined;
-  let syncToken: string | undefined;
-
-  do {
-    const syncResult = await listEvents(connection, "primary", {
-      timeMin: now,
-      maxResults: 250,
-      singleEvents: true,
-      pageToken,
-    });
-    syncToken = syncResult.nextSyncToken;
-    pageToken = syncResult.nextPageToken;
-  } while (pageToken && !syncToken);
+  // Re-establish a fresh syncToken for the next watermark via the same
+  // paging-only request as initialization; a filtered request would withhold
+  // nextSyncToken.
+  const syncToken = await fetchInitialSyncToken(connection);
 
   return { items, watermark: syncToken ?? "" };
 }

@@ -56,16 +56,14 @@ export function resolveUpgradeTarget(args: {
         isDowngrade: false,
       };
     }
-    target =
-      (releases.find((r) => r.is_stable !== false) ?? releases[0]).version;
+    target = (releases.find((r) => r.is_stable !== false) ?? releases[0])
+      .version;
   }
 
   const comparison = currentVersion
     ? compareVersions(target, currentVersion)
     : null;
-  const isNoOp = currentVersion
-    ? versionsEqual(target, currentVersion)
-    : false;
+  const isNoOp = currentVersion ? versionsEqual(target, currentVersion) : false;
 
   return {
     kind: "ok",
@@ -99,8 +97,13 @@ export interface UpgradePollState {
 export function evaluateUpgradePoll(
   state: UpgradePollState,
 ): "pending" | "complete" {
-  const { targetVersion, initialVersion, observedVersion, inProgress, sawInProgress } =
-    state;
+  const {
+    targetVersion,
+    initialVersion,
+    observedVersion,
+    inProgress,
+    sawInProgress,
+  } = state;
 
   if (targetVersion) {
     return observedVersion && versionsEqual(observedVersion, targetVersion)

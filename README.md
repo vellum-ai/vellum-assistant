@@ -14,12 +14,12 @@
 
 ---
 
-## What it does
+## What It Does
 
 If you've set up a Personal AI on OpenClaw, Hermes Agent, or Claude Code, you know how long it takes, and how many times you have to hatch a new one to get it right. Vellum gets you the result you're looking for out of the box, one download away.
 | Area                          | Summary |
 | ----------------------------- | --- |
-| **Memory**                    | Eight types (episodic, semantic, procedural, emotional, prospective, behavioral, narrative, shared), each with its own staleness window, hybrid dense + sparse retrieval, and per-user and per-channel isolation. Structured items (identity, preferences, projects, events) extracted from conversations with source attribution and dedup. Embeddings run locally by default. Not a SQLite + markdown file you maintain yourself. |
+| **Memory**                    | Eight types (episodic, semantic, procedural, emotional, prospective, behavioral, narrative, shared), each with its own staleness window, hybrid dense + sparse retrieval, and per-user and per-channel isolation. Structured items (identity, preferences, projects, events) extracted from conversations with source attribution and dedup. Embeddings run locally by default. Not a SQLite + Markdown file you maintain yourself. |
 | **Identity**                  | Behavior lives in SOUL.md. During onboarding the assistant observes how you communicate and writes its own personality files. It keeps a per-user journal of reflections and uses NOW.md as a scratchpad for current focus and active threads. |
 | **Proactivity**               | Every hour the assistant re-reads its notes, looks for anything unfinished or due soon, and messages you if something needs attention. Notifications go to the right channel and won't interrupt an active conversation. |
 | **Security**                  | Actor identity (guardian, trusted, unknown) is resolved once and enforced everywhere; unknown actors can't read memory, trigger tools, or escalate. Credentials live in a separate process and never reach the model. Every tool call runs in a sandbox. The default is to deny. |
@@ -29,7 +29,7 @@ If you've set up a Personal AI on OpenClaw, Hermes Agent, or Claude Code, you kn
 
 ---
 
-## Get started
+## Get Started
 
 **1. [Sign up](https://vellum.ai/signup) or [download the app](https://vellum.ai/download)**
 
@@ -46,7 +46,7 @@ If you've set up a Personal AI on OpenClaw, Hermes Agent, or Claude Code, you kn
 
 ---
 
-## Quick demo
+## Quick Demo
 
 <p align="center">
   <img src="assets/quick-demo.gif" alt="Vellum Assistant demo" width="100%">
@@ -93,6 +93,10 @@ vellum upgrade     # upgrade to latest version
 
 All commands target the default assistant. If you have multiple, pass the assistant ID as the second argument.
 
+**Guides**
+
+- [Your self-hosted assistant on your devices](docs/self-hosted-phone.md) — reach a locally hosted assistant from your phone, tablet, or another computer with the nginx edge, a Tailscale HTTPS front, and one-scan QR pairing.
+
 </details>
 
 ---
@@ -104,7 +108,7 @@ All commands target the default assistant. If you have multiple, pass the assist
 | **Computer use**           | The assistant works in its own sandbox, and with your approval reaches your actual machine: reads and edits files, runs commands, drives the browser. Every action is permission-gated, and you can grant once, for ten minutes, or always. |
 | **Skills**                 | Plugins defined by a SKILL.md and a TOOLS.json that add tools and prompt sections at runtime, sandboxed like everything else. Install them from the catalog, bundle them, or drop them in the workspace.                                                                                      |
 | **Channels**               | One assistant with one memory, reachable from the macOS app, Telegram, or Slack. Start a thought in one channel and pick it up in another.                                                                                                                                                              |
-| **Multi-provider support** | Works with Anthropic, OpenAI, Google Gemini, Fireworks, OpenRouter, MiniMax, and any OpenAI-compatible endpoint. Local models run through Ollama. Embeddings run on local ONNX by default and fall back to cloud providers automatically.                                                                                    |
+| **Multi-provider support** | Works with Anthropic, OpenAI, Google Gemini, Fireworks, OpenRouter, MiniMax, [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=vellum-assistant), and any OpenAI-compatible endpoint. Local models run through Ollama. Embeddings run on local ONNX by default and fall back to cloud providers automatically.                                                                                    |
 
 ---
 

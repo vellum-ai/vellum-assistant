@@ -3,8 +3,7 @@ import {
   type DiskPressureState,
   type DiskPressureStatus,
 } from "../api/events/disk-pressure-status-changed.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { cancelBackgroundTools } from "../tools/background-tool-registry.js";
 import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
@@ -24,6 +23,12 @@ export const DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT = 90;
 // clears the warning state, which discards the banner's (state-scoped) dismissal
 // so it re-appears the moment usage ticks back up.
 export const DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT = 77;
+// Absolute free-space floor (MiB). Regardless of usage percentage, never enter
+// the warning or critical state while at least this much space remains free. A
+// high usage percentage on a large disk can still leave many gigabytes
+// available, where locking is pointless. Small volumes (where a high percentage
+// genuinely means near-full) drop below the floor and remain protected.
+export const DISK_PRESSURE_MIN_FREE_FLOOR_MB = 2048;
 export const DISK_PRESSURE_CHECK_INTERVAL_MS = 60_000;
 export const DISK_PRESSURE_OVERRIDE_CONFIRMATION = "I understand the risks";
 export const DISK_PRESSURE_BLOCKED_CAPABILITIES = [
@@ -99,18 +104,14 @@ function statusFingerprint(status: DiskPressureStatus): string {
 }
 
 function publishStatusChangedIfNeeded(previous: DiskPressureStatus): void {
-  if (statusFingerprint(previous) === statusFingerprint(state.status)) return;
+  if (statusFingerprint(previous) === statusFingerprint(state.status)) {
+    return;
+  }
   const status = cloneStatus(state.status);
-  assistantEventHub
-    .publish(
-      buildAssistantEvent({
-        type: "disk_pressure_status_changed",
-        status,
-      }),
-    )
-    .catch((err) => {
-      log.warn({ err }, "Failed to publish disk pressure status change");
-    });
+  broadcastMessage({
+    type: "disk_pressure_status_changed",
+    status,
+  });
 }
 
 function replaceStatus(next: DiskPressureStatus): DiskPressureStatus {
@@ -163,7 +164,9 @@ function cancelTerminalBackgroundToolsForLock(): void {
     (tool) => tool.toolName === "bash" || tool.toolName === "host_bash",
     "disk_pressure",
   );
-  if (cancelled.length === 0) return;
+  if (cancelled.length === 0) {
+    return;
+  }
   log.info(
     { count: cancelled.length, ids: cancelled.map((tool) => tool.id) },
     "Cancelled background terminal tools during disk pressure lock",
@@ -192,7 +195,9 @@ export function startDiskPressureGuard(): DiskPressureStatus {
 }
 
 export function stopDiskPressureGuard(): void {
-  if (!state.timer) return;
+  if (!state.timer) {
+    return;
+  }
   clearInterval(state.timer);
   state.timer = null;
 }
@@ -219,7 +224,10 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
   const criticalThreshold = state.status.locked
     ? DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT
     : DISK_PRESSURE_THRESHOLD_PERCENT;
-  const isCritical = usagePercent >= criticalThreshold;
+  // Absolute free-space floor overrides the percentage thresholds: while ample
+  // space remains free, report "ok" no matter how full the volume is by percent.
+  const hasAmpleFreeSpace = usageInfo.freeMb >= DISK_PRESSURE_MIN_FREE_FLOOR_MB;
+  const isCritical = !hasAmpleFreeSpace && usagePercent >= criticalThreshold;
   // Mirror the critical deadband for the warning band: once in an active
   // pressure state (warning or critical), hold warning until usage clears the
   // lower warning-clear threshold. Treating "critical" as active here matters
@@ -235,7 +243,8 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
   const warningThreshold = inActivePressureState
     ? DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT
     : DISK_PRESSURE_WARNING_THRESHOLD_PERCENT;
-  const isWarning = !isCritical && usagePercent >= warningThreshold;
+  const isWarning =
+    !hasAmpleFreeSpace && !isCritical && usagePercent >= warningThreshold;
   const lastCheckedAt = new Date().toISOString();
 
   if (!isCritical && !isWarning) {
@@ -282,7 +291,9 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
 }
 
 export function getDiskPressureStatus(): DiskPressureStatus {
-  if (!state.status.enabled) return cloneStatus(OPEN_STATUS);
+  if (!state.status.enabled) {
+    return cloneStatus(OPEN_STATUS);
+  }
   return cloneStatus(state.status);
 }
 

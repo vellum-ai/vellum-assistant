@@ -8,6 +8,7 @@
  */
 
 import { createAssistantMessage } from "../agent/message-types.js";
+import type { AssistantEvent } from "../api/index.js";
 import { buildCallCompletionMessage } from "../calls/call-conversation-messages.js";
 import {
   registerCallCompletionNotifier,
@@ -21,17 +22,16 @@ import { getCallSession } from "../calls/call-store.js";
 import {
   addMessage,
   provenanceFromTrustContext,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import type { Message } from "../providers/types.js";
-import type { ServerMessage } from "./message-protocol.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 /**
  * Subset of Conversation state that notifier callbacks need to read at
  * invocation time. Properties are read lazily from this reference.
  */
 export interface NotifierConversationContext {
-  sendToClient: (msg: ServerMessage) => void;
+  sendToClient: (msg: AssistantEvent) => void;
   messages: Message[];
   trustContext?: TrustContext;
 }

@@ -4,7 +4,7 @@ import {
   resolveUsageAttribution,
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
-import { ProviderError } from "../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   computeRetryDelay,
@@ -13,9 +13,17 @@ import {
   isRetryableNetworkError,
   sleep,
 } from "../util/retry.js";
-import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
-import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
 import {
+  isAnthropicDelegatingGateway,
+  isAnthropicModel,
+} from "./anthropic-gateway-shared.js";
+import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
+import {
+  isAdaptiveThinkingOnlyModel,
+  isAdaptiveThinkingUnsupportedModel,
+} from "./model-catalog.js";
+import {
+  isThinkingConfigAdaptive,
   isThinkingConfigDisabled,
   normalizeThinkingConfigForWire,
 } from "./thinking-config.js";
@@ -26,6 +34,7 @@ import {
   type ProviderResponse,
   type SendMessageOptions,
 } from "./types.js";
+import { UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE } from "./unparseable-tool-args.js";
 
 const log = getLogger("retry");
 
@@ -38,21 +47,69 @@ const USAGE_ATTRIBUTION_HEADER_NAMES = {
   resolvedMixArm: "X-Vellum-Resolved-Mix-Arm",
 } as const;
 
+/** Providers whose transports consume `promptCacheKey` (OpenAI Responses
+ *  `prompt_cache_key`); `RetryProvider` derives it from `selectionSeed` for
+ *  these only. */
+const PROMPT_CACHE_KEY_PROVIDERS = new Set(["openai", "openrouter"]);
+
 /** Providers that support the `effort` config (extended thinking / reasoning). */
 const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "anthropic",
   "openai",
   "openrouter",
+  "vercel-ai-gateway",
   "fireworks",
+  "together",
+  "baseten",
+  "poolside",
 ]);
+
+// For these providers, disabling reasoning is encoded through the same effort
+// knob their transports send on the wire. Non-"none" tiers can still vary by
+// model and are handled by the provider client.
+const DISABLED_THINKING_USES_EFFORT_PROVIDERS = new Set([
+  "openai",
+  "fireworks",
+  "together",
+  "openrouter",
+  "vercel-ai-gateway",
+  "baseten",
+  "poolside",
+]);
+
+// Whether a disabled `thinking` config must be encoded as `effort: "none"`
+// for this provider/model. Gateway calls that delegate `anthropic/*` models
+// to the Anthropic Messages API are excluded: the delegate honors a disabled
+// `thinking` natively and `effort` keeps its Anthropic meaning there, so
+// forcing it would diverge from the direct `anthropic` provider.
+function disabledThinkingForcesEffortNone(
+  providerName: string,
+  model: unknown,
+): boolean {
+  if (!DISABLED_THINKING_USES_EFFORT_PROVIDERS.has(providerName)) {
+    return false;
+  }
+  return !(
+    isAnthropicDelegatingGateway(providerName) &&
+    typeof model === "string" &&
+    isAnthropicModel(model)
+  );
+}
 
 /**
  * Providers that consume the `thinking` config. Anthropic uses it directly on
- * the wire; OpenRouter either forwards it to its Anthropic-compatible path or
- * translates it into the unified `reasoning` parameter on OpenAI-compat calls;
- * Gemini reads `thinking.level` to populate `thinkingConfig.thinkingLevel`.
+ * the wire; OpenRouter forwards it on its Anthropic delegate path and
+ * translates it into `reasoning` for OpenAI-compat calls; the Vercel AI
+ * Gateway consumes it only on its `anthropic/*` delegate path (no wire effect
+ * for its other models); Gemini reads `thinking.level` to populate
+ * `thinkingConfig.thinkingLevel`.
  */
-const THINKING_AWARE_PROVIDERS = new Set(["anthropic", "openrouter", "gemini"]);
+const THINKING_AWARE_PROVIDERS = new Set([
+  "anthropic",
+  "openrouter",
+  "vercel-ai-gateway",
+  "gemini",
+]);
 
 /**
  * Providers that consume Gemini-only thinking extras (`level`,
@@ -74,7 +131,63 @@ const RETRYABLE_STREAM_PATTERNS = [
   "stream ended without producing",
   "request ended without sending any chunks",
   "stream has ended, this shouldn't happen",
+  // The SDK's stream accumulator throws this when the model emits tool-call
+  // arguments that don't parse as JSON (e.g. an unquoted string value). The
+  // Anthropic client salvages most of these into a `_raw`-wrapped tool call
+  // before they surface (see anthropic/stream-content-shadow.ts); ones that
+  // still reach here retry with a corrective note
+  // (`withUnparseableToolArgsHint`) because the malformation can be
+  // conditioned on the request context — a byte-identical resend can
+  // reproduce it indefinitely.
+  UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE,
 ];
+
+/**
+ * One-shot note appended to the retried request after a tool-argument JSON
+ * parse failure. Appended as a trailing text block on the latest user
+ * message: the request tail sits after every prompt-cache anchor, so the
+ * hint costs no cache reuse (a system-prompt edit would invalidate the whole
+ * cached prefix).
+ */
+const UNPARSEABLE_TOOL_ARGS_RETRY_HINT =
+  "[assistant runtime] The previous attempt at this response was discarded: " +
+  "a tool call's arguments were not valid JSON (typically an unquoted string " +
+  "value). Respond again, emitting tool-call arguments as strict JSON — " +
+  "every string value double-quoted, including values that begin with '[' " +
+  "or '{'.";
+
+function isUnparseableToolArgsError(error: unknown): boolean {
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.statusCode !== undefined) {
+    return false;
+  }
+  return error.message.includes(UNPARSEABLE_TOOL_ARGS_SDK_MESSAGE);
+}
+
+/**
+ * Copy of `messages` with the corrective note appended to the latest user
+ * message. When the request doesn't end on a user message (assistant
+ * prefill), returns `messages` unchanged — appending anything there would
+ * change prefill semantics.
+ */
+function withUnparseableToolArgsHint(messages: Message[]): Message[] {
+  const last = messages[messages.length - 1];
+  if (last === undefined || last.role !== "user") {
+    return messages;
+  }
+  return [
+    ...messages.slice(0, -1),
+    {
+      ...last,
+      content: [
+        ...last.content,
+        { type: "text", text: UNPARSEABLE_TOOL_ARGS_RETRY_HINT },
+      ],
+    },
+  ];
+}
 
 /**
  * Patterns that indicate a transient provider error even when no HTTP status
@@ -117,24 +230,43 @@ const RETRYABLE_TRANSPORT_ABORT_PATTERNS = [
   /^anthropic api error:\s*request was aborted/i,
 ];
 
+/** Semantic provider-error reasons that are safe to retry. */
+const RETRYABLE_PROVIDER_ERROR_REASONS = new Set<ProviderErrorReason>([
+  "rate_limited",
+  "overloaded",
+  "server_error",
+]);
+
 function isRetryableStreamError(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
-  if (error.statusCode !== undefined) return false; // has a real HTTP status — not a stream error
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.statusCode !== undefined) {
+    return false;
+  } // has a real HTTP status — not a stream error
   return RETRYABLE_STREAM_PATTERNS.some((p) => error.message.includes(p));
 }
 
 function isRetryableProviderMessage(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
-  if (error.statusCode !== undefined) return false; // has a real HTTP status — handled by status check
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
+  if (error.statusCode !== undefined) {
+    return false;
+  } // has a real HTTP status — handled by status check
   return RETRYABLE_PROVIDER_MESSAGE_PATTERNS.some((p) => p.test(error.message));
 }
 
 function isRetryableTransportAbort(error: unknown): boolean {
-  if (!(error instanceof ProviderError)) return false;
+  if (!(error instanceof ProviderError)) {
+    return false;
+  }
   // Transport aborts surface with ``status === undefined`` (the SDK never
   // saw an HTTP response). A real HTTP status here means a server error,
   // which is handled by the status check.
-  if (error.statusCode !== undefined) return false;
+  if (error.statusCode !== undefined) {
+    return false;
+  }
   return RETRYABLE_TRANSPORT_ABORT_PATTERNS.some((p) => p.test(error.message));
 }
 
@@ -143,7 +275,9 @@ function isRetryableError(error: unknown): boolean {
   // will never succeed. Short-circuit before the generic 429/5xx check so
   // ContextOverflowError (which extends ProviderError and may carry a 429
   // statusCode on Gemini/Vertex) never triggers exponential backoff.
-  if (isContextOverflowError(error)) return false;
+  if (isContextOverflowError(error)) {
+    return false;
+  }
   // Daemon/user-initiated aborts are never retryable. The catch-site tags
   // these with `abortReason` exactly when `signal.aborted` was true at the
   // time of failure, so this short-circuits before any message-based pattern
@@ -152,13 +286,47 @@ function isRetryableError(error: unknown): boolean {
   if (error instanceof ProviderError && error.abortReason !== undefined) {
     return false;
   }
-  if (error instanceof ProviderError && error.statusCode !== undefined) {
-    if (error.statusCode === 429 || error.statusCode >= 500) return true;
+  // Prefer the provider-stamped semantic reason: a known reason decides
+  // retryability outright, superseding the status/regex fallback below. Only
+  // `unknown` (and a reason-less error) falls through.
+  if (
+    error instanceof ProviderError &&
+    error.reason &&
+    error.reason !== "unknown"
+  ) {
+    return RETRYABLE_PROVIDER_ERROR_REASONS.has(error.reason);
   }
-  if (isRetryableProviderMessage(error)) return true;
-  if (isRetryableStreamError(error)) return true;
-  if (isRetryableTransportAbort(error)) return true;
+  if (error instanceof ProviderError && error.statusCode !== undefined) {
+    if (error.statusCode === 429 || error.statusCode >= 500) {
+      return true;
+    }
+  }
+  if (isRetryableProviderMessage(error)) {
+    return true;
+  }
+  if (isRetryableStreamError(error)) {
+    return true;
+  }
+  if (isRetryableTransportAbort(error)) {
+    return true;
+  }
   return isRetryableNetworkError(error);
+}
+
+/**
+ * Whether the request lands on Anthropic's Messages API wire: direct Anthropic
+ * calls, plus OpenRouter / Vercel AI Gateway calls that delegate `anthropic/*`
+ * models to it. Anthropic's thinking wire constraints (forced tool_choice,
+ * temperature ≠ 1, top_p) apply exactly to these requests.
+ */
+function targetsAnthropicWire(providerName: string, model: string): boolean {
+  if (providerName === "anthropic") {
+    return true;
+  }
+  if (isAnthropicDelegatingGateway(providerName)) {
+    return isAnthropicModel(model);
+  }
+  return false;
 }
 
 /**
@@ -188,7 +356,9 @@ function normalizeSendMessageOptions(
   normalizeOptions: { forwardUsageAttributionHeaders?: boolean } = {},
 ): SendMessageOptions | undefined {
   const config = options?.config;
-  if (!config) return options;
+  if (!config) {
+    return options;
+  }
 
   const nextConfig: Record<string, unknown> = { ...config };
 
@@ -197,22 +367,45 @@ function normalizeSendMessageOptions(
   delete nextConfig.usageAttributionHeaders;
   delete nextConfig.usageTracking;
 
-  // `overrideProfile` and `selectionSeed` are routing/resolution-time concerns
-  // (consumed by the resolver below and `CallSiteRoutingProvider`'s provider
-  // selection); neither is a wire-format field. Strip unconditionally so they
-  // never leak into provider request bodies even when callers set them without
-  // a `callSite`.
+  // Preserve the per-conversation prompt-cache key before `selectionSeed` is
+  // stripped below. Gated to providers whose Responses transport consumes it
+  // as `prompt_cache_key` (direct OpenAI, and OpenRouter's `openai/*`
+  // Responses delegate); creating it elsewhere would leak a non-wire field
+  // through clients that spread config into request bodies. The Anthropic
+  // client strips `promptCacheKey` from its wire config, which also covers
+  // OpenRouter's `anthropic/*` delegation path. An explicit caller-set value
+  // wins.
+  if (
+    PROMPT_CACHE_KEY_PROVIDERS.has(providerName) &&
+    nextConfig.promptCacheKey === undefined &&
+    typeof config.selectionSeed === "string" &&
+    config.selectionSeed.length > 0
+  ) {
+    nextConfig.promptCacheKey = config.selectionSeed;
+  }
+
+  // `overrideProfile`, `forceOverrideProfile`, `selectionSeed`, and
+  // `conversationId` are routing/resolution-time concerns (consumed by the
+  // resolver below, `CallSiteRoutingProvider`'s provider selection, and
+  // `UsageTrackingProvider`'s ledger attribution); none is a wire-format
+  // field. Strip unconditionally (after the `openai` promptCacheKey copy
+  // above) so they never leak into provider request bodies even when callers
+  // set them without a `callSite`.
   delete nextConfig.overrideProfile;
+  delete nextConfig.forceOverrideProfile;
   delete nextConfig.selectionSeed;
+  delete nextConfig.conversationId;
 
   if (config.callSite !== undefined) {
     const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {
       overrideProfile: config.overrideProfile,
+      forceOverrideProfile: config.forceOverrideProfile,
       selectionSeed: config.selectionSeed,
     });
     const attribution = resolveUsageAttribution({
       callSite: config.callSite,
       overrideProfile: config.overrideProfile,
+      forceOverrideProfile: config.forceOverrideProfile,
       selectionSeed: config.selectionSeed,
     });
 
@@ -264,6 +457,16 @@ function normalizeSendMessageOptions(
       resolved.temperature !== undefined
     ) {
       nextConfig.temperature = resolved.temperature;
+    }
+    // `topP` (schema, camelCase) maps to the provider wire field `top_p`.
+    // Defaults to `null` ("no opinion"); only forward an actual number so we
+    // never send `top_p: null`, mirroring the `temperature` handling above.
+    if (
+      nextConfig.top_p === undefined &&
+      resolved.topP !== null &&
+      resolved.topP !== undefined
+    ) {
+      nextConfig.top_p = resolved.topP;
     }
     if (nextConfig.thinking === undefined && resolved.thinking !== undefined) {
       nextConfig.thinking = resolved.thinking;
@@ -333,6 +536,13 @@ function normalizeSendMessageOptions(
     }
   }
 
+  if (
+    isThinkingConfigDisabled(nextConfig.thinking) &&
+    disabledThinkingForcesEffortNone(providerName, nextConfig.model)
+  ) {
+    nextConfig.effort = "none";
+  }
+
   // Claude Fable always reasons with adaptive thinking and rejects an explicit
   // `thinking: { type: "disabled" }` (Anthropic 400s the request). Drop a
   // disabled thinking config for these models so they fall back to their
@@ -341,6 +551,21 @@ function normalizeSendMessageOptions(
     typeof nextConfig.model === "string" &&
     isAdaptiveThinkingOnlyModel(nextConfig.model) &&
     isThinkingConfigDisabled(nextConfig.thinking)
+  ) {
+    delete nextConfig.thinking;
+  }
+
+  // Pre-adaptive Claude models (Haiku 4.5, Opus 4.5, Sonnet 4.5) reject
+  // `thinking: { type: "adaptive" }` (Anthropic 400s the request), and Vellum
+  // never sends the legacy budget_tokens form. Drop an adaptive thinking
+  // config for these models so the request goes out without thinking instead
+  // of failing. A pass-through `{ type: "enabled", budget_tokens }` config is
+  // left intact: these models do support that shape.
+  if (
+    typeof nextConfig.model === "string" &&
+    isAdaptiveThinkingUnsupportedModel(nextConfig.model) &&
+    isThinkingConfigAdaptive(nextConfig.thinking) &&
+    targetsAnthropicWire(providerName, nextConfig.model)
   ) {
     delete nextConfig.thinking;
   }
@@ -369,42 +594,46 @@ function normalizeSendMessageOptions(
     if (wire.level !== undefined || wire.streamThinking !== undefined) {
       const scrubbed: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(wire)) {
-        if (key === "level" || key === "streamThinking") continue;
+        if (key === "level" || key === "streamThinking") {
+          continue;
+        }
         scrubbed[key] = value;
       }
       nextConfig.thinking = scrubbed;
     }
   }
 
-  // Anthropic (and OpenRouter fronting Anthropic) rejects requests that
+  // Anthropic (and the gateways fronting Anthropic) rejects requests that
   // combine extended thinking with forced tool use (`tool_choice.type` of
   // `"tool"` or `"any"`).  Strip thinking when both are present so the
   // request doesn't fail with a 400 "Thinking may not be enabled when
   // tool_choice forces tool use."  `tool_choice: { type: "auto" }` is
   // compatible with thinking and left untouched.
   //
-  // For OpenRouter, only strip when routing to an `anthropic/*` model —
-  // non-Anthropic reasoning models (e.g. xAI Grok) translate `thinking`
-  // into OpenRouter's `reasoning` parameter via `buildExtraCreateParams`
-  // and may support reasoning with forced tool_choice.
+  // For OpenRouter and the Vercel AI Gateway, only strip when routing to an
+  // `anthropic/*` model — non-Anthropic reasoning models don't share this
+  // wire constraint (e.g. OpenRouter translates `thinking` into its
+  // `reasoning` parameter via `buildExtraCreateParams` and may support
+  // reasoning with forced tool_choice).
   const isThinkingForcedToolConflict = (() => {
-    if (nextConfig.thinking == null) return false;
-    if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
-    const tc = nextConfig.tool_choice as Record<string, unknown> | undefined;
-    if (tc == null || (tc.type !== "tool" && tc.type !== "any")) return false;
-    if (providerName === "anthropic") return true;
-    if (providerName === "openrouter") {
-      const model =
-        typeof nextConfig.model === "string" ? nextConfig.model : "";
-      return model.startsWith("anthropic/");
+    if (nextConfig.thinking == null) {
+      return false;
     }
-    return false;
+    if (isThinkingConfigDisabled(nextConfig.thinking)) {
+      return false;
+    }
+    const tc = nextConfig.tool_choice as Record<string, unknown> | undefined;
+    if (tc == null || (tc.type !== "tool" && tc.type !== "any")) {
+      return false;
+    }
+    const model = typeof nextConfig.model === "string" ? nextConfig.model : "";
+    return targetsAnthropicWire(providerName, model);
   })();
   if (isThinkingForcedToolConflict) {
     delete nextConfig.thinking;
   }
 
-  // Anthropic (and OpenRouter fronting Anthropic) rejects requests that
+  // Anthropic (and the gateways fronting Anthropic) rejects requests that
   // combine extended thinking with `temperature` ≠ 1. From the API:
   //   "`temperature` may only be set to 1 when thinking is enabled or in
   //   adaptive mode."
@@ -421,16 +650,21 @@ function normalizeSendMessageOptions(
   //
   // Scope:
   // - Anthropic: always.
-  // - OpenRouter fronting `anthropic/*`: same wire constraint applies.
+  // - OpenRouter / Vercel AI Gateway fronting `anthropic/*`: same wire
+  //   constraint applies.
   // - Other providers: not our problem here (e.g. OpenAI reasoning models
-  //   strip `temperature` upstream; non-Anthropic OpenRouter reasoning
+  //   strip `temperature` upstream; non-Anthropic gateway reasoning
   //   models don't have this exact constraint).
-  const isThinkingTemperatureConflict = (() => {
+  //
+  // Anthropic applies the same constraint family to `top_p` (see the `top_p`
+  // guard below), so the "thinking is enabled on the Anthropic wire" predicate
+  // is shared between the two guards.
+  const isThinkingEnabledOnAnthropicWire = (() => {
     const model = typeof nextConfig.model === "string" ? nextConfig.model : "";
-    // Claude Fable always reasons in adaptive mode, so the `temperature: 1`
-    // constraint applies even when no explicit `thinking` config is present
-    // (a disabled config was already dropped above). For every other model
-    // the constraint only applies when thinking is actually enabled.
+    // Claude Fable always reasons in adaptive mode, so the constraint applies
+    // even when no explicit `thinking` config is present (a disabled config was
+    // already dropped above). For every other model the constraint only applies
+    // when thinking is actually enabled.
     if (!isAdaptiveThinkingOnlyModel(model)) {
       if (nextConfig.thinking == null) {
         return false;
@@ -439,20 +673,19 @@ function normalizeSendMessageOptions(
         return false;
       }
     }
+    return targetsAnthropicWire(providerName, model);
+  })();
+  const isThinkingTemperatureConflict = (() => {
+    if (!isThinkingEnabledOnAnthropicWire) {
+      return false;
+    }
     const temp = nextConfig.temperature;
     if (typeof temp !== "number") {
       return false;
     }
-    if (temp === 1) {
-      return false;
-    }
-    if (providerName === "anthropic") {
-      return true;
-    }
-    if (providerName === "openrouter") {
-      return model.startsWith("anthropic/");
-    }
-    return false;
+    // Unlike `top_p`, `temperature: 1` is explicitly accepted alongside
+    // thinking, so it's the one value that doesn't conflict.
+    return temp !== 1;
   })();
   if (isThinkingTemperatureConflict) {
     log.warn(
@@ -467,6 +700,28 @@ function normalizeSendMessageOptions(
         "need a specific temperature.",
     );
     delete nextConfig.temperature;
+  }
+
+  // Anthropic (and the gateways fronting Anthropic) also rejects requests that
+  // combine extended thinking with *any* `top_p` modification. Unlike
+  // `temperature` there is no "=== 1 is fine" exception — when thinking is
+  // enabled the request must not set `top_p` at all. Drop it with a warn log
+  // so the request goes through with Anthropic's default, keeping `thinking`
+  // (the more deliberate, profile-level choice) for the same reasons as the
+  // temperature guard above.
+  if (isThinkingEnabledOnAnthropicWire && nextConfig.top_p !== undefined) {
+    log.warn(
+      {
+        providerName,
+        callSite: config.callSite,
+        droppedTopP: nextConfig.top_p,
+      },
+      "Dropping `top_p` because thinking is enabled — Anthropic does not " +
+        "accept `top_p` modifications when thinking/adaptive mode is on. Set " +
+        "`thinking: { type: 'disabled' }` on the call site if you need a " +
+        "specific top_p.",
+    );
+    delete nextConfig.top_p;
   }
 
   // effort is supported by Anthropic, OpenAI, and OpenAI-compatible providers; strip for others
@@ -573,11 +828,30 @@ export class RetryProvider implements Provider {
     return this.inner.tokenEstimationProvider;
   }
 
+  get supportsNativeWebSearch(): boolean | undefined {
+    return this.inner.supportsNativeWebSearch;
+  }
+
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
+  }
+
+  // Forward the optional token-counting endpoint so the capability survives
+  // the wrapper chain (callers gate on its presence). Bound straight to the
+  // inner provider — count_tokens is a cheap separate endpoint and its caller
+  // already falls back on error, so it needs no retry wrapping.
+  public readonly countInputTokens?: NonNullable<Provider["countInputTokens"]>;
+
   constructor(
     private readonly inner: Provider,
     private readonly options: { forwardUsageAttributionHeaders?: boolean } = {},
   ) {
     this.name = inner.name;
+    if (inner.countInputTokens) {
+      this.countInputTokens = inner.countInputTokens.bind(inner);
+    }
   }
 
   async sendMessage(
@@ -586,6 +860,7 @@ export class RetryProvider implements Provider {
   ): Promise<ProviderResponse> {
     let lastError: unknown;
     let didRetry = false;
+    let messagesForAttempt = messages;
 
     const normalizedOptions = normalizeSendMessageOptions(this.name, options, {
       forwardUsageAttributionHeaders:
@@ -595,7 +870,7 @@ export class RetryProvider implements Provider {
     for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
       try {
         const result = await this.inner.sendMessage(
-          messages,
+          messagesForAttempt,
           normalizedOptions,
         );
         return result;
@@ -603,6 +878,13 @@ export class RetryProvider implements Provider {
         lastError = error;
 
         if (attempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
+          // Malformed tool-argument JSON is conditioned on the request, so
+          // resend with the corrective note. Built from the original
+          // `messages` each time — the note appears exactly once no matter
+          // how many attempts fail this way.
+          if (isUnparseableToolArgsError(error)) {
+            messagesForAttempt = withUnparseableToolArgsHint(messages);
+          }
           // Prefer server-provided Retry-After; fall back to exponential backoff.
           const retryAfter =
             error instanceof ProviderError ? error.retryAfterMs : undefined;
@@ -632,7 +914,9 @@ export class RetryProvider implements Provider {
               delay,
               retryAfterHeader: retryAfter !== undefined,
               errorType,
+              correctiveHint: messagesForAttempt !== messages,
               provider: this.name,
+              message: error instanceof Error ? error.message : String(error),
             },
             "Retrying after transient error",
           );

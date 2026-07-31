@@ -22,11 +22,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks (must precede module imports under test)
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 const addMessageCalls: Array<{
   conversationId: string;
   role: string;
@@ -34,7 +29,9 @@ const addMessageCalls: Array<{
   metadata?: Record<string, unknown>;
 }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: async (
     conversationId: string,
     role: string,
@@ -56,12 +53,12 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
   updateMetaFile: () => {},
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   attachmentExists: () => false,
   linkAttachmentToMessage: () => {},
   attachInlineAttachmentToMessage: () => {},
@@ -130,7 +127,9 @@ function lastPersistedMetadata(): Record<string, unknown> {
 function readPersistedSlackMeta(): SlackMessageMetadata | null {
   const metadata = lastPersistedMetadata();
   const raw = metadata.slackMeta;
-  if (raw === undefined) return null;
+  if (raw === undefined) {
+    return null;
+  }
   expect(typeof raw).toBe("string");
   return readSlackMetadata(raw as string);
 }

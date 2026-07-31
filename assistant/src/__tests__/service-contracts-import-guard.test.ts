@@ -68,7 +68,7 @@ describe("service-contracts import discipline", () => {
         [
           "grep",
           "-lE",
-          'from\\s+["\']@vellumai/ces-contracts|require\\s*\\(\\s*["\']@vellumai/ces-contracts',
+          "from\\s+[\"']@vellumai/ces-contracts|require\\s*\\(\\s*[\"']@vellumai/ces-contracts",
           "--",
           ":(glob)**/*.ts",
         ],
@@ -84,8 +84,12 @@ describe("service-contracts import discipline", () => {
 
     const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = files.filter((f) => {
-      if (isTestFile(f)) return false;
-      if (CES_CONTRACTS_ALLOWLIST.has(f)) return false;
+      if (isTestFile(f)) {
+        return false;
+      }
+      if (CES_CONTRACTS_ALLOWLIST.has(f)) {
+        return false;
+      }
       return true;
     });
 
@@ -98,9 +102,7 @@ describe("service-contracts import discipline", () => {
         "  @vellumai/service-contracts/credential-rpc",
         "  @vellumai/service-contracts/trust-rules",
         "  @vellumai/service-contracts/handles",
-        "  @vellumai/service-contracts/grants",
         "  @vellumai/service-contracts/rpc",
-        "  @vellumai/service-contracts/rendering",
         "  @vellumai/service-contracts/error",
         "",
         "Violations:",
@@ -123,8 +125,7 @@ describe("service-contracts import discipline", () => {
 
     // Match the aggregate root import: from "@vellumai/service-contracts" (with closing quote, no slash after)
     // This catches both single and double quote forms.
-    const aggregateRootPattern =
-      "from ['\"]@vellumai/service-contracts['\"]";
+    const aggregateRootPattern = "from ['\"]@vellumai/service-contracts['\"]";
 
     let grepOutput = "";
     try {
@@ -151,8 +152,12 @@ describe("service-contracts import discipline", () => {
 
     const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = files.filter((f) => {
-      if (isTestFile(f)) return false;
-      if (AGGREGATE_ROOT_ALLOWLIST.has(f)) return false;
+      if (isTestFile(f)) {
+        return false;
+      }
+      if (AGGREGATE_ROOT_ALLOWLIST.has(f)) {
+        return false;
+      }
       return true;
     });
 
@@ -165,16 +170,14 @@ describe("service-contracts import discipline", () => {
         "  @vellumai/service-contracts/credential-rpc",
         "  @vellumai/service-contracts/trust-rules",
         "  @vellumai/service-contracts/handles",
-        "  @vellumai/service-contracts/grants",
         "  @vellumai/service-contracts/rpc",
-        "  @vellumai/service-contracts/rendering",
         "  @vellumai/service-contracts/error",
         "",
         "Violations:",
         ...violations.map((f) => `  - ${f}`),
         "",
-        "To fix: replace `from \"@vellumai/service-contracts\"` with the",
-        "appropriate `from \"@vellumai/service-contracts/<subpath>\"` import.",
+        'To fix: replace `from "@vellumai/service-contracts"` with the',
+        'appropriate `from "@vellumai/service-contracts/<subpath>"` import.',
         "If this is an intentional exception, add it to AGGREGATE_ROOT_ALLOWLIST",
         "in service-contracts-import-guard.test.ts.",
       ].join("\n");

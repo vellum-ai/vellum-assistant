@@ -1,29 +1,14 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    memory: {},
-  }),
-}));
-
 import type { Database } from "bun:sqlite";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { executeFollowupCreate } from "../tools/followups/followup_create.js";
 import { executeFollowupList } from "../tools/followups/followup_list.js";
 import { executeFollowupResolve } from "../tools/followups/followup_resolve.js";
 import type { ToolContext } from "../tools/types.js";
 
-initializeDb();
+await initializeDb();
 
 function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;
@@ -320,6 +305,64 @@ describe("followup_resolve tool", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain(
       "Either id or both channel and conversation_id are required",
+    );
+  });
+});
+
+// ── model-input schema validation (LUM-2856) ────────────────────────
+
+describe("followup tools — model-input schema validation", () => {
+  test("followup_create rejects a non-string contact_id", async () => {
+    const result = await executeFollowupCreate(
+      { channel: "email", conversation_id: "conv-1", contact_id: 42 },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "followup_create"',
+    );
+    expect(result.content).toContain("contact_id");
+  });
+
+  test("followup_create keeps the bespoke positive-number error for expected_response_hours", async () => {
+    const result = await executeFollowupCreate(
+      {
+        channel: "email",
+        conversation_id: "conv-1",
+        expected_response_hours: "soon",
+      },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "expected_response_hours must be a positive number",
+    );
+  });
+
+  test("followup_create treats explicit null channel as missing (bespoke error)", async () => {
+    const result = await executeFollowupCreate(
+      { channel: null, conversation_id: "conv-1" },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("channel is required");
+  });
+
+  test("followup_list rejects a non-boolean overdue_only but keeps the bespoke status error", async () => {
+    const bad = await executeFollowupList({ overdue_only: "yes" }, ctx);
+    expect(bad.isError).toBe(true);
+    expect(bad.content).toContain('Invalid input for tool "followup_list"');
+
+    const status = await executeFollowupList({ status: 42 }, ctx);
+    expect(status.isError).toBe(true);
+    expect(status.content).toContain("Invalid status");
+  });
+
+  test("followup_resolve rejects a non-string id", async () => {
+    const result = await executeFollowupResolve({ id: 42 }, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "followup_resolve"',
     );
   });
 });

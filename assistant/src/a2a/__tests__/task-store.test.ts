@@ -1,16 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { mock } from "bun:test";
 
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
-import { getDb, getSqliteFrom } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
+import { getDb, getSqliteFrom } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import type { A2AMessage, Artifact } from "../protocol-types.js";
 import {
   completeWithArtifacts,
@@ -21,7 +12,7 @@ import {
   updateState,
 } from "../task-store.js";
 
-initializeDb();
+await initializeDb();
 
 function makeRequestMessage(overrides?: Partial<A2AMessage>): A2AMessage {
   return {

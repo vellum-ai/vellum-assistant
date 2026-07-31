@@ -2,13 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mock logger ──────────────────────────────────────────────────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Mock sleep so retry tests don't slow down the suite ──────────────────────
 
 mock.module("../util/retry.js", () => ({
@@ -16,13 +9,19 @@ mock.module("../util/retry.js", () => ({
   isRetryableStatus: (status: number): boolean =>
     status === 429 || status >= 500,
   isRetryableNetworkError: (error: unknown): boolean => {
-    if (!(error instanceof Error)) return false;
+    if (!(error instanceof Error)) {
+      return false;
+    }
     const codes = new Set(["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EPIPE"]);
     const code = (error as { code?: string }).code;
-    if (code && codes.has(code)) return true;
+    if (code && codes.has(code)) {
+      return true;
+    }
     if (error.cause instanceof Error) {
       const causeCode = (error.cause as { code?: string }).code;
-      if (causeCode && codes.has(causeCode)) return true;
+      if (causeCode && codes.has(causeCode)) {
+        return true;
+      }
     }
     return false;
   },
@@ -44,7 +43,9 @@ let clientAvailable = true;
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
     create: async () => {
-      if (!clientAvailable) return null;
+      if (!clientAvailable) {
+        return null;
+      }
       return {
         platformAssistantId: "test-assistant-id",
         fetch: async (path: string, init?: RequestInit) => {

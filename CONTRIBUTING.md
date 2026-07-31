@@ -2,18 +2,18 @@
 
 Thank you for your interest in Vellum Assistant! We welcome contributions of all kinds — bug fixes, new features, documentation improvements, and more.
 
-## Before you start
+## Before You Start
 
 - **Bug reports and feature requests**: [Open an issue](https://github.com/vellum-ai/vellum-assistant/issues). Use the provided templates.
 - **Security vulnerabilities**: Report these privately. See [SECURITY.md](SECURITY.md).
 - **Questions and discussion**: Join us on the #contributors channel on [Discord](https://discord.com/channels/1471183263174234245/1503398277092081875).
 
-## Development setup
+## Development Setup
 
-### Getting started
+### Getting Started
 
 ```bash
-git clone https://github.com/vellum-ai/vellum-assistant.git
+git clone https://github.com/<your-username>/vellum-assistant.git
 cd vellum-assistant
 ./setup.sh    # installs Bun (if needed), installs deps, links packages, registers the global vellum CLI
 ```
@@ -24,7 +24,7 @@ Verify your setup:
 vellum --version
 ```
 
-### Running the assistant locally
+### Running the Assistant Locally
 
 **CLI only:**
 
@@ -35,7 +35,7 @@ vellum client  # interact with your assistant through the terminal
 vellum sleep   # stop but do not remove an existing assistant
 ```
 
-### Running tests
+### Running Tests
 
 ```bash
 # Assistant
@@ -51,7 +51,7 @@ cd credential-executor && bun run test
 cd gateway && bun run test
 ```
 
-### Linting and type checking
+### Linting and Type Checking
 
 ```bash
 # From any package directory (assistant/, cli/, gateway/)
@@ -59,31 +59,31 @@ bun run lint
 bun run typecheck
 ```
 
-### Using AI coding assistants
+### Using AI Coding Assistants
 
 If you use Claude Code, see [.claude/README.md](.claude/README.md) for setup (shared slash commands, fast mode, typical workflow).
 
-## Project structure
+## Project Structure
 
 | Directory | What it is |
 |---|---|
 | `assistant/` | Core assistant runtime — memory, tools, skills, scheduling, integrations |
 | `gateway/` | Public ingress — webhooks, API routes, OAuth callbacks |
 | `cli/` | The `vellum` CLI |
-| `apps/` | End-user app surfaces (web, iOS, macOS/Electron, Chrome extension) |
+| `clients/` | End-user app surfaces (web, iOS, macOS/Electron) and the public docs site (`clients/docs/`) |
 | `credential-executor/` | Isolated credential execution service |
 | `packages/` | Shared internal packages |
 | `skills/` | Skill definitions |
 
 For deeper architectural context, see [ARCHITECTURE.md](ARCHITECTURE.md) and the domain-specific docs linked from it.
 
-## Personalizing your assistant vs. changing the core
+## Personalizing Your Assistant vs. Changing the Core
 
 Before opening a PR, ask: **does this belong in everyone's assistant, or just mine?**
 
 A lot of "new feature" ideas are really *personal customization*: for example, a morning briefing, a recurring cleanup, a custom routine, or stitching existing capabilities together. These belong in **your assistant's own workspace**, not in the shared runtime. You don't need to fork the repo or wait for a review to get them, just ask your assistant to build it for you!
 
-### When a core change *is* the right call
+### When a Core Change Is the Right Call
 
 Adding or changing a **core tool** (anything under `assistant/src/tools/` registered in the tool manifest) ships to **every** user and is loaded into the agent's context on every turn — always-loaded tools share a tight budget, so each one has to earn its place. Open a PR for core changes only when the change is:
 
@@ -93,7 +93,7 @@ Adding or changing a **core tool** (anything under `assistant/src/tools/` regist
 
 If you can build it as a skill in your own workspace, do that first. If you think a personal skill would genuinely benefit others, contribute it to [`skills/`](skills/) (see [`skills/AGENTS.md`](skills/AGENTS.md)) rather than adding a core tool. When in doubt, [open an issue](https://github.com/vellum-ai/vellum-assistant/issues) or ask on [Discord](https://vellum.ai/community) before writing new core capabilities.
 
-## Submitting a pull request
+## Submitting a Pull Request
 
 1. Fork the repo and create a branch from `main`.
 2. Make your changes. Write tests where applicable.
@@ -116,9 +116,14 @@ If you can build it as a skill in your own workspace, do that first. If you thin
 - Implements a feature you've discussed in an issue or on Discord
 - Adds a broadly useful primitive or a reusable skill to [`skills/`](skills/)
 
-### Large Initiatives
+### When to seek feedback
 
-If there's a larger body of work that you'd like to champion, we'd love to help you see it through! We do request to hop on a call to understand the full context and be able to advise most effectively. Reach out to a member of the core team to coordinate scheduling.
+**Small changes (single PR, ~300 source lines or fewer):** go straight to a PR. The PR itself is the discussion medium and serves as the explicit go-ahead from the core team. No need to coordinate ahead of time.
+
+**Large changes (multiple PRs, ~1,000+ source lines):** loop us in before you start. This helps us confirm (1) we aren't already planning to tackle the same area this week, and (2) your approach doesn't conflict with future plans we have in flight. You can:
+
+- DM a member of the core team directly to coordinate a call, or
+- start a thread in the [#contributors](https://discord.com/channels/1471183263174234245/1503398277092081875) channel on Discord.
 
 ## Code of Conduct
 

@@ -10,7 +10,7 @@
  *   3. `false`                                    (for undeclared keys)
  *
  * Key format:
- *   Canonical:  simple kebab-case string (e.g., "browser", "ces-tools")
+ *   Canonical:  simple kebab-case string (e.g., "browser", "contacts")
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -49,7 +49,9 @@ let cachedDefaults: FeatureFlagDefaultsRegistry | undefined;
 const REGISTRY_FILENAME = "feature-flag-registry.json";
 
 function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
-  if (cachedDefaults) return cachedDefaults;
+  if (cachedDefaults) {
+    return cachedDefaults;
+  }
 
   const thisDir = import.meta.dirname ?? __dirname;
   const candidates = [
@@ -92,18 +94,33 @@ function loadDefaultsRegistry(): FeatureFlagDefaultsRegistry {
  * filtering to flags the backend consumes (`assistant`- and `both`-scope).
  */
 function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
 
   const registry = parsed as { version?: number; flags?: unknown[] };
-  if (!Array.isArray(registry.flags)) return {};
+  if (!Array.isArray(registry.flags)) {
+    return {};
+  }
 
   const result: FeatureFlagDefaultsRegistry = {};
   for (const flag of registry.flags) {
-    if (!flag || typeof flag !== "object" || Array.isArray(flag)) continue;
+    if (!flag || typeof flag !== "object" || Array.isArray(flag)) {
+      continue;
+    }
     const entry = flag as Record<string, unknown>;
-    if (entry.scope !== "assistant" && entry.scope !== "both") continue;
-    if (typeof entry.key !== "string") continue;
-    if (typeof entry.defaultEnabled !== "boolean" && typeof entry.defaultEnabled !== "string") continue;
+    if (entry.scope !== "assistant" && entry.scope !== "both") {
+      continue;
+    }
+    if (typeof entry.key !== "string") {
+      continue;
+    }
+    if (
+      typeof entry.defaultEnabled !== "boolean" &&
+      typeof entry.defaultEnabled !== "string"
+    ) {
+      continue;
+    }
 
     result[entry.key as string] = {
       defaultEnabled: entry.defaultEnabled,
@@ -178,6 +195,12 @@ const DEFAULT_INIT_RETRY_BACKOFFS_MS: readonly number[] = [
  * tests preseed flag state via `setOverridesForTesting()` (in
  * `__tests__/feature-flag-test-helpers.ts`) without the gateway IPC call
  * clobbering their setup.
+ *
+ * Resolves `true` when the override cache is populated from the gateway and
+ * `false` when the cache is left unset (exhausted retries / unreachable
+ * gateway). Callers that mutate persisted state from flag values gate that
+ * work on a `true` result so a failed fetch never resolves a flag to its
+ * registry default and drops user state.
  */
 export async function initFeatureFlagOverrides(options?: {
   retryBackoffsMs?: readonly number[];
@@ -188,8 +211,10 @@ export async function initFeatureFlagOverrides(options?: {
    * instead of blocking startup.
    */
   callTimeoutMs?: number;
-}): Promise<void> {
-  if (isCachedFromGateway()) return;
+}): Promise<boolean> {
+  if (isCachedFromGateway()) {
+    return true;
+  }
 
   const backoffs = options?.retryBackoffsMs ?? DEFAULT_INIT_RETRY_BACKOFFS_MS;
   const callTimeoutMs = options?.callTimeoutMs;
@@ -205,7 +230,9 @@ export async function initFeatureFlagOverrides(options?: {
       // Re-check after the wait: a concurrent caller (e.g. a test using
       // `setOverridesForTesting`) may have populated the cache while we
       // were sleeping. Bail out so we don't clobber their setup.
-      if (isCachedFromGateway()) return;
+      if (isCachedFromGateway()) {
+        return true;
+      }
     }
 
     const gatewayOverrides = await fetchOverridesFromGateway(callTimeoutMs);
@@ -217,7 +244,7 @@ export async function initFeatureFlagOverrides(options?: {
           "Feature flag overrides loaded from gateway after retry",
         );
       }
-      return;
+      return true;
     }
   }
 
@@ -230,6 +257,7 @@ export async function initFeatureFlagOverrides(options?: {
       "Feature flag overrides empty after all retries; falling back to registry defaults and fail-closed undeclared flags",
     );
   }
+  return false;
 }
 
 /**
@@ -262,10 +290,14 @@ export function clearFeatureFlagOverridesCache(): void {
  * retries (the gateway is known to be up because it just pushed an event).
  * Called by the gateway flag listener when a `feature_flags_changed` event
  * arrives.
+ *
+ * Resolves `true` when the cache was repopulated from the gateway, `false`
+ * when the fetch came back empty/failed — callers gate persisted-state
+ * reconciliation on a `true` result.
  */
-export async function refreshOverridesFromGateway(): Promise<void> {
+export async function refreshOverridesFromGateway(): Promise<boolean> {
   clearFeatureFlagOverridesCache();
-  await initFeatureFlagOverrides({ retryBackoffsMs: [] });
+  return initFeatureFlagOverrides({ retryBackoffsMs: [] });
 }
 
 // ---------------------------------------------------------------------------
@@ -291,9 +323,13 @@ export function getAssistantFeatureFlagValue(
   const overrides = loadOverrides();
 
   const explicit = overrides[key];
-  if (explicit !== undefined) return explicit;
+  if (explicit !== undefined) {
+    return explicit;
+  }
 
-  if (declared) return declared.defaultEnabled;
+  if (declared) {
+    return declared.defaultEnabled;
+  }
 
   return false;
 }

@@ -13,24 +13,31 @@
  */
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
   addMessage,
   getConversation,
   provenanceFromTrustContext,
-} from "../memory/conversation-crud.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
+} from "../persistence/conversation-crud.js";
+import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
+import { backfillMessageIdOnLogs } from "../persistence/llm-request-log-store.js";
+import { resolveMediaSourceData } from "../providers/media-resolve.js";
 import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
+import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
-import type { ServerMessage } from "./message-protocol.js";
+import type {
+  SubagentToolGateMode,
+  WakeToolContextPin,
+} from "./tool-setup-types.js";
 
 const log = getLogger("wake-conversation-ops");
 
 /**
  * Translate a raw {@link AgentEvent} from the agent loop into the
- * corresponding {@link ServerMessage} wire frame. The normal user-turn
+ * corresponding {@link AssistantEvent} wire frame. The normal user-turn
  * path does this via the full state-aware handler in
  * `conversation-agent-loop-handlers.ts`; the wake path has no tool
  * accounting, title generation, or activity-state tracking to worry
@@ -41,7 +48,7 @@ const log = getLogger("wake-conversation-ops");
 function translateAgentEventToServerMessage(
   event: AgentEvent,
   conversationId: string,
-): ServerMessage | null {
+): AssistantEvent | null {
   switch (event.type) {
     case "text_delta":
       return {
@@ -82,7 +89,9 @@ function translateAgentEventToServerMessage(
         (b): b is Extract<typeof b, { type: "image" }> => b.type === "image",
       );
       const imageDataList = imageBlocks?.length
-        ? imageBlocks.map((b) => b.source.data)
+        ? imageBlocks
+            .map((b) => resolveMediaSourceData(b.source)?.data)
+            .filter((d): d is string => d != null)
         : undefined;
       return {
         type: "tool_result",
@@ -143,6 +152,7 @@ function translateAgentEventToServerMessage(
     case "compaction_completed":
     case "history_stripped":
     case "agent_loop_exit":
+    case "system_prompt_changed":
       return null;
     case "llm_call_started":
       // The wake path persists its assistant tail via
@@ -166,7 +176,9 @@ export function emitWakeAgentEvent(
     event,
     conversation.conversationId,
   );
-  if (!frame) return;
+  if (!frame) {
+    return;
+  }
   broadcastMessage(frame);
 }
 
@@ -252,18 +264,134 @@ export async function persistWakeTailMessage(
 }
 
 /**
+ * Persist a wake's trigger as a single visible user message — the
+ * append-only counterpart to the legacy ephemeral hint injection. Keeping the
+ * trigger in durable history (instead of splicing a non-persisted message per
+ * wake) lets the provider prompt-cache treat repeated wakes like normal user
+ * turns rather than re-creating the whole prefix each time.
+ *
+ * Mirrors {@link persistWakeTailMessage}'s channel/interface/provenance
+ * metadata, but stamps `kind: "background-event"` (+ the originating `source`)
+ * for identification and skips indexing (the body may carry untrusted command
+ * output). The `backgroundEventSource` stamp lets clients hide this row from the
+ * rendered transcript — the user-facing wake card carries the status instead.
+ *
+ * `backgroundEventInteractive` records the permission mode the woken turn runs
+ * under, matching how the agent loop resolves an unset `isInteractive`
+ * (`!hasNoClient && !headlessLock`; see `runAgentLoopImpl`). A `clientless` wake
+ * pins `hasNoClient = true` for its dispatch, and that pin is applied after this
+ * row is persisted, so `clientless` is taken as a flag here rather than read
+ * back from the conversation post-pin. Most background events run interactive
+ * (scheduled runs, backgrounded-tool completions, and remote wakes on a
+ * client-connected conversation); clientless wakes (interrupted-turn recovery,
+ * local IPC wakes) and wakes on a client-less conversation — e.g. a schedule
+ * firing after a restart with no client attached — run non-interactive.
+ * Retrying the anchor reuses the recorded mode so the re-run reproduces the
+ * original turn's approval semantics.
+ */
+export async function persistWakeTriggerMessage(
+  conversation: Conversation,
+  message: Message,
+  source: string,
+  clientless: boolean,
+  completion?: CompletedBackgroundTool,
+): Promise<void> {
+  const backgroundEventInteractive =
+    !clientless && !conversation.hasNoClient && !conversation.headlessLock;
+  const turnChannelCtx = conversation.getTurnChannelContext();
+  const turnInterfaceCtx = conversation.getTurnInterfaceContext();
+  const metadata: Record<string, unknown> = {
+    ...provenanceFromTrustContext(conversation.trustContext),
+    userMessageChannel: turnChannelCtx?.userMessageChannel ?? "vellum",
+    assistantMessageChannel:
+      turnChannelCtx?.assistantMessageChannel ?? "vellum",
+    userMessageInterface: turnInterfaceCtx?.userMessageInterface ?? "web",
+    assistantMessageInterface:
+      turnInterfaceCtx?.assistantMessageInterface ?? "web",
+    kind: "background-event",
+    backgroundEventSource: source,
+    backgroundEventInteractive,
+    automated: true,
+    ...(completion ? { backgroundToolCompletion: completion } : {}),
+  };
+  const persisted = await addMessage(
+    conversation.conversationId,
+    message.role,
+    JSON.stringify(message.content),
+    { metadata, skipIndexing: true },
+  );
+  try {
+    const convRow = getConversation(conversation.conversationId);
+    if (convRow) {
+      syncMessageToDisk(
+        conversation.conversationId,
+        persisted.id,
+        convRow.createdAt,
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err, conversationId: conversation.conversationId },
+      "wake trigger persist: syncMessageToDisk failed (non-fatal)",
+    );
+  }
+  // Tell connected clients the message list changed so they refetch. The
+  // trigger row itself is hidden from the transcript (clients drop rows carrying
+  // `backgroundEventSource`), but the refetch keeps other clients' state in sync
+  // and lets a wake that produces no assistant stream still settle cleanly.
+  try {
+    publishConversationMessagesChanged(conversation.conversationId);
+  } catch (err) {
+    log.warn(
+      { err, conversationId: conversation.conversationId },
+      "wake trigger persist: publishConversationMessagesChanged failed (non-fatal)",
+    );
+  }
+}
+
+/**
  * Temporarily restrict the tools visible/executable during a wake by
  * reusing the conversation's subagent allowlist slot. Returns a restore
  * callback that reinstates the previous allowlist so the wake can release
  * the scope before any queued user turn is drained.
+ *
+ * `gateMode` controls how the allowlist is enforced — see
+ * {@link SubagentToolGateMode}. `toolContextPin`, when provided
+ * (execution-gate-mode cache-parity wakes), freezes the client-context
+ * inputs for tool-definition resolution — see {@link WakeToolContextPin}.
+ * Its `requestOrigin`, when set, is stamped onto the conversation's per-turn
+ * origin so the permission checker's origin-scoped auto-grants fire for the
+ * wake. `preactivateSkillIds`, when non-empty, activates those skills' bundled
+ * tools in the turn's active set (`allowedToolNames`) for the wake so they are
+ * callable without a prior `skill_load`. All are set and restored alongside the
+ * allowlist.
  */
 export function scopeWakeAllowedTools(
   conversation: Conversation,
   tools: ReadonlySet<string>,
+  gateMode: SubagentToolGateMode = "wire",
+  toolContextPin?: WakeToolContextPin,
+  preactivateSkillIds?: readonly string[],
 ): () => void {
   const previous = conversation.subagentAllowedTools;
+  const previousGateMode = conversation.subagentToolGateMode;
+  const previousToolContextPin = conversation.toolContextPin;
+  const previousRequestOrigin = conversation.currentTurnRequestOrigin;
+  const previousPreactivated = conversation.preactivatedSkillIds;
   conversation.setSubagentAllowedTools(new Set(tools));
+  conversation.subagentToolGateMode = gateMode;
+  conversation.toolContextPin = toolContextPin;
+  if (toolContextPin?.requestOrigin !== undefined) {
+    conversation.currentTurnRequestOrigin = toolContextPin.requestOrigin;
+  }
+  if (preactivateSkillIds && preactivateSkillIds.length > 0) {
+    conversation.setPreactivatedSkillIds([...preactivateSkillIds]);
+  }
   return () => {
     conversation.setSubagentAllowedTools(previous);
+    conversation.subagentToolGateMode = previousGateMode;
+    conversation.toolContextPin = previousToolContextPin;
+    conversation.currentTurnRequestOrigin = previousRequestOrigin;
+    conversation.setPreactivatedSkillIds(previousPreactivated);
   };
 }

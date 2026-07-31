@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -11,22 +11,17 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 
-// Bun's os.homedir() ignores runtime HOME changes, so mock it (same pattern
-// as multi-local.test.ts) to keep production-path tests off the real ~/.vellum.
+// Bun's os.homedir() ignores runtime HOME changes, so mock it (via the shared
+// helper) to keep production-path tests off the real ~/.vellum.
 let fakeHome: string | undefined;
-const realOs = await import("node:os");
-const osMock = () => ({
-  ...realOs,
-  homedir: () => fakeHome ?? realOs.homedir(),
-});
-mock.module("node:os", osMock);
-mock.module("os", osMock);
+await mockOsHomedir((realHomedir) => () => fakeHome ?? realHomedir());
 
 import {
   getOrCreateHostDeviceId,
   resetHostDeviceIdCache,
 } from "../lib/device-id.js";
 import { snapshotEnv } from "./helpers/env.js";
+import { mockOsHomedir } from "./helpers/os-mock.js";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -154,10 +149,7 @@ describe("getOrCreateHostDeviceId (production)", () => {
 
   test("reuses an existing ~/.vellum/device.json", () => {
     mkdirSync(join(tempHome, ".vellum"), { recursive: true });
-    writeFileSync(
-      deviceFile,
-      JSON.stringify({ deviceId: "shared-prod-id" }),
-    );
+    writeFileSync(deviceFile, JSON.stringify({ deviceId: "shared-prod-id" }));
 
     expect(getOrCreateHostDeviceId()).toBe("shared-prod-id");
     expect(readFileSync(deviceFile, "utf-8")).toBe(

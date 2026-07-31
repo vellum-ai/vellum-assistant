@@ -13,6 +13,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -29,12 +30,14 @@ const realLocal = {
   generateLocalSigningKey: localModule.generateLocalSigningKey,
   startLocalDaemon: localModule.startLocalDaemon,
   startGateway: localModule.startGateway,
+  startCes: localModule.startCes,
 };
 const realExec = stepRunnerModule.exec;
 
-// Prevent real daemon / gateway from starting
+// Prevent real daemon / gateway / CES from starting
 const startLocalDaemonMock = mock(async () => {});
 const startGatewayMock = mock(async () => {});
+const startCesMock = mock(async () => {});
 
 // Capture exec calls without running real tar
 const execMock = mock(async (_cmd: string, _args: string[]) => {});
@@ -44,6 +47,7 @@ beforeAll(() => {
     generateLocalSigningKey: () => "deadbeefdeadbeefdeadbeefdeadbeef",
     startLocalDaemon: startLocalDaemonMock,
     startGateway: startGatewayMock,
+    startCes: startCesMock,
   }));
   mock.module("../lib/step-runner.js", () => ({ exec: execMock }));
 });
@@ -127,6 +131,7 @@ beforeEach(() => {
   execMock.mockClear();
   startLocalDaemonMock.mockClear();
   startGatewayMock.mockClear();
+  startCesMock.mockClear();
 });
 
 afterEach(() => {
@@ -220,37 +225,43 @@ describe("recover error cases", () => {
 describe("recover extraction path — default instance (instanceDir === homedir())", () => {
   test("extracts to retiredDir and renames staging dir to instanceDir/.vellum", async () => {
     const name = "default-instance";
-    // Default instance: instanceDir is the real home directory
     const entry = makeEntry(name, homedir());
     const { archivePath, extractedPath } = writeArchiveFixtures(name, entry);
 
     const expectedTargetDir = join(homedir(), ".vellum");
+    // If a real ~/.vellum exists (e.g. the machine runs a live assistant),
+    // temporarily move it aside so the collision guard doesn't fire.
+    const backupDir = join(homedir(), ".vellum-recover-test-bak");
+    const hadExisting = existsSync(expectedTargetDir);
+    if (hadExisting) renameSync(expectedTargetDir, backupDir);
 
-    process.argv = ["bun", "vellum", "recover", name];
-    await recover();
+    try {
+      process.argv = ["bun", "vellum", "recover", name];
+      await recover();
 
-    // exec must have been called with -C retiredDir, NOT -C homedir()
-    expect(execMock).toHaveBeenCalledTimes(1);
-    const [cmd, args] = execMock.mock.calls[0] as [string, string[]];
-    expect(cmd).toBe("tar");
-    expect(args).toContain("-C");
-    const cIndex = args.indexOf("-C");
-    expect(args[cIndex + 1]).toBe(retiredDir);
-    expect(args[cIndex + 1]).not.toBe(homedir());
+      // exec must have been called with -C retiredDir, NOT -C homedir()
+      expect(execMock).toHaveBeenCalledTimes(1);
+      const [cmd, args] = execMock.mock.calls[0] as [string, string[]];
+      expect(cmd).toBe("tar");
+      expect(args).toContain("-C");
+      const cIndex = args.indexOf("-C");
+      expect(args[cIndex + 1]).toBe(retiredDir);
+      expect(args[cIndex + 1]).not.toBe(homedir());
 
-    // Staging dir was renamed to the correct target
-    expect(existsSync(extractedPath)).toBe(false);
-    expect(existsSync(expectedTargetDir)).toBe(true);
+      // Staging dir was renamed to the correct target
+      expect(existsSync(extractedPath)).toBe(false);
+      expect(existsSync(expectedTargetDir)).toBe(true);
 
-    // Archive and metadata were cleaned up
-    expect(existsSync(archivePath)).toBe(false);
+      // Archive and metadata were cleaned up
+      expect(existsSync(archivePath)).toBe(false);
 
-    // Daemon and gateway were started
-    expect(startLocalDaemonMock).toHaveBeenCalledTimes(1);
-    expect(startGatewayMock).toHaveBeenCalledTimes(1);
-
-    // Clean up so we don't leave a .vellum dir in the real home dir
-    rmSync(expectedTargetDir, { recursive: true, force: true });
+      // Daemon and gateway were started
+      expect(startLocalDaemonMock).toHaveBeenCalledTimes(1);
+      expect(startGatewayMock).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(expectedTargetDir, { recursive: true, force: true });
+      if (hadExisting) renameSync(backupDir, expectedTargetDir);
+    }
   });
 });
 

@@ -27,25 +27,25 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { invalidateConfigCache } from "../../../config/loader.js";
-import { createConversation } from "../../../memory/conversation-crud.js";
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { recordUsageEvent } from "../../../memory/llm-usage-store.js";
-import { rawAll, rawRun } from "../../../memory/raw-query.js";
+import { createConversation } from "../../../persistence/conversation-crud.js";
+import { getDb, getMemorySqlite } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { recordUsageEvent } from "../../../persistence/llm-usage-store.js";
+import { rawRun } from "../../../persistence/raw-query.js";
 import { ROUTES } from "../consolidation-routes.js";
 import type { RouteDefinition } from "../types.js";
 
-initializeDb();
+await initializeDb();
+
+// Open the memory connection now, while VELLUM_WORKSPACE_DIR still points at the
+// migrated per-process workspace. The per-test blocks below swap it to a fresh
+// dir for config isolation; without pinning here, resetTables()'s first
+// getMemorySqlite() would lazily open assistant-memory.db in the swapped (empty)
+// workspace and fail with "no such table: memory_jobs".
+getMemorySqlite();
 
 let workspaceDir: string;
 let origWorkspaceDir: string | undefined;
@@ -56,12 +56,14 @@ function resetTables(): void {
   db.run(`DELETE FROM llm_usage_events`);
   db.run(`DELETE FROM messages`);
   db.run(`DELETE FROM conversations`);
-  db.run(`DELETE FROM memory_jobs`);
+  getMemorySqlite()!.run(`DELETE FROM memory_jobs`);
 }
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -71,6 +73,7 @@ function insertMessage(
   createdAt: number,
 ): void {
   rawRun(
+    "test:insertMessage",
     "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
     `msg-${conversationId}-${role}-${createdAt}`,
     conversationId,
@@ -105,6 +108,7 @@ function recordUsageCostAt(
     { estimatedCostUsd, pricingStatus: "priced" },
   );
   rawRun(
+    "test:setUsageCreatedAt",
     "UPDATE llm_usage_events SET created_at = ? WHERE id = ?",
     createdAt,
     event.id,
@@ -117,16 +121,20 @@ function readMemoryJobRows(): Array<{
   lastError: string | null;
   payload: string;
 }> {
-  return rawAll<{
+  return getMemorySqlite()!
+    .query(
+      `
+    SELECT id, status, last_error AS lastError, payload
+    FROM memory_jobs
+    ORDER BY id
+  `,
+    )
+    .all() as Array<{
     id: string;
     status: string;
     lastError: string | null;
     payload: string;
-  }>(`
-    SELECT id, status, last_error AS lastError, payload
-    FROM memory_jobs
-    ORDER BY id
-  `);
+  }>;
 }
 
 interface RunRecord {
@@ -184,6 +192,7 @@ describe("listConsolidationRuns handler", () => {
       source: "memory_v2_consolidation",
     });
     rawRun(
+      "test:setCreatedAt",
       "UPDATE conversations SET created_at = ? WHERE id = ?",
       1000,
       conv.id,
@@ -220,6 +229,7 @@ describe("listConsolidationRuns handler", () => {
       source: "memory_v2_consolidation",
     });
     rawRun(
+      "test:setCreatedAtAndCost",
       "UPDATE conversations SET created_at = ?, total_estimated_cost = ? WHERE id = ?",
       1000,
       0.42,
@@ -240,6 +250,7 @@ describe("listConsolidationRuns handler", () => {
       source: "memory_v2_consolidation",
     });
     rawRun(
+      "test:setCreatedAt",
       "UPDATE conversations SET created_at = ? WHERE id = ?",
       1000,
       conv.id,
@@ -280,6 +291,7 @@ describe("listConsolidationRuns handler", () => {
       source: "memory_v2_consolidation",
     });
     rawRun(
+      "test:setCreatedAtAndLastMsg",
       "UPDATE conversations SET created_at = ?, last_message_at = ? WHERE id = ?",
       1000,
       1100,
@@ -324,9 +336,24 @@ describe("listConsolidationRuns handler", () => {
       title: "c",
       source: "memory_v2_consolidation",
     });
-    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 1000, a.id);
-    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 3000, b.id);
-    rawRun("UPDATE conversations SET created_at = ? WHERE id = ?", 2000, c.id);
+    rawRun(
+      "test:setCreatedAt",
+      "UPDATE conversations SET created_at = ? WHERE id = ?",
+      1000,
+      a.id,
+    );
+    rawRun(
+      "test:setCreatedAt",
+      "UPDATE conversations SET created_at = ? WHERE id = ?",
+      3000,
+      b.id,
+    );
+    rawRun(
+      "test:setCreatedAt",
+      "UPDATE conversations SET created_at = ? WHERE id = ?",
+      2000,
+      c.id,
+    );
 
     const handler = findHandler("listConsolidationRuns");
     const result = (await handler({})) as ListRunsResponse;

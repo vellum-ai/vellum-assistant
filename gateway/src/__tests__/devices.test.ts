@@ -14,18 +14,17 @@ import { initSigningKey } from "../auth/token-service.js";
 
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
-// resolveLocalGuardianPrincipalId() queries the assistant DB; mock it to a
-// stable principal. Device records live in the (real) gateway DB below.
-const mockQuery = mock();
+// The pair guardian-lookup reads the gateway DB; the assistant DB proxy is
+// mocked so any incidental assistant access stays inert in tests.
 mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: mockQuery,
+  assistantDbQuery: mock(),
   assistantDbRun: mock(),
   assistantDbExec: mock(),
 }));
 
 const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
-const { actorTokenRecords, actorRefreshTokenRecords } =
+const { actorTokenRecords, actorRefreshTokenRecords, contacts, contactChannels } =
   await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
 const { handleListDevices, handleRevokeDevice } =
@@ -129,12 +128,41 @@ function activeRefreshCount(device: string): number {
 }
 
 beforeEach(async () => {
-  mockQuery.mockResolvedValue([{ principalId: GUARDIAN_ID }]);
   testRoot = mkdtempSync(join(tmpdir(), "devices-test-"));
   const securityDir = join(testRoot, "protected");
   mkdirSync(securityDir, { recursive: true });
   process.env.GATEWAY_SECURITY_DIR = securityDir;
   await initGatewayDb();
+
+  // resolveLocalGuardianPrincipalId() reads the gateway DB for the vellum
+  // active guardian principal; seed one so device endpoints scope to it.
+  const now = Date.now();
+  getGatewayDb()
+    .insert(contacts)
+    .values({
+      id: GUARDIAN_ID,
+      displayName: "Guardian",
+      role: "guardian",
+      principalId: GUARDIAN_ID,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  getGatewayDb()
+    .insert(contactChannels)
+    .values({
+      id: `ch-${GUARDIAN_ID}`,
+      contactId: GUARDIAN_ID,
+      type: "vellum",
+      address: "guardian-vellum",
+      isPrimary: false,
+      status: "active",
+      policy: "allow",
+      interactionCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 });
 
 afterEach(() => {

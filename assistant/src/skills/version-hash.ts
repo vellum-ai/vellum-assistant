@@ -39,7 +39,9 @@ function collectFiles(
   } catch {
     return entries;
   }
-  if (ancestors.has(realDir)) return entries;
+  if (ancestors.has(realDir)) {
+    return entries;
+  }
   ancestors.add(realDir);
 
   let items: string[];
@@ -51,7 +53,9 @@ function collectFiles(
   }
 
   for (const name of items) {
-    if (EXCLUDED_NAMES.has(name)) continue;
+    if (EXCLUDED_NAMES.has(name)) {
+      continue;
+    }
     const full = join(dir, name);
     let stat;
     try {
@@ -91,6 +95,18 @@ function collectFiles(
 }
 
 /**
+ * Top-level provenance/usage metadata excluded from the version hash. These
+ * files carry no skill behavior, and the `lastUsedAt` usage stamp rewrites
+ * `install-meta.json` on load — including it here would trip version-change
+ * detection on the first stamped load each day. Mirrors the content-hash
+ * exclusion in `install-meta.ts`.
+ */
+const VERSION_HASH_EXCLUDED_FILES = new Set([
+  "install-meta.json",
+  "version.json",
+]);
+
+/**
  * Compute a deterministic version hash for a skill directory.
  *
  * The hash is computed from:
@@ -107,6 +123,14 @@ export function computeSkillVersionHash(skillDir: string): string {
 
   for (const relPath of files) {
     const normalized = relPath.replaceAll("\\", "/");
+    // Skip top-level provenance/usage metadata so author tags and lastUsedAt
+    // usage stamps never change the content-version hash.
+    if (
+      !normalized.includes("/") &&
+      VERSION_HASH_EXCLUDED_FILES.has(normalized)
+    ) {
+      continue;
+    }
     const content = readFileSync(join(skillDir, relPath));
     hash.update(normalized);
     hash.update("\0");

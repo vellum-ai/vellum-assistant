@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../../../__tests__/helpers/set-config.js";
 import type { HostBrowserProxy } from "../../../../daemon/host-browser-proxy.js";
 import type { ToolContext } from "../../../types.js";
 import { CdpError } from "../errors.js";
@@ -85,12 +86,39 @@ const createCdpInspectClientMock = mock(
 );
 
 /**
- * Mutable config state. Tests flip `cdpInspectEnabled` and
- * `desktopAutoConfig` to control the factory's config-based selection
- * without needing a real config file.
+ * Config state driving the factory's config-based backend selection. Tests
+ * flip `cdpInspectEnabled` and `desktopAutoConfig` via the setters below, which
+ * seed the real workspace config so the factory's lazy `getConfig()` reads pick
+ * the values up.
  */
 let cdpInspectEnabled = false;
 let desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+
+/** Seed `hostBrowser.cdpInspect` from the current mutable test state. */
+function seedHostBrowserConfig(): void {
+  setConfig("hostBrowser", {
+    cdpInspect: {
+      enabled: cdpInspectEnabled,
+      host: "localhost",
+      port: 9222,
+      probeTimeoutMs: 500,
+      desktopAuto: desktopAutoConfig,
+    },
+  });
+}
+
+function setCdpInspectEnabled(enabled: boolean): void {
+  cdpInspectEnabled = enabled;
+  seedHostBrowserConfig();
+}
+
+function setDesktopAutoConfig(config: {
+  enabled: boolean;
+  cooldownMs: number;
+}): void {
+  desktopAutoConfig = config;
+  seedHostBrowserConfig();
+}
 
 /**
  * Captured log calls for verifying fallback log payloads.
@@ -124,19 +152,6 @@ mock.module("../local-cdp-client.js", () => ({
 mock.module("../cdp-inspect-client.js", () => ({
   ...realCdpInspectClient,
   createCdpInspectClient: createCdpInspectClientMock,
-}));
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    hostBrowser: {
-      cdpInspect: {
-        enabled: cdpInspectEnabled,
-        host: "localhost",
-        port: 9222,
-        probeTimeoutMs: 500,
-        desktopAuto: desktopAutoConfig,
-      },
-    },
-  }),
 }));
 mock.module("../../../../util/logger.js", () => ({
   getLogger: () => ({
@@ -269,8 +284,8 @@ describe("getCdpClient", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    cdpInspectEnabled = false;
-    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    setCdpInspectEnabled(false);
+    setDesktopAutoConfig({ enabled: true, cooldownMs: 30_000 });
     _resetDesktopAutoCooldown();
     _resetHostBridgeCooldown();
     logWarnCalls.length = 0;
@@ -336,7 +351,7 @@ describe("getCdpClient", () => {
   });
 
   test("skips extension but uses cdp-inspect when proxy unavailable and cdp-inspect enabled", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const fakeProxy = makeUnavailableProxy();
     mockSingletonProxy = fakeProxy;
     const ctx = makeContext({
@@ -356,7 +371,7 @@ describe("getCdpClient", () => {
   });
 
   test("extension wins even when cdpInspect is enabled", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const fakeProxy = makeAvailableProxy();
     mockSingletonProxy = fakeProxy;
     const ctx = makeContext({
@@ -376,7 +391,7 @@ describe("getCdpClient", () => {
   });
 
   test("routes to CdpInspectClient when cdpInspect is enabled and extension is absent", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const ctx = makeContext({
       conversationId: "inspect-convo",
     });
@@ -402,7 +417,7 @@ describe("getCdpClient", () => {
   });
 
   test("routes to LocalCdpClient when cdpInspect is disabled and extension is absent", async () => {
-    cdpInspectEnabled = false;
+    setCdpInspectEnabled(false);
     const ctx = makeContext({
       conversationId: "local-convo",
     });
@@ -513,7 +528,7 @@ describe("getCdpClient", () => {
   });
 
   test("forwards send() through the manager to the cdp-inspect-backed client", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const ctx = makeContext({ conversationId: "send-inspect" });
 
     const client = getCdpClient(ctx);
@@ -536,7 +551,7 @@ describe("getCdpClient", () => {
   // ── Error propagation ────────────────────────────────────────────────
 
   test("propagates CdpError (cdp_error) thrown by the underlying client without failover", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const ctx = makeContext({ conversationId: "err-no-failover" });
     const client = getCdpClient(ctx);
 
@@ -629,7 +644,7 @@ describe("getCdpClient", () => {
   });
 
   test("dispose() on a cdp-inspect-backed client tears down the inspect client", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const ctx = makeContext({ conversationId: "dispose-inspect" });
 
     const client = getCdpClient(ctx);
@@ -640,7 +655,7 @@ describe("getCdpClient", () => {
   });
 
   test("send() after dispose() on a cdp-inspect-backed client rejects with disposed", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const ctx = makeContext({ conversationId: "post-dispose-inspect" });
 
     const client = getCdpClient(ctx);
@@ -716,7 +731,7 @@ describe("getCdpClient", () => {
   });
 
   test("context with transportInterface set routes to cdp-inspect when enabled", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const ctx = makeContext({
       conversationId: "macos-inspect",
       transportInterface: "macos",
@@ -785,7 +800,10 @@ describe("getCdpClient", () => {
     const ctx = makeContext({ conversationId: "auto-targeted-no-ext" });
 
     expect(() =>
-      getCdpClient(ctx, { mode: "auto", targetClientId: "specific-host-client" }),
+      getCdpClient(ctx, {
+        mode: "auto",
+        targetClientId: "specific-host-client",
+      }),
     ).toThrow(
       expect.objectContaining({
         code: "transport_error",
@@ -797,7 +815,7 @@ describe("getCdpClient", () => {
   });
 
   test("auto mode + targetClientId + extension available → routes only to extension, no other backends tried", async () => {
-    cdpInspectEnabled = true; // cdp-inspect would normally be in the candidate list
+    setCdpInspectEnabled(true); // cdp-inspect would normally be in the candidate list
     const fakeProxy = makeAvailableProxy();
     mockSingletonProxy = fakeProxy;
     const ctx = makeContext({
@@ -834,8 +852,8 @@ describe("getCdpClient", () => {
 
 describe("buildCandidateList", () => {
   beforeEach(() => {
-    cdpInspectEnabled = false;
-    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    setCdpInspectEnabled(false);
+    setDesktopAutoConfig({ enabled: true, cooldownMs: 30_000 });
     _resetDesktopAutoCooldown();
     _resetHostBridgeCooldown();
     mockSingletonProxy = null;
@@ -969,7 +987,6 @@ describe("buildCandidateList", () => {
     expect(isHostBridgeCooldownActive(30_000, "actor-b")).toBe(false);
   });
 
-
   test("ordering on a macOS turn with bridge only: host-bridge > cdp-inspect > local", () => {
     mockSingletonProxy = makeMacosBridgeOnlyProxy();
     const ctx = makeContext({
@@ -1061,7 +1078,7 @@ describe("buildCandidateList", () => {
   });
 
   test("includes cdp-inspect candidate when enabled in config", () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const ctx = makeContext({ conversationId: "candidates-inspect" });
 
     const candidates = buildCandidateList(ctx);
@@ -1071,7 +1088,7 @@ describe("buildCandidateList", () => {
   });
 
   test("candidate order: extension > cdp-inspect > local when all present", () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const fakeProxy = makeAvailableProxy();
     mockSingletonProxy = fakeProxy;
     const ctx = makeContext({
@@ -1163,8 +1180,8 @@ describe("buildChainedClient failover", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    cdpInspectEnabled = false;
-    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    setCdpInspectEnabled(false);
+    setDesktopAutoConfig({ enabled: true, cooldownMs: 30_000 });
     _resetDesktopAutoCooldown();
     _resetHostBridgeCooldown();
     logWarnCalls.length = 0;
@@ -1212,7 +1229,7 @@ describe("buildChainedClient failover", () => {
   });
 
   test("fails over from extension to cdp-inspect to local on transport errors", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const fakeProxy = makeAvailableProxy();
     mockSingletonProxy = fakeProxy;
 
@@ -1349,7 +1366,7 @@ describe("buildChainedClient failover", () => {
   });
 
   test("does NOT fail over on cdp_error -- propagates immediately", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const fakeProxy = makeAvailableProxy();
     mockSingletonProxy = fakeProxy;
 
@@ -1414,7 +1431,7 @@ describe("buildChainedClient failover", () => {
   // ── Sticky backend tests ─────────────────────────────────────────────
 
   test("backend becomes sticky after first successful command", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const fakeProxy = makeAvailableProxy();
     mockSingletonProxy = fakeProxy;
 
@@ -1567,8 +1584,8 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    cdpInspectEnabled = false;
-    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    setCdpInspectEnabled(false);
+    setDesktopAutoConfig({ enabled: true, cooldownMs: 30_000 });
     _resetDesktopAutoCooldown();
     _resetHostBridgeCooldown();
     logWarnCalls.length = 0;
@@ -1675,7 +1692,7 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
   });
 
   test("macOS turn does NOT include cdp-inspect when desktopAuto.enabled is false", () => {
-    desktopAutoConfig = { enabled: false, cooldownMs: 30_000 };
+    setDesktopAutoConfig({ enabled: false, cooldownMs: 30_000 });
     const ctx = makeContext({
       conversationId: "macos-no-auto",
       transportInterface: "macos",
@@ -1711,7 +1728,7 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
   });
 
   test("explicit cdpInspect.enabled takes precedence over desktopAuto on macOS", () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const ctx = makeContext({
       conversationId: "macos-explicit",
       transportInterface: "macos",
@@ -1746,7 +1763,7 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
 
   test("macOS turn includes cdp-inspect after cooldown expires", () => {
     // Set cooldown to 0 (disabled)
-    desktopAutoConfig = { enabled: true, cooldownMs: 0 };
+    setDesktopAutoConfig({ enabled: true, cooldownMs: 0 });
 
     // Record a "cooldown" -- but with cooldownMs=0 it should be ignored
     recordDesktopAutoCooldown();
@@ -1856,7 +1873,7 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
   });
 
   test("explicit config cdp-inspect failure does NOT record desktop-auto cooldown", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
 
     // Make cdp-inspect fail with transport_error
     createCdpInspectClientMock.mockImplementationOnce(
@@ -1921,8 +1938,8 @@ describe("pinned-mode selection", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    cdpInspectEnabled = false;
-    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    setCdpInspectEnabled(false);
+    setDesktopAutoConfig({ enabled: true, cooldownMs: 30_000 });
     _resetDesktopAutoCooldown();
     _resetHostBridgeCooldown();
     logWarnCalls.length = 0;
@@ -2137,8 +2154,8 @@ describe("buildPinnedCandidateList", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    cdpInspectEnabled = false;
-    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    setCdpInspectEnabled(false);
+    setDesktopAutoConfig({ enabled: true, cooldownMs: 30_000 });
     _resetDesktopAutoCooldown();
     _resetHostBridgeCooldown();
     mockSingletonProxy = null;
@@ -2277,8 +2294,8 @@ describe("attempt diagnostics", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    cdpInspectEnabled = false;
-    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    setCdpInspectEnabled(false);
+    setDesktopAutoConfig({ enabled: true, cooldownMs: 30_000 });
     _resetDesktopAutoCooldown();
     _resetHostBridgeCooldown();
     logWarnCalls.length = 0;
@@ -2287,7 +2304,7 @@ describe("attempt diagnostics", () => {
   });
 
   test("exhausted candidates error includes full attempt diagnostics", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const fakeProxy = makeAvailableProxy();
     mockSingletonProxy = fakeProxy;
 
@@ -2405,7 +2422,7 @@ describe("attempt diagnostics", () => {
   });
 
   test("auto-mode fallback log includes candidate sequence and failure reasons", async () => {
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const fakeProxy = makeAvailableProxy();
     mockSingletonProxy = fakeProxy;
 
@@ -2501,7 +2518,7 @@ describe("attempt diagnostics", () => {
       throw new Error("Config missing");
     });
 
-    cdpInspectEnabled = true;
+    setCdpInspectEnabled(true);
     const ctx = makeContext({ conversationId: "diag-construction" });
     const client = getCdpClient(ctx);
 
@@ -2554,8 +2571,8 @@ describe("no-fallback guarantees", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    cdpInspectEnabled = false;
-    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    setCdpInspectEnabled(false);
+    setDesktopAutoConfig({ enabled: true, cooldownMs: 30_000 });
     _resetDesktopAutoCooldown();
     logWarnCalls.length = 0;
     mockSingletonProxy = null;
@@ -2678,8 +2695,8 @@ describe("macOS host-browser proxy without extension registry", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    cdpInspectEnabled = false;
-    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    setCdpInspectEnabled(false);
+    setDesktopAutoConfig({ enabled: true, cooldownMs: 30_000 });
     _resetDesktopAutoCooldown();
     _resetHostBridgeCooldown();
     logWarnCalls.length = 0;

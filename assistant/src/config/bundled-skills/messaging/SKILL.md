@@ -28,6 +28,8 @@ When the user mentions "email" - sending, reading, checking, decluttering, draft
 
 Do not offer the assistant's own email as an option unless the user specifically asks. If Gmail and Outlook are not connected, guide them through setup.
 
+Reading, searching, or summarizing the user's inbox is a **messaging task** — use the messaging tools (or the Gmail connection flow below if nothing is connected). Never run `assistant channels` commands for a mailbox request: channels are the assistant's own inbound delivery routes, not the user's mailbox, and inspecting them sends you down the wrong path.
+
 When a platform is connected (auth test succeeds), always use the messaging API tools for that platform. Never fall back to browser automation, shell commands (bash, curl), or any other approach for operations that messaging tools can handle. The messaging tools handle authentication internally - never try to access tokens or call APIs directly. Browser automation is only appropriate for initial credential setup (OAuth consent screens), not for day-to-day messaging operations.
 
 **Exception: Slack.** Slack messaging should use the Slack Web API directly via CLI, not messaging tools. See the **slack** skill for details.
@@ -38,7 +40,7 @@ Before using any messaging tool, verify that the platform is connected by callin
 
 ### Public Ingress (required for Telegram)
 
-Telegram setup requires webhook routing, but it does **not** always require ngrok. Before suggesting public ingress for Telegram, check managed callback availability with `assistant platform status --json`. If that reports `isPlatform: true` with a non-empty `assistantId` and `available: true`, use the platform callback route flow and do not prompt for ngrok. Only use the **public-ingress** skill for local assistants that genuinely need a public gateway URL. Slack uses Socket Mode and does not require public ingress. Gmail/Outlook on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the vellum-oauth-integrations skill) handles public ingress internally when needed.
+Telegram setup requires webhook routing, but it does **not** always require ngrok. Before suggesting public ingress for Telegram, check managed callback availability with `assistant platform status --json`. If that reports `available: true` with a non-empty `assistantId`, use the platform callback route flow and do not prompt for ngrok; this applies to managed pods and platform-connected local assistants alike, so do not require `isPlatform: true`. Only use the **public-ingress** skill for local assistants that genuinely need a public gateway URL. Slack uses Socket Mode and does not require public ingress. Gmail/Outlook on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the vellum-oauth-integrations skill) handles public ingress internally when needed.
 
 ### Email Connection Flow
 
@@ -50,13 +52,13 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 ### Gmail
 
-1. **Try connecting directly first.** Run `assistant oauth status google`. This will show whether or not the user had previously connected their google account. If so, they are ready to go.
-2. **If no connections are found:** Call `skill_load` with `skill: "vellum-oauth-integrations"`. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
+1. **Check the connection.** Run `assistant oauth status google`. If a connection exists, the user is ready to go — proceed with their request.
+2. **If no connections are found, render the connect button in one step:** call `ui_show` with `surface_type: "oauth_connect"` and `data.providerKey: "google"`. That surface is always available — do **not** run `assistant channels`, `oauth providers get`, or load `vellum-oauth-integrations` just to display the button, and do **not** fall back to `assistant oauth connect`. Only load `vellum-oauth-integrations` when the managed-vs-your-own-credentials decision genuinely needs handling (e.g. a BYOK setup where the managed connect surface isn't available).
 
 ### Outlook
 
-1. **Try connecting directly first.** Run `assistant oauth status outlook`. This will show whether the user has previously connected their Outlook account.
-2. **If no connections are found:** Call `skill_load` with `skill: "vellum-oauth-integrations"`. The skill will evaluate whether managed or your-own mode is appropriate and guide the user accordingly.
+1. **Check the connection.** Run `assistant oauth status outlook`. If a connection exists, the user is ready to go — proceed with their request.
+2. **If no connections are found, render the connect button in one step:** call `ui_show` with `surface_type: "oauth_connect"` and `data.providerKey: "outlook"`. The same rules as Gmail apply — don't probe further or load a setup skill just to show the button; only load `vellum-oauth-integrations` when a managed-vs-your-own-credentials decision genuinely needs handling.
 
 ### Slack
 
@@ -64,7 +66,7 @@ Slack is **not** handled by this skill. For Slack setup, load the **slack-app-se
 
 ### Telegram
 
-Telegram uses a bot token (not OAuth). Load the **telegram-setup** skill, which uses a managed platform callback route in containerized deployments and falls back to **public-ingress** locally when needed:
+Telegram uses a bot token (not OAuth). Load the **telegram-setup** skill, which uses a managed platform callback route on platform-connected assistants (managed pods and local assistants alike) and falls back to **public-ingress** for self-hosted setups when needed:
 
 - First run `assistant platform status --json`. If it shows managed callback routing is available, tell the user you will use the platform callback route and skip ngrok/public-ingress.
 - Call `skill_load` with `skill: "telegram-setup"` to load the dependency skill.

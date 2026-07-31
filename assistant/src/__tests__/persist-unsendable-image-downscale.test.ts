@@ -24,6 +24,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // caps before calling this, so in-limit images never reach the mock.
 const SHRUNK_DATA = "c2hydW5r"; // base64 for "shrunk"
 mock.module("../agent/image-optimize.js", () => ({
+  // The gate helper must stay real-shaped: every image in this file is
+  // oversized (never undersized), so the min-dimension gate never matches
+  // and the rejection-path upscale is never reached.
+  isBelowMinDimension: () => false,
+  upscaleImageToMinimum: () => null,
   optimizeImageForTransport: () => ({
     data: SHRUNK_DATA,
     mediaType: "image/jpeg",
@@ -34,20 +39,21 @@ import {
   addMessage,
   createConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb, getMemorySqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { persistUnsendableImageDowngrades } from "../plugins/defaults/image-recovery/recover.js";
+import { base64Source } from "../providers/media-resolve.js";
 import type { ContentBlock } from "../providers/types.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
-  db.run("DELETE FROM memory_segments");
-  db.run("DELETE FROM memory_embeddings");
+  getMemorySqlite()?.run("DELETE FROM memory_segments");
+  getMemorySqlite()?.run("DELETE FROM memory_embeddings");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }
@@ -106,9 +112,7 @@ function toolResultWithImage(data: string): ContentBlock {
 }
 
 function storedContent(conversationId: string): ContentBlock[][] {
-  return getMessages(conversationId).map(
-    (row) => JSON.parse(row.content) as ContentBlock[],
-  );
+  return getMessages(conversationId).map((row) => row.content);
 }
 
 describe("persistUnsendableImageDowngrades (downscalable host)", () => {
@@ -140,7 +144,8 @@ describe("persistUnsendableImageDowngrades (downscalable host)", () => {
     const nested = toolResult.contentBlocks?.[0];
     expect(nested?.type).toBe("image");
     expect(
-      (nested as Extract<ContentBlock, { type: "image" }>).source.data,
+      base64Source((nested as Extract<ContentBlock, { type: "image" }>).source)
+        .data,
     ).toBe(SHRUNK_DATA);
   });
 

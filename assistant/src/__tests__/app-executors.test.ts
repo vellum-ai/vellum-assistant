@@ -27,7 +27,7 @@ beforeEach(() => {
   };
 });
 
-import type { AppDefinition } from "../memory/app-store.js";
+import type { AppDefinition } from "../apps/app-store.js";
 import type { AppStore } from "../tools/apps/executors.js";
 import {
   executeAppCreate,
@@ -38,18 +38,6 @@ import {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function makeLegacyApp(overrides?: Partial<AppDefinition>): AppDefinition {
-  return {
-    id: "legacy-app",
-    name: "Legacy App",
-    schemaJson: "{}",
-    htmlDefinition: "<html></html>",
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    ...overrides,
-  };
-}
 
 function makeMultifileApp(overrides?: Partial<AppDefinition>): AppDefinition {
   return {
@@ -150,9 +138,7 @@ describe("executeAppCreate", () => {
     );
 
     expect(result.isError).toBe(false);
-    // formatVersion 2 passed to createApp
-    expect(createdParams?.formatVersion).toBe(2);
-    // htmlDefinition should be empty for multifile apps
+    // htmlDefinition should be empty — the real source lives under src/
     expect(createdParams?.htmlDefinition).toBe("");
     // Scaffold files should be written
     expect(files["src/index.html"]).toBeDefined();
@@ -166,6 +152,49 @@ describe("executeAppCreate", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.next_steps).toContain("placeholder src/main.tsx");
     expect(parsed.next_steps).toContain("app_refresh");
+  });
+
+  test("associates the new app with its conversation when a conversationId is given", async () => {
+    const app = makeMultifileApp({ id: "app-xyz", name: "Assoc App" });
+    const associated: Array<{ appId: string; conversationId: string }> = [];
+    const store: AppStore = {
+      ...mockStore(app, {}),
+      addAppConversationId: (appId, conversationId) => {
+        associated.push({ appId, conversationId });
+        return true;
+      },
+    };
+
+    const result = await executeAppCreate(
+      { name: "Assoc App" },
+      store,
+      undefined,
+      "conv-assoc-1",
+    );
+
+    expect(result.isError).toBe(false);
+    expect(associated).toEqual([
+      { appId: "app-xyz", conversationId: "conv-assoc-1" },
+    ]);
+  });
+
+  test("a failed conversation association does not fail the create", async () => {
+    const app = makeMultifileApp({ id: "app-throw", name: "Throw App" });
+    const store: AppStore = {
+      ...mockStore(app, {}),
+      addAppConversationId: () => {
+        throw new Error("disk gone");
+      },
+    };
+
+    const result = await executeAppCreate(
+      { name: "Throw App" },
+      store,
+      undefined,
+      "conv-assoc-2",
+    );
+
+    expect(result.isError).toBe(false);
   });
 
   test("skips auto_open on scaffold even when proxy resolver is available", async () => {
@@ -412,20 +441,6 @@ describe("executeAppCreate", () => {
 // ---------------------------------------------------------------------------
 
 describe("executeAppRefresh", () => {
-  test("legacy app: bumps updatedAt without compiling", async () => {
-    const app = makeLegacyApp();
-    const store = mockStore(app);
-    const result = await executeAppRefresh({ app_id: app.id }, store);
-
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content);
-    expect(parsed.refreshed).toBe(true);
-    expect(parsed.appId).toBe(app.id);
-    // Legacy apps should not have compile-related fields
-    expect(parsed.compiled).toBeUndefined();
-    expect(parsed.compile_errors).toBeUndefined();
-  });
-
   test("multifile app: compiles src/ and returns result", async () => {
     const app = makeMultifileApp();
     const store = mockStore(app);
@@ -440,7 +455,7 @@ describe("executeAppRefresh", () => {
   });
 
   test("returns error for unknown app", async () => {
-    const app = makeLegacyApp();
+    const app = makeMultifileApp();
     const store = mockStore(app);
     const result = await executeAppRefresh({ app_id: "nonexistent" }, store);
 
@@ -496,25 +511,6 @@ describe("executeAppUpdate", () => {
     expect(result.isError).toBe(false);
     expect(files["src/App.tsx"]).toBe("// new code");
     expect(JSON.parse(result.content).compiled).toBe(true);
-  });
-
-  test("legacy app: updates without compiling", async () => {
-    const app = makeLegacyApp({ name: "Legacy" });
-    const store: AppStore = {
-      ...mockStore(app),
-      updateApp: (_id, updates) => ({ ...app, ...updates }),
-    };
-
-    const result = await executeAppUpdate(
-      { app_id: app.id, name: "Renamed" },
-      store,
-    );
-
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content);
-    expect(parsed.updated).toBe(true);
-    expect(parsed.name).toBe("Renamed");
-    expect(parsed.compiled).toBeUndefined();
   });
 
   test("returns error for unknown app", async () => {

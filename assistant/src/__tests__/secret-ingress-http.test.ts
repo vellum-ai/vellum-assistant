@@ -1,83 +1,27 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any imports that depend on them
 // ---------------------------------------------------------------------------
 
-const BASE_CONFIG = {
-  contextWindow: { maxInputTokens: 100000 },
-  services: { inference: { model: "test-model", provider: "test-provider" } },
-  llm: {
-    default: {
-      provider: "anthropic",
-      model: "claude-opus-4-7",
-      maxTokens: 64000,
-      effort: "max" as const,
-      speed: "standard" as const,
-      temperature: null,
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: {
-        enabled: true,
-        maxInputTokens: 200000,
-        targetBudgetRatio: 0.3,
-        compactThreshold: 0.8,
-        summaryBudgetRatio: 0.05,
-        overflowRecovery: {
-          enabled: true,
-          safetyMarginRatio: 0.05,
-          maxAttempts: 3,
-          interactiveLatestTurnCompression: "summarize",
-          nonInteractiveLatestTurnCompression: "truncate",
-        },
-      },
-    },
-    profiles: {},
-    callSites: {},
-    pricingOverrides: [],
-  },
-};
-
-let mockConfig: Record<string, unknown> = {
-  secretDetection: {
-    enabled: true,
-    blockIngress: true,
-  },
-  ...BASE_CONFIG,
-};
-
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-test" }),
   getConversationByKey: () => null,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: () => ({
-    id: "canonical-id",
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  createGuardianRequest: async (params: Record<string, unknown>) => ({
+    ...params,
     requestCode: "ABC123",
   }),
-  generateCanonicalRequestCode: () => "ABC123",
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
 }));
 
 mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
@@ -95,7 +39,9 @@ const addMessageMock = mock(
   }),
 );
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -107,13 +53,13 @@ mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
 }));
 
+const realLocalActorIdentity =
+  await import("../runtime/local-actor-identity.js");
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  }),
+  ...realLocalActorIdentity,
 }));
 
 mock.module("../runtime/trust-context-resolver.js", () => ({
@@ -125,6 +71,18 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
     ...(ctx as Record<string, unknown>),
     sourceChannel,
   }),
+}));
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [
+    {
+      channelType: "vellum",
+      contactId: "guardian-contact",
+      principalId: "test-user",
+      address: "test-user",
+      status: "active",
+    },
+  ],
 }));
 
 mock.module("../runtime/guardian-reply-router.js", () => ({
@@ -235,13 +193,10 @@ function makeSendMessageDeps() {
 
 describe("secret ingress — HTTP route", () => {
   beforeEach(() => {
-    mockConfig = {
-      secretDetection: {
-        enabled: true,
-        blockIngress: true,
-      },
-      ...BASE_CONFIG,
-    };
+    setConfig("secretDetection", {
+      enabled: true,
+      blockIngress: true,
+    });
     persistUserMessageMock.mockClear();
     runAgentLoopMock.mockClear();
     addMessageMock.mockClear();
@@ -311,13 +266,10 @@ describe("secret ingress — HTTP route", () => {
   });
 
   test("POST /v1/messages with blockIngress: false config and secret returns 202", async () => {
-    mockConfig = {
-      secretDetection: {
-        enabled: true,
-        blockIngress: false,
-      },
-      ...BASE_CONFIG,
-    };
+    setConfig("secretDetection", {
+      enabled: true,
+      blockIngress: false,
+    });
 
     const req = makeRequest({
       content: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234",

@@ -1,41 +1,41 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-}));
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  _resetQdrantBreaker,
+  withQdrantBreaker,
+} from "../persistence/embeddings/qdrant-circuit-breaker.js";
 import {
   claimMemoryJobs,
   enqueueMemoryJob,
   type MemoryJobType,
-} from "../memory/jobs-store.js";
-import {
-  _resetQdrantBreaker,
-  withQdrantBreaker,
-} from "../memory/qdrant-circuit-breaker.js";
-import { memoryJobs } from "../memory/schema.js";
+} from "../persistence/jobs-store.js";
+import { memoryJobs } from "../persistence/schema/index.js";
 
 describe("claimMemoryJobs with Qdrant circuit breaker", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
-    const db = getDb();
+    const db = getMemoryDb()!;
     db.run("DELETE FROM memory_jobs");
+    _resetQdrantBreaker();
+  });
+
+  // bun shares module state across a run, so a breaker left open by these cases
+  // (the last one leaves it open) would leak into later test files — reset here.
+  afterEach(() => {
     _resetQdrantBreaker();
   });
 
@@ -149,7 +149,7 @@ describe("claimMemoryJobs with Qdrant circuit breaker", () => {
     expect(embedClaimed).toHaveLength(2);
 
     // Remaining 10 jobs should still be pending.
-    const db = getDb();
+    const db = getMemoryDb()!;
     const pendingRows = db
       .select()
       .from(memoryJobs)

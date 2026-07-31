@@ -137,68 +137,29 @@ describe("STT provider catalog", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Telephony routing metadata
+  // Language selection capability
   // -----------------------------------------------------------------------
 
-  test("every entry has telephonyRouting metadata", () => {
+  test("languageSelection is set for all providers", () => {
     for (const entry of listProviderEntries()) {
-      expect(entry.telephonyRouting).toBeDefined();
-      expect(["conversation-relay-native", "media-stream-custom"]).toContain(
-        entry.telephonyRouting.strategyKind,
-      );
+      expect(["manual", "auto"]).toContain(entry.languageSelection);
     }
   });
 
-  test("conversation-relay-native entries have twilioNativeMapping", () => {
-    for (const entry of listProviderEntries()) {
-      if (entry.telephonyRouting.strategyKind === "conversation-relay-native") {
-        expect(entry.telephonyRouting.twilioNativeMapping).toBeDefined();
-        expect(
-          entry.telephonyRouting.twilioNativeMapping!.provider.length,
-        ).toBeGreaterThan(0);
-      }
-    }
-  });
+  const expectedLanguageSelection = [
+    ["deepgram", "manual"],
+    ["vellum", "manual"],
+    ["xai", "manual"],
+    ["google-gemini", "auto"],
+    ["openai-whisper", "auto"],
+  ] as const;
 
-  test("media-stream-custom entries do not have twilioNativeMapping", () => {
-    for (const entry of listProviderEntries()) {
-      if (entry.telephonyRouting.strategyKind === "media-stream-custom") {
-        expect(entry.telephonyRouting.twilioNativeMapping).toBeUndefined();
-      }
-    }
-  });
-
-  test("deepgram has conversation-relay-native strategy with Deepgram Twilio mapping", () => {
-    const entry = getProviderEntry("deepgram");
-    expect(entry?.telephonyRouting.strategyKind).toBe(
-      "conversation-relay-native",
-    );
-    expect(entry?.telephonyRouting.twilioNativeMapping?.provider).toBe(
-      "Deepgram",
-    );
-    expect(
-      entry?.telephonyRouting.twilioNativeMapping?.defaultSpeechModel,
-    ).toBe("nova-3");
-  });
-
-  test("google-gemini has conversation-relay-native strategy with Google Twilio mapping", () => {
-    const entry = getProviderEntry("google-gemini");
-    expect(entry?.telephonyRouting.strategyKind).toBe(
-      "conversation-relay-native",
-    );
-    expect(entry?.telephonyRouting.twilioNativeMapping?.provider).toBe(
-      "Google",
-    );
-    expect(
-      entry?.telephonyRouting.twilioNativeMapping?.defaultSpeechModel,
-    ).toBeUndefined();
-  });
-
-  test("openai-whisper has media-stream-custom strategy without Twilio mapping", () => {
-    const entry = getProviderEntry("openai-whisper");
-    expect(entry?.telephonyRouting.strategyKind).toBe("media-stream-custom");
-    expect(entry?.telephonyRouting.twilioNativeMapping).toBeUndefined();
-  });
+  test.each(expectedLanguageSelection)(
+    "%s has languageSelection %s",
+    (id, expected) => {
+      expect(getProviderEntry(id)?.languageSelection).toBe(expected);
+    },
+  );
 
   // -----------------------------------------------------------------------
   // Credential lookup
@@ -247,5 +208,18 @@ describe("STT provider catalog", () => {
 
   test("supportsDiarization helper returns false for unknown provider IDs", () => {
     expect(supportsDiarization("nonexistent" as never)).toBe(false);
+  });
+});
+
+describe("connection-based providers", () => {
+  test("vellum is excluded from the API-key credential provider list", () => {
+    expect(listCredentialProviderNames()).not.toContain("vellum");
+  });
+
+  test("API-key providers remain listed", () => {
+    const names = listCredentialProviderNames();
+    for (const expected of ["deepgram", "gemini", "openai", "xai"]) {
+      expect(names).toContain(expected);
+    }
   });
 });

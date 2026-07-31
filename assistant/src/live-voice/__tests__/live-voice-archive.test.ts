@@ -1,25 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   getAttachmentContent,
   getAttachmentsForMessage,
-} from "../../memory/attachments-store.js";
+} from "../../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,
-} from "../../memory/conversation-crud.js";
-import { getDb } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
-import { rawAll, rawGet, rawRun } from "../../memory/raw-query.js";
+} from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { rawAll, rawGet, rawRun } from "../../persistence/raw-query.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import type { LiveVoiceAudioArtifactMetadata } from "../live-voice-archive.js";
 import {
@@ -31,7 +24,7 @@ import {
   linkLiveVoiceUserUtteranceAudioToMessage,
 } from "../live-voice-archive.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();
@@ -63,6 +56,7 @@ async function createMessage(role: "user" | "assistant" = "user") {
 
 function getMessageMetadata(messageId: string): Record<string, unknown> {
   const row = rawGet<{ metadata: string | null }>(
+    "test:getMessageMetadata",
     `SELECT metadata FROM messages WHERE id = ?`,
     messageId,
   );
@@ -80,6 +74,7 @@ function getLiveVoiceArtifacts(
 
 function countAttachmentsForMessage(messageId: string): number {
   const row = rawGet<{ count: number }>(
+    "test:countMessageAttachments",
     `SELECT COUNT(*) AS count FROM message_attachments WHERE message_id = ?`,
     messageId,
   );
@@ -88,6 +83,7 @@ function countAttachmentsForMessage(messageId: string): number {
 
 function countAllAttachments(): number {
   const row = rawGet<{ count: number }>(
+    "test:countAllAttachments",
     `SELECT COUNT(*) AS count FROM attachments`,
   );
   return row?.count ?? 0;
@@ -114,7 +110,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(result.type).toBe("archived");
-    if (result.type !== "archived") throw new Error("expected archive result");
+    if (result.type !== "archived") {
+      throw new Error("expected archive result");
+    }
     expect(result.idempotent).toBe(false);
     expect(result.artifact).toMatchObject({
       source: "live-voice",
@@ -164,7 +162,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(result.type).toBe("archived");
-    if (result.type !== "archived") throw new Error("expected archive result");
+    if (result.type !== "archived") {
+      throw new Error("expected archive result");
+    }
     expect(result.artifact).toMatchObject({
       role: "assistant",
       mimeType: "audio/mpeg",
@@ -177,6 +177,7 @@ describe("live voice audio archive", () => {
       filePath: string | null;
       sourcePath: string | null;
     }>(
+      "test:fetchAudioArtifact",
       `SELECT
          data_base64 AS dataBase64,
          file_path AS filePath,
@@ -213,7 +214,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(result.type).toBe("archived");
-    if (result.type !== "archived") throw new Error("expected archive result");
+    if (result.type !== "archived") {
+      throw new Error("expected archive result");
+    }
     expect(result.artifact).toMatchObject({
       archiveKey: "live-voice:session-user-link:turn-user-link:user",
       role: "user",
@@ -238,7 +241,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(result.type).toBe("archived");
-    if (result.type !== "archived") throw new Error("expected archive result");
+    if (result.type !== "archived") {
+      throw new Error("expected archive result");
+    }
     expect(result.artifact).toMatchObject({
       archiveKey:
         "live-voice:session-assistant-link:turn-assistant-link:assistant",
@@ -345,9 +350,15 @@ describe("live voice audio archive", () => {
       },
     });
     expect(first.type).toBe("archived");
-    if (first.type !== "archived") throw new Error("expected archive result");
+    if (first.type !== "archived") {
+      throw new Error("expected archive result");
+    }
 
-    rawRun(`UPDATE messages SET metadata = NULL WHERE id = ?`, message.id);
+    rawRun(
+      "test:clearMessageMetadata",
+      `UPDATE messages SET metadata = NULL WHERE id = ?`,
+      message.id,
+    );
 
     const second = archiveLiveVoiceAssistantResponseAudio({
       messageId: message.id,
@@ -361,7 +372,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(second.type).toBe("archived");
-    if (second.type !== "archived") throw new Error("expected archive result");
+    if (second.type !== "archived") {
+      throw new Error("expected archive result");
+    }
     expect(second.idempotent).toBe(true);
     expect(second.artifact.attachmentId).toBe(first.artifact.attachmentId);
     expect(countAttachmentsForMessage(message.id)).toBe(1);
@@ -416,7 +429,9 @@ describe("live voice audio archive", () => {
     });
 
     expect(linked.type).toBe("archived");
-    if (linked.type !== "archived") throw new Error("expected link result");
+    if (linked.type !== "archived") {
+      throw new Error("expected link result");
+    }
     expect(linked.idempotent).toBe(false);
     expect(linked.artifact.attachmentId).toBe(archived.artifact.attachmentId);
     expect(getAttachmentsForMessage(targetMessage.id)).toHaveLength(1);
@@ -427,7 +442,9 @@ describe("live voice audio archive", () => {
       artifact: archived.artifact,
     });
     expect(second.type).toBe("archived");
-    if (second.type !== "archived") throw new Error("expected link result");
+    if (second.type !== "archived") {
+      throw new Error("expected link result");
+    }
     expect(second.idempotent).toBe(true);
     expect(countAttachmentsForMessage(targetMessage.id)).toBe(1);
   });
@@ -524,6 +541,7 @@ describe("live voice audio archive", () => {
       originalFilename: string;
       mimeType: string;
     }>(
+      "test:listAttachments",
       `SELECT original_filename AS originalFilename, mime_type AS mimeType
        FROM attachments`,
     );

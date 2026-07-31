@@ -2,84 +2,16 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede the Conversation import so Bun applies them at load time.
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    memory: {
-      v2: { enabled: false },
-      retrieval: { scratchpadInjection: { enabled: true } },
-    },
-    daemon: {
-      startupSocketWaitMs: 5000,
-      stopTimeoutMs: 5000,
-      sigkillGracePeriodMs: 2000,
-      titleGenerationMaxTokens: 30,
-      standaloneRecording: true,
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../prompts/system-prompt.js", () => ({
@@ -100,7 +32,9 @@ const addMessageCalls: Array<{
   content: string;
 }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -132,7 +66,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageContent: mock(() => {}),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
@@ -151,6 +85,12 @@ mock.module("../memory/retriever.js", () => ({
 
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     constructor() {}
     updateConfig() {}
     shouldCompact() {
@@ -219,10 +159,6 @@ mock.module("../workspace/turn-commit.js", () => ({
   commitTurnChanges: async () => {},
 }));
 
-mock.module("../memory/app-git-service.js", () => ({
-  commitAppTurnChanges: async () => {},
-}));
-
 // ---------------------------------------------------------------------------
 // AgentLoop mock — tracks whether run() was called
 // ---------------------------------------------------------------------------
@@ -266,25 +202,6 @@ mock.module("../agent/loop.js", () => ({
       return [...messages, assistantMsg];
     }
   },
-}));
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
 // ---------------------------------------------------------------------------
@@ -338,7 +255,7 @@ describe("Conversation slash command — passthrough for unknown tokens", () => 
 
   test("normal messages still go through standard path", async () => {
     const conversation = makeConversation();
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     await conversation.processMessage({
       content: "hello world",
       attachments: [],

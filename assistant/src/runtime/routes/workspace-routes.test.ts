@@ -5,12 +5,20 @@
  * directory listing, file metadata, write/mkdir/rename/delete, and raw
  * content serving with range support (HTTP-only).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
 
+import type { AssistantEventEnvelope } from "../../api/index.js";
 import { SYNC_TAGS } from "../../daemon/message-types/sync.js";
-import type { AssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 
 // ---------------------------------------------------------------------------
@@ -58,15 +66,18 @@ beforeAll(() => {
 
 function getRoute(operationId: string): RouteDefinition {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route)
+  if (!route) {
     throw new Error(`No shared route found for operationId: ${operationId}`);
+  }
   return route;
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 500;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error("Timed out waiting for workspace route event");
@@ -549,7 +560,7 @@ describe("POST /v1/workspace/write", () => {
   });
 
   test("publishes sounds sync events when writing sounds config", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
@@ -674,6 +685,58 @@ describe("POST /v1/workspace/rename", () => {
         body: { oldPath: "hello.txt", newPath: "data.json" },
       }),
     ).toThrow(ConflictError);
+  });
+
+  // Hard links share an inode while being distinct entries, and POSIX
+  // rename() between two hard links is a silent no-op — must 409 instead
+  // of reporting a successful rename that never happened.
+  test("throws ConflictError when renaming a hard link over its sibling link", () => {
+    writeFileSync(join(testWorkspaceDir, "hard-a.txt"), "hard");
+    linkSync(
+      join(testWorkspaceDir, "hard-a.txt"),
+      join(testWorkspaceDir, "hard-b.txt"),
+    );
+
+    expect(() =>
+      handler({
+        body: { oldPath: "hard-a.txt", newPath: "hard-b.txt" },
+      }),
+    ).toThrow(ConflictError);
+  });
+
+  // statSync would follow both links to the shared target and treat them as
+  // the same entry, letting the rename clobber a real, separate symlink.
+  test("throws ConflictError when renaming a symlink over a sibling symlink to the same target", () => {
+    writeFileSync(join(testWorkspaceDir, "link-target.txt"), "target");
+    symlinkSync(
+      join(testWorkspaceDir, "link-target.txt"),
+      join(testWorkspaceDir, "link-a.txt"),
+    );
+    symlinkSync(
+      join(testWorkspaceDir, "link-target.txt"),
+      join(testWorkspaceDir, "link-b.txt"),
+    );
+
+    expect(() =>
+      handler({
+        body: { oldPath: "link-a.txt", newPath: "link-b.txt" },
+      }),
+    ).toThrow(ConflictError);
+  });
+
+  // On case-insensitive filesystems (macOS default) the destination "exists"
+  // because it resolves to the source itself — must rename, not conflict.
+  test("allows case-only rename of the same file", () => {
+    const srcPath = join(testWorkspaceDir, "CaseFile.txt");
+    writeFileSync(srcPath, "case test");
+
+    const result = handler({
+      body: { oldPath: "CaseFile.txt", newPath: "casefile.txt" },
+    }) as { oldPath: string; newPath: string };
+    expect(result.newPath).toBe("casefile.txt");
+    const names = readdirSync(testWorkspaceDir);
+    expect(names).toContain("casefile.txt");
+    expect(names).not.toContain("CaseFile.txt");
   });
 
   test("rejects path traversal on oldPath", () => {

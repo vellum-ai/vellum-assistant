@@ -81,7 +81,9 @@ mock.module("../runtime/pending-interactions.js", () => ({
   get: (requestId: string) => pending.get(requestId),
   resolve: (requestId: string) => {
     const entry = pending.get(requestId);
-    if (entry) pending.delete(requestId);
+    if (entry) {
+      pending.delete(requestId);
+    }
     return entry;
   },
   getByKind: () => [],
@@ -136,7 +138,6 @@ function buildContext(
       trustClass: "guardian",
       guardianPrincipalId: "user-1",
     },
-    traceEmitter: { emit: () => {} },
     sendToClient: () => {},
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),

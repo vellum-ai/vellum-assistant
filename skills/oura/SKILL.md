@@ -21,7 +21,7 @@ Pull sleep, activity, readiness, heart rate, and other health data from a connec
 
 - Oura Ring already connected via OAuth (see `oura-setup` skill)
 - Credential stored: `oura` / `access_token` with injection template for `api.ouraring.com` (Authorization header, Bearer prefix)
-- Credential ID can be found via `credential_store` list action, filtering for service `oura`, field `access_token`
+- Credential ID can be found via `assistant credentials list --search oura` (filter for field `access_token`)
 
 ## Making Requests
 

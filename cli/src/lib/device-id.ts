@@ -1,7 +1,7 @@
 /**
  * Host device ID resolver. Resolution order: `VELLUM_DEVICE_ID` env var,
  * then `device.json`. Production uses the machine-wide shared
- * `~/.vellum/device.json`, matching Electron (`apps/macos/src/main/device-id.ts`)
+ * `~/.vellum/device.json`, matching Electron (`clients/macos/src/main/device-id.ts`)
  * and Swift (`VellumPaths.deviceIdFile`); non-production uses
  * `<configDir>/device.json`.
  *
@@ -23,9 +23,7 @@ let cached: string | undefined;
 function resolveDeviceIdPaths(): { dir: string; file: string } {
   const env = getCurrentEnvironment();
   const dir =
-    env.name === "production"
-      ? join(homedir(), ".vellum")
-      : getConfigDir(env);
+    env.name === "production" ? join(homedir(), ".vellum") : getConfigDir(env);
   return { dir, file: join(dir, "device.json") };
 }
 

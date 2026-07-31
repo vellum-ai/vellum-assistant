@@ -1,4 +1,4 @@
-import { recordUsageEvent } from "../memory/llm-usage-store.js";
+import { recordUsageEvent } from "../persistence/llm-usage-store.js";
 import { resolveUsageAttribution } from "../usage/attribution.js";
 import {
   buildPricingUsageFromResponse,
@@ -18,10 +18,27 @@ const log = getLogger("provider-usage-tracking");
 export class UsageTrackingProvider implements Provider {
   public readonly name: string;
   public readonly tokenEstimationProvider?: string;
+  // Forward native web-search capability so it survives the wrapper chain
+  // (callers like the advisor consult gate on it). Fixed at construction.
+  public readonly supportsNativeWebSearch?: boolean;
+  // Forward the optional token-counting endpoint so the capability survives
+  // the wrapper chain. Bound straight to the inner provider — count_tokens is
+  // not billed, so there's no usage to track.
+  public readonly countInputTokens?: NonNullable<Provider["countInputTokens"]>;
 
   constructor(private readonly inner: Provider) {
     this.name = inner.name;
     this.tokenEstimationProvider = inner.tokenEstimationProvider;
+    this.supportsNativeWebSearch = inner.supportsNativeWebSearch;
+    if (inner.countInputTokens) {
+      this.countInputTokens = inner.countInputTokens.bind(inner);
+    }
+  }
+
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
   }
 
   async sendMessage(
@@ -38,8 +55,12 @@ export class UsageTrackingProvider implements Provider {
     options?: SendMessageOptions,
   ): void {
     const config = options?.config;
-    if (!config?.callSite) return;
-    if (config.usageTracking === "manual") return;
+    if (!config?.callSite) {
+      return;
+    }
+    if (config.usageTracking === "manual") {
+      return;
+    }
     if (response.usage.inputTokens <= 0 && response.usage.outputTokens <= 0) {
       return;
     }
@@ -70,7 +91,7 @@ export class UsageTrackingProvider implements Provider {
           cacheCreationInputTokens: pricingUsage.cacheCreationInputTokens,
           cacheReadInputTokens: pricingUsage.cacheReadInputTokens,
           rawUsage: extractRawUsage(response.rawResponse),
-          conversationId: null,
+          conversationId: config.conversationId ?? null,
           runId: null,
           requestId: null,
           callSite: attribution.callSite,

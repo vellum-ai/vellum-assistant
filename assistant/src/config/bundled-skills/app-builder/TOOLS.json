@@ -71,10 +71,6 @@
               "type": "string"
             }
           },
-          "change_summary": {
-            "type": "string",
-            "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: add coin flip app', 'fix: correct button alignment'). Used as the version history entry."
-          },
           "icon": {
             "type": "string",
             "description": "Lenient alias. Prefer preview.icon. An emoji or image URL passed here is folded into preview.icon automatically."
@@ -102,7 +98,7 @@
         "properties": {
           "app_id": {
             "type": "string",
-            "description": "The ID of the app to update"
+            "description": "The ID of the app to update. Omit to update the conversation's most recently updated app."
           },
           "name": {
             "type": "string",
@@ -122,13 +118,9 @@
             "additionalProperties": {
               "type": "string"
             }
-          },
-          "change_summary": {
-            "type": "string",
-            "description": "Short summary of what changed, using git conventional commit format (e.g. 'fix: correct totals', 'feat: add dark mode'). Used as the version history entry."
           }
         },
-        "required": ["app_id"]
+        "required": []
       },
       "executor": "tools/app-update.ts",
       "execution_target": "host"
@@ -144,10 +136,6 @@
           "app_id": {
             "type": "string",
             "description": "The ID of the app to delete"
-          },
-          "change_summary": {
-            "type": "string",
-            "description": "Short summary of what changed, using git conventional commit format (e.g. 'chore: delete unused app'). Used as the version history entry."
           }
         },
         "required": ["app_id"]
@@ -165,14 +153,10 @@
         "properties": {
           "app_id": {
             "type": "string",
-            "description": "The ID of the app to refresh"
-          },
-          "change_summary": {
-            "type": "string",
-            "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: add dark mode toggle', 'fix: form validation'). Used as the version history entry."
+            "description": "The ID of the app to refresh. Omit to refresh the conversation's most recently updated app."
           }
         },
-        "required": ["app_id"]
+        "required": []
       },
       "executor": "tools/app-refresh.ts",
       "execution_target": "host"
@@ -187,18 +171,14 @@
         "properties": {
           "app_id": {
             "type": "string",
-            "description": "The ID of the app to generate an icon for"
+            "description": "The ID of the app to generate an icon for. Omit to use the conversation's most recently updated app."
           },
           "description": {
             "type": "string",
             "description": "Optional description to guide icon generation (e.g. 'a blue calendar with a checkmark'). If omitted, the app name and description are used."
-          },
-          "change_summary": {
-            "type": "string",
-            "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: generate app icon'). Used as the version history entry."
           }
         },
-        "required": ["app_id"]
+        "required": []
       },
       "executor": "tools/app-generate-icon.ts",
       "execution_target": "host"
@@ -219,6 +199,29 @@
         "required": []
       },
       "executor": "tools/app-list.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "app_open",
+      "description": "Open a persistent app in a dynamic_page surface on the connected client.",
+      "category": "apps",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The ID of the app to open. Omit to open the conversation's most recently updated app."
+          },
+          "open_mode": {
+            "type": "string",
+            "enum": ["preview", "workspace"],
+            "description": "Display mode. 'preview' shows an inline preview card in chat. 'workspace' opens the full app in a workspace panel. Defaults to 'workspace'."
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/app-open.ts",
       "execution_target": "host"
     }
   ]

@@ -1,44 +1,51 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
+
+import type { GuardianDelivery } from "@vellumai/gateway-client";
+import { hashVerificationSecret } from "@vellumai/gateway-client";
+import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { startVerificationCall } from "../../calls/call-domain.js";
+import {
+  countRecentSendsToDestination,
+  createInboundVerificationSession,
+  createOutboundSession,
+  findActiveSession,
+  getPendingSession,
+  revokePendingSessions,
+  updateSessionDelivery,
+} from "../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../channels/types.js";
 import {
   findContactChannel,
-  findGuardianForChannel,
   getChannelById,
   getContact,
 } from "../../contacts/contact-store.js";
-import { revokeMember } from "../../contacts/contacts-write.js";
-import type { ChannelStatus } from "../../contacts/types.js";
-import { getBindingByChannelChat } from "../../memory/external-conversation-store.js";
+import { gatewayContactChannelState } from "../../contacts/gateway-channel-read.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../contacts/guardian-delivery-reader.js";
+import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
+import type { ContactChannel } from "../../contacts/types.js";
+import { ipcCallPersistent } from "../../ipc/gateway-client.js";
+import { getBindingByChannelChat } from "../../persistence/external-conversation-store.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
-import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
   type ChannelReadinessService,
   createReadinessService,
 } from "../../runtime/channel-readiness-service.js";
 import {
-  countRecentSendsToDestination,
-  createInboundVerificationSession,
-  createOutboundSession,
-  findActiveSession,
   getGuardianBinding,
-  getPendingSession,
-  revokeBinding,
-  revokePendingSessions,
-  updateSessionDelivery,
+  isGuardianBoundForChannel,
 } from "../../runtime/channel-verification-service.js";
 import {
   cancelOutbound,
-  deliverVerificationEmail,
   deliverVerificationSlack,
   deliverVerificationTelegram,
   DESTINATION_RATE_WINDOW_MS,
   MAX_SENDS_PER_DESTINATION_WINDOW,
   normalizeTelegramDestination,
-  resendOutbound,
-  startOutbound,
 } from "../../runtime/verification-outbound-actions.js";
 import {
   composeVerificationSlack,
@@ -47,18 +54,48 @@ import {
 } from "../../runtime/verification-templates.js";
 import { getTelegramBotUsername } from "../../telegram/bot-username.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
-import type {
-  ChannelVerificationSessionRequest,
-  ChannelVerificationSessionResponse,
-} from "../message-protocol.js";
 import { log } from "./shared.js";
 
-// -- Transport-agnostic result type (omits the `type` discriminant) --
+// -- Channel verification result --
+//
+// The shape returned by the verification service functions and served by the
+// HTTP channel-verification routes.
 
-export type ChannelVerificationSessionResult = Omit<
-  ChannelVerificationSessionResponse,
-  "type"
->;
+export interface ChannelVerificationSessionResult {
+  success: boolean;
+  secret?: string;
+  instruction?: string;
+  /** Present when action is 'status'. */
+  bound?: boolean;
+  guardianExternalUserId?: string;
+  /** The channel this status pertains to (e.g. "telegram", "phone"). Present when action is 'status'. */
+  channel?: ChannelId;
+  /** The assistant ID scoped to this status. Present when action is 'status'. */
+  assistantId?: string;
+  /** The delivery chat ID for the guardian (e.g. Telegram chat ID). Present when action is 'status' and bound is true. */
+  guardianDeliveryChatId?: string;
+  /** Optional channel username/handle for the bound guardian (for UI display). */
+  guardianUsername?: string;
+  /** Optional display name for the bound guardian (for UI display). */
+  guardianDisplayName?: string;
+  /** Whether a pending verification challenge exists for this (assistantId, channel). Used by relay setup to detect active voice verification sessions. */
+  hasPendingChallenge?: boolean;
+  error?: string;
+  /** Human-readable error detail (e.g. for already_bound failures). */
+  message?: string;
+  /** Conversation ID for outbound verification flows. */
+  verificationSessionId?: string;
+  /** Epoch ms when the verification session expires. */
+  expiresAt?: number;
+  /** Epoch ms after which a resend is allowed. */
+  nextResendAt?: number;
+  /** Number of sends for this session. */
+  sendCount?: number;
+  /** Telegram deep-link URL for bootstrap (M3 placeholder). */
+  telegramBootstrapUrl?: string;
+  /** True when the outbound session is still in pending_bootstrap state (Telegram handle flow). Prevents the client from clearing the bootstrap URL during status polling. */
+  pendingBootstrap?: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // Readiness service singleton
@@ -74,22 +111,46 @@ export function getReadinessService(): ChannelReadinessService {
 }
 
 // ---------------------------------------------------------------------------
+// Gateway delivery lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the gateway-owned delivery (ACL source of truth) for a contact
+ * channel, matching on type and either address or externalChatId. Returns
+ * `undefined` when the gateway is unreachable or has no binding for it.
+ */
+async function deliveryForChannel(
+  channel: Pick<ContactChannel, "type" | "address" | "externalChatId">,
+): Promise<GuardianDelivery | undefined> {
+  const guardians = await getGuardianDelivery({ channelTypes: [channel.type] });
+  if (!guardians) {
+    return undefined;
+  }
+  return guardians.find(
+    (g) =>
+      g.channelType === channel.type &&
+      ((channel.address && g.address === channel.address) ||
+        (channel.externalChatId != null &&
+          g.externalChatId === channel.externalChatId)),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Extracted business logic functions
 // ---------------------------------------------------------------------------
 
-export function createInboundChallenge(
+export async function createInboundChallenge(
   channel?: ChannelId,
   rebind?: boolean,
   conversationId?: string,
-): ChannelVerificationSessionResult {
-  const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+): Promise<ChannelVerificationSessionResult> {
   const resolvedChannel = channel ?? "telegram";
 
-  const existingBinding = getGuardianBinding(
-    resolvedAssistantId,
-    resolvedChannel,
-  );
-  if (existingBinding && !rebind) {
+  // Gateway-backed presence guard: block re-binding when a guardian is already
+  // bound. Null-list (gateway unreachable) is treated as bound, so a transient
+  // miss blocks rather than letting a second binding through.
+  const alreadyBound = await isGuardianBoundForChannel(resolvedChannel);
+  if (alreadyBound && !rebind) {
     return {
       success: false,
       error: "already_bound",
@@ -99,7 +160,7 @@ export function createInboundChallenge(
     };
   }
 
-  const result = createInboundVerificationSession(
+  const result = await createInboundVerificationSession(
     resolvedChannel,
     conversationId,
   );
@@ -112,18 +173,25 @@ export function createInboundChallenge(
   };
 }
 
-export function getVerificationStatus(
+export async function getVerificationStatus(
   channel?: ChannelId,
-): ChannelVerificationSessionResult {
+): Promise<ChannelVerificationSessionResult> {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
-  const binding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
+  const binding = await getGuardianBinding(
+    resolvedAssistantId,
+    resolvedChannel,
+  );
 
-  // Read the contact directly to get displayName — getGuardianBinding is a
-  // compatibility shim that doesn't carry metadataJson.
-  const guardianResult = findGuardianForChannel(resolvedChannel);
-  const bindingDisplayName = guardianResult?.contact.displayName;
+  // Read the guardian displayName from the gateway delivery — getGuardianBinding
+  // is a compatibility shim that doesn't carry metadataJson.
+  const guardians = await getGuardianDelivery({
+    channelTypes: [resolvedChannel],
+  });
+  const bindingDisplayName = guardians
+    ? (guardianForChannel(guardians, resolvedChannel)?.displayName ?? undefined)
+    : undefined;
   const guardianDisplayName = resolveGuardianName(bindingDisplayName);
 
   // Resolve username from external conversation store.
@@ -137,11 +205,13 @@ export function getVerificationStatus(
       guardianUsername = ext.username;
     }
   }
-  const hasPendingChallenge = getPendingSession(resolvedChannel) != null;
-
-  // Include active outbound session state so the UI can resume
-  // after app restart and detect bootstrap completion.
-  const activeOutboundSession = findActiveSession(resolvedChannel);
+  // Active outbound session state is included so the UI can resume after app
+  // restart and detect bootstrap completion.
+  const [pendingSession, activeOutboundSession] = await Promise.all([
+    getPendingSession(resolvedChannel),
+    findActiveSession(resolvedChannel),
+  ]);
+  const hasPendingChallenge = pendingSession != null;
   const outboundFields: Record<string, unknown> = {};
   if (activeOutboundSession) {
     outboundFields.verificationSessionId = activeOutboundSession.id;
@@ -171,24 +241,25 @@ export function getVerificationStatus(
 // Revoke verification binding
 // ---------------------------------------------------------------------------
 
-export function revokeVerificationForChannel(
+export async function revokeVerificationForChannel(
   channel?: ChannelId,
-): ChannelVerificationSessionResult {
+): Promise<ChannelVerificationSessionResult> {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
-  // Cancel any active outbound session so revoke is a complete teardown.
-  cancelOutbound({ channel: resolvedChannel });
+  // Session teardown relays to the gateway (session SoT). Cancel any active
+  // outbound session and pending challenges first (the macOS app uses
+  // action: "revoke" to cancel an in-flight challenge even before a binding
+  // exists, e.g. during verification setup).
+  await cancelOutbound({ channel: resolvedChannel });
+  await revokePendingSessions(resolvedChannel);
 
-  // Always revoke pending challenges first — the macOS app uses
-  // action: "revoke" to cancel an in-flight challenge even before
-  // a binding exists (e.g. during verification setup).
-  revokePendingSessions(resolvedChannel);
-
-  // Capture binding before revoking so we can revoke the guardian's
-  // contact record — without this, the guardian would still pass
-  // the ACL check after unbinding.
-  const bindingBeforeRevoke = getGuardianBinding(assistantId, resolvedChannel);
+  // Capture binding before revoking so we can downgrade the guardian's
+  // channel — without this, the guardian would still pass the ACL check.
+  const bindingBeforeRevoke = await getGuardianBinding(
+    assistantId,
+    resolvedChannel,
+  );
   if (!bindingBeforeRevoke) {
     return {
       success: true,
@@ -197,29 +268,38 @@ export function revokeVerificationForChannel(
     };
   }
 
-  // Revoke the member BEFORE the guardian binding so that
-  // revokeMember sees the channel as active/pending and sets the
-  // correct revokedReason ("guardian_binding_revoked"). If the guardian binding
-  // is revoked first, the channel is already marked revoked and the member
-  // revocation becomes a no-op (wrong reason or skipped entirely).
   const contactResult = findContactChannel({
     channelType: resolvedChannel,
-    externalUserId: bindingBeforeRevoke.guardianExternalUserId,
+    address: bindingBeforeRevoke.guardianExternalUserId,
     externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
   });
 
+  // Relay the ACL downgrade to the gateway (source of truth). The gateway's
+  // mark_channel_revoked enforces the guardian guard and dual-writes the
+  // contact-channel status back to the assistant DB. Gate on the gateway
+  // delivery's live status, not the assistant DB column, so a redundant revoke
+  // is still skipped for an already-revoked binding.
   if (contactResult) {
-    const channelStatus: ChannelStatus = contactResult.channel.status;
+    const delivery = await deliveryForChannel(contactResult.channel);
+    const deliveryStatus = delivery?.status;
     if (
-      channelStatus === "active" ||
-      channelStatus === "pending" ||
-      channelStatus === "unverified"
+      deliveryStatus === "active" ||
+      deliveryStatus === "pending" ||
+      deliveryStatus === "unverified"
     ) {
-      revokeMember(contactResult.channel.id, "guardian_binding_revoked");
+      const result = await ipcCallPersistent("mark_channel_revoked", {
+        contactChannelId: contactResult.channel.id,
+        reason: "guardian_binding_revoked",
+      });
+      const parsed = MarkChannelRevokedIpcResponseSchema.parse(result);
+      if (!parsed.ok) {
+        throw new Error("mark_channel_revoked relay returned ok: false");
+      }
+      // Emit the invalidation so open client views stop showing the channel
+      // as active after the gateway dual-writes it to "revoked".
+      notifyContactsChanged();
     }
   }
-
-  revokeBinding(assistantId, resolvedChannel);
 
   return {
     success: true,
@@ -280,7 +360,10 @@ export async function verifyTrustedContact(
     };
   }
 
-  if (channel.status === "active" && channel.verifiedAt != null) {
+  // Already-verified short-circuit derived from the gateway contact-channel read
+  // (ACL SoT), which covers all contacts — not just guardian deliveries.
+  const gwState = await gatewayContactChannelState(channel);
+  if (gwState?.status === "active" && gwState.verifiedAt != null) {
     return {
       success: false,
       error: "already_verified",
@@ -311,7 +394,7 @@ export async function verifyTrustedContact(
         ? (normalizePhoneNumber(destination) ?? destination)
         : destination;
 
-  const recentSendCount = countRecentSendsToDestination(
+  const recentSendCount = await countRecentSendsToDestination(
     verificationChannel,
     effectiveDestination,
     DESTINATION_RATE_WINDOW_MS,
@@ -328,10 +411,13 @@ export async function verifyTrustedContact(
   // --- Telegram verification ---
   if (verificationChannel === "telegram") {
     if (channel.externalChatId) {
-      const sessionResult = createOutboundSession({
+      const sessionResult = await createOutboundSession({
         channel: verificationChannel,
         expectedChatId: channel.externalChatId,
-        expectedExternalUserId: channel.externalUserId ?? undefined,
+        expectedExternalUserId:
+          channel.address !== channel.externalChatId
+            ? channel.address
+            : undefined,
         identityBindingStatus: "bound",
         destinationAddress: effectiveDestination,
         verificationPurpose: "trusted_contact",
@@ -347,7 +433,12 @@ export async function verifyTrustedContact(
 
       const now = Date.now();
       const sendCount = 1;
-      updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+      await updateSessionDelivery(
+        sessionResult.sessionId,
+        now,
+        sendCount,
+        null,
+      );
       deliverVerificationTelegram(
         channel.externalChatId,
         telegramBody,
@@ -377,11 +468,9 @@ export async function verifyTrustedContact(
     }
 
     const bootstrapToken = randomBytes(16).toString("hex");
-    const bootstrapTokenHash = createHash("sha256")
-      .update(bootstrapToken)
-      .digest("hex");
+    const bootstrapTokenHash = hashVerificationSecret(bootstrapToken);
 
-    const sessionResult = createOutboundSession({
+    const sessionResult = await createOutboundSession({
       channel: verificationChannel,
       identityBindingStatus: "pending_bootstrap",
       destinationAddress: effectiveDestination,
@@ -404,22 +493,14 @@ export async function verifyTrustedContact(
 
   // --- Slack verification ---
   if (verificationChannel === "slack") {
-    const slackUserId = channel.externalUserId ?? destination;
+    const slackUserId = channel.address;
 
-    const hasIdentityBinding = Boolean(
-      channel.externalUserId || channel.externalChatId,
-    );
-    if (!hasIdentityBinding) {
-      return {
-        success: false,
-        error:
-          "Slack verification requires an externalUserId or externalChatId for identity binding",
-      };
-    }
-
-    const sessionResult = createOutboundSession({
+    const sessionResult = await createOutboundSession({
       channel: verificationChannel,
-      expectedExternalUserId: channel.externalUserId ?? undefined,
+      expectedExternalUserId:
+        channel.address !== channel.externalChatId
+          ? channel.address
+          : undefined,
       expectedChatId: channel.externalChatId ?? undefined,
       identityBindingStatus: "bound",
       destinationAddress: slackUserId,
@@ -436,7 +517,7 @@ export async function verifyTrustedContact(
 
     const now = Date.now();
     const sendCount = 1;
-    updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+    await updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
     deliverVerificationSlack(slackUserId, slackBody, assistantId);
 
     return {
@@ -458,7 +539,7 @@ export async function verifyTrustedContact(
       };
     }
 
-    const sessionResult = createOutboundSession({
+    const sessionResult = await createOutboundSession({
       channel: verificationChannel,
       expectedPhoneE164: normalizedPhone,
       expectedExternalUserId: normalizedPhone,
@@ -469,7 +550,7 @@ export async function verifyTrustedContact(
 
     const now = Date.now();
     const sendCount = 1;
-    updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+    await updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
 
     // Fire-and-forget: initiate Twilio verification call
     (async () => {
@@ -516,120 +597,4 @@ export async function verifyTrustedContact(
     success: false,
     error: `Verification is not supported for channel type "${channel.type}"`,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Channel verification session handler
-// ---------------------------------------------------------------------------
-
-export async function handleChannelVerificationSession(
-  msg: ChannelVerificationSessionRequest,
-): Promise<void> {
-  const channel = msg.channel ?? "telegram";
-
-  try {
-    if (msg.action === "create_session") {
-      if (msg.purpose === "trusted_contact" && !msg.contactChannelId) {
-        broadcastMessage({
-          type: "channel_verification_session_response",
-          success: false,
-          error: "contactChannelId is required for trusted_contact purpose",
-          channel,
-        });
-      } else if (msg.purpose === "trusted_contact") {
-        const result = await verifyTrustedContact(
-          msg.contactChannelId!,
-          DAEMON_INTERNAL_ASSISTANT_ID,
-        );
-        broadcastMessage({
-          type: "channel_verification_session_response",
-          ...result,
-        });
-      } else if (msg.destination) {
-        const result = await startOutbound({
-          channel,
-          destination: msg.destination,
-          rebind: msg.rebind,
-          originConversationId: msg.originConversationId,
-        });
-        if (result._pendingSlackDm) {
-          const { userId, text, assistantId: aid } = result._pendingSlackDm;
-          deliverVerificationSlack(userId, text, aid);
-        }
-        if (result._pendingEmail) {
-          const { to, text, subject, assistantId: aid } = result._pendingEmail;
-          deliverVerificationEmail(to, text, subject, aid);
-        }
-        const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
-        broadcastMessage({
-          type: "channel_verification_session_response",
-          ...publicResult,
-        });
-      } else {
-        const result = createInboundChallenge(
-          channel,
-          msg.rebind,
-          msg.conversationId,
-        );
-        broadcastMessage({
-          type: "channel_verification_session_response",
-          ...result,
-        });
-      }
-    } else if (msg.action === "status") {
-      const result = getVerificationStatus(channel);
-      broadcastMessage({
-        type: "channel_verification_session_response",
-        ...result,
-      });
-    } else if (msg.action === "cancel_session") {
-      cancelOutbound({ channel });
-      revokePendingSessions(channel);
-      broadcastMessage({
-        type: "channel_verification_session_response",
-        success: true,
-        channel,
-      });
-    } else if (msg.action === "revoke") {
-      const result = revokeVerificationForChannel(channel);
-      broadcastMessage({
-        type: "channel_verification_session_response",
-        ...result,
-      });
-    } else if (msg.action === "resend_session") {
-      const result = resendOutbound({
-        channel,
-        originConversationId: msg.originConversationId,
-      });
-      if (result._pendingSlackDm) {
-        const { userId, text, assistantId: aid } = result._pendingSlackDm;
-        deliverVerificationSlack(userId, text, aid);
-      }
-      if (result._pendingEmail) {
-        const { to, text, subject, assistantId: aid } = result._pendingEmail;
-        deliverVerificationEmail(to, text, subject, aid);
-      }
-      const { _pendingSlackDm: _, _pendingEmail: __, ...publicResult } = result;
-      broadcastMessage({
-        type: "channel_verification_session_response",
-        ...publicResult,
-      });
-    } else {
-      broadcastMessage({
-        type: "channel_verification_session_response",
-        success: false,
-        error: `Unknown action: ${String(msg.action)}`,
-        channel,
-      });
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to handle channel verification session");
-    broadcastMessage({
-      type: "channel_verification_session_response",
-      success: false,
-      error: message,
-      channel,
-    });
-  }
 }

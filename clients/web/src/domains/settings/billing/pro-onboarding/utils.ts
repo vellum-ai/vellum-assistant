@@ -1,0 +1,98 @@
+import type { TakeoverDirection } from "./takeover-copy";
+
+export const DOMAIN_EXIT_DELAY_MS = 800;
+
+export const PRO_POLL_INTERVAL_MS = 1000;
+export const PRO_POLL_TIMEOUT_MS = 10_000;
+
+/** How long WAITING can run before the UI softens its copy ("still working…"). */
+export const PROVISION_WAIT_GRACE_MS = 30_000;
+/** How long WAITING/RESIZING can run before we give up and show STALLED. */
+export const PROVISION_STALL_MS = 90_000;
+/** How long the watch must run before the background escape hatch is offered. */
+export const PROVISION_ESCAPE_MS = (PROVISION_STALL_MS * 2) / 3;
+/** Minimum time the finished state stays on screen before the wizard advances. */
+export const PROVISION_MIN_DWELL_MS = 2_500;
+/**
+ * Minimum time any other provisioning phase stays on screen. Without a floor a
+ * fast upgrade renders CONFIRMING and WAITING for however long the API happened
+ * to take, which reads as a flash rather than a step.
+ */
+export const PROVISION_PHASE_MIN_MS = 900;
+/**
+ * How long to wait before re-asking ensure-provisioned when it answered
+ * `not_applicable` with a race reason — the entitlement or the assistant
+ * wasn't visible to the reconcile yet. One retry only.
+ */
+export const ENSURE_PROVISIONED_RACE_RETRY_MS = 2_000;
+/**
+ * How often to re-ask the reconcile while a change that can lower the ceilings
+ * waits under a provisional verdict with no marker of its own observed. The
+ * server checks the marker and the targets together, so its answer is the only
+ * terminal one available when the polls never caught the rollout; without a
+ * re-ask that wait runs to the stall clock on a change that already succeeded.
+ */
+export const PROVISION_VERDICT_RECHECK_MS = 10_000;
+
+const ONBOARDING_MACHINE_DRF_FIELD_KEYS = [
+  "machine_size",
+  "subdomain",
+  "non_field_errors",
+] as const;
+
+export const ONBOARDING_ERROR_CODE_MESSAGES: Record<string, string> = {
+  subdomain_taken: "That subdomain is already taken. Try another.",
+  assistant_already_has_domain: "Your assistant already has a custom domain.",
+  no_assistant_to_attach_domain:
+    "We couldn't find an assistant to attach this domain to.",
+  exceeds_machine_tier: "That machine size isn't available on your plan.",
+  provisioning_submission_failed:
+    "We couldn't queue your upgrade just now. Try again in a moment.",
+  no_active_pro:
+    "We couldn't confirm your Pro plan yet. Try again in a moment.",
+  no_provisionable_assistants:
+    "We couldn't find an assistant to upgrade yet. Try again in a moment.",
+};
+
+/**
+ * The codes whose stock message names an upgrade, reworded for a takeover that
+ * is watching something else. The reconcile these come from runs the same way
+ * for a downgrade, so without this a stalled downgrade offers to retry and then
+ * reports a failure to queue "your upgrade".
+ */
+const PLAN_CHANGE_ERROR_CODE_MESSAGES: Record<string, string> = {
+  provisioning_submission_failed:
+    "We couldn't queue your plan change just now. Try again in a moment.",
+  no_provisionable_assistants:
+    "We couldn't find an assistant to update yet. Try again in a moment.",
+};
+
+export function extractOnboardingErrorMessage(
+  error: unknown,
+  fallback: string,
+  direction: TakeoverDirection = "upgrade",
+): string {
+  if (error && typeof error === "object") {
+    const rec = error as Record<string, unknown>;
+    if (typeof rec.error === "string") {
+      const mapped =
+        (direction === "upgrade"
+          ? undefined
+          : PLAN_CHANGE_ERROR_CODE_MESSAGES[rec.error]) ??
+        ONBOARDING_ERROR_CODE_MESSAGES[rec.error];
+      if (mapped) {
+        return mapped;
+      }
+    }
+    for (const key of ONBOARDING_MACHINE_DRF_FIELD_KEYS) {
+      const msgs = rec[key];
+      if (Array.isArray(msgs) && typeof msgs[0] === "string") {
+        return msgs[0];
+      }
+    }
+    if (typeof rec.detail === "string") {
+      return rec.detail;
+    }
+  }
+  return fallback;
+}

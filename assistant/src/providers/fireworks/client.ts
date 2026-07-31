@@ -1,4 +1,4 @@
-import { PROVIDER_CATALOG } from "../model-catalog.js";
+import { modelEffortCeilings } from "../model-catalog.js";
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 
 export interface FireworksProviderOptions {
@@ -9,14 +9,7 @@ export interface FireworksProviderOptions {
 
 const DEFAULT_FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1";
 
-const FIREWORKS_MODEL_EFFORT_CEILINGS: ReadonlyMap<
-  string,
-  "high" | "xhigh" | "max"
-> = new Map(
-  PROVIDER_CATALOG.find((p) => p.id === "fireworks")?.models.flatMap((m) =>
-    m.maxEffort ? ([[m.id, m.maxEffort]] as const) : [],
-  ) ?? [],
-);
+const FIREWORKS_MODEL_EFFORT_CEILINGS = modelEffortCeilings("fireworks");
 
 export class FireworksProvider extends OpenAIChatCompletionsProvider {
   constructor(
@@ -35,6 +28,9 @@ export class FireworksProvider extends OpenAIChatCompletionsProvider {
       // {@link resolveMaxReasoningEffort}.
       maxReasoningEffort: "high",
       assistantReasoningField: "reasoning_content",
+      // minimax-m3's function-call serialization collapses object-typed tool
+      // args to `{}` on the wire; present them as JSON strings and decode back.
+      coerceObjectArgsToJsonString: /minimax/i.test(model),
     });
   }
 

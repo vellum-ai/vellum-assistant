@@ -21,9 +21,7 @@ export type AbortReasonKind =
   /** A signal-file cancel was written by an out-of-process caller (CLI, hook). */
   | "signal_cancel"
   /** Voice session bridge aborted the conversation (turn supersession, call end). */
-  | "voice_session_aborted"
-  /** A scheduled work item run was cancelled or its conversation reset. */
-  | "work_item_aborted";
+  | "voice_session_aborted";
 
 const ABORT_REASON_TAG = "__vellumAbortReason" as const;
 
@@ -49,7 +47,9 @@ export function createAbortReason(
 }
 
 export function isAbortReason(value: unknown): value is AbortReason {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
   return (
     (value as Record<string, unknown>)[ABORT_REASON_TAG] === true &&
     typeof (value as Record<string, unknown>).kind === "string" &&

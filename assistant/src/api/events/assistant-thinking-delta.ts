@@ -12,6 +12,13 @@
  * Absent on streams produced by older daemons that pre-date the anchor
  * protocol.
  *
+ * `timestampMs` is the daemon's wall-clock emission time for the delta. The
+ * transport envelope (`AssistantEvent.emittedAt`) carries the same instant,
+ * but it is dropped once the inner message is unwrapped for persistence,
+ * debug buffers, and backend storage — so the timestamp is carried on the
+ * payload itself to make per-delta timing observable wherever the message
+ * travels.
+ *
  * Only emitted when thinking streaming is enabled for the turn; turns that
  * suppress reasoning output produce none.
  *
@@ -26,6 +33,9 @@ export const AssistantThinkingDeltaEventSchema = z.object({
   thinking: z.string(),
   messageId: z.string().optional(),
   conversationId: z.string().optional(),
+  /** Epoch milliseconds (`Date.now()`) at which the daemon emitted this
+   *  delta. Absent on streams produced by daemons that pre-date this field. */
+  timestampMs: z.number().optional(),
 });
 
 export type AssistantThinkingDeltaEvent = z.infer<

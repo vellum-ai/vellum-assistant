@@ -19,40 +19,6 @@ mock.module("node:child_process", () => ({
   spawn: spawnSpy,
 }));
 
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: true,
-  },
-  auditLog: { retentionDays: 0 },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mock the host-bash-proxy singleton so proxy delegation tests can control it.
 let mockProxyAvailable = false;
 let mockProxyRequestFn: (
@@ -391,7 +357,7 @@ describe("host_bash — input validation", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("command is required");
+    expect(result.content).toContain('Invalid input for tool "host_bash"');
   });
 
   test("rejects non-string command", async () => {
@@ -403,9 +369,7 @@ describe("host_bash — input validation", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain(
-      "command is required and must be a string",
-    );
+    expect(result.content).toContain('Invalid input for tool "host_bash"');
   });
 
   test("rejects non-string working_dir", async () => {
@@ -418,7 +382,7 @@ describe("host_bash — input validation", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("working_dir must be a string");
+    expect(result.content).toContain('Invalid input for tool "host_bash"');
   });
 });
 
@@ -432,6 +396,20 @@ describe("host_bash — environment setup", () => {
     const result = await hostShellTool.execute(
       {
         command: "pwd",
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content.trim()).toBe(realpathSync(homedir()));
+  });
+
+  test("treats an explicit null working_dir as omitted (runs from home)", async () => {
+    const { homedir } = await import("node:os");
+    const result = await hostShellTool.execute(
+      {
+        command: "pwd",
+        working_dir: null,
       },
       makeContext(),
     );
@@ -867,50 +845,7 @@ describe("host_bash — proxy delegation", () => {
     expect(spawnCalls.length).toBe(1);
   });
 
-  test("propagates VELLUM_UNTRUSTED_SHELL env to proxy under CES lockdown", async () => {
-    // Enable CES shell lockdown via the override cache
-    const { setOverridesForTesting } =
-      await import("./feature-flag-test-helpers.js");
-    setOverridesForTesting({
-      "ces-shell-lockdown": true,
-    });
-
-    const envSnapshot = captureEnv(ROUTING_ENV_KEYS);
-    // Keep this test focused on lockdown propagation behavior only.
-    for (const key of ROUTING_ENV_KEYS) {
-      delete process.env[key];
-    }
-
-    try {
-      const proxyResult: ToolExecutionResult = {
-        content: "proxied",
-        isError: false,
-      };
-      const calls = setupMockProxy(proxyResult);
-
-      const ctx: ToolContext = {
-        ...makeContext(),
-        trustClass: "trusted_contact", // untrusted actor
-      };
-
-      const result = await hostShellTool.execute(
-        { command: "echo lockdown" },
-        ctx,
-      );
-
-      expect(result).toBe(proxyResult);
-      expect(calls.length).toBe(1);
-      expect(calls[0].input.env).toEqual({
-        VELLUM_UNTRUSTED_SHELL: "1",
-        __CONVERSATION_ID: "test-conversation",
-      });
-    } finally {
-      setOverridesForTesting({});
-      restoreEnv(envSnapshot);
-    }
-  });
-
-  test("does not propagate env to proxy when CES lockdown is inactive", async () => {
+  test("propagates only __CONVERSATION_ID to proxy when no routing env is set", async () => {
     const envSnapshot = captureEnv(ROUTING_ENV_KEYS);
     for (const key of ROUTING_ENV_KEYS) {
       delete process.env[key];
@@ -923,20 +858,16 @@ describe("host_bash — proxy delegation", () => {
       };
       const calls = setupMockProxy(proxyResult);
 
-      const ctx: ToolContext = {
-        ...makeContext(),
-        trustClass: "guardian", // trusted actor — no lockdown
-      };
-
       const result = await hostShellTool.execute(
-        { command: "echo no-lockdown" },
-        ctx,
+        { command: "echo proxied" },
+        makeContext(),
       );
 
       expect(result).toBe(proxyResult);
       expect(calls.length).toBe(1);
       expect(calls[0].input.env).toEqual({
         __CONVERSATION_ID: "test-conversation",
+        __REVEAL_NONCE: expect.any(String),
       });
     } finally {
       restoreEnv(envSnapshot);
@@ -944,15 +875,11 @@ describe("host_bash — proxy delegation", () => {
   });
 
   test("propagates daemon routing env vars to proxy for nested assistant CLI calls", async () => {
-    const envSnapshot = captureEnv([
-      ...ROUTING_ENV_KEYS,
-      "VELLUM_UNTRUSTED_SHELL",
-    ]);
+    const envSnapshot = captureEnv(ROUTING_ENV_KEYS);
     process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-instance/.vellum/workspace";
     process.env.VELLUM_DATA_DIR = "/tmp/vellum-instance/.vellum/workspace/data";
     process.env.VELLUM_ENVIRONMENT = "local";
     process.env.INTERNAL_GATEWAY_BASE_URL = "http://127.0.0.1:7830";
-    delete process.env.VELLUM_UNTRUSTED_SHELL;
 
     try {
       const proxyResult: ToolExecutionResult = {
@@ -961,14 +888,9 @@ describe("host_bash — proxy delegation", () => {
       };
       const calls = setupMockProxy(proxyResult);
 
-      const ctx: ToolContext = {
-        ...makeContext(),
-        trustClass: "guardian", // trusted actor — no lockdown
-      };
-
       const result = await hostShellTool.execute(
         { command: "assistant browser status --json" },
-        ctx,
+        makeContext(),
       );
 
       expect(result).toBe(proxyResult);
@@ -979,6 +901,7 @@ describe("host_bash — proxy delegation", () => {
         VELLUM_ENVIRONMENT: "local",
         INTERNAL_GATEWAY_BASE_URL: "http://127.0.0.1:7830",
         __CONVERSATION_ID: "test-conversation",
+        __REVEAL_NONCE: expect.any(String),
       });
     } finally {
       restoreEnv(envSnapshot);

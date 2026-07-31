@@ -17,9 +17,11 @@ const log = getLogger("schedule-recovery");
  * Called once at daemon startup, before the scheduler tick loop starts,
  * so all "firing" / "running" rows are definitively stale.
  */
-export function recoverStaleSchedules(): number {
+export async function recoverStaleSchedules(): Promise<number> {
   const stale = findStaleInFlightJobs(0);
-  if (stale.length === 0) return 0;
+  if (stale.length === 0) {
+    return 0;
+  }
 
   log.info({ count: stale.length }, "Recovering stale in-flight schedules");
 
@@ -27,22 +29,27 @@ export function recoverStaleSchedules(): number {
   for (const { jobId, staleRunId } of stale) {
     try {
       const job = getSchedule(jobId);
-      if (!job) continue;
+      if (!job) {
+        continue;
+      }
 
       const errorMsg =
         "Process terminated during execution (recovered on restart)";
 
       if (staleRunId) {
-        completeScheduleRun(staleRunId, { status: "error", error: errorMsg });
+        await completeScheduleRun(staleRunId, {
+          status: "error",
+          error: errorMsg,
+        });
       } else {
-        const runId = createScheduleRun(jobId, `recovery:${jobId}`);
-        completeScheduleRun(runId, { status: "error", error: errorMsg });
+        const runId = await createScheduleRun(jobId, `recovery:${jobId}`);
+        await completeScheduleRun(runId, { status: "error", error: errorMsg });
       }
 
       // Use the same retry-or-exhaust path as the scheduler
       const isOneShot = job.expression == null;
       const decision = decideRetry(job);
-      applyRetryDecision({
+      await applyRetryDecision({
         job,
         isOneShot,
         errorMsg,

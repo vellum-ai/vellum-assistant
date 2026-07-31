@@ -67,8 +67,7 @@ export const GEMINI_MAX_INLINE_AUDIO_BYTES = 12 * 1024 * 1024;
 const GEMINI_AUDIO_TOKENS_PER_SECOND = 32;
 const APPROX_AUDIO_BYTES_PER_SECOND = 16_000;
 
-export function estimateGeminiAudioTokens(base64Data: string): number {
-  const approxSeconds =
-    base64ByteLength(base64Data) / APPROX_AUDIO_BYTES_PER_SECOND;
+export function estimateGeminiAudioTokens(byteLength: number): number {
+  const approxSeconds = byteLength / APPROX_AUDIO_BYTES_PER_SECOND;
   return Math.ceil(approxSeconds * GEMINI_AUDIO_TOKENS_PER_SECOND);
 }

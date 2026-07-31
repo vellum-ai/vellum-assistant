@@ -45,27 +45,6 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    // 1s timeout so the timeout-path test doesn't take forever.
-    timeouts: { shellDefaultTimeoutSec: 120, shellMaxTimeoutSec: 600 },
-    sandbox: {
-      enabled: false,
-      backend: "native",
-      docker: {
-        image: "vellum-sandbox:latest",
-        shell: "bash",
-        cpus: 1,
-        memoryMb: 512,
-        pidsLimit: 256,
-        network: "none",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 mock.module("../tools/network/script-proxy/index.js", () => ({
   getOrStartSession: mock(() =>
     Promise.resolve({ session: { id: "mock-session" } }),
@@ -103,8 +82,11 @@ mock.module("../tools/background-tool-registry.js", () => ({
   },
   removeBackgroundTool: (id: string) => {
     const idx = registeredTools.findIndex((t) => t.id === id);
-    if (idx !== -1) registeredTools.splice(idx, 1);
+    if (idx !== -1) {
+      registeredTools.splice(idx, 1);
+    }
   },
+  recordCompletedBackgroundTool: () => {},
   generateBackgroundToolId: () => "bg-obs-test",
   isBackgroundToolLimitReached: () => false,
   MAX_BACKGROUND_TOOLS: 20,

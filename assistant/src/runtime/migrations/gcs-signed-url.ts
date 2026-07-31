@@ -14,9 +14,11 @@
  *   - The hostname is exactly `storage.googleapis.com`.
  *   - No explicit port is present (the default HTTPS port is required;
  *     WHATWG URL normalizes `:443` to an empty port string for HTTPS).
- *   - The URL carries a signature query param — either `X-Goog-Signature`
- *     (V4 signing) or `Signature` (V2 signing). If neither is present
- *     the URL is not a signed URL and we refuse it.
+ *   - The URL carries a signature query param — `X-Goog-Signature` (GCS
+ *     V4) or `Signature` (GCS V2); for hosts on a non-default allowlist
+ *     (local/minikube SeaweedFS) SigV4's `X-Amz-Signature` is also
+ *     accepted. A URL with no signature param is not a presigned URL and
+ *     is refused.
  *   - The pathname does not contain `..` segments (traversal guard).
  *
  * On success we return the hostname and pathname for logging/telemetry.
@@ -34,9 +36,11 @@ const DEFAULT_ALLOWED_HOSTS: readonly string[] = [EXPECTED_HOST];
 export interface ValidateGcsSignedUrlOptions {
   /**
    * Allowlisted hosts. Defaults to `["storage.googleapis.com"]` — the only
-   * production value. Test-only callers can widen this to point at a local
-   * HTTP fixture (the `scheme` check also relaxes to accept `http:` for
-   * non-default hosts). Production code MUST NOT pass a wider list.
+   * production value. A non-default list (local/minikube via
+   * `VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS`, or tests pointing at a local
+   * HTTP fixture) relaxes the `scheme` check to accept `http:`, skips the
+   * explicit-port check, and skips the signature-param requirement for the
+   * listed hosts. Production code MUST NOT pass a wider list.
    */
   allowedHosts?: readonly string[];
 }
@@ -87,9 +91,19 @@ export function validateGcsSignedUrl(
     return { ok: false, reason: "port" };
   }
 
+  // Every URL must carry a signature param — possession of a complete
+  // presigned URL is the capability, and this shape check keeps unsigned
+  // object paths from being fetched/PUT even on allowlisted hosts. GCS
+  // signs with X-Goog-Signature (V4) or Signature (V2); S3-compatible
+  // backends behind a non-default allowlist (local/minikube SeaweedFS)
+  // sign with X-Amz-Signature (SigV4), which is only accepted for
+  // explicitly allowlisted hosts. The storage backend itself verifies the
+  // signature; this validator only checks the shape.
   const hasV4 = parsed.searchParams.has("X-Goog-Signature");
   const hasV2 = parsed.searchParams.has("Signature");
-  if (!hasV4 && !hasV2) {
+  const hasSigV4 =
+    !isDefaultHostList && parsed.searchParams.has("X-Amz-Signature");
+  if (!hasV4 && !hasV2 && !hasSigV4) {
     return { ok: false, reason: "missing_signature" };
   }
 
@@ -106,7 +120,9 @@ export function validateGcsSignedUrl(
 
 function hasTraversalSegment(pathname: string): boolean {
   for (const segment of pathname.split("/")) {
-    if (segment === "..") return true;
+    if (segment === "..") {
+      return true;
+    }
   }
   return false;
 }
@@ -127,22 +143,32 @@ function hasTraversalSegment(pathname: string): boolean {
  */
 function hasTraversalInRawPath(raw: string): boolean {
   const schemeEnd = raw.indexOf("://");
-  if (schemeEnd === -1) return false;
+  if (schemeEnd === -1) {
+    return false;
+  }
   const afterScheme = raw.slice(schemeEnd + 3);
   const pathStart = afterScheme.search(/[\/\\]/);
-  if (pathStart === -1) return false;
+  if (pathStart === -1) {
+    return false;
+  }
   let path = afterScheme.slice(pathStart);
   const queryIdx = path.indexOf("?");
-  if (queryIdx !== -1) path = path.slice(0, queryIdx);
+  if (queryIdx !== -1) {
+    path = path.slice(0, queryIdx);
+  }
   const hashIdx = path.indexOf("#");
-  if (hashIdx !== -1) path = path.slice(0, hashIdx);
+  if (hashIdx !== -1) {
+    path = path.slice(0, hashIdx);
+  }
 
   // Normalize percent-encoded forms of `/` and `\` so that encoded
   // separators participate in the segment split.
   const normalized = path.replace(/%2[fF]/g, "/").replace(/%5[cC]/g, "\\");
 
   for (const segment of normalized.split(/[\/\\]/)) {
-    if (segment === "..") return true;
+    if (segment === "..") {
+      return true;
+    }
     // Percent-decoded forms of ".." — e.g. "%2E%2E", ".%2e", "%2e.".
     // Also re-split on `/` and `\` to catch encoded separators that
     // weren't covered by the top-level normalization (e.g. a decoded
@@ -155,7 +181,9 @@ function hasTraversalInRawPath(raw: string): boolean {
       continue;
     }
     for (const sub of decoded.split(/[\/\\]/)) {
-      if (sub === "..") return true;
+      if (sub === "..") {
+        return true;
+      }
     }
   }
   return false;

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAppContext } from '../AppContext.js';
 import { sendMessage } from '../lib/chrome-message.js';
 import { AssistantInfoBar } from './main/AssistantInfoBar.js';
-import { SelfHostedSettings } from './main/SelfHostedSettings.js';
+import { GatewaySettings } from './main/GatewaySettings.js';
 import { SessionActions } from './main/SessionActions.js';
 import { StatusCard } from './main/StatusCard.js';
 
@@ -12,7 +12,7 @@ import { StatusCard } from './main/StatusCard.js';
  * controls for cloud or self-hosted operation.
  */
 export function MainScreen() {
-  const { mode, operationCount, selfHostedPaired, assistantsError, setScreen, onSignOut, onRetryAssistants } = useAppContext();
+  const { mode, health, operationCount, selfHostedPaired, assistantsError, setScreen, onSignOut, onRetryAssistants } = useAppContext();
 
   const [paired, setPaired] = useState(selfHostedPaired);
   const [assistantName, setAssistantName] = useState('');
@@ -39,10 +39,6 @@ export function MainScreen() {
     });
   }, []);
 
-  const handlePaired = useCallback(() => {
-    setPaired(true);
-  }, []);
-
   const handleActivityClick = useCallback(() => {
     setScreen({ name: 'activity' });
   }, [setScreen]);
@@ -55,7 +51,8 @@ export function MainScreen() {
   const isSelfHosted = mode === 'self-hosted';
 
   const showConnectedState = isCloud || (isSelfHosted && paired);
-  const showSelfHostedSettings = isSelfHosted && !paired;
+  const connectionFailing =
+    health === 'error' || health === 'auth_required' || health === 'reconnecting';
 
   return (
     <div className="flex min-h-[calc(300px-32px)] flex-col">
@@ -113,7 +110,7 @@ export function MainScreen() {
         </button>
       )}
 
-      {showSelfHostedSettings && <SelfHostedSettings onPaired={handlePaired} />}
+      {isSelfHosted && <GatewaySettings failure={connectionFailing} />}
 
       <button
         type="button"

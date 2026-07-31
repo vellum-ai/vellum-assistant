@@ -13,38 +13,17 @@
  * `?conversationKey=` happy/error path.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
-
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
-import {
-  BadRequestError,
-  NotFoundError,
-} from "../runtime/routes/errors.js";
+import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
 
-initializeDb();
+await initializeDb();
 
 describe("GET /v1/events — bilingual scope query params", () => {
   beforeEach(() => {
@@ -75,7 +54,9 @@ describe("GET /v1/events — bilingual scope query params", () => {
     expect(new TextDecoder().decode(heartbeat.value)).toBe(": heartbeat\n\n");
 
     // Publish an event scoped to that conversation — should be delivered.
-    await testHub.publish(buildAssistantEvent({ type: "pong" }, conversationId));
+    await testHub.publish(
+      buildAssistantEvent({ type: "message_complete" }, conversationId),
+    );
 
     const { value, done } = await reader.read();
     ac.abort();
@@ -99,9 +80,8 @@ describe("GET /v1/events — bilingual scope query params", () => {
     // Materialise two distinct conversations: one we'll subscribe to by id,
     // one we'll publish to via the ignored key.
     const { conversationId: idConv } = getOrCreateConversation("sse-id-wins");
-    const { conversationId: keyConv } = getOrCreateConversation(
-      "sse-key-ignored",
-    );
+    const { conversationId: keyConv } =
+      getOrCreateConversation("sse-key-ignored");
     expect(idConv).not.toBe(keyConv);
 
     const ac = new AbortController();
@@ -122,9 +102,13 @@ describe("GET /v1/events — bilingual scope query params", () => {
 
     // Publish on the "key" conversation — should NOT be delivered (filter
     // is locked to idConv because conversationId wins).
-    await testHub.publish(buildAssistantEvent({ type: "pong" }, keyConv));
+    await testHub.publish(
+      buildAssistantEvent({ type: "message_complete" }, keyConv),
+    );
     // Publish on the "id" conversation — should be delivered.
-    await testHub.publish(buildAssistantEvent({ type: "pong" }, idConv));
+    await testHub.publish(
+      buildAssistantEvent({ type: "message_complete" }, idConv),
+    );
 
     const { value } = await reader.read();
     ac.abort();

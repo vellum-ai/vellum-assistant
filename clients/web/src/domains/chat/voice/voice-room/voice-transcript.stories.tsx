@@ -1,0 +1,292 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+// The transcript reveal leans on the app's global CSS (content tokens, the
+// `--room-*` vars) — Storybook's preview.css only pulls Tailwind, so import the
+// app stylesheet to get them.
+import "@/index.css";
+
+import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
+import { toneForBg } from "@/utils/avatar-tone";
+
+import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
+import { VOICE_ROOM_TEXT_MEASURE } from "./voice-room-layout";
+import {
+  VOICE_ASSISTANT_CAPTION_CLASS,
+  VoiceTranscriptText,
+} from "./voice-transcript-text";
+
+/**
+ * Iteration harness for the voice room's live captions — the room's two text
+ * zones streaming the current turn word-by-word: the user's speech as a small
+ * pill above the eyes, the assistant's as large untreated text below them.
+ *
+ * The scenes simulate a live session by streaming a canned utterance into the
+ * real live-voice store one word at a time (no mic / STT / TTS), so the reveal,
+ * leading-edge tone, and partial→final hand-off all behave exactly as in the
+ * app. Scrub `wordMs` for the pace of speech and bump `replay` to run the
+ * utterance again.
+ *
+ * The scene frame stands in for the room box: the zones anchor off *it*, not
+ * the window, so keep `minHeight` in the range of a real viewport or the two
+ * zones will crowd the centerpiece.
+ */
+
+// A sample avatar color so the room tone (and the `--room-*` caption vars)
+// resolve as they would over a real character look.
+const SAMPLE_COLOR_ID = "purple";
+const SAMPLE_HEX =
+  BUNDLED_COMPONENTS.colors.find((c) => c.id === SAMPLE_COLOR_ID)?.hex ??
+  "#A665C9";
+
+const USER_LINE =
+  "hey can you help me draft a quick note to the team about tomorrow's launch";
+const ASSISTANT_LINE =
+  "Of course — here's a short note you can send: the launch is on track for tomorrow morning, and I'll share the final checklist tonight so everyone's ready.";
+
+type Role = "user" | "assistant" | "both";
+
+/**
+ * Stream `text` into a setter one word at a time, restarting whenever `replay`
+ * or the pace changes. Returns nothing — it drives the store the component under
+ * test reads from.
+ */
+function useWordStream(
+  words: string[],
+  wordMs: number,
+  replay: number,
+  onWord: (soFar: string) => void,
+  onReset: () => void,
+) {
+  const onWordRef = useRef(onWord);
+  const onResetRef = useRef(onReset);
+  useEffect(() => {
+    onWordRef.current = onWord;
+    onResetRef.current = onReset;
+  });
+  useEffect(() => {
+    onResetRef.current();
+    let i = 0;
+    const step = () => {
+      i += 1;
+      onWordRef.current(words.slice(0, i).join(" "));
+    };
+    // Land the first word synchronously so the scene never renders an empty
+    // frame — screenshots and visual sweeps otherwise capture a blank panel
+    // during the first interval tick.
+    if (words.length > 0) {
+      step();
+    }
+    const id = setInterval(() => {
+      step();
+      if (i >= words.length) {
+        clearInterval(id);
+      }
+    }, wordMs);
+    return () => clearInterval(id);
+  }, [wordMs, replay, words]);
+}
+
+interface SceneProps {
+  role: Role;
+  wordMs: number;
+  replay: number;
+  minHeight?: number;
+}
+
+/** The real ambient transcript, over a toned room, fed by a simulated stream. */
+function AmbientTranscriptScene({
+  role,
+  wordMs,
+  replay,
+  minHeight = 600,
+}: SceneProps) {
+  const tone = toneForBg(SAMPLE_HEX);
+  const toneVars = {
+    "--room-fg": tone.fg,
+    "--room-fg-muted": tone.fgMuted,
+    "--room-bubble-bg": tone.bubbleBg,
+    "--room-bubble-fg": tone.bubbleFg,
+  } as Record<string, string>;
+
+  // Prefs gate each half; turn on whichever role this scene streams.
+  useEffect(() => {
+    const prefs = useVoicePrefsStore.getState();
+    prefs.setShowUserTranscript(role === "user" || role === "both");
+    prefs.setShowAssistantTranscript(role === "assistant" || role === "both");
+    return () => {
+      prefs.setShowUserTranscript(false);
+      prefs.setShowAssistantTranscript(false);
+    };
+  }, [role]);
+
+  const userWords = USER_LINE.split(" ");
+  const assistantWords = ASSISTANT_LINE.split(" ");
+
+  useWordStream(
+    role === "assistant" ? [] : userWords,
+    wordMs,
+    replay,
+    useCallback((soFar: string) => {
+      useLiveVoiceStore.getState().setPartialTranscript(soFar);
+    }, []),
+    useCallback(() => {
+      useLiveVoiceStore.getState().setPartialTranscript("");
+      useLiveVoiceStore.getState().setFinalTranscript("");
+    }, []),
+  );
+  useWordStream(
+    role === "user" ? [] : assistantWords,
+    wordMs,
+    replay,
+    useCallback((soFar: string) => {
+      const store = useLiveVoiceStore.getState();
+      store.clearAssistantTranscript();
+      store.appendAssistantTranscript(soFar);
+    }, []),
+    useCallback(() => {
+      useLiveVoiceStore.getState().clearAssistantTranscript();
+    }, []),
+  );
+
+  return (
+    <div
+      data-theme={tone.isLight ? "light" : "dark"}
+      className="relative flex items-center justify-center overflow-hidden rounded-lg"
+      style={{ minHeight, backgroundColor: SAMPLE_HEX, ...toneVars }}
+    >
+      {/* Stand-in for the centered eyes, so both zones read against the
+          centerpiece they're framing. */}
+      <div
+        className="size-40 rounded-full"
+        style={{ backgroundColor: "var(--room-fg)", opacity: 0.12 }}
+      />
+      <VoiceAmbientTranscript />
+    </div>
+  );
+}
+
+const meta: Meta<typeof AmbientTranscriptScene> = {
+  title: "Chat/Voice/Transcript",
+  component: AmbientTranscriptScene,
+  parameters: { layout: "fullscreen" },
+  decorators: [
+    (Story) => (
+      <div style={{ padding: 24 }}>
+        <Story />
+      </div>
+    ),
+  ],
+  args: { role: "both", wordMs: 260, replay: 0 },
+  argTypes: {
+    role: {
+      options: ["user", "assistant", "both"] satisfies Role[],
+      control: { type: "inline-radio" },
+      description:
+        "Which half streams — user (pill, upper zone), assistant (large text, lower zone), or both.",
+    },
+    wordMs: {
+      control: { type: "range", min: 80, max: 600, step: 20 },
+      description: "Milliseconds between words — the pace of speech.",
+    },
+    replay: {
+      control: { type: "range", min: 0, max: 20, step: 1 },
+      description: "Bump to stream the utterance again.",
+    },
+  },
+};
+
+export default meta;
+type Story = StoryObj<typeof AmbientTranscriptScene>;
+
+/**
+ * The ambient captions over a live-streamed turn: each word fades + rises +
+ * de-blurs in and the newest word carries the brighter leading-edge tone. The
+ * two zones frame the centerpiece — your speech in a small pill above it, the
+ * assistant's at full size below — sharing one centered measure so neither
+ * pulls the room off its spine. Scrub `role` and `wordMs`.
+ */
+export const Playground: Story = {};
+
+/**
+ * The reveal mechanics in isolation — `VoiceTranscriptText` fed a plain growing
+ * string, no store, on a neutral surface. Useful for tuning the per-word
+ * entrance and the leading-edge tone without the room plumbing.
+ */
+export const Reveal: Story = {
+  argTypes: {
+    role: { table: { disable: true } },
+    wordMs: {
+      control: { type: "range", min: 80, max: 600, step: 20 },
+    },
+    replay: { control: { type: "range", min: 0, max: 20, step: 1 } },
+  },
+  args: { wordMs: 260, replay: 0 },
+  render: (args) => <RevealScene wordMs={args.wordMs} replay={args.replay} />,
+};
+
+/**
+ * The spoken-word cursor look: the full sentence has already
+ * streamed in, but a static mid-sentence `highlightIndex` keeps the bright
+ * leading-edge tone on the word currently being spoken — the text ahead of the
+ * cursor stays muted instead of the highlight parking on the final word.
+ */
+export const SpokenWordHighlight: Story = {
+  argTypes: {
+    role: { table: { disable: true } },
+    wordMs: { table: { disable: true } },
+    replay: { table: { disable: true } },
+  },
+  render: () => (
+    <CaptionSurface>
+      <VoiceTranscriptText text={ASSISTANT_LINE} highlightIndex={9} />
+    </CaptionSurface>
+  ),
+};
+
+/**
+ * The room's assistant caption, minus the room plumbing (no avatar tone, no
+ * zone positioning, no motion) so a scene can isolate the reveal itself.
+ *
+ * Everything that governs how the caption *looks* still comes from the shipped
+ * source: `VOICE_ASSISTANT_CAPTION_CLASS` for the type ramp,
+ * `VOICE_ROOM_TEXT_MEASURE` for the column, `--surface-base` for the dark
+ * backdrop, and left alignment because the word reveal is tuned for it. With no
+ * `--room-fg` set, `VoiceTranscriptText` falls back to the theme content
+ * tokens, which is a real code path (an avatar with no tone).
+ */
+function CaptionSurface({ children }: { children: ReactNode }) {
+  return (
+    <div
+      data-theme="dark"
+      className="flex min-h-[240px] items-center justify-center rounded-lg bg-[var(--surface-base)] p-10"
+    >
+      <div
+        className={`w-full ${VOICE_ASSISTANT_CAPTION_CLASS}`}
+        style={{ maxWidth: VOICE_ROOM_TEXT_MEASURE }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function RevealScene({ wordMs, replay }: { wordMs: number; replay: number }) {
+  const [text, setText] = useState("");
+  const words = ASSISTANT_LINE.split(" ");
+  useWordStream(
+    words,
+    wordMs,
+    replay,
+    useCallback((soFar: string) => setText(soFar), []),
+    useCallback(() => setText(""), []),
+  );
+  return (
+    <CaptionSurface>
+      <VoiceTranscriptText text={text} />
+    </CaptionSurface>
+  );
+}

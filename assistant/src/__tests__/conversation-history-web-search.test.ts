@@ -15,11 +15,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 // ── DB layer mocks for session-history ───────────────────────────────
 
 /** In-memory message store for the fake DB layer. */
@@ -27,7 +22,7 @@ let dbMessages: Array<{
   id: string;
   conversationId: string;
   role: string;
-  content: string;
+  content: ContentBlock[];
   createdAt: number;
   metadata: string | null;
 }> = [];
@@ -35,7 +30,9 @@ let dbMessages: Array<{
 let deletedMessageIds: string[] = [];
 let updatedMessages: Array<{ id: string; content: string }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getMessages: (conversationId: string) =>
     dbMessages.filter((m) => m.conversationId === conversationId),
   deleteMessageById: (messageId: string) => {
@@ -46,30 +43,32 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageContent: (messageId: string, content: string) => {
     updatedMessages.push({ id: messageId, content });
     const msg = dbMessages.find((m) => m.id === messageId);
-    if (msg) msg.content = content;
+    if (msg) {
+      msg.content = JSON.parse(content) as ContentBlock[];
+    }
   },
   relinkAttachments: () => 0,
   deleteLastExchange: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   isLastUserMessageToolResult: () => false,
 }));
 
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   relinkLlmRequestLogs: () => {},
 }));
 
-mock.module("../memory/qdrant-circuit-breaker.js", () => ({
+mock.module("../persistence/embeddings/qdrant-circuit-breaker.js", () => ({
   withQdrantBreaker: async (fn: () => Promise<unknown>) => fn(),
 }));
 
-mock.module("../memory/qdrant-client.js", () => ({
+mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => {
     throw new Error("Qdrant not initialized");
   },
@@ -80,8 +79,6 @@ mock.module("../memory/qdrant-client.js", () => ({
 import {
   consolidateAssistantMessages,
   findLastUndoableUserMessageIndex,
-  type HistoryConversationContext,
-  regenerate,
 } from "../daemon/conversation-history.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
@@ -98,7 +95,7 @@ function makeDbMessage(
     id,
     conversationId,
     role,
-    content: JSON.stringify(content),
+    content,
     createdAt,
     metadata: null,
   };
@@ -342,141 +339,6 @@ describe("isUndoableUserMessage with web_search_tool_result", () => {
     // A message with BOTH text and web_search_tool_result should be undoable
     // because it contains real user content.
     expect(lastUndoableIdx).toBe(0);
-  });
-});
-
-// ── Test 4: regenerate handles conversations with web_search_tool_result ─
-
-describe("regenerate with web_search_tool_result", () => {
-  beforeEach(() => {
-    dbMessages = [];
-    deletedMessageIds = [];
-    updatedMessages = [];
-  });
-
-  test("regenerate skips web_search_tool_result-only user messages when finding last real user message", async () => {
-    const conversationId = "conv-ws-regen";
-
-    // DB messages: user → assistant(server_tool_use) → user(web_search_tool_result) → assistant(text)
-    dbMessages = [
-      makeDbMessage(
-        "msg-u1",
-        conversationId,
-        "user",
-        [{ type: "text", text: "search for X" }],
-        1000,
-      ),
-      makeDbMessage(
-        "msg-a1",
-        conversationId,
-        "assistant",
-        [
-          {
-            type: "server_tool_use",
-            id: "srvtoolu_regen",
-            name: "web_search",
-            input: { query: "X" },
-          },
-        ],
-        2000,
-      ),
-      makeDbMessage(
-        "msg-ws",
-        conversationId,
-        "user",
-        [
-          {
-            type: "web_search_tool_result",
-            tool_use_id: "srvtoolu_regen",
-            content: [],
-          },
-        ],
-        3000,
-      ),
-      makeDbMessage(
-        "msg-a2",
-        conversationId,
-        "assistant",
-        [{ type: "text", text: "Results here." }],
-        4000,
-      ),
-    ];
-
-    // In-memory messages matching DB
-    const inMemoryMessages: Message[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "search for X" }],
-      },
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "server_tool_use",
-            id: "srvtoolu_regen",
-            name: "web_search",
-            input: { query: "X" },
-          },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "web_search_tool_result",
-            tool_use_id: "srvtoolu_regen",
-            content: [],
-          },
-        ],
-      },
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "Results here." }],
-      },
-    ];
-
-    let agentLoopCalled = false;
-    let agentLoopContent = "";
-    let agentLoopUserMessageId = "";
-
-    const events: Array<{ type: string; message?: string }> = [];
-
-    let processing = false;
-    const session: HistoryConversationContext = {
-      conversationId,
-      traceEmitter: {
-        emit: () => {},
-      } as unknown as HistoryConversationContext["traceEmitter"],
-      sendToClient: (msg) => events.push(msg),
-      messages: [...inMemoryMessages],
-      isProcessing: () => processing,
-      setProcessing: (value: boolean) => {
-        processing = value;
-      },
-      abortController: null,
-      async runAgentLoop(content, userMessageId) {
-        agentLoopCalled = true;
-        agentLoopContent = content;
-        agentLoopUserMessageId = userMessageId;
-      },
-    };
-
-    await regenerate(session);
-
-    // regenerate should find the real user message (msg-u1) and skip the
-    // web_search_tool_result-only message (msg-ws).
-    // BUG: Currently, regenerate only checks for tool_result in the
-    // `parsed.every(b => b.type === "tool_result")` check, so msg-ws
-    // is treated as a real user message, and regenerate gets confused.
-
-    expect(agentLoopCalled).toBe(true);
-    expect(agentLoopUserMessageId).toBe("msg-u1");
-    expect(agentLoopContent).toBe("search for X");
-
-    // Messages after the user message should be deleted
-    expect(deletedMessageIds).toContain("msg-a1");
-    expect(deletedMessageIds).toContain("msg-ws");
-    expect(deletedMessageIds).toContain("msg-a2");
   });
 });
 
@@ -757,6 +619,13 @@ describe("web_search_tool_result structural guard", () => {
     "context/post-turn-tool-result-truncation.ts",
     "context/tool-result-spool.ts",
 
+    // Outbound sanitize bundle: the media-strip and AX-tree transforms
+    // operate on locally-executed tool results (media contentBlocks and
+    // <ax-tree> text), which web_search_tool_result blocks never carry.
+    // Web-search blocks are handled by the bundle's own third transform
+    // (stripHistoricalWebSearchResults), so nothing is silently dropped.
+    "context/outbound-sanitize.ts",
+
     // Anthropic provider type guards define API-specific discriminants.
     // It has a separate isWebSearchToolResultBlock for the other type.
     "providers/anthropic/client.ts",
@@ -783,6 +652,13 @@ describe("web_search_tool_result structural guard", () => {
     // provider, not the local tool executor, so they never flow here.
     "agent/loop.ts",
 
+    // Matches the `tool_result` AssistantEvent SSE event (api/events/
+    // tool-result.ts), not a conversation content block. There is no
+    // web_search_tool_result SSE event — web-search activity travels as
+    // activityMetadata on the same tool_result event. Same event-vs-block
+    // distinction as agent/loop.ts, one hop downstream.
+    "calls/voice-session-bridge.ts",
+
     // Counts consecutive errors for locally-executed tools to bound retry
     // coaching. Server-side web search results (web_search_tool_result) carry
     // no is_error flag and are not produced by the tool executor, so only
@@ -796,6 +672,32 @@ describe("web_search_tool_result structural guard", () => {
     // conservative direction (fewer nudges). Same reasoning as agent/loop.ts.
     "plugins/defaults/exploration-drift/hooks/post-tool-use.ts",
 
+    // Deep-sweeps image blocks nested in a tool_result's rich `contentBlocks`
+    // (a field only locally-executed tool results carry) so they can be
+    // captioned for text-only models. web_search_tool_result blocks have an
+    // opaque provider-specific `content` and never carry contentBlocks, so
+    // there is nothing there to sweep.
+    "plugins/defaults/image-fallback/src/caption-blocks.ts",
+
+    // Walks a tool_result's rich `contentBlocks` to detect nested media that
+    // needs resolving from a workspace reference. web_search_tool_result blocks
+    // carry no contentBlocks, so only tool_result is relevant here. Same
+    // reasoning as caption-blocks.ts above.
+    "providers/media-resolve.ts",
+
+    // Walks a tool_result's rich `contentBlocks` to materialize nested base64
+    // media into workspace references at persist time. web_search_tool_result
+    // blocks carry no contentBlocks, so only tool_result is relevant. Same
+    // reasoning as media-resolve.ts above.
+    "daemon/persist-media-references.ts",
+
+    // Detects turn boundaries by checking whether a user message carries any
+    // tool_result block (internal continuation) vs. none (genuine user prompt).
+    // A web_search_tool_result-only message is also internal, but treating one
+    // as a boundary only bounds the round count early — the conservative
+    // direction (fewer nudges). Same reasoning as exploration-drift above.
+    "plugins/defaults/task-progress-nudge/hooks/post-tool-use.ts",
+
     // Reconciles synthesized cancellation tool_results for locally-executed
     // tools only. Same reasoning as agent/loop.ts above.
     "daemon/conversation-agent-loop.ts",
@@ -807,10 +709,6 @@ describe("web_search_tool_result structural guard", () => {
     // Renders tool_result events for subagent event streams.
     // web_search_tool_result is not emitted through the subagent event path.
     "runtime/routes/subagents-routes.ts",
-
-    // Extracts tool results from persisted message content for work-item
-    // display. web_search_tool_result blocks are not relevant here.
-    "runtime/routes/work-items-routes.ts",
 
     // Media token counting iterates tool_result.contentBlocks for nested
     // image/file blocks. web_search_tool_result has opaque content with no
@@ -911,7 +809,9 @@ describe("web_search_tool_result structural guard", () => {
       const hasRawCheck =
         /[=!]==?\s*["']tool_result["']/.test(line) ||
         /["']tool_result["']\s*[=!]==?/.test(line);
-      if (!hasRawCheck) continue;
+      if (!hasRawCheck) {
+        continue;
+      }
 
       // Allow lines that reference web_search_tool_result nearby (paired check).
       // Multi-line patterns like `block.type === "tool_result" ||\n  block.type === "web_search_tool_result"`
@@ -923,7 +823,9 @@ describe("web_search_tool_result structural guard", () => {
       const windowEnd = Math.min(lines.length - 1, i + 3);
       let pairedOrSuppressed = false;
       for (let j = windowStart; j <= windowEnd; j++) {
-        if (consumedSuppressions.has(j)) continue;
+        if (consumedSuppressions.has(j)) {
+          continue;
+        }
         if (
           /web_search_tool_result/.test(lines[j]) ||
           /guard:allow-tool-result-only/.test(lines[j])
@@ -933,10 +835,14 @@ describe("web_search_tool_result structural guard", () => {
           break;
         }
       }
-      if (pairedOrSuppressed) continue;
+      if (pairedOrSuppressed) {
+        continue;
+      }
 
       // Allow comment-only lines
-      if (/^\s*\/\//.test(line) || /^\s*\*/.test(line)) continue;
+      if (/^\s*\/\//.test(line) || /^\s*\*/.test(line)) {
+        continue;
+      }
 
       violations.push({
         file: filePath,
@@ -991,7 +897,9 @@ describe("web_search_tool_result structural guard", () => {
       const relPath = filePath.slice(SRC_DIR.length + 1);
 
       // Skip allowlisted files
-      if (ALLOWLISTED_FILES.has(relPath)) continue;
+      if (ALLOWLISTED_FILES.has(relPath)) {
+        continue;
+      }
 
       const source = readFileSync(filePath, "utf-8");
       const violations = findRawToolResultChecks(source, relPath);

@@ -29,7 +29,6 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
   getRuntimeHttpPort: () => 3000,
   getRuntimeHttpHost: () => "0.0.0.0",
-  getSentryDsn: () => "",
   getQdrantUrlEnv: () => undefined,
   getQdrantHttpPortEnv: () => undefined,
   getQdrantReadyzTimeoutMs: () => undefined,
@@ -104,7 +103,7 @@ afterAll(() => {
 
 const handleHostCuResult = ROUTES.find(
   (r: { endpoint: string }) => r.endpoint === "host-cu-result",
-)!.handler;
+)!.handler as (args: Record<string, unknown>) => Promise<unknown>;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -226,15 +225,13 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
       ).toThrow(BadRequestError);
     });
 
-    test("interaction is NOT resolved on 400 (still pending)", () => {
+    test("interaction is NOT resolved on 400 (still pending)", async () => {
       const requestId = "req-cu-targeted-no-header-stays";
       registerPending(requestId, { targetClientId: "client-A" });
 
-      try {
-        handleHostCuResult({ body: cuBody(requestId) });
-      } catch {
+      await handleHostCuResult({ body: cuBody(requestId) }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -256,19 +253,17 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("ForbiddenError message names both submitting and expected client", () => {
+    test("ForbiddenError message names both submitting and expected client", async () => {
       const requestId = "req-cu-targeted-mismatch-msg";
       registerPending(requestId, { targetClientId: "client-A" });
 
       let caught: unknown;
-      try {
-        handleHostCuResult({
-          body: cuBody(requestId),
-          headers: { "x-vellum-client-id": "client-B" },
-        });
-      } catch (e) {
+      await handleHostCuResult({
+        body: cuBody(requestId),
+        headers: { "x-vellum-client-id": "client-B" },
+      }).catch((e: unknown) => {
         caught = e;
-      }
+      });
 
       expect(caught).toBeInstanceOf(ForbiddenError);
       const msg = (caught as ForbiddenError).message;
@@ -276,18 +271,16 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
       expect(msg).toContain("client-A");
     });
 
-    test("interaction is NOT consumed on 403 (pendingInteractions.get still returns it)", () => {
+    test("interaction is NOT consumed on 403 (pendingInteractions.get still returns it)", async () => {
       const requestId = "req-cu-targeted-mismatch-stays";
       registerPending(requestId, { targetClientId: "client-A" });
 
-      try {
-        handleHostCuResult({
-          body: cuBody(requestId),
-          headers: { "x-vellum-client-id": "client-B" },
-        });
-      } catch {
+      await handleHostCuResult({
+        body: cuBody(requestId),
+        headers: { "x-vellum-client-id": "client-B" },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -331,22 +324,20 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("interaction NOT consumed on 403 actor mismatch", () => {
+    test("interaction NOT consumed on 403 actor mismatch", async () => {
       const requestId = "req-cu-actor-mismatch-stays";
       actorPrincipalByClient.set("client-A", "user-1");
       registerPending(requestId, { targetClientId: "client-A" });
 
-      try {
-        handleHostCuResult({
-          body: cuBody(requestId),
-          headers: {
-            "x-vellum-client-id": "client-A",
-            "x-vellum-actor-principal-id": "user-2",
-          },
-        });
-      } catch {
+      await handleHostCuResult({
+        body: cuBody(requestId),
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "user-2",
+        },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -426,5 +417,92 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
       expect(result).toEqual({ accepted: true });
       expect(cuResolveSpy).toHaveLength(1);
     });
+  });
+});
+
+// ── Request body validation ──────────────────────────────────────────────────
+
+describe("handleHostCuResult: request body validation", () => {
+  beforeEach(() => {
+    pendingStore.clear();
+    conversationStore.clear();
+    actorPrincipalByClient.clear();
+    resolvedIds.length = 0;
+    cuResolveSpy.length = 0;
+    registerConversation("conv-cu-1");
+  });
+
+  test("rejects a body that is not an object", () => {
+    expect(() => handleHostCuResult({ body: undefined })).toThrow(
+      BadRequestError,
+    );
+  });
+
+  test("rejects an empty-string requestId", () => {
+    expect(() => handleHostCuResult({ body: cuBody("") })).toThrow(
+      BadRequestError,
+    );
+  });
+
+  test("rejects a wrongly typed field before the interaction is consumed", () => {
+    const requestId = "req-cu-bad-screenshot-width";
+    registerPending(requestId);
+
+    expect(() =>
+      handleHostCuResult({
+        body: { ...cuBody(requestId), screenshotWidthPx: "800" },
+      }),
+    ).toThrow(BadRequestError);
+
+    expect(cuResolveSpy).toHaveLength(0);
+    expect(pendingStore.has(requestId)).toBe(true);
+  });
+
+  test("forwards a full observation payload unchanged", async () => {
+    const requestId = "req-cu-full-observation";
+    registerPending(requestId);
+
+    const result = await handleHostCuResult({
+      body: {
+        requestId,
+        axTree: "Button [1]",
+        axDiff: "+Button [1]",
+        screenshot: "base64png",
+        screenshotWidthPx: 1600,
+        screenshotHeightPx: 1000,
+        screenWidthPt: 800,
+        screenHeightPt: 500,
+        executionResult: "Clicked",
+        executionError: undefined,
+        secondaryWindows: "none",
+        userGuidance: "look here",
+      },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(cuResolveSpy[0].payload).toMatchObject({
+      axTree: "Button [1]",
+      axDiff: "+Button [1]",
+      screenshot: "base64png",
+      screenshotWidthPx: 1600,
+      screenshotHeightPx: 1000,
+      screenWidthPt: 800,
+      screenHeightPt: 500,
+      executionResult: "Clicked",
+      secondaryWindows: "none",
+      userGuidance: "look here",
+    });
+  });
+
+  test("tolerates unknown keys", async () => {
+    const requestId = "req-cu-unknown-keys";
+    registerPending(requestId);
+
+    const result = await handleHostCuResult({
+      body: { ...cuBody(requestId), somethingNew: "ignored" },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(cuResolveSpy[0].payload).not.toHaveProperty("somethingNew");
   });
 });

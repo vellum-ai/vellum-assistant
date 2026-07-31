@@ -97,7 +97,9 @@ function isInsideFencedCode(
   ranges: Array<[number, number]>,
 ): boolean {
   for (const [start, end] of ranges) {
-    if (offset >= start && offset < end) return true;
+    if (offset >= start && offset < end) {
+      return true;
+    }
   }
   return false;
 }
@@ -181,10 +183,14 @@ export function parseInlineCommandExpansions(
     const offset = unmatchedMatch.index;
 
     // Skip if this was already matched as a complete token
-    if (matchedStarts.has(offset)) continue;
+    if (matchedStarts.has(offset)) {
+      continue;
+    }
 
     // Skip if inside a fenced code block
-    if (isInsideFencedCode(offset, fencedRanges)) continue;
+    if (isInsideFencedCode(offset, fencedRanges)) {
+      continue;
+    }
 
     errors.push({
       raw: body.slice(offset, Math.min(offset + 40, body.length)),

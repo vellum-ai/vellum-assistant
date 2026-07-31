@@ -6,9 +6,12 @@
  * focused on orchestration.
  */
 import type { ChannelId } from "../../../channels/types.js";
-import type { TrustContext } from "../../../daemon/trust-context.js";
-import { recordConversationSeenSignal } from "../../../memory/conversation-attention-store.js";
-import { clearPayload, storePayload } from "../../../memory/delivery-crud.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
+import { recordConversationSeenSignal } from "../../../persistence/conversation-attention-store.js";
+import {
+  clearPayload,
+  storePayload,
+} from "../../../persistence/delivery-crud.js";
 import { checkIngressForSecrets } from "../../../security/secret-ingress.js";
 import { getLogger } from "../../../util/logger.js";
 
@@ -27,7 +30,7 @@ export interface SecretIngressCheckParams {
   content: string | undefined;
   trimmedContent: string;
   attachmentIds: string[] | undefined;
-  sourceMetadata: Record<string, unknown> | undefined;
+  sourceMetadata: import("@vellumai/gateway-client").SourceMetadata | undefined;
   actorDisplayName: string | undefined;
   actorExternalId: string | undefined;
   actorUsername: string | undefined;

@@ -26,25 +26,18 @@ import { describe, expect, mock, test } from "bun:test";
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 mkdirSync(testWorkspaceDir, { recursive: true });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Mock getSecureKeyAsync to avoid credential store access during tests
 mock.module("../util/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb, getLogsDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   conversations,
   llmRequestLogs,
   toolInvocations,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import {
   MAX_EXPORT_LLM_REQUEST_LOG_ROWS,
@@ -60,7 +53,7 @@ import {
   SYNTHETIC_OPENAI_PROJECT_KEY,
 } from "./secret-fixtures.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -552,7 +545,7 @@ describe("POST /v1/export — manifest truncatedSections", () => {
         createdAt: now + i,
       }),
     );
-    db.insert(llmRequestLogs).values(rows).run();
+    getLogsDb()!.insert(llmRequestLogs).values(rows).run();
 
     const manifest = await readManifest({ full: true });
     expect(manifest.truncatedSections).toEqual(["llm-request-logs"]);

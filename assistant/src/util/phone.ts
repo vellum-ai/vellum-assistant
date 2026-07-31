@@ -1,16 +1,9 @@
 /**
- * Phone number normalization and validation utilities.
+ * Phone number normalization utilities.
  *
  * Accepts common US and international phone number formats and normalizes
  * them to E.164 before validation, rate-limit lookups, or storage.
  */
-
-/**
- * Basic E.164 phone number validation: starts with +, followed by 10-15 digits.
- */
-export function isValidE164(phone: string): boolean {
-  return /^\+\d{10,15}$/.test(phone);
-}
 
 /**
  * Normalize a phone number string to E.164 format.
@@ -29,7 +22,9 @@ export function normalizePhoneNumber(input: string): string | null {
   // Strip formatting characters: spaces, dashes, parentheses, dots
   const stripped = withoutTrunkZero.replace(/[\s\-().]/g, "");
 
-  if (stripped.length === 0) return null;
+  if (stripped.length === 0) {
+    return null;
+  }
 
   if (stripped.startsWith("+")) {
     const digits = stripped.slice(1);
@@ -40,7 +35,9 @@ export function normalizePhoneNumber(input: string): string | null {
   }
 
   // No + prefix — must be all digits
-  if (!/^\d+$/.test(stripped)) return null;
+  if (!/^\d+$/.test(stripped)) {
+    return null;
+  }
 
   if (stripped.length === 10) {
     return `+1${stripped}`;

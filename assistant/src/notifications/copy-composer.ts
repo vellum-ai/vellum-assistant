@@ -10,44 +10,39 @@
  */
 
 import {
+  accessRequestCardTitle,
   buildAccessRequestContractText,
-  sanitizeIdentityField,
+  isAdmittedIntroduction,
 } from "./access-request-copy.js";
 import {
+  buildAccessRequestSeedContentBlocks,
+  buildToolApprovalSeedContentBlocks,
+} from "./approval-card-data.js";
+import {
   buildGuardianRequestCodeInstruction,
+  parseGuardianQuestionPayload,
+  resolveGuardianInstructionModeFromPayload,
   resolveGuardianQuestionInstructionMode,
 } from "./guardian-question-mode.js";
+import {
+  nonEmpty,
+  readPayloadString,
+  sanitizeIdentityField,
+} from "./notification-utils.js";
 import type {
   NotificationSignal,
   NotificationSourceEventName,
 } from "./signal.js";
+import { parseTrustedContactDecisionPayload } from "./trusted-contact-payloads.js";
 import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
 
 function str(value: unknown, fallback: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
   return fallback;
-}
-
-export function nonEmpty(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/**
- * Safely read a string property from an unknown-typed payload object.
- * Returns `undefined` when the payload is falsy, not an object, or the
- * key does not hold a string value.
- */
-export function readPayloadString(
-  payload: unknown,
-  key: string,
-): string | undefined {
-  if (!payload || typeof payload !== "object") return undefined;
-  const value = (payload as Record<string, unknown>)[key];
-  return typeof value === "string" ? value : undefined;
 }
 
 /**
@@ -64,6 +59,35 @@ export function deriveTitle(body: string): string {
     : candidate.trim();
 }
 
+/**
+ * Build a display label for a trusted-contact actor (requester or decider),
+ * preferring the display name, then a Slack `<@id>` mention for raw Slack user
+ * IDs, then the raw id, then a generic fallback. The result is sanitized for
+ * safe inclusion in notification copy.
+ */
+function formatTrustedContactActor(
+  displayName: string | null | undefined,
+  externalUserId: string | null | undefined,
+  sourceChannel: string | null | undefined,
+  fallback: string,
+): string {
+  const name =
+    typeof displayName === "string" && displayName.length > 0
+      ? displayName
+      : undefined;
+  const slackMention =
+    sourceChannel === "slack" &&
+    typeof externalUserId === "string" &&
+    /^U[A-Z0-9]+$/i.test(externalUserId)
+      ? `<@${externalUserId}>`
+      : undefined;
+  const rawId =
+    typeof externalUserId === "string" && externalUserId.length > 0
+      ? externalUserId
+      : undefined;
+  return sanitizeIdentityField(name ?? slackMention ?? rawId ?? fallback);
+}
+
 // Templates keyed by dot-separated sourceEventName strings matching producers.
 const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   "schedule.notify": (payload) => ({
@@ -76,25 +100,41 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
       payload.questionText,
       "A guardian question needs your attention",
     );
-    const requestCode = nonEmpty(
-      typeof payload.requestCode === "string" ? payload.requestCode : undefined,
-    );
+
+    // Parse once with Zod and reuse the typed payload downstream.
+    const parsed = parseGuardianQuestionPayload(payload);
 
     // For tool_grant_request, the questionText already includes requester name + input summary.
     // Use it directly as the conversation seed to avoid LLM-generated filler.
-    const isToolGrant = payload.requestKind === "tool_grant_request";
+    const isToolGrant = parsed?.requestKind === "tool_grant_request";
     const conversationSeedMessage = isToolGrant ? question : undefined;
+
+    const seedContentBlocks =
+      (parsed
+        ? buildToolApprovalSeedContentBlocks(parsed)
+        : buildToolApprovalSeedContentBlocks(payload)) ?? undefined;
+
+    const requestCode = parsed
+      ? nonEmpty(parsed.requestCode)
+      : nonEmpty(
+          typeof payload.requestCode === "string"
+            ? payload.requestCode
+            : undefined,
+        );
 
     if (!requestCode) {
       return {
         title: "Guardian Question",
         body: question,
         conversationSeedMessage,
+        seedContentBlocks,
       };
     }
 
     const normalizedCode = requestCode.toUpperCase();
-    const modeResolution = resolveGuardianQuestionInstructionMode(payload);
+    const modeResolution = parsed
+      ? resolveGuardianInstructionModeFromPayload(parsed)
+      : resolveGuardianQuestionInstructionMode(payload);
     const instruction = buildGuardianRequestCodeInstruction(
       normalizedCode,
       modeResolution.mode,
@@ -103,6 +143,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
       title: "Guardian Question",
       body: `${question}\n\n${instruction}`,
       conversationSeedMessage,
+      seedContentBlocks,
     };
   },
 
@@ -116,8 +157,9 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   },
 
   "ingress.access_request": (payload) => ({
-    title: "Access Request",
+    title: accessRequestCardTitle(isAdmittedIntroduction(payload)),
     body: buildAccessRequestContractText(payload),
+    seedContentBlocks: buildAccessRequestSeedContentBlocks(payload),
   }),
 
   "ingress.access_request.callback_handoff": (payload) => {
@@ -162,96 +204,25 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   },
 
   "ingress.trusted_contact.guardian_decision": (payload) => {
-    const decision = str(payload.decision, "decided on");
-    const sourceChannel =
-      typeof payload.sourceChannel === "string"
-        ? payload.sourceChannel
-        : undefined;
-
-    const requesterDisplayName =
-      typeof payload.requesterDisplayName === "string" &&
-      payload.requesterDisplayName.length > 0
-        ? payload.requesterDisplayName
-        : undefined;
-    const requesterExternalUserId =
-      typeof payload.requesterExternalUserId === "string" &&
-      payload.requesterExternalUserId.length > 0
-        ? payload.requesterExternalUserId
-        : undefined;
-    const requesterLabel = sanitizeIdentityField(
-      requesterDisplayName ??
-        (sourceChannel === "slack" &&
-        requesterExternalUserId &&
-        /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
-          ? `<@${requesterExternalUserId}>`
-          : requesterExternalUserId) ??
-        "Someone",
+    const parsed = parseTrustedContactDecisionPayload(payload);
+    const requesterLabel = formatTrustedContactActor(
+      parsed?.requesterDisplayName,
+      parsed?.requesterExternalUserId,
+      parsed?.sourceChannel,
+      "Someone",
     );
-
-    const decidedByDisplayName =
-      typeof payload.decidedByDisplayName === "string" &&
-      payload.decidedByDisplayName.length > 0
-        ? payload.decidedByDisplayName
-        : undefined;
-    const decidedByExternalUserId =
-      typeof payload.decidedByExternalUserId === "string" &&
-      payload.decidedByExternalUserId.length > 0
-        ? payload.decidedByExternalUserId
-        : undefined;
-    const decidedByLabel = sanitizeIdentityField(
-      decidedByDisplayName ??
-        (sourceChannel === "slack" &&
-        decidedByExternalUserId &&
-        /^U[A-Z0-9]+$/i.test(decidedByExternalUserId)
-          ? `<@${decidedByExternalUserId}>`
-          : decidedByExternalUserId) ??
-        "a guardian",
+    const decidedByLabel = formatTrustedContactActor(
+      parsed?.decidedByDisplayName,
+      parsed?.decidedByExternalUserId,
+      parsed?.sourceChannel,
+      "a guardian",
     );
-
-    const verb = decision === "approved" ? "approved" : "denied";
+    const verb = parsed?.decision === "approved" ? "approved" : "denied";
     return {
       title: "Trusted Contact Decision",
       body: `${requesterLabel}'s access request has been ${verb} by ${decidedByLabel}.`,
     };
   },
-
-  "ingress.trusted_contact.denied": (payload) => {
-    const sourceChannel =
-      typeof payload.sourceChannel === "string"
-        ? payload.sourceChannel
-        : undefined;
-
-    const requesterDisplayName =
-      typeof payload.requesterDisplayName === "string" &&
-      payload.requesterDisplayName.length > 0
-        ? payload.requesterDisplayName
-        : undefined;
-    const requesterExternalUserId =
-      typeof payload.requesterExternalUserId === "string" &&
-      payload.requesterExternalUserId.length > 0
-        ? payload.requesterExternalUserId
-        : undefined;
-    const requesterLabel = sanitizeIdentityField(
-      requesterDisplayName ??
-        (sourceChannel === "slack" &&
-        requesterExternalUserId &&
-        /^U[A-Z0-9]+$/i.test(requesterExternalUserId)
-          ? `<@${requesterExternalUserId}>`
-          : requesterExternalUserId) ??
-        "Someone",
-    );
-
-    return {
-      title: "Trusted Contact Denied",
-      body: `A trusted contact request from ${requesterLabel} has been denied.`,
-    };
-  },
-
-  "ingress.escalation": (payload) => ({
-    title: "Escalation",
-    body:
-      str(payload.senderIdentifier, "An incoming message") + " needs attention",
-  }),
 
   "watcher.notification": (payload) => ({
     title: str(payload.title, "Watcher Notification"),
@@ -366,13 +337,19 @@ function buildChatSurfaceFallbackDeliveryText(
   baseCopy: RenderedChannelCopy,
 ): string {
   const explicit = nonEmpty(baseCopy.deliveryText);
-  if (explicit) return explicit;
+  if (explicit) {
+    return explicit;
+  }
 
   const body = nonEmpty(baseCopy.body);
-  if (body) return body;
+  if (body) {
+    return body;
+  }
 
   const title = nonEmpty(baseCopy.title);
-  if (title) return title;
+  if (title) {
+    return title;
+  }
 
   // No usable text: return empty string. The broadcaster's empty-body skip in
   // `broadcaster.ts` suppresses fallback-derived empty bodies; the

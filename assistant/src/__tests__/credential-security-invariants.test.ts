@@ -26,13 +26,6 @@ import {
 // Mock logger
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
@@ -95,17 +88,7 @@ import {
 
 describe("Invariant 1: secrets never enter LLM context", () => {
   for (const tc of contextInjectionCases) {
-    if (
-      tc.vector === "tool_output" &&
-      tc.tool === "credential_store" &&
-      tc.input.action === "store"
-    ) {
-      // Store output never includes the value
-      test(`${tc.label}: secret not in output`, () => {
-        expect(tc.forbiddenValue).toBeTruthy();
-        // Actual assertion is in credential-vault.test.ts baseline section
-      });
-    } else if (tc.vector === "confirmation_payload") {
+    if (tc.vector === "confirmation_payload") {
       // PR 23 added redaction to confirmation_request payloads via redactSensitiveFields
       test(`${tc.label}: secret redacted from confirmation payload`, () => {
         const payload = { ...tc.input };
@@ -132,7 +115,7 @@ describe("Invariant 1: secrets never enter LLM context", () => {
         }
       });
     } else {
-      // tool_output cases for list and browser_fill — already passing via baselines
+      // tool_output cases (browser_fill_credential) — already passing via baselines
       test(`${tc.label}: secret not in output`, () => {
         expect(tc.forbiddenValue).toBeTruthy();
       });
@@ -165,9 +148,12 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Hard boundary: only these production files may import from secure-keys.
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
-      "tools/credentials/vault.ts", // credential store tool
+      "credential-execution/prompted-credential.ts", // shared prompt-action persistence (stores secret via setSecureKeyAsync)
+      "daemon/chat-credential-redaction.ts", // chat sentinel enrichment — scoped read ONLY of credentials a `credentials reveal` command in the same turn already printed to stdout; value byte-compared at persist and discarded, never persisted or logged
+
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
+      "tools/network/web-fetch.ts", // web fetch provider (Firecrawl) API key lookup
       "daemon/handlers/config-telegram.ts", // Telegram bot token management
       "daemon/handlers/config-vercel.ts", // Vercel API token management
       "runtime/routes/integrations/twilio.ts", // Twilio credential management (HTTP control-plane)
@@ -184,20 +170,26 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "messaging/providers/slack/api.ts", // Slack Web API client (bot token for direct sends)
       "messaging/providers/telegram-bot/api.ts", // Telegram Bot API client (bot token for direct sends)
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
+      "telegram/webhook-health.ts", // Telegram webhook health sweep — reads bot_token to call getWebhookInfo (Bot API authenticates via the token in the URL path) and checks webhook_secret for existence only; neither value is logged, persisted, or returned
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
       "messaging/providers/whatsapp/api.ts", // WhatsApp Cloud API client (bot token for direct sends)
       "messaging/providers/slack/adapter.ts", // Slack bot token lookup for Socket Mode connectivity check
       "credential-health/credential-health-service.ts", // proactive credential health monitoring
+      "providers/inference/credential-slot-repair.ts", // boot repair: copies the shared openai-compatible slot value into per-connection slots (get/set of provider API keys only; values never logged or returned)
+      "runtime/routes/inference-provider-connection-routes.ts", // connection delete removes its dedicated per-connection key slot (deleteSecureKeyAsync only; no reads)
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "providers/platform-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "platform/client.ts", // platform client credential store fallback for standalone CLI auth
+      "mcp/mcp-header-store.ts", // MCP static auth header persistence (credential store CRUD + legacy migration)
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
-      "runtime/routes/integrations/slack/token.ts", // shared Slack token resolver (bot/user token lookup for CLI use routes)
+      "messaging/providers/slack/auth.ts", // canonical Slack auth resolver (bot/user token lookup for adapter + routes)
       "mcp/client.ts", // MCP client cached-token lookup
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "oauth/credential-token-resolver.ts", // centralized access-token key resolution for OAuth and manual-token providers
       "oauth/connection-resolver.ts", // resolve OAuthConnection from oauth-store (access_token lookup)
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
+      "acp/acp-claude-oauth.ts", // Connect Claude OAuth token vault-store helper (stores sk-ant-oat token via setSecureKeyAsync)
+      "runtime/routes/acp-claude-auth-routes.ts", // Connect Claude Code daemon OAuth flow (stores OAuth token in vault)
       "runtime/routes/migration-routes.ts", // migration import credential restore
       "daemon/conversation-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_secret)
@@ -214,39 +206,37 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription daemon OAuth flow (stores tokens in CES)
       "providers/provider-availability.ts", // provider availability API key check
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
-      "memory/embedding-backend.ts", // embedding backend API key lookup
-      "memory/llm-request-log-source-clickhouse.ts", // ClickHouse read source — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped mirror reads
-      "memory/compaction-log-store-clickhouse.ts", // ClickHouse compaction log writer — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped event writes
-      "daemon/providers-setup.ts", // provider initialization API key lookup
+      "persistence/embeddings/embedding-backend.ts", // embedding backend API key lookup
+      "persistence/llm-request-log-source-clickhouse.ts", // ClickHouse read source — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped mirror reads
+      "persistence/llm-request-log-sink-clickhouse.ts", // ClickHouse write sink — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped log writes
+      "persistence/compaction-log-store-clickhouse.ts", // ClickHouse compaction log writer — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped event writes
+      "config/platform-rehydration.ts", // startup rehydration of platform base URL + IDs from credential store (daemon and schedule worker)
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
       "workspace/migrations/018-rekey-compound-credential-keys.ts", // re-key compound credential storage keys
       "daemon/conversation-process.ts", // masked provider key display
       "daemon/handlers/config-model.ts", // masked provider key display
       "providers/speech-to-text/resolve.ts", // STT provider API key lookup
-      "daemon/lifecycle.ts", // CES client injection into secure-keys at startup
-      "daemon/daemon-skill-host.ts", // SkillHost secureKeys facet adapter (delegates to getProviderKeyAsync)
+      "calls/telephony-tts-capability.ts", // TTS provider API key availability check (presence only)
+      "credential-execution/ces-runtime.ts", // CES runtime owns the daemon CES connection (setCesClient/onCesClientChanged/reconnect wiring at startup)
       "runtime/routes/credential-prompt-routes.ts", // Route for secure credential prompt (stores secret via setSecureKeyAsync)
       "runtime/routes/credential-routes.ts", // CLI credential management routes (CLI-migrated to IPC)
       "runtime/routes/sanity-routes.ts", // Sanity connect/discover routes (reads stored api_token from credential store)
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
-      "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
-      "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
-      "plugin-api/index.ts", // public @vellumai/plugin-api surface re-exports getSecureKeyAsync to dynamically-imported workspace plugins via the boot-time shim (compiled-binary plugin loading)
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup
       "tts/providers/xai-provider.ts", // xAI TTS API key lookup
       "credential-health/credential-health-service.ts", // credential health check reads access tokens for liveness pings
-      "ipc/skill-routes/providers.ts", // skill IPC route exposes provider key lookup to hosted skills
       "runtime/routes/avatar-routes.ts", // avatar generate route reads platform_base_url from credential store
       "cli/commands/keys.ts", // CLI provider key management
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
       "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription OAuth token storage
       "runtime/routes/identity-routes.ts", // health/readyz endpoint checks CES connectivity via getCesClient
-      "tools/credential-execution/run-authenticated-command.ts", // resolves the CES RPC client via getCesClient
-      "tools/credential-execution/make-authenticated-request.ts", // resolves the CES RPC client via getCesClient
-      "tools/credential-execution/manage-secure-command-tool.ts", // resolves the CES RPC client via getCesClient
       "tools/executor.ts", // CES approval bridge resolves the CES RPC client via getCesClient
+      "tools/network/web-fetch.ts", // Firecrawl /scrape BYOK fetch provider API key lookup (firecrawl provider key)
+      "workspace/default-provider-ensure.ts", // legacy anthropic echo disambiguation (vault key presence check)
+      "providers/inference/connection-availability.ts", // shared (provider, connection) availability status (credential presence check only; value never leaves the helper)
+      "plugin-api/resolve-credential.ts", // plugin-facing resolveCredential — reveal-equivalent plaintext read, scoped to the in-context plugin's own field
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -258,7 +248,9 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     function collectTsFiles(dir: string, files: string[] = []): string[] {
       for (const entry of readdirSync(dir)) {
         const full = join(dir, entry);
-        if (entry === "__tests__" || entry === "node_modules") continue;
+        if (entry === "__tests__" || entry === "node_modules") {
+          continue;
+        }
         const s = statSync(full);
         if (s.isDirectory()) {
           collectTsFiles(full, files);

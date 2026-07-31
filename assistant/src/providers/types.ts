@@ -1,39 +1,84 @@
-import type { ToolDefinition } from "@vellumai/skill-host-contracts";
+import type { ToolDefinition } from "../tools/tool-types.js";
 export type { ToolDefinition };
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { ProviderError } from "../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
 
 export interface TextContent {
   type: "text";
   text: string;
 }
 
+/**
+ * Media payload for an image or file content block. One unified type covers
+ * both blocks and both storage forms:
+ *
+ * - `base64` — the bytes travel inline with the block. This is the runtime
+ *   shape the provider transforms consume and the shape produced for a live
+ *   (in-flight) turn.
+ * - `workspace_ref` — the bytes live somewhere in the workspace, not inline.
+ *   This is the shape PERSISTED into `messages.content`, keeping large blobs
+ *   out of the DB row and the lexical index. It is resolved back to inline
+ *   bytes at the provider send boundary (`providers/media-resolve.ts`); any
+ *   consumer that needs the raw bytes from stored content resolves it with
+ *   `resolveMediaSourceData(source)`.
+ *
+ * `filename` is optional on both arms (present for file blocks and for
+ * generated-media references). For references, `sizeBytes` (and, for images,
+ * `width`/`height`) are captured at persist time so size-only consumers — the
+ * per-turn token estimator especially — can cost the block without reading the
+ * file back off disk.
+ */
+export interface Base64MediaSource {
+  type: "base64";
+  media_type: string;
+  data: string;
+  filename?: string;
+}
+
+/**
+ * A reference to bytes stored in the workspace rather than inlined. The bytes
+ * live in the workspace attachment store, addressed by `attachmentId`, and are
+ * read back at the provider send boundary. User uploads are attachment rows
+ * already; tool-result media is materialized into attachment rows before it is
+ * referenced, so a single `attachmentId` resolves every case and needs no
+ * fallback locator.
+ *
+ * `sizeBytes` (and, for images, `width`/`height`) are the persist-time hints
+ * that let size-only consumers cost the block without a disk read.
+ */
+export interface WorkspaceRefMediaSource {
+  type: "workspace_ref";
+  media_type: string;
+  /** Attachment row id; resolves to bytes via the attachment store. */
+  attachmentId: string;
+  /** Byte length of the referenced file. */
+  sizeBytes: number;
+  filename?: string;
+  /** Decoded pixel width, when the reference is an image. */
+  width?: number;
+  /** Decoded pixel height, when the reference is an image. */
+  height?: number;
+}
+
+export type MediaSource = Base64MediaSource | WorkspaceRefMediaSource;
+
 export interface ImageContent {
   type: "image";
-  source: {
-    type: "base64";
-    media_type: string;
-    data: string;
-  };
+  source: MediaSource;
 }
 
 export interface FileContent {
   type: "file";
-  source: {
-    type: "base64";
-    media_type: string;
-    data: string;
-    filename: string;
-  };
+  source: MediaSource;
   extracted_text?: string;
   /**
-   * Internal id linking this block to a row in the attachments table.
-   * Set when the file block originates from a persisted user-message
-   * attachment so downstream consumers (DB joins, inline-chip
-   * positioning) can correlate the block back to its attachment id.
-   * Stripped by `daemon/handlers/shared.ts` before sending to the
-   * model.
+   * Internal id linking a base64 file block to a row in the attachments table
+   * so consumers (DB joins, inline-chip positioning) can correlate the block
+   * back to its attachment. Redundant once the block is a reference (use
+   * `source.attachmentId`); retained only while file media is still persisted
+   * inline as base64, and removed when file uploads move to references.
+   * Stripped by `daemon/handlers/shared.ts` before sending to the model.
    */
   _attachmentId?: string;
 }
@@ -83,6 +128,36 @@ export interface WebSearchToolResultContent {
   content: unknown; // Opaque — encrypted_content in search results is provider-specific
 }
 
+/**
+ * A client-rendered UI card persisted into conversation history: call
+ * summaries, guardian approval cards, skill cards, wake notices, document
+ * previews.
+ *
+ * This is a rendering instruction, not model context — providers drop it when
+ * serializing history. Producers therefore pair the surface with a sibling
+ * `text` block flagged `_surfaceFallback` (see
+ * `notifications/approval-card-builder.ts`); that text is what feeds the model,
+ * search indexing, CLI display, and channel replies.
+ *
+ * `data` is deliberately opaque: its concrete shape is selected by
+ * `surfaceType` and owned by `daemon/message-types/surfaces.ts`.
+ */
+export interface UiSurfaceContent {
+  type: "ui_surface";
+  surfaceId: string;
+  surfaceType: string;
+  title?: string;
+  data?: Record<string, unknown>;
+  actions?: unknown[];
+  /**
+   * Free-form, matching `CurrentTurnSurface.display` — NOT the `inline` /
+   * `panel` enum of the `ui_surface_show` wire event. Persisted surfaces carry
+   * whatever the `ui_show` tool wrote, so this must not narrow.
+   */
+  display?: string;
+  completed?: boolean;
+}
+
 export type ContentBlock =
   | TextContent
   | ThinkingContent
@@ -92,7 +167,8 @@ export type ContentBlock =
   | ToolUseContent
   | ToolResultContent
   | ServerToolUseContent
-  | WebSearchToolResultContent;
+  | WebSearchToolResultContent
+  | UiSurfaceContent;
 
 export interface Message {
   role: "user" | "assistant";
@@ -110,6 +186,13 @@ export interface ProviderResponse {
   model: string;
   /** Provider that actually produced this response, which may differ from a wrapper provider name. */
   actualProvider?: string;
+  /**
+   * Base URL the provider's HTTP client actually resolved to for this request,
+   * read from the live SDK client instance rather than re-derived from config.
+   * Lets diagnostics observe the true routing target (e.g. a misrouted host)
+   * instead of inferring it. Absent for providers that don't surface it.
+   */
+  resolvedEndpoint?: string;
   usage: {
     /** Total input tokens (input_tokens + cache_creation + cache_read). */
     inputTokens: number;
@@ -170,7 +253,8 @@ export interface SendMessageConfig {
    * LLM call-site identifier. `RetryProvider` resolves
    * provider/model/maxTokens/effort/speed/verbosity/temperature/thinking/
    * contextWindow via `resolveCallSiteConfig(callSite, config.llm)`, falling
-   * back to `llm.default` when no callSite-specific entry is present.
+   * back to the shipped call-site defaults when no callSite-specific entry
+   * is present.
    */
   callSite?: LLMCallSite;
   /**
@@ -183,6 +267,16 @@ export interface SendMessageConfig {
    */
   overrideProfile?: string;
   /**
+   * When true, the resolver floats `overrideProfile` above the call-site
+   * layers (named site profile + call-site override) for non-main-agent call
+   * sites — see `ResolveCallSiteOpts.forceOverrideProfile`. Used by callers
+   * that must run a background call site under a specific conversation's
+   * inference profile (e.g. fork-based memory retrospectives). A
+   * resolution/routing-time concern only; stripped before any provider wire
+   * request.
+   */
+  forceOverrideProfile?: boolean;
+  /**
    * Per-conversation seed for deterministic `mix`-profile expansion. The agent
    * loop sets this to the conversation id so every resolver call this send
    * triggers — provider/transport selection, wire-param normalization, usage
@@ -191,6 +285,25 @@ export interface SendMessageConfig {
    * stripped before any provider wire request.
    */
   selectionSeed?: string;
+  /**
+   * Id of the user conversation that causally triggered this call, stamped by
+   * call sites so `UsageTrackingProvider` can attribute the usage-ledger event
+   * to the conversation (and, at flush time, its turn). A resolution/routing-
+   * time concern only; stripped before any provider wire request.
+   */
+  conversationId?: string;
+  /**
+   * Per-conversation prompt-cache key for providers with explicit prompt
+   * caching (sent as the OpenAI `prompt_cache_key` request param). Set by
+   * `RetryProvider` from `selectionSeed` (the durable conversation id) for
+   * the `openai` and `openrouter` providers — GPT-5.6+ requires the key for
+   * reliable breakpoint matching, and OpenAI's ~15 req/min-per-key routing
+   * guidance is satisfied by per-conversation ids. A non-wire field for
+   * every other provider client (the Anthropic client strips it, covering
+   * OpenRouter's `anthropic/*` delegation); the request param is omitted
+   * when absent.
+   */
+  promptCacheKey?: string;
   /**
    * Internal per-request HTTP headers for managed-proxy usage attribution.
    * Provider clients may pass these through SDK request options only when the
@@ -255,10 +368,55 @@ export interface Provider {
    * Falls back to `name` when unset.
    */
   tokenEstimationProvider?: string;
+  /**
+   * Model id this instance dispatches when a call carries no per-call model
+   * override. Consumed by the local token estimator for model-keyed rules
+   * (e.g. audio-capable OpenAI-compatible models). Optional: providers whose
+   * estimation rules are provider-wide need not expose it.
+   */
+  defaultModel?: string;
+  /**
+   * True when this provider instance was constructed to run web search
+   * server-side (provider-native). The native search only activates when a
+   * `web_search`-named tool is passed in the request, so callers that want to
+   * enable web search on a one-shot completion (e.g. the advisor consult) check
+   * this first — passing the tool to a non-native instance would surface an
+   * unexecutable client tool call. Absent/false on providers without it.
+   */
+  supportsNativeWebSearch?: boolean;
+  /**
+   * Per-call native web-search capability for the provider/model this specific
+   * request will route to. Unlike the static {@link supportsNativeWebSearch}
+   * flag — fixed to the DEFAULT provider/model at construction — this consults
+   * the resolved call-site (`options.config.callSite` + `overrideProfile`) so a
+   * routing wrapper reports the ROUTED target's capability. Callers that gate a
+   * `web_search` server tool on a possibly-routed call (e.g. the advisor
+   * consult, whose `advisorProfile` may point at a different provider/model)
+   * must use this rather than the construction-time snapshot. Optional: wrappers
+   * forward it to their inner provider; leaf providers may omit it, in which
+   * case callers fall back to {@link supportsNativeWebSearch}.
+   */
+  supportsNativeWebSearchFor?(options?: SendMessageOptions): boolean;
   sendMessage(
     messages: Message[],
     options?: SendMessageOptions,
   ): Promise<ProviderResponse>;
+  /**
+   * Exact prompt-token count from the provider's own tokenizer, for the
+   * `messages` + `systemPrompt` + `tools` composition the next call would
+   * send. Optional: providers without a token-counting endpoint omit it, and
+   * callers must fall back to the local estimator (`estimatePromptTokens`).
+   *
+   * This runs a dedicated counting request (no inference), so it carries a
+   * network round-trip and the provider's own rate limit — use it for
+   * user-initiated, occasional actions (e.g. `/compact`), never on the
+   * per-turn hot path.
+   */
+  countInputTokens?(
+    messages: Message[],
+    systemPrompt: string,
+    tools?: ToolDefinition[],
+  ): Promise<number>;
 }
 
 // ── Context-overflow error ────────────────────────────────────────────
@@ -272,6 +430,8 @@ export interface ContextOverflowErrorOptions {
   statusCode?: number;
   /** Underlying error to preserve the cause chain (standard Error.cause). */
   cause?: unknown;
+  /** Semantic reason override; defaults to `context_overflow`. */
+  reason?: ProviderErrorReason;
 }
 
 /**
@@ -299,12 +459,10 @@ export class ContextOverflowError extends ProviderError {
     provider: string,
     options: ContextOverflowErrorOptions = {},
   ) {
-    super(
-      message,
-      provider,
-      options.statusCode ?? 400,
-      options.cause !== undefined ? { cause: options.cause } : undefined,
-    );
+    super(message, provider, options.statusCode ?? 400, {
+      reason: options.reason ?? "context_overflow",
+      ...(options.cause !== undefined ? { cause: options.cause } : {}),
+    });
     this.name = "ContextOverflowError";
     this.actualTokens = options.actualTokens;
     this.maxTokens = options.maxTokens;
@@ -328,11 +486,17 @@ export function extractOverflowTokensFromMessage(message: string): {
   maxTokens?: number;
 } {
   const match = message.match(/(\d[\d,]*)\s*(?:tokens?\s*)?[>≥]\s*(\d[\d,]*)/i);
-  if (!match) return {};
+  if (!match) {
+    return {};
+  }
   const actual = parseInt(match[1].replace(/,/g, ""), 10);
   const max = parseInt(match[2].replace(/,/g, ""), 10);
   const out: { actualTokens?: number; maxTokens?: number } = {};
-  if (!isNaN(actual) && actual > 0) out.actualTokens = actual;
-  if (!isNaN(max) && max > 0) out.maxTokens = max;
+  if (!isNaN(actual) && actual > 0) {
+    out.actualTokens = actual;
+  }
+  if (!isNaN(max) && max > 0) {
+    out.maxTokens = max;
+  }
   return out;
 }

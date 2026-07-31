@@ -13,16 +13,16 @@
  */
 import { z } from "zod";
 
-import { isHttpAuthDisabled } from "../../config/env.js";
-import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import {
-  type CanonicalGuardianRequest,
-  listPendingRequestsByConversationScope,
-} from "../../memory/canonical-guardian-store.js";
+  type GuardianRequestWire,
+  listPendingRequestsByScope,
+} from "../../channels/gateway-guardian-requests.js";
+import { isHttpAuthDisabled } from "../../config/env.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
 import { buildOneTimeDecisionActions } from "../guardian-decision-types.js";
+import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -30,14 +30,16 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // GET /v1/guardian-actions/pending?conversationId=...
 // ---------------------------------------------------------------------------
 
-function handleGuardianActionsPending({ queryParams = {} }: RouteHandlerArgs) {
+async function handleGuardianActionsPending({
+  queryParams = {},
+}: RouteHandlerArgs) {
   const conversationId = queryParams.conversationId;
 
   if (!conversationId) {
     throw new BadRequestError("conversationId query parameter is required");
   }
 
-  const prompts = listGuardianDecisionPrompts({
+  const prompts = await listGuardianDecisionPrompts({
     conversationId,
     channel: "vellum",
   });
@@ -73,16 +75,15 @@ async function handleGuardianActionDecision({
   // Resolve the actor's guardian principal ID. The HTTP adapter injects it
   // from the AuthContext via the x-vellum-actor-principal-id header.
   // For dev bypass (HTTP auth disabled) the synthetic "dev-bypass" principal
-  // won't match the real guardian binding, so fall back to the local guardian
-  // binding to avoid identity_mismatch.
+  // won't match the real guardian binding, so resolve the local guardian
+  // principal to avoid identity_mismatch.
   let guardianPrincipalId: string | undefined =
     headers["x-vellum-actor-principal-id"] ?? undefined;
   if (
     isHttpAuthDisabled() &&
     headers["x-vellum-actor-principal-id"] === "dev-bypass"
   ) {
-    const binding = findGuardianForChannel("vellum");
-    guardianPrincipalId = binding?.contact.principalId ?? undefined;
+    guardianPrincipalId = (await findLocalGuardianPrincipalId()) ?? undefined;
   }
 
   const result = await processGuardianDecision({
@@ -136,24 +137,25 @@ async function handleGuardianActionDecision({
  * The returned prompts normalize `conversationId` to the queried conversation ID
  * for client rendering stability.
  */
-export function listGuardianDecisionPrompts(params: {
+export async function listGuardianDecisionPrompts(params: {
   conversationId: string;
   channel?: string;
-}): GuardianDecisionPrompt[] {
+}): Promise<GuardianDecisionPrompt[]> {
   const { conversationId, channel } = params;
   const prompts: GuardianDecisionPrompt[] = [];
 
-  const canonicalRequests = listPendingRequestsByConversationScope(
+  const pendingRequests = await listPendingRequestsByScope(
     conversationId,
     channel,
   );
 
-  for (const req of canonicalRequests) {
-    // Skip expired canonical requests
-    if (req.expiresAt && new Date(req.expiresAt).getTime() < Date.now())
+  for (const req of pendingRequests) {
+    // Skip expired requests
+    if (req.expiresAt && new Date(req.expiresAt).getTime() < Date.now()) {
       continue;
+    }
 
-    const prompt = mapCanonicalRequestToPrompt(req, conversationId);
+    const prompt = mapRequestToPrompt(req, conversationId);
     prompts.push(prompt);
   }
 
@@ -161,11 +163,11 @@ export function listGuardianDecisionPrompts(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Canonical request -> prompt mapping
+// Guardian request -> prompt mapping
 // ---------------------------------------------------------------------------
 
-function mapCanonicalRequestToPrompt(
-  req: CanonicalGuardianRequest,
+function mapRequestToPrompt(
+  req: GuardianRequestWire,
   conversationId: string,
 ): GuardianDecisionPrompt {
   const questionText = buildKindAwareQuestionText(req);
@@ -194,7 +196,7 @@ function mapCanonicalRequestToPrompt(
   };
 }
 
-function buildKindAwareQuestionText(req: CanonicalGuardianRequest): string {
+function buildKindAwareQuestionText(req: GuardianRequestWire): string {
   const baseText =
     req.questionText ??
     (req.toolName

@@ -7,6 +7,7 @@
  */
 
 import type { UsageStats } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { Message } from "../providers/types.js";
 
 // ── Status ──────────────────────────────────────────────────────────────
@@ -17,11 +18,52 @@ export type SubagentStatus =
   | "awaiting_input"
   | "completed"
   | "failed"
-  | "aborted";
+  | "aborted"
+  // Assigned on daemon restart to a subagent that was still in flight when the
+  // process died. Terminal — the run is not auto-resumed; the parent is left to
+  // decide whether to re-spawn.
+  | "interrupted";
 
 /** Terminal states — once entered, a subagent cannot transition out. */
 export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> =
-  new Set<SubagentStatus>(["completed", "failed", "aborted"]);
+  new Set<SubagentStatus>(["completed", "failed", "aborted", "interrupted"]);
+
+/**
+ * The status to report for a subagent with no live instance.
+ *
+ * Invariant: a subagent runs from an in-memory entry, so a durable row without
+ * one can only describe a run that is no longer executing. Whatever the row
+ * says, nothing is driving it, so a stale `pending`/`running`/`awaiting_input`
+ * reads as `interrupted`. A terminal status is the run's real outcome and
+ * passes through untouched.
+ *
+ * For the routes this closes a startup window rather than a steady state:
+ * `setDbReady(true)` precedes `rehydrateFromDb()` in `daemon/lifecycle.ts`, so
+ * a request can pass the DB gate while the manager is still empty and read rows
+ * the rehydration has not yet normalized. Without the coercion a client
+ * reconciling on its SSE reopen adopts `running`, and the later rehydration
+ * flips the row to `interrupted` with no status event to say so, leaving the UI
+ * stuck.
+ *
+ * Only ever applied to record-derived statuses. Live state is authoritative and
+ * never coerced.
+ */
+export function settleUnsupervisedStatus(
+  status: SubagentStatus,
+): SubagentStatus {
+  return TERMINAL_STATUSES.has(status) ? status : "interrupted";
+}
+
+// ── Label lookup ────────────────────────────────────────────────────────
+
+/**
+ * The comparable form of a subagent label. Labels are addressed by the model,
+ * so lookups are case- and whitespace-insensitive; every label comparison, in
+ * memory or against the durable table, goes through this.
+ */
+export function normalizeSubagentLabel(label: string): string {
+  return label.toLowerCase().trim();
+}
 
 // ── Config (spawn-time) ─────────────────────────────────────────────────
 
@@ -34,6 +76,14 @@ export interface SubagentConfig {
   label: string;
   /** The task objective for this subagent. */
   objective: string;
+  /**
+   * Optional full model request sent as the subagent's first user message in
+   * place of `objective`. Display surfaces (lifecycle events, persisted
+   * records, the detail panel) keep showing the concise `objective`; use this
+   * when the model request carries bulky internal context that must not leak
+   * into those surfaces (e.g. the advisor's situational context pack).
+   */
+  requestText?: string;
   /** Optional extra context passed from the parent (recent messages, files, etc.). */
   context?: string;
   /** Optional system prompt override. Falls back to a default subagent prompt. */
@@ -44,6 +94,24 @@ export interface SubagentConfig {
   sendResultToUser?: boolean;
   /** Optional role for the subagent. Defaults handled by consumers. */
   role?: SubagentRole;
+  /**
+   * When true, side-effecting tools (send/write/delete/purchase, host commands)
+   * are refused for this subagent regardless of trust class — the executor
+   * rejects any such dispatch and the tool is kept off the model's tool surface.
+   * For unattended passes that must never take an unapproved action while the
+   * user isn't watching; the subagent surfaces the intended action for the
+   * user to approve instead.
+   */
+  denySideEffectTools?: boolean;
+  /**
+   * Explicit trust context for the subagent. When set, it wins over the
+   * default inheritance from the parent conversation's live `trustContext`.
+   * For spawners whose parent stamps trust per-turn and clears it at teardown
+   * (the live-voice bridge), inheritance reads the cleared window and the
+   * child would run fail-closed as `unknown`; the caller resolves trust
+   * itself and passes it here instead.
+   */
+  trustContext?: TrustContext;
   /**
    * When true, the sub-agent inherits the parent's full context instead of
    * receiving only the objective + context fields.
@@ -69,6 +137,12 @@ export interface SubagentConfig {
    * profile, every spawned subagent inherits it automatically.
    */
   overrideProfile?: string;
+  /**
+   * When true, the subagent's `overrideProfile` is an explicit spawn-time
+   * request and must float above call-site layers. Inherited parent profiles
+   * leave this unset so existing call-site precedence stays intact.
+   */
+  forceOverrideProfile?: boolean;
   /**
    * Tool-use id of the `skill_execute` call that spawned this subagent.
    * Forwarded into the `subagent_spawned` event so the client can anchor the
@@ -96,6 +170,36 @@ export interface SubagentState {
   usage: UsageStats;
 }
 
+// ── Bounded listing ─────────────────────────────────────────────────────
+
+/** Recency key matching the durable query's `COALESCE(completed_at, created_at)`. */
+function settledAt(child: SubagentState): number {
+  return child.completedAt ?? child.createdAt;
+}
+
+/**
+ * Every non-terminal child, plus the `maxTerminal` most recently settled
+ * terminal ones. `rehydrateFromDb` seeds memory with a much larger cap, so a
+ * caller listing children has to re-bound what it actually ships.
+ */
+export function boundRecentTerminal(
+  children: SubagentState[],
+  maxTerminal: number,
+): SubagentState[] {
+  const bounded: SubagentState[] = [];
+  const terminal: SubagentState[] = [];
+  for (const child of children) {
+    if (TERMINAL_STATUSES.has(child.status)) {
+      terminal.push(child);
+    } else {
+      bounded.push(child);
+    }
+  }
+  terminal.sort((a, b) => settledAt(b) - settledAt(a));
+  bounded.push(...terminal.slice(0, maxTerminal));
+  return bounded;
+}
+
 // ── Limits ───────────────────────────────────────────────────────────────
 
 export const SUBAGENT_LIMITS = {
@@ -110,7 +214,8 @@ export type SubagentRole =
   | "researcher"
   | "coder"
   | "planner"
-  | "investigator";
+  | "investigator"
+  | "advisor";
 
 export interface SubagentRoleConfig {
   /**
@@ -174,7 +279,7 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
     },
     investigator: {
       allowedTools: [
-        "bash",
+        "code_search",
         "file_read",
         "file_list",
         "web_search",
@@ -185,11 +290,17 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
       skillIds: [],
       systemPromptPreamble: [
         "You are an investigation-focused subagent for root-cause analysis: debugging, log forensics, and tracing behavior across code.",
-        "Your shell access is for read-only investigation (grep, find, reading files and logs) — do not modify files or system state.",
-        "Working method: read whole files instead of many small line-range slices; prefer broad searches (e.g. grep -rn across a directory) over one-symbol-at-a-time queries.",
+        "You have read-only investigation tools only — there is no shell. Use code_search to search file contents across directories, file_list to enumerate paths, and file_read to read whole files and logs. You cannot modify files or system state.",
+        "Working method: read whole files instead of many small line-range slices; prefer broad code_search queries across a directory over one-symbol-at-a-time queries.",
         "Send notify_parent (urgency 'important') as soon as each finding is confirmed, so progress survives interruption.",
         "Your final message must be a compact root-cause report with these sections: Symptom, Root cause, Evidence (file:line references), Suggested fix, Open questions.",
         "If you approach context limits, stop investigating and produce the report from what you have — a partial report delivered is worth more than a complete investigation lost.",
       ].join(" "),
+    },
+    advisor: {
+      allowedTools: [],
+      skillIds: [],
+      systemPromptPreamble:
+        "You are a read-only senior advisor consulted for a one-shot strategic review. Read the inherited conversation, then return focused, high-leverage guidance in a single response. You have no tools — you cannot search, read files, or run commands — so reason from the context you were given.",
     },
   };

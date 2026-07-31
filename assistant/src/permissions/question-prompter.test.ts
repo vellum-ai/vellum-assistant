@@ -1,26 +1,18 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../__tests__/helpers/set-config.js";
 import type { QuestionRequestEvent } from "../api/events/question-request.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   QuestionBatchSubmission,
   QuestionPromptResult,
 } from "./question-prompter.js";
 
-// Use a tiny timeout so the setTimeout branch fires quickly in tests
-const mockConfig = {
-  timeouts: { permissionTimeoutSec: 0.05 },
-};
-// Preserve every other export from the real config/loader so other
-// tests in the same `bun test` run (which share module-level mocks)
-// don't lose access to e.g. `setNestedValue`.
-const realConfigLoader = await import("../config/loader.js");
-mock.module("../config/loader.js", () => ({
-  ...realConfigLoader,
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-}));
+// Use a tiny idle-timeout so the setTimeout backstop branch fires quickly in
+// tests (the schema only requires a positive number of seconds).
+function seedQuestionTimeout(): void {
+  setConfig("timeouts", { questionResponseTimeoutSec: 0.05 });
+}
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
@@ -48,13 +40,17 @@ interface MockInteraction {
     orderedIds: string[];
     optionsById: Record<string, string[]>;
   };
+  toolUseId?: string;
+  questionDetails?: { entries: Array<{ id: string; question: string }> };
 }
 const _piStore = new Map<string, MockInteraction>();
 mock.module("../runtime/pending-interactions.js", () => ({
   register: (id: string, entry: MockInteraction) => _piStore.set(id, entry),
   resolve: (id: string) => {
     const e = _piStore.get(id);
-    if (e?.timer != null) clearTimeout(e.timer);
+    if (e?.timer != null) {
+      clearTimeout(e.timer);
+    }
     _piStore.delete(id);
     return e;
   },
@@ -72,18 +68,18 @@ mock.module("../runtime/pending-interactions.js", () => ({
 // prompter would have broadcast — but preserve every other export from
 // the real module so other tests in the same `bun test` run (which
 // share module-level mocks) still see e.g. `assistantEventHub`.
-let _sentBuffer: ServerMessage[] = [];
+let _sentBuffer: AssistantEvent[] = [];
 const realEventHub = await import("../runtime/assistant-event-hub.js");
 mock.module("../runtime/assistant-event-hub.js", () => ({
   ...realEventHub,
-  broadcastMessage: (msg: ServerMessage) => _sentBuffer.push(msg),
+  broadcastMessage: (msg: AssistantEvent) => _sentBuffer.push(msg),
 }));
 
 const { QuestionPrompter, QuestionBatchValidationError, buildBatchEntries } =
   await import("./question-prompter.js");
 
 function makePrompter() {
-  const sent: ServerMessage[] = [];
+  const sent: AssistantEvent[] = [];
   _sentBuffer = sent;
   const prompter = new QuestionPrompter();
   return { prompter, sent };
@@ -112,7 +108,9 @@ function resolveBatch(
     submissions,
   );
   const result: QuestionPromptResult = { entries, overall: "completed" };
-  if (interaction.timer != null) clearTimeout(interaction.timer);
+  if (interaction.timer != null) {
+    clearTimeout(interaction.timer);
+  }
   _piStore.delete(requestId);
   interaction.rpcResolve?.(result);
   return result;
@@ -134,7 +132,9 @@ function closeBatch(requestId: string): QuestionPromptResult {
     })),
     overall: "closed",
   };
-  if (interaction.timer != null) clearTimeout(interaction.timer);
+  if (interaction.timer != null) {
+    clearTimeout(interaction.timer);
+  }
   _piStore.delete(requestId);
   interaction.rpcResolve?.(result);
   return result;
@@ -180,6 +180,7 @@ const threeQuestionParams = {
 describe("QuestionPrompter", () => {
   beforeEach(() => {
     _piStore.clear();
+    seedQuestionTimeout();
   });
 
   test("happy path: option resolution via the shared batch helpers", async () => {
@@ -203,6 +204,31 @@ describe("QuestionPrompter", () => {
       overall: "completed",
     });
     expect(_piStore.has(req.requestId)).toBe(false);
+  });
+
+  test("persists the full question entries on the interaction for rehydration", async () => {
+    // GIVEN a batched prompt with a tool-use id
+    const { prompter, sent } = makePrompter();
+
+    const promise = prompter.prompt({
+      ...threeQuestionParams,
+      toolUseId: "tool-q",
+    });
+    const req = sent[0] as QuestionRequestEvent;
+
+    // THEN the registered interaction carries the full entries (not just the
+    // id maps in `metadata`) so a history-load render can rehydrate the card
+    const interaction = _piStore.get(req.requestId);
+    expect(interaction?.toolUseId).toBe("tool-q");
+    expect(interaction?.questionDetails?.entries).toHaveLength(3);
+    expect(interaction?.questionDetails?.entries).toEqual(req.questions);
+
+    resolveBatch(req.requestId, [
+      { questionId: "q1", kind: "option", optionId: "a" },
+      { questionId: "q2", kind: "option", optionId: "x" },
+      { questionId: "q3", kind: "skip" },
+    ]);
+    await promise;
   });
 
   test("free-text resolution", async () => {
@@ -392,7 +418,9 @@ describe("QuestionPrompter", () => {
     // Simulate `removeByConversation` clearing the registry entry before
     // the abort signal fires.
     const interaction = _piStore.get(req.requestId);
-    if (interaction?.timer != null) clearTimeout(interaction.timer);
+    if (interaction?.timer != null) {
+      clearTimeout(interaction.timer);
+    }
     _piStore.delete(req.requestId);
 
     ac.abort();

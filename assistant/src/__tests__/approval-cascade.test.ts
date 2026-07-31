@@ -10,8 +10,8 @@ import { Minimatch } from "minimatch";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { ConfirmationStateChanged } from "../daemon/message-types/messages.js";
+import type { ConfirmationStateChangedEvent } from "../api/events/confirmation-state-changed.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import type { ConfirmationDetails } from "../runtime/pending-interactions.js";
 
@@ -19,71 +19,9 @@ import type { ConfirmationDetails } from "../runtime/pending-interactions.js";
 // Mocks — must precede Conversation import
 // ---------------------------------------------------------------------------
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    timeouts: { permissionTimeoutSec: 300 },
-    skills: { entries: {}, allowBundled: true },
-    permissions: { mode: "workspace" },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../prompts/system-prompt.js", () => ({
@@ -120,7 +58,9 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -146,11 +86,11 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
   linkAttachmentToMessage: () => {},
 }));
@@ -170,6 +110,12 @@ mock.module("../memory/retriever.js", () => ({
 
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     constructor() {}
     updateConfig() {}
     shouldCompact() {
@@ -187,7 +133,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   getSummaryFromContextMessage: () => null,
 }));
 
-mock.module("../memory/llm-usage-store.js", () => ({
+mock.module("../persistence/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "mock-id", createdAt: Date.now() }),
   listUsageEvents: () => [],
 }));
@@ -212,26 +158,6 @@ mock.module("../agent/loop.js", () => ({
       return [];
     }
   },
-}));
-
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
 // ---------------------------------------------------------------------------
@@ -262,7 +188,7 @@ function makeProvider() {
 }
 
 function makeConversation(
-  sendToClient?: (msg: ServerMessage) => void,
+  sendToClient?: (msg: AssistantEvent) => void,
   conversationId = CONV_ID,
 ): Conversation {
   return new Conversation(
@@ -331,7 +257,7 @@ beforeEach(() => {
 
 describe("approval cascading", () => {
   test("allow (one-time) does NOT cascade", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversationObj = makeConversation(
       (msg) => emitted.push(msg),
       CONV_ID,
@@ -356,8 +282,8 @@ describe("approval cascading", () => {
     const confirmMsgs = emitted.filter(
       (m) =>
         m.type === "confirmation_state_changed" &&
-        (m as unknown as ConfirmationStateChanged).state === "approved",
-    ) as unknown as ConfirmationStateChanged[];
+        (m as unknown as ConfirmationStateChangedEvent).state === "approved",
+    ) as unknown as ConfirmationStateChangedEvent[];
 
     // Only the primary should be resolved
     expect(confirmMsgs).toHaveLength(1);
@@ -365,7 +291,7 @@ describe("approval cascading", () => {
   });
 
   test("deny (one-time) does NOT cascade", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversationObj = makeConversation(
       (msg) => emitted.push(msg),
       CONV_ID,
@@ -390,8 +316,8 @@ describe("approval cascading", () => {
     const confirmMsgs = emitted.filter(
       (m) =>
         m.type === "confirmation_state_changed" &&
-        (m as unknown as ConfirmationStateChanged).state === "denied",
-    ) as unknown as ConfirmationStateChanged[];
+        (m as unknown as ConfirmationStateChangedEvent).state === "denied",
+    ) as unknown as ConfirmationStateChangedEvent[];
 
     // Only the primary should be denied
     expect(confirmMsgs).toHaveLength(1);
@@ -399,7 +325,7 @@ describe("approval cascading", () => {
   });
 
   test("already-resolved request handled gracefully", () => {
-    const emitted: ServerMessage[] = [];
+    const emitted: AssistantEvent[] = [];
     const conversationObj = makeConversation(
       (msg) => emitted.push(msg),
       CONV_ID,
@@ -438,8 +364,8 @@ describe("approval cascading", () => {
     const confirmMsgs = emitted.filter(
       (m) =>
         m.type === "confirmation_state_changed" &&
-        (m as unknown as ConfirmationStateChanged).state === "approved",
-    ) as unknown as ConfirmationStateChanged[];
+        (m as unknown as ConfirmationStateChangedEvent).state === "approved",
+    ) as unknown as ConfirmationStateChangedEvent[];
 
     expect(confirmMsgs).toHaveLength(1);
     expect(confirmMsgs[0].requestId).toBe("req-primary");

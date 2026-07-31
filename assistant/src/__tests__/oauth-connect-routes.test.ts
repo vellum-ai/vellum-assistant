@@ -18,7 +18,9 @@ type OrchestrateOptions = {
   }) => void;
 };
 
-let capturedOnDeferredComplete: OrchestrateOptions["onDeferredComplete"] | undefined;
+let capturedOnDeferredComplete:
+  | OrchestrateOptions["onDeferredComplete"]
+  | undefined;
 let mockOrchestrateResult: Record<string, unknown> = {
   success: true,
   deferred: true,
@@ -32,13 +34,6 @@ mock.module("../oauth/connect-orchestrator.js", () => ({
     capturedOnDeferredComplete = opts.onDeferredComplete;
     return mockOrchestrateResult;
   },
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
 }));
 
 // ── Mock oauth-store so handleOAuthConnectStart can run without a seeded DB ──
@@ -90,18 +85,18 @@ mock.module("../oauth/oauth-store.js", () => ({
 // ── Import SUT after mocks ─────────────────────────────────────────────────────
 
 const { ROUTES } = await import("../runtime/routes/oauth-connect-routes.js");
-const { BadRequestError, InternalError, NotFoundError } = await import(
-  "../runtime/routes/errors.js"
-);
-const { _clearAllOAuthConnectStates, getOAuthConnectState } = await import(
-  "../oauth/oauth-connect-state.js"
-);
+const { BadRequestError, InternalError, NotFoundError } =
+  await import("../runtime/routes/errors.js");
+const { _clearAllOAuthConnectStates, getOAuthConnectState } =
+  await import("../oauth/oauth-connect-state.js");
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function findRoute(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route;
 }
 
@@ -131,7 +126,8 @@ describe("oauth-connect-routes", () => {
       mockOrchestrateResult = {
         success: true,
         deferred: true,
-        authorizeUrl: "https://accounts.google.com/o/oauth2/auth?client_id=test",
+        authorizeUrl:
+          "https://accounts.google.com/o/oauth2/auth?client_id=test",
         state: "test-state-uuid-abc123",
         service: "google",
       };
@@ -355,7 +351,8 @@ describe("oauth-connect-routes", () => {
       mockOrchestrateResult = {
         success: true,
         deferred: true,
-        authorizeUrl: "https://accounts.google.com/o/oauth2/auth?client_id=test",
+        authorizeUrl:
+          "https://accounts.google.com/o/oauth2/auth?client_id=test",
         state: "test-state-uuid-abc123",
         service: "google",
       };
@@ -443,7 +440,10 @@ describe("oauth-connect-routes", () => {
         success: true,
         service: "google",
         accountInfo: "user@example.com",
-        grantedScopes: ["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/gmail.readonly"],
+        grantedScopes: [
+          "https://www.googleapis.com/auth/calendar",
+          "https://www.googleapis.com/auth/gmail.readonly",
+        ],
       });
       const result = findRoute("internal_oauth_connect_status").handler({
         pathParams: { state: "test-state-uuid-abc123" },
@@ -452,7 +452,10 @@ describe("oauth-connect-routes", () => {
         status: "complete",
         service: "google",
         account_info: "user@example.com",
-        granted_scopes: ["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/gmail.readonly"],
+        granted_scopes: [
+          "https://www.googleapis.com/auth/calendar",
+          "https://www.googleapis.com/auth/gmail.readonly",
+        ],
       });
     });
 

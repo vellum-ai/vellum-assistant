@@ -5,14 +5,7 @@
  * `VELLUM_WORKSPACE_DIR` to a per-file temp directory.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   invalidateConfigCache,
@@ -20,11 +13,11 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../../../config/loader.js";
-import { getSqlite } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
+import { getSqlite } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import { clearA2AConfig, getA2AConfig, setA2AConfig } from "../config-a2a.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const sqlite = getSqlite();

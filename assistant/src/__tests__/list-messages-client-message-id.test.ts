@@ -6,31 +6,22 @@
  * the confirmed server row by identity instead of matching message text.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+// Keep the memory system off so addMessage skips indexing side effects.
+setConfig("memory", { enabled: false });
 
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import {
+  addMessage,
+  createConversation,
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();

@@ -1,5 +1,5 @@
 /**
- * Tests for the task_progress hint in the 01-parallel-tool-calls workspace
+ * Tests for the task_progress hint in the 01-progress-surface workspace
  * system prompt section.
  *
  * Verifies that the task_progress guidance renders unconditionally in the
@@ -26,39 +26,10 @@ mock.module("../../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-const mockLoadedConfig: Record<string, unknown> = {};
+const { buildSystemPrompt, ensurePromptFiles } =
+  await import("../system-prompt.js");
 
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadConfig: () => mockLoadedConfig,
-  loadRawConfig: () => ({}),
-  saveConfig: () => {},
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
-const { buildSystemPrompt, ensurePromptFiles } = await import(
-  "../system-prompt.js"
-);
-
-describe("task_progress hint in parallel-tool-calls section", () => {
+describe("task_progress hint in progress-surface section", () => {
   beforeEach(() => {
     ensurePromptFiles();
   });
@@ -66,7 +37,7 @@ describe("task_progress hint in parallel-tool-calls section", () => {
   test("buildSystemPrompt() includes task_progress guidance", () => {
     const result = buildSystemPrompt();
     expect(result).toContain("task_progress");
-    expect(result).toContain("No exceptions");
+    expect(result).toContain("Show Progress on Long Turns");
   });
 
   test("renders unconditionally — no options required", () => {
@@ -85,5 +56,4 @@ describe("task_progress hint in parallel-tool-calls section", () => {
     expect(withoutClientFlag).toContain("task_progress");
     expect(withExcludePrefix).toContain("task_progress");
   });
-
 });

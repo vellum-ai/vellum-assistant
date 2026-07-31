@@ -6,11 +6,11 @@ import { getLogger } from "../logger.js";
 import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
-import { isRejection, resolveAssistant } from "../routing/resolve-assistant.js";
 import {
   SLACK_THREAD_ALREADY_MUTED,
   SLACK_THREAD_MUTE_SUCCESS,
 } from "../webhook-copy.js";
+import { ExponentialBackoff } from "../util/exponential-backoff.js";
 import {
   CatchupAbortSignal,
   fetchChannelHistorySince,
@@ -18,31 +18,67 @@ import {
   runWithConcurrency,
   type SlackHistoryMessage,
 } from "./slack-web.js";
+import { isSlackDmChannel, isSlackMpimChannel } from "./channel.js";
+import { parseSlackEnvelope } from "./envelope.js";
+import type { SlackEnvelopePayload, SlackInboundEvent } from "./envelope.js";
+import { classifySlackEvent } from "./classify-event.js";
+import { slackEventOrderingKey } from "./event-ordering.js";
+import { slackEventText } from "./event-text.js";
+import { stampSlackEventTeam } from "./event-team.js";
 import {
   normalizeSlackAppMention,
   normalizeSlackDirectMessage,
+  normalizeSlackGroupDirectMessage,
   normalizeSlackChannelMessage,
+} from "./message-normalizer.js";
+import {
   normalizeSlackMessageEdit,
   normalizeSlackMessageDelete,
-  normalizeSlackBlockActions,
+} from "./message-change-normalizer.js";
+import { normalizeSlackBlockActions } from "./block-actions-normalizer.js";
+import {
   normalizeSlackReactionAdded,
   normalizeSlackReactionRemoved,
+} from "./reaction-normalizer.js";
+import { enrichNormalizedActor } from "./actor.js";
+import type {
+  SlackAppMentionEvent,
+  SlackChannelMessageEvent,
+  SlackMessageChangedEvent,
+  SlackMessageDeletedEvent,
+  SlackReactionEvent,
+  NormalizedSlackEvent,
+} from "./message-schemas.js";
+import type { SlackTextRenderContext } from "./render-text.js";
+import {
+  isKnownSlackMpimSync,
+  recordSlackChannelKind,
   resolveSlackChannel,
   resolveSlackUser,
-  slackUserActorFields,
-  type SlackAppMentionEvent,
-  type SlackDirectMessageEvent,
-  type SlackChannelMessageEvent,
-  type SlackMessageChangedEvent,
-  type SlackMessageDeletedEvent,
-  type SlackBlockActionsPayload,
-  type SlackReactionAddedEvent,
-  type SlackReactionRemovedEvent,
-  type NormalizedSlackEvent,
-  type SlackTextRenderContext,
-} from "./normalize.js";
+} from "./user-directory.js";
 
 const log = getLogger("slack-socket-mode");
+
+/**
+ * Which admission filter matched an event, carried from `processEventPayload`
+ * through the emit queue to normalization.
+ *
+ * Passed as one object rather than re-derived downstream: normalization runs
+ * asynchronously, so any state the filter consulted (the observed-kind cache,
+ * the active-thread table) may have changed by the time it runs. Threading the
+ * decision keeps admission and normalization consistent by construction.
+ */
+type SlackAdmission = {
+  isAppMention: boolean;
+  isActiveThreadReply: boolean;
+  isReactionAdded: boolean;
+  isReactionRemoved: boolean;
+  isMessageChanged: boolean;
+  isMessageDeleted: boolean;
+  /** A 1:1 IM or a group DM. `isGroupDm` distinguishes the two. */
+  isDm: boolean;
+  isGroupDm: boolean;
+};
 
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
@@ -71,6 +107,8 @@ const CATCHUP_HISTORY_LIMIT = 50;
 const CATCHUP_CONCURRENCY = 4;
 const SLACK_MUTE_COMMANDS = new Set(["detach", "mute"]);
 
+export type SlackThreadMode = "mention_only" | "mention_then_thread";
+
 export type SlackSocketModeConfig = {
   appToken: string;
   botToken: string;
@@ -88,6 +126,13 @@ export type SlackSocketModeConfig = {
   botUsername?: string;
   /** Slack workspace/team name, resolved at startup via auth.test. */
   teamName?: string;
+  /**
+   * Controls whether the bot auto-follows threads after an initial @mention.
+   * - `mention_only`: only respond to explicit @mentions (no thread tracking).
+   * - `mention_then_thread`: after the first @mention, listen to all
+   *   subsequent replies in the thread for 24h.
+   */
+  threadMode: SlackThreadMode;
 };
 
 function escapeRegExp(value: string): string {
@@ -129,7 +174,11 @@ export class SlackSocketModeClient {
   private ws: WebSocket | null = null;
   private connecting = false;
   private running = false;
-  private reconnectAttempt = 0;
+  private readonly backoff = new ExponentialBackoff({
+    baseDelayMs: BASE_BACKOFF_MS,
+    maxDelayMs: MAX_BACKOFF_MS,
+    jitter: { mode: "additive", ratio: 0.5 },
+  });
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private store: SlackStore;
@@ -322,7 +371,7 @@ export class SlackSocketModeClient {
       this.reconnectTimer = null;
     }
 
-    this.reconnectAttempt = 0;
+    this.backoff.reset();
 
     const oldWs = this.ws;
     this.ws = null;
@@ -396,7 +445,8 @@ export class SlackSocketModeClient {
   }
 
   private handleSlackMuteCommand(event: SlackAppMentionEvent): boolean {
-    if (!isSlackMuteCommand(event.text, this.config.botUserId)) {
+    const text = slackEventText(event);
+    if (!text || !isSlackMuteCommand(text, this.config.botUserId)) {
       return false;
     }
 
@@ -456,6 +506,34 @@ export class SlackSocketModeClient {
   }
 
   /**
+   * True when a conversation is a group DM (MPIM).
+   *
+   * Prefers the payload's own `channel_type` and falls back to the observed-
+   * kind cache for payloads that carry none (reactions, edits, deletes). The
+   * cache read is synchronous and warms itself in the background. See
+   * `isKnownSlackMpimSync` for the cold-start caveat.
+   */
+  private isGroupDmChannel(
+    channelId: string | undefined,
+    channelType?: string,
+  ): boolean {
+    if (isSlackMpimChannel(channelType)) return true;
+    if (!channelId) return false;
+    return isKnownSlackMpimSync(channelId, this.config.botToken);
+  }
+
+  /** DM or group DM: the conversations admitted without a mention. */
+  private isDirectLikeChannel(
+    channelId: string | undefined,
+    channelType?: string,
+  ): boolean {
+    return (
+      isSlackDmChannel(channelId, channelType) ||
+      this.isGroupDmChannel(channelId, channelType)
+    );
+  }
+
+  /**
    * Returns true when the gateway has a configured `conversation_id` routing
    * entry for the given channel — i.e. the bot is subscribed to that channel.
    *
@@ -472,35 +550,83 @@ export class SlackSocketModeClient {
   }
 
   /**
+   * Admit a `message_changed` edit in DMs, tracked bot threads, or any channel
+   * the bot is explicitly subscribed to via a conversation_id routing entry.
+   * The subscription check keeps Slack unfurl (link preview) events in random
+   * channels from triggering the bot, while still surfacing edits made to any
+   * message in a configured channel so the daemon can correlate them with prior
+   * context.
+   */
+  private admitMessageEdit(event: SlackMessageChangedEvent): boolean {
+    return (
+      this.isDirectLikeChannel(event.channel, event.channel_type) ||
+      (!!event.message?.thread_ts &&
+        this.store.hasThread(event.message.thread_ts)) ||
+      (!!event.message?.ts && this.store.hasThread(event.message.ts)) ||
+      (!!event.channel && this.isChannelSubscribed(event.channel))
+    );
+  }
+
+  /**
+   * Admit a `message_deleted` in DMs, tracked bot threads, or any channel the
+   * bot is subscribed to, so the daemon can mark the stored row deleted. Mirrors
+   * `admitMessageEdit`'s scoping, keyed on the deleted message's `ts`.
+   */
+  private admitMessageDelete(event: SlackMessageDeletedEvent): boolean {
+    return (
+      !!event.deleted_ts &&
+      (this.isDirectLikeChannel(event.channel, event.channel_type) ||
+        (!!event.previous_message?.thread_ts &&
+          this.store.hasThread(event.previous_message.thread_ts)) ||
+        this.store.hasThread(event.deleted_ts) ||
+        (!!event.channel && this.isChannelSubscribed(event.channel)))
+    );
+  }
+
+  /**
+   * Admit a reaction on a message in a tracked bot thread, a DM or group DM, or
+   * any channel the bot is subscribed to (a conversation_id routing entry, or
+   * any DM channel since DMs always route to the default assistant). Both
+   * reaction_added and reaction_removed share this filter; the daemon dispatches
+   * by callbackData prefix.
+   *
+   * Reaction payloads carry no `channel_type`, so the group-DM arm relies on
+   * the observed-kind cache and is evaluated **last**: the three preceding
+   * checks are pure local state, and short-circuiting on them keeps a reaction
+   * in an ordinary subscribed channel from firing a `conversations.info` warm.
+   */
+  private admitReaction(event: SlackReactionEvent): boolean {
+    const targetChannel = event.item?.channel;
+    return (
+      !!event.item?.ts &&
+      !!targetChannel &&
+      (isSlackDmChannel(targetChannel) ||
+        this.isChannelSubscribed(targetChannel) ||
+        this.store.hasThread(event.item.ts) ||
+        this.isGroupDmChannel(targetChannel))
+    );
+  }
+
+  /**
    * Extract the Slack user ID from any event type. Returns undefined for
    * events that don't carry a user field (e.g. some system subtypes).
    */
-  private extractEventUser(
-    event:
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent
-      | SlackMessageChangedEvent
-      | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent,
-  ): string | undefined {
-    // message_changed: the author is on the inner `message` object.
-    if (
-      event.type === "message" &&
-      (event as SlackMessageChangedEvent).subtype === "message_changed"
-    ) {
-      return (event as SlackMessageChangedEvent).message?.user;
+  private extractEventUser(event: SlackInboundEvent): string | undefined {
+    const classified = classifySlackEvent(event);
+    if (!classified) {
+      return undefined;
     }
-    // message_deleted: the author is on previous_message.
-    if (
-      event.type === "message" &&
-      (event as SlackMessageDeletedEvent).subtype === "message_deleted"
-    ) {
-      return (event as SlackMessageDeletedEvent).previous_message?.user;
+    switch (classified.kind) {
+      // message_changed: the author is on the inner `message` object.
+      case "message_changed":
+        return classified.event.message?.user;
+      // message_deleted: the author is on previous_message.
+      case "message_deleted":
+        return classified.event.previous_message?.user;
+      // app_mention / plain message / reactions carry `user` at the top level.
+      default:
+        return classified.event.user;
     }
-    // All other event types carry `user` at the top level.
-    return (event as { user?: string }).user;
   }
 
   /**
@@ -509,84 +635,34 @@ export class SlackSocketModeClient {
    * tracking is armed so follow-up human replies pass the active-thread
    * filter.
    */
-  private maybeTrackBotOwnThreadReply(
-    event:
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent
-      | SlackMessageChangedEvent
-      | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent,
-  ): void {
-    const channelEvent = event as SlackChannelMessageEvent;
-    const subtype = (event as SlackMessageChangedEvent).subtype;
-    if (
-      event.type !== "message" ||
-      subtype === "message_changed" ||
-      subtype === "message_deleted" ||
-      !channelEvent.thread_ts ||
-      !channelEvent.channel
-    ) {
+  private maybeTrackBotOwnThreadReply(event: SlackInboundEvent): void {
+    if (this.config.threadMode !== "mention_then_thread") {
       return;
     }
-    if (!this.shouldTrackBotOwnThreadReply(channelEvent.channel)) return;
 
-    if (this.store.isThreadDetached(channelEvent.thread_ts)) {
+    // Only a plain thread reply arms tracking. app_mentions, edits, deletes,
+    // and reactions do not.
+    const classified = classifySlackEvent(event);
+    if (!classified || classified.kind !== "message") {
+      return;
+    }
+    const { channel, thread_ts: threadTs } = classified.event;
+    if (!threadTs || !channel) {
+      return;
+    }
+
+    if (this.store.isThreadDetached(threadTs)) {
       log.info(
-        { channel: channelEvent.channel, threadTs: channelEvent.thread_ts },
+        { channel, threadTs },
         "Skipped tracking bot's own reply in explicitly muted thread",
       );
       return;
     }
 
-    this.store.trackThread(
-      channelEvent.thread_ts,
-      channelEvent.channel,
-      ACTIVE_THREAD_TTL_MS,
-    );
+    this.store.trackThread(threadTs, channel, ACTIVE_THREAD_TTL_MS);
     log.info(
-      { channel: channelEvent.channel, threadTs: channelEvent.thread_ts },
+      { channel, threadTs },
       "Tracked thread after bot's own thread reply",
-    );
-  }
-
-  /**
-   * Tracking-eligibility check for the bot's own thread replies (the
-   * Socket Mode echo of a proactive chat.postMessage). The echo is never
-   * forwarded — this only decides whether the thread is armed in
-   * `slack_active_threads`.
-   *
-   * The echo's author is the bot user, which never matches a human
-   * `actor_id` route, so resolving routing by the event's sender would
-   * reject every echo in actor-routed workspaces. Instead the thread is
-   * eligible when the channel could route an inbound human message:
-   *
-   *   - a channel-scoped route applies — a `conversation_id` entry for
-   *     the channel, or the `default` unmapped policy — regardless of
-   *     sender; or
-   *   - the workspace routes by actor (at least one Slack-shaped
-   *     `actor_id` entry). Per-actor routing is not channel-scoped, so
-   *     any thread the bot posts into may receive replies from routed
-   *     humans.
-   *
-   * Arming a thread never loosens forwarding: thread replies admitted by
-   * the active-thread filter still re-resolve routing with the human
-   * sender at normalize time, and unrouted senders are dropped there.
-   */
-  private shouldTrackBotOwnThreadReply(channel: string): boolean {
-    // Empty actor ID: matches channel-scoped routes (conversation_id or
-    // default policy) only, never an actor_id entry.
-    const channelRouting = resolveAssistant(
-      this.config.gatewayConfig,
-      channel,
-      "",
-    );
-    if (!isRejection(channelRouting)) return true;
-    // routingEntries is shared across channels (Slack, Telegram, …);
-    // only Slack-shaped actor keys make Slack channels eligible.
-    return this.config.gatewayConfig.routingEntries.some(
-      (entry) => entry.type === "actor_id" && isSlackUserId(entry.key),
     );
   }
 
@@ -614,7 +690,7 @@ export class SlackSocketModeClient {
 
       ws.addEventListener("open", () => {
         log.info("Slack Socket Mode connected");
-        this.reconnectAttempt = 0;
+        this.backoff.reset();
         // Retry bot identity resolution on every reconnect so a transient
         // auth.test failure at startup is self-healing. Once resolved, the
         // check in resolveBotIdentity short-circuits immediately (no await
@@ -639,7 +715,13 @@ export class SlackSocketModeClient {
       });
 
       ws.addEventListener("message", (messageEvent) => {
-        this.handleMessage(messageEvent.data as string, ws);
+        // Slack Socket Mode delivers text frames; ignore any non-string frame
+        // rather than casting untrusted WebSocket data to `string`.
+        const frame = messageEvent.data;
+        if (typeof frame !== "string") {
+          return;
+        }
+        this.handleMessage(frame, ws);
       });
 
       ws.addEventListener("close", (closeEvent) => {
@@ -701,35 +783,9 @@ export class SlackSocketModeClient {
   }
 
   private handleMessage(raw: string, originWs: WebSocket): void {
-    let envelope: {
-      envelope_id?: string;
-      type?: string;
-      payload?: {
-        event_id?: string;
-        event_time?: number;
-        event?:
-          | SlackAppMentionEvent
-          | SlackDirectMessageEvent
-          | SlackChannelMessageEvent
-          | SlackMessageChangedEvent
-          | SlackMessageDeletedEvent
-          | SlackReactionAddedEvent
-          | SlackReactionRemovedEvent;
-        // Interactive payloads are delivered directly as the payload
-        type?: string;
-        trigger_id?: string;
-        user?: { id: string; username?: string; name?: string };
-        channel?: { id: string; name?: string };
-        message?: { ts: string; thread_ts?: string; text?: string };
-        actions?: SlackBlockActionsPayload["actions"];
-      };
-      reason?: string;
-    };
-
-    try {
-      envelope = JSON.parse(raw);
-    } catch {
-      log.warn("Received non-JSON Socket Mode message");
+    const envelope = parseSlackEnvelope(raw);
+    if (!envelope) {
+      log.warn("Received non-JSON or malformed Socket Mode message");
       return;
     }
 
@@ -755,7 +811,7 @@ export class SlackSocketModeClient {
         }
         this.ws = null;
         // Reconnect immediately (attempt 0 = minimal backoff)
-        this.reconnectAttempt = 0;
+        this.backoff.reset();
         this.scheduleReconnect();
       }
       return;
@@ -763,7 +819,7 @@ export class SlackSocketModeClient {
 
     // Handle interactive payloads (block_actions from Block Kit buttons)
     if (envelope.type === "interactive") {
-      this.handleInteractive(envelope.payload);
+      this.handleInteractive(envelope.payload, envelope.envelope_id);
       return;
     }
 
@@ -773,6 +829,14 @@ export class SlackSocketModeClient {
     const eventPayload = envelope.payload;
     if (!eventPayload?.event) return;
     if (!eventPayload.event_id) return;
+
+    // Slack carries the workspace ID as `team_id` on the events_api payload;
+    // inner events don't reliably carry `team` (app_mention and channel
+    // messages commonly omit it). Stamp the payload-level team onto the
+    // event so normalization can capture the actor's team. An event-level
+    // `team` (e.g. a Slack Connect sender's home workspace) takes precedence.
+    const innerEvent = eventPayload.event as { team?: string };
+    stampSlackEventTeam(innerEvent, eventPayload.team_id);
 
     this.processEventPayload({
       event_id: eventPayload.event_id,
@@ -796,14 +860,7 @@ export class SlackSocketModeClient {
   private processEventPayload(eventPayload: {
     event_id: string;
     event_time?: number;
-    event:
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent
-      | SlackMessageChangedEvent
-      | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent;
+    event: SlackInboundEvent;
   }): void {
     const event = eventPayload.event;
     const botUserId = this.config.botUserId;
@@ -822,6 +879,19 @@ export class SlackSocketModeClient {
       return;
     }
 
+    // ── Learn the conversation's kind from any event that states it ────
+    // Runs before the self-filter so the bot's own echo (which is what opens
+    // a bot-initiated MPIM in the first place) teaches us the channel is a
+    // group DM, letting later reaction payloads (which carry no
+    // `channel_type`) be classified synchronously.
+    const classifiedForKind = classifySlackEvent(event);
+    if (classifiedForKind?.kind === "message") {
+      const { channel, channel_type: channelType } = classifiedForKind.event;
+      if (channel) {
+        recordSlackChannelKind(channel, this.config.botToken, channelType);
+      }
+    }
+
     // ── Single self-filter: drop the bot's own messages ────────────────
     // Slack's Socket Mode delivers the bot's own outbound messages back
     // as inbound events (DM echoes, thread reply echoes, etc.). This is
@@ -831,102 +901,68 @@ export class SlackSocketModeClient {
     if (eventUser === botUserId) {
       // Exception: the bot's own thread replies are used to arm thread
       // tracking (so follow-up human replies are forwarded). This is a
-      // side effect only — the event itself is still dropped.
+      // side effect only, the event itself is still dropped.
       this.maybeTrackBotOwnThreadReply(event);
       return;
     }
 
-    const dmEvent = event as SlackDirectMessageEvent;
-    const channelEvent = event as SlackChannelMessageEvent;
-    const messageChangedEvent = event as SlackMessageChangedEvent;
-    const messageDeletedEvent = event as SlackMessageDeletedEvent;
+    // Classify the event once, then admit per kind. Each event has exactly one
+    // kind, so at most one filter matches — the admit conditions per kind carry
+    // the DM / tracked-thread / subscribed-channel scoping.
+    const classified = classifySlackEvent(event);
 
-    const isAppMention = event.type === "app_mention";
-    const isMessageChangedRaw =
-      event.type === "message" &&
-      messageChangedEvent.subtype === "message_changed";
-    // Accept message_changed in DMs, tracked bot threads, or any channel
-    // the bot is explicitly subscribed to via a conversation_id routing
-    // entry. The routing-entry check keeps Slack unfurl (link preview)
-    // events in random channels from triggering the bot, while still
-    // surfacing edits made to any message in a configured channel so the
-    // daemon can correlate them with prior context.
-    const isSubscribedChannel =
-      !!messageChangedEvent.channel &&
-      this.config.gatewayConfig.routingEntries.some(
-        (entry) =>
-          entry.type === "conversation_id" &&
-          entry.key === messageChangedEvent.channel,
-      );
-    const isMessageChanged =
-      isMessageChangedRaw &&
-      (messageChangedEvent.channel_type === "im" ||
-        (!!messageChangedEvent.message?.thread_ts &&
-          this.store.hasThread(messageChangedEvent.message.thread_ts)) ||
-        (!!messageChangedEvent.message?.ts &&
-          this.store.hasThread(messageChangedEvent.message.ts)) ||
-        isSubscribedChannel);
-    // Admit message_deleted in DMs, tracked bot threads, or any channel the
-    // bot is explicitly subscribed to via a conversation_id routing entry so
-    // the daemon can mark the corresponding stored row deleted. The
-    // routing-entry check mirrors message_changed's scoping above.
-    const isMessageDeleted =
-      event.type === "message" &&
-      messageDeletedEvent.subtype === "message_deleted" &&
-      !!messageDeletedEvent.deleted_ts &&
-      (messageDeletedEvent.channel_type === "im" ||
-        (!!messageDeletedEvent.previous_message?.thread_ts &&
-          this.store.hasThread(
-            messageDeletedEvent.previous_message.thread_ts,
-          )) ||
-        (!!messageDeletedEvent.deleted_ts &&
-          this.store.hasThread(messageDeletedEvent.deleted_ts)) ||
-        (!!messageDeletedEvent.channel &&
-          this.config.gatewayConfig.routingEntries.some(
-            (entry) =>
-              entry.type === "conversation_id" &&
-              entry.key === messageDeletedEvent.channel,
-          )));
-    const isDm =
-      event.type === "message" &&
-      !isMessageChanged &&
-      !isMessageDeleted &&
-      dmEvent.channel_type === "im";
-    const mentionsBot = channelEvent.text?.includes(`<@${botUserId}>`);
-    const isActiveThreadReply =
-      event.type === "message" &&
-      !isMessageChanged &&
-      !isMessageDeleted &&
-      !isDm &&
-      !mentionsBot &&
-      !!channelEvent.thread_ts &&
-      this.store.hasThread(channelEvent.thread_ts);
+    let isAppMention = false;
+    let isDm = false;
+    let isMessageChanged = false;
+    let isMessageDeleted = false;
+    let isReactionAdded = false;
+    let isReactionRemoved = false;
+    let isActiveThreadReply = false;
+    let isGroupDm = false;
 
-    // Forward reaction events on:
-    //   1. messages in tracked bot threads (preserves original behavior), or
-    //   2. messages in any channel the bot is subscribed to (a configured
-    //      conversation_id routing entry, or any DM channel since DMs always
-    //      route to the default assistant).
-    // Both reaction_added and reaction_removed are admitted under the same
-    // filter; the daemon dispatches by callbackData prefix.
-    const reactionEvent = event as
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent;
-    const reactionTargetChannel = reactionEvent.item?.channel;
-    const reactionAdmitChannel =
-      !!reactionTargetChannel &&
-      (reactionTargetChannel.startsWith("D") ||
-        this.isChannelSubscribed(reactionTargetChannel) ||
-        (!!reactionEvent.item?.ts &&
-          this.store.hasThread(reactionEvent.item.ts)));
-    const isReactionAdded =
-      event.type === "reaction_added" &&
-      !!reactionEvent.item?.ts &&
-      reactionAdmitChannel;
-    const isReactionRemoved =
-      event.type === "reaction_removed" &&
-      !!reactionEvent.item?.ts &&
-      reactionAdmitChannel;
+    switch (classified?.kind) {
+      case "app_mention":
+        isAppMention = true;
+        break;
+      case "message_changed":
+        isMessageChanged = this.admitMessageEdit(classified.event);
+        break;
+      case "message_deleted":
+        isMessageDeleted = this.admitMessageDelete(classified.event);
+        break;
+      case "reaction_added":
+        isReactionAdded = this.admitReaction(classified.event);
+        break;
+      case "reaction_removed":
+        isReactionRemoved = this.admitReaction(classified.event);
+        break;
+      case "message": {
+        // A plain message is a DM, or — only in mention-then-thread mode — an
+        // unmentioned reply in an already-tracked bot thread. A mention of the
+        // bot is handled by the app_mention event, not here.
+        const msg = classified.event;
+        // DMs and group DMs are both admitted unconditionally: every message
+        // in one is addressed to its participants, so requiring a mention or a
+        // tracked thread would drop legitimate traffic. They diverge only at
+        // normalization, where an MPIM keeps its own `mpim` chat type.
+        if (isSlackDmChannel(msg.channel, msg.channel_type)) {
+          isDm = true;
+        } else if (this.isGroupDmChannel(msg.channel, msg.channel_type)) {
+          isDm = true;
+          isGroupDm = true;
+        } else if (
+          this.config.threadMode === "mention_then_thread" &&
+          !msg.text?.includes(`<@${botUserId}>`) &&
+          !!msg.thread_ts &&
+          this.store.hasThread(msg.thread_ts)
+        ) {
+          isActiveThreadReply = true;
+        }
+        break;
+      }
+      default:
+        break;
+    }
 
     // Process app_mention events, DMs, message edits, message deletes, scoped reactions, and replies in active bot threads
     const matchedFilter = isAppMention
@@ -946,20 +982,35 @@ export class SlackSocketModeClient {
                   : null;
 
     if (!matchedFilter) {
+      // Structural fields at info, message content at debug.
+      //
+      // Info, not debug, for the structure: a dropped event is the failure
+      // mode behind every "the assistant never saw my message" report, and at
+      // debug level it is absent from normal logs. LUM-2935's missed reaction
+      // was only found by reading `conversations.history` by hand.
+      //
+      // The body stays at debug because this fires for every event the filter
+      // rejects, including ordinary chatter and link-unfurl edits in channels
+      // the assistant is not part of. Promoting the structure must not persist
+      // workspace conversation content into normal-level logs.
+      const dropContext = {
+        eventId: eventPayload.event_id,
+        type: event.type,
+        subtype: (event as { subtype?: string }).subtype,
+        channel: (event as { channel?: string }).channel,
+        channelType: (event as { channel_type?: string }).channel_type,
+        user: (event as { user?: string }).user,
+        hasThreadTs: !!(event as { thread_ts?: string }).thread_ts,
+        threadTs: (event as { thread_ts?: string }).thread_ts,
+        kind: classified?.kind,
+      };
+      log.info(dropContext, "Slack event dropped by filter");
       log.debug(
         {
-          eventId: eventPayload.event_id,
-          type: event.type,
-          subtype: (event as { subtype?: string }).subtype,
-          channel: (event as { channel?: string }).channel,
-          channelType: (event as { channel_type?: string }).channel_type,
-          user: (event as { user?: string }).user,
-          hasThreadTs: !!(event as { thread_ts?: string }).thread_ts,
-          threadTs: (event as { thread_ts?: string }).thread_ts,
-          isMessageChangedRaw,
+          ...dropContext,
           text: (event as { text?: string }).text?.slice(0, 80),
         },
-        "Slack event dropped by filter",
+        "Slack event dropped by filter (with content)",
       );
       return;
     }
@@ -1032,33 +1083,34 @@ export class SlackSocketModeClient {
       this.store.setLastSeenTsIfGreater(watermarkTs);
     }
 
-    if (
-      isAppMention &&
-      this.handleSlackMuteCommand(event as SlackAppMentionEvent)
-    ) {
-      return;
-    }
+    if (classified?.kind === "app_mention") {
+      const appMentionEvent = classified.event;
+      if (this.handleSlackMuteCommand(appMentionEvent)) {
+        return;
+      }
 
-    if (isAppMention) {
-      const appMentionEvent = event as SlackAppMentionEvent;
+      const { channel, user } = appMentionEvent;
       const threadTs = appMentionEvent.thread_ts ?? appMentionEvent.ts;
-      const routing = resolveAssistant(
-        this.config.gatewayConfig,
-        appMentionEvent.channel,
-        appMentionEvent.user,
-      );
-      if (threadTs && !isRejection(routing) && appMentionEvent.channel) {
-        this.store.trackThread(
-          threadTs,
-          appMentionEvent.channel,
-          ACTIVE_THREAD_TTL_MS,
-        );
+      // Only arm the thread for a well-formed, routable mention — the same
+      // identity fields normalizeSlackAppMention requires. These are read from
+      // the raw, untrusted frame, so guard type as well as presence: a
+      // malformed mention (missing/non-string channel, user, or ts) must not
+      // arm a thread that would then admit later unmentioned replies, since the
+      // mention itself is dropped at normalization.
+      if (
+        this.config.threadMode === "mention_then_thread" &&
+        typeof channel === "string" &&
+        channel &&
+        typeof user === "string" &&
+        user &&
+        typeof threadTs === "string" &&
+        threadTs
+      ) {
+        this.store.trackThread(threadTs, channel, ACTIVE_THREAD_TTL_MS);
       }
     }
 
-    this.enqueueNormalizeAndEmit(
-      event,
-      eventId,
+    this.enqueueNormalizeAndEmit(event, eventId, {
       isAppMention,
       isActiveThreadReply,
       isReactionAdded,
@@ -1066,31 +1118,8 @@ export class SlackSocketModeClient {
       isMessageChanged,
       isMessageDeleted,
       isDm,
-    );
-  }
-
-  private extractTextBearingContent(
-    event:
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent
-      | SlackMessageChangedEvent
-      | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent,
-  ): string | undefined {
-    if (
-      event.type === "message" &&
-      (event as SlackMessageChangedEvent).subtype === "message_changed"
-    ) {
-      return (event as SlackMessageChangedEvent).message?.text;
-    }
-
-    if (event.type === "app_mention" || event.type === "message") {
-      return (event as SlackAppMentionEvent | SlackDirectMessageEvent).text;
-    }
-
-    return undefined;
+      isGroupDm,
+    });
   }
 
   private async resolveMentionLabelsForText(
@@ -1139,41 +1168,16 @@ export class SlackSocketModeClient {
   }
 
   private enqueueNormalizeAndEmit(
-    event:
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent
-      | SlackMessageChangedEvent
-      | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent,
+    event: SlackInboundEvent,
     eventId: string,
-    isAppMention: boolean,
-    isActiveThreadReply: boolean,
-    isReactionAdded: boolean,
-    isReactionRemoved: boolean,
-    isMessageChanged: boolean,
-    isMessageDeleted: boolean,
-    isDm: boolean,
+    admission: SlackAdmission,
   ): void {
     const queues = (this.emitQueues ??= new Map());
-    const orderingKey = this.getEventOrderingKey(event, eventId);
+    const orderingKey = slackEventOrderingKey(event, eventId);
     const previous = queues.get(orderingKey) ?? Promise.resolve();
     const current = previous
       .catch(() => undefined)
-      .then(() =>
-        this.normalizeAndEmit(
-          event,
-          eventId,
-          isAppMention,
-          isActiveThreadReply,
-          isReactionAdded,
-          isReactionRemoved,
-          isMessageChanged,
-          isMessageDeleted,
-          isDm,
-        ),
-      );
+      .then(() => this.normalizeAndEmit(event, eventId, admission));
 
     queues.set(orderingKey, current);
     void current
@@ -1187,85 +1191,41 @@ export class SlackSocketModeClient {
       });
   }
 
-  private getEventOrderingKey(
-    event:
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent
-      | SlackMessageChangedEvent
-      | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent,
-    eventId: string,
-  ): string {
-    if (event.type === "reaction_added" || event.type === "reaction_removed") {
-      const reaction = event as
-        | SlackReactionAddedEvent
-        | SlackReactionRemovedEvent;
-      return `${reaction.item.channel}:${reaction.item.ts}`;
-    }
-
-    if (
-      event.type === "message" &&
-      (event as SlackMessageChangedEvent).subtype === "message_changed"
-    ) {
-      const changed = event as SlackMessageChangedEvent;
-      return `${changed.channel}:${changed.message.thread_ts ?? changed.message.ts ?? eventId}`;
-    }
-
-    if (
-      event.type === "message" &&
-      (event as SlackMessageDeletedEvent).subtype === "message_deleted"
-    ) {
-      const deleted = event as SlackMessageDeletedEvent;
-      return `${deleted.channel}:${deleted.previous_message?.thread_ts ?? deleted.deleted_ts ?? eventId}`;
-    }
-
-    const message = event as
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent;
-    return `${message.channel}:${message.thread_ts ?? message.ts ?? eventId}`;
-  }
-
   private async normalizeAndEmit(
-    event:
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent
-      | SlackMessageChangedEvent
-      | SlackMessageDeletedEvent
-      | SlackReactionAddedEvent
-      | SlackReactionRemovedEvent,
+    event: SlackInboundEvent,
     eventId: string,
-    isAppMention: boolean,
-    isActiveThreadReply: boolean,
-    isReactionAdded: boolean,
-    isReactionRemoved: boolean,
-    isMessageChanged: boolean,
-    isMessageDeleted: boolean,
-    isDm: boolean,
+    admission: SlackAdmission,
   ): Promise<void> {
-    const text = this.extractTextBearingContent(event);
+    const {
+      isAppMention,
+      isActiveThreadReply,
+      isReactionAdded,
+      isReactionRemoved,
+      isMessageChanged,
+      isMessageDeleted,
+      isDm,
+      isGroupDm,
+    } = admission;
+    const text = slackEventText(event);
     const renderContext = text ? await this.resolveTextRenderContext(text) : {};
     const userLabels = renderContext.userLabels ?? {};
 
     let normalized: NormalizedSlackEvent | null;
     if (isReactionAdded) {
       normalized = normalizeSlackReactionAdded(
-        event as SlackReactionAddedEvent,
+        event,
         eventId,
         this.config.gatewayConfig,
       );
     } else if (isReactionRemoved) {
       normalized = normalizeSlackReactionRemoved(
-        event as SlackReactionRemovedEvent,
+        event,
         eventId,
         this.config.gatewayConfig,
       );
     } else if (isAppMention) {
       normalized = normalizeSlackAppMention(
-        event as SlackAppMentionEvent,
+        event,
         eventId,
         this.config.gatewayConfig,
         this.config.botToken,
@@ -1273,33 +1233,49 @@ export class SlackSocketModeClient {
       );
     } else if (isMessageChanged) {
       normalized = normalizeSlackMessageEdit(
-        event as SlackMessageChangedEvent,
+        event,
         eventId,
         this.config.gatewayConfig,
         renderContext,
       );
     } else if (isMessageDeleted) {
       normalized = normalizeSlackMessageDelete(
-        event as SlackMessageDeletedEvent,
+        event,
         eventId,
         this.config.gatewayConfig,
       );
     } else if (isActiveThreadReply) {
       normalized = normalizeSlackChannelMessage(
-        event as SlackChannelMessageEvent,
+        event,
         eventId,
         this.config.gatewayConfig,
         this.config.botToken,
         renderContext,
       );
     } else if (isDm) {
-      normalized = normalizeSlackDirectMessage(
-        event as SlackDirectMessageEvent,
-        eventId,
-        this.config.gatewayConfig,
-        this.config.botToken,
-        renderContext,
-      );
+      // `isDm` covers both 1:1 IMs and group DMs; they split here so an MPIM
+      // is forwarded as `chatType: "mpim"` instead of being flattened into
+      // `im`. The decision is threaded down from admission rather than
+      // re-derived: normalization runs asynchronously behind the per-channel
+      // emit queue, and the kind cache can expire or be evicted in between, so
+      // re-deriving could normalize an admitted group DM as a 1:1 `im` and
+      // select the looser permission cell. Passing it makes the two agree by
+      // construction.
+      normalized = isGroupDm
+        ? normalizeSlackGroupDirectMessage(
+            event,
+            eventId,
+            this.config.gatewayConfig,
+            this.config.botToken,
+            renderContext,
+          )
+        : normalizeSlackDirectMessage(
+            event,
+            eventId,
+            this.config.gatewayConfig,
+            this.config.botToken,
+            renderContext,
+          );
     } else {
       log.warn(
         {
@@ -1329,15 +1305,19 @@ export class SlackSocketModeClient {
     // edits, or deletes arming unrelated threads.
     const threadTs = normalized.threadTs;
     const channelId = normalized.event.message.conversationExternalId;
-    const shouldTrackActiveThread = isAppMention || isActiveThreadReply;
+    const shouldTrackActiveThread =
+      this.config.threadMode === "mention_then_thread" &&
+      (isAppMention || isActiveThreadReply);
     if (shouldTrackActiveThread && threadTs && channelId) {
       this.store.trackThread(threadTs, channelId, ACTIVE_THREAD_TTL_MS);
     }
 
-    // Enrich actor display name if the sync cache missed.
-    // resolveSlackUser is fast on cache hit and deduplicates in-flight fetches,
-    // so this adds negligible latency on subsequent messages. A 3s timeout
-    // ensures the event is always emitted even if the Slack API hangs.
+    // Enrich actor metadata when the sync cache missed.
+    // resolveSlackUser is fast on cache hit, deduplicates in-flight fetches,
+    // and returns undefined on failure. We block here so trust signals
+    // (isStranger, isRestricted) are available before ACL enforcement, but
+    // bound the wait to prevent a hanging TCP connection from stalling all
+    // event processing.
     const actor = normalized.event.actor;
     if (actor?.actorExternalId && !actor.displayName) {
       const mentionedLabel = userLabels[actor.actorExternalId];
@@ -1352,7 +1332,9 @@ export class SlackSocketModeClient {
         ),
       ]);
       if (userInfo) {
-        Object.assign(actor, slackUserActorFields(userInfo));
+        // Also re-runs bot-sender classification: an is_bot-only bot (no
+        // top-level bot_id) is undetectable during cache-only normalization.
+        enrichNormalizedActor(normalized, userInfo);
       }
     }
 
@@ -1537,14 +1519,15 @@ export class SlackSocketModeClient {
     }
 
     const mentionsBot = msg.text?.includes(`<@${botUserId}>`) ?? false;
-    const isDm = channel.startsWith("D");
-    // DMs are always delivered as `type: "message"` with `channel_type: "im"`
-    // by live Slack, even when the bot is `<@U…>`-mentioned in the body —
-    // Slack only emits `app_mention` for non-DM channels. Synthesizing a DM
-    // as `app_mention` would route through `normalizeSlackAppMention`, which
-    // (intentionally) lacks the DM default-assistant fallback that
-    // `normalizeSlackDirectMessage` provides, so an unrouted DM @-mention
-    // would silently drop in `unmappedPolicy: "reject"` deployments.
+    // `conversations.history`/`replies` carry no `channel_type`, so classify
+    // DMs by the conversation ID prefix and group DMs from the observed-kind
+    // cache. The `"channel"` fallback below is therefore a guess, which is why
+    // `recordSlackChannelKind` refuses to learn from that value.
+    const isDm = isSlackDmChannel(channel);
+    const isGroupDm = !isDm && this.isGroupDmChannel(channel);
+    // Slack only emits `app_mention` in non-DM channels, even when the bot is
+    // `<@U…>`-mentioned in a DM body. Keep DMs on the `message` path so they
+    // normalize as direct messages rather than mentions.
     const eventType: "app_mention" | "message" =
       mentionsBot && !isDm ? "app_mention" : "message";
 
@@ -1562,16 +1545,13 @@ export class SlackSocketModeClient {
       ts: msg.ts,
       thread_ts: msg.thread_ts,
       channel,
-      channel_type: isDm ? "im" : "channel",
+      channel_type: isDm ? "im" : isGroupDm ? "mpim" : "channel",
       team: msg.team,
       ...(msg.subtype ? { subtype: msg.subtype } : {}),
       ...(msg.files ? { files: msg.files } : {}),
       ...(msg.attachments ? { attachments: msg.attachments } : {}),
       ...(msg.blocks ? { blocks: msg.blocks } : {}),
-    } as unknown as
-      | SlackAppMentionEvent
-      | SlackDirectMessageEvent
-      | SlackChannelMessageEvent;
+    } as unknown as SlackChannelMessageEvent;
 
     this.processEventPayload({
       event_id: `replay:${channel}:${msg.ts}`,
@@ -1581,17 +1561,21 @@ export class SlackSocketModeClient {
     return true;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private handleInteractive(payload: Record<string, any> | undefined): void {
+  private handleInteractive(
+    payload: SlackEnvelopePayload | undefined,
+    envelopeId: string | undefined,
+  ): void {
     if (!payload) return;
 
     // Only handle block_actions (from Block Kit buttons)
     if (payload.type !== "block_actions") return;
 
-    // First try to normalize as a channel-scoped block_actions event
+    // The envelope id lives on the envelope wrapper, not the interaction
+    // payload, so it is threaded in as the update id to correlate the
+    // block_actions event with its frame.
     const normalized = normalizeSlackBlockActions(
-      payload as unknown as SlackBlockActionsPayload,
-      payload.envelope_id ?? "unknown",
+      payload,
+      envelopeId ?? "unknown",
       this.config.gatewayConfig,
     );
     if (normalized) {
@@ -1603,19 +1587,10 @@ export class SlackSocketModeClient {
     if (!this.running) return;
     if (this.reconnectTimer) return;
 
-    const backoff = Math.min(
-      BASE_BACKOFF_MS * Math.pow(2, this.reconnectAttempt),
-      MAX_BACKOFF_MS,
-    );
-    // Add jitter: 0-50% of backoff
-    const jitter = Math.random() * backoff * 0.5;
-    const delay = Math.round(backoff + jitter);
+    const attempt = this.backoff.attemptCount;
+    const delay = this.backoff.nextDelayMs();
 
-    log.info(
-      { attempt: this.reconnectAttempt, delayMs: delay },
-      "Scheduling Socket Mode reconnect",
-    );
-    this.reconnectAttempt++;
+    log.info({ attempt, delayMs: delay }, "Scheduling Socket Mode reconnect");
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -1717,18 +1692,6 @@ function toSlackTs(ms: number): string {
  */
 function isSlackConversationId(id: string): boolean {
   return /^[CDG][A-Z0-9]+$/.test(id);
-}
-
-/**
- * True if `id` looks like a Slack user ID: uppercase-alphanumeric,
- * prefixed with `U` or `W` (Enterprise Grid) — see
- * https://api.slack.com/changelog/2016-08-11-user-id-format-changes.
- * Used to distinguish Slack `actor_id` routing entries from other
- * channels' actor keys (Telegram numeric IDs, phone numbers, …) in the
- * shared routingEntries list.
- */
-function isSlackUserId(id: string): boolean {
-  return /^[UW][A-Z0-9]+$/.test(id);
 }
 
 /**

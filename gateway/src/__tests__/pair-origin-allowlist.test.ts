@@ -19,9 +19,12 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 
 const { handlePair, resetPairRateLimiterForTests } =
   await import("../http/routes/pair.js");
-const { resolveExtensionOrigin } = await import("../http/middleware/cors.js");
+const { resolveExtensionOrigin, corsHeaders } =
+  await import("../http/middleware/cors.js");
 const { KNOWN_EXTENSION_ORIGINS } =
   await import("../chrome-extension-origins.js");
+const { CLIENT_METADATA_HEADERS } =
+  await import("@vellumai/service-contracts/client-metadata");
 
 // Simulate a loopback peer IP as supplied by the gateway server to the handler.
 const LOOPBACK_IP = "127.0.0.1";
@@ -103,6 +106,21 @@ describe("resolveExtensionOrigin", () => {
       headers: { origin: "https://evil.example.com" },
     });
     expect(resolveExtensionOrigin(req)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Webview CORS — client-metadata analytics headers
+// ---------------------------------------------------------------------------
+
+describe("webview CORS headers", () => {
+  test("Access-Control-Allow-Headers includes every client-metadata header", () => {
+    const headers = corsHeaders("https://app.vellum.local");
+    const allowHeaders =
+      headers["Access-Control-Allow-Headers"]?.toLowerCase() ?? "";
+    for (const header of Object.values(CLIENT_METADATA_HEADERS)) {
+      expect(allowHeaders).toContain(header);
+    }
   });
 });
 

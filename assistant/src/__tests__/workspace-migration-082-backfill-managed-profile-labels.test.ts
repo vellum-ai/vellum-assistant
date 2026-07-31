@@ -196,10 +196,7 @@ describe("082-backfill-managed-profile-labels migration", () => {
     });
 
     backfillManagedProfileLabelsMigration.run(workspaceDir);
-    const afterFirst = readFileSync(
-      join(workspaceDir, "config.json"),
-      "utf-8",
-    );
+    const afterFirst = readFileSync(join(workspaceDir, "config.json"), "utf-8");
 
     backfillManagedProfileLabelsMigration.run(workspaceDir);
     const afterSecond = readFileSync(

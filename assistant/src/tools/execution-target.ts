@@ -1,4 +1,4 @@
-import type { ExecutionTarget } from "./types.js";
+import type { ExecutionTarget } from "./tool-types.js";
 
 export interface ManifestOverride {
   risk: "low" | "medium" | "high";
@@ -21,7 +21,9 @@ export function resolveExecutionTarget(tool: {
   name: string;
   executionTarget?: ExecutionTarget;
 }): ExecutionTarget {
-  if (tool.executionTarget) return tool.executionTarget;
+  if (tool.executionTarget) {
+    return tool.executionTarget;
+  }
   if (tool.name.startsWith("host_") || tool.name.startsWith("computer_use_")) {
     return "host";
   }

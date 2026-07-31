@@ -651,15 +651,21 @@ export function createHostBrowserDispatcher(
           if (msg.includes('already attached')) {
             attachedTargets.add(key);
           } else {
-            // chrome.debugger cannot attach to privileged URLs (chrome://,
-            // edge://, devtools://, etc.). For Page.navigate specifically,
-            // recover by creating a new about:blank tab and retargeting.
-            // For other methods (e.g. Runtime.evaluate probes from status
-            // checks), let the error propagate — status checks should not
-            // have the side effect of opening new tabs.
+            // chrome.debugger cannot script restricted tabs: privileged URLs
+            // (chrome://, edge://, devtools://) reject with "cannot access",
+            // and the Chrome Web Store / extensions gallery rejects with "The
+            // extensions gallery cannot be scripted." For Page.navigate
+            // specifically, recover from either by creating a new about:blank
+            // tab and retargeting. For other methods (e.g. Runtime.evaluate
+            // probes from status checks), let the error propagate — status
+            // checks should not have the side effect of opening new tabs.
+            // Keep this restricted-error match in sync with
+            // isRestrictedChromePageProbeError in the assistant's
+            // browser-execution.ts (separate package, duplicated by necessity).
             if (
               envelope.cdpMethod === 'Page.navigate' &&
-              msg.includes('cannot access')
+              (msg.includes('cannot access') ||
+                msg.includes('cannot be scripted'))
             ) {
               const newTarget = await deps.createTab?.();
               if (newTarget) {

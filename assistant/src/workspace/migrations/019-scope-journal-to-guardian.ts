@@ -8,10 +8,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { desc, eq } from "drizzle-orm";
-
-import { getDb } from "../../memory/db-connection.js";
-import { contacts } from "../../memory/schema/contacts.js";
 import type { WorkspaceMigration } from "./types.js";
 
 export const scopeJournalToGuardianMigration: WorkspaceMigration = {
@@ -21,7 +17,9 @@ export const scopeJournalToGuardianMigration: WorkspaceMigration = {
 
   run(workspaceDir: string): void {
     const journalDir = join(workspaceDir, "journal");
-    if (!existsSync(journalDir)) return;
+    if (!existsSync(journalDir)) {
+      return;
+    }
 
     // Find .md files in the root journal directory (not in subdirs)
     let entries: string[];
@@ -31,35 +29,22 @@ export const scopeJournalToGuardianMigration: WorkspaceMigration = {
       return;
     }
     const mdFiles = entries.filter((f) => {
-      if (!f.endsWith(".md") || f.toLowerCase() === "readme.md") return false;
+      if (!f.endsWith(".md") || f.toLowerCase() === "readme.md") {
+        return false;
+      }
       try {
         return statSync(join(journalDir, f)).isFile();
       } catch {
         return false;
       }
     });
-    if (mdFiles.length === 0) return;
-
-    // Resolve guardian user slug (same pattern as 017-seed-persona-dirs)
-    let slug = "guardian";
-    try {
-      const db = getDb();
-      const guardian = db
-        .select()
-        .from(contacts)
-        .where(eq(contacts.role, "guardian"))
-        .orderBy(desc(contacts.createdAt))
-        .limit(1)
-        .get();
-      if (guardian?.userFile) {
-        slug = guardian.userFile.replace(/\.md$/, "");
-      }
-    } catch {
-      // DB not ready — use fallback "guardian"
+    if (mdFiles.length === 0) {
+      return;
     }
 
-    // Create per-user directory and move files (renameSync preserves birthtimes)
-    const destDir = join(journalDir, slug);
+    // Scope under the canonical `guardian` slug — the runtime resolver falls
+    // back to it, so no assistant-DB lookup is needed.
+    const destDir = join(journalDir, "guardian");
     mkdirSync(destDir, { recursive: true });
     for (const f of mdFiles) {
       const src = join(journalDir, f);
@@ -72,7 +57,9 @@ export const scopeJournalToGuardianMigration: WorkspaceMigration = {
 
   down(workspaceDir: string): void {
     const journalDir = join(workspaceDir, "journal");
-    if (!existsSync(journalDir)) return;
+    if (!existsSync(journalDir)) {
+      return;
+    }
     let entries: string[];
     try {
       entries = readdirSync(journalDir);
@@ -82,12 +69,16 @@ export const scopeJournalToGuardianMigration: WorkspaceMigration = {
     for (const entry of entries) {
       const subdir = join(journalDir, entry);
       try {
-        if (!statSync(subdir).isDirectory()) continue;
+        if (!statSync(subdir).isDirectory()) {
+          continue;
+        }
       } catch {
         continue;
       }
       for (const f of readdirSync(subdir)) {
-        if (!f.endsWith(".md")) continue;
+        if (!f.endsWith(".md")) {
+          continue;
+        }
         const dest = join(journalDir, f);
         if (!existsSync(dest)) {
           renameSync(join(subdir, f), dest);

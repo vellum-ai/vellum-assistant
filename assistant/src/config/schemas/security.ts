@@ -18,6 +18,14 @@ export const SecretDetectionConfigSchema = z
       .describe(
         "Whether to allow sending a detected secret once (with user confirmation) before redacting future occurrences",
       ),
+    blockTokenShapedMessages: z
+      .boolean({
+        error: "secretDetection.blockTokenShapedMessages must be a boolean",
+      })
+      .default(true)
+      .describe(
+        "Block messages whose entire content is a single token-shaped value (e.g. `virlo_tkn_…`) even when the prefix is not a known credential format",
+      ),
   })
   .describe(
     "Prefix-based secret detection at user-message ingress, plus one-time-send override for the secure credential prompt",

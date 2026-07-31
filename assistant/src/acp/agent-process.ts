@@ -31,6 +31,13 @@ const log = getLogger("acp");
 const AUTH_REQUIRED_CODE = -32000;
 
 /**
+ * Rough byte cap for retained stderr. Oldest lines are evicted once the sum of
+ * retained line lengths exceeds this, so the stderr ring (read via stderrSince)
+ * stays bounded.
+ */
+const STDERR_RETENTION_BYTES = 4096;
+
+/**
  * Detects the ACP auth-required error. Checks the `code` property rather than
  * `instanceof acp.RequestError` so plain JSON-RPC error objects are also
  * recognized.
@@ -68,6 +75,20 @@ export class AcpAgentProcess {
    * afterwards.
    */
   private spawnedEnv: NodeJS.ProcessEnv | null = null;
+
+  /**
+   * Ring of the most recent stderr lines, bounded to ~STDERR_RETENTION_BYTES.
+   * Read once on the failure path to surface the real adapter error. Each
+   * entry carries a monotonic `seq` so a caller can scope reads to lines
+   * produced after a checkpoint (see markStderr/stderrSince).
+   */
+  private stderrRing: { seq: number; text: string }[] = [];
+  private stderrRingBytes = 0;
+  /**
+   * Cumulative count of stderr lines ever retained, including ones later
+   * evicted. Assigned as each line's `seq`; markStderr() snapshots it.
+   */
+  private stderrSeq = 0;
 
   constructor(
     public readonly agentId: string,
@@ -108,6 +129,7 @@ export class AcpAgentProcess {
       const text = chunk.toString().trim();
       if (text) {
         log.error({ agentId: this.agentId, stderr: text }, "ACP agent stderr");
+        this.retainStderr(text);
       }
     });
 
@@ -122,6 +144,55 @@ export class AcpAgentProcess {
         "ACP agent process error",
       );
     });
+  }
+
+  /**
+   * Appends a stderr line to the ring, evicting oldest lines once the retained
+   * total exceeds STDERR_RETENTION_BYTES. Always keeps at least the newest line
+   * so a single oversized line is not fully dropped.
+   */
+  private retainStderr(text: string): void {
+    // Cap a single oversized line: the "keep newest" rule below never evicts it,
+    // so an untruncated multi-MB chunk would blow the ring budget and make the
+    // failure-path stderr scan (deriveFailureError) super-linear on huge input.
+    // Keep the TAIL: the adapter's error JSON / last line sits at the end, and
+    // deriveFailureError reads from the end, so dropping the head is lossless.
+    const line =
+      text.length > STDERR_RETENTION_BYTES
+        ? text.slice(-STDERR_RETENTION_BYTES)
+        : text;
+    this.stderrSeq += 1;
+    this.stderrRing.push({ seq: this.stderrSeq, text: line });
+    this.stderrRingBytes += Buffer.byteLength(line);
+    while (
+      this.stderrRingBytes > STDERR_RETENTION_BYTES &&
+      this.stderrRing.length > 1
+    ) {
+      const evicted = this.stderrRing.shift()!;
+      this.stderrRingBytes -= Buffer.byteLength(evicted.text);
+    }
+  }
+
+  /**
+   * Snapshots the current cumulative stderr line count. Pair with
+   * stderrSince() to read only stderr produced after this checkpoint, so a
+   * prompt's failure derives from its own stderr rather than lines retained
+   * from startup, resume, or an earlier (possibly cancelled) prompt.
+   */
+  markStderr(): number {
+    return this.stderrSeq;
+  }
+
+  /**
+   * Returns retained stderr lines produced after `mark` (a markStderr()
+   * checkpoint), joined by newlines. Best-effort: lines pushed after the mark
+   * but since evicted are simply absent; returns "" when nothing newer remains.
+   */
+  stderrSince(mark: number): string {
+    return this.stderrRing
+      .filter((e) => e.seq > mark)
+      .map((e) => e.text)
+      .join("\n");
   }
 
   /**
@@ -181,16 +252,22 @@ export class AcpAgentProcess {
    */
   private selectEnvVarAuthMethod(): AuthMethod | undefined {
     const env = this.spawnedEnv;
-    if (!env) return undefined;
+    if (!env) {
+      return undefined;
+    }
 
     return this.authMethods.find((method) => {
-      if (!isEnvVarMethod(method)) return false;
+      if (!isEnvVarMethod(method)) {
+        return false;
+      }
 
       // `vars` is required by the SDK type, but agent responses aren't
       // runtime-validated — tolerate an out-of-spec agent omitting it so the
       // caller gets the friendly auth error instead of a TypeError.
       const requiredVars = (method.vars ?? []).filter((v) => !v.optional);
-      if (requiredVars.length === 0) return false;
+      if (requiredVars.length === 0) {
+        return false;
+      }
 
       return requiredVars.every((v) => {
         const value = env[v.name];
@@ -219,7 +296,9 @@ export class AcpAgentProcess {
     try {
       return await op();
     } catch (err) {
-      if (!isAuthRequiredError(err)) throw err;
+      if (!isAuthRequiredError(err)) {
+        throw err;
+      }
 
       // The agent may have exited between the auth_required rejection and
       // this retry path; fail with the standard not-spawned error.
@@ -231,7 +310,7 @@ export class AcpAgentProcess {
           `ACP agent "${this.agentId}" requires authentication. ` +
             `Advertised methods: ${this.describeAuthMethods()}. ` +
             "Set the required env var under acp.agents.<id>.env in config.json, " +
-            "store it via 'assistant credentials set --service acp --field <field>', " +
+            "collect it securely via 'assistant credentials prompt --service acp --field <field> --label \"<label>\"', " +
             "or complete the agent's own login flow in the workspace.",
         );
       }
@@ -251,7 +330,9 @@ export class AcpAgentProcess {
    * `"Login with ChatGPT" (chatgpt), "Use OPENAI_API_KEY" (env var OPENAI_API_KEY)`.
    */
   private describeAuthMethods(): string {
-    if (this.authMethods.length === 0) return "none";
+    if (this.authMethods.length === 0) {
+      return "none";
+    }
 
     return this.authMethods
       .map((method) => {
@@ -368,7 +449,9 @@ export class AcpAgentProcess {
    * Whether the child process is still running.
    */
   get isAlive(): boolean {
-    if (!this.proc) return false;
+    if (!this.proc) {
+      return false;
+    }
     // ChildProcess.exitCode is null while process is still running
     // exitCode is null while the process is still running
     return this.proc.exitCode == null;

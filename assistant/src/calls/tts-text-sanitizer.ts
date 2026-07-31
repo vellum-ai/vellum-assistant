@@ -12,10 +12,7 @@ export function sanitizeForTts(text: string): string {
   //    Fish Audio S2 annotations ([laughter], [breath]) pass through.
   //    Handles multiple balanced parentheses groups in URLs (e.g. Wikipedia
   //    links, URL-encoded paths with multiple `(...)` segments).
-  result = result.replace(
-    /\[([^\]]+)\]\((?:[^()]*\([^()]*\))*[^()]*\)/g,
-    "$1",
-  );
+  result = result.replace(/\[([^\]]+)\]\((?:[^()]*\([^()]*\))*[^()]*\)/g, "$1");
 
   // 2. Bold+italic: ***text*** or ___text___ → text
   result = result.replace(/\*{3}(.+?)\*{3}/g, "$1");
@@ -38,10 +35,7 @@ export function sanitizeForTts(text: string): string {
         parts[i] = parts[i].replace(/^#{1,6}\s+/gm, "");
       } else {
         // Fence segment: strip the ``` markers but keep content untouched.
-        parts[i] = parts[i].replace(
-          /```[^\n]*\n([\s\S]*?)```\n?/,
-          "$1",
-        );
+        parts[i] = parts[i].replace(/```[^\n]*\n([\s\S]*?)```\n?/, "$1");
       }
     }
     result = parts.join("");
@@ -55,9 +49,11 @@ export function sanitizeForTts(text: string): string {
   result = result.replace(/^[-*]\s+/gm, "");
 
   // 7. Italic: *text* or _text_ → text
-  //    Word-boundary-aware to preserve arithmetic like `5 * 3` and identifiers like `my_var`.
-  result = result.replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, "$1");
-  result = result.replace(/(?<!\w)_([^_]+)_(?!\w)/g, "$1");
+  //    Word-boundary-aware with non-whitespace content edges, so arithmetic
+  //    like `5 * 3 and 4 * 2` and identifiers like `my_var` survive. Mirrors
+  //    the open-span rule in tts/speakable-segments.ts.
+  result = result.replace(/(?<!\w)\*([^\s*](?:[^*]*[^\s*])?)\*(?!\w)/g, "$1");
+  result = result.replace(/(?<!\w)_([^\s_](?:[^_]*[^\s_])?)_(?!\w)/g, "$1");
 
   // 8. Emojis: strip extended pictographic characters, variation selectors,
   //    zero-width joiners, skin tone modifiers, and regional indicator symbols (flags).

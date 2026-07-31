@@ -8,10 +8,11 @@
  * ToolDefinition or ToolContext types.
  */
 
+import type { AppDefinition } from "../../apps/app-store.js";
+import { getAppDirPath } from "../../apps/app-store.js";
 import { compileApp } from "../../bundler/app-compiler.js";
 import { generateAppIcon } from "../../media/app-icon-generator.js";
-import type { AppDefinition } from "../../memory/app-store.js";
-import { getAppDirPath } from "../../memory/app-store.js";
+import { getLogger } from "../../util/logger.js";
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -22,6 +23,13 @@ export interface ExecutorResult {
   isError: boolean;
   /** Optional status message for display (e.g. progress indicator). */
   status?: string;
+  /**
+   * App id this executor operated on, threaded to the post-execution
+   * side-effect hooks as a typed channel so they need not re-parse `content`
+   * to recover an id the skill script resolved from the active app. See
+   * `ToolExecutionResult.resolvedAppId`.
+   */
+  resolvedAppId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,7 +50,6 @@ export interface AppStoreWriter {
     icon?: string;
     schemaJson: string;
     htmlDefinition: string;
-    formatVersion?: number;
   }): AppDefinition;
   updateApp(
     id: string,
@@ -55,6 +62,11 @@ export interface AppStoreWriter {
   ): AppDefinition;
   deleteApp(id: string): void;
   writeAppFile(appId: string, path: string, content: string): void;
+  /**
+   * Associate a freshly created app with the conversation that created it.
+   * Optional so test doubles need not implement it; the real store does.
+   */
+  addAppConversationId?(appId: string, conversationId: string): boolean;
 }
 
 export type AppStore = AppStoreReader & AppStoreWriter;
@@ -158,6 +170,7 @@ export async function executeAppCreate(
   input: AppCreateInput,
   store: AppStore,
   proxyToolResolver?: ProxyResolver,
+  conversationId?: string,
 ): Promise<ExecutorResult> {
   // The model sometimes omits a name; resolve a sensible one rather than
   // erroring out so the build still succeeds. Users can rename via app_update.
@@ -210,8 +223,23 @@ export async function executeAppCreate(
     icon,
     schemaJson,
     htmlDefinition: "",
-    formatVersion: 2,
   });
+
+  // Associate the app with its conversation at creation so subsequent
+  // `app_*` calls in the same turn can resolve it even when the model omits
+  // `app_id` (see resolveAppId). Without this the link is only formed at
+  // `app_open`, leaving the create→update→refresh gap unresolvable.
+  // Best-effort: a failed association must never fail the create.
+  if (conversationId && store.addAppConversationId) {
+    try {
+      store.addAppConversationId(app.id, conversationId);
+    } catch (err) {
+      getLogger("app-executors").debug(
+        { err, appId: app.id, conversationId },
+        "Failed to associate app with conversation at create",
+      );
+    }
+  }
 
   // Scaffold multifile app with src/ files and compile to dist/
   const htmlSafeName = name
@@ -281,6 +309,7 @@ render(<App />, document.getElementById('app')!);
         ...nextStepsField,
       }),
       isError: false,
+      resolvedAppId: app.id,
     };
   }
 
@@ -306,6 +335,7 @@ render(<App />, document.getElementById('app')!);
             ...nextStepsField,
           }),
           isError: false,
+          resolvedAppId: app.id,
         };
       }
       return {
@@ -316,6 +346,7 @@ render(<App />, document.getElementById('app')!);
           ...nextStepsField,
         }),
         isError: false,
+        resolvedAppId: app.id,
       };
     } catch {
       // Preview emission failure is non-fatal - the app was created successfully.
@@ -328,6 +359,7 @@ render(<App />, document.getElementById('app')!);
           ...nextStepsField,
         }),
         isError: false,
+        resolvedAppId: app.id,
       };
     }
   }
@@ -338,6 +370,7 @@ render(<App />, document.getElementById('app')!);
       ...nextStepsField,
     }),
     isError: false,
+    resolvedAppId: app.id,
   };
 }
 
@@ -384,30 +417,20 @@ export async function executeAppRefresh(
   // the client side.
   const updated = store.updateApp(input.app_id, {});
 
-  // Multifile apps need an explicit compile so the LLM sees any errors
-  // (bad imports, syntax issues, etc.) instead of silently serving the
-  // stale scaffold placeholder from the initial app_create.
-  if (app.formatVersion === 2) {
-    const appDir = getAppDirPath(input.app_id);
-    const compileResult = await compileApp(appDir);
-    return {
-      content: JSON.stringify({
-        refreshed: true,
-        appId: updated.id,
-        name: updated.name,
-        ...compileResultPayload(compileResult),
-      }),
-      isError: false,
-    };
-  }
-
+  // Compile explicitly so the LLM sees any errors (bad imports, syntax
+  // issues, etc.) instead of silently serving the stale scaffold placeholder
+  // from the initial app_create.
+  const appDir = getAppDirPath(input.app_id);
+  const compileResult = await compileApp(appDir);
   return {
     content: JSON.stringify({
       refreshed: true,
       appId: updated.id,
       name: updated.name,
+      ...compileResultPayload(compileResult),
     }),
     isError: false,
+    resolvedAppId: updated.id,
   };
 }
 
@@ -462,31 +485,20 @@ export async function executeAppUpdate(
   // An empty update still bumps updatedAt, triggering a client surface refresh.
   const updated = store.updateApp(input.app_id, updates);
 
-  // Multifile apps recompile so the agent sees any errors from the edited
-  // source instead of serving a stale dist (mirrors app_refresh).
-  if (app.formatVersion === 2) {
-    const appDir = getAppDirPath(input.app_id);
-    const compileResult = await compileApp(appDir);
-    return {
-      content: JSON.stringify({
-        updated: true,
-        appId: updated.id,
-        name: updated.name,
-        description: updated.description,
-        ...compileResultPayload(compileResult),
-      }),
-      isError: false,
-    };
-  }
-
+  // Recompile so the agent sees any errors from the edited source instead of
+  // serving a stale dist (mirrors app_refresh).
+  const appDir = getAppDirPath(input.app_id);
+  const compileResult = await compileApp(appDir);
   return {
     content: JSON.stringify({
       updated: true,
       appId: updated.id,
       name: updated.name,
       description: updated.description,
+      ...compileResultPayload(compileResult),
     }),
     isError: false,
+    resolvedAppId: updated.id,
   };
 }
 
@@ -537,6 +549,7 @@ export async function executeAppGenerateIcon(
     return {
       content: JSON.stringify({ generated: true, appId: input.app_id }),
       isError: false,
+      resolvedAppId: input.app_id,
     };
   }
 

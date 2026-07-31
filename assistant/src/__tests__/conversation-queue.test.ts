@@ -9,105 +9,25 @@ import type {
   CheckpointInfo,
   ExitReason,
 } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
+import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede the Conversation import so Bun applies them at load time.
 // ---------------------------------------------------------------------------
-
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
 
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    memory: {
-      v2: { enabled: false },
-      retrieval: { scratchpadInjection: { enabled: true } },
-    },
-    conversations: { skipAutoRetitling: false },
-    timeouts: { permissionTimeoutSec: 1 },
-    skills: { entries: {}, allowBundled: true },
-    permissions: { mode: "workspace" },
-    daemon: {
-      startupSocketWaitMs: 5000,
-      stopTimeoutMs: 5000,
-      sigkillGracePeriodMs: 2000,
-      titleGenerationMaxTokens: 30,
-      standaloneRecording: true,
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+// Seed the workspace config for real: memory off so no memory subsystem work
+// runs inside these turns, and a short permission timeout so any permission
+// wait resolves quickly.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
+setConfig("timeouts", { permissionTimeoutSec: 1 });
 
 const capturedAddMessages: Array<{
   id: string;
@@ -115,6 +35,9 @@ const capturedAddMessages: Array<{
   content: string;
   metadata?: Record<string, unknown>;
 }> = [];
+
+/** Snapshot↔stream anchor advances recorded via `recordConversationPersistedSeq`. */
+const capturedPersistedSeqs: Array<{ id: string; seq: number }> = [];
 
 /**
  * Content substrings that should cause `addMessage` to throw — used to
@@ -148,7 +71,9 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -198,22 +123,61 @@ mock.module("../memory/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
   updateMessageContent: mock(() => {}),
+  recordConversationPersistedSeq: (id: string, seq: number) => {
+    capturedPersistedSeqs.push({ id, seq });
+  },
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
+}));
+
+const mockStampTurnOutcome = mock(() => {});
+
+mock.module("../telemetry/turn-outcome.js", () => ({
+  stampTurnOutcome: mockStampTurnOutcome,
 }));
 
 let linkAttachmentShouldThrow = false;
 let mockAttachmentIdCounter = 0;
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   AttachmentUploadError: class AttachmentUploadError extends Error {},
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
+  attachmentExists: () => false,
+  validateAttachmentUpload: () => ({ ok: true }),
+  scopeAttachmentToMessageConversation: () => null,
+  getAttachmentContent: () => null,
   linkAttachmentToMessage: () => {
     if (linkAttachmentShouldThrow) {
       throw new Error("Simulated linkAttachmentToMessage failure");
     }
+  },
+  createInlineAttachment: (
+    _conversationId: string,
+    _conversationCreatedAt: number,
+    filename: string,
+    mimeType: string,
+    dataBase64: string,
+  ) => {
+    if (linkAttachmentShouldThrow) {
+      throw new Error("Simulated createInlineAttachment failure");
+    }
+
+    return {
+      id: `att-inline-${++mockAttachmentIdCounter}`,
+      originalFilename: filename,
+      mimeType,
+      sizeBytes: Buffer.from(dataBase64, "base64").byteLength,
+      kind: mimeType.startsWith("image/")
+        ? "image"
+        : mimeType.startsWith("video/")
+          ? "video"
+          : "file",
+      thumbnailBase64: null,
+      createdAt: Date.now(),
+      filePath: `/tmp/${filename}`,
+    };
   },
   attachInlineAttachmentToMessage: (
     _messageId: string,
@@ -259,6 +223,12 @@ mock.module("../memory/retriever.js", () => ({
 
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     constructor() {}
     updateConfig() {}
     shouldCompact() {
@@ -298,7 +268,7 @@ interface CapturedUsageEvent {
 
 let capturedUsageEvents: CapturedUsageEvent[] = [];
 
-mock.module("../memory/llm-usage-store.js", () => ({
+mock.module("../persistence/llm-usage-store.js", () => ({
   recordUsageEvent: (input: { requestId: string | null; actor: string }) => {
     capturedUsageEvents.push({
       requestId: input.requestId,
@@ -383,25 +353,6 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
-}));
 
 // ---------------------------------------------------------------------------
 // Import Conversation AFTER mocks are registered.
@@ -425,7 +376,7 @@ type ConversationWithWorkspaceDeps = Conversation & {
 };
 
 function makeConversation(
-  sendToClient?: (msg: ServerMessage) => void,
+  sendToClient?: (msg: AssistantEvent) => void,
 ): Conversation {
   const provider = {
     name: "mock",
@@ -506,7 +457,9 @@ async function waitForCondition(
  */
 async function resolveRun(index: number) {
   const run = pendingRuns[index];
-  if (!run) throw new Error(`No pending run at index ${index}`);
+  if (!run) {
+    throw new Error(`No pending run at index ${index}`);
+  }
   // Emit the events runAgentLoop expects
   const assistantMsg: Message = {
     role: "assistant",
@@ -551,8 +504,8 @@ describe("Conversation message queue", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
 
     // Start first message — this will block on AgentLoop.run
     const p1 = conversation.processMessage({
@@ -600,9 +553,9 @@ describe("Conversation message queue", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
 
     // Start first message
     const p1 = conversation.processMessage({
@@ -673,11 +626,54 @@ describe("Conversation message queue", () => {
     expect(events3.some((e) => e.type === "message_complete")).toBe(true);
   });
 
+  test("[experimental] queued passthrough siblings from different client OS do NOT batch", async () => {
+    // Post-decouple, web/iOS/macOS all report interfaceId "web", so the
+    // interface-based batch split no longer separates them. A batched turn
+    // applies only the head's clientOs, so messages from different OS surfaces
+    // must split into separate runs rather than coalesce under one OS.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Two siblings on the same transport interface ("web") but different OS.
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      transport: { channelId: "vellum", interfaceId: "web", clientOs: "macos" },
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+      transport: { channelId: "vellum", interfaceId: "web", clientOs: "ios" },
+    });
+    expect(conversation.getQueueDepth()).toBe(2);
+
+    // Drain: msg-2 (macos) is the batch head; msg-3 (ios) has a different
+    // clientOs, so it must NOT join the batch.
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    // Three runs total (msg-1, msg-2, msg-3) — msg-3 was not batched with msg-2.
+    expect(pendingRuns.length).toBe(3);
+  });
+
   test("message_queued and message_dequeued events are emitted", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events2: ServerMessage[] = [];
+    const events2: AssistantEvent[] = [];
 
     // Start first message
     const p1 = conversation.processMessage({
@@ -692,21 +688,35 @@ describe("Conversation message queue", () => {
       content: "msg-2",
       onEvent: (e) => events2.push(e),
       requestId: "req-2",
+      clientMessageId: "cmid-2",
     });
     expect(result.queued).toBe(true);
+
+    // The enqueue is acked synchronously on the sender's sink, with the
+    // 1-based position and the sender's idempotency nonce echoed back.
+    const queued = events2.find((e) => e.type === "message_queued");
+    expect(queued).toEqual({
+      type: "message_queued",
+      conversationId: "conv-1",
+      requestId: "req-2",
+      position: 1,
+      clientMessageId: "cmid-2",
+    });
 
     // Complete first
     await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
-    // Check for message_dequeued with correct fields
+    // Check for message_dequeued with correct fields: the nonce from the
+    // enqueue round-trips onto the dequeue so clients can match by identity.
     const dequeued = events2.find((e) => e.type === "message_dequeued");
     expect(dequeued).toBeDefined();
     expect(dequeued).toEqual({
       type: "message_dequeued",
       conversationId: "conv-1",
       requestId: "req-2",
+      clientMessageId: "cmid-2",
     });
 
     // Complete second run so the conversation finishes cleanly
@@ -714,12 +724,62 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("hidden sends are never acked with message_queued and don't shift visible positions", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const hiddenEvents: AssistantEvent[] = [];
+    const visibleEvents: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Hidden sends stay invisible end-to-end: queued, but no ack event,
+    // matching their exclusion from list-messages queued snapshots.
+    const hidden = conversation.enqueueMessage({
+      content: "hidden-msg",
+      onEvent: (e) => hiddenEvents.push(e),
+      requestId: "req-hidden",
+      metadata: { hidden: true },
+    });
+    expect(hidden.queued).toBe(true);
+    expect(hiddenEvents.filter((e) => e.type === "message_queued")).toEqual([]);
+
+    // A visible send queued behind the hidden one is position 1: positions
+    // count visible items only, mirroring the cold-load queue snapshot.
+    const visible = conversation.enqueueMessage({
+      content: "visible-msg",
+      onEvent: (e) => visibleEvents.push(e),
+      requestId: "req-visible",
+    });
+    expect(visible.queued).toBe(true);
+    expect(conversation.getQueueDepth()).toBe(2);
+    const queuedAck = visibleEvents.find((e) => e.type === "message_queued");
+    expect(queuedAck).toMatchObject({
+      requestId: "req-visible",
+      position: 1,
+    });
+
+    // Drain so the conversation finishes cleanly.
+    await resolveRun(0);
+    await p1;
+    await waitForCondition(() => conversation.getQueueDepth() === 0);
+    for (let i = 1; i < pendingRuns.length; i++) {
+      await resolveRun(i);
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
   test("abort() clears the queue and sends generation_cancelled for each queued message", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
 
     // Start first message
     conversation.processMessage({
@@ -776,13 +836,20 @@ describe("Conversation message queue", () => {
       (e) => e.type === "conversation_error",
     );
     expect(conversationErr3).toBeUndefined();
+
+    // Settle the aborted in-flight run so its abort watchdog clears the
+    // real-time timer it armed. A leaked ~5s timer otherwise fires during a
+    // later test and drives this stale turn into commitTurnChanges, inflating
+    // the shared turnCommitCalls counter that other tests assert against.
+    await resolveRun(0);
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("conversation-scoped errors emit both conversation_error and generic error", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
 
     // Start a message — blocks on AgentLoop.run
     const p1 = conversation.processMessage({
@@ -848,9 +915,9 @@ describe("Conversation message queue", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
 
     // Start first message — blocks on AgentLoop.run
     const p1 = conversation.processMessage({
@@ -911,14 +978,69 @@ describe("Batched drain", () => {
     pendingRuns = [];
   });
 
+  test("stamps coalesced heads `batched` pointing at the batch-final turn", async () => {
+    mockStampTurnOutcome.mockClear();
+    const addMessagesBefore = capturedAddMessages.length;
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    // Start an in-flight turn so the next two messages queue behind it.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+    });
+
+    // Resolve msg-1 → the queued pair drains as one coalesced batch.
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    const batchUserIds = capturedAddMessages
+      .slice(addMessagesBefore)
+      .filter(
+        (m) =>
+          m.role === "user" &&
+          (m.content.includes("msg-2") || m.content.includes("msg-3")),
+      )
+      .map((m) => m.id);
+    expect(batchUserIds).toHaveLength(2);
+
+    // Exactly the head is stamped, pointing at the batch-final member. The
+    // final member (whose window carries the shared response) is unstamped,
+    // and the earlier single-message turn (msg-1) is never stamped.
+    expect(mockStampTurnOutcome).toHaveBeenCalledTimes(1);
+    expect(mockStampTurnOutcome).toHaveBeenCalledWith(
+      batchUserIds[0],
+      "batched",
+      { batchedInto: batchUserIds[1] },
+    );
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(mockStampTurnOutcome).toHaveBeenCalledTimes(1);
+  });
+
   test("mixed-interface queue splits into multiple batches at each interface boundary", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
-    const events4: ServerMessage[] = [];
-    const events5: ServerMessage[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
+    const events5: AssistantEvent[] = [];
 
     // Start in-flight message (msg-1)
     const p1 = conversation.processMessage({
@@ -1027,9 +1149,9 @@ describe("Batched drain", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsHello: ServerMessage[] = [];
-    const eventsSlash: ServerMessage[] = [];
-    const eventsWorld: ServerMessage[] = [];
+    const eventsHello: AssistantEvent[] = [];
+    const eventsSlash: AssistantEvent[] = [];
+    const eventsWorld: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({
@@ -1100,9 +1222,9 @@ describe("Batched drain", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsPlainA: ServerMessage[] = [];
-    const eventsSlash: ServerMessage[] = [];
-    const eventsPlainB: ServerMessage[] = [];
+    const eventsPlainA: AssistantEvent[] = [];
+    const eventsSlash: AssistantEvent[] = [];
+    const eventsPlainB: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({
@@ -1257,8 +1379,11 @@ describe("Batched drain", () => {
     await conversation.loadFromDb();
 
     const budget = 4000;
-    (conversation as unknown as { queue: MessageQueue }).queue =
-      new MessageQueue(budget);
+    (
+      conversation as unknown as {
+        queue: MessageQueue;
+      }
+    ).queue = new MessageQueue(budget);
 
     // Start in-flight so subsequent enqueues are queued (not processed).
     const p1 = conversation.processMessage({
@@ -1282,7 +1407,7 @@ describe("Batched drain", () => {
     // A third would push the queue over budget → rejected. Capture its
     // onEvent callback so we can verify the queue_full error event reaches
     // the rejected caller (not just the synchronous return value).
-    const rejectedEvents: ServerMessage[] = [];
+    const rejectedEvents: AssistantEvent[] = [];
     const rejected = conversation.enqueueMessage({
       content: "z".repeat(500),
       onEvent: (e) => rejectedEvents.push(e),
@@ -1360,8 +1485,8 @@ describe("Batched drain correctness fixes", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsSurface: ServerMessage[] = [];
-    const eventsRegular: ServerMessage[] = [];
+    const eventsSurface: AssistantEvent[] = [];
+    const eventsRegular: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({
@@ -1424,10 +1549,10 @@ describe("Batched drain correctness fixes", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
-    const events4: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({
@@ -1455,7 +1580,7 @@ describe("Batched drain correctness fixes", () => {
     // this before enqueueing so the wrapped callback is what drainBatch
     // invokes.
     let aborted = false;
-    const onMsg3Event = (e: ServerMessage) => {
+    const onMsg3Event = (e: AssistantEvent) => {
       events3.push(e);
       if (!aborted && e.type === "message_dequeued") {
         aborted = true;
@@ -1503,10 +1628,10 @@ describe("Batched drain correctness fixes", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
-    const events4: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
 
     // Start in-flight message
     const p1 = conversation.processMessage({
@@ -1566,10 +1691,10 @@ describe("Batched drain correctness fixes", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
-    const events4: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
 
     const p1 = conversation.processMessage({
       content: "msg-1",
@@ -1618,7 +1743,7 @@ describe("Batched drain correctness fixes", () => {
   });
 
   test("drainBatch emits exactly one activity-state event for the whole batch", async () => {
-    const activityStates: ServerMessage[] = [];
+    const activityStates: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => {
       if ("type" in msg && msg.type === "assistant_activity_state") {
         activityStates.push(msg);
@@ -1809,7 +1934,7 @@ describe("Conversation checkpoint handoff", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
 
     // Start processing first message
     const p1 = conversation.processMessage({
@@ -1894,10 +2019,10 @@ describe("Conversation checkpoint handoff", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
-    const events3: ServerMessage[] = [];
-    const events4: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
 
     // Start first message (mid-tool-use — will yield at the next checkpoint)
     const p1 = conversation.processMessage({
@@ -1964,8 +2089,8 @@ describe("Conversation checkpoint handoff", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const events1: ServerMessage[] = [];
-    const events2: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
 
     // Start processing first message
     const p1 = conversation.processMessage({
@@ -2033,9 +2158,11 @@ describe("Conversation checkpoint handoff", () => {
 
     const dequeueOrder: string[] = [];
 
-    const eventsA: ServerMessage[] = [];
-    const makeHandler = (label: string) => (e: ServerMessage) => {
-      if (e.type === "message_dequeued") dequeueOrder.push(label);
+    const eventsA: AssistantEvent[] = [];
+    const makeHandler = (label: string) => (e: AssistantEvent) => {
+      if (e.type === "message_dequeued") {
+        dequeueOrder.push(label);
+      }
     };
 
     // Start processing message A
@@ -2142,9 +2269,9 @@ describe("Conversation checkpoint handoff", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsA: ServerMessage[] = [];
-    const eventsB: ServerMessage[] = [];
-    const eventsC: ServerMessage[] = [];
+    const eventsA: AssistantEvent[] = [];
+    const eventsB: AssistantEvent[] = [];
+    const eventsC: AssistantEvent[] = [];
 
     // Start processing message A
     const pA = conversation.processMessage({
@@ -2229,56 +2356,6 @@ describe("Conversation usage requestId correlation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Terminal trace events on rejection/failure paths
-// ---------------------------------------------------------------------------
-
-describe("Terminal trace events on rejection/failure", () => {
-  beforeEach(() => {
-    pendingRuns = [];
-  });
-
-  test("queued persist failure emits request_error trace", async () => {
-    const traceEvents: ServerMessage[] = [];
-    const conversation = makeConversation((msg) => {
-      if ("type" in msg && msg.type === "trace_event") traceEvents.push(msg);
-    });
-    await conversation.loadFromDb();
-
-    // Start first message
-    const p1 = conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      requestId: "req-1",
-    });
-    await waitForPendingRun(1);
-
-    // Enqueue empty content (will fail persistUserMessage)
-    conversation.enqueueMessage({ content: "", requestId: "req-bad" });
-    // Enqueue valid message so drain continues
-    conversation.enqueueMessage({ content: "msg-3", requestId: "req-3" });
-
-    // Complete first — triggers drain, empty msg fails persist
-    await resolveRun(0);
-    await p1;
-    await waitForPendingRun(2);
-
-    // Should have a request_error trace for the failed persist
-    const errorTrace = traceEvents.find(
-      (e) =>
-        "kind" in e &&
-        e.kind === "request_error" &&
-        "requestId" in e &&
-        e.requestId === "req-bad",
-    );
-    expect(errorTrace).toBeDefined();
-
-    // Cleanup
-    await resolveRun(1);
-    await new Promise((r) => setTimeout(r, 10));
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Host attachment approval tests
 // ---------------------------------------------------------------------------
 
@@ -2292,8 +2369,8 @@ describe("Conversation host attachment directives", () => {
     writeFileSync(hostPath, "host attachment content");
 
     try {
-      const clientEvents: ServerMessage[] = [];
-      const events: ServerMessage[] = [];
+      const clientEvents: AssistantEvent[] = [];
+      const events: AssistantEvent[] = [];
       const conversation = makeConversation((msg) => clientEvents.push(msg));
       await conversation.loadFromDb();
 
@@ -2362,8 +2439,8 @@ describe("Conversation host attachment directives", () => {
     writeFileSync(hostPath, "host attachment content");
 
     try {
-      const clientEvents: ServerMessage[] = [];
-      const events: ServerMessage[] = [];
+      const clientEvents: AssistantEvent[] = [];
+      const events: AssistantEvent[] = [];
       const conversation = makeConversation((msg) => clientEvents.push(msg));
       await conversation.loadFromDb();
 
@@ -2450,7 +2527,7 @@ describe("Conversation attachment event payloads", () => {
   });
 
   test("message_complete includes assistant attachments", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -2513,7 +2590,7 @@ describe("Conversation attachment event payloads", () => {
   });
 
   test("generation_handoff includes assistant attachments", async () => {
-    const events1: ServerMessage[] = [];
+    const events1: AssistantEvent[] = [];
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -2597,7 +2674,7 @@ describe("Regression: cancel semantics and error channel split", () => {
   });
 
   test("user cancellation emits generation_cancelled, never conversation_error", async () => {
-    const msgEvents: ServerMessage[] = [];
+    const msgEvents: AssistantEvent[] = [];
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -2631,7 +2708,7 @@ describe("Regression: cancel semantics and error channel split", () => {
   });
 
   test("post-processing failure still attempts turn-boundary commit", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     const conversation = makeConversation();
     await conversation.loadFromDb();
     linkAttachmentShouldThrow = true;
@@ -2686,7 +2763,7 @@ describe("Regression: cancel semantics and error channel split", () => {
   });
 
   test("provider failure during processing emits both conversation_error and generic error", async () => {
-    const allEvents: ServerMessage[] = [];
+    const allEvents: AssistantEvent[] = [];
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -2717,7 +2794,7 @@ describe("Regression: cancel semantics and error channel split", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const eventsPerMsg: ServerMessage[][] = [[], [], []];
+    const eventsPerMsg: AssistantEvent[][] = [[], [], []];
 
     conversation.processMessage({
       content: "msg-1",
@@ -2747,6 +2824,13 @@ describe("Regression: cancel semantics and error channel split", () => {
       );
       expect(conversationErr).toBeUndefined();
     }
+
+    // Settle the aborted in-flight run so its abort watchdog clears the
+    // real-time timer it armed. A leaked ~5s timer otherwise fires during a
+    // later test and drives this stale turn into commitTurnChanges, inflating
+    // the shared turnCommitCalls counter that other tests assert against.
+    await resolveRun(0);
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("commitTurnChanges never resolving within budget -> turn still completes and drains queue", async () => {
@@ -2767,8 +2851,8 @@ describe("Regression: cancel semantics and error channel split", () => {
 
       turnCommitHangForever = true;
 
-      const events1: ServerMessage[] = [];
-      const events2: ServerMessage[] = [];
+      const events1: AssistantEvent[] = [];
+      const events2: AssistantEvent[] = [];
 
       // Start first message (promise intentionally not awaited — we test queue drain behavior)
       const _p1 = conversation.processMessage({
@@ -2903,5 +2987,330 @@ describe("MessageQueue byte budget", () => {
     expect(
       q.push(makeItem("y".repeat(100), "r2", [{ data: "b".repeat(100) }])),
     ).toBe(false);
+  });
+});
+
+describe("persisted-seq anchor advance on user_message_echo", () => {
+  beforeEach(() => {
+    pendingRuns = [];
+    capturedAddMessages.length = 0;
+    capturedPersistedSeqs.length = 0;
+  });
+
+  test("drained message advances the anchor to its echo's stamped seq", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const eventsQueued: AssistantEvent[] = [];
+    // Mirror `broadcastMessage`'s inline stamp so `getCurrentSeq()` read
+    // right after the emit is this echo's seq, as in production.
+    const stampingOnEvent = (sink: AssistantEvent[]) => (e: AssistantEvent) => {
+      stampAndBuffer(e as unknown as Parameters<typeof stampAndBuffer>[0]);
+      sink.push(e);
+    };
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: stampingOnEvent(events1),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "ordinary message",
+      onEvent: stampingOnEvent(eventsQueued),
+      requestId: "req-queued",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    const echo = eventsQueued.find((e) => e.type === "user_message_echo") as
+      | (AssistantEvent & { seq?: number })
+      | undefined;
+    const echoSeq = echo?.seq;
+    if (typeof echoSeq !== "number") {
+      throw new Error("user_message_echo was not stamped with a seq");
+    }
+    // The snapshot↔stream anchor now covers the echo: a `/messages` fetch
+    // served after this point carries the row AND an anchor at (not below)
+    // the echo's seq, so clients comparing the anchor against their fold
+    // watermark no longer classify the fetch as stale.
+    expect(capturedPersistedSeqs).toContainEqual({
+      id: "conv-1",
+      seq: echoSeq,
+    });
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("echo-suppressed drained rows do not advance the anchor", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const eventsNotif: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+    const advancesAfterFirstDrain = capturedPersistedSeqs.length;
+
+    conversation.enqueueMessage({
+      content: '[Subagent "research" completed]',
+      onEvent: (e) => eventsNotif.push(e),
+      requestId: "req-notif",
+      metadata: {
+        subagentNotification: {
+          subagentId: "sub-1",
+          label: "research",
+          status: "completed",
+        },
+      },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // No echo event exists for the suppressed row, so there is no seq the
+    // anchor could truthfully advance to — it must stay where it was.
+    expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+    expect(capturedPersistedSeqs.length).toBe(advancesAfterFirstDrain);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+});
+
+describe("subagent notification user_message_echo suppression", () => {
+  beforeEach(() => {
+    pendingRuns = [];
+    capturedAddMessages.length = 0;
+  });
+
+  test("drained subagent-notification message persists and wakes the agent but emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const eventsNotif: AssistantEvent[] = [];
+
+    // Occupy the conversation so the injected notification queues.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+    expect(conversation.isProcessing()).toBe(true);
+
+    // A daemon-injected subagent completion notification carries
+    // `subagentNotification` metadata.
+    conversation.enqueueMessage({
+      content: '[Subagent "research" completed]',
+      onEvent: (e) => eventsNotif.push(e),
+      requestId: "req-notif",
+      metadata: {
+        subagentNotification: {
+          subagentId: "sub-1",
+          label: "research",
+          status: "completed",
+        },
+      },
+    });
+
+    // Resolving the first run drains the queued notification.
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // It is still persisted (so the orchestrator LLM sees it in the transcript)
+    // and still wakes the agent (a run was created for the drained message)...
+    expect(
+      capturedAddMessages.some((m) => m.content.includes("Subagent")),
+    ).toBe(true);
+    expect(pendingRuns.length).toBe(2);
+    // ...but no user_message_echo is broadcast, so the client never renders it
+    // as a live user bubble.
+    expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained ordinary message still emits user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const eventsNormal: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "ordinary message",
+      onEvent: (e) => eventsNormal.push(e),
+      requestId: "req-normal",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(eventsNormal.some((e) => e.type === "user_message_echo")).toBe(true);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained hidden message persists with hidden metadata and emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const eventsHidden: AssistantEvent[] = [];
+
+    // Occupy the conversation so the hidden send queues — e.g. the user
+    // closes the channel-setup wizard while the assistant is mid-turn.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // A hidden `POST /messages` send carries `hidden: true` metadata through
+    // the queue branch (see conversation-routes.ts).
+    conversation.enqueueMessage({
+      content:
+        "[User action on channel_setup surface: closed the slack setup wizard]",
+      onEvent: (e) => eventsHidden.push(e),
+      requestId: "req-hidden",
+      metadata: { hidden: true },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Persisted with the hidden flag so the transcript filter keeps it out
+    // of the rendered history...
+    const persisted = capturedAddMessages.find((m) =>
+      m.content.includes("channel_setup"),
+    );
+    expect(persisted?.metadata?.hidden).toBe(true);
+    // ...the agent still wakes on it...
+    expect(pendingRuns.length).toBe(2);
+    // ...and no user_message_echo is broadcast, so no visible user bubble.
+    expect(eventsHidden.some((e) => e.type === "user_message_echo")).toBe(
+      false,
+    );
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained acp-notification message persists and wakes the agent but emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const eventsNotif: AssistantEvent[] = [];
+
+    // Occupy the conversation so the injected notification queues.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // A daemon-injected ACP completion notification carries `acpNotification`.
+    conversation.enqueueMessage({
+      content: '[ACP agent "claude" completed]',
+      onEvent: (e) => eventsNotif.push(e),
+      requestId: "req-acp-notif",
+      metadata: {
+        acpNotification: { acpSessionId: "acp-1", agent: "claude" },
+      },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Still persisted (so the orchestrator LLM sees it) and still wakes the
+    // agent...
+    expect(
+      capturedAddMessages.some((m) => m.content.includes("ACP agent")),
+    ).toBe(true);
+    expect(pendingRuns.length).toBe(2);
+    // ...but no user_message_echo, so the client never renders a live bubble.
+    expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained background-tool wake message persists and wakes the agent but emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const eventsNotif: AssistantEvent[] = [];
+
+    // Occupy the conversation so the injected wake queues.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // The backgrounded bash/host_bash completion wake persists a
+    // `<background_event source="background-tool">` row, tagged with the
+    // `backgroundEventSource` metadata `persistWakeTriggerMessage` writes.
+    conversation.enqueueMessage({
+      content:
+        '<background_event source="background-tool">Background command completed (id=bg-1, exit=0):</background_event>',
+      onEvent: (e) => eventsNotif.push(e),
+      requestId: "req-bg-notif",
+      metadata: { backgroundEventSource: "background-tool" },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Still persisted (so the orchestrator LLM sees it) and still wakes the
+    // agent...
+    expect(
+      capturedAddMessages.some((m) => m.content.includes("background_event")),
+    ).toBe(true);
+    expect(pendingRuns.length).toBe(2);
+    // ...but no user_message_echo, so the client never renders a live bubble.
+    expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
   });
 });

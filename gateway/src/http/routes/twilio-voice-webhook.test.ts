@@ -3,12 +3,18 @@
  *
  * Validates that:
  * - Inbound calls (no callSessionId) resolve the assistant by "To" phone number
- *   for gateway routing decisions (reject/default/forward).
- * - When phone-number lookup misses, fallback routing (defaultAssistantId /
- *   unmapped policy) is applied instead of silently forwarding with no assistant.
+ *   for gateway routing decisions.
+ * - When phone-number lookup misses, the standard routing chain is applied
+ *   instead of silently forwarding with no assistant.
  * - Outbound calls (callSessionId present) do not resolve or forward an assistantId.
  * - Validation failures are propagated as responses.
  * - Assistant IDs are NOT forwarded to the daemon (daemon uses internal scope).
+ * - The `no_one` admission kill switch rejects inbound voice with <Reject> TwiML.
+ *
+ * Kill-switch testing note: `phone` is an enforced admission channel. The
+ * tests mock `isAdmissionPolicyExemptChannel` and the admission-policy cache
+ * directly (rather than standing up a real store) so each test can flip the
+ * resolved floor / flag in isolation.
  */
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { resolvePublicBaseWssUrl } from "../../runtime/client.js";
@@ -60,6 +66,28 @@ mock.module("../../voice/verification.js", () => ({
   gatherVerificationTwiml: () => "<Response/>",
 }));
 
+// ── Admission-policy mocks (kill switch) ───────────────────────────────
+// Mutable knobs so individual tests can flip the flag / exempt state /
+// resolved policy without re-mocking. Defaults keep the kill switch a no-op
+// (flag off) so the pre-existing routing tests are unaffected.
+let flagEnabled = false;
+let phoneExempt = false;
+let phonePolicy = "everyone";
+
+mock.module("../../feature-flag-resolver.js", () => ({
+  isFeatureFlagEnabled: (flag: string) =>
+    flag === "channel-trust-floors" ? flagEnabled : false,
+}));
+
+mock.module("@vellumai/gateway-client", () => ({
+  isAdmissionPolicyExemptChannel: (channel: string) =>
+    channel === "phone" ? phoneExempt : false,
+}));
+
+mock.module("../../risk/admission-policy-cache.js", () => ({
+  getAdmissionPolicyCache: () => ({ get: () => phonePolicy }),
+}));
+
 import { createTwilioVoiceWebhookHandler } from "./twilio-voice-webhook.js";
 import type { GatewayConfig } from "../../config.js";
 import type { ConfigFileCache } from "../../config-file-cache.js";
@@ -68,7 +96,6 @@ import type { ConfigFileCache } from "../../config-file-cache.js";
 
 const baseConfig: GatewayConfig = {
   assistantRuntimeBaseUrl: "http://127.0.0.1:7821",
-  defaultAssistantId: undefined,
   gatewayInternalBaseUrl: "http://127.0.0.1:7830",
   logFile: { dir: undefined, retentionDays: 30 },
   maxAttachmentBytes: {
@@ -86,7 +113,6 @@ const baseConfig: GatewayConfig = {
   runtimeProxyRequireAuth: true,
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
-  unmappedPolicy: "reject",
   trustProxy: false,
 };
 
@@ -130,6 +156,9 @@ describe("twilio voice webhook handler", () => {
     lastForwardedParams = undefined;
     _lastForwardedOriginalUrl = undefined;
     forwardCalled = false;
+    flagEnabled = false;
+    phoneExempt = false;
+    phonePolicy = "everyone";
   });
 
   test("inbound call resolves assistant by To number and forwards to daemon", async () => {
@@ -151,33 +180,9 @@ describe("twilio voice webhook handler", () => {
     expect(lastForwardedParams?.CallSid).toBe("CA_inbound_1");
   });
 
-  test("inbound call with unknown To number is rejected when unmappedPolicy is reject", async () => {
+  test("inbound call with unknown To number falls through to the local assistant", async () => {
     const handler = createTwilioVoiceWebhookHandler(
       baseConfig,
-      makeCachesWithPhoneNumbers(),
-    );
-    const req = makeVoiceRequest({
-      CallSid: "CA_inbound_2",
-      From: "+14155551234",
-      To: "+19999999999",
-    });
-
-    const res = await handler(req);
-
-    expect(res.status).toBe(200);
-    const body = await res.text();
-    expect(body).toContain("<Reject");
-    expect(forwardCalled).toBe(false);
-  });
-
-  test("inbound call with unknown To number uses defaultAssistantId when unmappedPolicy is default", async () => {
-    const configWithDefault: GatewayConfig = {
-      ...baseConfig,
-      unmappedPolicy: "default",
-      defaultAssistantId: "fallback-assistant",
-    };
-    const handler = createTwilioVoiceWebhookHandler(
-      configWithDefault,
       makeCachesWithPhoneNumbers(),
     );
     const req = makeVoiceRequest({
@@ -190,6 +195,25 @@ describe("twilio voice webhook handler", () => {
 
     expect(res.status).toBe(200);
     // Gateway resolves fallback for routing, forwards call to daemon without assistantId
+    expect(forwardCalled).toBe(true);
+  });
+
+  test("anonymous inbound call (no From) still routes to the local assistant", async () => {
+    // Caller-ID-withheld call: no `From` to route on. resolveAssistant
+    // fail-closes on the missing identity, but a voice line is intentionally
+    // open, so the handler answers via the local assistant.
+    const handler = createTwilioVoiceWebhookHandler(
+      baseConfig,
+      makeCachesWithPhoneNumbers(),
+    );
+    const req = makeVoiceRequest({
+      CallSid: "CA_inbound_anon",
+      To: "+12015550199",
+    });
+
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
     expect(forwardCalled).toBe(true);
   });
 
@@ -251,11 +275,33 @@ describe("twilio voice webhook handler", () => {
     expect(forwardCalled).toBe(true);
   });
 
-  test("inbound call without assistantPhoneNumbers config is rejected when unmappedPolicy is reject", async () => {
-    // No configFile cache means no phone number mapping — falls through to unmapped policy.
+  test("inbound call without assistantPhoneNumbers falls through to the local assistant", async () => {
+    // No configFile cache means no phone number mapping — falls through to the
+    // standard routing chain, which resolves locally.
     const handler = createTwilioVoiceWebhookHandler(baseConfig);
     const req = makeVoiceRequest({
-      CallSid: "CA_inbound_4",
+      CallSid: "CA_inbound_5",
+      From: "+14155551234",
+      To: "+15550001111",
+    });
+
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(forwardCalled).toBe(true);
+  });
+
+  test("inbound call is rejected when phone admission policy is no_one (flag on, enforced)", async () => {
+    flagEnabled = true;
+    phoneExempt = false; // phone is enforced
+    phonePolicy = "no_one";
+
+    const handler = createTwilioVoiceWebhookHandler(
+      baseConfig,
+      makeCachesWithPhoneNumbers(),
+    );
+    const req = makeVoiceRequest({
+      CallSid: "CA_no_one",
       From: "+14155551234",
       To: "+15550001111",
     });
@@ -268,18 +314,65 @@ describe("twilio voice webhook handler", () => {
     expect(forwardCalled).toBe(false);
   });
 
-  test("inbound call without assistantPhoneNumbers uses defaultAssistantId when unmappedPolicy is default", async () => {
-    const configNoMappingWithDefault: GatewayConfig = {
-      ...baseConfig,
-      unmappedPolicy: "default",
-      defaultAssistantId: "fallback-assistant",
-    };
-    const handler = createTwilioVoiceWebhookHandler(configNoMappingWithDefault);
+  test("inbound call falls through to forwarding when policy is not no_one (flag on, enforced)", async () => {
+    flagEnabled = true;
+    phoneExempt = false;
+    phonePolicy = "everyone";
+
+    const handler = createTwilioVoiceWebhookHandler(
+      baseConfig,
+      makeCachesWithPhoneNumbers(),
+    );
     const req = makeVoiceRequest({
-      CallSid: "CA_inbound_5",
+      CallSid: "CA_everyone",
       From: "+14155551234",
       To: "+15550001111",
     });
+
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(forwardCalled).toBe(true);
+  });
+
+  test("kill switch is skipped if a channel is exempt even with policy no_one", async () => {
+    flagEnabled = true;
+    phoneExempt = true; // exercise the defensive exempt branch
+    phonePolicy = "no_one";
+
+    const handler = createTwilioVoiceWebhookHandler(
+      baseConfig,
+      makeCachesWithPhoneNumbers(),
+    );
+    const req = makeVoiceRequest({
+      CallSid: "CA_exempt",
+      From: "+14155551234",
+      To: "+15550001111",
+    });
+
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(forwardCalled).toBe(true);
+  });
+
+  test("outbound call (callSessionId present) is never kill-switched", async () => {
+    flagEnabled = true;
+    phoneExempt = false;
+    phonePolicy = "no_one";
+
+    const handler = createTwilioVoiceWebhookHandler(
+      baseConfig,
+      makeCachesWithPhoneNumbers(),
+    );
+    const req = makeVoiceRequest(
+      {
+        CallSid: "CA_outbound_no_one",
+        From: "+15550001111",
+        To: "+14155559999",
+      },
+      "?callSessionId=existing-session-id",
+    );
 
     const res = await handler(req);
 

@@ -79,8 +79,8 @@ export class CredentialWatcher {
     this.startWatcher(protectedDir, "store.key");
 
     // Watch keys.enc for credential writes. When credentials are re-saved
-    // with the same values (e.g. in-chat credential_store re-entering
-    // existing tokens), the serialized credential values won't change —
+    // with the same values (e.g. re-entering existing tokens), the
+    // serialized credential values won't change —
     // but the encrypted ciphertext will (new IV). Force a full reload so
     // channel listeners restart even when the plaintext values match.
     this.startWatcher(protectedDir, "keys.enc", { forceChanged: true });

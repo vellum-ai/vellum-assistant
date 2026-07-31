@@ -1,11 +1,6 @@
-import {
-  setPlatformAssistantId,
-  setPlatformBaseUrl,
-  setPlatformOrganizationId,
-  setPlatformUserId,
-} from "../config/env.js";
+import { maybeDefaultSpeechToManaged } from "../config/managed-speech-defaults.js";
+import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
 import type { AssistantConfig } from "../config/types.js";
-import { setSentryOrganizationId, setSentryUserId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { gmailMessagingProvider } from "../messaging/providers/gmail/adapter.js";
 import { outlookMessagingProvider } from "../messaging/providers/outlook/adapter.js";
@@ -14,8 +9,7 @@ import { telegramBotMessagingProvider } from "../messaging/providers/telegram-bo
 import { whatsappMessagingProvider } from "../messaging/providers/whatsapp/adapter.js";
 import { registerMessagingProvider } from "../messaging/registry.js";
 import { initializeProviders } from "../providers/registry.js";
-import { credentialKey } from "../security/credential-key.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { validateSubagentRoleAllowlists } from "../subagent/validate-allowlists.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { initializeTools, registerMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -27,8 +21,6 @@ import { googleCalendarProvider } from "../watcher/providers/google-calendar.js"
 import { linearProvider } from "../watcher/providers/linear.js";
 import { outlookProvider } from "../watcher/providers/outlook.js";
 import { outlookCalendarProvider } from "../watcher/providers/outlook-calendar.js";
-import { startMeetHost } from "./meet-host-startup.js";
-
 const log = getLogger("lifecycle");
 
 export async function initializeProvidersAndTools(
@@ -36,93 +28,38 @@ export async function initializeProvidersAndTools(
 ): Promise<void> {
   log.info("Daemon startup: initializing providers and tools");
 
-  // Register meet-join via the lazy-external path. The skill runs as a
-  // separate `bun run` subprocess; the daemon installs proxy
-  // tools/routes/shutdown-hooks here that dispatch over the skill IPC
-  // socket on first use. Failures are non-fatal: the daemon continues
-  // without meet tools and surfaces the cause in the log.
-  void startMeetHost().catch((err) => {
-    log.error(
-      { err },
-      "Failed to register meet-join; daemon will continue without meet tools",
-    );
-  });
+  // Rehydrate the platform base URL and IDs from the credential store so
+  // managed proxy activation survives assistant restarts. The in-memory
+  // overrides are normally only set by the secret-routes handlers at runtime.
+  await rehydratePlatformCredentials();
 
-  // Rehydrate the platform base URL from the credential store so managed
-  // proxy activation survives assistant restarts. The in-memory override is
-  // normally only set by handleAddSecret/handleDeleteSecret at runtime.
-  try {
-    const key = credentialKey("vellum", "platform_base_url");
-    const persisted = await getSecureKeyAsync(key);
-    if (persisted) {
-      setPlatformBaseUrl(persisted);
-      log.info("Rehydrated platform base URL from credential store");
-    }
-  } catch (err) {
-    log.warn(
-      { error: err instanceof Error ? err.message : String(err) },
-      "Failed to rehydrate platform base URL from credential store (non-fatal)",
-    );
-  }
-
-  // Rehydrate the platform assistant ID from the credential store so
-  // getPlatformAssistantId() returns the correct value after restarts.
-  try {
-    const key = credentialKey("vellum", "platform_assistant_id");
-    const persisted = await getSecureKeyAsync(key);
-    const trimmed = persisted?.trim();
-    if (trimmed) {
-      setPlatformAssistantId(trimmed);
-      log.info("Rehydrated platform assistant ID from credential store");
-    }
-  } catch (err) {
-    log.warn(
-      { error: err instanceof Error ? err.message : String(err) },
-      "Failed to rehydrate platform assistant ID from credential store (non-fatal)",
-    );
-  }
-
-  // Rehydrate the platform organization ID from the credential store so
-  // Sentry events include organization context after restarts.
-  try {
-    const key = credentialKey("vellum", "platform_organization_id");
-    const persisted = await getSecureKeyAsync(key);
-    const trimmed = persisted?.trim();
-    if (trimmed) {
-      setPlatformOrganizationId(trimmed);
-      setSentryOrganizationId(trimmed);
-      log.info("Rehydrated platform organization ID from credential store");
-    }
-  } catch (err) {
-    log.warn(
-      { error: err instanceof Error ? err.message : String(err) },
-      "Failed to rehydrate platform organization ID from credential store (non-fatal)",
-    );
-  }
-
-  // Rehydrate the platform user ID from the credential store so
-  // telemetry events include user context after restarts.
-  try {
-    const key = credentialKey("vellum", "platform_user_id");
-    const persisted = await getSecureKeyAsync(key);
-    const trimmed = persisted?.trim();
-    if (trimmed) {
-      setPlatformUserId(trimmed);
-      setSentryUserId(trimmed);
-      log.info("Rehydrated platform user ID from credential store");
-    }
-  } catch (err) {
-    log.warn(
-      { error: err instanceof Error ? err.message : String(err) },
-      "Failed to rehydrate platform user ID from credential store (non-fatal)",
-    );
-  }
+  // Speech defaulting normally fires when the platform credentials land
+  // (secret-routes); evaluating it once per boot also covers assistants whose
+  // connection predates that trigger, so voice works for every connected
+  // assistant with no configured speech credentials. Idempotent, and detached
+  // per the startup philosophy — must not block boot.
+  void maybeDefaultSpeechToManaged();
 
   await initializeProviders(config);
   // initializeTools() also loads workspace tool overrides from
   // `<workspaceDir>/tools/` once core tools have settled, so they own
   // their names before the MCP / plugin registrations below run.
   await initializeTools();
+
+  // Validate subagent role tool-allowlists against the now-registered core
+  // tool set (every allowlisted name is a core manifest tool, so they are
+  // all present at this point). A renamed tool would otherwise silently strip a
+  // role's access — the stale name just never matches. Warn-and-continue per
+  // the daemon startup philosophy: a stale allowlist is a logic bug, not a
+  // reason to refuse boot.
+  try {
+    validateSubagentRoleAllowlists();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Subagent role allowlist validation failed — continuing startup",
+    );
+  }
 
   // Start MCP servers and register their tools
   if (config.mcp?.servers && Object.keys(config.mcp.servers).length > 0) {

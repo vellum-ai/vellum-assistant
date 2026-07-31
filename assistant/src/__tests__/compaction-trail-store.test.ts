@@ -8,42 +8,26 @@
  * asserts the right subset comes back.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { createConversation } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { createConversation } from "../persistence/conversation-crud.js";
+import { getDb, getLogsDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getCompactionLogsBetween,
+  getRequestLogMetaById,
   recordRequestLog,
-} from "../memory/llm-request-log-store.js";
-import { llmRequestLogs } from "../memory/schema.js";
+} from "../persistence/llm-request-log-store.js";
+import { llmRequestLogs } from "../persistence/schema/index.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
-  db.delete(llmRequestLogs).run();
+  // llm_request_logs lives in the dedicated logs connection.
+  getLogsDb()!.delete(llmRequestLogs).run();
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
 }
@@ -56,22 +40,24 @@ function insertLogAt(
   conversationId: string,
   createdAt: number,
   callSite: "mainAgent" | "compactionAgent" | null,
+  requestPayload = "{}",
 ): string {
+  // Logging is enabled in these tests, so the write always returns an id.
   const id = recordRequestLog(
     conversationId,
-    "{}",
+    requestPayload,
     "{}",
     undefined,
     "anthropic",
     callSite ?? undefined,
-  );
+  )!;
   // Use the Drizzle update builder rather than `db.run("UPDATE … ?")` —
   // the drizzle wrapper doesn't accept positional parameters the same
   // way `bun:sqlite` does, and a silent no-op there manifests as zero
   // rows in the query under test (the inserted `created_at` keeps its
   // `Date.now()` value and ends up far in the future of the cutoff).
-  const db = getDb();
-  db.update(llmRequestLogs)
+  getLogsDb()!
+    .update(llmRequestLogs)
     .set({ createdAt })
     .where(eq(llmRequestLogs.id, id))
     .run();
@@ -182,5 +168,76 @@ describe("getCompactionLogsBetween", () => {
   test("returns an empty array for an unknown conversation_id", () => {
     const result = getCompactionLogsBetween("nonexistent-conv", null, 500);
     expect(result).toEqual([]);
+  });
+
+  test("computes requestMessageCount in SQL without returning the request payload", () => {
+    // GIVEN compaction rows whose request payloads use each provider
+    // shape (Anthropic/OpenAI `messages`, Gemini `contents`, OpenAI
+    // Responses `input`), plus rows where the count can't be derived
+    const conv = createConversation("msg-count");
+    insertLogAt(
+      conv.id,
+      100,
+      "compactionAgent",
+      JSON.stringify({ messages: [{}, {}, {}] }),
+    );
+    insertLogAt(
+      conv.id,
+      200,
+      "compactionAgent",
+      JSON.stringify({ contents: [{}, {}] }),
+    );
+    insertLogAt(
+      conv.id,
+      300,
+      "compactionAgent",
+      JSON.stringify({ input: [{}] }),
+    );
+    insertLogAt(conv.id, 400, "compactionAgent", "not-json{{{");
+    insertLogAt(conv.id, 500, "compactionAgent", JSON.stringify({}));
+
+    // WHEN querying the trail window
+    const result = getCompactionLogsBetween(conv.id, null, 600);
+
+    // THEN each row carries the SQL-computed message count (null when
+    // the payload is malformed or has no known message array)
+    expect(result.map((r) => r.requestMessageCount)).toEqual([
+      3,
+      2,
+      1,
+      null,
+      null,
+    ]);
+    // AND the rows never include the request payload column
+    for (const row of result) {
+      expect("requestPayload" in row).toBe(false);
+    }
+  });
+});
+
+describe("getRequestLogMetaById", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test("returns the row's metadata without either payload column", () => {
+    // GIVEN a stored log row
+    const conv = createConversation("meta-lookup");
+    const id = insertLogAt(conv.id, 100, "compactionAgent", '{"big":true}');
+
+    // WHEN looking it up by id
+    const row = getRequestLogMetaById(id);
+
+    // THEN the metadata comes back payload-free
+    expect(row).not.toBeNull();
+    expect(row!.id).toBe(id);
+    expect(row!.conversationId).toBe(conv.id);
+    expect(row!.createdAt).toBe(100);
+    expect("requestPayload" in row!).toBe(false);
+    expect("responsePayload" in row!).toBe(false);
+  });
+
+  test("returns null for an unknown id", () => {
+    expect(getRequestLogMetaById("nonexistent")).toBeNull();
   });
 });

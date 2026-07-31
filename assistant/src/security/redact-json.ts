@@ -56,6 +56,8 @@ function walk(value: unknown, state: RedactionState): unknown {
 
 function redactString(value: string, state: RedactionState): string {
   const redacted = redactSecrets(value);
-  if (redacted !== value) state.changed = true;
+  if (redacted !== value) {
+    state.changed = true;
+  }
   return redacted;
 }

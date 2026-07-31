@@ -25,12 +25,13 @@ import {
   addMessage,
   createConversation,
   getConversation,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   getBindingByChannelChat,
   upsertOutboundBinding,
-} from "../memory/external-conversation-store.js";
+} from "../persistence/external-conversation-store.js";
 import { getLogger } from "../util/logger.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
   composeConversationSeed,
   isConversationSeedSane,
@@ -146,12 +147,14 @@ export async function pairDeliveryWithConversation(
       signal.conversationMetadata?.conversationType ??
       (strategy === "start_new_conversation" ? "standard" : "background");
 
-    // Prefer model-provided conversationSeedMessage when present and sane;
-    // fall back to the runtime composer which adapts verbosity to the
-    // delivery surface (vellum/macos = richer, telegram = compact).
-    const messageContent = isConversationSeedSane(copy.conversationSeedMessage)
-      ? copy.conversationSeedMessage
-      : composeConversationSeed(signal, channel, copy);
+    // Structured content blocks take precedence — they enable Surface-based
+    // rendering in the web/macOS/iOS apps (e.g. a card widget instead of
+    // plain text). Falls back to model-provided seed or runtime composer.
+    const messageContent = copy.seedContentBlocks
+      ? JSON.stringify(copy.seedContentBlocks)
+      : isConversationSeedSane(copy.conversationSeedMessage)
+        ? copy.conversationSeedMessage
+        : composeConversationSeed(signal, channel, copy);
 
     // Attempt to reuse an existing conversation when the model requests it
     if (conversationAction?.action === "reuse_existing") {
@@ -212,13 +215,17 @@ export async function pairDeliveryWithConversation(
         "Conversation reuse target invalid — falling back to new conversation",
       );
 
-      const conversation = createConversation({
-        title,
-        conversationType,
-        source: signal.conversationMetadata?.source ?? "notification",
-        groupId: signal.conversationMetadata?.groupId,
-        scheduleJobId: signal.conversationMetadata?.scheduleJobId,
-      });
+      const conversation = await withSqliteRetry(
+        () =>
+          createConversation({
+            title,
+            conversationType,
+            source: signal.conversationMetadata?.source ?? "notification",
+            groupId: signal.conversationMetadata?.groupId,
+            scheduleJobId: signal.conversationMetadata?.scheduleJobId,
+          }),
+        { op: "conversationPairing.reuseFallback" },
+      );
 
       const message = await addMessage(
         conversation.id,
@@ -378,13 +385,17 @@ export async function pairDeliveryWithConversation(
     // Default path: create a new conversation
     // Memory indexing is skipped on the seed message below to prevent
     // notification copy from polluting conversational recall.
-    const conversation = createConversation({
-      title,
-      conversationType,
-      source: signal.conversationMetadata?.source ?? "notification",
-      groupId: signal.conversationMetadata?.groupId,
-      scheduleJobId: signal.conversationMetadata?.scheduleJobId,
-    });
+    const conversation = await withSqliteRetry(
+      () =>
+        createConversation({
+          title,
+          conversationType,
+          source: signal.conversationMetadata?.source ?? "notification",
+          groupId: signal.conversationMetadata?.groupId,
+          scheduleJobId: signal.conversationMetadata?.scheduleJobId,
+        }),
+      { op: "conversationPairing.default" },
+    );
 
     // Skip memory indexing — notification audit messages are not conversational
     // memory and should not pollute recall or incur embedding/extraction overhead.

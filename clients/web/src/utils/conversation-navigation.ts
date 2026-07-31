@@ -1,0 +1,99 @@
+import type { NavigateFunction } from "react-router";
+
+import { haptic } from "@/utils/haptics";
+import { routes } from "@/utils/routes";
+
+import { requestComposerFocus } from "@/domains/chat/composer-focus";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { getSoundManager } from "@/lib/sounds/sound-manager";
+
+export interface NavigateToConversationOptions {
+  /** Anchor the transcript to a specific message on load. */
+  messageId?: string;
+  /**
+   * Suppress the haptic tap. For callers that already fired their own haptic
+   * at action start (e.g. fork), so the navigation doesn't double-buzz.
+   */
+  silent?: boolean;
+}
+
+/**
+ * Navigate to an existing conversation, resetting stale viewer state (main
+ * view, subagent / workflow panels) and updating the active conversation in
+ * the store.
+ *
+ * Pure imperative function — reads stores via `.getState()`, no React hooks.
+ */
+export function navigateToConversation(
+  navigate: NavigateFunction,
+  conversationId: string,
+  options?: NavigateToConversationOptions,
+): void {
+  if (!options?.silent) {
+    haptic.light();
+  }
+  useViewerStore.getState().setMainView("chat");
+  // Only wipe per-conversation process state on a genuine switch. Wiping on
+  // a same-conversation navigation kills the inline cards for subagents
+  // that are still running: the store repopulates only from live SSE
+  // events, so the spawned entries can't come back mid-run (LUM-2875).
+  if (
+    conversationId !== useConversationStore.getState().activeConversationId
+  ) {
+    useSubagentStore.getState().reset();
+    useWorkflowStore.getState().reset();
+  }
+  useConversationStore.getState().setActiveConversationId(conversationId);
+  void navigate(
+    options?.messageId
+      ? routes.conversationAtMessage(conversationId, options.messageId)
+      : routes.conversation(conversationId),
+  );
+}
+
+export interface NavigateToNewConversationOptions {
+  silent?: boolean;
+  /** When provided, auto-sends this message in the new conversation. */
+  prompt?: string;
+}
+
+/**
+ * Create a fresh draft conversation and navigate to it.
+ *
+ * Always resets subagent state (a subagent detail panel from a prior
+ * conversation must not persist into the new draft). When `silent` is true
+ * (e.g. fallback after archiving the active conversation), the haptic tap
+ * is suppressed.
+ *
+ * When `prompt` is provided, the URL includes a `?prompt=` search param that
+ * `useAutoSendEffects` picks up to fire the message once the conversation is
+ * mounted.
+ *
+ * Pure imperative function — reads stores via `.getState()`, no React hooks.
+ */
+export function navigateToNewConversation(
+  navigate: NavigateFunction,
+  options?: NavigateToNewConversationOptions,
+): void {
+  if (!options?.silent) {
+    haptic.light();
+    void getSoundManager().play("new_conversation");
+  }
+  useViewerStore.getState().setMainView("chat");
+  useSubagentStore.getState().reset();
+  useWorkflowStore.getState().reset();
+  const draftId = createDraftConversationId();
+  useConversationStore.getState().setActiveConversationId(draftId);
+
+  let path: string = routes.conversation(draftId);
+  if (options?.prompt) {
+    const params = new URLSearchParams({ prompt: options.prompt });
+    path = `${path}?${params.toString()}`;
+  }
+  void navigate(path);
+  requestComposerFocus();
+}

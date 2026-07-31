@@ -22,10 +22,13 @@ import {
   queryNodes,
 } from "../src/memory/graph/store.js";
 import type { ScoredNode } from "../src/memory/graph/types.js";
-import { initQdrantClient, resolveQdrantUrl } from "../src/memory/qdrant-client.js";
+import {
+  initQdrantClient,
+  resolveQdrantUrl,
+} from "../src/memory/qdrant-client.js";
 
 // Initialize DB and Qdrant before anything else
-initializeDb();
+await initializeDb();
 const config = getConfig();
 try {
   initQdrantClient({
@@ -83,7 +86,7 @@ async function main() {
   } else if (args.includes("--narrative")) {
     await runNarrative();
   } else if (args.includes("--decay")) {
-    runDecay();
+    await runDecay();
   } else {
     console.log(`Memory Graph Inspector
 
@@ -109,12 +112,10 @@ Commands:
 // ---------------------------------------------------------------------------
 
 function showList() {
-  const scopeId = "default";
   const typeIdx = args.indexOf("--type");
   const typeFilter = typeIdx >= 0 ? args[typeIdx + 1] : undefined;
 
   const allNodes = queryNodes({
-    scopeId,
     fidelityNot: ["gone"],
     limit: 100000,
   });
@@ -142,20 +143,24 @@ function showList() {
 function relativeAge(epochMs: number): string {
   const elapsed = Date.now() - epochMs;
   const mins = Math.floor(elapsed / 60_000);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) {
+    return `${mins}m ago`;
+  }
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
   const days = Math.floor(hours / 24);
-  if (days <= 90) return `${days}d ago`;
+  if (days <= 90) {
+    return `${days}d ago`;
+  }
   const months = Math.floor(days / 30);
   return `${months}mo ago`;
 }
 
 async function showStats() {
-  const scopeId = "default";
-  const total = countNodes(scopeId);
+  const total = countNodes();
   const allNodes = queryNodes({
-    scopeId,
     fidelityNot: ["gone"],
     limit: 100000,
   });
@@ -175,7 +180,7 @@ async function showStats() {
   // Edges are counted twice (once per endpoint), so halve
   totalEdges = Math.floor(totalEdges / 2);
 
-  console.log(`\n  Memory Graph Stats (scope: ${scopeId})`);
+  console.log(`\n  Memory Graph Stats`);
   console.log(`  ${"─".repeat(40)}`);
   console.log(`  Total nodes: ${total}`);
   console.log(`  Total edges: ${totalEdges}`);
@@ -211,12 +216,12 @@ async function showStats() {
 }
 
 async function showContextLoad() {
-  const { loadContextMemory } = await import("../src/memory/graph/retriever.js");
+  const { loadContextMemory } =
+    await import("../src/memory/graph/retriever.js");
 
   console.log("\n  Simulating context load (conversation start)...\n");
 
   const result = await loadContextMemory({
-    scopeId: "default",
     recentSummaries: [], // No recent summaries for standalone test
     config,
   });
@@ -227,7 +232,8 @@ async function showContextLoad() {
   console.log(`  Triggered: ${result.triggeredNodes.length} triggers fired`);
 
   // Show assembled context
-  const { assembleContextBlock } = await import("../src/memory/graph/injection.js");
+  const { assembleContextBlock } =
+    await import("../src/memory/graph/injection.js");
   const block = assembleContextBlock(result.nodes, {
     serendipityNodes: result.serendipityNodes,
   });
@@ -245,7 +251,8 @@ async function showContextLoad() {
 
 async function showQuery(query: string) {
   const { embedWithRetry } = await import("../src/memory/embed.js");
-  const { searchGraphNodes } = await import("../src/memory/graph/graph-search.js");
+  const { searchGraphNodes } =
+    await import("../src/memory/graph/graph-search.js");
   const { getNodesByIds } = await import("../src/memory/graph/store.js");
 
   console.log(`\n  Searching: "${query}"\n`);
@@ -319,9 +326,12 @@ function showNode(nodeId: string) {
   console.log(
     `  Emotional: valence=${node.emotionalCharge.valence.toFixed(2)} intensity=${node.emotionalCharge.intensity.toFixed(2)} curve=${node.emotionalCharge.decayCurve}`,
   );
-  if (node.narrativeRole)
+  if (node.narrativeRole) {
     console.log(`  Narrative role: ${node.narrativeRole}`);
-  if (node.partOfStory) console.log(`  Part of story: ${node.partOfStory}`);
+  }
+  if (node.partOfStory) {
+    console.log(`  Part of story: ${node.partOfStory}`);
+  }
   console.log(`  Source conversations: ${node.sourceConversations.length}`);
   console.log(`\n  Content:\n  ${node.content}\n`);
 
@@ -369,7 +379,8 @@ function showNode(nodeId: string) {
 async function showTurn(userMessage: string) {
   const { retrieveForTurn } = await import("../src/memory/graph/retriever.js");
   const { InContextTracker } = await import("../src/memory/graph/injection.js");
-  const { assembleInjectionBlock } = await import("../src/memory/graph/injection.js");
+  const { assembleInjectionBlock } =
+    await import("../src/memory/graph/injection.js");
 
   const tracker = new InContextTracker();
 
@@ -378,7 +389,6 @@ async function showTurn(userMessage: string) {
   const result = await retrieveForTurn({
     assistantLastMessage: "",
     userLastMessage: userMessage,
-    scopeId: "default",
     config,
     tracker,
   });
@@ -440,7 +450,8 @@ async function runBootstrap() {
 }
 
 async function runJournalBootstrap() {
-  const { bootstrapFromJournal } = await import("../src/memory/graph/bootstrap.js");
+  const { bootstrapFromJournal } =
+    await import("../src/memory/graph/bootstrap.js");
 
   console.log("\n  Extracting from journal files...\n");
   const result = await bootstrapFromJournal();
@@ -450,7 +461,8 @@ async function runJournalBootstrap() {
 }
 
 async function runConsolidate() {
-  const { runConsolidation } = await import("../src/memory/graph/consolidation.js");
+  const { runConsolidation } =
+    await import("../src/memory/graph/consolidation.js");
   console.log("\n  Running consolidation...\n");
   const result = await runConsolidation("default", config);
   console.log(
@@ -469,7 +481,8 @@ async function runConsolidate() {
 }
 
 async function runPatterns() {
-  const { runPatternScan } = await import("../src/memory/graph/pattern-scan.js");
+  const { runPatternScan } =
+    await import("../src/memory/graph/pattern-scan.js");
   console.log("\n  Running pattern scan...\n");
   const result = await runPatternScan("default", config);
   console.log(
@@ -481,7 +494,8 @@ async function runPatterns() {
 }
 
 async function runNarrative() {
-  const { runNarrativeRefinement } = await import("../src/memory/graph/narrative.js");
+  const { runNarrativeRefinement } =
+    await import("../src/memory/graph/narrative.js");
   console.log("\n  Running narrative refinement...\n");
   const result = await runNarrativeRefinement("default", config);
   console.log(
@@ -500,9 +514,8 @@ async function runNarrative() {
   console.log();
 }
 
-function runDecay() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { runDecayTick } = require("../src/memory/graph/decay.js") as typeof import("../src/memory/graph/decay.js");
+async function runDecay() {
+  const { runDecayTick } = await import("../src/memory/graph/decay.js");
   console.log("\n  Running decay tick...\n");
   const result = runDecayTick("default");
   console.log(`  Nodes processed: ${result.nodesProcessed}`);
@@ -516,7 +529,9 @@ function runDecay() {
 // ---------------------------------------------------------------------------
 
 function printScoredNodes(nodes: ScoredNode[]) {
-  if (nodes.length === 0) return;
+  if (nodes.length === 0) {
+    return;
+  }
   console.log(`  Scored nodes:`);
   for (const s of nodes) {
     const b = s.scoreBreakdown;

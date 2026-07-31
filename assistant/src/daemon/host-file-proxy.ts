@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import type { HostFileRequestEvent } from "../api/events/host-file.js";
 import {
   assistantEventHub,
   broadcastMessage,
@@ -15,7 +16,6 @@ import { readImageBase64 } from "../tools/shared/filesystem/image-read.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import type { HostFileRequest } from "./message-types/host-file.js";
 
 /** Distributive omit that preserves union variant fields. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
@@ -24,7 +24,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 
 /** Clean input type for callers — transport envelope fields are added by the proxy. */
 export type HostFileInput = DistributiveOmit<
-  HostFileRequest,
+  HostFileRequestEvent,
   "type" | "requestId" | "conversationId"
 >;
 
@@ -126,7 +126,9 @@ export class HostFileProxy {
         targetClientId: resolvedTargetClientId,
         op: "host_file",
       });
-      if (rejection) return Promise.resolve(rejection);
+      if (rejection) {
+        return Promise.resolve(rejection);
+      }
     }
 
     const requestId = uuid();
@@ -277,19 +279,22 @@ export class HostFileProxy {
   dispose(): void {
     for (const entry of pendingInteractions.getByKind("host_file")) {
       pendingInteractions.resolve(entry.requestId, "cancelled");
+      const { conversationId } = entry;
       try {
-        broadcastMessage(
-          {
-            type: "host_file_cancel",
-            requestId: entry.requestId,
-            conversationId: entry.conversationId,
-            ...(entry.targetClientId != null
-              ? { targetClientId: entry.targetClientId }
-              : {}),
-          },
-          entry.conversationId,
-          { targetClientId: entry.targetClientId as string | undefined },
-        );
+        if (conversationId !== undefined) {
+          broadcastMessage(
+            {
+              type: "host_file_cancel",
+              requestId: entry.requestId,
+              conversationId,
+              ...(entry.targetClientId != null
+                ? { targetClientId: entry.targetClientId }
+                : {}),
+            },
+            conversationId,
+            { targetClientId: entry.targetClientId as string | undefined },
+          );
+        }
       } catch {
         // Best-effort cancel notification
       }

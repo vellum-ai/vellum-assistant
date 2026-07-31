@@ -9,19 +9,10 @@ let mockIdentityRequests: { id: string }[] = [];
 let routeGuardianReplyCalls: unknown[] = [];
 let deliverChannelReplyCalls: unknown[][] = [];
 
-mock.module("../../../memory/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationChat: () =>
+mock.module("../../../channels/gateway-guardian-requests.js", () => ({
+  listPendingRequestsByDestinationOrEmpty: async () =>
     mockDeliveryScopedRequests,
-  listCanonicalGuardianRequests: () => mockIdentityRequests,
-}));
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
+  listGuardianRequestsOrEmpty: async () => mockIdentityRequests,
 }));
 
 mock.module("../../gateway-client.js", () => ({
@@ -85,7 +76,7 @@ describe("handleGuardianReplyIntercept", () => {
     deliverChannelReplyCalls = [];
   });
 
-  test("passes empty pendingRequestIds when Slack guardian sends message in non-delivery chat", async () => {
+  test("passes a blocked scope when Slack guardian sends message in non-delivery chat", async () => {
     // No delivery-scoped requests for this chat
     mockDeliveryScopedRequests = [];
     // Identity-based lookup would find a pending request in a different chat
@@ -95,8 +86,8 @@ describe("handleGuardianReplyIntercept", () => {
 
     expect(routeGuardianReplyCalls).toHaveLength(1);
     const ctx = routeGuardianReplyCalls[0] as Record<string, unknown>;
-    // Must be [] (empty array), NOT undefined — blocks identity fallback
-    expect(ctx.pendingRequestIds).toEqual([]);
+    // Must be a blocked scope, NOT undefined — blocks identity fallback
+    expect(ctx.pendingScope).toEqual({ mode: "blocked" });
   });
 
   test("preserves identity fallback for non-Slack channels when no deliveries exist", async () => {
@@ -110,11 +101,11 @@ describe("handleGuardianReplyIntercept", () => {
 
     expect(routeGuardianReplyCalls).toHaveLength(1);
     const ctx = routeGuardianReplyCalls[0] as Record<string, unknown>;
-    // Must be undefined — identity-based fallback stays active
-    expect(ctx.pendingRequestIds).toBeUndefined();
+    // Must be unset — identity-based fallback stays active
+    expect(ctx.pendingScope).toBeUndefined();
   });
 
-  test("includes identity-unioned pendingRequestIds when Slack guardian is in delivery chat", async () => {
+  test("passes an identity-unioned scoped set when Slack guardian is in delivery chat", async () => {
     mockDeliveryScopedRequests = [{ id: "delivered-req" }];
     mockIdentityRequests = [
       { id: "delivered-req" },
@@ -125,7 +116,7 @@ describe("handleGuardianReplyIntercept", () => {
 
     expect(routeGuardianReplyCalls).toHaveLength(1);
     const ctx = routeGuardianReplyCalls[0] as Record<string, unknown>;
-    const ids = ctx.pendingRequestIds as string[];
+    const ids = (ctx.pendingScope as { requestIds: string[] }).requestIds;
     expect(ids).toContain("delivered-req");
     expect(ids).toContain("identity-only-req");
   });

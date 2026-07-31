@@ -36,7 +36,11 @@ const PUSH_TIMEOUT_MS = 15_000;
 /** Extract the `taskId` query parameter from a callback URL. */
 function parseTaskId(callbackUrl: string): string | null {
   try {
-    return new URL(callbackUrl).searchParams.get("taskId");
+    // Dummy base so base-less callbacks (e.g. `/deliver/a2a?taskId=…`) parse the
+    // same as absolute ones — consistent with `callbackContext` in the dispatcher.
+    return new URL(callbackUrl, "http://callback.invalid").searchParams.get(
+      "taskId",
+    );
   } catch {
     return null;
   }
@@ -87,7 +91,9 @@ async function pushNotification(
         signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
       });
 
-      if (response.ok) return;
+      if (response.ok) {
+        return;
+      }
 
       const body = await response.text().catch(() => "");
       lastError = new Error(

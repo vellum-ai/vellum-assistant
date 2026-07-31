@@ -8,25 +8,15 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mock logger before importing any code that uses it.
 // ---------------------------------------------------------------------------
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Imports under test
 // ---------------------------------------------------------------------------
-
 import { setStorePathForTesting } from "../../__tests__/encrypted-store-test-helpers.js";
 import { _resetBackend, getProviderKeyAsync } from "../secure-keys.js";
 
@@ -53,13 +43,16 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
     "BRAVE_API_KEY",
     "PERPLEXITY_API_KEY",
     "TAVILY_API_KEY",
+    "FIRECRAWL_API_KEY",
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
   ];
 
   beforeEach(() => {
     // Fresh encrypted store (no saved credentials → forces env-var fallback).
-    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true });
+    }
     mkdirSync(TEST_DIR, { recursive: true });
     setStorePathForTesting(STORE_PATH);
     _resetBackend();
@@ -85,7 +78,9 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
   });
 
   afterAll(() => {
-    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    if (existsSync(TEST_DIR)) {
+      rmSync(TEST_DIR, { recursive: true });
+    }
   });
 
   test("returns BRAVE_API_KEY from process.env when secure store is empty", async () => {
@@ -101,6 +96,11 @@ describe("getProviderKeyAsync env-var fallback (regression #27126)", () => {
   test("returns TAVILY_API_KEY from process.env when secure store is empty", async () => {
     process.env.TAVILY_API_KEY = "tavily-env-test";
     expect(await getProviderKeyAsync("tavily")).toBe("tavily-env-test");
+  });
+
+  test("returns FIRECRAWL_API_KEY from process.env when secure store is empty", async () => {
+    process.env.FIRECRAWL_API_KEY = "fc-env-test";
+    expect(await getProviderKeyAsync("firecrawl")).toBe("fc-env-test");
   });
 
   test("returns ANTHROPIC_API_KEY from process.env when secure store is empty (LLM regression)", async () => {

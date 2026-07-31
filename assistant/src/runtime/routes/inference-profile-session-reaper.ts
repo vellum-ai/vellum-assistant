@@ -12,7 +12,7 @@
  */
 
 import { findConversation } from "../../daemon/conversation-registry.js";
-import { clearExpiredInferenceProfiles } from "../../memory/conversation-crud.js";
+import { clearExpiredInferenceProfiles } from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
 import { publishConversationInferenceProfileChanged } from "../sync/resource-sync-events.js";
 
@@ -63,9 +63,13 @@ export function tickInferenceProfileReaper(): void {
  * it multiple times reuses the same timer.
  */
 export function startInferenceProfileSessionReaper(): void {
-  if (reaperTimer) return;
+  if (reaperTimer) {
+    return;
+  }
   reaperTimer = setInterval(() => {
-    if (reaperInProgress) return;
+    if (reaperInProgress) {
+      return;
+    }
     reaperInProgress = true;
     try {
       tickInferenceProfileReaper();

@@ -3,6 +3,8 @@
  * transport ↔ channel-invite-transports/* cycles (×5).
  */
 
+import type { CommandIntent, SourceMetadata } from "@vellumai/gateway-client";
+
 import type { ChannelId } from "../channels/types.js";
 
 export interface InviteShareLink {
@@ -31,9 +33,9 @@ export interface ChannelInviteAdapter {
    * channels with link-based invites.
    */
   extractInboundToken?(params: {
-    commandIntent?: Record<string, unknown>;
+    commandIntent?: CommandIntent;
     content: string;
-    sourceMetadata?: Record<string, unknown>;
+    sourceMetadata?: SourceMetadata;
   }): string | undefined;
 
   /**

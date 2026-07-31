@@ -2,14 +2,16 @@ import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
-  TWILIO_RELAY_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
-import { A2A_AGENT_CARD_PATH } from "../http/routes/a2a-routes.js";
+import {
+  A2A_AGENT_CARD_PATH,
+  buildAgentCard,
+} from "../http/routes/a2a-routes.js";
 import { buildSchema } from "../schema.js";
+import { buildMarkedContactRoutes } from "./helpers/contact-route-table.js";
 
 /** A route extracted from source: path + optional HTTP method. */
 interface ExtractedRoute {
@@ -19,19 +21,22 @@ interface ExtractedRoute {
 
 const ROUTE_PATH_CONSTANTS: Record<string, string> = {
   A2A_AGENT_CARD_PATH,
-  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
-  TWILIO_RELAY_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
+  // A regex rather than a literal, shared with the WebSocket upgrade branch
+  // so the two halves of the plugin surface cannot disagree. Given here in
+  // the converted form the extractor would have produced from it inline.
+  PLUGIN_WEBHOOK_PATH_PATTERN: "/webhooks/plugins/{param1}/{param2}",
 };
 
 /**
  * Extracts route paths from the gateway index.ts source code.
  *
- * Routes are defined in two places:
+ * Routes are defined in three places:
  * 1. The `routes` array (RouteDefinition[]) — matched by the router
  * 2. Pre-router paths in the `fetch()` handler (healthz, readyz, schema, WS upgrades)
+ * 3. The contact-family route table spread into the array (imported directly)
  *
  * We parse the source text rather than importing index.ts because it calls
  * `main()` at module scope which starts the server.
@@ -101,7 +106,30 @@ function extractRoutesFromSource(): ExtractedRoute[] {
     }
   }
 
+  // The contact family is registered via a spread of the shared route table;
+  // extract it from the real builder rather than source text.
+  if (!src.includes("...buildContactsControlPlaneRoutes(")) {
+    throw new Error(
+      "index.ts no longer spreads buildContactsControlPlaneRoutes — update this guard",
+    );
+  }
+  routes.push(...extractContactTableRoutes());
+
   return routes;
+}
+
+/** Contact-family routes from the builder index.ts spreads. */
+function extractContactTableRoutes(): ExtractedRoute[] {
+  return buildMarkedContactRoutes().flatMap((route) => {
+    const method = route.method ?? null;
+    if (typeof route.path === "string") {
+      return [{ path: route.path, method }];
+    }
+    const converted = regexToOpenApiPath(
+      route.path.source.replace(/^\^/, "").replace(/\$$/, ""),
+    );
+    return converted ? [{ path: converted, method }] : [];
+  });
 }
 
 /**
@@ -171,6 +199,12 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   "catch-all",
   // Loopback-only pairing endpoint — not part of the public gateway API
   "/v1/pair",
+  // Loopback-only remote web pairing challenge — not part of the public gateway API
+  "/v1/remote-web/pairing-challenge",
+  // Remote web pairing verification bootstrap — not part of the public gateway API
+  "/v1/remote-web/pairing-verification",
+  // Remote web pairing token bootstrap — not part of the public gateway API
+  "/v1/remote-web/pairing-token",
   // Loopback-only device management — not part of the public gateway API
   "/v1/devices",
   "/v1/devices/revoke",
@@ -180,6 +214,14 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   "/v1/contacts/guardian/channel",
   // BFF token auth — loopback-only, not part of the public gateway API
   "/auth/token",
+  // Managed-speech relay — daemon-only WS egress to velay, rejected on any
+  // ingress path; not part of the public gateway API
+  "/v1/speech/stt/stream",
+  "/v1/speech/tts/stream",
+  // Plugin-declared webhooks — which paths exist is decided at runtime by the
+  // installed plugins and the guardian's approvals, so there is no fixed set
+  // to document. The declaration schema is the contract, not this path.
+  "/webhooks/plugins/{param1}/{param2}",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──
@@ -303,12 +345,47 @@ describe("route-schema sync guard", () => {
     expect(stale).toEqual([]);
   });
 
+  // The agent card is fetched by peers, so every interface URL it advertises
+  // is a promise that the gateway serves that path. Falling through to the
+  // runtime-proxy catch-all does not count: the daemon serves no A2A protocol
+  // route, so an unregistered path reaches the peer as a 404.
+  test("agent card advertises only interface URLs the gateway serves", () => {
+    const card = buildAgentCard("Alice");
+
+    expect(
+      unservedInterfacePaths(card.supported_interfaces, routePaths),
+    ).toEqual([]);
+  });
+
+  test("advertised-interface check flags a URL with no registered route", () => {
+    const unserved = unservedInterfacePaths(
+      [{ url: "https://assistant.example.com/a2a/message:send" }],
+      routePaths,
+    );
+
+    expect(unserved).toEqual(["/a2a/message:send"]);
+  });
+
   test("regex route normalization ignores negative lookaheads", () => {
     expect(
       regexToOpenApiPath(String.raw`\/v1\/contacts\/(?!invites$)([^/]+)`),
     ).toBe("/v1/contacts/{param1}");
   });
 });
+
+/**
+ * Returns the pathnames of the advertised A2A interfaces that no gateway route
+ * table entry serves.
+ */
+function unservedInterfacePaths(
+  supportedInterfaces: ReadonlyArray<{ url: string }>,
+  registeredPaths: string[],
+): string[] {
+  const registered = new Set(registeredPaths);
+  return supportedInterfaces
+    .map((iface) => new URL(iface.url).pathname)
+    .filter((path) => !registered.has(path));
+}
 
 /**
  * Returns the schema path string that matches a route path, or null if none.

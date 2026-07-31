@@ -3,25 +3,62 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "../../__tests__/helpers/set-config.js";
+
+// Seed the heartbeat config for real. Active hours are pinned null so the
+// scheduling guard is time-of-day independent; maxConsecutiveRuns defaults to
+// null (unlimited) here and individual tests re-seed it to exercise the cap.
+function seedHeartbeat(
+  overrides: {
+    maxConsecutiveRuns?: number | null;
+  } = {},
+): void {
+  setConfig("heartbeat", {
+    enabled: true,
+    intervalMs: 60_000,
+    activeHoursStart: null,
+    activeHoursEnd: null,
+    maxConsecutiveRuns: null,
+    maxDailyRuns: null,
+    disposition: "Default disposition text.",
+    ...overrides,
+  });
+}
+
 let workspaceDir: string;
 
 // Stub the in-process SSE hub so the writer's publish path is a
 // no-op in these tests.
 const publishSpy = mock<(event: unknown) => Promise<void>>(async () => {});
 
+// Capture broadcastMessage calls so tests can assert on the alerts and
+// conversation-created events the heartbeat service emits directly.
+type BroadcastedMessage = { type: string; [key: string]: unknown };
+const broadcastedMessages: BroadcastedMessage[] = [];
+let onBroadcast: ((msg: BroadcastedMessage) => void) | null = null;
+
 mock.module("../../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     publish: publishSpy,
     subscribe: () => () => {},
   },
-  broadcastMessage: () => {},
+  broadcastMessage: (msg: BroadcastedMessage) => {
+    broadcastedMessages.push(msg);
+    onBroadcast?.(msg);
+  },
 }));
 
 // Stub workspace prompt reads so the heartbeat service doesn't try to
 // read real workspace files. Use a fallback for early module-load calls
 // (e.g. AuthSessionCache constructor) before beforeEach sets workspaceDir.
+// The mock spreads the real module so exports it doesn't override (imported
+// by transitive dependencies of the service under test) keep their real,
+// preload-temp-dir-scoped implementations instead of vanishing — a missing
+// export is an import-time SyntaxError for the whole test file.
+const realPlatform = await import("../../util/platform.js");
 const fallbackDir = join(tmpdir(), "vellum-hb-svc-fallback");
 mock.module("../../util/platform.js", () => ({
+  ...realPlatform,
   getWorkspaceDir: () => workspaceDir ?? fallbackDir,
   getWorkspacePromptPath: (name: string) =>
     join(workspaceDir ?? fallbackDir, name),
@@ -70,51 +107,7 @@ mock.module("../../util/platform.js", () => ({
   getProfilerRunsDir: () => join(workspaceDir ?? fallbackDir, "profiler/runs"),
   getProfilerRunDir: (runId: string) =>
     join(workspaceDir ?? fallbackDir, "profiler/runs", runId),
-  getSkillRuntimePath: () => join(workspaceDir ?? fallbackDir, "skill-runtime"),
-  getBundledBunPath: () => undefined,
   ensureDataDir: () => {},
-}));
-
-// Stub config so heartbeat is enabled. Must export every symbol from
-// the real module because Bun's mock.module replaces the entire module.
-// Tests that need to flex maxConsecutiveRuns mutate this in-place.
-const stubConfig: {
-  heartbeat: {
-    enabled: boolean;
-    intervalMs: number;
-    activeHoursStart: number | null;
-    activeHoursEnd: number | null;
-    maxConsecutiveRuns: number | null;
-    maxDailyRuns: number | null;
-    disposition: string;
-  };
-} = {
-  heartbeat: {
-    enabled: true,
-    intervalMs: 60_000,
-    activeHoursStart: null,
-    activeHoursEnd: null,
-    maxConsecutiveRuns: null,
-    maxDailyRuns: null,
-    disposition: "Default disposition text.",
-  },
-};
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => stubConfig,
-  getConfigReadOnly: () => stubConfig,
-  loadConfig: () => stubConfig,
-  saveConfig: () => {},
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  applyNestedDefaults: (c: unknown) => c,
-  deepMergeMissing: (a: unknown) => a,
-  deepMergeOverwrite: (a: unknown) => a,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
 }));
 
 // Stub prompt helpers.
@@ -185,6 +178,7 @@ mock.module("../../credential-health/credential-health-service.js", () => ({
 // Stub the heartbeat-run-store so the tests don't need a populated SQLite
 // schema. Each function is a no-op that returns sensible defaults.
 let heartbeatRunIdCounter = 0;
+let lastRunAtFromHistory: number | null = null;
 const skipHeartbeatRunCalls: Array<{ runId: string; reason: string }> = [];
 mock.module("../heartbeat-run-store.js", () => ({
   insertPendingHeartbeatRun: () => `heartbeat-run-${++heartbeatRunIdCounter}`,
@@ -199,6 +193,7 @@ mock.module("../heartbeat-run-store.js", () => ({
   countCompletedHeartbeatRuns: () => 10,
   countCompletedRunsToday: () => 0,
   countRecentConsecutiveRuns: () => 0,
+  getLastHeartbeatRunAt: () => lastRunAtFromHistory,
 }));
 
 // Stub the pre-first-message gate so tests can flip it on/off without
@@ -207,6 +202,16 @@ mock.module("../heartbeat-run-store.js", () => ({
 let preFirstMessageGateOpen = true;
 mock.module("../../runtime/pre-first-message-gate.js", () => ({
   hasReceivedUserMessage: () => preFirstMessageGateOpen,
+}));
+
+// Stub the drain quiesce lease so tests can flip it without a database.
+// Defaults to INACTIVE so existing tests keep passing.
+const realLifecycleQuiesce =
+  await import("../../persistence/lifecycle-quiesce.js");
+let quiesceLeaseActive = false;
+mock.module("../../persistence/lifecycle-quiesce.js", () => ({
+  ...realLifecycleQuiesce,
+  isLifecycleQuiesced: () => quiesceLeaseActive,
 }));
 
 const { HeartbeatService } = await import("../heartbeat-service.js");
@@ -218,10 +223,13 @@ beforeEach(() => {
   origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   publishSpy.mockClear();
+  broadcastedMessages.length = 0;
+  onBroadcast = null;
   runBackgroundJobCalls.length = 0;
   skipHeartbeatRunCalls.length = 0;
+  lastRunAtFromHistory = null;
   preFirstMessageGateOpen = true;
-  stubConfig.heartbeat.maxConsecutiveRuns = null;
+  seedHeartbeat();
   runBackgroundJobImpl = async () => ({
     conversationId: STUB_CONVERSATION_ID,
     ok: true,
@@ -243,9 +251,7 @@ afterEach(() => {
 
 describe("HeartbeatService", () => {
   test("invokes runBackgroundJob with expected options on each tick", async () => {
-    const service = new HeartbeatService({
-      alerter: () => {},
-    });
+    const service = new HeartbeatService();
 
     await service.runOnce({ force: true });
 
@@ -267,6 +273,24 @@ describe("HeartbeatService", () => {
     expect(call.prompt).toContain("<heartbeat-disposition>");
   });
 
+  test("lastRunAt rehydrates from run history when unset in memory", async () => {
+    const historicalRunAt = Date.now() - 60 * 60 * 1000;
+    lastRunAtFromHistory = historicalRunAt;
+
+    const service = new HeartbeatService();
+    expect(service.lastRunAt).toBe(historicalRunAt);
+
+    // An in-process run takes over from the rehydrated value.
+    await service.runOnce({ force: true });
+    expect(service.lastRunAt).toBeGreaterThan(historicalRunAt);
+  });
+
+  test("lastRunAt is null when no run has ever executed", () => {
+    lastRunAtFromHistory = null;
+    const service = new HeartbeatService();
+    expect(service.lastRunAt).toBeNull();
+  });
+
   test("fires onConversationCreated synchronously via the runner BEFORE the runner returns", async () => {
     const created: Array<{ conversationId: string; title: string }> = [];
     let runnerHasResolved = false;
@@ -280,13 +304,17 @@ describe("HeartbeatService", () => {
       return { conversationId: STUB_CONVERSATION_ID, ok: true };
     };
 
-    const service = new HeartbeatService({
-      alerter: () => {},
-      onConversationCreated: (info) => {
-        created.push(info);
+    onBroadcast = (msg) => {
+      if (msg.type === "heartbeat_conversation_created") {
+        created.push({
+          conversationId: msg.conversationId as string,
+          title: msg.title as string,
+        });
         callbackFiredBeforeRunnerResolved = !runnerHasResolved;
-      },
-    });
+      }
+    };
+
+    const service = new HeartbeatService();
 
     await service.runOnce({ force: true });
 
@@ -308,17 +336,16 @@ describe("HeartbeatService", () => {
       return { conversationId: STUB_CONVERSATION_ID, ok: true };
     };
 
-    const alerts: unknown[] = [];
-    const service = new HeartbeatService({
-      alerter: (alert) => alerts.push(alert),
-    });
+    const service = new HeartbeatService();
 
     await service.runOnce({ force: true });
 
     expect(runnerCompleted).toBe(true);
-    // No alerter call because the runner returned ok=true and there was no
-    // outer-timeout failure to surface.
-    expect(alerts).toHaveLength(0);
+    // No heartbeat_alert broadcast because the runner returned ok=true and
+    // there was no outer-timeout failure to surface.
+    expect(
+      broadcastedMessages.filter((m) => m.type === "heartbeat_alert"),
+    ).toHaveLength(0);
   });
 
   test("calls alerter with the failure message when the runner reports ok=false", async () => {
@@ -329,14 +356,13 @@ describe("HeartbeatService", () => {
       errorKind: "exception",
     });
 
-    const alerts: Array<{ type: string; title: string; body: string }> = [];
-    const service = new HeartbeatService({
-      alerter: (alert) =>
-        alerts.push(alert as { type: string; title: string; body: string }),
-    });
+    const service = new HeartbeatService();
 
     await service.runOnce({ force: true });
 
+    const alerts = broadcastedMessages.filter(
+      (m) => m.type === "heartbeat_alert",
+    );
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({
       type: "heartbeat_alert",
@@ -346,21 +372,18 @@ describe("HeartbeatService", () => {
   });
 
   test("does not call alerter when the runner reports ok=true", async () => {
-    const alerts: unknown[] = [];
-    const service = new HeartbeatService({
-      alerter: (alert) => alerts.push(alert),
-    });
+    const service = new HeartbeatService();
 
     await service.runOnce({ force: true });
 
-    expect(alerts).toHaveLength(0);
+    expect(
+      broadcastedMessages.filter((m) => m.type === "heartbeat_alert"),
+    ).toHaveLength(0);
   });
 
   test("scheduled run skips with reason 'pre_first_user_message' when the user has not yet interacted", async () => {
     preFirstMessageGateOpen = false;
-    const service = new HeartbeatService({
-      alerter: () => {},
-    });
+    const service = new HeartbeatService();
     // start() seeds `_pendingRunId` via `scheduleNextRun` so the skip is
     // recorded with the pending run id. Without start() the test still
     // passes the no-LLM-call assertion but the skip record would be a
@@ -387,9 +410,7 @@ describe("HeartbeatService", () => {
 
   test("forced run bypasses the pre-first-message gate (manual operator action)", async () => {
     preFirstMessageGateOpen = false;
-    const service = new HeartbeatService({
-      alerter: () => {},
-    });
+    const service = new HeartbeatService();
 
     await service.runOnce({ force: true });
 
@@ -399,10 +420,46 @@ describe("HeartbeatService", () => {
     ).toBe(false);
   });
 
+  test("scheduled run skips with reason 'quiesced' while the drain lease is active", async () => {
+    quiesceLeaseActive = true;
+    const service = new HeartbeatService();
+    service.start();
+    skipHeartbeatRunCalls.length = 0;
+
+    try {
+      const result = await service.runOnce({ force: false });
+
+      expect(result).toBe(false);
+      expect(runBackgroundJobCalls).toHaveLength(0);
+      expect(skipHeartbeatRunCalls.some((c) => c.reason === "quiesced")).toBe(
+        true,
+      );
+    } finally {
+      await service.stop();
+      quiesceLeaseActive = false;
+    }
+  });
+
+  test("forced run bypasses the quiesce gate (manual operator action)", async () => {
+    quiesceLeaseActive = true;
+    const service = new HeartbeatService();
+
+    try {
+      await service.runOnce({ force: true });
+
+      expect(runBackgroundJobCalls).toHaveLength(1);
+      expect(skipHeartbeatRunCalls.some((c) => c.reason === "quiesced")).toBe(
+        false,
+      );
+    } finally {
+      quiesceLeaseActive = false;
+    }
+  });
+
   describe("max consecutive runs cap", () => {
     test("skips with reason 'max_consecutive_runs' after the cap is hit", async () => {
-      stubConfig.heartbeat.maxConsecutiveRuns = 2;
-      const service = new HeartbeatService({ alerter: () => {} });
+      seedHeartbeat({ maxConsecutiveRuns: 2 });
+      const service = new HeartbeatService();
 
       expect(await service.runOnce({ force: false })).toBe(true);
       expect(await service.runOnce({ force: false })).toBe(true);
@@ -415,8 +472,8 @@ describe("HeartbeatService", () => {
     });
 
     test("resetTimer() clears the counter so auto runs resume", async () => {
-      stubConfig.heartbeat.maxConsecutiveRuns = 1;
-      const service = new HeartbeatService({ alerter: () => {} });
+      seedHeartbeat({ maxConsecutiveRuns: 1 });
+      const service = new HeartbeatService();
       service.start();
       try {
         await service.runOnce({ force: false });
@@ -435,7 +492,7 @@ describe("HeartbeatService", () => {
       // zeroes the counter but the in-flight run's `finally` block used to
       // unconditionally `_consecutiveRuns++`, leaving the counter at 1 and
       // tripping the cap-at-1 path one auto run too early.
-      stubConfig.heartbeat.maxConsecutiveRuns = 1;
+      seedHeartbeat({ maxConsecutiveRuns: 1 });
 
       let releaseInflight: () => void = () => {};
       const inflight = new Promise<void>((resolve) => {
@@ -446,7 +503,7 @@ describe("HeartbeatService", () => {
         return { conversationId: STUB_CONVERSATION_ID, ok: true };
       };
 
-      const service = new HeartbeatService({ alerter: () => {} });
+      const service = new HeartbeatService();
       service.start();
       try {
         const runPromise = service.runOnce({ force: false });
@@ -473,8 +530,8 @@ describe("HeartbeatService", () => {
     });
 
     test("null disables the cap entirely", async () => {
-      stubConfig.heartbeat.maxConsecutiveRuns = null;
-      const service = new HeartbeatService({ alerter: () => {} });
+      seedHeartbeat({ maxConsecutiveRuns: null });
+      const service = new HeartbeatService();
 
       for (let i = 0; i < 5; i++) {
         expect(await service.runOnce({ force: false })).toBe(true);
@@ -486,8 +543,8 @@ describe("HeartbeatService", () => {
     });
 
     test("force runs bypass the cap and do not increment the counter", async () => {
-      stubConfig.heartbeat.maxConsecutiveRuns = 2;
-      const service = new HeartbeatService({ alerter: () => {} });
+      seedHeartbeat({ maxConsecutiveRuns: 2 });
+      const service = new HeartbeatService();
 
       // Five force runs would push us well past the cap if force counted.
       for (let i = 0; i < 5; i++) {
@@ -504,8 +561,8 @@ describe("HeartbeatService", () => {
     });
 
     test("reconfigure() resets the counter", async () => {
-      stubConfig.heartbeat.maxConsecutiveRuns = 1;
-      const service = new HeartbeatService({ alerter: () => {} });
+      seedHeartbeat({ maxConsecutiveRuns: 1 });
+      const service = new HeartbeatService();
       service.start();
       try {
         await service.runOnce({ force: false });

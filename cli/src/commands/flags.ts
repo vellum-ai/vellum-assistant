@@ -1,8 +1,10 @@
+import { extractAssistantFlag } from "../lib/arg-utils.js";
 import { AssistantClient } from "../lib/assistant-client.js";
 import {
   formatAssistantLookupError,
   lookupAssistantByIdentifier,
 } from "../lib/assistant-config.js";
+import { crossEnvironmentAssistantHint } from "../lib/environments/detect.js";
 
 type FeatureFlagEntry = {
   key: string;
@@ -91,13 +93,13 @@ function printHelp(): void {
     "  $ vellum flags                                              # list flags for active assistant",
   );
   console.log(
-    "  $ vellum flags get query-complexity-routing                  # inspect one flag",
+    "  $ vellum flags get browser                                     # inspect one flag",
   );
   console.log(
-    "  $ vellum flags set voice-mode true                           # enable a flag",
+    "  $ vellum flags set browser true                               # enable a flag",
   );
   console.log(
-    "  $ vellum flags set external-plugins true --assistant eval-1  # target by name/id",
+    "  $ vellum flags set browser true     --assistant eval-1       # target by name/id",
   );
 }
 
@@ -131,7 +133,9 @@ function rethrowFetchError(err: unknown): never {
     (err.message.includes("fetch") || err.message.includes("connect"))
   ) {
     throw new Error(
-      "Could not reach the assistant gateway. Is it running? Try 'vellum wake'.",
+      `Could not reach the assistant gateway. Is it running? Try 'vellum wake'.${
+        crossEnvironmentAssistantHint() ?? ""
+      }`,
     );
   }
   throw err;
@@ -197,28 +201,6 @@ async function setFlag(
     throw new Error(`Failed to set flag: HTTP ${res.status} ${body}`.trim());
   }
   console.log(`Flag "${key}" set to ${value}`);
-}
-
-/**
- * Strip `--assistant <name>` from argv and return the captured value.
- *
- * Mutates the input array so positional parsing downstream sees a clean
- * shape (subcommand + key + value). Returns `undefined` if the flag is
- * absent. Error-reports a missing value so the user gets a clear message
- * rather than the flag being silently swallowed as a positional.
- */
-function extractAssistantFlag(args: string[]): string | undefined {
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] !== "--assistant") continue;
-    const value = args[i + 1];
-    if (!value || value.startsWith("-")) {
-      console.error("Missing value for --assistant <name>");
-      process.exit(1);
-    }
-    args.splice(i, 2);
-    return value;
-  }
-  return undefined;
 }
 
 export async function flags(): Promise<void> {

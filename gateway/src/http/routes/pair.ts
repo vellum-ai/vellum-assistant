@@ -27,11 +27,18 @@
  * renew via `/v1/guardian/refresh` instead of re-pairing.
  */
 
+import { and, eq } from "drizzle-orm";
+
+import { LOCAL_ASSISTANT_ID } from "../../assistant-id.js";
 import { mintAndRecordDeviceBoundTokenPair } from "../../auth/guardian-bootstrap.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { mintToken } from "../../auth/token-service.js";
 import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
-import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
+import { getGatewayDb } from "../../db/connection.js";
+import {
+  contacts as gwContacts,
+  contactChannels as gwContactChannels,
+} from "../../db/schema.js";
 import { getLogger } from "../../logger.js";
 import { enforceLoopbackOnly, errorResponse } from "../loopback-guard.js";
 
@@ -47,7 +54,7 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 /** Pair tokens are valid for 24 hours — covers extended sessions and SSE reconnects. */
 const PAIR_TOKEN_TTL_SECONDS = 86400;
 
-const DAEMON_INTERNAL_ASSISTANT_ID = "self";
+const DAEMON_INTERNAL_ASSISTANT_ID = LOCAL_ASSISTANT_ID;
 
 // ---------------------------------------------------------------------------
 // Rate limiter (dedicated, per-peer)
@@ -102,22 +109,26 @@ export function resetPairRateLimiterForTests(): void {
 // Guardian resolution
 // ---------------------------------------------------------------------------
 
-interface GuardianPrincipalRow {
-  principalId: string | null;
-}
-
 export async function resolveLocalGuardianPrincipalId(): Promise<string> {
   try {
-    const rows = await assistantDbQuery<GuardianPrincipalRow>(
-      `SELECT c.principal_id AS principalId
-       FROM contacts c
-       JOIN contact_channels cc ON cc.contact_id = c.id
-       WHERE c.role = 'guardian' AND cc.type = 'vellum' AND cc.status = 'active'
-       LIMIT 1`,
-      [],
-    );
-    if (rows.length > 0 && rows[0].principalId) {
-      return rows[0].principalId;
+    const row = getGatewayDb()
+      .select({ principalId: gwContacts.principalId })
+      .from(gwContacts)
+      .innerJoin(
+        gwContactChannels,
+        eq(gwContactChannels.contactId, gwContacts.id),
+      )
+      .where(
+        and(
+          eq(gwContacts.role, "guardian"),
+          eq(gwContactChannels.type, "vellum"),
+          eq(gwContactChannels.status, "active"),
+        ),
+      )
+      .limit(1)
+      .get();
+    if (row?.principalId) {
+      return row.principalId;
     }
   } catch (err) {
     log.warn(
@@ -292,12 +303,15 @@ export async function handlePair(
       "Client paired successfully via loopback",
     );
 
-    return Response.json({
-      token,
-      expiresAt: expiresAtIso,
-      guardianId: guardianPrincipalId,
-      assistantId: getExternalAssistantId(),
-    });
+    return Response.json(
+      {
+        token,
+        expiresAt: expiresAtIso,
+        guardianId: guardianPrincipalId,
+        assistantId: getExternalAssistantId(),
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   // CLI pairing (e.g. `vellum pair`): a loopback-local caller mints a
@@ -380,13 +394,16 @@ function mintDeviceBoundPairResponse(opts: {
     "Client paired successfully via loopback (device-bound)",
   );
 
-  return Response.json({
-    token: pair.accessToken,
-    expiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
-    refreshToken: pair.refreshToken,
-    refreshTokenExpiresAt: new Date(pair.refreshTokenExpiresAt).toISOString(),
-    refreshAfter: new Date(pair.refreshAfter).toISOString(),
-    guardianId: opts.guardianPrincipalId,
-    assistantId: opts.assistantId,
-  });
+  return Response.json(
+    {
+      token: pair.accessToken,
+      expiresAt: new Date(pair.accessTokenExpiresAt).toISOString(),
+      refreshToken: pair.refreshToken,
+      refreshTokenExpiresAt: new Date(pair.refreshTokenExpiresAt).toISOString(),
+      refreshAfter: new Date(pair.refreshAfter).toISOString(),
+      guardianId: opts.guardianPrincipalId,
+      assistantId: opts.assistantId,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

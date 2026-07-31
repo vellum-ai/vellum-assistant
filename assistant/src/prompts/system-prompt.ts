@@ -10,8 +10,10 @@ import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
-import { markActivationSession } from "../memory/activation-session-store.js";
+import { resolveTrustClass } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
+import { markActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
+import { derivePersonaTrustFlags } from "../runtime/trust-class.js";
 import { ACTIVATION_RAIL_BOOTSTRAP_TEMPLATE } from "../telemetry/activation-funnel.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
@@ -37,7 +39,9 @@ const PROMPT_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 function hasPopulatedUsersDir(): boolean {
   try {
     const usersDir = join(getWorkspaceDir(), "users");
-    if (!existsSync(usersDir)) return false;
+    if (!existsSync(usersDir)) {
+      return false;
+    }
     return readdirSync(usersDir).length > 0;
   } catch {
     return false;
@@ -47,7 +51,9 @@ function hasPopulatedUsersDir(): boolean {
 function hasExistingConversations(): boolean {
   try {
     const convDir = getConversationsDir();
-    if (!existsSync(convDir)) return false;
+    if (!existsSync(convDir)) {
+      return false;
+    }
     return readdirSync(convDir).length > 0;
   } catch {
     return false;
@@ -83,7 +89,9 @@ export function ensurePromptFiles(): void {
 
   for (const file of PROMPT_FILES) {
     const dest = getWorkspacePromptPath(file);
-    if (existsSync(dest)) continue;
+    if (existsSync(dest)) {
+      continue;
+    }
 
     const src = join(templatesDir, file);
     try {
@@ -225,7 +233,9 @@ export function maybeReseedBootstrap(templateFileName: string): boolean {
   }
 
   const bootstrapPath = getWorkspacePromptPath("BOOTSTRAP.md");
-  if (!existsSync(bootstrapPath)) return false;
+  if (!existsSync(bootstrapPath)) {
+    return false;
+  }
 
   const currentContent = readPromptFile(bootstrapPath);
   // Compare against the GENERIC "BOOTSTRAP.md" template, not the specified
@@ -233,7 +243,9 @@ export function maybeReseedBootstrap(templateFileName: string): boolean {
   // template, so this guard returns false on subsequent calls — making the
   // swap idempotent.  Do NOT change the comparison target to the provided
   // template filename; that would re-swap on every prompt build.
-  if (!isTemplateContent(currentContent, "BOOTSTRAP.md")) return false;
+  if (!isTemplateContent(currentContent, "BOOTSTRAP.md")) {
+    return false;
+  }
 
   const templatesDir = resolveBundledDir(
     import.meta.dirname ?? __dirname,
@@ -274,7 +286,7 @@ export function maybeReseedBootstrap(templateFileName: string): boolean {
  * Marking happens here — at the single point where the bootstrap selection is
  * known — so it lands BEFORE the agent loop resolves tools and BEFORE the model
  * can call the emit tool on the first activation-rail turn. (`resolveTools`
- * runs before `resolveSystemPrompt` in the loop, so the system-prompt build is
+ * runs before the system-prompt build in the loop, so the system-prompt build is
  * too late to be the *only* marking site.) The marker write is best-effort and
  * idempotent (`markActivationSession` swallows errors and dedups on the PK), so
  * calling this from both `setOnboardingContext` and `buildSystemPrompt` is safe.
@@ -304,6 +316,31 @@ export function applyBootstrapTemplate(
   }
 }
 
+/**
+ * Explicit prompt-build override for builds that run outside the
+ * inbound-turn pipeline (agent wakes). Each field, when present, takes
+ * precedence over the corresponding derivation in {@link buildSystemPrompt}.
+ * Prompt-build selection only — trust class and approval semantics are
+ * unaffected.
+ */
+export interface SystemPromptPersonaOverride {
+  /** Renders `users/<slug>.md` as the user persona section. */
+  userSlug?: string;
+  /** Renders `channels/<slug>.md` as the channel persona section. */
+  channelSlug?: string;
+  /**
+   * Pins the `hasNoClient` flag for the prompt build, taking precedence over
+   * the top-level `BuildSystemPromptOptions.hasNoClient` (which mirrors the
+   * conversation's live client state). No system-prompt section branches on
+   * `hasNoClient`, so this pin does not affect prompt output; it is retained
+   * so fork-based memory retrospectives can thread the source conversation's
+   * live-turn value (`false` for interactive interfaces, `true` for
+   * channel-routed sources) through the build without depending on the fork's
+   * clientless hydration default.
+   */
+  hasNoClient?: boolean;
+}
+
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
   excludeBootstrap?: boolean;
@@ -311,6 +348,15 @@ export interface BuildSystemPromptOptions {
   trustContext?: TrustContext;
   channelCapabilities?: ChannelCapabilities;
   onboardingContext?: OnboardingContext;
+  /**
+   * Explicit persona/channel slugs, taking precedence over the
+   * trust-context-derived `userSlug` and capabilities-derived `channelSlug`.
+   * Used by fork-based memory retrospectives so the fork's prompt renders the
+   * SOURCE conversation's persona sections (review quality + byte-parity with
+   * the source's cached system-prompt prefix) even though the wake itself
+   * carries an internal guardian trust context with no requester identity.
+   */
+  personaOverride?: SystemPromptPersonaOverride;
   /**
    * Conversation this prompt is being built for. Optional because several
    * callers build a prompt outside a conversation (e.g. home greeting,
@@ -344,8 +390,35 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // `users/<slug>.md → users/default.md` fallback lives in the
   // section's `workspacePath` array.  `channelSlug` is the channel
   // identifier from `channelCapabilities`, defaulting to "vellum".
-  const userSlug = resolveUserSlug(options?.trustContext) ?? "default";
-  const channelSlug = options?.channelCapabilities?.channel ?? "vellum";
+  // An explicit `personaOverride` slug wins over either derivation.
+  const userSlug =
+    options?.personaOverride?.userSlug ??
+    resolveUserSlug(options?.trustContext) ??
+    "default";
+  const channelSlug =
+    options?.personaOverride?.channelSlug ??
+    options?.channelCapabilities?.channel ??
+    "vellum";
+  // The override's `hasNoClient` pin wins over the conversation-derived
+  // top-level option (see the interface doc); placed after the `...options`
+  // spread below so it overrides the spread-in value.
+  const hasNoClient =
+    options?.personaOverride?.hasNoClient ?? options?.hasNoClient;
+
+  // Trust flags for the current actor, lifted onto the render context so
+  // persona sections — notably `users/default.md`, the persona rendered for
+  // non-guardian actors — can gate privacy guardrails on who is being spoken
+  // to. The class is resolved through `resolveTrustClass` first: a *present*
+  // trustContext always keeps the actor's real class (a resolved non-guardian
+  // channel actor is never elevated, even under DISABLE_HTTP_AUTH), while an
+  // *absent* one follows the actor-resolution contract — guardian for
+  // local/native builds in an auth-disabled deployment (initial-prompt
+  // warming, home generation, and btw sidechains build prompts with no
+  // trustContext for the owner), unknown otherwise so an unclassifiable turn
+  // still fails closed to the guardrail. The flag grouping itself lives on
+  // {@link derivePersonaTrustFlags}.
+  const { trustClass, isGuardian, isTrustedContact, isStranger } =
+    derivePersonaTrustFlags(resolveTrustClass(options?.trustContext));
 
   // Section render context.  Workspace section frontmatter `enabled:`
   // predicates, `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation,
@@ -358,10 +431,15 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // no explicit normalization needed; `...options` is enough.
   const ctx = {
     ...options,
+    hasNoClient,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
     userSlug,
     channelSlug,
+    trustClass,
+    isGuardian,
+    isTrustedContact,
+    isStranger,
   };
 
   // Every system-prompt block flows through the bundled section
@@ -384,11 +462,15 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
 export { stripCommentLines } from "../util/strip-comment-lines.js";
 
 export function readPromptFile(path: string): string | null {
-  if (!existsSync(path)) return null;
+  if (!existsSync(path)) {
+    return null;
+  }
 
   try {
     const content = stripCommentLines(readFileSync(path, "utf-8"));
-    if (content.length === 0) return null;
+    if (content.length === 0) {
+      return null;
+    }
     log.debug({ path }, "Loaded prompt file");
     return content;
   } catch (err) {
@@ -413,14 +495,20 @@ export function buildCoreIdentityContext(): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
-    if (!content) continue;
+    if (!content) {
+      continue;
+    }
     // SOUL.md is always included — it provides personality defaults even
     // before onboarding completes.  Only skip IDENTITY.md when it is still
     // an unmodified template (matching buildSystemPrompt).
-    if (file !== "SOUL.md" && isTemplateContent(content, file)) continue;
+    if (file !== "SOUL.md" && isTemplateContent(content, file)) {
+      continue;
+    }
     parts.push(content);
   }
   const guardianPersona = resolveGuardianPersona();
-  if (guardianPersona) parts.push(guardianPersona);
+  if (guardianPersona) {
+    parts.push(guardianPersona);
+  }
   return parts.length > 0 ? parts.join("\n\n") : null;
 }

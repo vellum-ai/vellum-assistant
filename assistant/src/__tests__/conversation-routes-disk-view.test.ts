@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { createAssistantMessage } from "../agent/message-types.js";
 import type { Conversation } from "../daemon/conversation.js";
@@ -9,88 +9,36 @@ import {
   addMessage,
   getConversation,
   provenanceFromTrustContext,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   getConversationDirPath,
   syncMessageToDisk,
-} from "../memory/conversation-disk-view.js";
+} from "../persistence/conversation-disk-view.js";
 import {
   getConversationByKey,
   getOrCreateConversation as getOrCreateConversationMapping,
-} from "../memory/conversation-key-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-key-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(testDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+// Seed the workspace config for real: memory off so `addMessage` (called
+// without `skipIndexing` by the fake agent loop) does not index into the
+// memory subsystem, and secret detection off to match the prior behavior of
+// these route sends.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
+setConfig("secretDetection", { enabled: false });
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    contextWindow: { maxInputTokens: 200000 },
-    llm: {
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        maxTokens: 64000,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: true, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-}));
-
-initializeDb();
+await initializeDb();
 
 const conversationInstances = new Map<string, Conversation>();
 
@@ -146,10 +94,6 @@ function createFakeConversation(conversationId: string): Conversation {
     messages: [] as Array<unknown>,
     hostCuProxy: undefined as unknown,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    memoryPolicy: {
-      scopeId: "default",
-      includeDefaultFallback: false,
-    },
     isProcessing(this: { processing: boolean }) {
       return this.processing;
     },
@@ -320,7 +264,9 @@ function createFakeConversation(conversationId: string): Conversation {
 
 function getOrCreateFakeConversation(conversationId: string): Conversation {
   const existing = conversationInstances.get(conversationId);
-  if (existing) return existing;
+  if (existing) {
+    return existing;
+  }
   const created = createFakeConversation(conversationId);
   conversationInstances.set(conversationId, created);
   return created;
@@ -333,7 +279,9 @@ async function waitFor<T>(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = getter();
-    if (value !== undefined) return value;
+    if (value !== undefined) {
+      return value;
+    }
     await Bun.sleep(20);
   }
   throw new Error("Timed out waiting for expected disk-view output");
@@ -465,9 +413,13 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
     const messagesPath = join(conversationDir, "messages.jsonl");
 
     const lines = await waitFor(() => {
-      if (!existsSync(messagesPath)) return undefined;
+      if (!existsSync(messagesPath)) {
+        return undefined;
+      }
       const raw = readFileSync(messagesPath, "utf-8").trim();
-      if (!raw) return undefined;
+      if (!raw) {
+        return undefined;
+      }
       const parsed = raw.split("\n").map(
         (line) =>
           JSON.parse(line) as {
@@ -659,9 +611,13 @@ describe("conversationKey send path disk-view regression", () => {
     expect(existsSync(metaPath)).toBe(true);
 
     const lines = await waitFor(() => {
-      if (!existsSync(messagesPath)) return undefined;
+      if (!existsSync(messagesPath)) {
+        return undefined;
+      }
       const raw = readFileSync(messagesPath, "utf-8").trim();
-      if (!raw) return undefined;
+      if (!raw) {
+        return undefined;
+      }
       const parsed = raw
         .split("\n")
         .map((line) => JSON.parse(line) as { role: string; content?: string });

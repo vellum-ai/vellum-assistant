@@ -12,27 +12,9 @@
  *   - Duplicate clientId subscribers are deduplicated on reconnect
  *   - disposeClient() force-disconnects all subscribers for a clientId
  */
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
-
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   BadRequestError,
@@ -40,7 +22,7 @@ import {
 } from "../runtime/routes/errors.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
 
-initializeDb();
+await initializeDb();
 
 describe("events client registration", () => {
   // ── Registration on connect ───────────────────────────────────────────────

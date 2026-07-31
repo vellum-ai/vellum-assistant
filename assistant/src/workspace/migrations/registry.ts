@@ -97,6 +97,43 @@ import { reduceQualityProfileEffortMigration } from "./096-reduce-quality-profil
 import { enableAdaptiveThinkingManagedProfilesMigration } from "./097-enable-adaptive-thinking-managed-profiles.js";
 import { removeStaleUpdatesBulletinFileMigration } from "./098-remove-stale-updates-bulletin-file.js";
 import { disableCacheOneShotCallsitesMigration } from "./099-disable-cache-one-shot-callsites.js";
+import { upgradeQualityProfileToFable5Migration } from "./100-upgrade-quality-profile-to-fable-5.js";
+import { upgradeBalancedEconomyToMinimaxM3Migration } from "./101-upgrade-balanced-economy-to-minimax-m3.js";
+import { preserveHeartbeatEnabledForExistingWorkspacesMigration } from "./102-preserve-heartbeat-enabled-for-existing-workspaces.js";
+import { upgradeQualityProfileToOpus48Migration } from "./103-upgrade-quality-profile-to-opus-4-8.js";
+import { recheckAdaptiveThinkingModelImpliedAnthropicMigration } from "./104-recheck-adaptive-thinking-model-implied-anthropic.js";
+import { enableMemoryV3LiveForNewWorkspacesMigration } from "./105-enable-memory-v3-live-for-new-workspaces.js";
+import { dropCollectUsageDataMigration } from "./106-drop-collect-usage-data.js";
+import { dropSendDiagnosticsMigration } from "./107-drop-send-diagnostics.js";
+import { dropBalancedEconomyProfileMigration } from "./108-drop-balanced-economy-profile.js";
+import { swapQualityProfileToGlm52Migration } from "./109-swap-quality-profile-to-glm-5p2.js";
+import { flipBalancedProfileToTogetherMigration } from "./110-flip-balanced-profile-to-together.js";
+import { pruneSeededCallsiteDefaultsMigration } from "./111-prune-seeded-callsite-defaults.js";
+import { removeAdvisorCallsiteOverrideMigration } from "./112-remove-advisor-callsite-override.js";
+import { swapBalancedProfileToGlm52Migration } from "./113-swap-balanced-profile-to-glm-5p2.js";
+import { swapQualityProfileToOpusMigration } from "./114-swap-quality-profile-to-opus.js";
+import { dropFrontierProfileMigration } from "./115-drop-frontier-profile.js";
+import { renameMemoryPluginDisabledSentinelMigration } from "./116-rename-memory-plugin-disabled-sentinel.js";
+import { normalizeStaleLeanMemoryV3DefaultsMigration } from "./117-normalize-stale-lean-memory-v3-defaults.js";
+import { seedNowMdMigration } from "./118-seed-now-md.js";
+import { stripPersistedMemoryV3TuningDefaultsMigration } from "./119-strip-persisted-memory-v3-tuning-defaults.js";
+import { reviseOnboardingThreadsMigration } from "./120-revise-onboarding-threads.js";
+import { seedDefaultUserGuardrailsMigration } from "./121-seed-default-user-guardrails.js";
+import { relocateDefaultUserBoundaryMigration } from "./122-relocate-default-user-boundary.js";
+import { swapQualityProfileToFableMigration } from "./123-swap-quality-profile-to-fable.js";
+import { correctDefaultUserBoundaryCommentsMigration } from "./124-correct-default-user-boundary-comments.js";
+import { repointManagedConnectionsToVellumMigration } from "./125-repoint-managed-connections-to-vellum.js";
+import { stripManagedProfileBodiesMigration } from "./126-strip-managed-profile-bodies.js";
+import { backfillDefaultProviderMigration } from "./127-backfill-default-provider.js";
+import { repairStaleOpenrouterGrokModelIdsMigration } from "./128-repair-stale-openrouter-grok-model-ids.js";
+import { removeAnalyzeConversationConfigMigration } from "./129-remove-analyze-conversation-config.js";
+import { speechModeToProviderMigration } from "./130-speech-mode-to-provider.js";
+import { dropWebFetchModeMigration } from "./131-drop-web-fetch-mode.js";
+import { webSearchModeToProviderMigration } from "./132-web-search-mode-to-provider.js";
+import { collapseProviderConnectionsMigration } from "./133-collapse-provider-connections.js";
+import { imageGenerationModeToProviderMigration } from "./134-image-generation-mode-to-provider.js";
+import { copySubstrateTunablesMigration } from "./135-copy-substrate-tunables.js";
+import { repairStaleFireworksKimiModelIdMigration } from "./136-repair-stale-fireworks-kimi-model-id.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -205,4 +242,45 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   enableAdaptiveThinkingManagedProfilesMigration,
   removeStaleUpdatesBulletinFileMigration,
   disableCacheOneShotCallsitesMigration,
+  upgradeQualityProfileToFable5Migration,
+  upgradeBalancedEconomyToMinimaxM3Migration,
+  preserveHeartbeatEnabledForExistingWorkspacesMigration,
+  upgradeQualityProfileToOpus48Migration,
+  recheckAdaptiveThinkingModelImpliedAnthropicMigration,
+  enableMemoryV3LiveForNewWorkspacesMigration,
+  dropCollectUsageDataMigration,
+  dropSendDiagnosticsMigration,
+  dropBalancedEconomyProfileMigration,
+  swapQualityProfileToGlm52Migration,
+  flipBalancedProfileToTogetherMigration,
+  pruneSeededCallsiteDefaultsMigration,
+  removeAdvisorCallsiteOverrideMigration,
+  swapBalancedProfileToGlm52Migration,
+  swapQualityProfileToOpusMigration,
+  dropFrontierProfileMigration,
+  renameMemoryPluginDisabledSentinelMigration,
+  normalizeStaleLeanMemoryV3DefaultsMigration,
+  seedNowMdMigration,
+  stripPersistedMemoryV3TuningDefaultsMigration,
+  reviseOnboardingThreadsMigration,
+  seedDefaultUserGuardrailsMigration,
+  relocateDefaultUserBoundaryMigration,
+  swapQualityProfileToFableMigration,
+  correctDefaultUserBoundaryCommentsMigration,
+  repointManagedConnectionsToVellumMigration,
+  stripManagedProfileBodiesMigration,
+  backfillDefaultProviderMigration,
+  repairStaleOpenrouterGrokModelIdsMigration,
+  removeAnalyzeConversationConfigMigration,
+  // 130 sits before 131 despite landing later: getLastWorkspaceMigrationId()
+  // reports the final array entry as the registry ceiling (identity/rollback
+  // routes), so the highest id must stay last. The two touch disjoint config
+  // keys, so relative execution order is irrelevant.
+  speechModeToProviderMigration,
+  dropWebFetchModeMigration,
+  webSearchModeToProviderMigration,
+  collapseProviderConnectionsMigration,
+  imageGenerationModeToProviderMigration,
+  copySubstrateTunablesMigration,
+  repairStaleFireworksKimiModelIdMigration,
 ];

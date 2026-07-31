@@ -52,21 +52,14 @@ Direct the user:
 
 Prompt for the API key via secure UI:
 
-```
-credential_store:
-  action: "prompt"
-  service: linear
-  field: api_key
-  label: "Linear App API Key"
-  placeholder: "lin_api_xxxxxxxxxx"
-  description: "API key for your Linear app (used to authenticate API requests)"
-  allowed_domains: ["api.linear.app"]
-  allowed_tools: ["bash"]
-  injection_templates:
-    - hostPattern: "api.linear.app"
-      injectionType: header
-      headerName: Authorization
-      valuePrefix: "Bearer "
+```bash
+assistant credentials prompt --service linear --field api_key \
+  --label "Linear App API Key" \
+  --placeholder "lin_api_xxxxxxxxxx" \
+  --description "API key for your Linear app (used to authenticate API requests)" \
+  --allowed-domains "api.linear.app" \
+  --allowed-tools "bash" \
+  --injection-templates '[{"hostPattern":"api.linear.app","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'
 ```
 
 ### Step 3: Verify

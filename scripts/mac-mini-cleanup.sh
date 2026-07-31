@@ -187,16 +187,6 @@ step_clear_vellum_defaults() {
     fi
 }
 
-step_clear_sparkle_defaults() {
-    SPARKLE_DEFAULTS_DOMAIN="com.vellum.vellum-assistant.Sparkle"
-    if defaults read "$SPARKLE_DEFAULTS_DOMAIN" &>/dev/null; then
-        defaults delete "$SPARKLE_DEFAULTS_DOMAIN"
-        echo "       ✅ Cleared UserDefaults for $SPARKLE_DEFAULTS_DOMAIN"
-    else
-        echo "       ⏭️  No UserDefaults found for $SPARKLE_DEFAULTS_DOMAIN, skipping"
-    fi
-}
-
 step_remove_dock_entry() {
     DOCK_PLIST="$HOME/Library/Preferences/com.apple.dock.plist"
     if [ -f "$DOCK_PLIST" ]; then
@@ -369,11 +359,10 @@ run_step 8  "Removing CLI symlinks"                    step_remove_cli_symlinks
 run_step 9  "Removing Vellum apps from /Applications"  step_remove_vellum_apps
 run_step 10 "Removing ms-playwright browser caches"    step_remove_playwright
 run_step 11 "Clearing Vellum desktop app UserDefaults" step_clear_vellum_defaults
-run_step 12 "Clearing Vellum Sparkle updater defaults" step_clear_sparkle_defaults
-run_step 13 "Removing Vellum from the Dock"            step_remove_dock_entry
-run_step 14 "Uninstalling Colima"                      step_uninstall_colima
-run_step 15 "Uninstalling Docker"                      step_uninstall_docker
-run_step 16 "Uninstalling Homebrew"                    step_uninstall_homebrew
+run_step 12 "Removing Vellum from the Dock"            step_remove_dock_entry
+run_step 13 "Uninstalling Colima"                      step_uninstall_colima
+run_step 14 "Uninstalling Docker"                      step_uninstall_docker
+run_step 15 "Uninstalling Homebrew"                    step_uninstall_homebrew
 
 echo ""
 echo "🚀 Rollback complete. Mac Mini is back to clean state."

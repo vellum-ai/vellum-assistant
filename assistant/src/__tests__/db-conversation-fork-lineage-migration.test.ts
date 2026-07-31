@@ -1,23 +1,13 @@
 import { Database } from "bun:sqlite";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { removeTestDbFiles } from "./assert-not-live-db.js";
 const originalBunTest = process.env.BUN_TEST;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-import { getSqliteFrom } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { migrateConversationForkLineage } from "../memory/migrations/183-add-conversation-fork-lineage.js";
-import * as schema from "../memory/schema.js";
-import { getDbPath } from "../util/platform.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
+import { migrateConversationForkLineage } from "../persistence/migrations/183-add-conversation-fork-lineage.js";
+import * as schema from "../persistence/schema/index.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 function createTestDb() {
@@ -68,7 +58,6 @@ function bootstrapPreLineageConversations(raw: Database): void {
 
 function resetMigrationTestDb(): void {
   resetDbForTesting();
-  removeTestDbFiles(getDbPath());
 }
 
 describe("conversation fork lineage migration", () => {
@@ -83,9 +72,12 @@ describe("conversation fork lineage migration", () => {
   });
 
   test("fresh DB initialization includes nullable lineage columns and parent lookup index", () => {
-    initializeDb();
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrapPreLineageConversations(raw);
 
-    const raw = new Database(getDbPath());
+    migrateConversationForkLineage(db);
+
     const columns = getColumnNames(raw);
 
     expect(columns).toContain("fork_parent_conversation_id");
@@ -107,7 +99,6 @@ describe("conversation fork lineage migration", () => {
 
     expect(forkColumns).toHaveLength(2);
     expect(forkColumns.every((column) => column.notnull === 0)).toBe(true);
-    raw.close();
   });
 
   test("migration upgrades the previous schema without disturbing existing conversation rows", () => {

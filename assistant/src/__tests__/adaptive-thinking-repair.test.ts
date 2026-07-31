@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
 import { enableAdaptiveThinkingManagedProfilesMigration } from "../workspace/migrations/097-enable-adaptive-thinking-managed-profiles.js";
+import { recheckAdaptiveThinkingModelImpliedAnthropicMigration } from "../workspace/migrations/104-recheck-adaptive-thinking-model-implied-anthropic.js";
 
 const ADAPTIVE = { enabled: true, streamThinking: true };
 
@@ -48,14 +49,18 @@ function profile(name: string): Record<string, unknown> {
   return profiles[name] as Record<string, unknown>;
 }
 
-// The startup repair and migration 097 keep frozen copies of the same logic
-// (migration modules must stay self-contained). Run every scenario against
-// both so the copies can't drift.
+// The startup repair, migration 097, and migration 104 keep frozen copies of
+// the same logic (migration modules must stay self-contained). Run every
+// scenario against all of them so the copies can't drift.
 const implementations: Array<[string, (dir: string) => void]> = [
   ["startup repair", repairAdaptiveThinkingOnManagedProfiles],
   [
     "migration 097",
     (dir) => enableAdaptiveThinkingManagedProfilesMigration.run(dir),
+  ],
+  [
+    "migration 104",
+    (dir) => recheckAdaptiveThinkingModelImpliedAnthropicMigration.run(dir),
   ],
 ];
 
@@ -129,6 +134,30 @@ describe.each(implementations)("%s", (_label, run) => {
     run(workspaceDir);
 
     expect(profile("balanced").thinking).toEqual(ADAPTIVE);
+  });
+
+  test("patches source-less profiles pinning a known Claude model under a non-Anthropic default", () => {
+    // A managed/source-less profile that omits `provider` but pins a known
+    // Claude model is Anthropic via the resolver's model-implied provider, even
+    // when llm.default.provider is non-Anthropic. It must still get adaptive
+    // thinking rather than being skipped.
+    writeConfig({
+      llm: {
+        default: { provider: "gemini", model: "gemini-2.5-pro" },
+        profiles: {
+          balanced: { model: "claude-sonnet-4-6" },
+          "quality-optimized": {
+            source: "managed",
+            model: "claude-opus-4-8",
+          },
+        },
+      },
+    });
+
+    run(workspaceDir);
+
+    expect(profile("balanced").thinking).toEqual(ADAPTIVE);
+    expect(profile("quality-optimized").thinking).toEqual(ADAPTIVE);
   });
 
   test("skips profiles with an explicit non-Anthropic provider", () => {

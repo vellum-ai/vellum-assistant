@@ -1,27 +1,21 @@
 import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   addAppConversationId,
   backfillAppConversationIds,
   createApp,
   getApp,
-} from "../memory/app-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { rawRun } from "../memory/raw-query.js";
+} from "../apps/app-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { migrateBackfillAppConversationLineage } from "../persistence/migrations/354-backfill-app-conversation-lineage.js";
+import { rawRun } from "../persistence/raw-query.js";
 
 // Initialize db once for all tests
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -53,6 +47,7 @@ function insertMessage(
   const id = `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const contentStr = JSON.stringify(content);
   rawRun(
+    "test:insertMessage",
     `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
     id,
     conversationId,
@@ -63,14 +58,18 @@ function insertMessage(
 }
 
 /** Insert a conversation row so FK constraints are satisfied. */
-function insertConversation(id: string): void {
+function insertConversation(id: string, parentConversationId?: string): void {
   const now = Date.now();
   rawRun(
-    `INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+    "test:insertConversation",
+    `INSERT OR IGNORE INTO conversations (
+      id, title, created_at, updated_at, parent_conversation_id
+    ) VALUES (?, ?, ?, ?, ?)`,
     id,
     "test",
     now,
     now,
+    parentConversationId ?? null,
   );
 }
 
@@ -205,6 +204,7 @@ describe("backfillAppConversationIds", () => {
     // Insert a message with invalid JSON that happens to match the LIKE filter
     const msgId = `msg-malformed-${Date.now()}`;
     rawRun(
+      "test:insertMalformedMessage",
       `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)`,
       msgId,
       convId,
@@ -274,5 +274,32 @@ describe("backfillAppConversationIds", () => {
 
     const loaded = getApp(app.id);
     expect(loaded?.conversationIds).toEqual([existingConvId, backfillConvId]);
+  });
+});
+
+describe("migrateBackfillAppConversationLineage", () => {
+  test("adds inherited ancestors to existing direct app associations", () => {
+    const app = createApp(makeAppParams("Lineage App"));
+    const rootConversationId = "conv-lineage-root";
+    const parentConversationId = "conv-lineage-parent";
+    const childConversationId = "conv-lineage-child";
+    insertConversation(rootConversationId);
+    insertConversation(parentConversationId, rootConversationId);
+    insertConversation(childConversationId, parentConversationId);
+    addAppConversationId(app.id, childConversationId);
+
+    migrateBackfillAppConversationLineage();
+    migrateBackfillAppConversationLineage();
+
+    const loaded = getApp(app.id);
+    expect(loaded?.conversationIds).toEqual([
+      childConversationId,
+      parentConversationId,
+      rootConversationId,
+    ]);
+    expect(loaded?.inheritedConversationIds).toEqual([
+      parentConversationId,
+      rootConversationId,
+    ]);
   });
 });

@@ -11,34 +11,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Shared mock plumbing (must precede module-under-test imports) ──────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 interface AddMessageCall {
   id: string;
   conversationId: string;
@@ -47,7 +19,9 @@ interface AddMessageCall {
   metadata?: Record<string, unknown>;
 }
 const addMessageCalls: AddMessageCall[] = [];
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -66,7 +40,18 @@ mock.module("../memory/conversation-crud.js", () => ({
     // `lastPersisted("assistant")` assertions continue to find the row that
     // was reserved at `llm_call_started` time.
     const call = addMessageCalls.find((c) => c.id === messageId);
-    if (call) call.content = content;
+    if (call) {
+      call.content = content;
+    }
+  },
+  markMessageContentInflight: () => {},
+  finalizeMessageContent: (messageId: string, content: string) => {
+    // The finalize seam writes through `finalizeMessageContent`; mirror it
+    // into the same capture array as `updateMessageContent`.
+    const call = addMessageCalls.find((c) => c.id === messageId);
+    if (call) {
+      call.content = content;
+    }
   },
   provenanceFromTrustContext: () => ({}),
   reserveMessage: mock(
@@ -92,16 +77,16 @@ mock.module("../memory/conversation-crud.js", () => ({
   ),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
 
-mock.module("../memory/memory-recall-log-store.js", () => ({
+mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   backfillMemoryRecallLogMessageId: () => {},
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 
@@ -127,7 +112,6 @@ function makeDeps(): EventHandlerDeps {
     ctx: {
       conversationId: CONV,
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       currentTurnSurfaces: [],
       trustContext: {
         sourceChannel: "vellum",
@@ -164,7 +148,9 @@ function makeMessageCompleteEvent(
 
 function lastPersisted(role: "assistant" | "user"): AddMessageCall {
   for (let i = addMessageCalls.length - 1; i >= 0; i--) {
-    if (addMessageCalls[i].role === role) return addMessageCalls[i];
+    if (addMessageCalls[i].role === role) {
+      return addMessageCalls[i];
+    }
   }
   throw new Error(`No ${role} message was persisted`);
 }

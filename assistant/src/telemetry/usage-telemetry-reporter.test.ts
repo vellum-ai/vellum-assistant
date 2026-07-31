@@ -1,35 +1,41 @@
 /**
  * Tests for UsageTelemetryReporter.
  *
- * Covers both auth modes (authenticated / anonymous), watermark advancement,
- * error handling, batch recursion, device ID resolution, and payload shape.
+ * Covers the authenticated send path (and the skip behavior when credentials
+ * are absent or the platform is disabled), watermark advancement, error
+ * handling, batch recursion, device ID resolution, and payload shape.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { ConsentState } from "../platform/consent-cache.js";
 
 // ---------------------------------------------------------------------------
 // Module mocks (must precede production imports)
 // ---------------------------------------------------------------------------
 
-const mockGetMemoryCheckpoint = mock<(key: string) => string | null>(
-  () => null,
-);
-const mockSetMemoryCheckpoint = mock<(key: string, value: string) => void>(
+// Watermark storage fake, injected via the reporter's constructor (see
+// `makeReporter` below) — the real store lives on the telemetry DB and has
+// its own DB-backed test, so it is deliberately NOT module-mocked here.
+const mockGetFlushCheckpoint = mock<(key: string) => string | null>(() => null);
+const mockSetFlushCheckpoint = mock<(key: string, value: string) => void>(
   () => {},
 );
+const mockIsFlushCheckpointStoreAvailable = mock<() => boolean>(() => true);
 
-mock.module("../memory/checkpoints.js", () => ({
-  getMemoryCheckpoint: mockGetMemoryCheckpoint,
-  setMemoryCheckpoint: mockSetMemoryCheckpoint,
-}));
+const fakeFlushCheckpointStore = {
+  isAvailable: () => mockIsFlushCheckpointStoreAvailable(),
+  get: (key: string) => mockGetFlushCheckpoint(key),
+  set: (key: string, value: string) => mockSetFlushCheckpoint(key, value),
+};
 
 const mockQueryUnreportedUsageEvents = mock(
   () =>
     [] as ReturnType<
-      typeof import("../memory/llm-usage-store.js").queryUnreportedUsageEvents
+      typeof import("../persistence/llm-usage-store.js").queryUnreportedUsageEvents
     >,
 );
 
-mock.module("../memory/llm-usage-store.js", () => ({
+mock.module("../persistence/llm-usage-store.js", () => ({
   queryUnreportedUsageEvents: mockQueryUnreportedUsageEvents,
 }));
 
@@ -44,10 +50,13 @@ const mockQueryUnreportedTurnEvents = mock(
       interfaceId: string | null;
       channelId: string | null;
       clientMetadata: string | null;
+      outcome?: string | null;
+      batchedInto?: string | null;
+      failureCode?: string | null;
     }[],
 );
 
-mock.module("../memory/turn-events-store.js", () => ({
+mock.module("./turn-events-store.js", () => ({
   queryUnreportedTurnEvents: mockQueryUnreportedTurnEvents,
 }));
 
@@ -80,74 +89,98 @@ mock.module("../util/device-id.js", () => ({
   getDeviceId: mockGetDeviceId,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../version.js", () => ({
   APP_VERSION: "1.2.3-test",
 }));
 
-let mockCollectUsageData = true;
+// Tri-state `share_analytics` consent (the reporter's flush gate). The
+// boolean accessor used by record-time gates derives from the same knob so a
+// test toggling consent flips both views consistently.
+const mockGetRawShareAnalytics = mock<() => ConsentState>(() => true);
+// Owner's `share_diagnostics` consent — one part of the trace-collection gate.
+const mockGetCachedShareDiagnostics = mock(() => false);
+// Owner's accepted diagnostics-consent version — the disclosing-version part of
+// the trace gate. Default to a far-future (unconditionally eligible) version so
+// the consent cases drive eligibility on that axis; the version-specific
+// cases override it with old/empty values.
+const mockGetCachedShareDiagnosticsVersion = mock(() => "2999-01-01");
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-    collectUsageData: mockCollectUsageData,
-  }),
+mock.module("../platform/consent-cache.js", () => ({
+  getRawShareAnalytics: mockGetRawShareAnalytics,
+  getCachedShareDiagnostics: mockGetCachedShareDiagnostics,
+  getCachedShareDiagnosticsVersion: mockGetCachedShareDiagnosticsVersion,
 }));
 
-const mockQueryUnreportedLifecycleEvents = mock(
-  () =>
-    [] as {
-      id: string;
-      eventName: string;
-      createdAt: number;
-    }[],
+interface MockTurnTrace {
+  schema_version: 3;
+  messages: {
+    id: string;
+    role: string;
+    created_at: number;
+    content: unknown;
+    model: string | null;
+  }[];
+  tool_calls: unknown[];
+  system_prompt: string | null;
+  tool_definitions: {
+    name: string;
+    description: string;
+    input_schema: Record<string, unknown>;
+  }[];
+}
+
+// Returns a non-null bounded trace by default; individual tests override the
+// return value (including null, for the over-cap / assembly-failure path).
+function defaultBoundedTurnTrace(boundary: {
+  conversationId: string;
+  userMessageId: string;
+  userMessageCreatedAt: number;
+}): MockTurnTrace | null {
+  return {
+    schema_version: 3,
+    messages: [
+      {
+        id: boundary.userMessageId,
+        role: "user",
+        created_at: boundary.userMessageCreatedAt,
+        content: [{ type: "text", text: "hello" }],
+        model: null,
+      },
+    ],
+    tool_calls: [],
+    system_prompt: "You are a helpful assistant.",
+    tool_definitions: [
+      {
+        name: "web_search",
+        description: "Search the web",
+        input_schema: {},
+      },
+    ],
+  };
+}
+
+const mockAssembleBoundedTurnTrace = mock(defaultBoundedTurnTrace);
+
+// Turn-completeness gate. Default: every turn is settled (complete), so the
+// deferral barrier never fires unless a test opts a turn into "in-flight".
+const mockIsTurnSettled = mock(
+  (_boundary: {
+    conversationId: string;
+    userMessageId: string;
+    userMessageCreatedAt: number;
+  }): boolean => true,
 );
 
-mock.module("../memory/lifecycle-events-store.js", () => ({
-  queryUnreportedLifecycleEvents: mockQueryUnreportedLifecycleEvents,
+mock.module("./turn-trace-store.js", () => ({
+  assembleBoundedTurnTrace: mockAssembleBoundedTurnTrace,
+  isTurnSettled: mockIsTurnSettled,
 }));
 
-const mockQueryUnreportedOnboardingEvents = mock(
-  () =>
-    [] as {
-      id: string;
-      createdAt: number;
-      screen: string;
-      toolsJson: string | null;
-      tasksJson: string | null;
-      tone: string | null;
-      googleConnected: boolean | null;
-      googleScopesJson: string | null;
-      priorAssistantsJson: string | null;
-      abVariant: string | null;
-      sessionId: string | null;
-      stepName: string | null;
-      stepIndex: number | null;
-      completedAt: string | null;
-      funnelVersion: string | null;
-    }[],
-);
-
-mock.module("../memory/onboarding-events-store.js", () => ({
-  queryUnreportedOnboardingEvents: mockQueryUnreportedOnboardingEvents,
-}));
-
-// The auth-fallback, tool-executed, and skill-loaded stores are intentionally
-// NOT mocked — they have their own DB-backed tests, and Bun's `mock.module`
-// is process-global, so mocking them here would leak into those tests when
-// files share an invocation. We seed the real DB instead so every test stays
-// order-independent.
+// The auth-fallback, tool-executed, and skill-loaded stores are
+// intentionally NOT mocked — they have their own DB-backed tests, and Bun's
+// `mock.module` is process-global, so mocking them here would leak into those
+// tests when files share an invocation. We seed the real DB instead so every
+// test stays order-independent.
 
 // ---------------------------------------------------------------------------
 // Production import (after mocks)
@@ -158,24 +191,58 @@ import {
   TOOL_INVOCATION_PII_SENTINEL as TOOL_PII_SENTINEL,
   type ToolInvocationSeedSpec,
 } from "../__tests__/test-support/tool-invocation-seed.js";
-import { recordAuthFallbackCounts } from "../memory/auth-fallback-events-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
 import {
-  authFallbackEvents,
+  recordActivationEvent,
+  recordOnboardingEvent,
+} from "../onboarding/onboarding-events-store.js";
+import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { recordLifecycleEvent } from "../persistence/lifecycle-events-store.js";
+import {
   conversations,
-  skillLoadedEvents,
+  telemetryEvents,
   toolInvocations,
-} from "../memory/schema.js";
-import { recordSkillLoadedEvent } from "../memory/skill-loaded-events-store.js";
+} from "../persistence/schema/index.js";
+import { recordAuthFallbackCounts } from "../security/auth-fallback-events-store.js";
 import type { UsageEvent } from "../usage/types.js";
 import {
   ACTIVATION_FUNNEL_VERSION,
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
-import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
+import { recordConfigSettingEvent } from "./config-setting-events-store.js";
+import { recordSkillLoadedEvent } from "./skill-loaded-events-store.js";
+import {
+  ALL_TELEMETRY_EVENT_SOURCES,
+  DAEMON_TELEMETRY_EVENT_SOURCES,
+  MONITOR_TELEMETRY_EVENT_SOURCES,
+  outboxSource,
+  type TelemetryEventSource,
+} from "./telemetry-event-sources.js";
+import {
+  insertTelemetryOutboxEvent,
+  OUTBOX_MAX_ROW_AGE_MS,
+  queryTelemetryOutboxBatch,
+} from "./telemetry-events-outbox.js";
+import type { OutboxTelemetryEventName, TelemetryEvent } from "./types.js";
+import {
+  initToolExecutedWatermarkIfAbsent,
+  UsageTelemetryReporter,
+} from "./usage-telemetry-reporter.js";
+import { recordWatchdogEvent } from "./watchdog-events-store.js";
 
-initializeDb();
+/**
+ * Construct a reporter wired to the in-memory checkpoint fake. All tests go
+ * through this so watermark reads/writes stay assertable via the mocks
+ * without process-global module mocking of the real telemetry-DB store.
+ */
+function makeReporter(): UsageTelemetryReporter {
+  return new UsageTelemetryReporter(
+    ALL_TELEMETRY_EVENT_SOURCES,
+    fakeFlushCheckpointStore,
+  );
+}
+
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -184,12 +251,15 @@ initializeDb();
 let eventIdCounter = 0;
 
 // The reporter consumes `UnreportedUsageEvent` (UsageEvent + the
-// JOIN-computed fields `conversationType` and `turnIndex`). Build that
-// shape directly so the mock matches `queryUnreportedUsageEvents`'
-// return type exactly.
+// JOIN-computed fields `conversationType`, `turnIndex`,
+// `parentConversationId`, and `parentTurnIndex`). Build that shape
+// directly so the mock matches `queryUnreportedUsageEvents`' return type
+// exactly.
 type UnreportedUsageEventFixture = UsageEvent & {
   conversationType: string | null;
   turnIndex: number | null;
+  parentConversationId: string | null;
+  parentTurnIndex: number | null;
 };
 
 function makeUsageEvent(
@@ -218,35 +288,9 @@ function makeUsageEvent(
     assistantVersion: "test-app-version",
     conversationType: "standard",
     turnIndex: 1,
+    parentConversationId: null,
+    parentTurnIndex: null,
     llmCallCount: 1,
-    ...overrides,
-  };
-}
-
-type OnboardingEventFixture = ReturnType<
-  typeof mockQueryUnreportedOnboardingEvents
->[number];
-
-function makeOnboardingEvent(
-  overrides: Partial<OnboardingEventFixture> = {},
-): OnboardingEventFixture {
-  eventIdCounter += 1;
-  return {
-    id: `onb-${eventIdCounter}`,
-    createdAt: 1700000000000 + eventIdCounter * 1000,
-    screen: "tools",
-    toolsJson: null,
-    tasksJson: null,
-    tone: null,
-    googleConnected: null,
-    googleScopesJson: null,
-    priorAssistantsJson: null,
-    abVariant: null,
-    sessionId: null,
-    stepName: null,
-    stepIndex: null,
-    completedAt: null,
-    funnelVersion: null,
     ...overrides,
   };
 }
@@ -272,10 +316,10 @@ function useStatefulCheckpoints(
   seed: Record<string, string> = {},
 ): Map<string, string> {
   const checkpoints = new Map(Object.entries(seed));
-  mockGetMemoryCheckpoint.mockImplementation(
+  mockGetFlushCheckpoint.mockImplementation(
     (key) => checkpoints.get(key) ?? null,
   );
-  mockSetMemoryCheckpoint.mockImplementation((key, value) => {
+  mockSetFlushCheckpoint.mockImplementation((key, value) => {
     checkpoints.set(key, value);
   });
   return checkpoints;
@@ -290,20 +334,32 @@ let mockFetch: ReturnType<typeof mock>;
 
 beforeEach(() => {
   eventIdCounter = 0;
-  mockCollectUsageData = true;
-  mockGetMemoryCheckpoint.mockReset();
-  mockSetMemoryCheckpoint.mockReset();
+  // Default consent ON so the happy-path send tests exercise the flush.
+  mockGetRawShareAnalytics.mockReset();
+  mockGetRawShareAnalytics.mockReturnValue(true);
+  // Default `share_diagnostics` consent OFF — most tests don't expect a trace;
+  // the trace-specific tests opt in explicitly.
+  mockGetCachedShareDiagnostics.mockReset();
+  mockGetCachedShareDiagnostics.mockReturnValue(false);
+  // Default the accepted consent version eligible so trace tests drive the gate
+  // via the share_diagnostics knob; version cases override it.
+  mockGetCachedShareDiagnosticsVersion.mockReset();
+  mockGetCachedShareDiagnosticsVersion.mockReturnValue("2999-01-01");
+  mockAssembleBoundedTurnTrace.mockReset();
+  mockAssembleBoundedTurnTrace.mockImplementation(defaultBoundedTurnTrace);
+  mockIsTurnSettled.mockReset();
+  mockIsTurnSettled.mockReturnValue(true);
+  mockGetFlushCheckpoint.mockReset();
+  mockSetFlushCheckpoint.mockReset();
+  mockIsFlushCheckpointStoreAvailable.mockReset();
+  mockIsFlushCheckpointStoreAvailable.mockReturnValue(true);
   mockQueryUnreportedUsageEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReturnValue([]);
-  mockQueryUnreportedLifecycleEvents.mockReset();
-  mockQueryUnreportedLifecycleEvents.mockReturnValue([]);
-  mockQueryUnreportedOnboardingEvents.mockReset();
-  mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
-  getDb().delete(authFallbackEvents).run();
   getDb().delete(toolInvocations).run();
-  getDb().delete(skillLoadedEvents).run();
-  mockPlatformClient = null;
+  getTelemetryDb()!.delete(telemetryEvents).run();
+  delete process.env.VELLUM_DISABLE_PLATFORM;
+  delete process.env.IS_PLATFORM;
   mockGetPlatformBaseUrl.mockReset();
   mockGetDeviceId.mockReset();
   mockGetDeviceId.mockReturnValue("test-device-id");
@@ -313,17 +369,30 @@ beforeEach(() => {
   mockGetPlatformUserId.mockReturnValue("");
 
   // Defaults
-  mockGetMemoryCheckpoint.mockReturnValue(null);
+  mockGetFlushCheckpoint.mockReturnValue(null);
   mockGetPlatformBaseUrl.mockReturnValue("https://platform.vellum.ai");
 
   mockFetch = mock(() =>
     Promise.resolve(new Response('{"accepted":0}', { status: 200 })),
   );
   globalThis.fetch = mockFetch as unknown as typeof fetch;
+
+  // Default to an authenticated client whose fetch delegates to the mockFetch
+  // spy, so the existing payload/body assertions keep working. The reporter
+  // sends authenticated-only; tests that exercise the no-credentials path
+  // override this with `mockPlatformClient = null`.
+  mockPlatformClient = {
+    baseUrl: "https://test.vellum.ai",
+    assistantApiKey: "test-key",
+    platformAssistantId: "asst-123",
+    fetch: (path: string, init?: RequestInit) => mockFetch(path, init),
+  };
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  delete process.env.VELLUM_DISABLE_PLATFORM;
+  delete process.env.IS_PLATFORM;
 });
 
 // ---------------------------------------------------------------------------
@@ -344,7 +413,7 @@ describe("UsageTelemetryReporter", () => {
     const events = [makeUsageEvent(), makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(clientFetchMock).toHaveBeenCalledTimes(1);
@@ -354,26 +423,57 @@ describe("UsageTelemetryReporter", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  test("anonymous flush sends request without auth headers", async () => {
+  test("flush is skipped when no platform credentials are available", async () => {
+    // Authenticated-only: with no client, nothing is sent and the watermark is
+    // left intact so the backlog ships once credentials resolve.
     mockPlatformClient = null;
-    mockGetPlatformBaseUrl.mockReturnValue("https://platform.test.ai");
 
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
-    mockFetch.mockImplementation(() =>
-      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
-    );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    const watermarkCalls = mockSetFlushCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:usage:last_reported_at",
+    );
+    expect(watermarkCalls.length).toBe(0);
+  });
+
+  test("flush is skipped when VELLUM_DISABLE_PLATFORM is set in local mode", async () => {
+    // The platform-disabled toggle suppresses the send. Unlike the opt-out
+    // branch, watermarks are NOT advanced, so the backlog ships once the flag
+    // is cleared.
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = makeReporter();
+    // Construction initializes the absent tool_executed watermark; clear that
+    // call so the assertion below covers only the flush.
+    mockSetFlushCheckpoint.mockClear();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("VELLUM_DISABLE_PLATFORM is ignored when IS_PLATFORM is set (managed mode)", async () => {
+    // Platform-managed assistants always connect to the platform; an inherited
+    // VELLUM_DISABLE_PLATFORM must not suppress telemetry for them (matches
+    // arePlatformFeaturesEnabled / VellumPlatformClient.create()).
+    process.env.IS_PLATFORM = "true";
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toStartWith("https://platform.test.ai");
-    expect(url).toEndWith("/telemetry/ingest/");
-    const headers = opts.headers as Record<string, string>;
-    expect(headers["Content-Type"]).toBe("application/json");
-    expect(headers["X-Telemetry-Token"]).toBeUndefined();
   });
 
   test("watermark advances on successful upload", async () => {
@@ -386,10 +486,10 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
-    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+    const watermarkCalls = mockSetFlushCheckpoint.mock.calls.filter(
       (c) => c[0] === "telemetry:usage:last_reported_at",
     );
     expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
@@ -399,7 +499,7 @@ describe("UsageTelemetryReporter", () => {
     );
 
     // The compound cursor ID should also be set to the last event's id
-    const idCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+    const idCalls = mockSetFlushCheckpoint.mock.calls.filter(
       (c) => c[0] === "telemetry:usage:last_reported_id",
     );
     expect(idCalls.length).toBeGreaterThanOrEqual(1);
@@ -413,10 +513,10 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response("error", { status: 500 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
-    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+    const watermarkCalls = mockSetFlushCheckpoint.mock.calls.filter(
       (c) => c[0] === "telemetry:usage:last_reported_at",
     );
     expect(watermarkCalls.length).toBe(0);
@@ -429,7 +529,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
 
     // First flush — should use the per-device ID
     await reporter.flush();
@@ -452,7 +552,7 @@ describe("UsageTelemetryReporter", () => {
   test("empty batch makes no HTTP call", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).not.toHaveBeenCalled();
@@ -468,11 +568,131 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":500}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     // MAX_CONSECUTIVE_BATCHES = 10
     expect(mockFetch).toHaveBeenCalledTimes(10);
+  });
+
+  test("flush summary reports sent/persisted/dropped from the ingest response", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([
+      makeUsageEvent(),
+      makeUsageEvent(),
+      makeUsageEvent(),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          '{"accepted":3,"persisted":2,"dropped":{"analytics_opt_out":1}}',
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const reporter = makeReporter();
+    const summary = await reporter.flush();
+
+    expect(summary).toEqual({
+      flushed: true,
+      sent: 3,
+      persisted: 2,
+      dropped: 1,
+    });
+  });
+
+  test("flush summary falls back to persisted=sent when the body omits persisted", async () => {
+    // Older platform returns only `accepted` — assume everything landed.
+    mockQueryUnreportedUsageEvents.mockReturnValue([
+      makeUsageEvent(),
+      makeUsageEvent(),
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    const summary = await reporter.flush();
+
+    expect(summary).toEqual({
+      flushed: true,
+      sent: 2,
+      persisted: 2,
+      dropped: 0,
+    });
+  });
+
+  test("flush summary accumulates counts across the batch recursion", async () => {
+    const fullBatch = Array.from({ length: 500 }, (_, i) =>
+      makeUsageEvent({ id: `evt-acc-${i}`, createdAt: 1700000000000 + i }),
+    );
+    // First collect fills a batch (recurse); second returns a short batch (stop).
+    mockQueryUnreportedUsageEvents
+      .mockReturnValueOnce(fullBatch)
+      .mockReturnValue([makeUsageEvent({ id: "evt-acc-tail" })]);
+    // First POST drops 10; second persists its single event.
+    mockFetch
+      .mockImplementationOnce(() =>
+        Promise.resolve(
+          new Response('{"accepted":500,"persisted":490}', { status: 200 }),
+        ),
+      )
+      .mockImplementation(() =>
+        Promise.resolve(new Response('{"persisted":1}', { status: 200 })),
+      );
+
+    const reporter = makeReporter();
+    const summary = await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(summary).toEqual({
+      flushed: true,
+      sent: 501,
+      persisted: 491,
+      dropped: 10,
+    });
+  });
+
+  test("flush summary reports skip reasons without shipping", async () => {
+    const reporter = makeReporter();
+
+    // nothing-pending: no events across any source.
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    expect(await reporter.flush()).toEqual({
+      flushed: false,
+      reason: "nothing-pending",
+    });
+
+    // opted-out: confirmed share_analytics opt-out.
+    mockGetRawShareAnalytics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([makeUsageEvent()]);
+    expect(await reporter.flush()).toEqual({
+      flushed: false,
+      reason: "opted-out",
+    });
+    mockGetRawShareAnalytics.mockReturnValue(true);
+
+    // no-credentials: authenticated-only, no platform client resolved.
+    mockPlatformClient = null;
+    expect(await reporter.flush()).toEqual({
+      flushed: false,
+      reason: "no-credentials",
+    });
+
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("flush summary reports post-failed on a non-2xx response", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([makeUsageEvent()]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("error", { status: 500 })),
+    );
+
+    const reporter = makeReporter();
+    expect(await reporter.flush()).toEqual({
+      flushed: false,
+      reason: "post-failed",
+    });
   });
 
   test("stop() performs final flush", async () => {
@@ -482,7 +702,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     reporter.start();
 
     // Wait a tick so start()'s immediate flush settles.
@@ -516,7 +736,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -585,7 +805,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     const body = JSON.parse(
@@ -609,7 +829,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     const body = JSON.parse(
@@ -636,7 +856,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     const body = JSON.parse(
@@ -654,7 +874,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -674,7 +894,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -692,7 +912,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -721,7 +941,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -789,7 +1009,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":3}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -868,7 +1088,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":4}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -921,10 +1141,485 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
-  test("llm_usage events carry conversation_id, conversation_type, and turn_index", async () => {
+  // -------------------------------------------------------------------------
+  // Per-turn trace collection (gated on share_diagnostics consent at an
+  // eligible accepted version)
+  // -------------------------------------------------------------------------
+
+  function singleTurnEvent() {
+    return [
+      {
+        id: "evt-turn-trace",
+        createdAt: 1700000050000,
+        conversationId: "conv-trace",
+        conversationType: "standard",
+        turnIndex: 2,
+        interfaceId: "macos",
+        channelId: "vellum",
+        clientMetadata: null,
+      },
+    ];
+  }
+
+  test("attaches the assembled trace when share_diagnostics and an eligible consent version are both true", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    // The assembler is called with the turn's (conversationId, id, createdAt)
+    // boundary so the window lines up with the turn event.
+    expect(mockAssembleBoundedTurnTrace).toHaveBeenCalledTimes(1);
+    expect(mockAssembleBoundedTurnTrace.mock.calls[0][0]).toEqual({
+      conversationId: "conv-trace",
+      userMessageId: "evt-turn-trace",
+      userMessageCreatedAt: 1700000050000,
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // Still exactly one event — the single turn event, now carrying `trace`.
+    expect(body.events.length).toBe(1);
+    const turn = body.events[0];
+    expect(turn.type).toBe("turn");
+    expect(turn.daemon_event_id).toBe("evt-turn-trace");
+    expect(turn.trace).toBeDefined();
+    expect(turn.trace.schema_version).toBe(3);
+    expect(turn.trace.messages[0].id).toBe("evt-turn-trace");
+    expect(turn.trace.messages[0].model).toBeNull();
+    expect(Array.isArray(turn.trace.tool_calls)).toBe(true);
+  });
+
+  test("omits the trace when share_diagnostics is false (and still emits the turn event)", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    // Gate off → no assembly at all (no PII touched).
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // The single turn event still flushes — just without a trace.
+    expect(body.events.length).toBe(1);
+    const turn = body.events[0];
+    expect(turn.type).toBe("turn");
+    expect(turn.daemon_event_id).toBe("evt-turn-trace");
+    expect("trace" in turn).toBe(false);
+  });
+
+  test("omits the trace when the accepted consent version predates the disclosure threshold (share_diagnostics on)", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    // Consent recorded under an older version that never disclosed trace
+    // collection → gate closed, mirroring the platform ingest gate.
+    mockGetCachedShareDiagnosticsVersion.mockReturnValue("2000-01-01");
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    // Version below threshold → no assembly at all (no PII touched).
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect("trace" in body.events[0]).toBe(false);
+  });
+
+  test("omits the trace when the owner never accepted a versioned consent (empty version)", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    // Empty version (never accepted / no-row default where share_diagnostics is
+    // true but unversioned) fails closed.
+    mockGetCachedShareDiagnosticsVersion.mockReturnValue("");
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect("trace" in body.events[0]).toBe(false);
+  });
+
+  test("omits the trace (key absent) when the assembler returns null (over-cap / failure) but still emits the turn event", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    // Over-cap / assembly-failure path: the bounded assembler returns null.
+    mockAssembleBoundedTurnTrace.mockReturnValueOnce(null);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect("trace" in body.events[0]).toBe(false);
+  });
+
+  test("no trace is assembled or attached when the whole flush is gated off by share_analytics", async () => {
+    // The analytics gate short-circuits the entire flush; trace assembly must
+    // never run (and nothing is sent) even when the trace gate is fully on
+    // (share_diagnostics true at an eligible version).
+    mockGetRawShareAnalytics.mockReturnValue(false);
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedTurnEvents.mockReturnValue(singleTurnEvent());
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Trace completeness barrier — don't emit partial traces mid-turn
+  // -------------------------------------------------------------------------
+
+  function turnEvent(
+    id: string,
+    createdAt: number,
+    conversationId: string,
+    overrides: {
+      outcome?: string | null;
+      batchedInto?: string | null;
+      failureCode?: string | null;
+    } = {},
+  ) {
+    return {
+      id,
+      createdAt,
+      conversationId,
+      conversationType: "standard",
+      turnIndex: 1,
+      interfaceId: "macos",
+      channelId: "vellum",
+      clientMetadata: null,
+      ...overrides,
+    };
+  }
+
+  test("a flush during an in-progress turn defers it (no partial trace, watermark held)", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-inflight", 1700000050000, "conv-1"),
+    ]);
+    // The turn's response is still streaming — not settled.
+    mockIsTurnSettled.mockReturnValue(false);
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    // No trace assembled, and the turn is NOT sent (the only event was deferred).
+    expect(mockAssembleBoundedTurnTrace).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+    // The turn watermark must NOT advance past the deferred turn.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBeUndefined();
+    expect(checkpoints.get("telemetry:turns:last_reported_id")).toBeUndefined();
+  });
+
+  test("a later flush emits the COMPLETE trace once the turn settles", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-inflight", 1700000050000, "conv-1"),
+    ]);
+
+    // Flush 1: turn in progress -> deferred, nothing sent.
+    mockIsTurnSettled.mockReturnValue(false);
+    const reporter = makeReporter();
+    await reporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    // Flush 2: the response + tool results have landed; the turn is settled and
+    // the full trace assembles. The same (still-unreported) turn now ships.
+    mockIsTurnSettled.mockReturnValue(true);
+    mockAssembleBoundedTurnTrace.mockReturnValue({
+      schema_version: 3,
+      messages: [
+        {
+          id: "evt-inflight",
+          role: "user",
+          created_at: 1700000050000,
+          content: [{ type: "text", text: "do a thing" }],
+          model: null,
+        },
+        {
+          id: "asst-1",
+          role: "assistant",
+          created_at: 1700000051000,
+          content: [{ type: "text", text: "done" }],
+          model: "claude-fable-5",
+        },
+      ],
+      tool_calls: [{ id: "ti-1" }],
+      system_prompt: "You are a helpful assistant.",
+      tool_definitions: [],
+    });
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    const turn = body.events[0];
+    expect(turn.daemon_event_id).toBe("evt-inflight");
+    // The COMPLETE transcript: user message + assistant response + tool call.
+    expect(turn.trace.messages.map((m: { id: string }) => m.id)).toEqual([
+      "evt-inflight",
+      "asst-1",
+    ]);
+    expect(turn.trace.tool_calls).toHaveLength(1);
+    // Watermark now advances to the (now-complete) turn.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBe(
+      String(1700000050000),
+    );
+    expect(checkpoints.get("telemetry:turns:last_reported_id")).toBe(
+      "evt-inflight",
+    );
+  });
+
+  test("the final turn of a conversation still gets its complete trace once its own response finishes", async () => {
+    // No successor turn exists; `isTurnSettled` returns true purely because the
+    // conversation is no longer processing. The trace must still be sent (not
+    // deferred forever for lack of a next user turn).
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-final", 1700000060000, "conv-final"),
+    ]);
+    mockIsTurnSettled.mockReturnValue(true);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockAssembleBoundedTurnTrace).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0].daemon_event_id).toBe("evt-final");
+    expect(body.events[0].trace).toBeDefined();
+  });
+
+  test("barrier: a complete turn ordered AFTER an in-flight turn is also deferred (no watermark skip)", async () => {
+    // The turn watermark is a single monotonic cursor, so a complete turn that
+    // sorts after a deferred in-flight turn cannot be reported without skipping
+    // the deferred one. Both wait; the earlier complete turn (before the
+    // barrier) is reported.
+    mockGetCachedShareDiagnostics.mockReturnValue(true);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-a-complete", 1700000010000, "conv-a"),
+      turnEvent("evt-b-inflight", 1700000020000, "conv-b"),
+      turnEvent("evt-c-complete", 1700000030000, "conv-c"),
+    ]);
+    // Only the middle turn is in-flight.
+    mockIsTurnSettled.mockImplementation(
+      (b) => b.userMessageId !== "evt-b-inflight",
+    );
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // Only the turn BEFORE the in-flight barrier is reported.
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["evt-a-complete"]);
+    // Watermark stops at the last reported turn, NOT the later complete turn —
+    // so the deferred middle turn is never skipped.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBe(
+      String(1700000010000),
+    );
+    expect(checkpoints.get("telemetry:turns:last_reported_id")).toBe(
+      "evt-a-complete",
+    );
+  });
+
+  test("with tracing disabled, an in-progress turn is still deferred (outcome stamps must ship with the event)", async () => {
+    // The completeness barrier applies to every turn event, not just
+    // trace-eligible ones: the `outcome` stamp is written while the
+    // conversation is still processing, and the watermark advances on ship,
+    // so an in-flight turn reported early would be frozen without its stamp.
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-inflight", 1700000050000, "conv-1"),
+    ]);
+    mockIsTurnSettled.mockReturnValue(false);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockIsTurnSettled).toHaveBeenCalled();
+    // Nothing ships and the watermark holds, so the turn is retried complete.
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBeUndefined();
+  });
+
+  test("with tracing disabled, a settled turn ships trace-free and advances the watermark", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-settled", 1700000050000, "conv-1"),
+    ]);
+    mockIsTurnSettled.mockReturnValue(true);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0].daemon_event_id).toBe("evt-settled");
+    expect("trace" in body.events[0]).toBe(false);
+    // Watermark advances as usual.
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBe(
+      String(1700000050000),
+    );
+  });
+
+  test("outcome stamps ride the turn event: batched carries batched_into, failed carries failure_code", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-batched-head", 1700000010000, "conv-1", {
+        outcome: "batched",
+        batchedInto: "evt-batch-final",
+      }),
+      turnEvent("evt-batch-final", 1700000011000, "conv-1"),
+      turnEvent("evt-failed", 1700000012000, "conv-2", {
+        outcome: "failed",
+        failureCode: "PROVIDER_RATE_LIMIT",
+      }),
+      turnEvent("evt-cancelled", 1700000013000, "conv-3", {
+        outcome: "cancelled",
+      }),
+    ]);
+    mockIsTurnSettled.mockReturnValue(true);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":4}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const byId = Object.fromEntries(
+      body.events.map((e: { daemon_event_id: string }) => [
+        e.daemon_event_id,
+        e,
+      ]),
+    );
+    expect(byId["evt-batched-head"].outcome).toBe("batched");
+    expect(byId["evt-batched-head"].batched_into).toBe("evt-batch-final");
+    expect("failure_code" in byId["evt-batched-head"]).toBe(false);
+    // The batch-final turn replied normally: no outcome keys at all.
+    expect("outcome" in byId["evt-batch-final"]).toBe(false);
+    expect("batched_into" in byId["evt-batch-final"]).toBe(false);
+    expect(byId["evt-failed"].outcome).toBe("failed");
+    expect(byId["evt-failed"].failure_code).toBe("PROVIDER_RATE_LIMIT");
+    expect("batched_into" in byId["evt-failed"]).toBe(false);
+    expect(byId["evt-cancelled"].outcome).toBe("cancelled");
+    expect("failure_code" in byId["evt-cancelled"]).toBe(false);
+  });
+
+  test("an unrecognized outcome value in metadata is dropped from the wire", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-garbage", 1700000010000, "conv-1", {
+        outcome: "exploded",
+        batchedInto: "evt-other",
+        failureCode: "BOOM",
+      }),
+    ]);
+    mockIsTurnSettled.mockReturnValue(true);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect("outcome" in body.events[0]).toBe(false);
+    expect("batched_into" in body.events[0]).toBe(false);
+    expect("failure_code" in body.events[0]).toBe(false);
+  });
+
+  test("llm_usage events carry conversation_id, conversation_type, turn_index, and parent linkage", async () => {
     // Three LLM calls across the spectrum of the new fields:
     //  - tied to a conversation, mid-turn (typical foreground)
-    //  - tied to a background conversation, first turn
+    //  - tied to a background conversation spawned by a parent turn
+    //    (subagent: parent linkage populated)
     //  - untied (memory consolidation: no conversation, no turn)
     mockQueryUnreportedUsageEvents.mockReturnValue([
       makeUsageEvent({
@@ -938,6 +1633,8 @@ describe("UsageTelemetryReporter", () => {
         conversationId: "conv-bg",
         conversationType: "background",
         turnIndex: 1,
+        parentConversationId: "conv-fg",
+        parentTurnIndex: 4,
       }),
       makeUsageEvent({
         id: "evt-untied-call",
@@ -950,7 +1647,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":3}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -965,6 +1662,8 @@ describe("UsageTelemetryReporter", () => {
         conversation_id: string | null;
         conversation_type: string | null;
         turn_index: number | null;
+        parent_conversation_id: string | null;
+        parent_turn_index: number | null;
       }
     > = {};
     for (const e of body.events as Array<{
@@ -973,6 +1672,8 @@ describe("UsageTelemetryReporter", () => {
       conversation_id: string | null;
       conversation_type: string | null;
       turn_index: number | null;
+      parent_conversation_id: string | null;
+      parent_turn_index: number | null;
     }>) {
       byId[e.daemon_event_id] = e;
     }
@@ -982,15 +1683,19 @@ describe("UsageTelemetryReporter", () => {
       conversation_id: "conv-fg",
       conversation_type: "standard",
       turn_index: 4,
+      parent_conversation_id: null,
+      parent_turn_index: null,
     });
     expect(byId["evt-bg-call"]).toMatchObject({
       type: "llm_usage",
       conversation_id: "conv-bg",
       conversation_type: "background",
       turn_index: 1,
+      parent_conversation_id: "conv-fg",
+      parent_turn_index: 4,
     });
     // LLM calls without a parent conversation flush through with all
-    // three conversation-level fields null — the serializer accepts
+    // conversation-level fields null — the serializer accepts
     // allow_null and downstream SQL filters can `WHERE conversation_id
     // IS NOT NULL` to scope to foreground analytics.
     expect(byId["evt-untied-call"]).toMatchObject({
@@ -998,43 +1703,41 @@ describe("UsageTelemetryReporter", () => {
       conversation_id: null,
       conversation_type: null,
       turn_index: null,
+      parent_conversation_id: null,
+      parent_turn_index: null,
     });
   });
 
-  test("flush is skipped and watermarks advanced when collectUsageData is false", async () => {
-    mockCollectUsageData = false;
+  test("flush is skipped and watermarks advanced when share_analytics consent is off", async () => {
+    mockGetRawShareAnalytics.mockReturnValue(false);
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     // Construction initializes the absent tool_executed watermark; clear that
     // call so the count below covers only the flush's advancement.
-    mockSetMemoryCheckpoint.mockClear();
+    mockSetFlushCheckpoint.mockClear();
     await reporter.flush();
 
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 7 timestamp watermarks should have been advanced, and all 7 ID
-    // watermarks pinned to the high-sorting sentinel (a truthy value keeps
-    // the compound-cursor branch active while closing its same-millisecond
-    // arm against opt-out rows).
-    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(14);
+    // All 3 watermark-mode timestamp watermarks should have been advanced,
+    // and their 3 ID watermarks pinned to the high-sorting sentinel (a truthy
+    // value keeps the compound-cursor branch active while closing its
+    // same-millisecond arm against opt-out rows). Ack-mode sources
+    // (lifecycle, onboarding, auth_fallback, skill_loaded, watchdog,
+    // config_setting) discard their pending outbox rows instead and never
+    // touch `flush_checkpoints`.
+    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(6);
 
-    const calls = mockSetMemoryCheckpoint.mock.calls;
+    const calls = mockSetFlushCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
-    const eventTypes = [
-      "usage",
-      "turns",
-      "lifecycle",
-      "onboarding",
-      "auth_fallback",
-      "tool_executed",
-      "skill_loaded",
-    ];
+    expect(keys.some((k) => k.includes("skill_loaded"))).toBe(false);
+    const eventTypes = ["usage", "turns", "tool_executed"];
     for (const eventType of eventTypes) {
       expect(keys).toContain(`telemetry:${eventType}:last_reported_at`);
       const idCall = calls.find(
@@ -1042,18 +1745,96 @@ describe("UsageTelemetryReporter", () => {
       );
       expect(idCall?.[1]).toBe("ffffffff-ffff-ffff-ffff-ffffffffffff");
     }
+    expect(keys).not.toContain("telemetry:auth_fallback:last_reported_at");
+    expect(keys).not.toContain("telemetry:auth_fallback:last_reported_id");
+    expect(keys.some((k) => k.includes(":lifecycle:"))).toBe(false);
+    expect(keys).not.toContain("telemetry:onboarding:last_reported_at");
+    expect(keys).not.toContain("telemetry:onboarding:last_reported_id");
   });
 
-  test("events sent normally after re-enabling collectUsageData", async () => {
-    // First flush with opt-out — watermarks advance, nothing sent
-    mockCollectUsageData = false;
-    const reporter = new UsageTelemetryReporter();
+  test("warm-up: unknown-consent flushes defer the backlog until consent resolves to true", async () => {
+    // An unresolved consent cache (boot before the first refresh, no platform
+    // session) is not an opt-out: unlike the confirmed-false branch, nothing
+    // is sent, nothing is purged, and no watermark moves, so the backlog
+    // survives the cold-cache window.
+    mockGetRawShareAnalytics.mockReturnValue("unknown");
+    const events = [makeUsageEvent({ id: "evt-warmup-backlog" })];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = makeReporter();
+    // Construction initializes the absent tool_executed watermark; clear that
+    // call so the assertions below cover only the flushes.
+    mockSetFlushCheckpoint.mockClear();
     await reporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
-    mockSetMemoryCheckpoint.mockReset();
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
 
-    // Re-enable and flush with new events
-    mockCollectUsageData = true;
+    // The refresh loop resolves the cache to a confirmed opt-in: the same
+    // backlog now ships.
+    mockGetRawShareAnalytics.mockReturnValue(true);
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["evt-warmup-backlog"]);
+  });
+
+  test("platform disabled takes precedence over consent off — watermarks NOT advanced", async () => {
+    // VELLUM_DISABLE_PLATFORM keeps the consent cache false (the consent
+    // refresh can't create a platform client), so both gates would fire. The
+    // platform-disabled gate runs first and returns without advancing
+    // watermarks, preserving the backlog until the flag is cleared — a
+    // deployment toggle must not be treated as a privacy opt-out.
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    mockGetRawShareAnalytics.mockReturnValue(false);
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = makeReporter();
+    // Construction initializes the absent tool_executed watermark; clear that
+    // call so the assertion below covers only the flush.
+    mockSetFlushCheckpoint.mockClear();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("flush skipped entirely when the flush-checkpoint store is unavailable", async () => {
+    // An unreadable checkpoint store must not be mistaken for cursor 0 —
+    // that would requery and re-ship history from the beginning. Nothing is
+    // sent and no watermark is touched (not even the opt-out sentinel);
+    // the cycle retries once the store is back.
+    mockIsFlushCheckpointStoreAvailable.mockReturnValue(false);
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+
+    const reporter = makeReporter();
+    // Construction initializes the absent tool_executed watermark; clear
+    // those calls so the assertions below cover only the flush.
+    mockGetFlushCheckpoint.mockClear();
+    mockSetFlushCheckpoint.mockClear();
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockGetFlushCheckpoint).not.toHaveBeenCalled();
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("events sent normally after re-granting share_analytics consent", async () => {
+    // First flush with opt-out — watermarks advance, nothing sent
+    mockGetRawShareAnalytics.mockReturnValue(false);
+    const reporter = makeReporter();
+    await reporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
+    mockSetFlushCheckpoint.mockReset();
+
+    // Re-grant consent and flush with new events
+    mockGetRawShareAnalytics.mockReturnValue(true);
     const events = [makeUsageEvent({ id: "evt-after-reenable" })];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
     mockFetch.mockImplementation(() =>
@@ -1074,9 +1855,9 @@ describe("UsageTelemetryReporter", () => {
   //
   // The envelope's `assistant_version` is upload-time (always the current
   // binary). The per-event field is record-time (the binary that was running
-  // when the event was persisted to SQLite). In this PR only `llm_usage`
-  // events carry a true record-time value; turn events (and lifecycle /
-  // onboarding events, not asserted here) stamp the running binary's
+  // when the event was persisted to SQLite). `llm_usage` events and the
+  // outbox-backed types carry a true record-time value; turn events
+  // (not asserted here) stamp the running binary's
   // `APP_VERSION` directly until their respective follow-ups land.
   // Nullable llm_usage cases (legacy rows from before migration 267 ran)
   // fall back to the running binary's `APP_VERSION` rather than emitting
@@ -1095,7 +1876,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     const body = JSON.parse(
@@ -1119,7 +1900,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     const body = JSON.parse(
@@ -1156,7 +1937,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     const body = JSON.parse(
@@ -1185,7 +1966,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     const body = JSON.parse(
@@ -1217,7 +1998,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -1240,7 +2021,7 @@ describe("UsageTelemetryReporter", () => {
     expect(typeof body.events[0].daemon_event_id).toBe("string");
   });
 
-  test("auth_fallback watermark advances to the last reported row on success", async () => {
+  test("auth_fallback rows are deleted on success and never watermarked (ack mode)", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     recordAuthFallbackCounts(1700000000000, 1700000001000, [
       {
@@ -1259,59 +2040,66 @@ describe("UsageTelemetryReporter", () => {
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(2);
 
-    // The last row by the reporter's (createdAt, id) cursor order is the one
-    // whose watermark should be persisted after a successful upload.
-    const rows = getDb()
-      .select()
-      .from(authFallbackEvents)
-      .orderBy(authFallbackEvents.createdAt, authFallbackEvents.id)
-      .all();
-    const lastRow = rows[rows.length - 1];
-
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
-    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:auth_fallback:last_reported_at",
+    // Both rows shipped, were acknowledged (deleted), and no auth_fallback
+    // watermark was ever written — ack-mode sources bypass flush_checkpoints.
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
-    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
-      String(lastRow.createdAt),
+    expect(
+      body.events.filter((e: { type: string }) => e.type === "auth_fallback"),
+    ).toHaveLength(2);
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(0);
+    const authFallbackKeys = mockSetFlushCheckpoint.mock.calls.filter((c) =>
+      String(c[0]).startsWith("telemetry:auth_fallback:"),
+    );
+    expect(authFallbackKeys).toHaveLength(0);
+  });
+
+  test("auth_fallback rows survive a failed POST and re-ship on the next flush", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordAuthFallbackCounts(1700000000000, 1700000001000, [
+      {
+        guard: "edge",
+        path: "/v1/messages",
+        failureKind: "missing_authorization",
+        count: 9,
+      },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("server error", { status: 500 })),
     );
 
-    const idCalls = mockSetMemoryCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:auth_fallback:last_reported_id",
+    const reporter = makeReporter();
+    await reporter.flush();
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(1);
+
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
-    expect(idCalls.length).toBeGreaterThanOrEqual(1);
-    expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
+    await reporter.flush();
+    expect(queryTelemetryOutboxBatch("auth_fallback", 10)).toHaveLength(0);
   });
 
   // -------------------------------------------------------------------------
   // Onboarding / activation funnel events
   // -------------------------------------------------------------------------
 
-  test("activation onboarding row serializes funnel fields + deterministic daemon_event_id", async () => {
+  test("activation onboarding row flushes with funnel fields + deterministic daemon_event_id, then acks", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     const sessionId = "sess-activation-1";
     const stepName = "activation_moment_1_complete";
-    mockQueryUnreportedOnboardingEvents.mockReturnValue([
-      makeOnboardingEvent({
-        id: "onb-activation-1",
-        screen: stepName,
-        abVariant: "variant-a",
-        sessionId,
-        stepName,
-        stepIndex: 1,
-        completedAt: "2026-06-06T00:00:00.000Z",
-        funnelVersion: ACTIVATION_FUNNEL_VERSION,
-      }),
-    ]);
+    const recorded = recordActivationEvent({ stepName, sessionId });
+    expect(recorded).not.toBeNull();
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -1324,69 +2112,67 @@ describe("UsageTelemetryReporter", () => {
       session_id: sessionId,
       step_name: stepName,
       step_index: 1,
-      completed_at: "2026-06-06T00:00:00.000Z",
-      funnel_version: "activation_v1_2026_06",
+      funnel_version: ACTIVATION_FUNNEL_VERSION,
       daemon_event_id: buildActivationDaemonEventId(sessionId, stepName),
     });
+    // The wire id is the deterministic activation id, distinct from the
+    // outbox row id (a UUID) the ack deletes by.
+    expect(body.events[0].daemon_event_id).not.toBe(recorded!.id);
+    expect(queryTelemetryOutboxBatch("onboarding", 10)).toHaveLength(0);
   });
 
-  test("activation daemon_event_id is keyed on the row's stored funnel_version, not the binary constant", async () => {
+  test("queued activation row recorded under an older funnel version ships its frozen payload verbatim", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    const sessionId = "sess-activation-old";
-    const stepName = "activation_moment_1_complete";
-    // A row recorded under an OLDER funnel version, queued across an upgrade.
+    // The payload (including the deterministic daemon_event_id keyed on the
+    // OLD funnel version) was frozen at record time; a flush after a version
+    // bump must not restamp it with the new binary's constant.
     const oldVersion = "activation_v0_2026_05";
     expect(oldVersion).not.toBe(ACTIVATION_FUNNEL_VERSION);
-    mockQueryUnreportedOnboardingEvents.mockReturnValue([
-      makeOnboardingEvent({
-        id: "onb-activation-old",
-        screen: stepName,
-        abVariant: "variant-a",
-        sessionId,
-        stepName,
-        stepIndex: 1,
-        completedAt: "2026-05-01T00:00:00.000Z",
-        funnelVersion: oldVersion,
-      }),
-    ]);
+    const frozen: TelemetryEvent = {
+      type: "onboarding",
+      daemon_event_id: `${oldVersion}:sess-activation-old:activation_moment_1_complete`,
+      recorded_at: 1700000100000,
+      screen: "activation_moment_1_complete",
+      ab_variant: "variant-a",
+      session_id: "sess-activation-old",
+      step_name: "activation_moment_1_complete",
+      step_index: 1,
+      completed_at: "2026-05-01T00:00:00.000Z",
+      funnel_version: oldVersion,
+      assistant_version: "0.9.0-old",
+    };
+    insertTelemetryOutboxEvent({
+      id: "row-activation-old",
+      name: "onboarding",
+      // Row age drives the flush-cycle prune; only the payload is frozen-old.
+      createdAt: Date.now(),
+      event: frozen,
+    });
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     const body = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(body.events[0]).toMatchObject({
-      funnel_version: oldVersion,
-      daemon_event_id: buildActivationDaemonEventId(
-        sessionId,
-        stepName,
-        oldVersion,
-      ),
-    });
-    // Guard: the id must carry the row's version, not the binary constant.
-    expect(body.events[0].daemon_event_id).toBe(
-      `${oldVersion}:${sessionId}:${stepName}`,
-    );
+    expect(body.events).toEqual([frozen]);
   });
 
-  test("legacy onboarding row keeps daemon_event_id: e.id and omits funnel fields", async () => {
+  test("legacy onboarding row keeps daemon_event_id = row id and omits funnel fields", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    mockQueryUnreportedOnboardingEvents.mockReturnValue([
-      makeOnboardingEvent({
-        id: "onb-legacy-1",
-        screen: "tools",
-        toolsJson: JSON.stringify(["calendar"]),
-      }),
-    ]);
+    const recorded = recordOnboardingEvent({
+      screen: "tools",
+      tools: ["calendar"],
+    });
+    expect(recorded).not.toBeNull();
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -1396,7 +2182,8 @@ describe("UsageTelemetryReporter", () => {
     expect(body.events.length).toBe(1);
     const e = body.events[0];
     expect(e.type).toBe("onboarding");
-    expect(e.daemon_event_id).toBe("onb-legacy-1");
+    expect(e.daemon_event_id).toBe(recorded!.id);
+    expect(e.tools).toEqual(["calendar"]);
     expect(e.session_id).toBeUndefined();
     expect(e.step_name).toBeUndefined();
     expect(e.step_index).toBeUndefined();
@@ -1444,7 +2231,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -1500,10 +2287,10 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
-    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+    const watermarkCalls = mockSetFlushCheckpoint.mock.calls.filter(
       (c) => c[0] === "telemetry:tool_executed:last_reported_at",
     );
     expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
@@ -1511,7 +2298,7 @@ describe("UsageTelemetryReporter", () => {
       String(1700000002000),
     );
 
-    const idCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+    const idCalls = mockSetFlushCheckpoint.mock.calls.filter(
       (c) => c[0] === "telemetry:tool_executed:last_reported_id",
     );
     expect(idCalls.length).toBeGreaterThanOrEqual(1);
@@ -1523,18 +2310,20 @@ describe("UsageTelemetryReporter", () => {
     seedToolInvocation({ id: "ti-r1", createdAt: 1700000001000 });
     seedToolInvocation({ id: "ti-r2", createdAt: 1700000002000 });
     // A previous flush already reported ti-r1.
-    mockGetMemoryCheckpoint.mockImplementation((key) => {
+    mockGetFlushCheckpoint.mockImplementation((key) => {
       if (key === "telemetry:tool_executed:last_reported_at") {
         return String(1700000001000);
       }
-      if (key === "telemetry:tool_executed:last_reported_id") return "ti-r1";
+      if (key === "telemetry:tool_executed:last_reported_id") {
+        return "ti-r1";
+      }
       return null;
     });
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -1555,7 +2344,7 @@ describe("UsageTelemetryReporter", () => {
     // predating the reporter) stay behind the watermark.
     const checkpoints = useStatefulCheckpoints();
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     const rowCreatedAt =
       Number(checkpoints.get("telemetry:tool_executed:last_reported_at")) +
       1000;
@@ -1587,14 +2376,14 @@ describe("UsageTelemetryReporter", () => {
 
     // Rows accumulated before any flush ever advanced the watermark — e.g.
     // an opt-out period under an older build that gated reporter
-    // construction on collectUsageData while the always-on audit listener
-    // kept writing.
+    // construction on the usage-data opt-out while the always-on audit
+    // listener kept writing.
     seedToolInvocation({
       id: "ti-opt-out-window",
       createdAt: Date.now() - 60_000,
     });
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
 
     // The checkpoint is persisted immediately at construction so a crash
     // before the first flush can't re-initialize later.
@@ -1639,7 +2428,7 @@ describe("UsageTelemetryReporter", () => {
     // opted-in rows.
     seedToolInvocation({ id: "ti-backlog", createdAt: 1700000002000 });
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     expect(checkpoints.get("telemetry:tool_executed:last_reported_at")).toBe(
       String(1700000001000),
     );
@@ -1667,13 +2456,13 @@ describe("UsageTelemetryReporter", () => {
     // constructs and runs the reporter; the always-on audit listener keeps
     // writing rows. Every opted-out flush (5-minute cycle plus the final
     // flush in stop()) advances the watermark past them without sending.
-    mockCollectUsageData = false;
+    mockGetRawShareAnalytics.mockReturnValue(false);
     const optOutRowCreatedAt = Date.now() - 5_000;
     seedToolInvocation({
       id: "ti-opt-out-window",
       createdAt: optOutRowCreatedAt,
     });
-    const optedOutReporter = new UsageTelemetryReporter();
+    const optedOutReporter = makeReporter();
     await optedOutReporter.stop(); // shutdown path: runs the final flush
     expect(mockFetch).not.toHaveBeenCalled();
     const advanced = Number(
@@ -1683,9 +2472,9 @@ describe("UsageTelemetryReporter", () => {
 
     // Session 2: the user opts back in and restarts. Only rows recorded
     // after the opt-out epoch ship — the opt-out-window row never does.
-    mockCollectUsageData = true;
+    mockGetRawShareAnalytics.mockReturnValue(true);
     seedToolInvocation({ id: "ti-after-opt-in", createdAt: advanced + 1000 });
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -1708,8 +2497,8 @@ describe("UsageTelemetryReporter", () => {
 
     // Opted-out flush: advances the timestamp watermark to Date.now() and
     // must also pin the ID watermark to the high-sorting sentinel.
-    mockCollectUsageData = false;
-    const optedOutReporter = new UsageTelemetryReporter();
+    mockGetRawShareAnalytics.mockReturnValue(false);
+    const optedOutReporter = makeReporter();
     await optedOutReporter.flush();
     expect(mockFetch).not.toHaveBeenCalled();
     const watermark = Number(
@@ -1726,9 +2515,9 @@ describe("UsageTelemetryReporter", () => {
     });
 
     // Re-opt-in: only rows strictly after the opt-out epoch ship.
-    mockCollectUsageData = true;
+    mockGetRawShareAnalytics.mockReturnValue(true);
     seedToolInvocation({ id: "ti-after-opt-in", createdAt: watermark + 1000 });
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -1740,21 +2529,61 @@ describe("UsageTelemetryReporter", () => {
     ).toEqual(["ti-after-opt-in"]);
   });
 
+  test("a turn-only (daemon) reporter never touches the tool_executed watermark", () => {
+    new UsageTelemetryReporter(
+      DAEMON_TELEMETRY_EVENT_SOURCES,
+      fakeFlushCheckpointStore,
+    );
+    expect(mockGetFlushCheckpoint).not.toHaveBeenCalled();
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("a monitor reporter re-runs the guarded tool_executed watermark init as a backstop", () => {
+    new UsageTelemetryReporter(
+      MONITOR_TELEMETRY_EVENT_SOURCES,
+      fakeFlushCheckpointStore,
+    );
+    expect(mockGetFlushCheckpoint).toHaveBeenCalledWith(
+      "telemetry:tool_executed:last_reported_at",
+    );
+    expect(mockSetFlushCheckpoint).toHaveBeenCalledTimes(1);
+  });
+
+  test("initToolExecutedWatermarkIfAbsent sets the epoch once and never overwrites", () => {
+    const checkpoints = useStatefulCheckpoints();
+    initToolExecutedWatermarkIfAbsent(fakeFlushCheckpointStore);
+    const epoch = checkpoints.get("telemetry:tool_executed:last_reported_at");
+    expect(epoch).toBeString();
+
+    initToolExecutedWatermarkIfAbsent(fakeFlushCheckpointStore);
+    expect(checkpoints.get("telemetry:tool_executed:last_reported_at")).toBe(
+      epoch!,
+    );
+
+    // A store failure is non-fatal (degraded-DB daemons still start).
+    mockGetFlushCheckpoint.mockImplementation(() => {
+      throw new Error("database disk image is malformed");
+    });
+    expect(() =>
+      initToolExecutedWatermarkIfAbsent(fakeFlushCheckpointStore),
+    ).not.toThrow();
+  });
+
   test("checkpoint store failure during construction is non-fatal — degraded-DB daemons still start", () => {
     // initializeDb() failures are tolerated at daemon startup (degraded
     // mode), so the constructor's checkpoint init must never throw out of
     // the constructor and abort the daemon.
-    mockGetMemoryCheckpoint.mockImplementation(() => {
+    mockGetFlushCheckpoint.mockImplementation(() => {
       throw new Error("database disk image is malformed");
     });
-    expect(() => new UsageTelemetryReporter()).not.toThrow();
+    expect(() => makeReporter()).not.toThrow();
 
     // The write path failing is equally non-fatal.
-    mockGetMemoryCheckpoint.mockImplementation(() => null);
-    mockSetMemoryCheckpoint.mockImplementation(() => {
+    mockGetFlushCheckpoint.mockImplementation(() => null);
+    mockSetFlushCheckpoint.mockImplementation(() => {
       throw new Error("database disk image is malformed");
     });
-    expect(() => new UsageTelemetryReporter()).not.toThrow();
+    expect(() => makeReporter()).not.toThrow();
   });
 
   // -------------------------------------------------------------------------
@@ -1778,7 +2607,7 @@ describe("UsageTelemetryReporter", () => {
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -1817,59 +2646,748 @@ describe("UsageTelemetryReporter", () => {
     });
   });
 
-  test("skill_loaded watermark advances to the last reported row on success", async () => {
+  test("skill_loaded rows are deleted from the outbox after a 2xx, never via watermarks", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     recordSkillLoadedEvent({ skillName: "web-research" });
     recordSkillLoadedEvent({ skillName: "tasks" });
+    expect(queryTelemetryOutboxBatch("skill_loaded", 10)).toHaveLength(2);
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
     );
 
-    // The last row by the reporter's (createdAt, id) cursor order is the one
-    // whose watermark should be persisted after a successful upload.
-    const rows = getDb()
-      .select()
-      .from(skillLoadedEvents)
-      .orderBy(skillLoadedEvents.createdAt, skillLoadedEvents.id)
-      .all();
-    const lastRow = rows[rows.length - 1];
-
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
-    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:skill_loaded:last_reported_at",
-    );
-    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
-    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
-      String(lastRow.createdAt),
-    );
-
-    const idCalls = mockSetMemoryCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:skill_loaded:last_reported_id",
-    );
-    expect(idCalls.length).toBeGreaterThanOrEqual(1);
-    expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(queryTelemetryOutboxBatch("skill_loaded", 10)).toHaveLength(0);
+    // Ack-mode: the skill_loaded source never touches flush_checkpoints.
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) =>
+        c[0].includes("skill_loaded"),
+      ),
+    ).toBe(false);
   });
 
-  test("batch recursion when skill_loaded returns a full batch, capped at 10", async () => {
+  test("a full skill_loaded batch drives recursion until the outbox drains", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    // Exactly BATCH_SIZE rows; the mocked checkpoints never persist, so each
-    // recursion re-reads the same full batch until the cap.
-    const fullBatch = Array.from({ length: 500 }, (_, i) => ({
-      id: `sle-batch-${String(i).padStart(3, "0")}`,
-      createdAt: 1700000000000 + i,
-      skillName: "web-research",
-    }));
-    getDb().insert(skillLoadedEvents).values(fullBatch).run();
+    // BATCH_SIZE (500) + 1 rows: the first flush ships and deletes a full
+    // batch, and the fullBatch recursion ships the remaining row.
+    for (let i = 0; i < 501; i++) {
+      recordSkillLoadedEvent({ skillName: `skill-${i}` });
+    }
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":500}', { status: 200 })),
     );
 
-    const reporter = new UsageTelemetryReporter();
+    const reporter = makeReporter();
     await reporter.flush();
 
-    // MAX_CONSECUTIVE_BATCHES = 10
-    expect(mockFetch).toHaveBeenCalledTimes(10);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(queryTelemetryOutboxBatch("skill_loaded", 1000)).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Config-setting events
+  // -------------------------------------------------------------------------
+
+  test("config_setting events ship the key/value pair on the standard envelope", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordConfigSettingEvent({
+      configKey: "memory.enabled",
+      configValue: "true",
+    });
+    recordConfigSettingEvent({
+      configKey: "memory.v2.enabled",
+      configValue: "false",
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(2);
+
+    const byKey: Record<string, Record<string, unknown>> = {};
+    for (const e of body.events as Array<{ config_key: string }>) {
+      byKey[e.config_key] = e;
+    }
+
+    expect(byKey["memory.enabled"]).toMatchObject({
+      type: "config_setting",
+      config_key: "memory.enabled",
+      config_value: "true",
+      assistant_version: "1.2.3-test",
+    });
+    expect(typeof byKey["memory.enabled"].daemon_event_id).toBe("string");
+    expect(typeof byKey["memory.enabled"].recorded_at).toBe("number");
+    expect(byKey["memory.v2.enabled"]).toMatchObject({
+      type: "config_setting",
+      config_key: "memory.v2.enabled",
+      config_value: "false",
+    });
+  });
+
+  test("config_setting rows are deleted on success and no watermark is written", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordConfigSettingEvent({
+      configKey: "memory.enabled",
+      configValue: "true",
+    });
+    recordConfigSettingEvent({
+      configKey: "memory.v2.enabled",
+      configValue: "true",
+    });
+    expect(queryTelemetryOutboxBatch("config_setting", 10)).toHaveLength(2);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    // Ack-mode: acknowledged rows are deleted from the outbox instead of
+    // advancing a `flush_checkpoints` watermark.
+    expect(queryTelemetryOutboxBatch("config_setting", 10)).toHaveLength(0);
+    const watermarkKeys = mockSetFlushCheckpoint.mock.calls
+      .map((c) => c[0] as string)
+      .filter((key) => key.startsWith("telemetry:config_setting:"));
+    expect(watermarkKeys).toHaveLength(0);
+  });
+
+  test("config_setting rows survive a failed POST for the next flush", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordConfigSettingEvent({
+      configKey: "memory.enabled",
+      configValue: "true",
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("error", { status: 500 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(queryTelemetryOutboxBatch("config_setting", 10)).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Watchdog events
+  // -------------------------------------------------------------------------
+
+  test("watchdog events ship the record-time payload with nested detail, then delete", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordWatchdogEvent({
+      checkName: "event_loop_blocked",
+      value: 60000,
+      detail: { reason: "no_bytes_60s", threshold_ms: 5000 },
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0]).toMatchObject({
+      type: "watchdog",
+      check_name: "event_loop_blocked",
+      value: 60000,
+      detail: { reason: "no_bytes_60s", threshold_ms: 5000 },
+      assistant_version: "1.2.3-test",
+    });
+    expect(typeof body.events[0].daemon_event_id).toBe("string");
+    expect(typeof body.events[0].recorded_at).toBe("number");
+    expect(queryTelemetryOutboxBatch("watchdog", 10)).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Ack-mode sources (grouped `ack` field: acknowledge + discardPending)
+  // -------------------------------------------------------------------------
+
+  // Wire id deliberately differs from the row id: acknowledge must receive
+  // ROW ids, never wire daemon_event_ids.
+  function fakeWireEvent(rowId: string, createdAt: number): TelemetryEvent {
+    return {
+      type: "lifecycle",
+      daemon_event_id: `wire-${rowId}`,
+      event_name: "fake_event",
+      recorded_at: createdAt,
+      assistant_version: "1.2.3-test",
+    };
+  }
+
+  /**
+   * Ack-mode fake backed by a mutable in-memory row array: `collect` ignores
+   * the cursor args, `acknowledge` deletes the acknowledged rows, and
+   * `discardPending` drops everything — mirroring the outbox-store contract.
+   */
+  function makeAckSource(id: string, rowIds: string[] = []) {
+    let rows = rowIds.map((rowId, i) => ({
+      rowId,
+      createdAt: 1700000000000 + i,
+    }));
+    const acknowledge = mock((acked: string[]) => {
+      rows = rows.filter((r) => !acked.includes(r.rowId));
+    });
+    const discardPending = mock(() => {
+      rows = [];
+    });
+    const source: TelemetryEventSource = {
+      id,
+      collect(_afterCreatedAt, _afterId, limit) {
+        const batch = rows.slice(0, limit);
+        return {
+          events: batch.map((r) => fakeWireEvent(r.rowId, r.createdAt)),
+          rowIds: batch.map((r) => r.rowId),
+          lastCursor: null,
+          fullBatch: batch.length === limit,
+        };
+      },
+      ack: { acknowledge, discardPending },
+    };
+    return { source, acknowledge, discardPending, pending: () => rows.length };
+  }
+
+  function makeWatermarkSource(
+    id: string,
+    rowIds: string[] = [],
+  ): TelemetryEventSource {
+    const rows = rowIds.map((rowId, i) => ({
+      rowId,
+      createdAt: 1700000000000 + i,
+    }));
+    return {
+      id,
+      collect(_afterCreatedAt, _afterId, limit) {
+        const batch = rows.slice(0, limit);
+        const last = batch.length > 0 ? batch[batch.length - 1] : null;
+        return {
+          events: batch.map((r) => fakeWireEvent(r.rowId, r.createdAt)),
+          lastCursor: last
+            ? { createdAt: last.createdAt, id: last.rowId }
+            : null,
+          fullBatch: batch.length === limit,
+        };
+      },
+    };
+  }
+
+  test("ack-mode source: acknowledge receives ROW ids after a 2xx and no watermark keys are written", async () => {
+    const { source, acknowledge } = makeAckSource("fake_ack", [
+      "row-1",
+      "row-2",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-row-1", "wire-row-2"]);
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect(acknowledge.mock.calls[0][0]).toEqual(["row-1", "row-2"]);
+    // Ack-mode sources never touch flush_checkpoints.
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("acknowledge is NOT called when the POST fails", async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("error", { status: 500 })),
+    );
+    const { source, acknowledge, pending } = makeAckSource("fake_ack", [
+      "row-1",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(pending()).toBe(1);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("acknowledge is NOT called when platform credentials are missing", async () => {
+    mockPlatformClient = null;
+    const { source, acknowledge, pending } = makeAckSource("fake_ack", [
+      "row-1",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(pending()).toBe(1);
+  });
+
+  test("acknowledge is skipped for an empty ack batch shipped alongside a watermark source", async () => {
+    const { source: ackSource, acknowledge } = makeAckSource("fake_ack");
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [wmSource, ackSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(acknowledge).not.toHaveBeenCalled();
+  });
+
+  test("opt-out: discardPending drops ack-mode rows while watermark sources get the sentinel pin", async () => {
+    mockGetRawShareAnalytics.mockReturnValue(false);
+    const {
+      source: ackSource,
+      discardPending,
+      pending,
+    } = makeAckSource("fake_ack", ["row-1"]);
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [wmSource, ackSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(discardPending).toHaveBeenCalledTimes(1);
+    expect(pending()).toBe(0);
+
+    const keys = mockSetFlushCheckpoint.mock.calls.map((c) => c[0]);
+    expect(keys).toContain("telemetry:fake_wm:last_reported_at");
+    const wmIdCall = mockSetFlushCheckpoint.mock.calls.find(
+      (c) => c[0] === "telemetry:fake_wm:last_reported_id",
+    );
+    expect(wmIdCall?.[1]).toBe("ffffffff-ffff-ffff-ffff-ffffffffffff");
+    expect(keys.some((k) => k.includes("fake_ack"))).toBe(false);
+  });
+
+  test("unknown consent: nothing is discarded, acked, or advanced — rows wait for a confirmed state", async () => {
+    mockGetRawShareAnalytics.mockReturnValue("unknown");
+    const {
+      source: ackSource,
+      acknowledge,
+      discardPending,
+      pending,
+    } = makeAckSource("fake_ack", ["row-1"]);
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [wmSource, ackSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(discardPending).not.toHaveBeenCalled();
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(pending()).toBe(1);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("mixed watermark+ack sources flush in construction order, each acknowledged in its own mode", async () => {
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1", "wm-2"]);
+    const { source: ackSource, acknowledge } = makeAckSource("fake_ack", [
+      "row-1",
+    ]);
+    const reporter = new UsageTelemetryReporter(
+      [wmSource, ackSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-wm-1", "wire-wm-2", "wire-row-1"]);
+
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect(acknowledge.mock.calls[0][0]).toEqual(["row-1"]);
+
+    const wmAtCalls = mockSetFlushCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:fake_wm:last_reported_at",
+    );
+    expect(wmAtCalls[wmAtCalls.length - 1][1]).toBe(String(1700000000001));
+    const wmIdCalls = mockSetFlushCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:fake_wm:last_reported_id",
+    );
+    expect(wmIdCalls[wmIdCalls.length - 1][1]).toBe("wm-2");
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) => c[0].includes("fake_ack")),
+    ).toBe(false);
+  });
+
+  test("an ack-mode full batch drives recursion until the backlog drains", async () => {
+    // 501 rows: the first collect fills BATCH_SIZE (500), acknowledge drains
+    // them, and the fullBatch recursion ships the remaining row.
+    const rowIds = Array.from({ length: 501 }, (_, i) => `row-${i}`);
+    const { source, acknowledge, pending } = makeAckSource("fake_ack", rowIds);
+    const reporter = new UsageTelemetryReporter(
+      [source],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(acknowledge).toHaveBeenCalledTimes(2);
+    expect(acknowledge.mock.calls[0][0]).toHaveLength(500);
+    expect(acknowledge.mock.calls[1][0]).toEqual(["row-500"]);
+    expect(pending()).toBe(0);
+  });
+
+  /** Ack source whose collect returns events with broken rowIds. */
+  function makeBrokenAckSource(id: string, rowIds: string[] | undefined) {
+    const acknowledge = mock((_acked: string[]) => {});
+    const discardPending = mock(() => {});
+    const source: TelemetryEventSource = {
+      id,
+      collect() {
+        return {
+          events: [
+            fakeWireEvent("row-1", 1700000000000),
+            fakeWireEvent("row-2", 1700000000001),
+          ],
+          ...(rowIds ? { rowIds } : {}),
+          lastCursor: null,
+          fullBatch: false,
+        };
+      },
+      ack: { acknowledge, discardPending },
+    };
+    return { source, acknowledge };
+  }
+
+  test("an ack batch omitting rowIds ships nothing while other sources still ship", async () => {
+    const { source: brokenSource, acknowledge } = makeBrokenAckSource(
+      "fake_broken_ack",
+      undefined,
+    );
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [brokenSource, wmSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-wm-1"]);
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) =>
+        c[0].includes("fake_broken_ack"),
+      ),
+    ).toBe(false);
+  });
+
+  test("an ack batch with mismatched rowIds ships nothing while other sources still ship", async () => {
+    const { source: brokenSource, acknowledge } = makeBrokenAckSource(
+      "fake_broken_ack",
+      ["row-1"],
+    );
+    const wmSource = makeWatermarkSource("fake_wm", ["wm-1"]);
+    const reporter = new UsageTelemetryReporter(
+      [brokenSource, wmSource],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-wm-1"]);
+    expect(acknowledge).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // outboxSource (real telemetry_events outbox behind an ack-mode source)
+  // -------------------------------------------------------------------------
+
+  // Synthetic name: these tests exercise the generic outbox machinery, not a
+  // shipped event type.
+  const OUTBOX_NAME = "test_outbox" as OutboxTelemetryEventName;
+
+  // Recent base for row timestamps: the flush cycle prunes outbox rows older
+  // than OUTBOX_MAX_ROW_AGE_MS, so rows that must ship are seeded fresh.
+  const OUTBOX_BASE = Date.now() - 60_000;
+
+  function seedOutboxRow(id: string, createdAt: number): void {
+    insertTelemetryOutboxEvent({
+      id,
+      name: OUTBOX_NAME,
+      createdAt,
+      event: fakeWireEvent(id, createdAt),
+    });
+  }
+
+  function pendingOutboxIds(): string[] {
+    return queryTelemetryOutboxBatch(OUTBOX_NAME, 1000).map((r) => r.id);
+  }
+
+  test("outboxSource ships pending rows and deletes them after a 2xx", async () => {
+    seedOutboxRow("ob-1", OUTBOX_BASE + 1000);
+    seedOutboxRow("ob-2", OUTBOX_BASE + 2000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-ob-1", "wire-ob-2"]);
+    expect(pendingOutboxIds()).toEqual([]);
+    // Ack-mode: flush_checkpoints untouched.
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("outboxSource leaves rows intact when the POST fails", async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response("error", { status: 500 })),
+    );
+    seedOutboxRow("ob-1", OUTBOX_BASE + 1000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(pendingOutboxIds()).toEqual(["ob-1"]);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("outboxSource opt-out discards all pending rows for the name", async () => {
+    mockGetRawShareAnalytics.mockReturnValue(false);
+    seedOutboxRow("ob-1", OUTBOX_BASE + 1000);
+    seedOutboxRow("ob-2", OUTBOX_BASE + 2000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(pendingOutboxIds()).toEqual([]);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("outboxSource unknown consent retains all pending rows", async () => {
+    mockGetRawShareAnalytics.mockReturnValue("unknown");
+    seedOutboxRow("ob-1", OUTBOX_BASE + 1000);
+    seedOutboxRow("ob-2", OUTBOX_BASE + 2000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(pendingOutboxIds()).toEqual(["ob-1", "ob-2"]);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Flush-cycle age prune (bounds unknown-consent buffering)
+  // -------------------------------------------------------------------------
+
+  function seedExpiredAndFreshRows(): void {
+    seedOutboxRow("ob-expired", Date.now() - OUTBOX_MAX_ROW_AGE_MS - 60_000);
+    seedOutboxRow("ob-fresh", OUTBOX_BASE);
+  }
+
+  test("opted in: expired rows are pruned rather than shipped; fresh rows ship", async () => {
+    seedExpiredAndFreshRows();
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-ob-fresh"]);
+    expect(pendingOutboxIds()).toEqual([]);
+  });
+
+  test("unknown consent: expired rows are pruned before the deferral; fresh rows are retained", async () => {
+    mockGetRawShareAnalytics.mockReturnValue("unknown");
+    seedExpiredAndFreshRows();
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    // The unknown-defer branch still sends and acks nothing, but the age
+    // prune has already bounded the backlog — a permanently-unknown state
+    // cannot accumulate rows forever.
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(pendingOutboxIds()).toEqual(["ob-fresh"]);
+    expect(mockSetFlushCheckpoint).not.toHaveBeenCalled();
+  });
+
+  test("expired rows are pruned even when the flush skips for platform-disabled", async () => {
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    seedExpiredAndFreshRows();
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(pendingOutboxIds()).toEqual(["ob-fresh"]);
+  });
+
+  test("a reporter without ack-mode sources never prunes the outbox", async () => {
+    // The daemon partition (watermark-only) does not own the outbox; the
+    // prune belongs to the reporter instance that flushes ack-mode sources.
+    seedExpiredAndFreshRows();
+    const reporter = new UsageTelemetryReporter(
+      [makeWatermarkSource("fake_wm")],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(pendingOutboxIds()).toEqual(["ob-expired", "ob-fresh"]);
+  });
+
+  test("outboxSource purges corrupt-payload rows at collect while valid siblings ship", async () => {
+    // Raw inserts: the store API only writes JSON.stringify-ed events, so
+    // corrupt payloads (invalid JSON, non-object JSON) go in directly.
+    getTelemetryDb()!
+      .insert(telemetryEvents)
+      .values([
+        {
+          id: "ob-corrupt-json",
+          name: OUTBOX_NAME,
+          createdAt: OUTBOX_BASE + 1000,
+          conversationId: null,
+          payload: "{not json",
+        },
+        {
+          id: "ob-non-object",
+          name: OUTBOX_NAME,
+          createdAt: OUTBOX_BASE + 2000,
+          conversationId: null,
+          payload: "42",
+        },
+      ])
+      .run();
+    seedOutboxRow("ob-valid", OUTBOX_BASE + 3000);
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["wire-ob-valid"]);
+    // Corrupt rows are gone (purged at collect), the valid row via ack.
+    expect(pendingOutboxIds()).toEqual([]);
+  });
+
+  test("a full outbox batch drives recursion until the backlog drains", async () => {
+    // 501 rows: the first collect fills BATCH_SIZE (500) and the fullBatch
+    // recursion ships the remaining row.
+    for (let i = 0; i < 501; i++) {
+      seedOutboxRow(`ob-${String(i).padStart(3, "0")}`, OUTBOX_BASE + i);
+    }
+    const reporter = new UsageTelemetryReporter(
+      [outboxSource(OUTBOX_NAME)],
+      fakeFlushCheckpointStore,
+    );
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const secondBody = JSON.parse(
+      (mockFetch.mock.calls[1] as [string, RequestInit])[1].body as string,
+    );
+    expect(secondBody.events).toHaveLength(1);
+    expect(pendingOutboxIds()).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Lifecycle events (outbox-backed)
+  // -------------------------------------------------------------------------
+
+  test("a recorded lifecycle event flushes once and its outbox row is deleted", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const recorded = recordLifecycleEvent("app_open");
+    expect(recorded).not.toBeNull();
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = makeReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events).toHaveLength(1);
+    // The stored payload IS the wire event — record-time version included.
+    expect(body.events[0]).toEqual({
+      type: "lifecycle",
+      daemon_event_id: recorded!.id,
+      event_name: "app_open",
+      recorded_at: recorded!.createdAt,
+      assistant_version: "1.2.3-test",
+    });
+    // Delete-on-flush: the outbox row is gone, and lifecycle (ack-mode)
+    // never touches flush_checkpoints.
+    expect(queryTelemetryOutboxBatch("lifecycle", 10)).toEqual([]);
+    expect(
+      mockSetFlushCheckpoint.mock.calls.some((c) =>
+        c[0].includes(":lifecycle:"),
+      ),
+    ).toBe(false);
+
+    // A second flush finds nothing pending — the event never re-ships.
+    mockFetch.mockClear();
+    await reporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

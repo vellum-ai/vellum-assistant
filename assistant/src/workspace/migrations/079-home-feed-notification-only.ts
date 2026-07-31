@@ -110,7 +110,9 @@ export const homeFeedNotificationOnlyMigration: WorkspaceMigration = {
     const items: V2FeedItem[] = [];
     for (const entry of rawItems) {
       const migrated = migrateItem(entry);
-      if (migrated) items.push(migrated);
+      if (migrated) {
+        items.push(migrated);
+      }
     }
 
     const next: V2HomeFeedFile = {
@@ -151,8 +153,12 @@ export const homeFeedNotificationOnlyMigration: WorkspaceMigration = {
  * `home-feed-side-effect.ts`).
  */
 function migrateItem(entry: unknown): V2FeedItem | null {
-  if (!isPlainObject(entry)) return null;
-  if (entry.type !== "action") return null;
+  if (!isPlainObject(entry)) {
+    return null;
+  }
+  if (entry.type !== "action") {
+    return null;
+  }
 
   // Required fields — fail-soft on missing critical strings rather
   // than throwing, so a single bad legacy entry does not lose the
@@ -182,13 +188,21 @@ function migrateItem(entry: unknown): V2FeedItem | null {
     status,
     createdAt: entry.createdAt,
   };
-  if (typeof entry.expiresAt === "string") out.expiresAt = entry.expiresAt;
-  if (Array.isArray(entry.actions)) out.actions = entry.actions;
-  if (typeof entry.urgency === "string") out.urgency = entry.urgency;
+  if (typeof entry.expiresAt === "string") {
+    out.expiresAt = entry.expiresAt;
+  }
+  if (Array.isArray(entry.actions)) {
+    out.actions = entry.actions;
+  }
+  if (typeof entry.urgency === "string") {
+    out.urgency = entry.urgency;
+  }
   if (typeof entry.conversationId === "string") {
     out.conversationId = entry.conversationId;
   }
-  if (isPlainObject(entry.detailPanel)) out.detailPanel = entry.detailPanel;
+  if (isPlainObject(entry.detailPanel)) {
+    out.detailPanel = entry.detailPanel;
+  }
   return out;
 }
 

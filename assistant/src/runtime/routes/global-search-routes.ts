@@ -12,13 +12,15 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { searchContacts } from "../../contacts/contact-store.js";
-import { searchConversations } from "../../memory/conversation-queries.js";
+import { searchConversations } from "../../persistence/conversation-queries.js";
+import { getMemorySqlite } from "../../persistence/db-connection.js";
 import {
   embedWithBackend,
   getMemoryBackendStatus,
-} from "../../memory/embedding-backend.js";
-import { rawAll } from "../../memory/raw-query.js";
-import { semanticSearch } from "../../memory/search/semantic.js";
+} from "../../persistence/embeddings/embedding-backend.js";
+import { tokenize } from "../../persistence/embeddings/sparse-tokenize.js";
+import { rawMemoryAll } from "../../persistence/raw-query.js";
+import { semanticSearch } from "../../plugins/defaults/memory/v1/semantic-search.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -67,6 +69,11 @@ const globalSearchContactSchema = z.object({
 
 const globalSearchResponseSchema = z.object({
   query: z.string(),
+  /**
+   * Lexical tokens of `query`, from the same tokenizer the sparse index
+   * uses. Clients highlight these instead of re-tokenizing client-side.
+   */
+  queryTokens: z.array(z.string()),
   results: z.object({
     conversations: z.array(globalSearchConversationSchema),
     memories: z.array(globalSearchMemorySchema),
@@ -92,7 +99,9 @@ const ALL_CATEGORIES = [
 type Category = (typeof ALL_CATEGORIES)[number];
 
 function parseCategories(raw: string | undefined): Set<Category> {
-  if (!raw) return new Set(ALL_CATEGORIES);
+  if (!raw) {
+    return new Set(ALL_CATEGORIES);
+  }
   const requested = raw
     .split(",")
     .map((s) => s.trim().toLowerCase())
@@ -100,7 +109,66 @@ function parseCategories(raw: string | undefined): Set<Category> {
   return requested.length > 0 ? new Set(requested) : new Set(ALL_CATEGORIES);
 }
 
+/**
+ * Parse a search query string, extracting Slack / GitHub / Google-style
+ * filter tokens and returning the cleaned term plus the parsed filters.
+ *
+ * Currently supported filters:
+ *   `is:archived` / `archive:yes` / `archive:true`    — include archived rows
+ *   `is:unarchived` / `archive:no` / `archive:false`  — exclude archived rows
+ *
+ * Filters are case-insensitive, can appear in any position in the query, and
+ * are stripped from the returned `term`. Unknown filter tokens (`is:starred`,
+ * `from:@user`, etc.) are left in the term — the search backends treat the
+ * cleaned term as a literal query, so unknown filters are visible to lexical
+ * matching rather than silently dropped.
+ *
+ * Examples:
+ *   "foo bar"            -> { term: "foo bar",        archived: false }
+ *   "is:archived foo"    -> { term: "foo",            archived: true  }
+ *   "foo is:archived"    -> { term: "foo",            archived: true  }
+ *   "is:archived"        -> { term: "",               archived: true  }
+ *   "is:starred foo"     -> { term: "is:starred foo", archived: false }
+ */
+function parseSearchQuery(rawQ: string | undefined): {
+  term: string;
+  archived: boolean;
+} {
+  if (!rawQ) {
+    return { term: "", archived: false };
+  }
+  const tokens = rawQ.split(/\s+/).filter((t) => t.length > 0);
+  const termTokens: string[] = [];
+  let archived = false;
+  for (const tok of tokens) {
+    const lower = tok.toLowerCase();
+    if (
+      lower === "is:archived" ||
+      lower === "archive:yes" ||
+      lower === "archive:true"
+    ) {
+      archived = true;
+    } else if (
+      lower === "is:unarchived" ||
+      lower === "archive:no" ||
+      lower === "archive:false"
+    ) {
+      archived = false;
+    } else {
+      termTokens.push(tok);
+    }
+  }
+  return { term: termTokens.join(" "), archived };
+}
+
 function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
+  // The memory graph lives in the dedicated memory database. If it cannot be
+  // opened, degrade this category to empty rather than failing the whole
+  // federated search — conversations, schedules, and contacts still return.
+  if (!getMemorySqlite()) {
+    return [];
+  }
+
   const likePattern = `%${query.replace(/%/g, "").replace(/_/g, "")}%`;
 
   interface MemoryRow {
@@ -111,7 +179,8 @@ function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
     last_accessed: number;
   }
 
-  const rows = rawAll<MemoryRow>(
+  const rows = rawMemoryAll<MemoryRow>(
+    "globalSearch:searchMemoryItems",
     `SELECT id, type, content, confidence, last_accessed
      FROM memory_graph_nodes
      WHERE content LIKE ? AND fidelity != 'gone'
@@ -144,12 +213,16 @@ async function searchMemoriesSemantic(
 ): Promise<GlobalSearchMemory[]> {
   const config = getConfig();
   const backendStatus = await getMemoryBackendStatus(config);
-  if (!backendStatus.provider) return [];
+  if (!backendStatus.provider) {
+    return [];
+  }
 
   try {
     const embedded = await embedWithBackend(config, [query]);
     const queryVector = embedded.vectors[0];
-    if (!queryVector) return [];
+    if (!queryVector) {
+      return [];
+    }
 
     const candidates = await semanticSearch(
       queryVector,
@@ -160,8 +233,12 @@ async function searchMemoriesSemantic(
 
     const results: GlobalSearchMemory[] = [];
     for (const c of candidates) {
-      if (c.type !== "item") continue;
-      if (existingIds.has(c.id)) continue;
+      if (c.type !== "item") {
+        continue;
+      }
+      if (existingIds.has(c.id)) {
+        continue;
+      }
       results.push({
         id: c.id,
         kind: c.kind,
@@ -206,10 +283,19 @@ function searchScheduleJobs(
 async function handleGlobalSearch({
   queryParams = {},
 }: RouteHandlerArgs): Promise<GlobalSearchResponse> {
-  const query = queryParams.q ?? "";
-  if (!query.trim()) {
+  // A blank `q` is still rejected, but a query consisting solely of filter
+  // tokens (e.g. `is:archived`) is valid — it lists the archived set with an
+  // empty search term.
+  const rawQ = queryParams.q ?? "";
+  if (!rawQ.trim()) {
     throw new BadRequestError("q query parameter is required");
   }
+
+  // Pull the archive opt-in out of the query string itself (`is:archived` /
+  // `archive:yes` / etc.) so the user controls it the same way they control
+  // every other modifier: by typing it into the search box. The cleaned term
+  // is what the backends actually search on.
+  const { term, archived: includeArchived } = parseSearchQuery(rawQ);
 
   const limit = Math.max(1, Math.min(Number(queryParams.limit ?? 20), 100));
   const categories = parseCategories(queryParams.categories);
@@ -223,9 +309,10 @@ async function handleGlobalSearch({
   };
 
   if (categories.has("conversations")) {
-    const convResults = searchConversations(query, {
+    const convResults = await searchConversations(term, {
       limit,
       maxMessagesPerConversation: 1,
+      includeArchived,
     });
     results.conversations = convResults.map((c) => ({
       id: c.conversationId,
@@ -237,12 +324,12 @@ async function handleGlobalSearch({
   }
 
   if (categories.has("memories")) {
-    results.memories = searchMemoryItems(query, limit);
+    results.memories = searchMemoryItems(term, limit);
 
     if (deep) {
       const existingIds = new Set(results.memories.map((m) => m.id));
       const semanticResults = await searchMemoriesSemantic(
-        query,
+        term,
         limit,
         existingIds,
       );
@@ -251,23 +338,25 @@ async function handleGlobalSearch({
   }
 
   if (categories.has("schedules")) {
-    results.schedules = searchScheduleJobs(query, limit);
+    results.schedules = searchScheduleJobs(term, limit);
   }
 
   if (categories.has("contacts")) {
     const contactResults = searchContacts({
-      query,
+      query: term,
       limit,
     });
     results.contacts = contactResults.map((c) => ({
       id: c.id,
       displayName: c.displayName,
       notes: c.notes,
-      lastInteraction: c.lastInteraction,
+      // Daemon-native search has no gateway-relayed read; recency orders on
+      // contacts.updatedAt, not the channel-derived lastInteraction column.
+      lastInteraction: c.updatedAt,
     }));
   }
 
-  return { query, results };
+  return { query: term, queryTokens: tokenize(term), results };
 }
 
 // ---------------------------------------------------------------------------

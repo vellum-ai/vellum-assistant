@@ -72,7 +72,8 @@ export type RouteResponseContentType =
   | "application/octet-stream"
   | "application/gzip"
   | "application/pdf"
-  | "application/zip";
+  | "application/zip"
+  | "image/png";
 
 /**
  * A route's success response body. Either:
@@ -100,6 +101,13 @@ export interface RouteHandlerArgs {
   queryParams?: Record<string, string>;
   body?: Record<string, unknown>;
   rawBody?: Uint8Array;
+  /**
+   * Caller identity headers, including `x-vellum-principal-type` (the verified
+   * principal type) and `x-vellum-actor-principal-id`. Both adapters derive
+   * these from a trusted source — HTTP from the verified `AuthContext`, IPC
+   * from `injectLocalActorHeader` — never from caller-supplied values, so
+   * handlers that elevate trust can gate on the header (e.g. `"local"`).
+   */
   headers?: Record<string, string>;
   /**
    * Abort signal tied to the client connection. Fired when the client

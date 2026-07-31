@@ -44,5 +44,6 @@ describe("API_KEY_PROVIDERS", () => {
     expect(API_KEY_PROVIDERS).toContain("brave");
     expect(API_KEY_PROVIDERS).toContain("perplexity");
     expect(API_KEY_PROVIDERS).toContain("tavily");
+    expect(API_KEY_PROVIDERS).toContain("firecrawl");
   });
 });

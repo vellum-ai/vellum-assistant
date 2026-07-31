@@ -1,0 +1,14 @@
+{
+  "name": "default-workspace",
+  "version": "1.0.0",
+  "description": "First-party default plugin contributing the workspace-grounding runtime injectors (workspace context, NOW.md scratchpad, config-quarantine notice, disk-pressure warning).",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "peerDependencies": {
+    "@vellumai/plugin-api": "^0.8.0"
+  }
+}

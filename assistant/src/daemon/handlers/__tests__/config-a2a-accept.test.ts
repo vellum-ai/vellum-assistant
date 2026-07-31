@@ -8,13 +8,6 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 import {
   invalidateConfigCache,
   loadRawConfig,
@@ -26,11 +19,11 @@ import {
   getContact,
   searchContacts,
 } from "../../../contacts/contact-store.js";
-import { getSqlite } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
+import { getSqlite } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import { acceptA2AInvite, createA2AInvite } from "../config-a2a.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,7 +31,7 @@ initializeDb();
 
 function resetTables(): void {
   const sqlite = getSqlite();
-  sqlite.run("DELETE FROM assistant_ingress_invites");
+  sqlite.run("DELETE FROM a2a_invites");
   sqlite.run("DELETE FROM assistant_contact_metadata");
   sqlite.run("DELETE FROM contact_channels");
   sqlite.run("DELETE FROM contacts");
@@ -174,7 +167,6 @@ describe("acceptA2AInvite", () => {
     expect(contact).not.toBeNull();
     expect(contact!.channels).toHaveLength(1);
     expect(contact!.channels[0]!.type).toBe("a2a");
-    expect(contact!.channels[0]!.status).toBe("active");
 
     // Verify assistant metadata
     const metadata = getAssistantContactMetadata(result.contactId!);

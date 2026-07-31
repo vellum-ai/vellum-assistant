@@ -11,13 +11,6 @@ import { mock } from "bun:test";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 import {
   clawhubInspect,
   clawhubInstall,
@@ -34,7 +27,9 @@ describe("clawhubInstall slug validation", () => {
     result: Awaited<ReturnType<typeof clawhubInstall>>,
   ): string {
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("Expected clawhubInstall to fail");
+    if (result.success) {
+      throw new Error("Expected clawhubInstall to fail");
+    }
     return result.error;
   }
 
@@ -130,6 +125,10 @@ describe("clawhubInstall staging", () => {
         "# Staged Skill\n",
       );
       expect(existsSync(join(stagedSkillDir, "install-meta.json"))).toBe(true);
+      const meta = JSON.parse(
+        readFileSync(join(stagedSkillDir, "install-meta.json"), "utf-8"),
+      ) as SkillInstallMeta;
+      expect(meta.author).toBe("user");
     } finally {
       Bun.spawn = originalSpawn;
       rmSync(projectRoot, { recursive: true, force: true });

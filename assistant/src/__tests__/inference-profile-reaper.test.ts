@@ -1,12 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-import { waitFor } from "./helpers/wait-for.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 import type { Conversation } from "../daemon/conversation.js";
 import {
   deleteConversation,
@@ -16,9 +9,9 @@ import {
   createConversation,
   getConversation,
   setConversationInferenceProfileSession,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   startInferenceProfileSessionReaper,
@@ -26,8 +19,9 @@ import {
   tickInferenceProfileReaper,
 } from "../runtime/routes/inference-profile-session-reaper.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
+import { waitFor } from "./helpers/wait-for.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables(): void {
   const db = getDb();

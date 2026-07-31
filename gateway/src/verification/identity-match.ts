@@ -6,7 +6,16 @@
  * expected identity on an outbound session.
  */
 
-import type { VerificationSession } from "./session-helpers.js";
+import type { VerificationSession } from "../db/session-store.js";
+
+/** The identity fields the match rules read — callers may pass a full row. */
+export type IdentityMatchSession = Pick<
+  VerificationSession,
+  | "expectedExternalUserId"
+  | "expectedChatId"
+  | "expectedPhoneE164"
+  | "identityBindingStatus"
+>;
 
 /**
  * Check whether the actor matches the session's expected identity.
@@ -17,7 +26,7 @@ import type { VerificationSession } from "./session-helpers.js";
  * - The actor matches the expected identity
  */
 export function checkIdentityMatch(
-  session: VerificationSession,
+  session: IdentityMatchSession,
   actorExternalUserId: string,
   actorChatId: string,
 ): boolean {

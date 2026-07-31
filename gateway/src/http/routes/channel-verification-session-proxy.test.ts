@@ -46,21 +46,6 @@ mock.module("../../auth/guardian-bootstrap.js", () => ({
   REFRESH_AFTER_FRACTION: 0.8,
 }));
 
-mock.module("../../auth/guardian-refresh.js", () => ({
-  rotateCredentials: () => ({
-    ok: true,
-    result: {
-      guardianPrincipalId: "vellum-principal-test",
-      accessToken: "test-new-at",
-      accessTokenExpiresAt: Date.now() + 86400_000,
-      refreshToken: "test-new-rt",
-      refreshTokenExpiresAt: Date.now() + 86400_000 * 30,
-      refreshAfter: Date.now() + 86400_000 * 15,
-    },
-  }),
-  closeAssistantDb: () => {},
-}));
-
 // Import after mocks are registered
 const { createChannelVerificationSessionProxyHandler } =
   await import("./channel-verification-session-proxy.js");

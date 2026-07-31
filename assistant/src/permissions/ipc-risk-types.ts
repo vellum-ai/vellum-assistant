@@ -39,6 +39,16 @@ export interface ClassificationResult {
   opaqueConstructs?: boolean;
   isComplexSyntax?: boolean;
   sandboxAutoApprove?: boolean;
+  /**
+   * Lexically-resolved path arguments from sandbox-auto-approve-eligible
+   * bash segments. The daemon resolves these through symlinks (via
+   * {@link isPathWithinWorkspaceRoot}) and overrides sandboxAutoApprove to
+   * false if any resolves outside the workspace. Closes the symlink-escape
+   * gap: the gateway's lexical check passes a path like
+   * `/workspace/escape/passwd` (symlink → `/etc/passwd`) because it cannot
+   * follow symlinks, but the daemon can.
+   */
+  sandboxPathArgs?: string[];
 }
 
 // ── Gateway request type ────────────────────────────────────────────────────
@@ -53,6 +63,11 @@ export interface FileContext {
   deprecatedDir: string;
   hooksDir: string;
   pluginsDir: string;
+  toolsDir: string;
+  routesDir: string;
+  workflowsDir: string;
+  /** Monitoring data dir — sentinel lives here, writes are code-injection risk. */
+  monitoringDir: string;
   actorTokenSigningKeyPath: string;
   skillSourceDirs: string[];
 }
@@ -81,6 +96,21 @@ export interface ClassifyRiskParams {
   command?: string;
   url?: string;
   path?: string;
+  /**
+   * The file tool's target path with symlinks resolved (canonicalized by the
+   * daemon, which owns the workspace filesystem). The gateway uses this for its
+   * security escalation prefix checks so a symlink cannot mask a write into a
+   * protected directory. Falls back to lexical `path` resolution when absent.
+   */
+  resolvedPath?: string;
+  /**
+   * The sandbox file tool's working directory with symlinks resolved
+   * (canonicalized by the daemon). Paired with `resolvedPath` for the
+   * workspace-boundary check so a symlinked workspace prefix (e.g. macOS
+   * /var → /private/var) does not read as an escape. Absent for host tools;
+   * the gateway falls back to a lexical-vs-lexical comparison when unset.
+   */
+  resolvedWorkingDir?: string;
   skill?: string;
   mode?: string;
   script?: string;
@@ -95,4 +125,19 @@ export interface ClassifyRiskParams {
   registryDefaultRisk?: string;
   /** Number of credential references attached to this tool invocation. */
   credentialRefCount?: number;
+  /**
+   * For host_file_transfer with `direction: "to_sandbox"`: the workspace-side
+   * destination path and the sandbox working directory it resolves against, so
+   * the gateway can escalate transfers that install an executable file in a
+   * code-injection sink (tools/routes/hooks/plugins/skills).
+   */
+  transferSandboxDestPath?: string;
+  transferSandboxWorkingDir?: string;
+  /**
+   * The `to_sandbox` workspace destination with symlinks resolved
+   * (canonicalized by the daemon). Used for the code-injection-sink check so a
+   * symlinked destination cannot mask the real target. Falls back to lexical
+   * resolution of `transferSandboxDestPath` when absent.
+   */
+  resolvedTransferDestPath?: string;
 }

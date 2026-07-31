@@ -7,16 +7,22 @@
  * 3. Records guardian_action_delivery rows from pipeline delivery results
  */
 
-import { findGuardianForChannel } from "../contacts/contact-store.js";
+import { v4 as uuid } from "uuid";
+
 import {
-  createCanonicalGuardianDelivery,
-  createCanonicalGuardianRequest,
-  listCanonicalGuardianDeliveries,
-  listCanonicalGuardianRequests,
-  updateCanonicalGuardianDelivery,
-} from "../memory/canonical-guardian-store.js";
+  createGuardianRequest,
+  listGuardianRequestDeliveriesOrEmpty,
+  listGuardianRequestsOrEmpty,
+} from "../channels/gateway-guardian-requests.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import type { NotificationDeliveryResult } from "../notifications/types.js";
+import {
+  recordApprovalCardDelivery,
+  recordGuardianRequestDeliveries,
+} from "../notifications/guardian-delivery-recorder.js";
 import { getLogger } from "../util/logger.js";
 import { getUserConsultationTimeoutMs } from "./call-constants.js";
 import type { CallPendingQuestion } from "./types.js";
@@ -37,17 +43,6 @@ export interface GuardianDispatchParams {
   toolName?: string;
   /** Canonical SHA-256 digest of tool input for tool-approval requests. */
   inputDigest?: string;
-}
-
-function applyDeliveryStatus(
-  deliveryId: string,
-  result: NotificationDeliveryResult,
-): void {
-  if (result.status === "sent") {
-    updateCanonicalGuardianDelivery(deliveryId, { status: "sent" });
-    return;
-  }
-  updateCanonicalGuardianDelivery(deliveryId, { status: "failed" });
 }
 
 /**
@@ -96,14 +91,16 @@ async function dispatchGuardianQuestionInner(
   try {
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
-    // Voice decisions are handled in guardian conversations tied to the assistant-
-    // level guardian identity. Resolve the principal from the contacts table.
-    let guardianPrincipalId: string | undefined;
-
-    const guardianResult = findGuardianForChannel("vellum");
-    if (guardianResult?.contact.principalId) {
-      guardianPrincipalId = guardianResult.contact.principalId;
-    }
+    // Resolve the request principal from the gateway guardian delivery — the
+    // same source the submitting actor (guardian-action-routes /
+    // actor-trust-resolver) resolves, so they cannot diverge.
+    // applyGuardianDecision requires strict equality with
+    // request.guardianPrincipalId; sharing this gateway source guarantees the
+    // stamped principal == the submitting principal.
+    const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
+    const guardianPrincipalId = guardians
+      ? (guardianForChannel(guardians, "vellum")?.principalId ?? undefined)
+      : undefined;
 
     if (!guardianPrincipalId) {
       log.error(
@@ -113,12 +110,12 @@ async function dispatchGuardianQuestionInner(
       return;
     }
 
-    // Create the canonical guardian request as the primary record.
-    const request = createCanonicalGuardianRequest({
+    // Create the guardian request as the primary record.
+    const request = await createGuardianRequest({
+      id: uuid(),
       kind: "pending_question",
-      sourceType: "voice",
       sourceChannel: "phone",
-      conversationId,
+      sourceConversationId: conversationId,
       callSessionId,
       pendingQuestionId: pendingQuestion.id,
       questionText: pendingQuestion.questionText,
@@ -134,29 +131,36 @@ async function dispatchGuardianQuestionInner(
         requestCode: request.requestCode,
         callSessionId,
       },
-      "Created canonical guardian request for voice dispatch",
+      "Created guardian request for voice dispatch",
     );
 
-    // Count how many canonical guardian requests are already pending for
+    // Both affinity hints below read from one voice-request listing; a
+    // degraded (empty) read only weakens the hints.
+    const voiceRequests = await listGuardianRequestsOrEmpty({
+      sourceType: "voice",
+    });
+
+    // Count how many guardian requests are already pending for
     // this call session. Used as a candidate-affinity hint so the decision
     // engine prefers reusing an existing conversation.
-    const activeGuardianRequestCount = listCanonicalGuardianRequests({
-      status: "pending",
-      sourceType: "voice",
-    }).filter((r) => r.callSessionId === callSessionId).length;
+    const activeGuardianRequestCount = voiceRequests.filter(
+      (r) => r.status === "pending" && r.callSessionId === callSessionId,
+    ).length;
 
     // Look up the vellum conversation used for the first guardian question
     // delivery in this call session. When found, pass it as an affinity hint
     // so the notification pipeline deterministically routes to the same
     // conversation instead of letting the LLM choose a different conversation.
-    // Find earlier canonical requests for this call session and check their
+    // Find earlier guardian requests for this call session and check their
     // deliveries for a vellum destination conversation ID.
     let existingGuardianConversationId: string | null = null;
-    const priorRequests = listCanonicalGuardianRequests({
-      sourceType: "voice",
-    }).filter((r) => r.callSessionId === callSessionId && r.id !== request.id);
+    const priorRequests = voiceRequests.filter(
+      (r) => r.callSessionId === callSessionId && r.id !== request.id,
+    );
     for (const priorReq of priorRequests) {
-      const deliveries = listCanonicalGuardianDeliveries(priorReq.id);
+      const deliveries = await listGuardianRequestDeliveriesOrEmpty(
+        priorReq.id,
+      );
       const vellumDelivery = deliveries.find(
         (d) => d.destinationChannel === "vellum" && d.destinationConversationId,
       );
@@ -178,8 +182,8 @@ async function dispatchGuardianQuestionInner(
     }
 
     // Route through the canonical notification pipeline. The paired vellum
-    // conversation from this pipeline is the canonical guardian conversation.
-    let vellumDeliveryId: string | null = null;
+    // conversation from this pipeline is the guardian conversation.
+    let vellumDeliveryIdPromise: Promise<string | undefined> | undefined;
     const requestCode =
       request.requestCode ?? request.id.slice(0, 6).toUpperCase();
     const signalResult = await emitNotificationSignal({
@@ -205,47 +209,37 @@ async function dispatchGuardianQuestionInner(
       },
       conversationAffinityHint,
       dedupeKey: `guardian:${request.id}`,
+      // The broadcaster awaits the returned promise, so the delivery row is
+      // durable before the client can act on the conversation; the
+      // post-broadcast recording loop reuses its row id.
       onConversationCreated: (info) => {
-        if (info.sourceEventName !== "guardian.question" || vellumDeliveryId)
+        if (
+          info.sourceEventName !== "guardian.question" ||
+          vellumDeliveryIdPromise
+        ) {
           return;
-        const delivery = createCanonicalGuardianDelivery({
+        }
+        vellumDeliveryIdPromise = recordApprovalCardDelivery({
           requestId: request.id,
-          destinationChannel: "vellum",
-          destinationConversationId: info.conversationId,
-        });
-        vellumDeliveryId = delivery.id;
+          channel: "vellum",
+          conversationId: info.conversationId,
+        }).then((delivery) => delivery?.id);
+        return vellumDeliveryIdPromise.then(() => undefined);
       },
     });
 
-    for (const result of signalResult.deliveryResults) {
-      if (result.channel === "vellum") {
-        if (!vellumDeliveryId) {
-          const delivery = createCanonicalGuardianDelivery({
-            requestId: request.id,
-            destinationChannel: "vellum",
-            destinationConversationId: result.conversationId,
-          });
-          vellumDeliveryId = delivery.id;
-        }
-        applyDeliveryStatus(vellumDeliveryId, result);
-        continue;
-      }
-
-      const delivery = createCanonicalGuardianDelivery({
-        requestId: request.id,
-        destinationChannel: result.channel,
-        destinationChatId:
-          result.destination.length > 0 ? result.destination : undefined,
-      });
-      applyDeliveryStatus(delivery.id, result);
-    }
+    const vellumDeliveryId = await recordGuardianRequestDeliveries({
+      requestId: request.id,
+      deliveryResults: signalResult.deliveryResults,
+      vellumDeliveryId: await vellumDeliveryIdPromise,
+    });
 
     if (!vellumDeliveryId) {
-      const fallback = createCanonicalGuardianDelivery({
+      await recordApprovalCardDelivery({
         requestId: request.id,
-        destinationChannel: "vellum",
+        channel: "vellum",
+        status: "failed",
       });
-      updateCanonicalGuardianDelivery(fallback.id, { status: "failed" });
       log.warn(
         { requestId: request.id, reason: signalResult.reason },
         "Notification pipeline did not produce a vellum delivery result",

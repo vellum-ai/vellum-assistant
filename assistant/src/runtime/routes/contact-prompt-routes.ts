@@ -52,9 +52,9 @@ const pendingContactPrompts = new Map<string, PendingContactPrompt>();
  * Called by the gateway after it writes the contact and channel.
  * Resolves the pending promise so the CLI's `contacts/prompt` IPC call returns.
  */
-function resolveContactPrompt({
-  body = {},
-}: RouteHandlerArgs): { resolved: boolean } {
+function resolveContactPrompt({ body = {} }: RouteHandlerArgs): {
+  resolved: boolean;
+} {
   const { requestId, contactId, channelId, channelType, address, error } =
     body as {
       requestId: string;
@@ -104,8 +104,20 @@ const ContactPromptParams = z.object({
     .string()
     .optional()
     .describe("Placeholder text for the address input field."),
-  label: z.string().optional().describe("Display label shown in the prompt UI."),
-  description: z.string().optional().describe("Longer description for the prompt UI."),
+  defaultValue: z
+    .string()
+    .optional()
+    .describe(
+      "Suggested address to pre-fill the input with (e.g. a known email). The user can edit it before submitting.",
+    ),
+  label: z
+    .string()
+    .optional()
+    .describe("Display label shown in the prompt UI."),
+  description: z
+    .string()
+    .optional()
+    .describe("Longer description for the prompt UI."),
   role: z
     .enum(["guardian", "trusted-contact", "unknown"])
     .default("unknown")
@@ -119,7 +131,7 @@ const ContactPromptParams = z.object({
 async function handleContactPrompt({
   body = {},
 }: RouteHandlerArgs): Promise<ContactPromptResult> {
-  const { channel, placeholder, label, description, role } =
+  const { channel, placeholder, defaultValue, label, description, role } =
     ContactPromptParams.parse(body);
 
   const requestId = uuid();
@@ -138,6 +150,7 @@ async function handleContactPrompt({
       requestId,
       channel,
       placeholder,
+      defaultValue,
       label,
       description,
       role,

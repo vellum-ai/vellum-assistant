@@ -26,17 +26,13 @@ mock.module("../suggested-prompts.js", () => ({
 const publishSpy = mock<(event: unknown) => Promise<void>>(async () => {});
 mock.module("../../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: { publish: publishSpy },
+  broadcastMessage: (message: unknown) => {
+    void publishSpy(message);
+  },
 }));
 
 mock.module("../../runtime/assistant-event.js", () => ({
   buildAssistantEvent: (e: unknown) => e,
-}));
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
 }));
 
 const { revalidateHomeContentInBackground } =

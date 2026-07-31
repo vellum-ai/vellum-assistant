@@ -1,18 +1,12 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { makeMockLogger } from "../../__tests__/helpers/mock-logger.js";
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   createComment,
   getComment,
   listComments,
 } from "../../documents/document-comments-store.js";
-import { initializeDb } from "../../memory/db-init.js";
-import { rawRun, resetTestTables } from "../../memory/raw-query.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { rawRun, resetTestTables } from "../../persistence/raw-query.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import {
   executeCommentList,
@@ -20,7 +14,7 @@ import {
   executeCommentResolve,
 } from "./document-comment-tool.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,12 +43,14 @@ function seedDocument(
 ): void {
   const now = Date.now();
   rawRun(
+    "test:seedConversation",
     /*sql*/ `INSERT OR IGNORE INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)`,
     conversationId,
     now,
     now,
   );
   rawRun(
+    "test:seedDocument",
     /*sql*/ `INSERT OR IGNORE INTO documents (surface_id, conversation_id, title, content, word_count, created_at, updated_at)
      VALUES (?, ?, 'Test Doc', 'body', 2, ?, ?)`,
     surfaceId,
@@ -63,6 +59,7 @@ function seedDocument(
     now,
   );
   rawRun(
+    "test:seedDocConversation",
     /*sql*/ `INSERT OR IGNORE INTO document_conversations (surface_id, conversation_id, created_at) VALUES (?, ?, ?)`,
     surfaceId,
     conversationId,
@@ -100,6 +97,7 @@ describe("executeCommentList", () => {
     });
     // Resolve one directly via the store
     rawRun(
+      "test:resolveComment",
       /*sql*/ `UPDATE document_comments SET status = 'resolved', resolved_by = 'user1', resolved_at = ? WHERE id = ?`,
       Date.now(),
       c2.id,
@@ -375,5 +373,54 @@ describe("executeCommentReply", () => {
     }>(result);
     expect(body.success).toBe(true);
     expect(body.comment.content).toBe("Answer");
+  });
+});
+
+// ── model-input schema validation (LUM-2854) ────────────────────────
+
+describe("comment tools — model-input schema validation", () => {
+  test("comment_list rejects a missing surface_id instead of 'Document not found'", () => {
+    const result = executeCommentList({}, makeContext());
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "comment_list"');
+    expect(result.content).toContain("surface_id");
+  });
+
+  test("comment_resolve rejects a non-string comment_id", () => {
+    const result = executeCommentResolve(
+      { surface_id: SURFACE_ID, comment_id: 42 },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "comment_resolve"',
+    );
+    expect(result.content).toContain("comment_id");
+  });
+
+  test("comment_reply rejects a non-string content instead of persisting it", () => {
+    const parent = createComment({
+      surfaceId: SURFACE_ID,
+      conversationId: CONVERSATION_ID,
+      author: "user",
+      content: "Question",
+    });
+
+    const result = executeCommentReply(
+      { surface_id: SURFACE_ID, comment_id: parent.id, content: 42 },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "comment_reply"');
+    expect(result.content).toContain("content");
+    expect(listComments(SURFACE_ID, {}).length).toBe(1);
+  });
+
+  test("comment tools pass unknown keys through (loose schema)", () => {
+    const result = executeCommentList(
+      { surface_id: SURFACE_ID, activity: "checking comments" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
   });
 });

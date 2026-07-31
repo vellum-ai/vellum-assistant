@@ -1,10 +1,10 @@
 /**
- * Guard tests for canonical guardian request routing invariants.
+ * Guard tests for guardian request routing invariants.
  *
- * These tests verify that the canonical guardian request system maintains
+ * These tests verify that the guardian request system maintains
  * its key architectural invariants:
  *
- *   1. All decision paths route through `applyCanonicalGuardianDecision`
+ *   1. All decision paths route through `applyGuardianDecision`
  *   2. Principal-based authorization is enforced before decisions are applied
  *   3. Stale/expired/already-resolved decisions are rejected
  *   4. Code-only messages return clarification (not auto-approve)
@@ -20,46 +20,57 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
+// Gateway IPC mock — session lifecycle goes through the gateway session
+// client; delegate verification_sessions_* methods to the local-service sim
+// so these tests keep reading/writing the local test DB.
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    const { handleVerificationSessionsIpc, isVerificationSessionsIpcMethod } =
+      await import("./helpers/verification-sessions-ipc-sim.js");
+    if (isVerificationSessionsIpcMethod(method)) {
+      return handleVerificationSessionsIpc(method, params);
+    }
+    return { ok: true };
+  },
+  ipcCall: async () => null,
+}));
+
 const _conversationMocks = new Map<string, unknown>();
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => _conversationMocks.get(id),
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
+import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
 
-import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
+const sim = createGuardianGatewaySim();
+mock.module("../channels/gateway-guardian-requests.js", () => sim.module);
+
+import { applyGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import {
   getRegisteredKinds,
   getResolver,
 } from "../approvals/guardian-request-resolvers.js";
-import {
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { processGuardianDecision } from "../runtime/guardian-action-service.js";
 import { GUARDIAN_DECISION_ACTIONS } from "../runtime/guardian-decision-types.js";
 import {
   type GuardianReplyContext,
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { parseCallbackData } from "../runtime/routes/channel-route-shared.js";
 import { listGuardianDecisionPrompts } from "../runtime/routes/guardian-action-routes.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
-  const db = getDb();
-  db.run("DELETE FROM scoped_approval_grants");
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
+  getDb().run("DELETE FROM scoped_approval_grants");
+  sim.reset();
   pendingInteractions.clear();
 }
 
@@ -144,15 +155,15 @@ function registerPendingToolApprovalInteraction(
 // SECTION 1: Import-verification guard tests
 //
 // These verify that all known decision entrypoints import from and call
-// `applyCanonicalGuardianDecision` rather than inlining decision logic.
+// `applyGuardianDecision` rather than inlining decision logic.
 // ===========================================================================
 
-describe("routing invariant: all decision paths reference applyCanonicalGuardianDecision", () => {
+describe("routing invariant: all decision paths reference applyGuardianDecision", () => {
   const srcRoot = resolve(__dirname, "..");
 
   // The files that constitute decision entrypoints. Each must reference
-  // `applyCanonicalGuardianDecision` (directly) or `processGuardianDecision`
-  // (shared wrapper that calls applyCanonicalGuardianDecision internally).
+  // `applyGuardianDecision` (directly) or `processGuardianDecision`
+  // (shared wrapper that calls applyGuardianDecision internally).
   const DECISION_ENTRYPOINTS: Array<{
     path: string;
     symbols: string[];
@@ -160,20 +171,26 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
     // Inbound channel router (Telegram/WhatsApp)
     {
       path: "runtime/guardian-reply-router.ts",
-      symbols: ["applyCanonicalGuardianDecision"],
+      symbols: ["applyGuardianDecision"],
     },
     // HTTP API route handler (desktop and API clients) — uses processGuardianDecision
-    // which is a shared wrapper around applyCanonicalGuardianDecision
+    // which is a shared wrapper around applyGuardianDecision
     {
       path: "runtime/routes/guardian-action-routes.ts",
       symbols: ["processGuardianDecision"],
     },
+    // Surface action route handler (Vellum in-app card buttons) — intercepts
+    // apr:* action IDs and routes through processGuardianDecision
+    {
+      path: "runtime/routes/surface-action-routes.ts",
+      symbols: ["processGuardianDecision"],
+    },
     // Shared service where processGuardianDecision is defined — must route
     // through the canonical primitive to complete the chain:
-    // entrypoint → processGuardianDecision → applyCanonicalGuardianDecision
+    // entrypoint → processGuardianDecision → applyGuardianDecision
     {
       path: "runtime/guardian-action-service.ts",
-      symbols: ["applyCanonicalGuardianDecision"],
+      symbols: ["applyGuardianDecision"],
     },
   ];
 
@@ -187,7 +204,7 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
   }
 
   // The inbound message handler and session-process both use routeGuardianReply
-  // which itself calls applyCanonicalGuardianDecision. Verify they reference
+  // which itself calls applyGuardianDecision. Verify they reference
   // the shared router rather than inlining decision logic.
   const ROUTER_CONSUMERS = [
     "runtime/routes/inbound-message-handler.ts",
@@ -209,19 +226,17 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
     expect(source).not.toContain("getPendingDeliveriesByConversation");
   });
 
-  test("daemon/conversation-process.ts seeds router hints via listPendingRequestsByConversationScope", () => {
+  test("daemon/conversation-process.ts seeds router hints via the gateway scope read", () => {
     const fullPath = join(srcRoot, "daemon/conversation-process.ts");
     const source = readFileSync(fullPath, "utf-8");
-    expect(source).toContain("listPendingRequestsByConversationScope");
+    expect(source).toContain("listPendingRequestsByScopeOrEmpty");
   });
 
-  test("guardian-reply-router routes all decisions through applyCanonicalGuardianDecision", () => {
+  test("guardian-reply-router routes all decisions through applyGuardianDecision", () => {
     const fullPath = join(srcRoot, "runtime/guardian-reply-router.ts");
     const source = readFileSync(fullPath, "utf-8");
-    // The router must import and call the canonical primitive, not applyGuardianDecision
-    expect(source).toContain("applyCanonicalGuardianDecision");
-    // The router must NOT directly call the legacy applyGuardianDecision
-    expect(source).not.toContain("applyGuardianDecision(");
+    // The router must import and call the canonical decision primitive.
+    expect(source).toContain("applyGuardianDecision");
   });
 });
 
@@ -233,41 +248,43 @@ describe("routing invariant: principal-based authorization enforced before decis
   beforeEach(() => resetTables());
 
   test("mismatching actor principal is rejected by canonical primitive", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: Date.now() + 60_000,
     });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "approve_once",
       actorContext: guardianActor({ guardianPrincipalId: "wrong-principal" }),
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("identity_mismatch");
 
     // Request must remain pending (no state change)
-    const unchanged = getCanonicalGuardianRequest(req.id);
+    const unchanged = sim.getRequest(req.id);
     expect(unchanged!.status).toBe("pending");
   });
 
   test("matching principal authorizes desktop actor", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "desktop",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: Date.now() + 60_000,
     });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "approve_once",
       actorContext: trustedActor(),
@@ -277,30 +294,32 @@ describe("routing invariant: principal-based authorization enforced before decis
   });
 
   test("actor without guardianPrincipalId is rejected", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: Date.now() + 60_000,
     });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "approve_once",
       actorContext: guardianActor({ guardianPrincipalId: undefined }),
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("identity_mismatch");
   });
 
   test("principal mismatch on code-only message blocks detail leakage", async () => {
-    createCanonicalGuardianRequest({
+    sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "ABC123",
@@ -332,38 +351,40 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
   beforeEach(() => resetTables());
 
   test("expired request is rejected by canonical primitive", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: Date.now() - 10_000, // already expired
     });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "approve_once",
       actorContext: guardianActor(),
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("expired");
   });
 
   test("already-resolved request is rejected (first-writer-wins)", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: Date.now() + 60_000,
     });
 
     // First decision succeeds
-    const first = await applyCanonicalGuardianDecision({
+    const first = await applyGuardianDecision({
       requestId: req.id,
       action: "approve_once",
       actorContext: guardianActor(),
@@ -371,37 +392,41 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
     expect(first.applied).toBe(true);
 
     // Second decision fails — request is no longer pending
-    const second = await applyCanonicalGuardianDecision({
+    const second = await applyGuardianDecision({
       requestId: req.id,
       action: "reject",
       actorContext: guardianActor(),
     });
     expect(second.applied).toBe(false);
-    if (second.applied) return;
+    if (second.applied) {
+      return;
+    }
     expect(second.reason).toBe("already_resolved");
 
     // First decision stuck
-    const final = getCanonicalGuardianRequest(req.id);
+    const final = sim.getRequest(req.id);
     expect(final!.status).toBe("approved");
   });
 
   test("nonexistent request returns not_found", async () => {
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: "nonexistent-id",
       action: "approve_once",
       actorContext: guardianActor(),
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("not_found");
   });
 
   test("already-resolved request via router returns not_consumed (code lookup filters pending only)", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "ABC123",
@@ -409,14 +434,14 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
     });
 
     // Resolve the request first
-    await applyCanonicalGuardianDecision({
+    await applyGuardianDecision({
       requestId: req.id,
       action: "approve_once",
       actorContext: guardianActor(),
     });
 
     // Attempt to resolve again via router with code prefix.
-    // Since getCanonicalGuardianRequestByCode only returns pending requests,
+    // Since getGuardianRequestByCodeOrNull only returns pending requests,
     // the resolved request won't be found and the code won't match.
     const result = await routeGuardianReply(
       replyCtx({
@@ -431,10 +456,10 @@ describe("routing invariant: stale/expired/already-resolved decisions rejected",
   });
 
   test("expired request via callback returns stale type", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: Date.now() - 10_000, // already expired
@@ -462,10 +487,10 @@ describe("routing invariant: code-only messages return clarification", () => {
   beforeEach(() => resetTables());
 
   test("code-only message returns clarification with request details", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "A1B2C3",
@@ -490,16 +515,16 @@ describe("routing invariant: code-only messages return clarification", () => {
     expect(result.replyText).toContain("reject");
 
     // The request must remain pending — NOT auto-approved
-    const unchanged = getCanonicalGuardianRequest(req.id);
+    const unchanged = sim.getRequest(req.id);
     expect(unchanged!.status).toBe("pending");
   });
 
   test("code-only pending_question asks for free-text answer (not approve/reject)", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "pending_question",
       sourceType: "voice",
       sourceChannel: "phone",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       callSessionId: "call-1",
@@ -524,16 +549,16 @@ describe("routing invariant: code-only messages return clarification", () => {
     expect(result.replyText).not.toContain("approve");
     expect(result.replyText).not.toContain("reject");
 
-    const unchanged = getCanonicalGuardianRequest(req.id);
+    const unchanged = sim.getRequest(req.id);
     expect(unchanged!.status).toBe("pending");
   });
 
   test("code-only tool-backed pending_question asks for approve/reject decision", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "pending_question",
       sourceType: "voice",
       sourceChannel: "phone",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       callSessionId: "call-2",
@@ -559,15 +584,15 @@ describe("routing invariant: code-only messages return clarification", () => {
     expect(result.replyText).toContain("reject");
     expect(result.replyText).not.toContain("<your answer>");
 
-    const unchanged = getCanonicalGuardianRequest(req.id);
+    const unchanged = sim.getRequest(req.id);
     expect(unchanged!.status).toBe("pending");
   });
 
   test("code with decision text does apply the decision", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "A1B2C3",
@@ -588,15 +613,15 @@ describe("routing invariant: code-only messages return clarification", () => {
     expect(result.type).toBe("canonical_decision_applied");
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
   test("code with reject text denies the request", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "D4E5F6",
@@ -614,7 +639,7 @@ describe("routing invariant: code-only messages return clarification", () => {
     expect(result.consumed).toBe(true);
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("denied");
   });
 });
@@ -627,10 +652,10 @@ describe("routing invariant: channel formatting delimiters stripped from code pa
   beforeEach(() => resetTables());
 
   test("backtick-wrapped code + approve is parsed correctly", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "A1B2C3",
@@ -651,15 +676,15 @@ describe("routing invariant: channel formatting delimiters stripped from code pa
     expect(result.type).toBe("canonical_decision_applied");
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
   test("bold+backtick code + reject is parsed correctly", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "D4E5F6",
@@ -678,15 +703,15 @@ describe("routing invariant: channel formatting delimiters stripped from code pa
     expect(result.type).toBe("canonical_decision_applied");
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("denied");
   });
 
   test("backtick-wrapped code only returns clarification", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "A1B2C3",
@@ -706,15 +731,15 @@ describe("routing invariant: channel formatting delimiters stripped from code pa
     expect(result.type).toBe("code_only_clarification");
     expect(result.decisionApplied).toBe(false);
 
-    const unchanged = getCanonicalGuardianRequest(req.id);
+    const unchanged = sim.getRequest(req.id);
     expect(unchanged!.status).toBe("pending");
   });
 
   test("asterisk-wrapped code + approve is parsed correctly", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "A1B2C3",
@@ -735,15 +760,15 @@ describe("routing invariant: channel formatting delimiters stripped from code pa
     expect(result.type).toBe("canonical_decision_applied");
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
   test("*CODE* action — formatting wraps only the code portion", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "A1B2C3",
@@ -764,15 +789,15 @@ describe("routing invariant: channel formatting delimiters stripped from code pa
     expect(result.type).toBe("canonical_decision_applied");
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
   test("**CODE** action — double-asterisk formatting wraps only the code portion", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "D4E5F6",
@@ -791,7 +816,7 @@ describe("routing invariant: channel formatting delimiters stripped from code pa
     expect(result.type).toBe("canonical_decision_applied");
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("denied");
   });
 });
@@ -804,10 +829,10 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
   beforeEach(() => resetTables());
 
   test("single hinted pending request accepts explicit plain-text approve without NL generator", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "DDD444",
@@ -820,7 +845,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -829,15 +854,15 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(result.type).toBe("canonical_decision_applied");
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
   test("single hinted pending request does not auto-approve broad acknowledgment text", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "GGG777",
@@ -849,7 +874,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "ok, what is this for?",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -858,15 +883,15 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(result.type).toBe("not_consumed");
     expect(result.decisionApplied).toBe(false);
 
-    const unchanged = getCanonicalGuardianRequest(req.id);
+    const unchanged = sim.getRequest(req.id);
     expect(unchanged!.status).toBe("pending");
   });
 
-  test("explicit empty pendingRequestIds hint stays fail-closed for desktop actors", async () => {
-    createCanonicalGuardianRequest({
+  test("explicit blocked scope stays fail-closed for desktop actors", async () => {
+    sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-other",
+      sourceConversationId: "conv-other",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "HHH888",
@@ -879,7 +904,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
         messageText: "approve",
         actor: trustedActor(),
         conversationId: "conv-unrelated",
-        pendingRequestIds: [],
+        pendingScope: { mode: "blocked" },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -889,11 +914,43 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(result.decisionApplied).toBe(false);
   });
 
-  test("multiple hinted pending requests with plain-text approve returns disambiguation", async () => {
-    const req1 = createCanonicalGuardianRequest({
+  test("explicit request code still resolves under a blocked scope (cross-chat carve-out)", async () => {
+    // The Slack cross-chat guard blocks identity fallback, but an explicit
+    // request code carries its own target and must still resolve — otherwise a
+    // guardian could not approve-by-code from a chat where no card was delivered.
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-other",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "ABC123",
+      toolName: "shell",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-other", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "ABC123 approve",
+        actor: trustedActor(),
+        conversationId: "conv-unrelated",
+        pendingScope: { mode: "blocked" },
+        approvalConversationGenerator: undefined,
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.requestId).toBe(req.id);
+    expect(result.decisionApplied).toBe(true);
+    expect(sim.getRequest(req.id)!.status).toBe("approved");
+  });
+
+  test("multiple hinted pending requests with plain-text approve returns disambiguation", async () => {
+    const req1 = sim.seedRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "EEE555",
@@ -901,10 +958,10 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       expiresAt: Date.now() + 60_000,
     });
 
-    const req2 = createCanonicalGuardianRequest({
+    const req2 = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "FFF666",
@@ -916,7 +973,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req1.id, req2.id],
+        pendingScope: { mode: "scoped", requestIds: [req1.id, req2.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -927,18 +984,18 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(result.replyText).toContain("EEE555");
     expect(result.replyText).toContain("FFF666");
 
-    const r1 = getCanonicalGuardianRequest(req1.id);
-    const r2 = getCanonicalGuardianRequest(req2.id);
+    const r1 = sim.getRequest(req1.id);
+    const r2 = sim.getRequest(req2.id);
     expect(r1!.status).toBe("pending");
     expect(r2!.status).toBe("pending");
   });
 
   test("multiple pending requests without target return disambiguation (not auto-resolve)", async () => {
     // Create two pending requests for the same guardian
-    const req1 = createCanonicalGuardianRequest({
+    const req1 = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "AAA111",
@@ -946,10 +1003,10 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       expiresAt: Date.now() + 60_000,
     });
 
-    const req2 = createCanonicalGuardianRequest({
+    const req2 = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "BBB222",
@@ -969,7 +1026,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "yes approve it",
         conversationId: "conv-1",
-        pendingRequestIds: [req1.id, req2.id],
+        pendingScope: { mode: "scoped", requestIds: [req1.id, req2.id] },
         approvalConversationGenerator: mockGenerator as any,
       }),
     );
@@ -979,8 +1036,8 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(result.decisionApplied).toBe(false);
 
     // Both requests must remain pending — fail-closed
-    const r1 = getCanonicalGuardianRequest(req1.id);
-    const r2 = getCanonicalGuardianRequest(req2.id);
+    const r1 = sim.getRequest(req1.id);
+    const r2 = sim.getRequest(req2.id);
     expect(r1!.status).toBe("pending");
     expect(r2!.status).toBe("pending");
 
@@ -990,11 +1047,11 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
   });
 
   test("disambiguation treats tool-backed pending_question as approval request", async () => {
-    const answerRequest = createCanonicalGuardianRequest({
+    const answerRequest = sim.seedRequest({
       kind: "pending_question",
       sourceType: "voice",
       sourceChannel: "phone",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       callSessionId: "call-answer",
@@ -1004,11 +1061,11 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       expiresAt: Date.now() + 60_000,
     });
 
-    const approvalRequest = createCanonicalGuardianRequest({
+    const approvalRequest = sim.seedRequest({
       kind: "pending_question",
       sourceType: "voice",
       sourceChannel: "phone",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       callSessionId: "call-approval",
@@ -1023,7 +1080,10 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [answerRequest.id, approvalRequest.id],
+        pendingScope: {
+          mode: "scoped",
+          requestIds: [answerRequest.id, approvalRequest.id],
+        },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1043,10 +1103,10 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
   });
 
   test("single pending request does not need disambiguation", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "CCC333",
@@ -1067,7 +1127,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "yes",
         conversationId: "conv-1",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: mockGenerator as any,
       }),
     );
@@ -1075,15 +1135,15 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(result.consumed).toBe(true);
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
   test('single pending request accepts "go for it" as deterministic approval', async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
@@ -1096,7 +1156,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "go for it",
         conversationId: "conv-1",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1105,25 +1165,25 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(result.decisionApplied).toBe(true);
     expect(result.type).toBe("canonical_decision_applied");
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
-  test("code-based routing is constrained to caller-provided pendingRequestIds scope", async () => {
-    const inScope = createCanonicalGuardianRequest({
+  test("code-based routing is constrained to caller-provided scope", async () => {
+    const inScope = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "111AAA",
       toolName: "shell",
       expiresAt: Date.now() + 60_000,
     });
-    const outOfScope = createCanonicalGuardianRequest({
+    const outOfScope = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-2",
+      sourceConversationId: "conv-2",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "222BBB",
@@ -1137,7 +1197,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
       replyCtx({
         messageText: "222BBB approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [inScope.id],
+        pendingScope: { mode: "scoped", requestIds: [inScope.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1146,8 +1206,8 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     expect(result.type).toBe("not_consumed");
     expect(result.decisionApplied).toBe(false);
 
-    const inScopeAfter = getCanonicalGuardianRequest(inScope.id);
-    const outOfScopeAfter = getCanonicalGuardianRequest(outOfScope.id);
+    const inScopeAfter = sim.getRequest(inScope.id);
+    const outOfScopeAfter = sim.getRequest(outOfScope.id);
     expect(inScopeAfter!.status).toBe("pending");
     expect(outOfScopeAfter!.status).toBe("pending");
   });
@@ -1189,10 +1249,10 @@ describe("routing invariant: only approve_once and reject are valid actions", ()
   beforeEach(() => resetTables());
 
   test("approve_once is accepted by canonical primitive", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
@@ -1200,7 +1260,7 @@ describe("routing invariant: only approve_once and reject are valid actions", ()
       expiresAt: Date.now() + 60_000,
     });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "approve_once",
       actorContext: guardianActor(),
@@ -1208,15 +1268,15 @@ describe("routing invariant: only approve_once and reject are valid actions", ()
 
     expect(result.applied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
   test("approve_always is rejected as an invalid action", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
@@ -1224,7 +1284,7 @@ describe("routing invariant: only approve_once and reject are valid actions", ()
       expiresAt: Date.now() + 60_000,
     });
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       // @ts-expect-error - approve_always is no longer a valid action
       action: "approve_always",
@@ -1239,17 +1299,17 @@ describe("routing invariant: only approve_once and reject are valid actions", ()
 });
 
 // ===========================================================================
-// SECTION 8: Callback routing uses applyCanonicalGuardianDecision
+// SECTION 8: Callback routing uses applyGuardianDecision
 // ===========================================================================
 
 describe("routing invariant: callback buttons route through canonical primitive", () => {
   beforeEach(() => resetTables());
 
   test("valid callback data applies decision via canonical primitive", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
@@ -1270,15 +1330,15 @@ describe("routing invariant: callback buttons route through canonical primitive"
     expect(result.type).toBe("canonical_decision_applied");
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
   test("callback with reject action denies the request", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: Date.now() + 60_000,
@@ -1296,15 +1356,15 @@ describe("routing invariant: callback buttons route through canonical primitive"
     expect(result.consumed).toBe(true);
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("denied");
   });
 
   test("callback targeting different conversation is still processed (conversationId scoping removed for cross-channel)", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-other",
+      sourceConversationId: "conv-other",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       expiresAt: Date.now() + 60_000,
@@ -1327,7 +1387,7 @@ describe("routing invariant: callback buttons route through canonical primitive"
     expect(result.decisionApplied).toBe(true);
 
     // Request should be approved
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 });
@@ -1369,10 +1429,10 @@ describe("routing invariant: directResolve interactions resolve via guardian dec
   }
 
   test("channel approval fires directResolve('allow') with no live Conversation", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-acp",
+      sourceConversationId: "conv-acp",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "acp_spawn",
@@ -1393,14 +1453,14 @@ describe("routing invariant: directResolve interactions resolve via guardian dec
     expect(result.decisionApplied).toBe(true);
     expect(decisions).toEqual(["allow"]);
     expect(pendingInteractions.get(req.id)).toBeUndefined();
-    expect(getCanonicalGuardianRequest(req.id)!.status).toBe("approved");
+    expect(sim.getRequest(req.id)!.status).toBe("approved");
   });
 
   test("channel rejection fires directResolve('deny')", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-acp",
+      sourceConversationId: "conv-acp",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "acp_spawn",
@@ -1419,7 +1479,7 @@ describe("routing invariant: directResolve interactions resolve via guardian dec
     expect(result.decisionApplied).toBe(true);
     expect(decisions).toEqual(["deny"]);
     expect(pendingInteractions.get(req.id)).toBeUndefined();
-    expect(getCanonicalGuardianRequest(req.id)!.status).toBe("denied");
+    expect(sim.getRequest(req.id)!.status).toBe("denied");
   });
 });
 
@@ -1430,13 +1490,13 @@ describe("routing invariant: directResolve interactions resolve via guardian dec
 describe("routing invariant: destination hints do not bypass tool_approval principal binding", () => {
   beforeEach(() => resetTables());
 
-  test("explicit pendingRequestIds still fail closed when guardianPrincipalId does not match", async () => {
+  test("explicit scope still fails closed when guardianPrincipalId does not match", async () => {
     // Voice-originated tool approval with a different principal than the actor.
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "voice",
       sourceChannel: "twilio",
-      conversationId: "conv-voice-1",
+      sourceConversationId: "conv-voice-1",
       toolName: "shell",
       requestCode: "NL1234",
       guardianPrincipalId: "request-principal",
@@ -1444,15 +1504,15 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
     });
     registerPendingToolApprovalInteraction(req.id, "conv-voice-1", "shell");
 
-    // The channel inbound router would compute pendingRequestIds from
-    // delivery-scoped lookup and pass them here. Simulate that.
+    // The channel inbound router would compute the pending scope from
+    // delivery-scoped lookup and pass it here. Simulate that.
     const result = await routeGuardianReply(
       replyCtx({
         messageText: "approve",
         channel: "telegram",
         actor: guardianActor({ guardianPrincipalId: "different-principal" }),
         conversationId: "conv-guardian-chat",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1461,24 +1521,24 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
     expect(result.type).toBe("canonical_decision_stale");
     expect(result.decisionApplied).toBe(false);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("pending");
   });
 
   test("without destination hints, unbound principal means no pending requests found", async () => {
     // Voice-originated request: different principal
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "voice",
       sourceChannel: "twilio",
-      conversationId: "conv-voice-2",
+      sourceConversationId: "conv-voice-2",
       toolName: "shell",
       requestCode: "NL5678",
       guardianPrincipalId: "voice-principal",
       expiresAt: Date.now() + 60_000,
     });
 
-    // No pendingRequestIds passed — identity-based fallback uses
+    // No pendingScope passed — identity-based fallback uses
     // actor.actorExternalUserId which does not match any request's
     // guardianExternalUserId (since it's null).
     const result = await routeGuardianReply(
@@ -1487,7 +1547,7 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
         channel: "telegram",
         actor: guardianActor({ actorExternalUserId: "guardian-tg-user" }),
         conversationId: "conv-guardian-chat",
-        // pendingRequestIds: undefined — no delivery hints
+        // pendingScope omitted — no delivery hints
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1497,7 +1557,7 @@ describe("routing invariant: destination hints do not bypass tool_approval princ
     expect(result.consumed).toBe(false);
     expect(result.type).toBe("not_consumed");
 
-    const unchanged = getCanonicalGuardianRequest(req.id);
+    const unchanged = sim.getRequest(req.id);
     expect(unchanged!.status).toBe("pending");
   });
 });
@@ -1510,11 +1570,11 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
   beforeEach(() => resetTables());
 
   test('pending access_request + message "open invite flow" returns not_consumed with skipApprovalInterception', async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-access-1",
+      sourceConversationId: "conv-access-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "INV001",
@@ -1526,7 +1586,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       replyCtx({
         messageText: "open invite flow",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1537,12 +1597,12 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
     expect(result.skipApprovalInterception).toBe(true);
 
     // Request remains pending — not resolved by the handoff
-    const unchanged = getCanonicalGuardianRequest(req.id);
+    const unchanged = sim.getRequest(req.id);
     expect(unchanged!.status).toBe("pending");
   });
 
   test("invite handoff is case-insensitive and punctuation-trimmed", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
@@ -1561,7 +1621,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
         replyCtx({
           messageText: phrase,
           conversationId: "conv-test",
-          pendingRequestIds: [req.id],
+          pendingScope: { mode: "scoped", requestIds: [req.id] },
           approvalConversationGenerator: undefined,
         }),
       );
@@ -1572,10 +1632,10 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
   });
 
   test("invite handoff does NOT bypass for non-access-request kinds", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "TAP001",
@@ -1587,7 +1647,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       replyCtx({
         messageText: "open invite flow",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1595,16 +1655,16 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
     // Should NOT return not_consumed via the invite handoff path.
     // Without NL generator and no explicit approve/reject, it falls through
     // to not_consumed anyway, but the key invariant is the request remains pending.
-    const unchanged = getCanonicalGuardianRequest(req.id);
+    const unchanged = sim.getRequest(req.id);
     expect(unchanged!.status).toBe("pending");
   });
 
   test("explicit approve/reject messages still consume with pending access_request", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-access-2",
+      sourceConversationId: "conv-access-2",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "A00B01",
@@ -1617,7 +1677,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       replyCtx({
         messageText: "A00B01 approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1625,16 +1685,16 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
     expect(result.consumed).toBe(true);
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
   test("desktop access-request approval returns a verification code reply", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-access-desktop",
+      sourceConversationId: "conv-access-desktop",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "C0D3A5",
@@ -1647,7 +1707,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       channel: "vellum",
       actor: trustedActor({ channel: "vellum" }),
       conversationId: "conv-guardian-conversation",
-      pendingRequestIds: [req.id],
+      pendingScope: { mode: "scoped", requestIds: [req.id] },
       approvalConversationGenerator: undefined,
     });
 
@@ -1656,16 +1716,16 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
     expect(result.replyText).toContain("verification code");
     expect(result.replyText).toMatch(/\b\d{6}\b/);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
   test("NL decision path preserves resolver verification code reply text", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: "conv-access-desktop-nl",
+      sourceConversationId: "conv-access-desktop-nl",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requesterExternalUserId: "requester-1",
@@ -1686,7 +1746,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
       channel: "vellum",
       actor: trustedActor({ channel: "vellum" }),
       conversationId: "conv-guardian-conversation",
-      pendingRequestIds: [req.id],
+      pendingScope: { mode: "scoped", requestIds: [req.id] },
       approvalConversationGenerator: approvalConversationGenerator as any,
     });
 
@@ -1697,7 +1757,7 @@ describe("routing invariant: invite handoff bypass for access requests", () => {
     expect(result.replyText).toMatch(/\b\d{6}\b/);
     expect(result.replyText).not.toBe("Access approved.");
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 });
@@ -1710,10 +1770,10 @@ describe("routing invariant: expired requests are excluded from pending discover
   beforeEach(() => resetTables());
 
   test("expired request with hinted IDs is excluded from disambiguation", async () => {
-    const expired = createCanonicalGuardianRequest({
+    const expired = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "EXP001",
@@ -1721,10 +1781,10 @@ describe("routing invariant: expired requests are excluded from pending discover
       expiresAt: Date.now() - 10_000,
     });
 
-    const active = createCanonicalGuardianRequest({
+    const active = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "ACT001",
@@ -1738,7 +1798,7 @@ describe("routing invariant: expired requests are excluded from pending discover
       replyCtx({
         messageText: "approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [expired.id, active.id],
+        pendingScope: { mode: "scoped", requestIds: [expired.id, active.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1748,19 +1808,19 @@ describe("routing invariant: expired requests are excluded from pending discover
     expect(result.type).toBe("canonical_decision_applied");
     expect(result.decisionApplied).toBe(true);
 
-    const resolvedActive = getCanonicalGuardianRequest(active.id);
+    const resolvedActive = sim.getRequest(active.id);
     expect(resolvedActive!.status).toBe("approved");
 
     // Expired request untouched
-    const resolvedExpired = getCanonicalGuardianRequest(expired.id);
+    const resolvedExpired = sim.getRequest(expired.id);
     expect(resolvedExpired!.status).toBe("pending");
   });
 
   test("backtick-wrapped plain-text approve is normalized and applied", async () => {
-    const req = createCanonicalGuardianRequest({
+    const req = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "FMT001",
@@ -1773,7 +1833,7 @@ describe("routing invariant: expired requests are excluded from pending discover
       replyCtx({
         messageText: "`approve`",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [req.id],
+        pendingScope: { mode: "scoped", requestIds: [req.id] },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1782,15 +1842,15 @@ describe("routing invariant: expired requests are excluded from pending discover
     expect(result.type).toBe("canonical_decision_applied");
     expect(result.decisionApplied).toBe(true);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
   });
 
   test("all expired hinted requests means no pending found — not consumed", async () => {
-    const expired1 = createCanonicalGuardianRequest({
+    const expired1 = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "EXP002",
@@ -1798,10 +1858,10 @@ describe("routing invariant: expired requests are excluded from pending discover
       expiresAt: Date.now() - 10_000,
     });
 
-    const expired2 = createCanonicalGuardianRequest({
+    const expired2 = sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: "conv-1",
+      sourceConversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       requestCode: "EXP003",
@@ -1813,7 +1873,10 @@ describe("routing invariant: expired requests are excluded from pending discover
       replyCtx({
         messageText: "approve",
         conversationId: "conv-guardian-conversation",
-        pendingRequestIds: [expired1.id, expired2.id],
+        pendingScope: {
+          mode: "scoped",
+          requestIds: [expired1.id, expired2.id],
+        },
         approvalConversationGenerator: undefined,
       }),
     );
@@ -1852,21 +1915,23 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
   });
 
   // Integration tests: verify listGuardianDecisionPrompts returns correct
-  // action sets for each canonical request kind.
+  // action sets for each guardian request kind.
 
-  test("tool_approval prompt uses approve_once + reject only (one-time decision pattern)", () => {
+  test("tool_approval prompt uses approve_once + reject only (one-time decision pattern)", async () => {
     const convId = "conv-kind-tool-approval";
-    createCanonicalGuardianRequest({
+    sim.seedRequest({
       kind: "tool_approval",
       sourceType: "channel",
-      conversationId: convId,
+      sourceConversationId: convId,
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "shell",
       expiresAt: Date.now() + 60_000,
     });
 
-    const prompts = listGuardianDecisionPrompts({ conversationId: convId });
+    const prompts = await listGuardianDecisionPrompts({
+      conversationId: convId,
+    });
     expect(prompts).toHaveLength(1);
     expect(prompts[0].actions.map((a) => a.action)).toEqual([
       "approve_once",
@@ -1874,13 +1939,13 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
     ]);
   });
 
-  test("pending_question prompt has approve_once + reject only (no temporal actions)", () => {
+  test("pending_question prompt has approve_once + reject only (no temporal actions)", async () => {
     const convId = "conv-kind-pending-question";
-    createCanonicalGuardianRequest({
+    sim.seedRequest({
       kind: "pending_question",
       sourceType: "voice",
       sourceChannel: "phone",
-      conversationId: convId,
+      sourceConversationId: convId,
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       callSessionId: "call-pq",
@@ -1889,7 +1954,9 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
       expiresAt: Date.now() + 60_000,
     });
 
-    const prompts = listGuardianDecisionPrompts({ conversationId: convId });
+    const prompts = await listGuardianDecisionPrompts({
+      conversationId: convId,
+    });
     expect(prompts).toHaveLength(1);
 
     const actionIds = prompts[0].actions.map((a) => a.action);
@@ -1898,20 +1965,22 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
     expect(actionIds).not.toContain("approve_conversation");
   });
 
-  test("access_request prompt has approve_once + reject only (no temporal actions)", () => {
+  test("access_request prompt has approve_once + reject only (no temporal actions)", async () => {
     const convId = "conv-kind-access-request";
-    createCanonicalGuardianRequest({
+    sim.seedRequest({
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
-      conversationId: convId,
+      sourceConversationId: convId,
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "ingress_access_request",
       expiresAt: Date.now() + 60_000,
     });
 
-    const prompts = listGuardianDecisionPrompts({ conversationId: convId });
+    const prompts = await listGuardianDecisionPrompts({
+      conversationId: convId,
+    });
     expect(prompts).toHaveLength(1);
 
     const actionIds = prompts[0].actions.map((a) => a.action);
@@ -1920,24 +1989,156 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
     expect(actionIds).not.toContain("approve_conversation");
   });
 
-  test("tool_grant_request prompt has approve_once + reject only (no temporal actions)", () => {
+  test("tool_grant_request prompt has approve_once + reject only (no temporal actions)", async () => {
     const convId = "conv-kind-tool-grant-request";
-    createCanonicalGuardianRequest({
+    sim.seedRequest({
       kind: "tool_grant_request",
       sourceType: "channel",
-      conversationId: convId,
+      sourceConversationId: convId,
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
       toolName: "file_write",
       expiresAt: Date.now() + 60_000,
     });
 
-    const prompts = listGuardianDecisionPrompts({ conversationId: convId });
+    const prompts = await listGuardianDecisionPrompts({
+      conversationId: convId,
+    });
     expect(prompts).toHaveLength(1);
 
     const actionIds = prompts[0].actions.map((a) => a.action);
     expect(actionIds).toEqual(["approve_once", "reject"]);
     expect(actionIds).not.toContain("approve_10m");
     expect(actionIds).not.toContain("approve_conversation");
+  });
+});
+
+// ===========================================================================
+// SECTION 11: Surface action → access request approval routing
+// ===========================================================================
+
+describe("routing invariant: surface action apr:* buttons route through canonical primitive", () => {
+  beforeEach(() => resetTables());
+
+  test("parseCallbackData extracts requestId and action from apr: action IDs", () => {
+    const result = parseCallbackData(
+      "apr:access-req-test-slack-U123-1700000000:approve_once",
+      "vellum",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.requestId).toBe("access-req-test-slack-U123-1700000000");
+    expect(result!.action).toBe("approve_once");
+    expect(result!.source).toBe("vellum_surface");
+  });
+
+  test("parseCallbackData returns vellum_surface source for vellum channel", () => {
+    const result = parseCallbackData("apr:req-1:reject", "vellum");
+    expect(result).not.toBeNull();
+    expect(result!.source).toBe("vellum_surface");
+  });
+
+  test("processGuardianDecision approves access_request from vellum surface", async () => {
+    const requestId = `access-req-test-slack-U123-${Date.now()}`;
+    sim.seedRequest({
+      id: requestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "slack",
+      sourceConversationId: "conv-surface-test",
+      requesterExternalUserId: "U123",
+      requesterChatId: "D456",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "ingress_access_request",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await processGuardianDecision({
+      requestId,
+      action: "approve_once",
+      channel: "vellum",
+      actorContext: {
+        actorPrincipalId: TEST_PRINCIPAL_ID,
+        guardianPrincipalId: TEST_PRINCIPAL_ID,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && "applied" in result) {
+      expect(result.applied).toBe(true);
+    }
+
+    const resolved = sim.getRequest(requestId);
+    expect(resolved!.status).toBe("approved");
+  });
+
+  test("processGuardianDecision denies access_request from vellum surface", async () => {
+    const requestId = `access-req-test-slack-U789-${Date.now()}`;
+    sim.seedRequest({
+      id: requestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "slack",
+      sourceConversationId: "conv-surface-deny",
+      requesterExternalUserId: "U789",
+      requesterChatId: "D012",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "ingress_access_request",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await processGuardianDecision({
+      requestId,
+      action: "reject",
+      channel: "vellum",
+      actorContext: {
+        actorPrincipalId: TEST_PRINCIPAL_ID,
+        guardianPrincipalId: TEST_PRINCIPAL_ID,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && "applied" in result) {
+      expect(result.applied).toBe(true);
+    }
+
+    const resolved = sim.getRequest(requestId);
+    expect(resolved!.status).toBe("denied");
+  });
+
+  test("principal mismatch rejects surface action decision", async () => {
+    const requestId = `access-req-test-slack-U999-${Date.now()}`;
+    sim.seedRequest({
+      id: requestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "slack",
+      sourceConversationId: "conv-surface-mismatch",
+      requesterExternalUserId: "U999",
+      requesterChatId: "D345",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "ingress_access_request",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await processGuardianDecision({
+      requestId,
+      action: "approve_once",
+      channel: "vellum",
+      actorContext: {
+        actorPrincipalId: "wrong-principal",
+        guardianPrincipalId: "wrong-principal",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && "applied" in result) {
+      expect(result.applied).toBe(false);
+    }
+
+    const req = sim.getRequest(requestId);
+    expect(req!.status).toBe("pending");
   });
 });

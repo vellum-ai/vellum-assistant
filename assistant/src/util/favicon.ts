@@ -8,7 +8,9 @@ function stripPort(host: string): string {
     return end === -1 ? host : host.slice(0, end + 1);
   }
   const lastColon = host.lastIndexOf(":");
-  if (lastColon === -1) return host;
+  if (lastColon === -1) {
+    return host;
+  }
   return host.slice(0, lastColon);
 }
 
@@ -17,8 +19,12 @@ function stripPort(host: string): string {
  *  so a raw IP — public or private — would expose the literal to Google when the
  *  client renders the icon. DNS names are fine; only literals are rejected. */
 function isIPLiteral(host: string): boolean {
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
-  if (host.startsWith("[") || host.includes(":")) return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+    return true;
+  }
+  if (host.startsWith("[") || host.includes(":")) {
+    return true;
+  }
   return false;
 }
 

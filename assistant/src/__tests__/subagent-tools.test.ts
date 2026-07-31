@@ -2,11 +2,42 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
+// Seed the two non-catalog inference profiles these tests exercise: `disabled`
+// drives the "profile is disabled" spawn error, and `frontier` is the advisor
+// consult's default `advisorProfile`. The catalog profiles (balanced,
+// cost-optimized, quality-optimized) always resolve through the code catalog,
+// so they need no seeding.
+setConfig("llm", {
+  profiles: {
+    disabled: { status: "disabled" },
+    frontier: {},
+  },
+  advisorProfile: "frontier",
+});
+
 // Mock conversation-crud before importing tool executors that depend on it.
 let mockGetMessages: (
   conversationId: string,
-) => Array<{ role: string; content: string }> | null = () => null;
-mock.module("../memory/conversation-crud.js", () => ({
+) => Array<{ role: string; content: unknown }> | null = () => null;
+
+// Mock the conversation registry so the advisor consult can resolve a fake
+// parent conversation (snapshot messages + system prompt) without a live
+// Conversation. Other executors in this suite never call `findConversation`.
+let mockFindConversation: (conversationId: string) =>
+  | {
+      messages: Array<{ role: string; content: unknown[] }>;
+      getCurrentSystemPrompt: () => string;
+    }
+  | undefined = () => undefined;
+mock.module("../daemon/conversation-registry.js", () => ({
+  findConversation: (conversationId: string) =>
+    mockFindConversation(conversationId),
+}));
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -33,14 +64,28 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
+import { getDb } from "../persistence/db-connection.js";
+import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
+import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
+import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/356-add-subagent-parent-tool-use-id.js";
+import {
+  type SubagentRecord,
+  upsertSubagentRecord,
+} from "../persistence/subagent-store.js";
 import { getSubagentManager } from "../subagent/index.js";
-import { SubagentManager } from "../subagent/manager.js";
+import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 import { executeSubagentAbort } from "../tools/subagent/abort.js";
 import { executeSubagentMessage } from "../tools/subagent/message.js";
 import { executeSubagentRead } from "../tools/subagent/read.js";
 import { executeSubagentSpawn } from "../tools/subagent/spawn.js";
 import { executeSubagentStatus } from "../tools/subagent/status.js";
+
+// The tools fall back to the durable table for a subagent the manager does not
+// hold, so every executor here reaches it. Idempotent; the table may already
+// exist from a prior run.
+migrateCreateSubagentsTable();
+migrateAddSubagentParentToolUseId(getDb());
 
 // Load tool definitions from the bundled skill TOOLS.json
 const toolsJson = JSON.parse(
@@ -140,6 +185,7 @@ describe("Subagent tool definitions", () => {
     const def = findTool("subagent_spawn");
     expect(def).toBeDefined();
     expect(def.input_schema.required).toEqual(["label", "objective"]);
+    expect(def.input_schema.properties.inference_profile).toBeDefined();
   });
 
   test("abort tool has correct definition", () => {
@@ -422,6 +468,219 @@ describe("Subagent spawn success and failure", () => {
     }
   });
 
+  test("spawn passes explicit inference_profile to manager over inherited override", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "profile-subagent-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Profile test",
+          objective: "Do it with a chosen model profile",
+          inference_profile: "quality-optimized",
+        },
+        makeContext("sess-spawn-profile", {
+          sendToClient: () => {},
+          overrideProfile: "balanced",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(capturedConfig).toBeDefined();
+      expect(capturedConfig!.overrideProfile).toBe("quality-optimized");
+      expect(capturedConfig!.forceOverrideProfile).toBe(true);
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn inherits the invoking call site's default profile when no override is present", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-default-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Inherit default", objective: "Do it" },
+        makeContext("sess-inherit-default", {
+          sendToClient: () => {},
+          invokingCallSite: "mainAgent",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      // No explicit profile and no per-turn override → the child matches the
+      // invoking call site's resolved default profile (balanced for mainAgent
+      // in the test config).
+      expect(capturedConfig!.overrideProfile).toBe("balanced");
+      expect(capturedConfig!.forceOverrideProfile).toBeUndefined();
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn inherits a non-main invoker's call-site default profile", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-heartbeat-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Heartbeat child", objective: "Do it" },
+        makeContext("sess-inherit-heartbeat", {
+          sendToClient: () => {},
+          invokingCallSite: "heartbeatAgent",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      // A subagent spawned from a heartbeat turn matches heartbeatAgent's own
+      // cost-optimized default, not the mainAgent default.
+      expect(capturedConfig!.overrideProfile).toBe("cost-optimized");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn prefers a per-turn override profile over the invoker default", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-override-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Override child", objective: "Do it" },
+        makeContext("sess-inherit-override", {
+          sendToClient: () => {},
+          invokingCallSite: "mainAgent",
+          overrideProfile: "quality-optimized",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      // The live per-turn override wins over
+      // the call-site default, and is forwarded non-forced.
+      expect(capturedConfig!.overrideProfile).toBe("quality-optimized");
+      expect(capturedConfig!.forceOverrideProfile).toBeUndefined();
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn still forces an explicit inference_profile over the invoker default", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "inherit-explicit-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Explicit child",
+          objective: "Do it",
+          inference_profile: "cost-optimized",
+        },
+        makeContext("sess-inherit-explicit", {
+          sendToClient: () => {},
+          invokingCallSite: "mainAgent",
+        }),
+      );
+
+      expect(result.isError).toBe(false);
+      expect(capturedConfig!.overrideProfile).toBe("cost-optimized");
+      expect(capturedConfig!.forceOverrideProfile).toBe(true);
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn returns error for unknown inference_profile", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let spawnCalled = false;
+
+    manager.spawn = async () => {
+      spawnCalled = true;
+      return "profile-subagent-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Bad profile",
+          objective: "Do it",
+          inference_profile: "does-not-exist",
+        },
+        makeContext("sess-spawn-bad-profile", { sendToClient: () => {} }),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        'Inference profile "does-not-exist" is not defined',
+      );
+      expect(spawnCalled).toBe(false);
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn returns error for disabled inference_profile", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let spawnCalled = false;
+
+    manager.spawn = async () => {
+      spawnCalled = true;
+      return "profile-subagent-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Disabled profile",
+          objective: "Do it",
+          inference_profile: "disabled",
+        },
+        makeContext("sess-spawn-disabled-profile", {
+          sendToClient: () => {},
+        }),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        'Inference profile "disabled" is disabled',
+      );
+      expect(spawnCalled).toBe(false);
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
   test("spawn handles non-Error throws gracefully", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
@@ -588,18 +847,18 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "user", content: "Do the thing" },
         {
           role: "assistant",
-          content: JSON.stringify([
-            { type: "text", text: "Here is the result" },
-          ]),
+          content: [{ type: "text", text: "Here is the result" }],
         },
         {
           role: "assistant",
-          content: JSON.stringify([{ type: "text", text: "And more details" }]),
+          content: [{ type: "text", text: "And more details" }],
         },
       ];
     };
@@ -623,8 +882,15 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
-      return [{ role: "assistant", content: "Plain text response" }];
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
+      return [
+        {
+          role: "assistant",
+          content: resolveMessageContentBlocks("Plain text response"),
+        },
+      ];
     };
 
     try {
@@ -645,9 +911,16 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
-        { role: "assistant", content: JSON.stringify("A JSON string value") },
+        {
+          role: "assistant",
+          content: resolveMessageContentBlocks(
+            JSON.stringify("A JSON string value"),
+          ),
+        },
       ];
     };
 
@@ -669,14 +942,16 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         {
           role: "assistant",
-          content: JSON.stringify([
+          content: [
             { type: "tool_use", id: "tool-1", name: "bash", input: {} },
             { type: "text", text: "Actual output" },
-          ]),
+          ],
         },
       ];
     };
@@ -700,7 +975,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "user", content: "Do something" },
         { role: "tool", content: "tool result" },
@@ -759,13 +1036,13 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "failed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         {
           role: "assistant",
-          content: JSON.stringify([
-            { type: "text", text: "Partial output before failure" },
-          ]),
+          content: [{ type: "text", text: "Partial output before failure" }],
         },
       ];
     };
@@ -788,7 +1065,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "aborted");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [{ role: "assistant", content: "Output before abort" }];
     };
 
@@ -810,7 +1089,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First message" },
         { role: "assistant", content: "Second message" },
@@ -836,7 +1117,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First message" },
         { role: "assistant", content: "Second message" },
@@ -862,7 +1145,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First message" },
         { role: "assistant", content: "Second message" },
@@ -890,7 +1175,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First message" },
         { role: "assistant", content: "Second message" },
@@ -915,7 +1202,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First response" },
         { role: "user", content: "Follow up question" },
@@ -948,7 +1237,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First response" },
         { role: "user", content: "Follow up" },
@@ -975,7 +1266,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First response" },
         { role: "user", content: "Follow up" },
@@ -1002,7 +1295,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First response" },
         { role: "assistant", content: "Second response" },
@@ -1030,7 +1325,9 @@ describe("Subagent read tool", () => {
     injectSubagent(manager, subagentId, ownerConversation, "completed");
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${subagentId}`) return null;
+      if (convId !== `conv-${subagentId}`) {
+        return null;
+      }
       return [
         { role: "assistant", content: "First response" },
         { role: "assistant", content: "Second response" },
@@ -1168,13 +1465,13 @@ describe("Label-based subagent lookup", () => {
     });
 
     mockGetMessages = (convId: string) => {
-      if (convId !== `conv-${readSubId}`) return null;
+      if (convId !== `conv-${readSubId}`) {
+        return null;
+      }
       return [
         {
           role: "assistant",
-          content: JSON.stringify([
-            { type: "text", text: "Research findings here" },
-          ]),
+          content: [{ type: "text", text: "Research findings here" }],
         },
       ];
     };
@@ -1326,8 +1623,745 @@ describe("Subagent role-based spawn", () => {
       "coder",
       "planner",
       "investigator",
+      "advisor",
     ]);
     // role is not required
     expect(def.input_schema.required).not.toContain("role");
+  });
+});
+
+// ── Advisor-role consult ────────────────────────────────────────────
+
+describe("Subagent advisor-role consult", () => {
+  type Block = { type: string; [k: string]: unknown };
+  type CapturedAwait = {
+    config: Record<string, unknown>;
+    opts?: { signal?: AbortSignal; onText?: (chunk: string) => void };
+  };
+
+  /**
+   * Stub `manager.spawnAndAwait` to capture the config + opts and resolve to
+   * `advice`. Restores the original on cleanup. Returns the captured-call ref.
+   */
+  function stubAwait(advice: string | (() => Promise<string>)): {
+    captured: { current?: CapturedAwait };
+    restore: () => void;
+  } {
+    const manager = getSubagentManager();
+    const original = manager.spawnAndAwait.bind(manager);
+    const captured: { current?: CapturedAwait } = {};
+    manager.spawnAndAwait = (async (
+      config: Record<string, unknown>,
+      _send: unknown,
+      opts?: CapturedAwait["opts"],
+    ) => {
+      captured.current = { config, opts };
+      return typeof advice === "function" ? await advice() : advice;
+    }) as typeof manager.spawnAndAwait;
+    return {
+      captured,
+      restore: () => {
+        manager.spawnAndAwait = original;
+      },
+    };
+  }
+
+  test("advisor role returns guidance synchronously as the tool result", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Help" }] }],
+      getCurrentSystemPrompt: () => "PARENT SYSTEM PROMPT",
+    });
+    const { captured, restore } = stubAwait("Here is my advice.");
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Consult",
+          objective: "advise me",
+          role: "advisor",
+        },
+        makeContext("advisor-sess-1", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("Here is my advice.");
+      // Ran synchronously through spawnAndAwait, not fire-and-forget spawn.
+      expect(captured.current).toBeDefined();
+      expect(captured.current!.config.fork).toBe(true);
+      expect(captured.current!.config.role).toBe("advisor");
+      // Framing embeds the executor prompt as advisor system prompt context.
+      expect(captured.current!.config.systemPromptOverride).toContain(
+        "PARENT SYSTEM PROMPT",
+      );
+      // The situational context pack must never ride display surfaces: the
+      // system prompt stays minimal and `objective` (rendered verbatim by the
+      // subagent detail panel) stays the concise advice request. Only the
+      // non-display `requestText` may carry the pack.
+      expect(captured.current!.config.systemPromptOverride).not.toContain(
+        "<agent_environment>",
+      );
+      expect(captured.current!.config.objective).not.toContain(
+        "<agent_environment>",
+      );
+      expect(captured.current!.config.requestText).toContain("advise me");
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor inherits and sanitizes the parent transcript", async () => {
+    // Parent in-memory history carries a thinking block (must be stripped) and
+    // a completed tool_use/tool_result pair (must be preserved).
+    mockFindConversation = () => ({
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Do the task" }] },
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "secret reasoning" },
+            { type: "text", text: "Working on it" },
+            { type: "tool_use", id: "t1", name: "bash", input: {} },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+        },
+      ],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    const { captured, restore } = stubAwait("advice");
+    try {
+      await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-2", { sendToClient: () => {} }),
+      );
+      const msgs = captured.current!.config.parentMessages as Array<{
+        role: string;
+        content: Block[];
+      }>;
+      const allBlocks = msgs.flatMap((m) => m.content);
+      // Thinking is stripped; the completed tool_use/tool_result pair survives.
+      expect(allBlocks.some((b) => b.type === "thinking")).toBe(false);
+      expect(allBlocks.some((b) => b.type === "tool_use")).toBe(true);
+      expect(allBlocks.some((b) => b.type === "tool_result")).toBe(true);
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("in-flight plan is visible to the advisor with no dangling tool_use", async () => {
+    // The in-memory snapshot ends on the user turn — the in-flight assistant
+    // turn (this turn's plan + the pending advisor tool_use) lives only in the
+    // DB at consult time. It must be appended, and its dangling tool_use stripped.
+    mockFindConversation = () => ({
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Plan the work" }] },
+      ],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    mockGetMessages = (convId: string) => {
+      if (convId !== "advisor-sess-3") {
+        return null;
+      }
+      return [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Plan the work" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "My plan: step 1, step 2." },
+            {
+              type: "tool_use",
+              id: "adv-1",
+              name: "subagent_spawn",
+              input: {},
+            },
+          ],
+        },
+      ];
+    };
+    const { captured, restore } = stubAwait("advice");
+    try {
+      await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-3", { sendToClient: () => {} }),
+      );
+      const msgs = captured.current!.config.parentMessages as Array<{
+        role: string;
+        content: Block[];
+      }>;
+      const allBlocks = msgs.flatMap((m) => m.content);
+      // The plan text the model wrote this turn is present in the consult.
+      expect(
+        allBlocks.some(
+          (b) => b.type === "text" && b.text === "My plan: step 1, step 2.",
+        ),
+      ).toBe(true);
+      // No dangling tool_use is sent.
+      expect(allBlocks.some((b) => b.type === "tool_use")).toBe(false);
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("advisor defaults to llm.advisorProfile (forced)", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    const { captured, restore } = stubAwait("advice");
+    try {
+      await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-4", { sendToClient: () => {} }),
+      );
+      expect(captured.current!.config.overrideProfile).toBe("frontier");
+      expect(captured.current!.config.forceOverrideProfile).toBe(true);
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor respects an explicit inference_profile over advisorProfile", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    const { captured, restore } = stubAwait("advice");
+    try {
+      await executeSubagentSpawn(
+        {
+          label: "Consult",
+          objective: "x",
+          role: "advisor",
+          inference_profile: "quality-optimized",
+        },
+        makeContext("advisor-sess-5", { sendToClient: () => {} }),
+      );
+      expect(captured.current!.config.overrideProfile).toBe(
+        "quality-optimized",
+      );
+      expect(captured.current!.config.forceOverrideProfile).toBe(true);
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor forwards streamed chunks to the tool's onOutput sink", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    const { captured, restore } = stubAwait("advice");
+    const chunks: string[] = [];
+    const onOutput = (c: string) => chunks.push(c);
+    try {
+      await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-6", { sendToClient: () => {}, onOutput }),
+      );
+      // onText is a progress-recording wrapper (resets the idle deadline), not
+      // onOutput itself — but invoking it must still forward to onOutput.
+      expect(captured.current!.opts?.onText).toBeInstanceOf(Function);
+      captured.current!.opts?.onText?.("hello");
+      expect(chunks).toEqual(["hello"]);
+      expect(captured.current!.opts?.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor degrades benignly when the consult throws (incl. depth limit)", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    const { restore } = stubAwait(async () => {
+      throw new Error(
+        "Cannot spawn subagent: parent is itself a subagent (max depth 1).",
+      );
+    });
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-7", { sendToClient: () => {} }),
+      );
+      // Never fail the turn — benign non-error notice.
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("advisor unavailable");
+      expect(result.content).toContain("parent is itself a subagent");
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor returns partial guidance (with a cut-off note) when the consult times out", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    // A timeout surfaces as SubagentAbortedError carrying the partial text the
+    // advisor streamed before being cut off; that text must be salvaged.
+    const { restore } = stubAwait(async () => {
+      throw new SubagentAbortedError(
+        "Lead with the data model, then wire reminders last.",
+      );
+    });
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-timeout", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain(
+        "Lead with the data model, then wire reminders last.",
+      );
+      expect(result.content).toContain("may be cut off");
+      // Not the generic unavailable degrade — real guidance was preserved.
+      expect(result.content).not.toContain("advisor unavailable");
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor still degrades when a timeout yields no partial text", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    // Aborted before producing any text → empty partial → fall through to the
+    // benign "advisor unavailable" notice.
+    const { restore } = stubAwait(async () => {
+      throw new SubagentAbortedError("   ");
+    });
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-timeout-empty", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("advisor unavailable");
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor degrades benignly when no client is connected", async () => {
+    // No sendToClient → the shared client guard fires before the advisor branch.
+    const result = await executeSubagentSpawn(
+      { label: "Consult", objective: "x", role: "advisor" },
+      makeContext("advisor-sess-8"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No client connected");
+  });
+});
+
+// ── Advisor role tool-less enforcement ──────────────────────────────
+
+describe("Advisor role is tool-less", () => {
+  test("the advisor role's empty allowlist yields zero tools (not 'no filter')", async () => {
+    // An empty allowlist must mean ZERO tools, not "no restriction". Build a
+    // resolveTools callback with the advisor's empty allowlist and confirm no
+    // tool survives — including a fake skill tool the projection would add.
+    const { createResolveToolsCallback } =
+      await import("../daemon/conversation-tool-setup.js");
+    const { SUBAGENT_ROLE_REGISTRY } = await import("../subagent/types.js");
+    const advisorAllowed = SUBAGENT_ROLE_REGISTRY.advisor.allowedTools;
+    expect(advisorAllowed).toEqual([]);
+
+    const toolDefs = [
+      { name: "bash", description: "", input_schema: { type: "object" } },
+      { name: "file_read", description: "", input_schema: { type: "object" } },
+    ];
+    const ctx = {
+      skillProjectionState: new Map<string, string>(),
+      skillProjectionCache: new Map(),
+      toolsDisabledDepth: 0,
+      // The advisor role applies `new Set(allowedTools)` — empty Set here.
+      subagentAllowedTools: new Set<string>(advisorAllowed),
+      // Default (absent) gate mode is "wire": the allowlist filters the wire
+      // tool list, so an empty Set leaves nothing.
+      isSubagent: true,
+    } as unknown as Parameters<typeof createResolveToolsCallback>[1];
+
+    const resolve = createResolveToolsCallback(
+      toolDefs as unknown as Parameters<typeof createResolveToolsCallback>[0],
+      ctx,
+    );
+    expect(resolve).toBeDefined();
+    const resolved = resolve!([]);
+    expect(resolved).toEqual([]);
+    // The per-turn execution gate is likewise empty.
+    expect(
+      (ctx as unknown as { allowedToolNames?: Set<string> }).allowedToolNames
+        ?.size ?? 0,
+    ).toBe(0);
+  });
+});
+
+// ── model-input schema validation (LUM-2855) ────────────────────────
+
+describe("subagent tools — model-input schema validation", () => {
+  test("spawn rejects a non-string label instead of spawning with it", async () => {
+    const result = await executeSubagentSpawn(
+      { label: 42, objective: "do something" },
+      makeContext("sess-schema", { sendToClient: () => {} }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "subagent_spawn"');
+    expect(result.content).toContain("label");
+  });
+
+  test("spawn treats explicit null label as missing (bespoke required error)", async () => {
+    const result = await executeSubagentSpawn(
+      { label: null, objective: "do something" },
+      makeContext("sess-schema", { sendToClient: () => {} }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("required");
+  });
+
+  test("status rejects a non-string subagent_id", async () => {
+    const result = await executeSubagentStatus(
+      { subagent_id: 42 },
+      makeContext("sess-schema"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "subagent_status"',
+    );
+  });
+
+  test("message rejects a non-string content", async () => {
+    const result = await executeSubagentMessage(
+      { subagent_id: "some-id", content: 42 },
+      makeContext("sess-schema"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Invalid input for tool "subagent_message"',
+    );
+    expect(result.content).toContain("content");
+  });
+
+  test("read rejects a non-string label but passes malformed last_n through", async () => {
+    const bad = await executeSubagentRead(
+      { label: 42 },
+      makeContext("sess-schema"),
+    );
+    expect(bad.isError).toBe(true);
+    expect(bad.content).toContain('Invalid input for tool "subagent_read"');
+
+    // last_n is loose passthrough — a malformed value is ignored, so the call
+    // reaches the bespoke "required" check instead of failing validation.
+    const passthrough = await executeSubagentRead(
+      { last_n: "five" },
+      makeContext("sess-schema"),
+    );
+    expect(passthrough.isError).toBe(true);
+    expect(passthrough.content).toContain("required");
+  });
+});
+
+// ── Durable fallback past the rehydration bound ─────────────────────
+
+/** Mirrors `MAX_REHYDRATED_TERMINAL_RECORDS` in `subagent/manager.ts`. */
+const REHYDRATION_CAP = 200;
+
+const beyondCapParent = "beyond-cap-parent";
+const beyondCapOtherParent = "beyond-cap-other-parent";
+const reusedLabel = "Reused beyond cap";
+
+function terminalRecord(over: Partial<SubagentRecord>): SubagentRecord {
+  return {
+    id: "seed",
+    parentConversationId: beyondCapParent,
+    conversationId: "conv-seed",
+    label: "seed",
+    objective: "seeded objective",
+    role: "general",
+    isFork: false,
+    sendResultToUser: true,
+    parentToolUseId: null,
+    status: "completed",
+    error: null,
+    createdAt: 1,
+    startedAt: 2,
+    completedAt: 3,
+    inputTokens: 11,
+    outputTokens: 22,
+    estimatedCost: 0.33,
+    ...over,
+  };
+}
+
+describe("Subagent tools past the startup rehydration bound", () => {
+  // Two runs reused one label, both older than a full cap's worth of finished
+  // subagents, so the rehydration leaves them out of memory entirely.
+  upsertSubagentRecord(
+    terminalRecord({
+      id: "reused-cap-old",
+      conversationId: "conv-reused-cap-old",
+      label: reusedLabel,
+      createdAt: 1_000,
+      completedAt: 2_000,
+    }),
+  );
+  upsertSubagentRecord(
+    terminalRecord({
+      id: "reused-cap-new",
+      conversationId: "conv-reused-cap-new",
+      label: reusedLabel,
+      createdAt: 3_000,
+      completedAt: 4_000,
+    }),
+  );
+  for (let i = 0; i < REHYDRATION_CAP; i++) {
+    upsertSubagentRecord(
+      terminalRecord({
+        id: `cap-filler-${i}`,
+        conversationId: `conv-cap-filler-${i}`,
+        label: `cap filler ${i}`,
+        createdAt: 10_000 + i,
+        completedAt: 20_000 + i,
+      }),
+    );
+  }
+
+  const manager = getSubagentManager();
+  manager.rehydrateFromDb();
+
+  test("the rehydration really left the older runs out of memory", () => {
+    expect(manager.getState("reused-cap-new")).toBeUndefined();
+    expect(manager.getState("reused-cap-old")).toBeUndefined();
+    expect(manager.getByLabel(reusedLabel, beyondCapParent)).toBeUndefined();
+  });
+
+  test("status answers for a subagent the bound left in the table", async () => {
+    const result = await executeSubagentStatus(
+      { subagent_id: "reused-cap-new" },
+      makeContext(beyondCapParent),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.subagentId).toBe("reused-cap-new");
+    expect(parsed.label).toBe(reusedLabel);
+    expect(parsed.status).toBe("completed");
+    expect(parsed.usage).toEqual({
+      inputTokens: 11,
+      outputTokens: 22,
+      estimatedCost: 0.33,
+    });
+  });
+
+  test("status still rejects another conversation asking for it", async () => {
+    const result = await executeSubagentStatus(
+      { subagent_id: "reused-cap-new" },
+      makeContext(beyondCapOtherParent),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No subagent found");
+  });
+
+  test("read returns the transcript for a subagent past the bound", async () => {
+    mockGetMessages = (convId: string) => {
+      if (convId !== "conv-reused-cap-new") {
+        return null;
+      }
+      return [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Output from beyond the bound" }],
+        },
+      ];
+    };
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: "reused-cap-new" },
+        makeContext(beyondCapParent),
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("Output from beyond the bound");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("read still rejects another conversation asking for it", async () => {
+    mockGetMessages = () => [
+      { role: "assistant", content: [{ type: "text", text: "leaked" }] },
+    ];
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: "reused-cap-new" },
+        makeContext(beyondCapOtherParent),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("No subagent found");
+      expect(result.content).not.toContain("leaked");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a label past the bound resolves durably to the newest run", async () => {
+    const result = await executeSubagentStatus(
+      { label: reusedLabel },
+      makeContext(beyondCapParent),
+    );
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).subagentId).toBe("reused-cap-new");
+  });
+
+  test("a label past the bound matches case- and space-insensitively", async () => {
+    const result = await executeSubagentStatus(
+      { label: `  ${reusedLabel.toUpperCase()}  ` },
+      makeContext(beyondCapParent),
+    );
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).subagentId).toBe("reused-cap-new");
+  });
+
+  test("a label past the bound stays scoped to the parent that spawned it", async () => {
+    const result = await executeSubagentStatus(
+      { label: reusedLabel },
+      makeContext(beyondCapOtherParent),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("No subagent found");
+  });
+});
+
+// ── List-all merges live children with durable rows ─────────────────
+
+describe("subagent_status list-all past the in-memory window", () => {
+  const mergeParent = "list-merge-parent";
+
+  // A run the retention sweep evicted from memory while keeping its row, plus
+  // a stale row for a subagent the manager still holds live.
+  upsertSubagentRecord(
+    terminalRecord({
+      id: "list-merge-swept",
+      parentConversationId: mergeParent,
+      conversationId: "conv-list-merge-swept",
+      label: "Swept worker",
+      createdAt: 1_000,
+      completedAt: 2_000,
+    }),
+  );
+  upsertSubagentRecord(
+    terminalRecord({
+      id: "list-merge-live",
+      parentConversationId: mergeParent,
+      conversationId: "conv-list-merge-live",
+      label: "Live worker",
+      createdAt: 3_000,
+      completedAt: 4_000,
+    }),
+  );
+
+  const listMergeManager = getSubagentManager();
+  injectSubagent(listMergeManager, "list-merge-live", mergeParent, "running");
+
+  function listedSubagents(content: string) {
+    return JSON.parse(content) as Array<{ subagentId: string; status: string }>;
+  }
+
+  test("lists a swept subagent alongside the live one", async () => {
+    const result = await executeSubagentStatus({}, makeContext(mergeParent));
+    expect(result.isError).toBe(false);
+    expect(
+      listedSubagents(result.content)
+        .map((s) => s.subagentId)
+        .sort(),
+    ).toEqual(["list-merge-live", "list-merge-swept"]);
+  });
+
+  test("prefers live state over the row, and settles a row-only entry", async () => {
+    const result = await executeSubagentStatus({}, makeContext(mergeParent));
+    const listed = listedSubagents(result.content);
+
+    // The row says `completed`; the manager is still running it.
+    expect(listed.find((s) => s.subagentId === "list-merge-live")?.status).toBe(
+      "running",
+    );
+    expect(
+      listed.find((s) => s.subagentId === "list-merge-swept")?.status,
+    ).toBe("completed");
+  });
+});
+
+// ── List-all bounds the merged set ──────────────────────────────────
+
+/** Mirrors `MAX_LISTED_TERMINAL_RECORDS` in `tools/subagent/status.ts`. */
+const LISTED_TERMINAL_CAP = 20;
+
+describe("subagent_status list-all bounds the terminal entries", () => {
+  const boundParent = "list-bound-parent";
+
+  // A restart rehydrates far more terminal children than this path reports, so
+  // the bound has to hold over the merged set, not just the durable query.
+  for (let i = 0; i < 25; i++) {
+    injectSubagent(
+      getSubagentManager(),
+      `list-bound-done-${String(i).padStart(2, "0")}`,
+      boundParent,
+      "completed",
+      { createdAt: 1_000 + i, completedAt: 10_000 + i },
+    );
+  }
+  // The oldest child of the parent, which the recency cap must not reach.
+  injectSubagent(
+    getSubagentManager(),
+    "list-bound-active",
+    boundParent,
+    "running",
+    {
+      createdAt: 1,
+    },
+  );
+
+  function listedIds(content: string): string[] {
+    return (JSON.parse(content) as Array<{ subagentId: string }>).map(
+      (s) => s.subagentId,
+    );
+  }
+
+  test("reports only the most recently settled terminal children", async () => {
+    const result = await executeSubagentStatus({}, makeContext(boundParent));
+    expect(result.isError).toBe(false);
+
+    expect(
+      listedIds(result.content)
+        .filter((id) => id !== "list-bound-active")
+        .sort(),
+    ).toEqual(
+      Array.from(
+        { length: LISTED_TERMINAL_CAP },
+        (_, i) => `list-bound-done-${String(i + 5).padStart(2, "0")}`,
+      ).sort(),
+    );
+  });
+
+  test("never caps out an active child, however old", async () => {
+    const result = await executeSubagentStatus({}, makeContext(boundParent));
+    const ids = listedIds(result.content);
+
+    expect(ids).toContain("list-bound-active");
+    expect(ids).toHaveLength(LISTED_TERMINAL_CAP + 1);
   });
 });

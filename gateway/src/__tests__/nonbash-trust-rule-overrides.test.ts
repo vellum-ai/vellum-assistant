@@ -25,6 +25,10 @@ const dummyFileContext: FileClassificationContext = {
   deprecatedDir: "/tmp/test-deprecated",
   hooksDir: "/tmp/test-hooks",
   pluginsDir: "/tmp/test-plugins",
+  toolsDir: "/tmp/test-tools",
+  routesDir: "/tmp/test-routes",
+  workflowsDir: "/tmp/test-workflows",
+  monitoringDir: "/tmp/test-monitoring",
   skillSourceDirs: [],
 };
 
@@ -724,7 +728,7 @@ describe("graceful fallback when cache not initialized", () => {
 });
 
 describe("SkillLoadRiskClassifier inline command risk elevation", () => {
-  test("skill with inline expansions is classified as medium risk", async () => {
+  test("skill with inline expansions is classified as high risk", async () => {
     const classifier = new SkillLoadRiskClassifier();
     const result = await classifier.classify({
       toolName: "skill_load",
@@ -739,7 +743,7 @@ describe("SkillLoadRiskClassifier inline command risk elevation", () => {
       },
     });
 
-    expect(result.riskLevel).toBe("medium");
+    expect(result.riskLevel).toBe("high");
     expect(result.reason).toContain("inline command expansions");
   });
 

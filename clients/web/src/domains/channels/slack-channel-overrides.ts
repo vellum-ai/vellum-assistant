@@ -1,0 +1,214 @@
+/**
+ * Per-channel Assistant Access model for the Slack channel list's
+ * expandable rows. The tier is the only per-room knob, and the list is
+ * rooms only (channels and group DMs): admission — who can reach the
+ * assistant — is a channel-type concern handled by the trust floors, and
+ * how the assistant interacts with an individual person is contact-list
+ * territory, so 1:1 DMs carry no room settings.
+ *
+ * The tier axis is not its own vocabulary: a channel tier IS a
+ * {@link RiskThreshold}, the same value the global Assistant Access
+ * presets ({@link THRESHOLD_PRESETS}) read and write, and it carries the
+ * same preset name everywhere it appears. This module adds only the
+ * channel-surface presentation (picker sublabels, badge tones).
+ *
+ * Tiers persist as channel-ID cells in the gateway's
+ * `channel_permission_overrides` matrix (one cell per non-guardian
+ * contact-type; see {@link CHANNEL_TIER_CONTACT_TYPES}).
+ */
+import type { TagTone } from "@vellumai/design-library/components/tag";
+
+import {
+  presetFromThreshold,
+  THRESHOLD_PRESETS,
+  type RiskThreshold,
+} from "@/utils/threshold-presets";
+
+/** Every level the threshold vocabulary defines, in preset order. */
+export const CAPABILITY_TIER_VALUES: readonly RiskThreshold[] =
+  THRESHOLD_PRESETS.map((preset) => preset.riskThreshold);
+
+/**
+ * The levels a channel actually offers, in preset order.
+ *
+ * Cells stay four-valued in the schema, and `medium`/`high` cells keep
+ * resolving; they simply behave as `low`, because everything a channel cell
+ * can delegate today classifies low-risk. The delegable set is narrow by
+ * design — a room's level never lets the assistant run code, plant code the
+ * daemon executes, reach the guardian's machine or accounts, or use unvetted
+ * skills — so `low` already covers all of it and the higher levels would be a
+ * distinction the runtime does not make.
+ *
+ * Restore the full list here when the delegable set grows past low-risk work;
+ * nothing else needs to change for the levels to come back.
+ */
+export const CHANNEL_TIER_VALUES: readonly RiskThreshold[] = ["none", "low"];
+
+/**
+ * The level a stored cell behaves as. The schema and other writers accept all
+ * four threshold values, but a channel cell distinguishes only two: a
+ * `medium` or `high` cell delegates exactly what `low` delegates, so that is
+ * what the picker shows. The runtime applies the same collapse when it
+ * resolves the cell, so display and behavior cannot diverge.
+ */
+export function channelTierBehavesAs(
+  tier: RiskThreshold | undefined,
+): RiskThreshold | undefined {
+  if (tier === undefined) {
+    return undefined;
+  }
+  return tier === "none" ? "none" : "low";
+}
+
+interface CapabilityTierMeta {
+  /** Preset name, straight from the matching global Assistant Access preset. */
+  label: string;
+  /**
+   * Short qualifier shown as the picker option's tooltip. Frames how much the
+   * assistant does on its own before checking with the owner: reads/answers
+   * only, since writes/sends/spends always escalate. The slightly fuller
+   * per-tier line lives in the legend (`SlackChannelTierLegend`).
+   */
+  sublabel: string;
+  tone: TagTone;
+  /**
+   * Accent dot color for this tier, the single source shared by the per-row
+   * picker and the legend key so the two can't drift. Mirrors the tone's Tag
+   * accent (`--system-*-strong`).
+   */
+  dotColor: string;
+}
+
+export const CAPABILITY_TIER_META: Record<RiskThreshold, CapabilityTierMeta> = {
+  none: {
+    label: presetFromThreshold("none").label,
+    sublabel: "asks every time",
+    tone: "negative",
+    dotColor: "var(--system-negative-strong)",
+  },
+  low: {
+    label: presetFromThreshold("low").label,
+    sublabel: "safe lookups",
+    tone: "warning",
+    dotColor: "var(--system-mid-strong)",
+  },
+  medium: {
+    label: presetFromThreshold("medium").label,
+    sublabel: "broader lookups",
+    tone: "info",
+    dotColor: "var(--system-info-strong)",
+  },
+  high: {
+    label: presetFromThreshold("high").label,
+    sublabel: "any lookup",
+    tone: "positive",
+    dotColor: "var(--system-positive-strong)",
+  },
+};
+
+/**
+ * Contact types a channel-tier write fans out to: everyone except the
+ * guardian — room-level posture never restricts the guardian (same rule as
+ * the m0012 Slack-profile migration).
+ */
+export const CHANNEL_TIER_CONTACT_TYPES = [
+  "trusted_contact",
+  "unverified_contact",
+  "unknown",
+] as const;
+
+/**
+ * Structural view of a matrix cell as the generated gateway SDK returns it —
+ * kept structural so this module stays free of generated-type imports.
+ */
+export interface ChannelTierCell {
+  selector: {
+    scope: string;
+    adapter?: string;
+    channelExternalId?: string;
+    channelType?: string;
+  };
+  contactType: string;
+  threshold: RiskThreshold;
+}
+
+/**
+ * Channel-ID cells → per-channel tier map for one adapter. The
+ * trusted_contact cell is the representative when contact-type cells
+ * diverge (the write path keeps all non-guardian cells aligned).
+ */
+export function tierOverridesFromCells(
+  cells: ChannelTierCell[],
+  adapter: string,
+): Record<string, RiskThreshold> {
+  const overrides: Record<string, RiskThreshold> = {};
+  for (const cell of cells) {
+    if (
+      cell.selector.scope !== "channel" ||
+      cell.selector.adapter !== adapter
+    ) {
+      continue;
+    }
+    const channelId = cell.selector.channelExternalId;
+    if (!channelId) {
+      continue;
+    }
+    if (cell.contactType === "trusted_contact" || !(channelId in overrides)) {
+      overrides[channelId] = cell.threshold;
+    }
+  }
+  return overrides;
+}
+
+/**
+ * The two broader-scope default "buckets" the channel-type UI exposes:
+ * `"channels"` writes an `adapter`-scope cell (the default for every room of
+ * this adapter), `"dm"` writes a `channel_type: dm` cell that overrides it for
+ * 1:1 DMs. Only 1:1 DMs (`im`) reach the runtime as `channelType: "dm"`; the
+ * gateway collapses group DMs (mpim), private, and public rooms into `"channel"`
+ * with no type, so a `channel_type: dm|private|public` cell never matches for
+ * those. Group DMs therefore follow the `"channels"` default, and public/private
+ * can't be split here without a gateway change.
+ */
+export type ChannelDefaultBucket = "channels" | "dm";
+
+/**
+ * Whether a cell is the broader-scope default cell for `bucket`: `"channels"` is
+ * the adapter-scope cell, `"dm"` is the `channel_type: dm` cell. Shared by the
+ * read path here and the write/optimistic path in
+ * `use-channel-permission-overrides` so the two can't drift.
+ */
+export function isBucketCell(
+  cell: Pick<ChannelTierCell, "selector">,
+  adapter: string,
+  bucket: ChannelDefaultBucket,
+): boolean {
+  return bucket === "channels"
+    ? cell.selector.scope === "adapter" && cell.selector.adapter === adapter
+    : cell.selector.scope === "channel_type" &&
+        cell.selector.adapter === adapter &&
+        cell.selector.channelType === "dm";
+}
+
+/**
+ * The persisted tier for a bucket's cell, if any — the `trusted_contact` cell is
+ * the representative when non-guardian contact-type cells diverge (the write
+ * path keeps them aligned). `undefined` when the bucket has no cell (it then
+ * follows the next tier up the cascade).
+ */
+export function bucketDefaultFromCells(
+  cells: ChannelTierCell[],
+  adapter: string,
+  bucket: ChannelDefaultBucket,
+): RiskThreshold | undefined {
+  let tier: RiskThreshold | undefined;
+  for (const cell of cells) {
+    if (!isBucketCell(cell, adapter, bucket)) {
+      continue;
+    }
+    if (cell.contactType === "trusted_contact" || tier === undefined) {
+      tier = cell.threshold;
+    }
+  }
+  return tier;
+}

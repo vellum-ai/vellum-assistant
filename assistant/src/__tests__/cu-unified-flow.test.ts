@@ -91,7 +91,6 @@ function buildMockContext(
             actorPrincipalId,
           } as SurfaceConversationContext["currentTurnAuthContext"])
         : undefined,
-    traceEmitter: { emit: () => {} },
     sendToClient: () => {},
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),

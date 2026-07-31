@@ -3,10 +3,9 @@ import { existsSync } from "node:fs";
 import { Command } from "commander";
 
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
-import { getConfigReadOnly } from "../config/loader.js";
-import { isExternalPluginsEnabled } from "../plugins/feature-gate.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
+import { registerAppsCommand } from "./commands/apps.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
@@ -23,7 +22,6 @@ import { registerCompletionsCommand } from "./commands/completions.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { registerContactsCommand } from "./commands/contacts.js";
 import { registerConversationsCommand } from "./commands/conversations.js";
-import { registerCredentialExecutionCommand } from "./commands/credential-execution.js";
 import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDbCommand } from "./commands/db/index.js";
 import { registerDefaultAction } from "./commands/default-action.js";
@@ -34,20 +32,20 @@ import { registerImageGenerationCommand } from "./commands/image-generation.js";
 import { registerInferenceCommand } from "./commands/inference.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMcpCommand } from "./commands/mcp.js";
-import { registerMemoryV2Command } from "./commands/memory-v2.js";
-import { registerMemoryV3Command } from "./commands/memory-v3.js";
+import { registerMemoryCommand } from "./commands/memory/index.js";
+import { registerMonitoringCommand } from "./commands/monitoring.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPendingCommand } from "./commands/pending.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
 import { registerPluginsCommand } from "./commands/plugins.js";
+import { registerPsCommand } from "./commands/ps.js";
 import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSchedulesCommand } from "./commands/schedules.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerStatusCommand } from "./commands/status.js";
 import { registerSttCommand } from "./commands/stt.js";
-import { registerTaskCommand } from "./commands/task.js";
 import { registerTelemetryCommand } from "./commands/telemetry.js";
 import { registerToolsCommand } from "./commands/tools.js";
 import { registerTrustCommand } from "./commands/trust.js";
@@ -57,6 +55,7 @@ import { registerUsageCommand } from "./commands/usage.js";
 import { registerWatchersCommand } from "./commands/watchers.js";
 import { registerWebhooksCommand } from "./commands/webhooks.js";
 import { red } from "./lib/cli-colors.js";
+import { registerGlobalJsonOption } from "./lib/global-json-option.js";
 import { log } from "./logger.js";
 
 /**
@@ -75,15 +74,14 @@ export async function buildCliProgram(): Promise<Command> {
  * to the gateway unnecessarily.
  *
  * Same shape as `buildCliProgram` minus the async feature-flag init: registers
- * the full subcommand set (conditionally gated on email / external-plugins
- * flags via `getConfigReadOnly()`) and installs the workspace-preAction hook.
+ * the full subcommand set and installs the workspace-preAction hook.
  */
 export function buildCliProgramTree(): Command {
   const program = new Command();
 
   program
     .name("assistant")
-    .description("Local AI assistant")
+    .description("Utilities for navigating and managing your own workspace")
     .version(APP_VERSION)
     .allowExcessArguments(true);
 
@@ -105,6 +103,7 @@ Examples:
 
   registerDefaultAction(program);
 
+  registerAppsCommand(program);
   registerAttachmentCommand(program);
   registerAuditCommand(program);
   registerAuthCommand(program);
@@ -121,7 +120,6 @@ Examples:
   registerConfigCommand(program);
   registerContactsCommand(program);
   registerConversationsCommand(program);
-  registerCredentialExecutionCommand(program);
   registerCredentialsCommand(program);
   registerDbCommand(program);
   registerDomainCommand(program);
@@ -131,22 +129,20 @@ Examples:
   registerInferenceCommand(program);
   registerKeysCommand(program);
   registerMcpCommand(program);
-  registerMemoryV2Command(program);
-  registerMemoryV3Command(program);
+  registerMemoryCommand(program);
   registerNotificationsCommand(program);
   registerOAuthCommand(program);
   registerPendingCommand(program);
   registerPlatformCommand(program);
-  if (isExternalPluginsEnabled(getConfigReadOnly())) {
-    registerPluginsCommand(program);
-  }
+  registerPluginsCommand(program);
+  registerMonitoringCommand(program);
+  registerPsCommand(program);
   registerRoutesCommand(program);
   registerSchedulesCommand(program);
   registerSequenceCommand(program);
   registerStatusCommand(program);
   registerSkillsCommand(program);
   registerSttCommand(program);
-  registerTaskCommand(program);
   registerTelemetryCommand(program);
   registerToolsCommand(program);
   registerTrustCommand(program);
@@ -155,6 +151,10 @@ Examples:
   registerUsageCommand(program);
   registerWatchersCommand(program);
   registerWebhooksCommand(program);
+
+  // Every command accepts `--json` — see registerGlobalJsonOption. Must run
+  // after all commands are registered so the whole tree is covered.
+  registerGlobalJsonOption(program);
 
   // Fail fast when no assistant workspace exists on disk. The workspace is
   // created by `vellum hatch` and must be present for any command to work.
@@ -177,7 +177,9 @@ Examples:
   const isExemptFromWorkspaceCheck = (command: Command): boolean => {
     let current: Command | null | undefined = command;
     while (current && current !== program) {
-      if (workspaceExemptCommands.has(current.name())) return true;
+      if (workspaceExemptCommands.has(current.name())) {
+        return true;
+      }
       current = current.parent;
     }
     return false;

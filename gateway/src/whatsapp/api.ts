@@ -3,6 +3,8 @@ import type { ConfigFileCache } from "../config-file-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
+import type { RetryableFetchHooks } from "../util/retryable-fetch.js";
+import { retryableFetch } from "../util/retryable-fetch.js";
 
 const log = getLogger("whatsapp-api");
 
@@ -27,39 +29,78 @@ interface WhatsAppApiErrorResponse {
   error?: WhatsAppApiErrorDetail;
 }
 
-function isRetryable(status: number): boolean {
-  return status === 429 || status >= 500;
-}
-
-// Auth/permission errors are transient — a token rotation or permission fix
+// Auth/permission errors are transient: a token rotation or permission fix
 // can resolve them within Meta's retry window. These should NOT be treated as
 // non-retryable so the webhook returns 500 and Meta retries the delivery.
 function isAuthError(status: number): boolean {
   return status === 401 || status === 403;
 }
 
-function computeDelay(
-  attempt: number,
-  initialBackoffMs: number,
-  retryAfterHeader: string | null,
-): number {
-  if (retryAfterHeader) {
-    const seconds = Number(retryAfterHeader);
-    if (Number.isFinite(seconds) && seconds > 0) {
-      return Math.min(seconds * 1000, 2_147_483_647);
-    }
-    const targetTime = new Date(retryAfterHeader).getTime();
-    if (Number.isFinite(targetTime)) {
-      const delayMs = targetTime - Date.now();
-      if (delayMs > 0) {
-        return Math.min(delayMs, 2_147_483_647);
-      }
-    }
-  }
+function buildWhatsAppFailureMessage(
+  operation: string,
+  status: number,
+  errorMessage: string | undefined,
+  body: string,
+): string {
+  return errorMessage
+    ? `WhatsApp ${operation} failed: ${errorMessage}`
+    : body
+      ? `WhatsApp ${operation} failed with status ${status}: ${body}`
+      : `WhatsApp ${operation} failed with status ${status}`;
+}
 
-  const exponential = initialBackoffMs * Math.pow(2, attempt - 1);
-  const jitter = Math.random() * exponential * 0.5;
-  return exponential + jitter;
+async function readWhatsAppErrorBody(response: Response): Promise<{
+  body: string;
+  errorMessage: string | undefined;
+}> {
+  const body = await response.text().catch(() => "");
+  let errorMessage: string | undefined;
+  try {
+    const data = JSON.parse(body) as WhatsAppApiErrorResponse;
+    errorMessage = data.error?.message;
+  } catch {
+    // Response body is not JSON; the raw text is still returned for messages
+  }
+  return { body, errorMessage };
+}
+
+function whatsAppErrorHooks(
+  operation: string,
+): Pick<RetryableFetchHooks<never>, "throwTerminal" | "describeRetryable"> {
+  return {
+    throwTerminal: async (response) => {
+      const { body, errorMessage } = await readWhatsAppErrorBody(response);
+      const message = buildWhatsAppFailureMessage(
+        operation,
+        response.status,
+        errorMessage,
+        body,
+      );
+
+      // Auth/permission errors (401/403) are transient: propagate as regular
+      // errors so the webhook returns 500 and Meta retries within its window.
+      // Other 4xx errors (400 invalid media, 404 expired) are terminal.
+      if (isAuthError(response.status)) {
+        throw new Error(message);
+      }
+      throw new WhatsAppNonRetryableError(message);
+    },
+    describeRetryable: async (response) => {
+      const retryAfter = response.headers.get("retry-after");
+      const { body, errorMessage } = await readWhatsAppErrorBody(response);
+      return {
+        retryAfter,
+        error: new Error(
+          buildWhatsAppFailureMessage(
+            operation,
+            response.status,
+            errorMessage,
+            body,
+          ),
+        ),
+      };
+    },
+  };
 }
 
 async function retryableWhatsAppFetch<T>(
@@ -67,92 +108,20 @@ async function retryableWhatsAppFetch<T>(
   operation: string,
   doFetch: () => Promise<Response>,
 ): Promise<T> {
-  const maxRetries = configFile?.getNumber("whatsapp", "maxRetries") ?? 3;
-  const initialBackoffMs =
-    configFile?.getNumber("whatsapp", "initialBackoffMs") ?? 1000;
-
-  let lastError: Error | null = null;
-  let lastRetryAfter: string | null = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (attempt > 0) {
-      const delay = computeDelay(attempt, initialBackoffMs, lastRetryAfter);
-      log.debug({ attempt, delay, operation }, "Retrying WhatsApp API call");
-      await new Promise((r) => setTimeout(r, delay));
-    }
-
-    lastRetryAfter = null;
-
-    let response: Response;
-    try {
-      response = await doFetch();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      lastError = new Error(`WhatsApp ${operation} request failed: ${message}`);
-      log.warn(
-        { error: message, attempt, operation },
-        "WhatsApp API fetch failed",
-      );
-      continue;
-    }
-
-    if (!isRetryable(response.status) && !response.ok) {
-      const body = await response.text().catch(() => "");
-      let errorMessage: string | undefined;
-      try {
-        const data = JSON.parse(body) as WhatsAppApiErrorResponse;
-        errorMessage = data.error?.message;
-      } catch {
-        // Response body is not JSON — include raw text if available
-      }
-      const message = errorMessage
-        ? `WhatsApp ${operation} failed: ${errorMessage}`
-        : body
-          ? `WhatsApp ${operation} failed with status ${response.status}: ${body}`
-          : `WhatsApp ${operation} failed with status ${response.status}`;
-
-      // Auth/permission errors (401/403) are transient — propagate as regular
-      // errors so the webhook returns 500 and Meta retries within its window.
-      // Other 4xx errors (400 invalid media, 404 expired) are terminal.
-      if (isAuthError(response.status)) {
-        throw new Error(message);
-      }
-      throw new WhatsAppNonRetryableError(message);
-    }
-
-    if (isRetryable(response.status)) {
-      lastRetryAfter = response.headers.get("retry-after");
-      const body = await response.text().catch(() => "");
-      let errorMessage: string | undefined;
-      try {
-        const data = JSON.parse(body) as WhatsAppApiErrorResponse;
-        errorMessage = data.error?.message;
-      } catch {
-        // Response body is not JSON
-      }
-      lastError = new Error(
-        errorMessage
-          ? `WhatsApp ${operation} failed: ${errorMessage}`
-          : body
-            ? `WhatsApp ${operation} failed with status ${response.status}: ${body}`
-            : `WhatsApp ${operation} failed with status ${response.status}`,
-      );
-      log.warn(
-        {
-          status: response.status,
-          attempt,
-          operation,
-          retryAfter: lastRetryAfter,
-        },
-        "WhatsApp API returned retryable error",
-      );
-      continue;
-    }
-
-    return (await response.json()) as T;
-  }
-
-  throw lastError ?? new Error(`WhatsApp ${operation} failed after retries`);
+  return retryableFetch<T>(
+    {
+      provider: "WhatsApp",
+      operation,
+      log,
+      configFile,
+      configSection: "whatsapp",
+      doFetch,
+    },
+    {
+      ...whatsAppErrorHooks(operation),
+      parseSuccess: async (response) => (await response.json()) as T,
+    },
+  );
 }
 
 /** Options bag for optional credential and config cache injection into WhatsApp API calls. */
@@ -447,87 +416,20 @@ async function retryableWhatsAppRawFetch(
   operation: string,
   doFetch: () => Promise<Response>,
 ): Promise<Response> {
-  const maxRetries = configFile?.getNumber("whatsapp", "maxRetries") ?? 3;
-  const initialBackoffMs =
-    configFile?.getNumber("whatsapp", "initialBackoffMs") ?? 1000;
-
-  let lastError: Error | null = null;
-  let lastRetryAfter: string | null = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (attempt > 0) {
-      const delay = computeDelay(attempt, initialBackoffMs, lastRetryAfter);
-      log.debug({ attempt, delay, operation }, "Retrying WhatsApp API call");
-      await new Promise((r) => setTimeout(r, delay));
-    }
-
-    lastRetryAfter = null;
-
-    let response: Response;
-    try {
-      response = await doFetch();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      lastError = new Error(`WhatsApp ${operation} request failed: ${message}`);
-      log.warn(
-        { error: message, attempt, operation },
-        "WhatsApp API fetch failed",
-      );
-      continue;
-    }
-
-    if (!isRetryable(response.status) && !response.ok) {
-      const body = await response.text().catch(() => "");
-      let errorMessage: string | undefined;
-      try {
-        const data = JSON.parse(body) as WhatsAppApiErrorResponse;
-        errorMessage = data.error?.message;
-      } catch {
-        // Response body is not JSON — include raw text if available
-      }
-      const message = errorMessage
-        ? `WhatsApp ${operation} failed: ${errorMessage}`
-        : body
-          ? `WhatsApp ${operation} failed with status ${response.status}: ${body}`
-          : `WhatsApp ${operation} failed with status ${response.status}`;
-
-      if (isAuthError(response.status)) {
-        throw new Error(message);
-      }
-      throw new WhatsAppNonRetryableError(message);
-    }
-
-    if (isRetryable(response.status)) {
-      lastRetryAfter = response.headers.get("retry-after");
-      const body = await response.text().catch(() => "");
-      let errorMessage: string | undefined;
-      try {
-        const data = JSON.parse(body) as WhatsAppApiErrorResponse;
-        errorMessage = data.error?.message;
-      } catch {
-        // Response body is not JSON
-      }
-      lastError = new Error(
-        errorMessage
-          ? `WhatsApp ${operation} failed: ${errorMessage}`
-          : `WhatsApp ${operation} failed with status ${response.status}`,
-      );
-      log.warn(
-        {
-          status: response.status,
-          attempt,
-          operation,
-          retryAfter: lastRetryAfter,
-        },
-        "WhatsApp API returned retryable error",
-      );
-      continue;
-    }
-
-    return response;
-  }
-
-  throw lastError ?? new Error(`WhatsApp ${operation} failed after retries`);
+  return retryableFetch<Response>(
+    {
+      provider: "WhatsApp",
+      operation,
+      log,
+      configFile,
+      configSection: "whatsapp",
+      doFetch,
+    },
+    {
+      ...whatsAppErrorHooks(operation),
+      parseSuccess: async (response) => response,
+    },
+  );
 }
 
 /**

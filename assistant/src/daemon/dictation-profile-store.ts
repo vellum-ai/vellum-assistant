@@ -89,7 +89,9 @@ function getDefaultConfig(): DictationProfilesConfig {
 let storePathOverride: string | null = null;
 
 function getStorePath(): string {
-  if (storePathOverride) return storePathOverride;
+  if (storePathOverride) {
+    return storePathOverride;
+  }
   return join(getWorkspaceDir(), "dictation-profiles.json");
 }
 
@@ -112,10 +114,13 @@ function validateAndClampConfig(raw: unknown): DictationProfilesConfig {
   const validProfiles: DictationProfile[] = [];
 
   for (const p of profiles) {
-    if (typeof p !== "object" || p == null) continue;
-    const profile = p as Record<string, unknown>;
-    if (typeof profile.id !== "string" || typeof profile.name !== "string")
+    if (typeof p !== "object" || p == null) {
       continue;
+    }
+    const profile = p as Record<string, unknown>;
+    if (typeof profile.id !== "string" || typeof profile.name !== "string") {
+      continue;
+    }
 
     // Clamp stylePrompt
     let stylePrompt =
@@ -132,10 +137,13 @@ function validateAndClampConfig(raw: unknown): DictationProfilesConfig {
     const rawDict = Array.isArray(profile.dictionary) ? profile.dictionary : [];
     const dictionary: DictationDictionaryEntry[] = [];
     for (const entry of rawDict.slice(0, MAX_DICTIONARY_ENTRIES)) {
-      if (typeof entry !== "object" || entry == null) continue;
-      const e = entry as Record<string, unknown>;
-      if (typeof e.spoken !== "string" || typeof e.written !== "string")
+      if (typeof entry !== "object" || entry == null) {
         continue;
+      }
+      const e = entry as Record<string, unknown>;
+      if (typeof e.spoken !== "string" || typeof e.written !== "string") {
+        continue;
+      }
       if (
         e.spoken.length > MAX_SPOKEN_LENGTH ||
         e.written.length > MAX_WRITTEN_LENGTH
@@ -159,13 +167,16 @@ function validateAndClampConfig(raw: unknown): DictationProfilesConfig {
     const rawSnippets = Array.isArray(profile.snippets) ? profile.snippets : [];
     const snippets: DictationSnippet[] = [];
     for (const s of rawSnippets.slice(0, MAX_SNIPPETS)) {
-      if (typeof s !== "object" || s == null) continue;
+      if (typeof s !== "object" || s == null) {
+        continue;
+      }
       const snip = s as Record<string, unknown>;
       if (
         typeof snip.trigger !== "string" ||
         typeof snip.expansion !== "string"
-      )
+      ) {
         continue;
+      }
       if (
         snip.trigger.length > MAX_TRIGGER_LENGTH ||
         snip.expansion.length > MAX_EXPANSION_LENGTH
@@ -198,14 +209,19 @@ function validateAndClampConfig(raw: unknown): DictationProfilesConfig {
   const rawMappings = Array.isArray(obj.appMappings) ? obj.appMappings : [];
   const appMappings: DictationAppMapping[] = [];
   for (const m of rawMappings) {
-    if (typeof m !== "object" || m == null) continue;
+    if (typeof m !== "object" || m == null) {
+      continue;
+    }
     const mapping = m as Record<string, unknown>;
-    if (typeof mapping.profileId !== "string") continue;
+    if (typeof mapping.profileId !== "string") {
+      continue;
+    }
     if (
       typeof mapping.bundleIdentifier !== "string" &&
       typeof mapping.appName !== "string"
-    )
+    ) {
       continue;
+    }
     appMappings.push({
       profileId: mapping.profileId,
       bundleIdentifier:

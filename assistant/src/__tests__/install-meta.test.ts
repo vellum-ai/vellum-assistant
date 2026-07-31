@@ -15,6 +15,7 @@ import {
   computeSkillHash,
   readInstallMeta,
   type SkillInstallMeta,
+  touchSkillLastUsed,
   writeInstallMeta,
 } from "../skills/install-meta.js";
 
@@ -106,6 +107,36 @@ describe("writeInstallMeta", () => {
       readFileSync(join(dir, "install-meta.json"), "utf-8"),
     );
     expect(parsed.contentHash).toBe("v2:abc123def456");
+  });
+
+  test("round-trips optional author and lastUsedAt fields", () => {
+    const dir = makeTempDir();
+    const meta: SkillInstallMeta = {
+      origin: "custom",
+      installedAt: "2026-01-15T10:30:00.000Z",
+      author: "user",
+      lastUsedAt: "2026-02-01",
+    };
+
+    writeInstallMeta(dir, meta);
+
+    const result = readInstallMeta(dir);
+    expect(result).not.toBeNull();
+    expect(result!.author).toBe("user");
+    expect(result!.lastUsedAt).toBe("2026-02-01");
+  });
+
+  test("leaves author and lastUsedAt unset when omitted", () => {
+    const dir = makeTempDir();
+    writeInstallMeta(dir, {
+      origin: "custom",
+      installedAt: "2026-01-15T10:30:00.000Z",
+    });
+
+    const result = readInstallMeta(dir);
+    expect(result).not.toBeNull();
+    expect(result!.author).toBeUndefined();
+    expect(result!.lastUsedAt).toBeUndefined();
   });
 
   test("overwrites existing install-meta.json", () => {
@@ -324,6 +355,79 @@ describe("readInstallMeta", () => {
       expect(typeof result!.installedAt).toBe("string");
       expect(new Date(result!.installedAt).getTime()).not.toBeNaN();
     });
+  });
+});
+
+// ─── touchSkillLastUsed ─────────────────────────────────────────────────────
+
+describe("touchSkillLastUsed", () => {
+  function lastUsedDate(dir: string): string | undefined {
+    return readInstallMeta(dir)?.lastUsedAt?.slice(0, 10);
+  }
+
+  test("returns false and writes nothing when install metadata is absent", () => {
+    const dir = makeTempDir();
+    expect(touchSkillLastUsed(dir, "2026-06-22")).toBe(false);
+    expect(existsSync(join(dir, "install-meta.json"))).toBe(false);
+  });
+
+  test("first stamp writes today's date and returns true", () => {
+    const dir = makeTempDir();
+    writeInstallMeta(dir, {
+      origin: "custom",
+      installedAt: "2026-01-15T10:30:00.000Z",
+      author: "assistant",
+    });
+
+    expect(touchSkillLastUsed(dir, "2026-06-22")).toBe(true);
+    expect(lastUsedDate(dir)).toBe("2026-06-22");
+    // Existing fields are preserved.
+    const meta = readInstallMeta(dir);
+    expect(meta!.origin).toBe("custom");
+    expect(meta!.author).toBe("assistant");
+    expect(meta!.installedAt).toBe("2026-01-15T10:30:00.000Z");
+    // The stamp is a full ISO timestamp, not a bare date.
+    expect(meta!.lastUsedAt).toBe("2026-06-22T00:00:00.000Z");
+  });
+
+  test("second stamp on the same day is a no-op (debounced)", () => {
+    const dir = makeTempDir();
+    writeInstallMeta(dir, {
+      origin: "custom",
+      installedAt: "2026-01-15T10:30:00.000Z",
+      lastUsedAt: "2026-06-22T08:00:00.000Z",
+    });
+
+    expect(touchSkillLastUsed(dir, "2026-06-22")).toBe(false);
+    // The existing timestamp is untouched.
+    expect(readInstallMeta(dir)!.lastUsedAt).toBe("2026-06-22T08:00:00.000Z");
+  });
+
+  test("stamp on a later day rewrites lastUsedAt", () => {
+    const dir = makeTempDir();
+    writeInstallMeta(dir, {
+      origin: "custom",
+      installedAt: "2026-01-15T10:30:00.000Z",
+      lastUsedAt: "2026-06-22T08:00:00.000Z",
+    });
+
+    expect(touchSkillLastUsed(dir, "2026-06-23")).toBe(true);
+    expect(lastUsedDate(dir)).toBe("2026-06-23");
+  });
+
+  test("stamps over a malformed install-meta.json via legacy version.json fallback", () => {
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "install-meta.json"), "{bad json", "utf-8");
+    writeFileSync(
+      join(dir, "version.json"),
+      JSON.stringify({ version: "1.0.0" }),
+      "utf-8",
+    );
+
+    expect(touchSkillLastUsed(dir, "2026-06-22")).toBe(true);
+    const meta = readInstallMeta(dir);
+    expect(meta!.origin).toBe("vellum");
+    expect(meta!.lastUsedAt).toBe("2026-06-22T00:00:00.000Z");
   });
 });
 

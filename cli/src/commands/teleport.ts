@@ -3,7 +3,6 @@ import {
   loadAllAssistants,
   getDaemonPidPath,
   removeAssistantEntry,
-  resolveCloud,
   saveAssistantEntry,
   setActiveAssistant,
   type AssistantEntry,
@@ -34,6 +33,7 @@ import {
   localRuntimeExportToGcs,
   localRuntimeIdentity,
   localRuntimeImportFromGcs,
+  localRuntimePreflightFromGcs,
   localRuntimePollJobStatus,
   MigrationInProgressError,
 } from "../lib/local-runtime-client.js";
@@ -391,9 +391,8 @@ async function exportFromAssistant(
     // daemon, the CLI is updated separately).
     let sourceRuntimeVersion: string;
     try {
-      const identity = await callRuntimeWithAuthRetry(
-        entry,
-        async (token) => localRuntimeIdentity(entry, token),
+      const identity = await callRuntimeWithAuthRetry(entry, async (token) =>
+        localRuntimeIdentity(entry, token),
       );
       sourceRuntimeVersion = identity.version;
     } catch (err) {
@@ -409,11 +408,18 @@ async function exportFromAssistant(
     // Passing the target's runtime URL here keeps upload and download on
     // the same platform — otherwise a non-default/stale platform URL would
     // cause the import to look at an empty object.
+    //
+    // The PUT is performed by the source daemon, not this CLI. A bare-metal
+    // local daemon shares the host's network view, so the client-signed URL
+    // is reachable; a docker daemon runs inside a container and reaches the
+    // host the same way managed pods do, so its URL must be signed for the
+    // runtime-reachable storage endpoint.
     const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
       {
         operation: "upload",
         minRuntimeVersion: sourceRuntimeVersion,
         maxRuntimeVersion: null,
+        ...(cloud === "docker" ? { consumer: "runtime" as const } : {}),
       },
       platformToken,
       bundlePlatformUrl,
@@ -427,16 +433,13 @@ async function exportFromAssistant(
     let jobId: string;
     let accessToken: string;
     try {
-      const result = await callRuntimeWithAuthRetry(
-        entry,
-        async (token) => {
-          const r = await localRuntimeExportToGcs(entry, token, {
-            uploadUrl,
-            description: "teleport export",
-          });
-          return { jobId: r.jobId, token };
-        },
-      );
+      const result = await callRuntimeWithAuthRetry(entry, async (token) => {
+        const r = await localRuntimeExportToGcs(entry, token, {
+          uploadUrl,
+          description: "teleport export",
+        });
+        return { jobId: r.jobId, token };
+      });
       jobId = result.jobId;
       accessToken = result.token;
     } catch (err) {
@@ -514,6 +517,9 @@ async function exportFromAssistant(
         operation: "upload",
         minRuntimeVersion: sourceRuntimeVersion,
         maxRuntimeVersion: null,
+        // The managed pod PUTs the bundle, not this CLI — the URL must be
+        // signed against the runtime-reachable storage endpoint.
+        consumer: "runtime",
       },
       platformToken,
       bundlePlatformUrl,
@@ -712,11 +718,46 @@ async function importToAssistant(
 
   if (cloud === "local" || cloud === "docker") {
     if (dryRun) {
-      // TODO(cli): support dry-run against local targets
-      console.error(
-        "Error: --dry-run is not yet supported for local or docker targets (no preflight-from-gcs endpoint on the runtime).",
+      console.log("Running preflight analysis...\n");
+
+      // Query the target runtime's version before requesting a signed
+      // download URL — the platform uses it for the bundle compatibility check.
+      let targetRuntimeVersion: string;
+      try {
+        const identity = await callRuntimeWithAuthRetry(entry, (token) =>
+          localRuntimeIdentity(entry, token),
+        );
+        targetRuntimeVersion = identity.version;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          `Error: Could not read target runtime version from '${entry.assistantId}': ${msg}`,
+        );
+        console.error(`Try: vellum wake ${entry.assistantId}`);
+        process.exit(1);
+      }
+
+      let bundleUrl: string;
+      try {
+        const result = await platformRequestSignedUrl(
+          { operation: "download", bundleKey, targetRuntimeVersion },
+          platformToken,
+          bundlePlatformUrl,
+        );
+        bundleUrl = result.url;
+      } catch (err) {
+        if (err instanceof VersionMismatchError) {
+          console.error(`Error: ${err.message}`);
+          process.exit(1);
+        }
+        throw err;
+      }
+
+      const preflightData = await callRuntimeWithAuthRetry(entry, (token) =>
+        localRuntimePreflightFromGcs(entry, token, { bundleUrl }),
       );
-      process.exit(1);
+      printPreflightSummary(preflightData as unknown as PreflightResponse);
+      return;
     }
 
     // Ask the platform for a signed download URL and hand it to the local
@@ -734,9 +775,8 @@ async function importToAssistant(
     // target can't actually load) whenever the two drift apart.
     let targetRuntimeVersion: string;
     try {
-      const identity = await callRuntimeWithAuthRetry(
-        entry,
-        (token) => localRuntimeIdentity(entry, token),
+      const identity = await callRuntimeWithAuthRetry(entry, (token) =>
+        localRuntimeIdentity(entry, token),
       );
       targetRuntimeVersion = identity.version;
     } catch (err) {
@@ -779,15 +819,12 @@ async function importToAssistant(
     let jobId: string;
     let accessToken: string;
     try {
-      const result = await callRuntimeWithAuthRetry(
-        entry,
-        async (token) => {
-          const r = await localRuntimeImportFromGcs(entry, token, {
-            bundleUrl,
-          });
-          return { jobId: r.jobId, token };
-        },
-      );
+      const result = await callRuntimeWithAuthRetry(entry, async (token) => {
+        const r = await localRuntimeImportFromGcs(entry, token, {
+          bundleUrl,
+        });
+        return { jobId: r.jobId, token };
+      });
       jobId = result.jobId;
       accessToken = result.token;
     } catch (err) {
@@ -849,7 +886,7 @@ export async function resolveOrHatchTarget(
     const existing = findAssistantByName(targetName);
     if (existing) {
       // Validate the existing assistant's cloud matches the requested env
-      const existingCloud = resolveCloud(existing);
+      const existingCloud = existing.cloud;
       const normalizedExisting =
         existingCloud === "vellum" ? "platform" : existingCloud;
       if (normalizedExisting !== targetEnv) {
@@ -910,17 +947,12 @@ export async function resolveOrHatchTarget(
 
   if (targetEnv === "docker") {
     const beforeIds = new Set(loadAllAssistants().map((e) => e.assistantId));
-    await hatchDocker(
-      "vellum",
-      false,
-      targetName ?? null,
-      false,
-      {},
-      {},
-      {
-        setupProviderCredentials: false,
-      },
-    );
+    await hatchDocker({
+      species: "vellum",
+      detached: false,
+      name: targetName ?? null,
+      setupProviderCredentials: false,
+    });
     const entry = targetName
       ? findAssistantByName(targetName)
       : (loadAllAssistants().find((e) => !beforeIds.has(e.assistantId)) ??
@@ -1101,6 +1133,7 @@ async function tryInjectPlatformCredentials(
       fetchCurrentVersion(entry.runtimeUrl),
       fetchAssistantIngressUrl(entry.runtimeUrl, entry.bearerToken),
     ]);
+    const platformUrl = getPlatformUrl();
     const registration = await ensureSelfHostedLocalRegistration(
       token,
       orgId,
@@ -1108,9 +1141,15 @@ async function tryInjectPlatformCredentials(
       entry.assistantId,
       "cli",
       assistantVersion,
-      getPlatformUrl(),
+      platformUrl,
       ingressUrl,
     );
+    saveAssistantEntry({
+      ...entry,
+      platformAssistantId: registration.assistant.id,
+      platformBaseUrl: platformUrl,
+      platformOrganizationId: orgId,
+    });
 
     // Resolve the API key: 1) fresh from registration, 2) existing from
     // daemon credential store, 3) reprovision as last resort (revokes old key).
@@ -1142,7 +1181,7 @@ async function tryInjectPlatformCredentials(
       bearerToken: entry.bearerToken,
       assistantApiKey,
       platformAssistantId: registration.assistant.id,
-      platformBaseUrl: getPlatformUrl(),
+      platformBaseUrl: platformUrl,
       organizationId: orgId,
       userId: user.id,
       webhookSecret: registration.webhook_secret,
@@ -1203,7 +1242,7 @@ export async function teleport(): Promise<void> {
     process.exit(1);
   }
 
-  const fromCloud = resolveCloud(fromEntry);
+  const fromCloud = fromEntry.cloud;
 
   if (fromCloud === "apple-container") {
     console.error(
@@ -1229,7 +1268,7 @@ export async function teleport(): Promise<void> {
 
     if (existingTarget) {
       // Target exists — validate cloud matches the flag, then run preflight
-      const toCloud = resolveCloud(existingTarget);
+      const toCloud = existingTarget.cloud;
       const normalizedTargetEnv = toCloud === "vellum" ? "platform" : toCloud;
       if (normalizedTargetEnv !== targetEnv) {
         console.error(
@@ -1245,18 +1284,8 @@ export async function teleport(): Promise<void> {
         process.exit(1);
       }
 
-      // Dry-run feasibility check — reject local/docker targets BEFORE any
-      // export work. The local runtime has no preflight-from-gcs endpoint yet,
-      // so we can't actually run a dry-run against it; burning a GCS upload
-      // just to fail afterwards would be wasteful.
-      // TODO(cli): support dry-run against local targets (needs a
-      // preflight-from-gcs endpoint on the runtime).
-      if (toCloud === "local" || toCloud === "docker") {
-        console.error(
-          "Error: --dry-run is not yet supported for local or docker targets (no preflight-from-gcs endpoint on the runtime).",
-        );
-        process.exit(1);
-      }
+      // Nothing to reject — preflight-from-gcs is now implemented for all
+      // target topologies including local and docker.
 
       // Version guard: block platform→non-platform when target is behind
       if (fromCloud === "vellum" && toCloud !== "vellum") {
@@ -1333,7 +1362,7 @@ export async function teleport(): Promise<void> {
     // exporting — so we don't waste work on an invalid command.
     const existingTarget = targetName ? findAssistantByName(targetName) : null;
     if (existingTarget) {
-      const existingCloud = resolveCloud(existingTarget);
+      const existingCloud = existingTarget.cloud;
       if (existingCloud !== "vellum") {
         console.error(
           `Error: Assistant '${targetName}' is a ${existingCloud} assistant, not platform. ` +
@@ -1389,7 +1418,7 @@ export async function teleport(): Promise<void> {
 
     // Hatch (export succeeded — safe to create the target)
     const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
-    const toCloud = resolveCloud(toEntry);
+    const toCloud = toEntry.cloud;
 
     // Import from GCS
     console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
@@ -1476,7 +1505,7 @@ export async function teleport(): Promise<void> {
 
   // Resolve or hatch target (after source is stopped to avoid port conflicts)
   const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
-  const toCloud = resolveCloud(toEntry);
+  const toCloud = toEntry.cloud;
 
   // Post-hatch same-environment safety net — uses resolved clouds in case
   // the resolved target cloud differs from the CLI flag (e.g., --docker

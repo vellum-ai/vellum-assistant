@@ -12,8 +12,8 @@
  * Client-oriented queries (list, find-by-capability) are methods on the hub.
  */
 
+import type { AssistantEvent } from "../api/index.js";
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 
 // ---------------------------------------------------------------------------
 // Message type → capability inference
@@ -26,6 +26,7 @@ const HOST_PREFIX_TO_CAPABILITY: Record<string, HostProxyCapability> = {
   host_cu: "host_cu",
   host_browser: "host_browser",
   host_app_control: "host_app_control",
+  host_ui_snapshot: "host_ui_snapshot",
 };
 
 /**
@@ -39,11 +40,14 @@ export function capabilityForMessageType(
   const stem = type.replace(/_(request|cancel)$/, "");
   return HOST_PREFIX_TO_CAPABILITY[stem];
 }
+import type { AssistantEventEnvelope } from "../api/index.js";
+import { forwardEventPublishToDaemon } from "../ipc/events-publish-client.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
-import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
+import type { AssistantEventPublishOptions } from "./assistant-event-publish-options.js";
 import { stampAndBuffer } from "./assistant-stream-state.js";
+import { isMainDaemonProcess } from "./process-role.js";
 
 const log = getLogger("assistant-event-hub");
 
@@ -56,7 +60,7 @@ export type AssistantEventFilter = {
 };
 
 export type AssistantEventCallback = (
-  event: AssistantEvent,
+  event: AssistantEventEnvelope,
 ) => void | Promise<void>;
 
 /** Opaque handle returned by `subscribe`. Call `dispose()` to remove the subscription. */
@@ -137,7 +141,7 @@ type SubscriberInput = DistributiveOmit<
 // ── Hub ───────────────────────────────────────────────────────────────────────
 
 /**
- * Lightweight pub/sub hub for `AssistantEvent` messages.
+ * Lightweight pub/sub hub for `AssistantEventEnvelope` messages.
  *
  * Filtering is applied at subscription level:
  *   - `conversationId`: scoped events match subscribers with same conversationId
@@ -300,21 +304,17 @@ export class AssistantEventHub {
    * delivery to remaining subscribers.
    */
   async publish(
-    event: AssistantEvent,
-    options?: {
-      targetCapability?: HostProxyCapability;
-      targetClientId?: string;
-      targetInterfaceId?: InterfaceId;
-      /**
-       * Skip the subscriber with this `clientId`. Used for self-echo
-       * suppression on `sync_changed`: the route handler echoes the
-       * originating tab's `X-Vellum-Client-Id` back on the event, and the
-       * hub uses it here to avoid re-delivering the invalidation to the
-       * tab that already mutated its own optimistic state.
-       */
-      excludeClientId?: string;
-    },
+    event: AssistantEventEnvelope,
+    options?: AssistantEventPublishOptions,
   ): Promise<void> {
+    // Only the main daemon owns the subscribers real clients connect to. In any
+    // other process (a sidecar worker, the route host) this hub has no SSE
+    // subscriber, so hand the event to the daemon — it republishes on the hub
+    // clients actually observe. Best-effort: a transport failure is logged, not
+    // thrown, and never blocks the caller.
+    if (!isMainDaemonProcess()) {
+      return forwardEventPublishToDaemon(event, options);
+    }
     if (event.conversationId) {
       try {
         appendEventToStream(event.conversationId, event);
@@ -331,7 +331,9 @@ export class AssistantEventHub {
     const errors: unknown[] = [];
 
     for (const entry of snapshot) {
-      if (!entry.active) continue;
+      if (!entry.active) {
+        continue;
+      }
 
       // Self-echo suppression: the originating client never receives the
       // event back. Checked before every other rule so it composes with
@@ -348,27 +350,34 @@ export class AssistantEventHub {
       // the requested interface. Composes with `targetClientId` and
       // `targetCapability` below.
       if (targetInterfaceId != null) {
-        if (entry.type !== "client" || entry.interfaceId !== targetInterfaceId)
+        if (
+          entry.type !== "client" ||
+          entry.interfaceId !== targetInterfaceId
+        ) {
           continue;
+        }
       }
 
       if (targetClientId != null) {
         // Targeted: bypass conversation filter, deliver only to the named client.
-        if (entry.type !== "client" || entry.clientId !== targetClientId)
+        if (entry.type !== "client" || entry.clientId !== targetClientId) {
           continue;
+        }
         if (
           targetCapability != null &&
           !entry.capabilities.includes(targetCapability)
-        )
+        ) {
           continue;
+        }
       } else {
         // Untargeted: existing conversation-scoped + capability logic.
         if (
           event.conversationId != null &&
           entry.filter.conversationId != null &&
           entry.filter.conversationId !== event.conversationId
-        )
+        ) {
           continue;
+        }
 
         // Capability targeting: targeted events only go to subscribers that
         // declare the required capability.
@@ -376,8 +385,9 @@ export class AssistantEventHub {
           if (
             entry.type !== "client" ||
             !entry.capabilities.includes(targetCapability)
-          )
+          ) {
             continue;
+          }
         }
       }
 
@@ -406,8 +416,9 @@ export class AssistantEventHub {
         entry.active &&
         entry.type === "client" &&
         entry.clientId === clientId
-      )
+      ) {
         return entry;
+      }
     }
     return undefined;
   }
@@ -429,10 +440,12 @@ export class AssistantEventHub {
    * event based on the same conversation matching rules as publish().
    */
   hasSubscribersForEvent(
-    event: Pick<AssistantEvent, "conversationId">,
+    event: Pick<AssistantEventEnvelope, "conversationId">,
   ): boolean {
     for (const entry of this.subscribers) {
-      if (!entry.active) continue;
+      if (!entry.active) {
+        continue;
+      }
       if (
         event.conversationId != null &&
         entry.filter.conversationId != null &&
@@ -562,7 +575,7 @@ export class AssistantEventHub {
  */
 export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });
 
-// ── Convenience: ServerMessage → AssistantEvent publish ───────────────────────
+// ── Convenience: AssistantEvent → AssistantEventEnvelope publish ───────────────────────
 
 /**
  * Promise chain that serializes publishes so subscribers always observe
@@ -571,7 +584,7 @@ export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });
 let _hubChain = Promise.resolve();
 
 /**
- * Wraps a `ServerMessage` in an `AssistantEvent` envelope and publishes it
+ * Wraps a `AssistantEvent` in an `AssistantEventEnvelope` envelope and publishes it
  * to the process-level hub.
  *
  * When `conversationId` is omitted, it is auto-extracted from the message
@@ -587,20 +600,13 @@ let _hubChain = Promise.resolve();
  * services should call this directly instead of threading a broadcast callback.
  */
 export function broadcastMessage(
-  msg: ServerMessage,
+  msg: AssistantEvent,
   conversationId?: string,
   options?: { targetClientId?: string; targetInterfaceId?: InterfaceId },
 ): void {
   const resolvedConversationId = conversationId ?? extractConversationId(msg);
   const targetClientId = options?.targetClientId;
   const targetInterfaceId = options?.targetInterfaceId;
-
-  // Confirmation-request side effects: canonical guardian request creation.
-  // The home-feed `activity.failed` notification side-effect lives in the
-  // notifications pipeline now, so we no longer emit a feed event here.
-  if (msg.type === "confirmation_request" && resolvedConversationId) {
-    void createCanonicalRequestForConfirmation(msg, resolvedConversationId);
-  }
 
   // `conversation_list_invalidated` is a list-level system event — publish
   // it unscoped so every subscriber refreshes its sidebar.
@@ -672,94 +678,10 @@ export function broadcastMessage(
     });
 }
 
-function extractConversationId(msg: ServerMessage): string | undefined {
+function extractConversationId(msg: AssistantEvent): string | undefined {
   const record = msg as unknown as Record<string, unknown>;
   if ("conversationId" in msg && typeof record.conversationId === "string") {
     return record.conversationId as string;
   }
   return undefined;
-}
-
-// ── Canonical guardian request ────────────────────────────────────────────────
-
-function resolveCanonicalRequestSourceType(
-  sourceChannel: string,
-): "desktop" | "channel" | "voice" {
-  if (sourceChannel === "phone") return "voice";
-  if (sourceChannel === "vellum") return "desktop";
-  return "channel";
-}
-
-/**
- * Lazily load heavy dependencies and create a canonical guardian request +
- * bridge for a confirmation_request message. Called fire-and-forget from
- * broadcastMessage.
- */
-async function createCanonicalRequestForConfirmation(
-  msg: ServerMessage & { type: "confirmation_request" },
-  conversationId: string,
-): Promise<void> {
-  try {
-    const [
-      { findConversation },
-      { createCanonicalGuardianRequest, generateCanonicalRequestCode },
-      { redactSecrets },
-      { summarizeToolInput },
-      { DAEMON_INTERNAL_ASSISTANT_ID },
-      { bridgeConfirmationRequestToGuardian },
-    ] = await Promise.all([
-      import("../daemon/conversation-registry.js"),
-      import("../memory/canonical-guardian-store.js"),
-      import("../security/secret-scanner.js"),
-      import("../tools/tool-input-summary.js"),
-      import("./assistant-scope.js"),
-      import("./confirmation-request-guardian-bridge.js"),
-    ]);
-
-    const conversation = findConversation(conversationId);
-    const trustContext = conversation?.trustContext;
-    const sourceChannel = trustContext?.sourceChannel ?? "vellum";
-    const inputRecord = msg.input as Record<string, unknown>;
-    const activityRaw =
-      (typeof inputRecord.activity === "string"
-        ? inputRecord.activity
-        : undefined) ??
-      (typeof inputRecord.reason === "string" ? inputRecord.reason : undefined);
-    const canonicalRequest = createCanonicalGuardianRequest({
-      id: msg.requestId,
-      kind: "tool_approval",
-      sourceType: resolveCanonicalRequestSourceType(sourceChannel),
-      sourceChannel,
-      conversationId,
-      requesterExternalUserId: trustContext?.requesterExternalUserId,
-      requesterChatId: trustContext?.requesterChatId,
-      guardianExternalUserId: trustContext?.guardianExternalUserId,
-      guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
-      toolName: msg.toolName,
-      commandPreview:
-        redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
-        undefined,
-      riskLevel: msg.riskLevel,
-      activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
-      executionTarget: msg.executionTarget,
-      status: "pending",
-      requestCode: generateCanonicalRequestCode(),
-      expiresAt: Date.now() + 5 * 60 * 1000,
-    });
-
-    if (trustContext && conversation) {
-      bridgeConfirmationRequestToGuardian({
-        canonicalRequest,
-        trustContext,
-        conversationId,
-        toolName: msg.toolName,
-        assistantId: conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-      });
-    }
-  } catch (err) {
-    log.debug(
-      { err, conversationId },
-      "Failed to create canonical request from broadcast",
-    );
-  }
 }

@@ -1,52 +1,8 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Stub out heavy dependencies before importing Conversation
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../prompts/system-prompt.js", () => ({
@@ -65,13 +21,13 @@ mock.module("../security/secret-allowlist.js", () => ({
 let mockDbMessages: Array<{
   id: string;
   role: string;
-  content: string;
+  content: unknown;
   metadata?: string | null;
 }> = [];
 let mockConversation: Record<string, unknown> | null = null;
 let nextMockMessageId = 1;
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
   updateConversationTitle: () => {},
@@ -88,7 +44,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   addMessage: async (
     _conversationId: string,
     role: string,
-    content: string,
+    content: unknown,
     options?: { metadata?: Record<string, unknown> },
   ) => {
     const metadata = options?.metadata;
@@ -106,7 +62,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
@@ -116,22 +72,22 @@ mock.module("../memory/conversation-queries.js", () => ({
 // unless this file is actively running (`mock.module` is process-global and
 // would otherwise leak into sibling files that use the real store).
 const realEverInjectedStore = {
-  ...(await import("../plugins/defaults/memory-v3-shadow/ever-injected-store.js")),
+  ...(await import("../plugins/defaults/memory/v3/ever-injected-store.js")),
 };
 let lifecycleStoreMockActive = false;
 let mockPrunedSlugs = new Set<string>();
-mock.module(
-  "../plugins/defaults/memory-v3-shadow/ever-injected-store.js",
-  () => ({
-    ...realEverInjectedStore,
-    getPrunedSlugs: (conversationId: string) =>
-      lifecycleStoreMockActive
-        ? mockPrunedSlugs
-        : realEverInjectedStore.getPrunedSlugs(conversationId),
-  }),
-);
+mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
+  ...realEverInjectedStore,
+  getPrunedSlugs: (conversationId: string) =>
+    lifecycleStoreMockActive
+      ? mockPrunedSlugs
+      : realEverInjectedStore.getPrunedSlugs(conversationId),
+}));
 
-import { Conversation } from "../daemon/conversation.js";
+import {
+  Conversation,
+  type ConversationConstructorOptions,
+} from "../daemon/conversation.js";
 
 beforeEach(() => {
   lifecycleStoreMockActive = true;
@@ -142,7 +98,9 @@ afterAll(() => {
   lifecycleStoreMockActive = false;
 });
 
-function makeConversation(): Conversation {
+function makeConversation(
+  options: ConversationConstructorOptions = { maxTokens: 4096 },
+): Conversation {
   const provider = {
     name: "mock",
     sendMessage: async () => ({
@@ -158,7 +116,7 @@ function makeConversation(): Conversation {
     "system prompt",
     () => {},
     "/tmp",
-    { maxTokens: 4096 },
+    options,
   );
   // Default to guardian trust so tests load all messages.
   conv.setTrustContext({ trustClass: "guardian", sourceChannel: "vellum" });
@@ -176,6 +134,23 @@ function defaultConv() {
   };
 }
 
+describe("Conversation — subagent identity", () => {
+  test("is not a subagent by default", () => {
+    const conv = makeConversation();
+    expect(conv.parentConversationId).toBeUndefined();
+    expect(conv.isSubagent).toBe(false);
+  });
+
+  test("derives isSubagent from the constructor parentConversationId", () => {
+    const conv = makeConversation({
+      maxTokens: 4096,
+      parentConversationId: "parent-1",
+    });
+    expect(conv.parentConversationId).toBe("parent-1");
+    expect(conv.isSubagent).toBe(true);
+  });
+});
+
 describe("loadFromDb metadata injection rehydration", () => {
   beforeEach(() => {
     nextMockMessageId = 1;
@@ -187,13 +162,13 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        content: [{ type: "text", text: "Hi" }],
         metadata: JSON.stringify({ memoryInjectedBlock: "remember: alice" }),
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+        content: [{ type: "text", text: "Hello" }],
       },
       // Ensure m1 is historical (not the tail) so memory rehydration triggers
       // on a non-tail user row. Memory applies to all rows either way, but a
@@ -221,7 +196,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryInjectedBlock: "mem payload",
           turnContextBlock: "<turn_context>\nctx payload\n</turn_context>",
@@ -232,12 +207,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Second turn (tail)" }]),
+        content: [{ type: "text", text: "Second turn (tail)" }],
       },
     ];
 
@@ -272,17 +247,17 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+        content: [{ type: "text", text: "Tail turn" }],
         metadata: JSON.stringify({
           memoryInjectedBlock: "mem payload",
           turnContextBlock: "<turn_context>\nctx\n</turn_context>",
@@ -315,18 +290,18 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
         metadata: JSON.stringify({}),
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Second" }]),
+        content: [{ type: "text", text: "Second" }],
         metadata: JSON.stringify({ userMessageChannel: "desktop" }),
       },
     ];
@@ -350,7 +325,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        content: [{ type: "text", text: "Hi" }],
         metadata: JSON.stringify({
           memoryInjectedBlock: "<memory>\nremember: alice\n</memory>",
         }),
@@ -358,7 +333,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+        content: [{ type: "text", text: "Hello" }],
       },
     ];
 
@@ -372,7 +347,9 @@ describe("loadFromDb metadata injection rehydration", () => {
       type: "text",
       text: "<memory>\nremember: alice\n</memory>",
     });
-    if (firstBlock.type !== "text") throw new Error("unexpected block type");
+    if (firstBlock.type !== "text") {
+      throw new Error("unexpected block type");
+    }
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
   });
 
@@ -386,7 +363,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock:
             "header line\n\n# memory/concepts/page-a.md\nhead a",
@@ -395,12 +372,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+        content: [{ type: "text", text: "Tail turn" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock: "# memory/concepts/page-b.md\nhead b",
         }),
@@ -439,7 +416,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock:
             "header line\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b",
@@ -448,7 +425,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
     ];
 
@@ -472,7 +449,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock:
             "header line\n\n# memory/concepts/page-a.md\nhead a",
@@ -481,7 +458,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
     ];
 
@@ -500,7 +477,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        content: [{ type: "text", text: "Hi" }],
         metadata: JSON.stringify({
           memoryV3InjectedBlock:
             "<memory>\n# memory/concepts/page-a.md\nhead a\n</memory>",
@@ -509,7 +486,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+        content: [{ type: "text", text: "Hello" }],
       },
     ];
 
@@ -522,7 +499,9 @@ describe("loadFromDb metadata injection rehydration", () => {
       type: "text",
       text: "<memory>\n# memory/concepts/page-a.md\nhead a\n</memory>",
     });
-    if (firstBlock.type !== "text") throw new Error("unexpected block type");
+    if (firstBlock.type !== "text") {
+      throw new Error("unexpected block type");
+    }
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
   });
 
@@ -532,13 +511,13 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
         metadata: "not-json",
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
     ];
 
@@ -557,7 +536,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryInjectedBlock: "mem payload",
           memoryV2StaticBlock:
@@ -569,12 +548,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+        content: [{ type: "text", text: "Tail turn" }],
       },
     ];
 
@@ -608,7 +587,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryV2StaticBlock:
             "<memory>\n## Essentials\n\nAlice prefers VS Code.\n</memory>",
@@ -617,12 +596,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+        content: [{ type: "text", text: "Tail turn" }],
       },
     ];
 
@@ -645,17 +624,17 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
         metadata: JSON.stringify({
           memoryV2StaticBlock: "<info>\n## Essentials\n\nleak\n</info>",
         }),
@@ -674,21 +653,19 @@ describe("loadFromDb metadata injection rehydration", () => {
   });
 
   test("internal-channel trusted_contact view still rehydrates memoryV2StaticBlock", async () => {
-    // Regression: the prior `!isUntrustedTrustClass(trustClass)` gate
-    // blocked any non-guardian view from rehydrating personal memory,
-    // including legitimate internal flows (e.g. trusted_contact actors
-    // arriving over the internal `"vellum"` channel). Injection time
-    // uses `shouldExposePersonalMemory`, which keys on `sourceChannel`
-    // rather than `trustClass` and exposes personal memory for
-    // `sourceChannel === "vellum"` regardless of actor trust class. The
-    // rehydrate gate must match so a daemon-restart reload of the same
-    // conversation produces an identical prefix.
+    // Rehydration keys on `sourceChannel`, not `trustClass`: injection uses
+    // `shouldExposePersonalMemory`, which exposes personal memory whenever
+    // `sourceChannel === "vellum"` regardless of actor trust class. So a
+    // trusted_contact view arriving over the internal `"vellum"` channel
+    // rehydrates `memoryV2StaticBlock`. The rehydrate gate must match
+    // injection so a daemon-restart reload of the same conversation produces
+    // an identical prefix.
     mockConversation = defaultConv();
     mockDbMessages = [
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
         metadata: JSON.stringify({
           // Rows must carry `trusted_contact` / `unknown` provenance to
           // survive the row-level filter for non-guardian views.
@@ -700,13 +677,13 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
         metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
         metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
       },
     ];
@@ -742,7 +719,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           memoryInjectedBlock: "mem payload",
           memoryV2StaticBlock:
@@ -756,12 +733,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
       },
     ];
 
@@ -808,7 +785,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        content: [{ type: "text", text: "First turn" }],
         metadata: JSON.stringify({
           workspaceBlock: "<workspace>\nworkspace body\n</workspace>",
           turnContextBlock: "<turn_context>\nctx payload\n</turn_context>",
@@ -826,12 +803,12 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
       },
     ];
 
@@ -862,6 +839,123 @@ describe("loadFromDb metadata injection rehydration", () => {
     ]);
   });
 
+  test("rehydration order matches live assembly for background-turn / channel-capabilities / non-interactive-context", async () => {
+    // A background/scheduled source's live turns inject three extra blocks that
+    // the metadata persist layer now captures so a reloaded or forked
+    // conversation (memory retrospective) reproduces them byte-for-byte.
+    // Live assembly lands them at:
+    //   - `<background_turn>` — prepend-user-tail injector order 15, between
+    //     `<workspace>` (10) and `<turn_context>` (20).
+    //   - `<channel_capabilities>` — Step-3 prepend, just below `<turn_context>`
+    //     and above the after-memory region.
+    //   - `<non_interactive_context>` — Step-3 APPEND, the very last block.
+    // Expected layout (cf. live `applyRuntimeInjections`):
+    //   [<workspace>, <background_turn>, <turn_context>, <channel_capabilities>,
+    //    <memory>dynamic</memory>, <info>v2static</info>, <memory>v3</memory>,
+    //    <NOW.md>, <system_reminder>, <knowledge_base>, ...original,
+    //    <non_interactive_context>]
+    // Rehydration must reproduce this or a background-source fork busts the
+    // message-tier prefix cache at the first divergent block.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First turn" }],
+        metadata: JSON.stringify({
+          workspaceBlock: "<workspace>\nworkspace body\n</workspace>",
+          backgroundTurnBlock: "<background_turn>\nbg body\n</background_turn>",
+          turnContextBlock: "<turn_context>\nctx payload\n</turn_context>",
+          channelCapabilitiesBlock:
+            "<channel_capabilities>\nchannel: vellum\n</channel_capabilities>",
+          memoryInjectedBlock: "mem payload",
+          memoryV2StaticBlock:
+            "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+          nowScratchpadBlock: "<NOW.md>\nnow body\n</NOW.md>",
+          pkbSystemReminderBlock:
+            "<system_reminder>\npkb reminder body\n</system_reminder>",
+          pkbContextBlock: "<knowledge_base>\nkb body\n</knowledge_base>",
+          nonInteractiveContextBlock:
+            "<non_interactive_context>\nno human present\n</non_interactive_context>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Tail" }],
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].content).toEqual([
+      { type: "text", text: "<workspace>\nworkspace body\n</workspace>" },
+      { type: "text", text: "<background_turn>\nbg body\n</background_turn>" },
+      { type: "text", text: "<turn_context>\nctx payload\n</turn_context>" },
+      {
+        type: "text",
+        text: "<channel_capabilities>\nchannel: vellum\n</channel_capabilities>",
+      },
+      { type: "text", text: "<memory>\nmem payload\n</memory>" },
+      {
+        type: "text",
+        text: "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+      },
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: "<NOW.md>\nnow body\n</NOW.md>" },
+      {
+        type: "text",
+        text: "<system_reminder>\npkb reminder body\n</system_reminder>",
+      },
+      { type: "text", text: "<knowledge_base>\nkb body\n</knowledge_base>" },
+      { type: "text", text: "First turn" },
+      {
+        type: "text",
+        text: "<non_interactive_context>\nno human present\n</non_interactive_context>",
+      },
+    ]);
+  });
+
+  test("tail user row skips background-turn / channel-capabilities / non-interactive-context", async () => {
+    // The tail row re-injects these fresh next turn, so rehydration must skip
+    // them on the tail — mirroring `<turn_context>` / `<workspace>`.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "Tail" }],
+        metadata: JSON.stringify({
+          backgroundTurnBlock: "<background_turn>\nbg body\n</background_turn>",
+          channelCapabilitiesBlock:
+            "<channel_capabilities>\nchannel: vellum\n</channel_capabilities>",
+          nonInteractiveContextBlock:
+            "<non_interactive_context>\nno human present\n</non_interactive_context>",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toEqual([{ type: "text", text: "Tail" }]);
+  });
+
   test("untrusted-actor view does not rehydrate memoryV2StaticBlock", async () => {
     mockConversation = defaultConv();
     // Rows with `trusted_contact` / `unknown` provenance survive the
@@ -870,7 +964,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "trusted_contact",
           memoryV2StaticBlock:
@@ -880,13 +974,13 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
         metadata: JSON.stringify({ provenanceTrustClass: "unknown" }),
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
         metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
       },
     ];
@@ -905,6 +999,54 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
   });
 
+  test("untrusted-actor view does not rehydrate memoryV3InjectedBlock (including the tail)", async () => {
+    mockConversation = defaultConv();
+    // v3 cards carry personal memory and rehydrate on ALL rows including the
+    // tail (see the positive test above), so the trust gate must suppress both
+    // the historical and the tail block. `trusted_contact` provenance keeps the
+    // rows past the untrusted-actor row filter, isolating the rehydrate gate.
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "First" }],
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+        metadata: JSON.stringify({ provenanceTrustClass: "unknown" }),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [{ type: "text", text: "Tail" }],
+        metadata: JSON.stringify({
+          provenanceTrustClass: "trusted_contact",
+          memoryV3InjectedBlock: "# memory/concepts/page-b.md\nhead b",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "telegram",
+    });
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    // Neither the historical nor the tail v3 card block is prepended.
+    expect(messages[0].content).toEqual([{ type: "text", text: "First" }]);
+    expect(messages[2].content).toEqual([{ type: "text", text: "Tail" }]);
+  });
+
   test("ensureActorScopedHistory reloads when sourceChannel changes within the same trust class", async () => {
     // Regression: cache invalidation previously keyed only on trust class.
     // `loadFromDb` gates `memoryV2StaticBlock` rehydration on `sourceChannel`
@@ -916,7 +1058,7 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "trusted_contact",
           memoryV2StaticBlock:
@@ -926,13 +1068,13 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+        content: [{ type: "text", text: "Reply" }],
         metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
       },
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+        content: [{ type: "text", text: "Tail" }],
         metadata: JSON.stringify({ provenanceTrustClass: "trusted_contact" }),
       },
     ];

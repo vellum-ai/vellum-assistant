@@ -4,7 +4,7 @@ CLI tools for provisioning and managing Vellum assistant instances.
 
 ## Installation
 
-This package is used internally by the [`vel`](https://github.com/vellum-ai/vellum-assistant-platform/tree/main/vel) CLI. You typically don't need to install it directly.
+This package is used internally by the `vel` CLI. You typically don't need to install it directly.
 
 To run it standalone with [Bun](https://bun.sh):
 

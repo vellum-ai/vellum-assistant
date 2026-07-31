@@ -119,7 +119,9 @@ describe("parseVBundleStream — manifest-first", () => {
     expect(first.value?.header.type).toBe("file");
 
     // Drain the manifest body so the iterator can advance, then finish.
-    if (first.value) await collectBody(first.value);
+    if (first.value) {
+      await collectBody(first.value);
+    }
     // Exhaust the iterator to release resources. Drain each body so the
     // extractor can advance. (We don't assert on the remaining entries here.)
     for await (const entry of iter) {

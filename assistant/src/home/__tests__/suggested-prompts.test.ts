@@ -11,7 +11,7 @@ let sidechainCalls = 0;
 const checkpointStore = new Map<string, string>();
 let checkpointWritesShouldThrow = false;
 
-mock.module("../../memory/checkpoints.js", () => ({
+mock.module("../../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
   setMemoryCheckpoint: (key: string, value: string) => {
     if (checkpointWritesShouldThrow) {
@@ -26,17 +26,6 @@ mock.module("../../memory/checkpoints.js", () => ({
 
 mock.module("../../schedule/integration-status.js", () => ({
   formatIntegrationSummary: async () => mockIntegrationSummary,
-}));
-
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ llm: {} }),
 }));
 
 mock.module("../../config/llm-resolver.js", () => ({
@@ -72,13 +61,13 @@ mock.module("../../runtime/assistant-event.js", () => ({
 
 mock.module("../../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: { publish: async () => {} },
+  broadcastMessage: () => {},
 }));
 
-const {
-  getSuggestedPrompts,
-  refreshAssistantSuggestedPrompts,
-  invalidateAssistantSuggestedPromptsCache,
-} = await import("../suggested-prompts.js");
+const { getSuggestedPrompts, refreshAssistantSuggestedPrompts } =
+  await import("../suggested-prompts.js");
+const { invalidateAssistantSuggestedPromptsCache } =
+  await import("../suggested-prompts-cache.js");
 
 // ─── Tests ─────────────────────────────────────────────────────────────
 

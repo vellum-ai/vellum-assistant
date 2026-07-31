@@ -9,87 +9,43 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent, AgentLoopConfig } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede Conversation import
 // ---------------------------------------------------------------------------
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
 }));
 
-// Controllable config mock — speed and feature flag behavior are test-specific.
-let mockConfigSpeed: "standard" | "fast" = "fast";
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "high" as const,
-        speed: mockConfigSpeed,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
+// Controllable global speed, seeded into the real workspace config per test.
+// This file's blanket assistant-feature-flags mock forces the
+// override-or-default resolution flag ON; the speed under test rides in the
+// mainAgent call-site tweak (applies under both semantics) as well as
+// llm.default.
+function seedConfigSpeed(speed: "standard" | "fast"): void {
+  setConfig("llm", {
+    default: { speed },
+    callSites: {
+      mainAgent: {
+        speed,
+        contextWindow: { maxInputTokens: 100000 },
       },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
     },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    timeouts: { permissionTimeoutSec: 1 },
-    skills: { entries: {}, allowBundled: true },
-    permissions: { mode: "workspace" },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+  });
+}
 
 // Feature flag mock — fast-mode enabled for all tests in this file.
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) => {
-    if (key === "fast-mode") return true;
+    if (key === "fast-mode") {
+      return true;
+    }
     return true;
   },
 }));
@@ -118,7 +74,9 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -144,11 +102,11 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
   linkAttachmentToMessage: () => {},
 }));
@@ -167,6 +125,12 @@ mock.module("../memory/retriever.js", () => ({
 
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     constructor() {}
     updateConfig() {}
     shouldCompact() {
@@ -184,7 +148,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   getSummaryFromContextMessage: () => null,
 }));
 
-mock.module("../memory/llm-usage-store.js", () => ({
+mock.module("../persistence/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "mock-id", createdAt: Date.now() }),
   listUsageEvents: () => [],
 }));
@@ -220,26 +184,6 @@ mock.module("../agent/loop.js", () => ({
   },
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
-}));
-
 // ---------------------------------------------------------------------------
 // Import Conversation AFTER mocks
 // ---------------------------------------------------------------------------
@@ -264,7 +208,7 @@ function makeProvider() {
   };
 }
 
-function makeSendToClient(): (msg: ServerMessage) => void {
+function makeSendToClient(): (msg: AssistantEvent) => void {
   return () => {};
 }
 
@@ -274,7 +218,7 @@ function makeSendToClient(): (msg: ServerMessage) => void {
 
 describe("per-conversation speed override", () => {
   test("speedOverride 'standard' prevents fast mode even when global config is 'fast'", () => {
-    mockConfigSpeed = "fast";
+    seedConfigSpeed("fast");
     lastAgentLoopConfig = undefined;
 
     new Conversation(
@@ -292,7 +236,7 @@ describe("per-conversation speed override", () => {
   });
 
   test("no speedOverride uses global config speed", () => {
-    mockConfigSpeed = "fast";
+    seedConfigSpeed("fast");
     lastAgentLoopConfig = undefined;
 
     new Conversation(
@@ -309,7 +253,7 @@ describe("per-conversation speed override", () => {
   });
 
   test("speedOverride 'fast' enables fast mode even when global config is 'standard'", () => {
-    mockConfigSpeed = "standard";
+    seedConfigSpeed("standard");
     lastAgentLoopConfig = undefined;
 
     new Conversation(

@@ -101,6 +101,15 @@ assistant clients list --capability host_browser
 
 Omit `--target-client-id` when only one client is connected — the default interface-preference order (`chrome-extension` first, then `macos`) picks the best available client automatically.
 
+## Tab Handling (Chrome extension)
+
+On the Chrome extension backend, `navigate` opens a dedicated tab the first time it runs in a conversation and pins subsequent operations to it, so browsing never disturbs the tab the user is on (often the tab they're chatting with the assistant from). Later navigates reuse that pinned tab.
+
+- `--new-tab` — force a brand-new tab even when one is already pinned.
+- `--use-active-tab` — navigate the user's currently-active tab instead of a dedicated one.
+
+Both flags are ignored on the `local` and `cdp-inspect` backends, which manage their own browser context.
+
 ## Session Management
 
 Use `--session <id>` on the `assistant browser` parent command to group sequential operations so they share browser state (same page, cookies, etc.). Different session IDs create independent browser contexts.

@@ -73,7 +73,9 @@ mock.module("../../acp/index.js", () => ({
         return Array.from(inMemoryStates.values());
       }
       const state = inMemoryStates.get(id);
-      if (!state) throw new Error(`ACP session "${id}" not found`);
+      if (!state) {
+        throw new Error(`ACP session "${id}" not found`);
+      }
       return state;
     },
     getActiveAndPendingIds: () => [
@@ -106,7 +108,9 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
   getCredentialMetadata: (service: string, field: string) => {
     const key = `${service}/${field}`;
     const entry = metadataStore.get(key);
-    if (!entry) return undefined;
+    if (!entry) {
+      return undefined;
+    }
     return {
       credentialId: `cred-${key}`,
       service,
@@ -127,8 +131,7 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
     const existing = metadataStore.get(key);
     metadataStore.set(key, {
       allowedTools: policy?.allowedTools ?? existing?.allowedTools ?? [],
-      usageDescription:
-        policy?.usageDescription ?? existing?.usageDescription,
+      usageDescription: policy?.usageDescription ?? existing?.usageDescription,
     });
     return {
       credentialId: `cred-${key}`,
@@ -183,9 +186,11 @@ type ApprovalBehavior = "allow" | "deny";
 let approvalBehavior: ApprovalBehavior = "allow";
 const confirmationRequests: Array<Record<string, unknown>> = [];
 
-mock.module("../../runtime/assistant-event-hub.js", () => ({
+mock.module("../assistant-event-hub.js", () => ({
   broadcastMessage: (msg: { type?: string; requestId?: string }) => {
-    if (msg?.type !== "confirmation_request") return;
+    if (msg?.type !== "confirmation_request") {
+      return;
+    }
     confirmationRequests.push(msg as Record<string, unknown>);
     const decision = approvalBehavior;
     const interaction = pendingInteractions.resolve(
@@ -198,9 +203,9 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb, getSqlite } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
-import { acpSessionHistory } from "../../memory/schema.js";
+import { getDb, getSqlite } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { acpSessionHistory } from "../../persistence/schema/index.js";
 
 const { ROUTES } = await import("./acp-routes.js");
 
@@ -209,7 +214,9 @@ function getSpawnHandler() {
     (r: { endpoint: string; method: string }) =>
       r.endpoint === "acp/spawn" && r.method === "POST",
   );
-  if (!route) throw new Error("acp/spawn route not registered");
+  if (!route) {
+    throw new Error("acp/spawn route not registered");
+  }
   return route.handler;
 }
 
@@ -499,7 +506,9 @@ function getBulkDeleteHandler() {
     (r: { endpoint: string; method: string }) =>
       r.endpoint === "acp/sessions" && r.method === "DELETE",
   );
-  if (!route) throw new Error("DELETE acp/sessions route not registered");
+  if (!route) {
+    throw new Error("DELETE acp/sessions route not registered");
+  }
   return route.handler;
 }
 
@@ -533,8 +542,8 @@ function listRows(): RowSnapshot[] {
 }
 
 describe("DELETE /v1/acp/sessions?status=completed", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
@@ -661,7 +670,9 @@ function getDeleteSessionHandler() {
     (r: { endpoint: string; method: string }) =>
       r.endpoint === "acp/sessions/:id" && r.method === "DELETE",
   );
-  if (!route) throw new Error("acp/sessions/:id DELETE route not registered");
+  if (!route) {
+    throw new Error("acp/sessions/:id DELETE route not registered");
+  }
   return route.handler;
 }
 
@@ -687,8 +698,8 @@ function insertHistoryRow(opts: {
 }
 
 describe("DELETE /v1/acp/sessions/:id", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {

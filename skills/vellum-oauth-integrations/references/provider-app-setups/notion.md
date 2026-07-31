@@ -90,13 +90,11 @@ After creation, the user lands on the integration's Configuration page.
 
 Collect the secret securely:
 
-```
-credential_store prompt:
-  service: "notion"
-  field: "internal_secret"
-  label: "Notion Internal Integration Secret"
-  description: "Paste the Internal Integration Secret you just copied."
-  placeholder: "ntn_..."
+```bash
+assistant credentials prompt --service notion --field internal_secret \
+  --label "Notion Internal Integration Secret" \
+  --placeholder "ntn_..." \
+  --description "Paste the Internal Integration Secret you just copied."
 ```
 
 #### 3b: Grant page access
@@ -143,4 +141,4 @@ Key Notion-specific differences for Path B:
 
 - No OAuth flow or redirect URIs needed for Internal integrations
 - The user copies their Internal Integration Secret and sends it via chat
-- The secret prefix is `ntn_` - use `credential_store prompt` to collect it securely
+- The secret prefix is `ntn_` - use `assistant credentials prompt` to collect it securely

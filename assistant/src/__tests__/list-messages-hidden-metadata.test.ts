@@ -6,37 +6,29 @@
  * UI history list while remaining visible to the LLM-side history loader.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "./helpers/set-config.js";
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
+// Keep the memory system off so addMessage skips indexing side effects.
+setConfig("memory", { enabled: false });
 
 import {
   _setPaginationScanCapForTesting,
   addMessage,
   createConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { messages } from "../memory/schema.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { messages } from "../persistence/schema/index.js";
+import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+} from "../plugins/defaults/memory/memory-retrospective-constants.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables() {
   const db = getDb();
@@ -333,5 +325,100 @@ describe("handleListMessages metadata.hidden filtering", () => {
     ]);
     expect(latest.hasMore).toBe(false);
     expect(latest.oldestTimestamp).not.toBeNull();
+  });
+
+  test("fork retrospective conversations expose the hidden instruction and keep the review as its own turn", async () => {
+    const conv = createConversation({
+      source: MEMORY_RETROSPECTIVE_FORK_SOURCE,
+    });
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "source question" }]),
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "source answer" }]),
+    );
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "text", text: "background memory pass instruction" },
+      ]),
+      {
+        metadata: { kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND, hidden: true },
+      },
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "retrospective review" }]),
+    );
+
+    const response = handleListMessages({
+      queryParams: { conversationId: conv.id },
+    });
+    const body = response as { messages: MessagePayload[] };
+
+    // The hidden instruction is shown, and because it sits between the two
+    // assistant rows they do NOT merge — the review stands as its own turn.
+    expect(body.messages.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    expect(plainText(body.messages[1])).toBe("source answer");
+    expect(plainText(body.messages[2])).toContain(
+      "background memory pass instruction",
+    );
+    expect(plainText(body.messages[3])).toBe("retrospective review");
+  });
+
+  test("non-fork conversations still hide the retrospective instruction (relaxation is fork-scoped)", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "source question" }]),
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "source answer" }]),
+    );
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([
+        { type: "text", text: "background memory pass instruction" },
+      ]),
+      {
+        metadata: { kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND, hidden: true },
+      },
+    );
+    await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "retrospective review" }]),
+    );
+
+    const response = handleListMessages({
+      queryParams: { conversationId: conv.id },
+    });
+    const body = response as { messages: MessagePayload[] };
+
+    // Instruction stays hidden for non-retrospective conversations; the review
+    // (a normal assistant message) is still returned.
+    expect(
+      body.messages.some((m) =>
+        plainText(m).includes("background memory pass instruction"),
+      ),
+    ).toBe(false);
+    expect(
+      body.messages.some((m) => plainText(m).includes("retrospective review")),
+    ).toBe(true);
   });
 });

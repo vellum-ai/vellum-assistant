@@ -8,9 +8,9 @@
 
 import { and, eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { rawChanges } from "../memory/raw-query.js";
-import { notificationDeliveries } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { rawChanges } from "../persistence/raw-query.js";
+import { notificationDeliveries } from "../persistence/schema/index.js";
 import type {
   NotificationChannel,
   NotificationDeliveryStatus,
@@ -181,7 +181,9 @@ export function updateDeliveryRenderedCopy(
   if (patch.renderedBody !== undefined) {
     updates.renderedBody = patch.renderedBody;
   }
-  if (Object.keys(updates).length === 1) return false;
+  if (Object.keys(updates).length === 1) {
+    return false;
+  }
 
   getDb()
     .update(notificationDeliveries)

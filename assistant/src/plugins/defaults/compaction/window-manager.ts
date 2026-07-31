@@ -14,27 +14,33 @@
  * marker is wrapped around the assistant-role memory message we emit on
  * successful compaction so those code paths keep working unchanged.
  */
+import type {
+  ContentBlock,
+  LLMCallSite,
+  Message,
+  Provider,
+} from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../config/loader.js";
 import type { CompactionConfig } from "../../../config/schemas/compaction.js";
-import type { LLMCallSite } from "../../../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../../../config/types.js";
 import {
   type CompactionRunArgs,
   type CompactionRunResult,
+  CONTEXT_SUMMARY_CLOSE,
+  CONTEXT_SUMMARY_MARKER,
+  isSyntheticCompactionMessage,
   runAssistantDrivenCompaction,
   runEmergencyCompaction,
+  wrapContextSummaryText,
 } from "../../../context/compactor.js";
 import {
   estimatePromptTokens,
   estimateToolsTokens,
 } from "../../../context/token-estimator.js";
+import { findConversationOrSubagent } from "../../../daemon/conversation-registry.js";
 import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
-import type {
-  ContentBlock,
-  Message,
-  Provider,
-  ToolDefinition,
-} from "../../../providers/types.js";
+import type { ToolDefinition } from "../../../providers/types.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { getLogger } from "../../../util/logger.js";
 import {
@@ -49,8 +55,7 @@ import { resolveOverflowAction } from "./overflow-policy.js";
 
 const log = getLogger("context-window");
 
-export const CONTEXT_SUMMARY_MARKER = "<context_summary>";
-const CONTEXT_SUMMARY_CLOSE = "</context_summary>";
+export { CONTEXT_SUMMARY_MARKER };
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
 // ---------------------------------------------------------------------------
@@ -82,6 +87,8 @@ export interface ContextWindowResult {
   summaryCacheCreationInputTokens?: number;
   summaryCacheReadInputTokens?: number;
   summaryRawResponses?: unknown[];
+  /** See {@link CompactionRunResult.summaryRequestLogId}. */
+  summaryRequestLogId?: string | null;
   summaryText: string;
   reason?: string;
   summaryFailed?: boolean;
@@ -115,6 +122,13 @@ export interface ContextWindowResult {
    * `context_too_large`. Omitted on the ordinary compaction path.
    */
   autoCompressApplied?: boolean;
+  /**
+   * Propagated from the compactor: the deterministic forward-cut hit the tail
+   * floor while still over the low-watermark budget. {@link _maybeCompact} reads
+   * it to stop retrying — a second pass lands on the same floor and frees
+   * nothing. See {@link CompactionRunResult.tailFloorReached}.
+   */
+  tailFloorReached?: boolean;
 }
 
 export interface ShouldCompactResult {
@@ -148,6 +162,21 @@ export interface ContextWindowCompactOptions {
    * for untrusted actors.
    */
   actorTrustClass?: TrustClass;
+  /**
+   * Summarize everything before this in-memory history index ("summarize up
+   * to here"). Single-attempt: bypasses the auto-threshold gate, the retry
+   * ladder, and the token-budget forward-cut — the boundary is the user's
+   * choice, not a budget outcome. Forwarded to the compactor's
+   * `fixedTailStartIndex` (see {@link CompactionRunArgs.fixedTailStartIndex}
+   * for range validation).
+   */
+  fixedTailStartIndex?: number;
+  /**
+   * Row-space twin of `fixedTailStartIndex` — bounds the compactor's image
+   * manifest to rows before the user-chosen boundary. See
+   * {@link CompactionRunArgs.fixedBoundaryRowIndex}.
+   */
+  fixedBoundaryRowIndex?: number;
 }
 
 export interface EmergencyCompactOptions {
@@ -213,7 +242,6 @@ export interface OverflowRecoveryOptions {
 
 export interface ContextWindowManagerOptions {
   provider: Provider;
-  systemPrompt: string | (() => string);
   config: ContextWindowConfig;
   /** Pre-computed tool token budget to include in all estimations. */
   toolTokenBudget?: number;
@@ -240,12 +268,7 @@ export interface ContextWindowManagerOptions {
 export function createContextSummaryMessage(summary: string): Message {
   const message: Message = {
     role: "assistant",
-    content: [
-      {
-        type: "text",
-        text: `${CONTEXT_SUMMARY_MARKER}\n${summary}\n${CONTEXT_SUMMARY_CLOSE}`,
-      },
-    ],
+    content: [{ type: "text", text: wrapContextSummaryText(summary) }],
   };
   INTERNAL_CONTEXT_SUMMARY_MESSAGES.add(message);
   return message;
@@ -254,13 +277,21 @@ export function createContextSummaryMessage(summary: string): Message {
 export function getSummaryFromContextMessage(
   message: Message | undefined,
 ): string | null {
-  if (!message) return null;
+  if (!message) {
+    return null;
+  }
   const text = extractText(message.content).trim();
-  if (!text.startsWith(CONTEXT_SUMMARY_MARKER)) return null;
-  if (!INTERNAL_CONTEXT_SUMMARY_MESSAGES.has(message)) return null;
+  if (!text.startsWith(CONTEXT_SUMMARY_MARKER)) {
+    return null;
+  }
+  if (!INTERNAL_CONTEXT_SUMMARY_MESSAGES.has(message)) {
+    return null;
+  }
   let inner = text.slice(CONTEXT_SUMMARY_MARKER.length);
   const closeIdx = inner.lastIndexOf(CONTEXT_SUMMARY_CLOSE);
-  if (closeIdx !== -1) inner = inner.slice(0, closeIdx);
+  if (closeIdx !== -1) {
+    inner = inner.slice(0, closeIdx);
+  }
   return inner.trim();
 }
 
@@ -273,13 +304,48 @@ function extractText(content: ContentBlock[]): string {
     .join("\n");
 }
 
+/**
+ * Content-shaped detection of a synthetic summary head: assistant-role with
+ * text starting at the `<context_summary>` marker every summary head carries
+ * (`wrapContextSummaryText`). Used only for persisted-count accounting, where
+ * a false positive is conservative — see
+ * {@link ContextWindowManager.resolveNonPersistedPrefixCount}. Never use it to
+ * extract summary text; that is {@link getSummaryFromContextMessage}'s
+ * WeakSet-gated job.
+ */
+function isStructuralContextSummaryHead(message: Message | undefined): boolean {
+  return (
+    message?.role === "assistant" &&
+    extractText(message.content).trim().startsWith(CONTEXT_SUMMARY_MARKER)
+  );
+}
+
+/**
+ * Length of the leading synthetic span of `messages`: the summary and
+ * retained-images messages minted by conversation rehydration or a prior
+ * compaction pass, detected by WeakSet identity with a structural-marker
+ * fallback for wrappers rebuilt by history repair. See
+ * {@link ContextWindowManager.resolveNonPersistedPrefixCount} for why the
+ * structural fallback's false-positive direction is conservative.
+ */
+function countSyntheticHead(messages: Message[]): number {
+  let syntheticHead = 0;
+  while (
+    syntheticHead < messages.length &&
+    (isStructuralContextSummaryHead(messages[syntheticHead]) ||
+      isSyntheticCompactionMessage(messages[syntheticHead]))
+  ) {
+    syntheticHead++;
+  }
+  return syntheticHead;
+}
+
 // ---------------------------------------------------------------------------
 // ContextWindowManager
 // ---------------------------------------------------------------------------
 
 export class ContextWindowManager {
   private readonly provider: Provider;
-  private readonly _systemPrompt: string | (() => string);
   private config: ContextWindowConfig;
   private readonly toolTokenBudget: number;
   private readonly conversationId: string | undefined;
@@ -293,7 +359,15 @@ export class ContextWindowManager {
    * rows. Decremented after a successful compaction.
    */
   private _nonPersistedPrefixCount = 0;
-  private _resolvedSystemPrompt: string | undefined;
+  /**
+   * Whether the seeded prefix still occupies the very front of the history.
+   * True from seeding until the first productive compaction pass: such a pass
+   * rebuilds the front with a freshly minted summary head that is NOT part of
+   * the seed, after which the head and any remaining seed are disjoint spans.
+   * {@link resolveNonPersistedPrefixCount} switches between "the seed subsumes
+   * its own synthetic head" and "minted head + remaining seed" on this flag.
+   */
+  private _seedLeadsHistory = false;
   /**
    * Reducer state for the in-progress overflow-recovery ladder, held across
    * the successive {@link reduceOverflowOneRung} calls of a single turn so the
@@ -317,7 +391,6 @@ export class ContextWindowManager {
 
   constructor(options: ContextWindowManagerOptions) {
     this.provider = options.provider;
-    this._systemPrompt = options.systemPrompt;
     this.config = options.config;
     this.toolTokenBudget = options.toolTokenBudget ?? 0;
     this.conversationId = options.conversationId;
@@ -351,25 +424,20 @@ export class ContextWindowManager {
    */
   seedNonPersistedPrefix(count: number): void {
     this._nonPersistedPrefixCount = count;
+    this._seedLeadsHistory = count > 0;
   }
 
   private get estimationProviderName(): string {
     return this.provider.tokenEstimationProvider ?? this.provider.name;
   }
 
-  private get systemPrompt(): string {
-    if (this._resolvedSystemPrompt !== undefined)
-      return this._resolvedSystemPrompt;
-    const resolved =
-      typeof this._systemPrompt === "function"
-        ? this._systemPrompt()
-        : this._systemPrompt;
-    this._resolvedSystemPrompt = resolved;
-    return resolved;
+  private get estimationModel(): string | undefined {
+    return this.provider.defaultModel;
   }
 
-  private clearSystemPromptCache(): void {
-    this._resolvedSystemPrompt = undefined;
+  private get systemPrompt(): string {
+    const conversation = findConversationOrSubagent(this.conversationId);
+    return conversation?.systemPrompt ?? "";
   }
 
   private resolveCompactionConfig(): CompactionConfig {
@@ -386,14 +454,25 @@ export class ContextWindowManager {
    * turn re-resolves it (the system prompt is lazy and may have changed).
    */
   estimateInputTokens(messages: Message[]): number {
-    try {
-      return estimatePromptTokens(messages, this.systemPrompt, {
-        providerName: this.estimationProviderName,
-        toolTokenBudget: this.toolTokenBudget,
-      });
-    } finally {
-      this.clearSystemPromptCache();
-    }
+    return estimatePromptTokens(messages, this.systemPrompt, {
+      providerName: this.estimationProviderName,
+      model: this.estimationModel,
+      toolTokenBudget: this.toolTokenBudget,
+    });
+  }
+
+  /**
+   * The resolved system prompt and tool definitions for the current turn —
+   * the same composition {@link estimateInputTokens} sizes against. Exposed as
+   * plain data so the daemon can run an out-of-band provider `count_tokens`
+   * request without re-deriving the prompt; the count call itself lives on the
+   * daemon, not this plugin.
+   */
+  get tokenCountInputs(): {
+    systemPrompt: string;
+    tools: ToolDefinition[] | undefined;
+  } {
+    return { systemPrompt: this.systemPrompt, tools: this.resolveTools?.() };
   }
 
   /**
@@ -404,19 +483,18 @@ export class ContextWindowManager {
    */
   shouldCompact(messages: Message[]): ShouldCompactResult {
     const compaction = this.resolveCompactionConfig();
-    if (!compaction.enabled) return { needed: false, estimatedTokens: 0 };
-    try {
-      const estimated = estimatePromptTokens(messages, this.systemPrompt, {
-        providerName: this.estimationProviderName,
-        toolTokenBudget: this.toolTokenBudget,
-      });
-      const threshold = Math.floor(
-        this.config.maxInputTokens * compaction.autoThreshold,
-      );
-      return { needed: estimated >= threshold, estimatedTokens: estimated };
-    } finally {
-      this.clearSystemPromptCache();
+    if (!compaction.enabled) {
+      return { needed: false, estimatedTokens: 0 };
     }
+    const estimated = estimatePromptTokens(messages, this.systemPrompt, {
+      providerName: this.estimationProviderName,
+      model: this.estimationModel,
+      toolTokenBudget: this.toolTokenBudget,
+    });
+    const threshold = Math.floor(
+      this.config.maxInputTokens * compaction.autoThreshold,
+    );
+    return { needed: estimated >= threshold, estimatedTokens: estimated };
   }
 
   async maybeCompact(
@@ -424,11 +502,7 @@ export class ContextWindowManager {
     signal?: AbortSignal,
     options?: ContextWindowCompactOptions,
   ): Promise<ContextWindowResult> {
-    try {
-      return await this._maybeCompact(messages, signal, options);
-    } finally {
-      this.clearSystemPromptCache();
-    }
+    return await this._maybeCompact(messages, signal, options);
   }
 
   /**
@@ -445,11 +519,7 @@ export class ContextWindowManager {
     options: OverflowRecoveryRungOptions,
     signal?: AbortSignal,
   ): Promise<ReducerStepResult> {
-    try {
-      return await this._reduceOverflowOneRung(messages, options, signal);
-    } finally {
-      this.clearSystemPromptCache();
-    }
+    return await this._reduceOverflowOneRung(messages, options, signal);
   }
 
   /**
@@ -580,6 +650,7 @@ export class ContextWindowManager {
       this.systemPrompt,
       {
         providerName: this.estimationProviderName,
+        model: this.estimationModel,
         toolTokenBudget: this.resolveTurnToolTokenBudget(),
       },
     );
@@ -627,6 +698,28 @@ export class ContextWindowManager {
     return Math.floor(this.config.maxInputTokens * (1 - safetyMargin));
   }
 
+  /**
+   * Low-watermark token budget a compaction pass aims to land the rebuilt
+   * history at or below. Derived from `contextWindow.targetBudgetRatio` (the
+   * fraction of the window to retain after compaction) minus the summary's own
+   * reserve (`summaryBudgetRatio`), so the post-compaction total — summary plus
+   * verbatim tail — fits the target. Clamped meaningfully below the
+   * auto-threshold success gate: a target at or above the gate would defeat the
+   * purpose (a pass could "succeed" while landing a hair under the trigger and
+   * thrash on the next tick), so it is pulled down to at most 80% of the gate.
+   */
+  private resolveCompactionTargetTokens(thresholdTokens: number): number {
+    const { maxInputTokens, targetBudgetRatio, summaryBudgetRatio } =
+      this.config;
+    const verbatimRatio = Math.max(
+      0,
+      targetBudgetRatio - (summaryBudgetRatio ?? 0),
+    );
+    const raw = Math.floor(maxInputTokens * verbatimRatio);
+    const ceiling = Math.floor(thresholdTokens * 0.8);
+    return Math.max(1, Math.min(raw, ceiling));
+  }
+
   private async _maybeCompact(
     messages: Message[],
     signal?: AbortSignal,
@@ -637,6 +730,7 @@ export class ContextWindowManager {
       options?.precomputedEstimate ??
       estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        model: this.estimationModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     const thresholdTokens = Math.floor(
@@ -651,7 +745,8 @@ export class ContextWindowManager {
       });
     }
 
-    if (this.conversationId == null) {
+    const conversationId = this.conversationId;
+    if (conversationId == null) {
       // The compactor needs the conversation id to look up image
       // attachments and DB timestamps. If we don't have one (legacy test
       // path, ad-hoc instantiation), skip — never fabricate one.
@@ -665,16 +760,14 @@ export class ContextWindowManager {
       });
     }
 
-    if (!options?.force && previousEstimatedInputTokens < thresholdTokens) {
-      return noopResult(messages, previousEstimatedInputTokens, {
-        maxInputTokens: this.config.maxInputTokens,
-        thresholdTokens,
-        reason: "below auto threshold",
-      });
-    }
-
-    const baseArgs: CompactionRunArgs = {
-      conversationId: this.conversationId,
+    // Shared compactor args for every pass in this call. Built lazily — only
+    // on paths that actually invoke the compactor — so the below-threshold
+    // no-op (the common outcome of idle `maybeCompact` gate calls) never pays
+    // tool resolution or the prefix walk. `targetTokens` is intentionally
+    // absent — the fixed-boundary path never applies a budget forward-cut,
+    // and the auto path adds it per call site.
+    const buildBaseArgs = (): CompactionRunArgs => ({
+      conversationId,
       messages,
       provider: this.provider,
       systemPrompt: this.systemPrompt,
@@ -686,8 +779,40 @@ export class ContextWindowManager {
       signal,
       overrideProfile: options?.overrideProfile ?? null,
       actorTrustClass: options?.actorTrustClass,
-      nonPersistedPrefixCount: this._nonPersistedPrefixCount,
-    };
+      nonPersistedPrefixCount: this.resolveNonPersistedPrefixCount(messages),
+    });
+
+    // Caller-fixed boundary ("summarize up to here"): one compactor pass at
+    // the user's chosen cut. No threshold gate (the user asked, regardless of
+    // fullness), no target budget (the boundary is not a budget outcome), and
+    // no retry ladder (a retry would re-summarize the already-summarized
+    // history past the boundary the user picked).
+    if (options?.fixedTailStartIndex != null) {
+      const result = await runAssistantDrivenCompaction({
+        ...buildBaseArgs(),
+        force: true,
+        fixedTailStartIndex: options.fixedTailStartIndex,
+        fixedBoundaryRowIndex: options.fixedBoundaryRowIndex,
+      });
+      if (!result.compacted) {
+        return result;
+      }
+      return {
+        ...result,
+        estimatedInputTokens: this.settleCompactionAttempt(result, messages),
+      };
+    }
+
+    if (!options?.force && previousEstimatedInputTokens < thresholdTokens) {
+      return noopResult(messages, previousEstimatedInputTokens, {
+        maxInputTokens: this.config.maxInputTokens,
+        thresholdTokens,
+        reason: "below auto threshold",
+      });
+    }
+
+    const baseArgs = buildBaseArgs();
+    const targetTokens = this.resolveCompactionTargetTokens(thresholdTokens);
 
     // Retry budget for the compactor itself. Lives here (not in the
     // orchestrator/agent loop) because the question "did this compactor
@@ -696,21 +821,32 @@ export class ContextWindowManager {
     // or signal `exhausted` so reducers escalate.
     const maxAttempts = this.config.overflowRecovery.maxAttempts;
 
-    let result = await runAssistantDrivenCompaction(baseArgs);
+    let result = await runAssistantDrivenCompaction({
+      ...baseArgs,
+      targetTokens,
+    });
 
     // Compactor early-returned without doing any work (e.g. no eligible
     // messages, summary failed, disabled mid-way). Nothing to retry.
-    if (!result.compacted) return result;
+    if (!result.compacted) {
+      return result;
+    }
 
-    let estimatedInputTokens = this.recomputePostCompactionEstimate(
-      result.messages,
-      result.estimatedInputTokens,
-    );
-    this.consumeCompactionState(result.compactedMessages);
+    let estimatedInputTokens = this.settleCompactionAttempt(result, messages);
 
     // If a single pass already cleared the auto-threshold, ship it.
     if (estimatedInputTokens < thresholdTokens) {
       return { ...result, estimatedInputTokens };
+    }
+
+    // The deterministic forward-cut already advanced to the tail floor (the
+    // most recent complete exchange) and still couldn't fit the budget — the
+    // verbatim tail alone is over budget (a tool-heavy in-flight turn). A
+    // second full-context pass would re-derive the same floor and free
+    // nothing, just paying another full cache write. Stop now and surface
+    // `exhausted` so reducers escalate instead of thrashing the compactor.
+    if (result.tailFloorReached) {
+      return { ...result, estimatedInputTokens, exhausted: true };
     }
 
     // Still above the threshold after one pass — retry on the compacted
@@ -722,23 +858,34 @@ export class ContextWindowManager {
     for (let attempt = 2; attempt <= maxAttempts; attempt++) {
       const nextResult = await runAssistantDrivenCompaction({
         ...baseArgs,
+        targetTokens,
         messages: result.messages,
         previousEstimatedInputTokens: previousEstimate,
-        nonPersistedPrefixCount: this._nonPersistedPrefixCount,
+        nonPersistedPrefixCount: this.resolveNonPersistedPrefixCount(
+          result.messages,
+        ),
       });
-      if (!nextResult.compacted) break;
-      const nextEstimate = this.recomputePostCompactionEstimate(
-        nextResult.messages,
-        nextResult.estimatedInputTokens,
+      if (!nextResult.compacted) {
+        break;
+      }
+      const nextEstimate = this.settleCompactionAttempt(
+        nextResult,
+        result.messages,
       );
-      this.consumeCompactionState(nextResult.compactedMessages);
       result = mergeCompactionResults(result, nextResult);
       estimatedInputTokens = nextEstimate;
       if (estimatedInputTokens < thresholdTokens) {
         return { ...result, estimatedInputTokens };
       }
+      // Forward-cut hit the floor and still over budget — same stop condition
+      // as the first pass: another retry lands on the same floor.
+      if (nextResult.tailFloorReached) {
+        break;
+      }
       // Non-productive (compacted but didn't shrink) — stuck compactor.
-      if (estimatedInputTokens >= previousEstimate) break;
+      if (estimatedInputTokens >= previousEstimate) {
+        break;
+      }
       previousEstimate = estimatedInputTokens;
     }
 
@@ -766,24 +913,29 @@ export class ContextWindowManager {
         "ContextWindowManager has no conversationId — cannot run emergency compaction",
       );
     }
-    try {
-      return await runEmergencyCompaction({
-        conversationId: this.conversationId,
-        messages,
-        provider: this.provider,
-        systemPrompt: this.systemPrompt,
-        tools: undefined,
-        compaction: this.resolveCompactionConfig(),
-        maxInputTokens: this.config.maxInputTokens,
-        previousEstimatedInputTokens: options.previousEstimatedInputTokens,
-        force: true,
-        signal,
-        overrideProfile: options.overrideProfile ?? null,
-        nonPersistedPrefixCount: this._nonPersistedPrefixCount,
-      });
-    } finally {
-      this.clearSystemPromptCache();
+    const result = await runEmergencyCompaction({
+      conversationId: this.conversationId,
+      messages,
+      provider: this.provider,
+      systemPrompt: this.systemPrompt,
+      tools: undefined,
+      compaction: this.resolveCompactionConfig(),
+      maxInputTokens: this.config.maxInputTokens,
+      previousEstimatedInputTokens: options.previousEstimatedInputTokens,
+      force: true,
+      signal,
+      overrideProfile: options.overrideProfile ?? null,
+      nonPersistedPrefixCount: this.resolveNonPersistedPrefixCount(messages),
+    });
+    // A productive emergency pass rebuilds the history front just like the
+    // ordinary path, so it consumes the same non-persisted prefix bookkeeping.
+    if (result.compacted) {
+      this.consumeCompactionState(
+        result.compactedMessages,
+        countSyntheticHead(messages),
+      );
     }
+    return result;
   }
 
   /**
@@ -798,6 +950,7 @@ export class ContextWindowManager {
     try {
       return estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        model: this.estimationModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     } catch (err) {
@@ -807,19 +960,94 @@ export class ContextWindowManager {
   }
 
   /**
+   * Leading non-persisted messages of `messages` for persisted-count
+   * accounting: the seeded fork-inherited prefix and/or the synthetic
+   * summary/retained-images head minted by conversation rehydration
+   * (`createContextSummaryMessage`) or a prior compaction pass — none of
+   * which have DB rows.
+   *
+   * The synthetic head is detected two ways. WeakSet identity
+   * ({@link isSyntheticCompactionMessage}) covers heads passed through as the
+   * exact minted objects; the structural marker check covers heads whose
+   * wrappers were rebuilt by history repair (repair copies content into fresh
+   * message objects every turn, so identity is lost). A structural false
+   * positive — an assistant message that merely starts with the marker — errs
+   * toward a LOWER persisted count, so the boundary advances less and more
+   * rows are kept verbatim: conservative, no data loss. That failure direction
+   * is why a content-shaped check is acceptable here while
+   * {@link getSummaryFromContextMessage} (which EXTRACTS summary text for
+   * reuse) rightly stays WeakSet-gated.
+   *
+   * The retained-images message needs no structural fallback: within the pass
+   * that minted it, it keeps WeakSet identity; after history repair it merges
+   * into the adjacent first tail user message (both user-role), and the merged
+   * message occupies that kept message's position, which the accounting
+   * already attributes correctly.
+   */
+  private resolveNonPersistedPrefixCount(messages: Message[]): number {
+    const syntheticHead = countSyntheticHead(messages);
+    if (this._seedLeadsHistory) {
+      // The seeded prefix still heads the history, so any synthetic head the
+      // walk found is the seed's own inherited summary — already inside the
+      // seed count, not an addition to it.
+      return Math.max(this._nonPersistedPrefixCount, syntheticHead);
+    }
+    // A compaction pass has rebuilt the front (or there is no seed): the
+    // minted head and any remaining seeded prefix are disjoint leading spans
+    // — `[head..., remaining seed..., persisted rows...]` — so they sum.
+    return syntheticHead + this._nonPersistedPrefixCount;
+  }
+
+  /**
+   * Post-pass bookkeeping shared by every productive compaction attempt:
+   * recompute the prompt estimate against the rebuilt history and settle
+   * the non-persisted prefix count the pass consumed. `passInputMessages` is
+   * the history the pass compacted FROM — its synthetic-head length tells
+   * the consume step which compacted positions were head, not seed. Returns
+   * the fresh estimate.
+   */
+  private settleCompactionAttempt(
+    result: ContextWindowResult,
+    passInputMessages: Message[],
+  ): number {
+    const estimatedInputTokens = this.recomputePostCompactionEstimate(
+      result.messages,
+      result.estimatedInputTokens,
+    );
+    this.consumeCompactionState(
+      result.compactedMessages,
+      countSyntheticHead(passInputMessages),
+    );
+    return estimatedInputTokens;
+  }
+
+  /**
    * Decrement the non-persisted prefix bookkeeping after a productive
    * compaction. Called once per successful internal attempt so multi-attempt
    * runs keep the count honest as the leading injected messages get folded
-   * into the summary.
+   * into the summary. `syntheticHeadCount` is the synthetic-head length of
+   * the pass's input history.
    */
-  private consumeCompactionState(compactedMessages: number): void {
-    const compactedAway = Math.min(
-      this._nonPersistedPrefixCount,
-      compactedMessages,
-    );
+  private consumeCompactionState(
+    compactedMessages: number,
+    syntheticHeadCount: number,
+  ): void {
+    // While the seed leads the history, every compacted leading position is
+    // a seed message (the seed subsumes its own inherited summary head). In
+    // the disjoint regime — [minted head, remaining seed, rows] — the leading
+    // syntheticHeadCount compacted positions are the head, so only positions
+    // past it charge the seed.
+    const seedMessagesCompacted = this._seedLeadsHistory
+      ? compactedMessages
+      : Math.max(0, compactedMessages - syntheticHeadCount);
+    if (compactedMessages > 0) {
+      // The pass rebuilt the history front with a minted summary head, so any
+      // remaining seed now sits behind that head rather than at index 0.
+      this._seedLeadsHistory = false;
+    }
     this._nonPersistedPrefixCount = Math.max(
       0,
-      this._nonPersistedPrefixCount - compactedAway,
+      this._nonPersistedPrefixCount - seedMessagesCompacted,
     );
   }
 }

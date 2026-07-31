@@ -6,7 +6,7 @@
  * resolver without cross-importing commands (per cli/CONTRIBUTING.md).
  */
 
-import { resolveAssistant, resolveCloud } from "./assistant-config.js";
+import { resolveAssistant } from "./assistant-config.js";
 import { getPlatformUrl, readPlatformToken } from "./platform-client.js";
 import {
   closeTerminalSession,
@@ -49,7 +49,7 @@ export function resolveManagedAssistant(
     process.exit(1);
   }
 
-  const cloud = resolveCloud(entry);
+  const cloud = entry.cloud;
   if (cloud !== "vellum") {
     if (cloud === "local") {
       console.error(

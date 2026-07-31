@@ -1,5 +1,10 @@
 #!/usr/bin/env bun
 
+import { join } from "path";
+import { readFileSync } from "node:fs";
+
+import { resolveConfigDir } from "@vellumai/local-mode";
+
 import cliPkg from "../package.json";
 import { backup } from "./commands/backup";
 import { clean } from "./commands/clean";
@@ -16,6 +21,7 @@ import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { logs } from "./commands/logs";
 import { message } from "./commands/message";
+import { nginxIngress } from "./commands/nginx-ingress";
 import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
@@ -33,6 +39,7 @@ import { unpair } from "./commands/unpair";
 import { upgrade } from "./commands/upgrade";
 import { use } from "./commands/use";
 import { wake } from "./commands/wake";
+import { workflows } from "./commands/workflows";
 import { resolveAssistant, setActiveAssistant } from "./lib/assistant-config";
 import { loadGuardianToken } from "./lib/guardian-token";
 import { checkHealth } from "./lib/health-check";
@@ -54,6 +61,7 @@ const commands = {
   logout,
   logs,
   message,
+  "nginx-ingress": nginxIngress,
   pair,
   ps,
   recover,
@@ -72,6 +80,7 @@ const commands = {
   use,
   wake,
   whoami,
+  workflows,
 } as const;
 
 type CommandName = keyof typeof commands;
@@ -96,6 +105,9 @@ function printHelp(): void {
   console.log("  flags    Show and toggle feature flags");
   console.log("  gateway  Gateway management commands");
   console.log("  hatch    Create a new assistant instance");
+  console.log(
+    "  nginx-ingress  Manage the nginx proxy fronting the gateway for web access [beta]",
+  );
   console.log("  logs     View logs from an assistant instance");
   console.log("  login    Log in to the Vellum platform");
   console.log("  logout   Log out of the Vellum platform");
@@ -126,6 +138,7 @@ function printHelp(): void {
   console.log("  use      Set the active assistant for commands");
   console.log("  wake     Start the assistant and gateway");
   console.log("  whoami   Show current logged-in user");
+  console.log("  workflows Inspect and control workflow runs");
   console.log("");
   console.log("Options:");
   console.log(
@@ -145,6 +158,56 @@ function printHelp(): void {
 function applyNoColorFlags(argv: string[]): void {
   if (argv.includes("--no-color") || argv.includes("--plain")) {
     process.env.NO_COLOR = "1";
+  }
+}
+
+/**
+ * Load env vars from the vellum config dotenv file into `process.env` so
+ * that `vellum hatch` forwards provider API keys to containers and other
+ * commands have access to them.
+ *
+ * Reads `$XDG_CONFIG_HOME/vellum{-env}/.env` — the same config directory
+ * the CLI uses for guardian tokens and environment state. The file is
+ * written by remote-hatch scripts and can be user-managed.
+ *
+ * Existing `process.env` values take precedence (standard dotenv convention).
+ * Only KEY=VALUE lines are parsed. Lines starting with # are comments.
+ * Values may be quoted with single or double quotes.
+ */
+function loadConfigDotenv(): void {
+  const configDir = resolveConfigDir(process.env);
+  const envPath = join(configDir, ".env");
+
+  let content: string;
+  try {
+    content = readFileSync(envPath, "utf-8");
+  } catch {
+    return;
+  }
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex === -1) continue;
+
+    const key = trimmed.slice(0, eqIndex).trim();
+    if (!key) continue;
+
+    // Existing env vars take precedence (dotenv convention).
+    if (process.env[key] !== undefined) continue;
+
+    let value = trimmed.slice(eqIndex + 1).trim();
+    // Strip surrounding quotes.
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    process.env[key] = value;
   }
 }
 
@@ -173,6 +236,10 @@ async function tryLaunchClient(): Promise<boolean> {
 }
 
 async function main() {
+  // Load $XDG_CONFIG_HOME/vellum/.env before any command runs so
+  // provider API keys and other config are available to hatch, exec, etc.
+  loadConfigDotenv();
+
   const args = process.argv.slice(2);
 
   // Must run before any command or terminal-capabilities usage

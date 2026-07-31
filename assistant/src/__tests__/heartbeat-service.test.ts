@@ -34,28 +34,47 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   countCompletedHeartbeatRuns: mockCountCompletedHeartbeatRuns,
   countCompletedRunsToday: mock(() => 0),
   countRecentConsecutiveRuns: mock(() => 0),
+  getLastHeartbeatRunAt: mock(() => null),
 }));
 
-// Mock config loader
-let mockConfig = {
-  heartbeat: {
-    enabled: true,
-    intervalMs: 60_000,
-    cronExpression: null as string | null,
-    timezone: null as string | null,
-    activeHoursStart: undefined as number | undefined,
-    activeHoursEnd: undefined as number | undefined,
-    disposition: "Default disposition text mentioning notifications skill.",
-  },
+// ── Heartbeat config seeding ────────────────────────────────────────
+//
+// The service reads `getConfig().heartbeat` lazily on every call, so tests
+// seed the real workspace config instead of mocking the loader. Null active
+// hours disable the time-of-day guard (the schema defaults to an 8–22
+// window, which would make runs wall-clock dependent); the disposition text
+// is asserted verbatim by the prompt tests.
+import { setConfig } from "./helpers/set-config.js";
+
+type HeartbeatSeed = {
+  enabled: boolean;
+  intervalMs: number;
+  cronExpression: string | null;
+  timezone: string | null;
+  activeHoursStart: number | null;
+  activeHoursEnd: number | null;
+  disposition: string;
 };
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+function defaultHeartbeatSeed(): HeartbeatSeed {
+  return {
+    enabled: true,
+    intervalMs: 60_000,
+    cronExpression: null,
+    timezone: null,
+    activeHoursStart: null,
+    activeHoursEnd: null,
+    disposition: "Default disposition text mentioning notifications skill.",
+  };
+}
+
+let heartbeatConfig = defaultHeartbeatSeed();
+
+/** Apply overrides onto the current seed and write it to the workspace config. */
+function setHeartbeatConfig(overrides: Partial<HeartbeatSeed> = {}): void {
+  Object.assign(heartbeatConfig, overrides);
+  setConfig("heartbeat", heartbeatConfig);
+}
 
 // ── Recurrence engine mock ──────────────────────────────────────────
 //
@@ -133,7 +152,9 @@ const mockStoredMessages: Array<{
   metadata: string | null;
 }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -248,7 +269,7 @@ mock.module("../notifications/emit-signal.js", () => ({
 }));
 
 // Mock conversation title service
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
   AUTO_TITLE_DETERMINISTIC: 2,
   deriveDeterministicTitle: (context: { systemHint?: string }) =>
@@ -264,7 +285,9 @@ let _testProcessMessage:
 
 mock.module("../daemon/process-message.js", () => ({
   processMessage: async (...args: unknown[]) => {
-    if (_testProcessMessage) return _testProcessMessage(...args);
+    if (_testProcessMessage) {
+      return _testProcessMessage(...args);
+    }
     return { messageId: `mock-msg-${Date.now()}` };
   },
   processMessageInBackground: async () => ({ messageId: "mock-bg" }),
@@ -303,32 +326,22 @@ const SCAFFOLD_PERSONA = stripCommentLines(GUARDIAN_PERSONA_TEMPLATE).trim();
 const { resolveCallSiteConfig } = await import("../config/llm-resolver.js");
 const { LLMSchema } = await import("../config/schemas/llm.js");
 
-// Minimal fully-specified `llm.default` block. The resolver requires every
-// `LLMConfigBase` field to be present in `default`, so we provide the same
-// fixture the resolver test suite uses.
-const LLM_DEFAULT = {
-  provider: "anthropic" as const,
-  model: "claude-opus-4-7",
-  maxTokens: 64000,
-  effort: "max" as const,
-  speed: "standard" as const,
-  temperature: null,
-  thinking: { enabled: true, streamThinking: true },
-  contextWindow: {
-    enabled: true,
-    maxInputTokens: 200000,
-    targetBudgetRatio: 0.3,
-    compactThreshold: 0.8,
-    summaryBudgetRatio: 0.05,
-    overflowRecovery: {
-      enabled: true,
-      safetyMarginRatio: 0.05,
-      maxAttempts: 3,
-      interactiveLatestTurnCompression: "summarize" as const,
-      nonInteractiveLatestTurnCompression: "truncate" as const,
-    },
+// Capture broadcastMessage so tests can observe the alerts and
+// conversation-created events the heartbeat service emits directly.
+type BroadcastedMessage = { type: string; [key: string]: unknown };
+const broadcastedMessages: BroadcastedMessage[] = [];
+let onBroadcast: ((msg: BroadcastedMessage) => void) | null = null;
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  assistantEventHub: {
+    publish: async () => {},
+    subscribe: () => () => {},
   },
-};
+  broadcastMessage: (msg: BroadcastedMessage) => {
+    broadcastedMessages.push(msg);
+    onBroadcast?.(msg);
+  },
+}));
 
 describe("HeartbeatService", () => {
   let processMessageCalls: Array<{
@@ -348,6 +361,12 @@ describe("HeartbeatService", () => {
   beforeEach(() => {
     processMessageCalls = [];
     alerterCalls = [];
+    broadcastedMessages.length = 0;
+    onBroadcast = (msg) => {
+      if (msg.type === "heartbeat_alert") {
+        alerterCalls.push(msg as { type: string; title: string; body: string });
+      }
+    };
     createdConversations.length = 0;
     conversationIdCounter = 0;
     mockStoredMessages.length = 0;
@@ -389,35 +408,18 @@ describe("HeartbeatService", () => {
     mockCountCompletedHeartbeatRuns.mockClear();
     mockCountCompletedHeartbeatRuns.mockImplementation(() => 10);
 
-    mockConfig = {
-      heartbeat: {
-        enabled: true,
-        intervalMs: 60_000,
-        cronExpression: null,
-        timezone: null,
-        activeHoursStart: undefined,
-        activeHoursEnd: undefined,
-        disposition: "Default disposition text mentioning notifications skill.",
-      },
-    };
+    heartbeatConfig = defaultHeartbeatSeed();
+    setHeartbeatConfig();
   });
 
   function createService(overrides?: {
     processMessage?: (...args: unknown[]) => Promise<{ messageId: string }>;
     getCurrentHour?: () => number;
-    onConversationCreated?: (info: {
-      conversationId: string;
-      title: string;
-    }) => void;
   }) {
     if (overrides?.processMessage) {
       setTestProcessMessage(overrides.processMessage);
     }
     return new HeartbeatService({
-      alerter: (alert: { type: string; title: string; body: string }) => {
-        alerterCalls.push(alert);
-      },
-      onConversationCreated: overrides?.onConversationCreated,
       getCurrentHour: overrides?.getCurrentHour,
     });
   }
@@ -510,8 +512,7 @@ describe("HeartbeatService", () => {
   });
 
   test("active hours guard skips outside window", async () => {
-    mockConfig.heartbeat.activeHoursStart = 9;
-    mockConfig.heartbeat.activeHoursEnd = 17;
+    setHeartbeatConfig({ activeHoursStart: 9, activeHoursEnd: 17 });
 
     const service = createService({ getCurrentHour: () => 3 });
     await service.runOnce();
@@ -520,8 +521,7 @@ describe("HeartbeatService", () => {
   });
 
   test("active hours skip still advances nextRunAt", async () => {
-    mockConfig.heartbeat.activeHoursStart = 9;
-    mockConfig.heartbeat.activeHoursEnd = 17;
+    setHeartbeatConfig({ activeHoursStart: 9, activeHoursEnd: 17 });
 
     const service = createService({ getCurrentHour: () => 3 });
     service.start();
@@ -532,14 +532,13 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls).toHaveLength(0);
     expect(service.nextRunAt).not.toBeNull();
     expect(service.nextRunAt!).toBeGreaterThanOrEqual(
-      before + mockConfig.heartbeat.intervalMs,
+      before + heartbeatConfig.intervalMs,
     );
     service.stop();
   });
 
   test("active hours guard allows within window", async () => {
-    mockConfig.heartbeat.activeHoursStart = 9;
-    mockConfig.heartbeat.activeHoursEnd = 17;
+    setHeartbeatConfig({ activeHoursStart: 9, activeHoursEnd: 17 });
 
     const service = createService({ getCurrentHour: () => 12 });
     await service.runOnce();
@@ -548,8 +547,7 @@ describe("HeartbeatService", () => {
   });
 
   test("active hours handles overnight window", async () => {
-    mockConfig.heartbeat.activeHoursStart = 22;
-    mockConfig.heartbeat.activeHoursEnd = 6;
+    setHeartbeatConfig({ activeHoursStart: 22, activeHoursEnd: 6 });
 
     // 23:00 should be within the window
     const service = createService({ getCurrentHour: () => 23 });
@@ -595,7 +593,7 @@ describe("HeartbeatService", () => {
   });
 
   test("disabled config prevents start", () => {
-    mockConfig.heartbeat.enabled = false;
+    setHeartbeatConfig({ enabled: false });
     const service = createService();
     service.start();
     // No error, just a no-op. We can verify by calling stop which should also be a no-op.
@@ -604,7 +602,7 @@ describe("HeartbeatService", () => {
   });
 
   test("disabled config prevents runOnce", async () => {
-    mockConfig.heartbeat.enabled = false;
+    setHeartbeatConfig({ enabled: false });
     const service = createService();
     await service.runOnce();
 
@@ -612,7 +610,7 @@ describe("HeartbeatService", () => {
   });
 
   test("force bypasses disabled config", async () => {
-    mockConfig.heartbeat.enabled = false;
+    setHeartbeatConfig({ enabled: false });
     const service = createService();
     await service.runOnce({ force: true });
 
@@ -620,8 +618,7 @@ describe("HeartbeatService", () => {
   });
 
   test("force bypasses active hours guard", async () => {
-    mockConfig.heartbeat.activeHoursStart = 9;
-    mockConfig.heartbeat.activeHoursEnd = 17;
+    setHeartbeatConfig({ activeHoursStart: 9, activeHoursEnd: 17 });
 
     const service = createService({ getCurrentHour: () => 3 });
     await service.runOnce({ force: true });
@@ -681,7 +678,7 @@ describe("HeartbeatService", () => {
     expect(service.lastRunAt!).toBeGreaterThanOrEqual(before);
     expect(service.nextRunAt).not.toBeNull();
     expect(service.nextRunAt!).toBeGreaterThanOrEqual(
-      before + mockConfig.heartbeat.intervalMs,
+      before + heartbeatConfig.intervalMs,
     );
   });
 
@@ -718,7 +715,7 @@ describe("HeartbeatService", () => {
     expect(afterReset).not.toBeNull();
     // The new nextRunAt should be >= the interval from now
     expect(afterReset!).toBeGreaterThanOrEqual(
-      before + mockConfig.heartbeat.intervalMs,
+      before + heartbeatConfig.intervalMs,
     );
     service.stop();
   });
@@ -732,7 +729,7 @@ describe("HeartbeatService", () => {
   });
 
   test("resetTimer() is a no-op when heartbeat is disabled", () => {
-    mockConfig.heartbeat.enabled = false;
+    setHeartbeatConfig({ enabled: false });
     const service = createService();
     service.start();
     expect(service.nextRunAt).toBeNull();
@@ -762,17 +759,14 @@ describe("HeartbeatService", () => {
   });
 
   test("conversation surfaces to the sidebar on every successful run", async () => {
-    const conversationCreatedCalls: Array<{
-      conversationId: string;
-      title: string;
-    }> = [];
-    const service = createService({
-      onConversationCreated: (info) => conversationCreatedCalls.push(info),
-    });
+    const service = createService();
 
     await service.runOnce();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
+    const conversationCreatedCalls = broadcastedMessages
+      .filter((m) => m.type === "heartbeat_conversation_created")
+      .map((m) => ({ conversationId: m.conversationId, title: m.title }));
     expect(conversationCreatedCalls).toEqual([
       { conversationId: "conv-1", title: "Heartbeat" },
     ]);
@@ -788,7 +782,6 @@ describe("HeartbeatService", () => {
     // processMessage, and (b) the resolver maps that identifier to the
     // user's configured speed.
     const llm = LLMSchema.parse({
-      default: LLM_DEFAULT,
       callSites: {
         heartbeatAgent: { speed: "fast" },
       },
@@ -1197,8 +1190,10 @@ describe("HeartbeatService", () => {
     test("start() with cronExpression sets nextRunAt to cron occurrence, not now+intervalMs", () => {
       const cronNextRunAt = Date.now() + 7_200_000; // 2 hours from now
       mockComputeNextRunAtResult = cronNextRunAt;
-      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
-      mockConfig.heartbeat.timezone = "America/New_York";
+      setHeartbeatConfig({
+        cronExpression: "0 9,12,15,18 * * *",
+        timezone: "America/New_York",
+      });
 
       const service = createService();
       service.start();
@@ -1206,7 +1201,7 @@ describe("HeartbeatService", () => {
       expect(service.nextRunAt).toBe(cronNextRunAt);
       // Should NOT be now + intervalMs
       expect(service.nextRunAt).not.toBeCloseTo(
-        Date.now() + mockConfig.heartbeat.intervalMs,
+        Date.now() + heartbeatConfig.intervalMs,
         -3,
       );
       service.stop();
@@ -1215,7 +1210,7 @@ describe("HeartbeatService", () => {
     test("runOnce() does not call scheduleNextRun(intervalMs) in cron mode — nextRunAt is not clobbered", async () => {
       const cronNextRunAt = Date.now() + 7_200_000;
       mockComputeNextRunAtResult = cronNextRunAt;
-      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+      setHeartbeatConfig({ cronExpression: "0 9,12,15,18 * * *" });
 
       const service = createService();
       service.start();
@@ -1236,7 +1231,7 @@ describe("HeartbeatService", () => {
     test("after runOnce() rejects in cron mode, the next cron run is still scheduled via finally", async () => {
       const cronNextRunAt = Date.now() + 7_200_000;
       mockComputeNextRunAtResult = cronNextRunAt;
-      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+      setHeartbeatConfig({ cronExpression: "0 9,12,15,18 * * *" });
 
       const service = createService({
         processMessage: async () => {
@@ -1256,7 +1251,7 @@ describe("HeartbeatService", () => {
     test("resetTimer() in cron mode recomputes from the current time", () => {
       const firstCronTime = Date.now() + 3_600_000;
       mockComputeNextRunAtResult = firstCronTime;
-      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+      setHeartbeatConfig({ cronExpression: "0 9,12,15,18 * * *" });
 
       const service = createService();
       service.start();
@@ -1281,7 +1276,7 @@ describe("HeartbeatService", () => {
       // Reconfigure to cron mode
       const cronNextRunAt = Date.now() + 7_200_000;
       mockComputeNextRunAtResult = cronNextRunAt;
-      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+      setHeartbeatConfig({ cronExpression: "0 9,12,15,18 * * *" });
       service.reconfigure();
 
       expect(service.nextRunAt).toBe(cronNextRunAt);
@@ -1291,29 +1286,31 @@ describe("HeartbeatService", () => {
     test("reconfigure() switches from cron to interval mode", () => {
       const cronNextRunAt = Date.now() + 7_200_000;
       mockComputeNextRunAtResult = cronNextRunAt;
-      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+      setHeartbeatConfig({ cronExpression: "0 9,12,15,18 * * *" });
 
       const service = createService();
       service.start();
       expect(service.nextRunAt).toBe(cronNextRunAt);
 
       // Reconfigure to interval mode
-      mockConfig.heartbeat.cronExpression = null;
+      setHeartbeatConfig({ cronExpression: null });
       const before = Date.now();
       service.reconfigure();
 
       expect(service.nextRunAt).not.toBeNull();
       expect(service.nextRunAt!).toBeGreaterThanOrEqual(
-        before + mockConfig.heartbeat.intervalMs,
+        before + heartbeatConfig.intervalMs,
       );
       service.stop();
     });
 
     test("active hours guard uses cron timezone when configured", async () => {
-      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
-      mockConfig.heartbeat.timezone = "UTC";
-      mockConfig.heartbeat.activeHoursStart = 9;
-      mockConfig.heartbeat.activeHoursEnd = 17;
+      setHeartbeatConfig({
+        cronExpression: "0 9,12,15,18 * * *",
+        timezone: "UTC",
+        activeHoursStart: 9,
+        activeHoursEnd: 17,
+      });
       mockComputeNextRunAtResult = Date.now() + 3_600_000;
 
       const service = createService();
@@ -1330,10 +1327,12 @@ describe("HeartbeatService", () => {
     });
 
     test("active hours guard falls back to getCurrentHour when cron mode has no timezone", async () => {
-      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
-      mockConfig.heartbeat.timezone = null;
-      mockConfig.heartbeat.activeHoursStart = 9;
-      mockConfig.heartbeat.activeHoursEnd = 17;
+      setHeartbeatConfig({
+        cronExpression: "0 9,12,15,18 * * *",
+        timezone: null,
+        activeHoursStart: 9,
+        activeHoursEnd: 17,
+      });
       mockComputeNextRunAtResult = Date.now() + 3_600_000;
 
       // getCurrentHour returns 3 (outside 9-17 window), so runOnce should skip
@@ -1347,14 +1346,14 @@ describe("HeartbeatService", () => {
 
     test("runtime fallback: computeNextRunAt throws, service falls back to interval mode", () => {
       mockComputeNextRunAtError = new Error("No upcoming runs");
-      mockConfig.heartbeat.cronExpression = "0 9,12,15,18 * * *";
+      setHeartbeatConfig({ cronExpression: "0 9,12,15,18 * * *" });
 
       const service = createService();
       service.start();
 
       // Should have fallen back to interval mode — nextRunAt should be ~now + intervalMs
       expect(service.nextRunAt).not.toBeNull();
-      const expectedMin = Date.now() + mockConfig.heartbeat.intervalMs - 100;
+      const expectedMin = Date.now() + heartbeatConfig.intervalMs - 100;
       expect(service.nextRunAt!).toBeGreaterThanOrEqual(expectedMin);
 
       // Should have logged a warning about the fallback
@@ -1364,7 +1363,7 @@ describe("HeartbeatService", () => {
     });
 
     test("null cronExpression behaves identically to current fixed-interval mode", () => {
-      mockConfig.heartbeat.cronExpression = null;
+      setHeartbeatConfig({ cronExpression: null });
 
       const service = createService();
       const before = Date.now();
@@ -1372,7 +1371,7 @@ describe("HeartbeatService", () => {
 
       expect(service.nextRunAt).not.toBeNull();
       expect(service.nextRunAt!).toBeGreaterThanOrEqual(
-        before + mockConfig.heartbeat.intervalMs,
+        before + heartbeatConfig.intervalMs,
       );
       // computeNextRunAt should not have been called
       expect(computeNextRunAtCallCount).toBe(0);
@@ -1427,8 +1426,7 @@ describe("HeartbeatService", () => {
     });
 
     test("active-hours skip calls skipHeartbeatRun", async () => {
-      mockConfig.heartbeat.activeHoursStart = 9;
-      mockConfig.heartbeat.activeHoursEnd = 17;
+      setHeartbeatConfig({ activeHoursStart: 9, activeHoursEnd: 17 });
 
       const service = createService({ getCurrentHour: () => 3 });
       service.start();
@@ -1550,7 +1548,7 @@ describe("HeartbeatService", () => {
       service.start();
 
       // Now disable config and call runOnce — should skip the pending row
-      mockConfig.heartbeat.enabled = false;
+      setHeartbeatConfig({ enabled: false });
       mockSkipHeartbeatRun.mockClear();
 
       await service.runOnce();
@@ -1689,7 +1687,7 @@ describe("HeartbeatService", () => {
 
   describe("configurable disposition", () => {
     test("injects the configured disposition inside <heartbeat-disposition>", () => {
-      mockConfig.heartbeat.disposition = "Marker text from config.";
+      setHeartbeatConfig({ disposition: "Marker text from config." });
       const service = createService();
       const { prompt } = service.buildPrompt("- Check things", [], 10);
 
@@ -1699,7 +1697,7 @@ describe("HeartbeatService", () => {
     });
 
     test("omits the block when disposition is empty", () => {
-      mockConfig.heartbeat.disposition = "";
+      setHeartbeatConfig({ disposition: "" });
       const service = createService();
       const { prompt } = service.buildPrompt("- Check things", [], 10);
 

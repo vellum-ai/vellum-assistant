@@ -1,17 +1,31 @@
 import { Cron } from "croner";
-import { and, asc, desc, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db-connection.js";
-import { rawChanges } from "../memory/raw-query.js";
-import { scheduleJobs, scheduleRuns } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { getGroup } from "../persistence/group-crud.js";
+import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
+import { rawChanges } from "../persistence/raw-query.js";
+import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
 import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js";
+import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
+import {
+  hasOwnerDeferProvenance,
+  isDeferSchedule,
+  LEGACY_DEFER_CREATED_BY,
+  OWNER_DEFER_CREATED_BY,
+} from "./defer-provenance.js";
 import {
   computeNextRunAt as computeNextRunAtEngine,
   isValidScheduleExpression,
 } from "./recurrence-engine.js";
 import type { ScheduleSyntax } from "./recurrence-types.js";
+import {
+  expressionCarriesOwnTimezone,
+  resolveScheduleTimezone,
+} from "./schedule-timezone.js";
 
 const logger = getLogger("schedule-store");
 
@@ -26,7 +40,12 @@ function notifySchedulesChanged(): void {
     );
 }
 
-export type ScheduleMode = "notify" | "execute" | "script" | "wake";
+export type ScheduleMode =
+  | "notify"
+  | "execute"
+  | "script"
+  | "wake"
+  | "workflow";
 export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
 export type ScheduleStatus = "active" | "firing" | "fired" | "cancelled";
 
@@ -42,6 +61,12 @@ export interface ScheduleJob {
   message: string;
   script: string | null;
   wakeConversationId: string | null;
+  /** Saved workflow to trigger; only used when mode = 'workflow'. */
+  workflowName: string | null;
+  /** Args passed verbatim to the workflow run; only used when mode = 'workflow'. */
+  workflowArgs: unknown;
+  /** Capability manifest scoping the schedule's run; null = unconstrained. */
+  capabilities: unknown | null;
   nextRunAt: number;
   lastRunAt: number | null;
   lastStatus: string | null;
@@ -50,6 +75,18 @@ export interface ScheduleJob {
   retryBackoffMs: number;
   /** Script-mode execution timeout override (ms); null = use the default. */
   timeoutMs: number | null;
+  /**
+   * Inference profile (`llm.profiles` key) applied to the schedule's
+   * LLM-executed runs; null = default main-agent model selection.
+   */
+  inferenceProfile: string | null;
+  /**
+   * Sidebar group (`conversation_groups` id) for conversations created by
+   * the schedule's runs; null = the default `system:scheduled`. Resolve via
+   * {@link resolveScheduleConversationGroupId}, since the group may have
+   * been deleted since it was set.
+   */
+  groupId: string | null;
   createdFromConversationId: string | null;
   createdBy: string;
   mode: ScheduleMode;
@@ -84,7 +121,15 @@ export function isValidCronExpression(expr: string): boolean {
   }
 }
 
-export function createSchedule(params: {
+/**
+ * Insert a schedule row. Unexported on purpose: it is the only writer of
+ * `createdBy` and `createdFromConversationId`, the two fields a deferred wake's
+ * firing reads as proof of who authored its target and trigger text. Callers
+ * reach it through {@link createSchedule} (which cannot mint owner-defer
+ * provenance) or {@link createOwnerDeferredWake} (which is the only thing that
+ * can).
+ */
+interface InsertScheduleParams {
   name: string;
   description?: string;
   cronExpression?: string | null;
@@ -92,6 +137,9 @@ export function createSchedule(params: {
   message: string;
   script?: string | null;
   wakeConversationId?: string | null;
+  workflowName?: string | null;
+  workflowArgs?: unknown;
+  capabilities?: unknown;
   enabled?: boolean;
   createdBy?: string;
   syntax?: ScheduleSyntax;
@@ -105,8 +153,33 @@ export function createSchedule(params: {
   maxRetries?: number;
   retryBackoffMs?: number;
   timeoutMs?: number | null;
+  inferenceProfile?: string | null;
+  groupId?: string | null;
   createdFromConversationId?: string | null;
-}): ScheduleJob {
+}
+
+/**
+ * Values ordinary schedule creation may record in `createdBy`.
+ *
+ * Deliberately a closed union rather than `string`: it excludes the owner-defer
+ * marker at the type level, so {@link createSchedule} cannot express the
+ * provenance that lets a wake firing recover trust. The legacy defer value
+ * stays available because rows written before the marker existed still need to
+ * be representable.
+ */
+export type OrdinaryScheduleCreator =
+  | "agent"
+  | "user"
+  | typeof LEGACY_DEFER_CREATED_BY;
+
+/** Parameters for ordinary schedule creation. */
+export type CreateScheduleParams = Omit<InsertScheduleParams, "createdBy"> & {
+  createdBy?: OrdinaryScheduleCreator;
+};
+
+async function insertSchedule(
+  params: InsertScheduleParams,
+): Promise<ScheduleJob> {
   const expression = params.expression ?? params.cronExpression ?? null;
   const isOneShot = expression == null;
   const syntax = params.syntax ?? "cron";
@@ -133,19 +206,28 @@ export function createSchedule(params: {
   const id = uuid();
   const now = Date.now();
   const enabled = params.enabled ?? true;
-  const timezone = params.timezone ?? null;
+  // A recurring wall-clock schedule with no zone otherwise evaluates in the host
+  // clock (UTC on managed containers). Default it to the user's configured/detected
+  // zone so it fires at the intended local hour. One-shot schedules (absolute epoch)
+  // and expressions that carry their own zone keep the caller's value verbatim.
+  const timezone =
+    isOneShot || expressionCarriesOwnTimezone(syntax, expression)
+      ? (params.timezone ?? null)
+      : resolveScheduleTimezone(params.timezone);
   const mode = params.mode ?? "execute";
   const routingIntent = params.routingIntent ?? "all_channels";
   const routingHints = params.routingHints ?? {};
   const quiet = params.quiet ?? false;
-  const reuseConversation = params.reuseConversation ?? !isOneShot;
+  const reuseConversation = params.reuseConversation ?? false;
   const maxRetries = params.maxRetries ?? 3;
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
   const timeoutMs = params.timeoutMs ?? null;
+  const inferenceProfile = params.inferenceProfile ?? null;
+  const groupId = params.groupId ?? null;
   const createdFromConversationId = params.createdFromConversationId ?? null;
   const description = normalizeDescription(
     params.description,
-    params.createdBy === "defer" ? "" : params.name,
+    isDeferSchedule(params.createdBy ?? "") ? "" : params.name,
   );
 
   let nextRunAt: number;
@@ -168,6 +250,13 @@ export function createSchedule(params: {
     message: params.message,
     script: params.script ?? null,
     wakeConversationId: params.wakeConversationId ?? null,
+    workflowName: params.workflowName ?? null,
+    workflowArgsJson:
+      params.workflowArgs === undefined
+        ? null
+        : JSON.stringify(params.workflowArgs),
+    capabilitiesJson:
+      params.capabilities != null ? JSON.stringify(params.capabilities) : null,
     nextRunAt,
     lastRunAt: null as number | null,
     lastStatus: null as string | null,
@@ -175,6 +264,8 @@ export function createSchedule(params: {
     maxRetries,
     retryBackoffMs,
     timeoutMs,
+    inferenceProfile,
+    groupId,
     createdFromConversationId,
     createdBy: params.createdBy ?? "agent",
     mode,
@@ -187,9 +278,84 @@ export function createSchedule(params: {
     updatedAt: now,
   };
 
-  db.insert(scheduleJobs).values(row).run();
+  await withSqliteRetry(() => db.insert(scheduleJobs).values(row).run(), {
+    op: "createSchedule",
+    context: { scheduleId: id },
+  });
   notifySchedulesChanged();
   return parseJobRow(row);
+}
+
+/**
+ * Create an ordinary schedule.
+ *
+ * Cannot mint owner-defer provenance: that marker is what lets an unattended
+ * wake firing recover its target conversation's resting trust, so it is issued
+ * only by {@link createOwnerDeferredWake}, which sets it together with the
+ * target and source binding that give it meaning. Passing the reserved value
+ * here throws rather than silently downgrading, so a caller reaching for it
+ * fails loudly instead of producing a row that looks trusted.
+ */
+export async function createSchedule(
+  params: CreateScheduleParams,
+): Promise<ScheduleJob> {
+  if (params.createdBy && hasOwnerDeferProvenance(params.createdBy)) {
+    throw new Error(
+      "Owner-defer provenance is issued only by createOwnerDeferredWake()",
+    );
+  }
+  return insertSchedule(params);
+}
+
+/**
+ * Create a deferred wake on `conversationId`, carrying durable proof that the
+ * assistant's owner chose both its target and its trigger text.
+ *
+ * The proof is the combination this function sets atomically and nothing else
+ * can assemble: owner provenance in `createdBy`, the wake target, and the
+ * source-conversation binding that must equal it. All three are write-once
+ * (absent from `updateSchedule`'s parameters), and `updateSchedule` refuses to
+ * rewrite the trigger text or target of a row carrying the marker, so a row's
+ * target and text are exactly what this call recorded.
+ *
+ * Callers must have established owner authority first; `defer/create` is the
+ * only production caller and is gated accordingly.
+ */
+export async function createOwnerDeferredWake(params: {
+  conversationId: string;
+  hint: string;
+  fireAt: number;
+  name?: string;
+  inferenceProfile?: string | null;
+}): Promise<ScheduleJob> {
+  return insertSchedule({
+    name: params.name ?? "Deferred wake",
+    message: params.hint,
+    mode: "wake",
+    wakeConversationId: params.conversationId,
+    createdFromConversationId: params.conversationId,
+    createdBy: OWNER_DEFER_CREATED_BY,
+    nextRunAt: params.fireAt,
+    quiet: true,
+    ...(params.inferenceProfile !== undefined
+      ? { inferenceProfile: params.inferenceProfile }
+      : {}),
+  });
+}
+
+/**
+ * Sidebar group for conversations created by a schedule's runs. The job's
+ * `groupId` wins only while the group still exists: a schedule may outlive
+ * its custom group, and creating a conversation with a dangling group id
+ * would violate the conversations->conversation_groups FK.
+ */
+export function resolveScheduleConversationGroupId(
+  job: Pick<ScheduleJob, "groupId">,
+): string {
+  if (job.groupId && getGroup(job.groupId)) {
+    return job.groupId;
+  }
+  return "system:scheduled";
 }
 
 export function getSchedule(id: string): ScheduleJob | null {
@@ -199,7 +365,9 @@ export function getSchedule(id: string): ScheduleJob | null {
     .from(scheduleJobs)
     .where(eq(scheduleJobs.id, id))
     .get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return parseJobRow(row);
 }
 
@@ -220,7 +388,7 @@ export function listSchedules(options?: {
   oneShotOnly?: boolean;
   recurringOnly?: boolean;
   mode?: ScheduleMode;
-  createdBy?: string;
+  createdBy?: string | readonly string[];
   conversationId?: string;
 }): ScheduleJob[] {
   const db = getDb();
@@ -238,7 +406,12 @@ export function listSchedules(options?: {
     conditions.push(eq(scheduleJobs.mode, options.mode));
   }
   if (options?.createdBy) {
-    conditions.push(eq(scheduleJobs.createdBy, options.createdBy));
+    const createdBy = options.createdBy;
+    conditions.push(
+      typeof createdBy === "string"
+        ? eq(scheduleJobs.createdBy, createdBy)
+        : inArray(scheduleJobs.createdBy, [...createdBy]),
+    );
   }
   if (options?.conversationId) {
     conditions.push(
@@ -255,7 +428,7 @@ export function listSchedules(options?: {
   return rows.map(parseJobRow);
 }
 
-export function updateSchedule(
+export async function updateSchedule(
   id: string,
   updates: {
     name?: string;
@@ -273,19 +446,62 @@ export function updateSchedule(
     quiet?: boolean;
     reuseConversation?: boolean;
     wakeConversationId?: string | null;
+    workflowName?: string | null;
+    workflowArgs?: unknown;
+    capabilities?: unknown;
     maxRetries?: number;
     retryBackoffMs?: number;
     timeoutMs?: number | null;
-    createdFromConversationId?: string | null;
+    inferenceProfile?: string | null;
+    groupId?: string | null;
+    // `createdBy` and `createdFromConversationId` are deliberately absent: a
+    // deferred wake's firing reads both to decide whether the woken turn may
+    // recover its target conversation's resting trust (see
+    // `wake-schedule-options.ts`), and proof that can be rewritten is not
+    // proof. Keeping them out of this type makes that structural rather than a
+    // caller convention, so reaching for them is a compile error instead of a
+    // silent trust bypass.
+    //
+    // `message`, `wakeConversationId`, and `mode` stay in this type because
+    // ordinary schedules and legacy defers edit them freely. On a row carrying
+    // owner-defer provenance they are immutable, enforced at the top of the
+    // function body rather than in the type, since the distinction is per-row.
   },
-): ScheduleJob | null {
+): Promise<ScheduleJob | null> {
   const db = getDb();
   const existing = db
     .select()
     .from(scheduleJobs)
     .where(eq(scheduleJobs.id, id))
     .get();
-  if (!existing) return null;
+  if (!existing) {
+    return null;
+  }
+
+  // Owner-defer provenance certifies that the assistant's owner chose both the
+  // conversation this wake resumes and the text it carries. Rewriting either
+  // would leave the marker standing over content it does not describe, so on
+  // these rows the authority-bearing trio is fixed at creation. Same-value
+  // writes pass, so an idempotent update that echoes current state is not an
+  // error. Changing a trusted defer is cancel-and-recreate through
+  // `createOwnerDeferredWake`, which is exactly what the defer surface exposes.
+  // Legacy defers stay editable and never recover trust either way.
+  if (hasOwnerDeferProvenance(existing.createdBy)) {
+    const rewritesTrigger =
+      updates.message !== undefined && updates.message !== existing.message;
+    const rewritesTarget =
+      updates.wakeConversationId !== undefined &&
+      updates.wakeConversationId !== existing.wakeConversationId;
+    const rewritesMode =
+      updates.mode !== undefined && updates.mode !== existing.mode;
+    if (rewritesTrigger || rewritesTarget || rewritesMode) {
+      // UserError: a caller-facing refusal, not a daemon fault. Transport
+      // surfaces map it to a 4xx carrying this message, not a generic 500.
+      throw new UserError(
+        "A trusted deferred wake's target, trigger text, and mode are fixed at creation; cancel and re-create it",
+      );
+    }
+  }
 
   // Resolve the effective syntax and expression after this update
   const newSyntax =
@@ -313,39 +529,92 @@ export function updateSchedule(
       timezone: newTimezone,
     };
     if (!isValidScheduleExpression(spec)) {
-      throw new Error(`Invalid ${newSyntax} expression: "${newExpr}"`);
+      throw new UserError(`Invalid ${newSyntax} expression: "${newExpr}"`);
     }
   }
 
   const now = Date.now();
   const set: Record<string, unknown> = { updatedAt: now };
 
-  if (updates.name !== undefined) set.name = updates.name;
-  if (updates.description !== undefined)
+  if (updates.name !== undefined) {
+    set.name = updates.name;
+  }
+  if (updates.description !== undefined) {
     set.description = normalizeDescription(updates.description);
-  if (updates.cronExpression !== undefined || updates.expression !== undefined)
+  }
+  if (
+    updates.cronExpression !== undefined ||
+    updates.expression !== undefined
+  ) {
     set.cronExpression = newExpr;
-  if (updates.syntax !== undefined) set.scheduleSyntax = newSyntax;
-  if (updates.timezone !== undefined) set.timezone = updates.timezone;
-  if (updates.message !== undefined) set.message = updates.message;
-  if (updates.script !== undefined) set.script = updates.script;
-  if (updates.enabled !== undefined) set.enabled = updates.enabled;
-  if (updates.mode !== undefined) set.mode = updates.mode;
-  if (updates.routingIntent !== undefined)
+  }
+  if (updates.syntax !== undefined) {
+    set.scheduleSyntax = newSyntax;
+  }
+  if (updates.timezone !== undefined) {
+    set.timezone = updates.timezone;
+  }
+  if (updates.message !== undefined) {
+    set.message = updates.message;
+  }
+  if (updates.script !== undefined) {
+    set.script = updates.script;
+  }
+  if (updates.enabled !== undefined) {
+    set.enabled = updates.enabled;
+  }
+  if (updates.mode !== undefined) {
+    set.mode = updates.mode;
+  }
+  if (updates.routingIntent !== undefined) {
     set.routingIntent = updates.routingIntent;
-  if (updates.routingHints !== undefined)
+  }
+  if (updates.routingHints !== undefined) {
     set.routingHintsJson = JSON.stringify(updates.routingHints);
-  if (updates.quiet !== undefined) set.quiet = updates.quiet;
-  if (updates.reuseConversation !== undefined)
+  }
+  if (updates.quiet !== undefined) {
+    set.quiet = updates.quiet;
+  }
+  if (updates.reuseConversation !== undefined) {
     set.reuseConversation = updates.reuseConversation;
-  if (updates.wakeConversationId !== undefined)
+  }
+  if (updates.wakeConversationId !== undefined) {
     set.wakeConversationId = updates.wakeConversationId;
-  if (updates.maxRetries !== undefined) set.maxRetries = updates.maxRetries;
-  if (updates.retryBackoffMs !== undefined)
+  }
+  if (updates.workflowName !== undefined) {
+    set.workflowName = updates.workflowName;
+  }
+  // `workflowArgs` may legitimately be any JSON value (including null), so
+  // detect presence by key rather than `!== undefined`.
+  if ("workflowArgs" in updates) {
+    set.workflowArgsJson =
+      updates.workflowArgs === undefined
+        ? null
+        : JSON.stringify(updates.workflowArgs);
+  }
+  // `capabilities` may legitimately be any JSON value (including null), so
+  // detect presence by key rather than `!== undefined`.
+  if ("capabilities" in updates) {
+    set.capabilitiesJson =
+      updates.capabilities == null
+        ? null
+        : JSON.stringify(updates.capabilities);
+  }
+  if (updates.maxRetries !== undefined) {
+    set.maxRetries = updates.maxRetries;
+  }
+  if (updates.retryBackoffMs !== undefined) {
     set.retryBackoffMs = updates.retryBackoffMs;
-  if (updates.timeoutMs !== undefined) set.timeoutMs = updates.timeoutMs;
-  if (updates.createdFromConversationId !== undefined)
-    set.createdFromConversationId = updates.createdFromConversationId;
+  }
+  if (updates.timeoutMs !== undefined) {
+    set.timeoutMs = updates.timeoutMs;
+  }
+  if (updates.inferenceProfile !== undefined) {
+    set.inferenceProfile = updates.inferenceProfile;
+  }
+  if (updates.groupId !== undefined) {
+    set.groupId = updates.groupId;
+  }
 
   // Recompute nextRunAt if schedule timing may have changed (only for recurring)
   if (
@@ -364,17 +633,29 @@ export function updateSchedule(
     set.nextRunAt = newEnabled ? computeNextRunAtEngine(spec) : 0;
   }
 
-  db.update(scheduleJobs).set(set).where(eq(scheduleJobs.id, id)).run();
+  await withSqliteRetry(
+    () => db.update(scheduleJobs).set(set).where(eq(scheduleJobs.id, id)).run(),
+    { op: "updateSchedule", context: { scheduleId: id } },
+  );
   notifySchedulesChanged();
 
   return getSchedule(id);
 }
 
-export function deleteSchedule(id: string): boolean {
+export async function deleteSchedule(id: string): Promise<boolean> {
   const db = getDb();
-  db.delete(scheduleJobs).where(eq(scheduleJobs.id, id)).run();
-  const deleted = rawChanges() > 0;
-  if (deleted) notifySchedulesChanged();
+  // Capture rawChanges() inside the awaited closure: reading it after the
+  // await would race other async DB work on the shared connection.
+  const deleted = await withSqliteRetry(
+    () => {
+      db.delete(scheduleJobs).where(eq(scheduleJobs.id, id)).run();
+      return rawChanges() > 0;
+    },
+    { op: "deleteSchedule", context: { scheduleId: id } },
+  );
+  if (deleted) {
+    notifySchedulesChanged();
+  }
   return deleted;
 }
 
@@ -388,7 +669,16 @@ export function deleteSchedule(id: string): boolean {
  * For one-shot schedules: transition status from 'active' to 'firing' where
  * next_run_at <= now and enabled = true and cron_expression IS NULL.
  */
-export function claimDueSchedules(now: number): ScheduleJob[] {
+export async function claimDueSchedules(now: number): Promise<ScheduleJob[]> {
+  // Drain gate: while a quiesce lease is active, claim nothing so in-flight
+  // runs can drain before a stop. The check lives here — immediately before
+  // the claim writes — rather than at the tick boundary, to shrink the window
+  // in which a lease armed mid-tick could miss a claim that already passed an
+  // earlier check. Fail-open via the lease read.
+  if (isLifecycleQuiesced()) {
+    return [];
+  }
+
   const db = getDb();
   const claimed: ScheduleJob[] = [];
 
@@ -444,17 +734,25 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
       updates.nextRunAt = newNextRunAt!;
     }
 
-    db.update(scheduleJobs)
-      .set(updates)
-      .where(
-        and(
-          eq(scheduleJobs.id, row.id),
-          eq(scheduleJobs.nextRunAt, row.nextRunAt),
-        ),
-      )
-      .run();
+    const recurringClaimed = await withSqliteRetry(
+      () => {
+        db.update(scheduleJobs)
+          .set(updates)
+          .where(
+            and(
+              eq(scheduleJobs.id, row.id),
+              eq(scheduleJobs.nextRunAt, row.nextRunAt),
+            ),
+          )
+          .run();
+        return rawChanges() > 0;
+      },
+      { op: "claimDueSchedules.recurring", context: { scheduleId: row.id } },
+    );
 
-    if (rawChanges() === 0) continue;
+    if (!recurringClaimed) {
+      continue;
+    }
 
     claimed.push(
       parseJobRow({
@@ -483,18 +781,26 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
     .all();
 
   for (const row of oneShotCandidates) {
-    db.update(scheduleJobs)
-      .set({
-        status: "firing",
-        lastRunAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(eq(scheduleJobs.id, row.id), eq(scheduleJobs.status, "active")),
-      )
-      .run();
+    const oneShotClaimed = await withSqliteRetry(
+      () => {
+        db.update(scheduleJobs)
+          .set({
+            status: "firing",
+            lastRunAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(eq(scheduleJobs.id, row.id), eq(scheduleJobs.status, "active")),
+          )
+          .run();
+        return rawChanges() > 0;
+      },
+      { op: "claimDueSchedules.oneShot", context: { scheduleId: row.id } },
+    );
 
-    if (rawChanges() === 0) continue;
+    if (!oneShotClaimed) {
+      continue;
+    }
 
     claimed.push(
       parseJobRow({
@@ -506,7 +812,9 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
     );
   }
 
-  if (claimed.length > 0) notifySchedulesChanged();
+  if (claimed.length > 0) {
+    notifySchedulesChanged();
+  }
   return claimed;
 }
 
@@ -514,35 +822,51 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
  * Complete a one-shot schedule after successful execution.
  * Transitions status from 'firing' to 'fired' and disables the schedule.
  */
-export function completeOneShot(id: string): void {
+export async function completeOneShot(id: string): Promise<void> {
   const db = getDb();
   const now = Date.now();
-  db.update(scheduleJobs)
-    .set({
-      status: "fired",
-      enabled: false,
-      updatedAt: now,
-    })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
-    .run();
-  if (rawChanges() > 0) notifySchedulesChanged();
+  const changed = await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({
+          status: "fired",
+          enabled: false,
+          updatedAt: now,
+        })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "completeOneShot", context: { scheduleId: id } },
+  );
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
  * Revert a one-shot schedule from 'firing' back to 'active' on failure.
  * Allows the schedule to be retried on the next tick.
  */
-export function failOneShot(id: string): void {
+export async function failOneShot(id: string): Promise<void> {
   const db = getDb();
   const now = Date.now();
-  db.update(scheduleJobs)
-    .set({
-      status: "active",
-      updatedAt: now,
-    })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
-    .run();
-  if (rawChanges() > 0) notifySchedulesChanged();
+  const changed = await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({
+          status: "active",
+          updatedAt: now,
+        })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "failOneShot", context: { scheduleId: id } },
+  );
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
@@ -550,20 +874,26 @@ export function failOneShot(id: string): void {
  * retry count. Used when a wake times out waiting for an idle conversation
  * — the job should be retried on the next scheduler tick.
  */
-export function retryOneShot(id: string): void {
+export async function retryOneShot(id: string): Promise<void> {
   const db = getDb();
   const now = Date.now();
-  let changed = false;
-  db.update(scheduleJobs)
-    .set({
-      status: "active",
-      retryCount: sql`${scheduleJobs.retryCount} + 1`,
-      updatedAt: now,
-    })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
-    .run();
-  changed = rawChanges() > 0;
-  if (changed) notifySchedulesChanged();
+  const changed = await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({
+          status: "active",
+          retryCount: sql`${scheduleJobs.retryCount} + 1`,
+          updatedAt: now,
+        })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "retryOneShot", context: { scheduleId: id } },
+  );
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
@@ -571,80 +901,126 @@ export function retryOneShot(id: string): void {
  * disabled. Used when a wake has exceeded its retry cap and should not
  * be retried further.
  */
-export function failOneShotPermanently(id: string): void {
+export async function failOneShotPermanently(id: string): Promise<void> {
   const db = getDb();
   const now = Date.now();
-  db.update(scheduleJobs)
-    .set({
-      status: "cancelled",
-      enabled: false,
-      lastStatus: "error",
-      updatedAt: now,
-    })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
-    .run();
-  if (rawChanges() > 0) notifySchedulesChanged();
+  const changed = await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({
+          status: "cancelled",
+          enabled: false,
+          lastStatus: "error",
+          updatedAt: now,
+        })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "failOneShotPermanently", context: { scheduleId: id } },
+  );
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
  * Cancel a one-shot schedule. Sets status to 'cancelled' and disables it.
  * Returns true if a row was actually updated (i.e., it was in 'active' status).
  */
-export function cancelSchedule(id: string): boolean {
+export async function cancelSchedule(id: string): Promise<boolean> {
   const db = getDb();
   const now = Date.now();
-  db.update(scheduleJobs)
-    .set({
-      status: "cancelled",
-      enabled: false,
-      updatedAt: now,
-    })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "active")))
-    .run();
-  const cancelled = rawChanges() > 0;
-  if (cancelled) notifySchedulesChanged();
+  const cancelled = await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({
+          status: "cancelled",
+          enabled: false,
+          updatedAt: now,
+        })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "active")))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "cancelSchedule", context: { scheduleId: id } },
+  );
+  if (cancelled) {
+    notifySchedulesChanged();
+  }
   return cancelled;
 }
 
-export function createScheduleRun(
+export async function createScheduleRun(
   jobId: string,
   conversationId: string | null,
-): string {
+): Promise<string> {
   const db = getDb();
   const id = uuid();
   const now = Date.now();
-  db.insert(scheduleRuns)
-    .values({
-      id,
-      jobId,
-      status: "running",
-      startedAt: now,
-      finishedAt: null,
-      durationMs: null,
-      output: null,
-      error: null,
-      conversationId,
-      createdAt: now,
-    })
-    .run();
+  await withSqliteRetry(
+    () =>
+      db
+        .insert(scheduleRuns)
+        .values({
+          id,
+          jobId,
+          status: "running",
+          startedAt: now,
+          finishedAt: null,
+          durationMs: null,
+          output: null,
+          error: null,
+          conversationId,
+          createdAt: now,
+        })
+        .run(),
+    { op: "createScheduleRun", context: { scheduleId: jobId, runId: id } },
+  );
   return id;
 }
 
-export function setScheduleRunConversationId(
-  runId: string,
-  conversationId: string,
-): void {
+/** Currently-running schedule runs with their job names, oldest first. */
+export function listRunningScheduleRuns(): Array<{
+  runId: string;
+  scheduleName: string | null;
+  startedAt: number;
+}> {
   const db = getDb();
-  db.update(scheduleRuns)
-    .set({ conversationId })
-    .where(eq(scheduleRuns.id, runId))
-    .run();
+  return db
+    .select({
+      runId: scheduleRuns.id,
+      scheduleName: scheduleJobs.name,
+      startedAt: scheduleRuns.startedAt,
+    })
+    .from(scheduleRuns)
+    .leftJoin(scheduleJobs, eq(scheduleRuns.jobId, scheduleJobs.id))
+    .where(eq(scheduleRuns.status, "running"))
+    .orderBy(asc(scheduleRuns.startedAt))
+    .limit(20)
+    .all();
 }
 
-export function completeScheduleRun(
+export async function setScheduleRunConversationId(
+  runId: string,
+  conversationId: string,
+): Promise<void> {
+  const db = getDb();
+  await withSqliteRetry(
+    () =>
+      db
+        .update(scheduleRuns)
+        .set({ conversationId })
+        .where(eq(scheduleRuns.id, runId))
+        .run(),
+    { op: "setScheduleRunConversationId", context: { runId } },
+  );
+}
+
+export async function completeScheduleRun(
   runId: string,
   result: { status: "ok" | "error"; output?: string; error?: string },
-): void {
+): Promise<void> {
   const db = getDb();
   const now = Date.now();
 
@@ -653,20 +1029,27 @@ export function completeScheduleRun(
     .from(scheduleRuns)
     .where(eq(scheduleRuns.id, runId))
     .get();
-  if (!run) return;
+  if (!run) {
+    return;
+  }
 
   const durationMs = now - run.startedAt;
 
-  db.update(scheduleRuns)
-    .set({
-      status: result.status,
-      finishedAt: now,
-      durationMs,
-      output: result.output?.slice(0, 10_000) ?? null,
-      error: result.error?.slice(0, 2000) ?? null,
-    })
-    .where(eq(scheduleRuns.id, runId))
-    .run();
+  await withSqliteRetry(
+    () =>
+      db
+        .update(scheduleRuns)
+        .set({
+          status: result.status,
+          finishedAt: now,
+          durationMs,
+          output: result.output?.slice(0, 10_000) ?? null,
+          error: result.error?.slice(0, 2000) ?? null,
+        })
+        .where(eq(scheduleRuns.id, runId))
+        .run(),
+    { op: "completeScheduleRun.run", context: { runId } },
+  );
 
   // Update the parent job's lastStatus and retryCount
   if (result.status === "error") {
@@ -677,22 +1060,41 @@ export function completeScheduleRun(
       .where(eq(scheduleJobs.id, run.jobId))
       .get();
     if (job) {
-      db.update(scheduleJobs)
-        .set({
-          lastStatus: "error",
-          retryCount: job.retryCount + 1,
-          updatedAt: now,
-        })
-        .where(eq(scheduleJobs.id, run.jobId))
-        .run();
-      if (rawChanges() > 0) notifySchedulesChanged();
+      const changed = await withSqliteRetry(
+        () => {
+          db.update(scheduleJobs)
+            .set({
+              lastStatus: "error",
+              retryCount: job.retryCount + 1,
+              updatedAt: now,
+            })
+            .where(eq(scheduleJobs.id, run.jobId))
+            .run();
+          return rawChanges() > 0;
+        },
+        {
+          op: "completeScheduleRun.jobError",
+          context: { scheduleId: run.jobId },
+        },
+      );
+      if (changed) {
+        notifySchedulesChanged();
+      }
     }
   } else {
-    db.update(scheduleJobs)
-      .set({ lastStatus: "ok", retryCount: 0, updatedAt: now })
-      .where(eq(scheduleJobs.id, run.jobId))
-      .run();
-    if (rawChanges() > 0) notifySchedulesChanged();
+    const changed = await withSqliteRetry(
+      () => {
+        db.update(scheduleJobs)
+          .set({ lastStatus: "ok", retryCount: 0, updatedAt: now })
+          .where(eq(scheduleJobs.id, run.jobId))
+          .run();
+        return rawChanges() > 0;
+      },
+      { op: "completeScheduleRun.jobOk", context: { scheduleId: run.jobId } },
+    );
+    if (changed) {
+      notifySchedulesChanged();
+    }
   }
 }
 
@@ -718,12 +1120,26 @@ export function getLastScheduleConversationId(jobId: string): string | null {
   return row?.conversationId ?? null;
 }
 
-export function getScheduleRuns(jobId: string, limit?: number): ScheduleRun[] {
+/**
+ * List runs for a schedule, newest first. When `before` is set, only runs
+ * with `createdAt` strictly older than it are returned (cursor for
+ * paginating into history).
+ */
+export function getScheduleRuns(
+  jobId: string,
+  limit?: number,
+  before?: number,
+): ScheduleRun[] {
   const db = getDb();
   const rows = db
     .select()
     .from(scheduleRuns)
-    .where(eq(scheduleRuns.jobId, jobId))
+    .where(
+      and(
+        eq(scheduleRuns.jobId, jobId),
+        before != null ? lt(scheduleRuns.createdAt, before) : undefined,
+      ),
+    )
     .orderBy(desc(scheduleRuns.createdAt))
     .limit(limit ?? 10)
     .all();
@@ -754,16 +1170,22 @@ export function formatLocalDate(timestamp: number): string {
 //   "0 9 1 * *"         -> "On the 1st of every month at 9:00 AM"
 //   "30 14 * * *"       -> "Every day at 2:30 PM"
 export function describeCronExpression(expr: string | null): string {
-  if (!expr) return "One-time";
+  if (!expr) {
+    return "One-time";
+  }
   try {
     const cron = new Cron(expr, { maxRuns: 0 });
     // Access Croner internal state to extract the parsed cron pattern.
     // This is fragile but necessary — Croner doesn't expose a public API for this.
     const cronInternal = cron as unknown as Record<string, unknown>;
     const states = cronInternal._states;
-    if (!states || typeof states !== "object") return expr;
+    if (!states || typeof states !== "object") {
+      return expr;
+    }
     const p = (states as Record<string, unknown>).pattern;
-    if (!p || typeof p !== "object") return expr;
+    if (!p || typeof p !== "object") {
+      return expr;
+    }
     const pattern = p as {
       minute: number[];
       hour: number[];
@@ -775,23 +1197,33 @@ export function describeCronExpression(expr: string | null): string {
     };
 
     const activeMinutes = pattern.minute.reduce<number[]>((acc, v, i) => {
-      if (v) acc.push(i);
+      if (v) {
+        acc.push(i);
+      }
       return acc;
     }, []);
     const activeHours = pattern.hour.reduce<number[]>((acc, v, i) => {
-      if (v) acc.push(i);
+      if (v) {
+        acc.push(i);
+      }
       return acc;
     }, []);
     const activeDays = pattern.day.reduce<number[]>((acc, v, i) => {
-      if (v) acc.push(i + 1);
+      if (v) {
+        acc.push(i + 1);
+      }
       return acc;
     }, []);
     const activeDOW = pattern.dayOfWeek.reduce<number[]>((acc, v, i) => {
-      if (v) acc.push(i);
+      if (v) {
+        acc.push(i);
+      }
       return acc;
     }, []);
     const activeMonths = pattern.month.reduce<number[]>((acc, v, i) => {
-      if (v) acc.push(i + 1);
+      if (v) {
+        acc.push(i + 1);
+      }
       return acc;
     }, []);
 
@@ -886,6 +1318,36 @@ export function describeCronExpression(expr: string | null): string {
       }
     }
 
+    // Stepped or fixed minutes constrained to a contiguous range of hours,
+    // every day/month (e.g. "*/30 7-23 * * *" → "Every 30 minutes, 7 AM–11 PM").
+    const hoursAreContiguousRange =
+      !allHours &&
+      activeHours.length > 1 &&
+      activeHours.every((h, i) => i === 0 || h === activeHours[i - 1] + 1);
+
+    if (hoursAreContiguousRange && anyDayAndMonth) {
+      const hourLabel = (h: number) => {
+        const period = h >= 12 ? "PM" : "AM";
+        return `${h % 12 || 12} ${period}`;
+      };
+      const rangeStr = `${hourLabel(activeHours[0])}–${hourLabel(
+        activeHours[activeHours.length - 1],
+      )}`;
+
+      if (steppedMinutes && activeMinutes[0] === 0) {
+        const step = activeMinutes[1] - activeMinutes[0];
+        const isRegularStep = activeMinutes.every((v, i) => v === i * step);
+        if (isRegularStep && 60 % step === 0) {
+          return `Every ${step} minutes, ${rangeStr}`;
+        }
+      }
+      if (fixedMinute) {
+        return activeMinutes[0] === 0
+          ? `Hourly, ${rangeStr}`
+          : `Hourly at minute ${activeMinutes[0]}, ${rangeStr}`;
+      }
+    }
+
     // Fallback: return the raw expression
     return expr;
   } catch {
@@ -894,39 +1356,101 @@ export function describeCronExpression(expr: string | null): string {
 }
 
 /**
+ * Return a claimed-but-not-started schedule to the queue (drain deferral).
+ *
+ * Restores everything the claim mutated before any execution began:
+ * `nextRunAt` is pulled to `nextRetryAt`, a one-shot's `firing` reverts to
+ * `active`, and `enabled` is restored — a bounded recurring schedule's final
+ * occurrence is claimed by exhausting the job (`enabled = false`,
+ * `nextRunAt = 0`), so without the restore that deferred final occurrence
+ * would never fire.
+ */
+export async function deferClaimedSchedule(
+  id: string,
+  nextRetryAt: number,
+): Promise<void> {
+  const db = getDb();
+  const now = Date.now();
+  await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ nextRunAt: nextRetryAt, enabled: true, updatedAt: now })
+        .where(eq(scheduleJobs.id, id))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "deferClaimedSchedule.requeue", context: { scheduleId: id } },
+  );
+  await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ status: "active", updatedAt: now })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "deferClaimedSchedule.status", context: { scheduleId: id } },
+  );
+  notifySchedulesChanged();
+}
+
+/**
  * Set the next retry time for a schedule and revert one-shot status from
  * "firing" to "active" so the scheduler will claim it again when nextRetryAt
  * arrives. No-op for recurring schedules (they stay in their current status).
  */
-export function scheduleRetry(id: string, nextRetryAt: number): void {
+export async function scheduleRetry(
+  id: string,
+  nextRetryAt: number,
+): Promise<void> {
   const db = getDb();
   const now = Date.now();
-  let changed = false;
-  db.update(scheduleJobs)
-    .set({ nextRunAt: nextRetryAt, updatedAt: now })
-    .where(eq(scheduleJobs.id, id))
-    .run();
-  changed = rawChanges() > 0;
+  let changed = await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ nextRunAt: nextRetryAt, updatedAt: now })
+        .where(eq(scheduleJobs.id, id))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "scheduleRetry.nextRunAt", context: { scheduleId: id } },
+  );
   // Revert one-shot status from "firing" to "active" so the scheduler
   // will claim it again when nextRetryAt arrives. No-op for recurring.
-  db.update(scheduleJobs)
-    .set({ status: "active", updatedAt: now })
-    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
-    .run();
-  changed = rawChanges() > 0 || changed;
-  if (changed) notifySchedulesChanged();
+  const reverted = await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ status: "active", updatedAt: now })
+        .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "scheduleRetry.revertStatus", context: { scheduleId: id } },
+  );
+  changed = reverted || changed;
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
  * Reset the retry count for a schedule back to zero (e.g. after a successful run).
  */
-export function resetRetryCount(id: string): void {
+export async function resetRetryCount(id: string): Promise<void> {
   const db = getDb();
-  db.update(scheduleJobs)
-    .set({ retryCount: 0, updatedAt: Date.now() })
-    .where(eq(scheduleJobs.id, id))
-    .run();
-  if (rawChanges() > 0) notifySchedulesChanged();
+  const changed = await withSqliteRetry(
+    () => {
+      db.update(scheduleJobs)
+        .set({ retryCount: 0, updatedAt: Date.now() })
+        .where(eq(scheduleJobs.id, id))
+        .run();
+      return rawChanges() > 0;
+    },
+    { op: "resetRetryCount", context: { scheduleId: id } },
+  );
+  if (changed) {
+    notifySchedulesChanged();
+  }
 }
 
 /**
@@ -999,6 +1523,9 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     message: row.message,
     script: row.script ?? null,
     wakeConversationId: row.wakeConversationId ?? null,
+    workflowName: row.workflowName ?? null,
+    workflowArgs: parseOptionalJson(row.workflowArgsJson),
+    capabilities: parseOptionalJson(row.capabilitiesJson),
     nextRunAt: row.nextRunAt,
     lastRunAt: row.lastRunAt,
     lastStatus: row.lastStatus,
@@ -1006,6 +1533,8 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     maxRetries: row.maxRetries ?? 3,
     retryBackoffMs: row.retryBackoffMs ?? 60000,
     timeoutMs: row.timeoutMs ?? null,
+    inferenceProfile: row.inferenceProfile ?? null,
+    groupId: row.groupId ?? null,
     createdFromConversationId: row.createdFromConversationId ?? null,
     createdBy: row.createdBy,
     mode: (row.mode ?? "execute") as ScheduleMode,
@@ -1030,11 +1559,29 @@ function normalizeDescription(
 function safeParseJson(
   json: string | null | undefined,
 ): Record<string, unknown> {
-  if (!json) return {};
+  if (!json) {
+    return {};
+  }
   try {
     return JSON.parse(json) as Record<string, unknown>;
   } catch {
     return {};
+  }
+}
+
+/**
+ * Parse a nullable JSON column into an arbitrary value. Unlike
+ * {@link safeParseJson}, the result is not coerced to an object — workflow
+ * args may be any JSON value — and an absent/unparseable column yields null.
+ */
+function parseOptionalJson(json: string | null | undefined): unknown {
+  if (json == null) {
+    return null;
+  }
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
   }
 }
 

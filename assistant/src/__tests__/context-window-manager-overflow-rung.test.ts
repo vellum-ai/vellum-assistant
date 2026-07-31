@@ -9,25 +9,10 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
+mock.module("../daemon/conversation-registry.js", () => ({
+  findConversationOrSubagent: () => ({
+    systemPrompt: "you are a test assistant",
+  }),
 }));
 
 // ── Module-level mock state ───────────────────────────────────────────
@@ -145,7 +130,6 @@ function makeConfig(maxAttempts: number = 3) {
 function buildManager(maxAttempts: number = 3): ContextWindowManager {
   return new ContextWindowManager({
     provider: makeProvider(),
-    systemPrompt: "you are a test assistant",
     config: makeConfig(maxAttempts),
     conversationId: "conv-test",
   });
@@ -279,7 +263,6 @@ describe("ContextWindowManager.reduceOverflowOneRung", () => {
     ] as unknown as ToolDefinition[];
     const manager = new ContextWindowManager({
       provider: makeProvider(),
-      systemPrompt: "you are a test assistant",
       config: makeConfig(),
       conversationId: "conv-test",
       toolTokenBudget: 50,

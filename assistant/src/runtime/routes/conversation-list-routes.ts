@@ -10,27 +10,29 @@
 
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-registry.js";
+import { CHANNEL_IDS } from "../../channels/types.js";
+import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
   markConversationUnread,
   recordConversationSeenSignal,
   type SignalType,
-} from "../../memory/conversation-attention-store.js";
+} from "../../persistence/conversation-attention-store.js";
+import { isConversationProcessing } from "../../persistence/conversation-crud.js";
 import {
   type ConversationRow,
   getDisplayMetaForConversations,
-} from "../../memory/conversation-crud.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
+} from "../../persistence/conversation-crud.js";
+import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import {
   countConversations,
   listConversations,
   listPinnedConversations,
-} from "../../memory/conversation-queries.js";
-import type { ConversationType } from "../../memory/conversation-types.js";
-import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
-import { listGroups } from "../../memory/group-crud.js";
+} from "../../persistence/conversation-queries.js";
+import type { ConversationType } from "../../persistence/conversation-types.js";
+import { getBindingsForConversations } from "../../persistence/external-conversation-store.js";
+import { listGroups } from "../../persistence/group-crud.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -56,16 +58,7 @@ const log = getLogger("conversation-list-routes");
 // Response schemas
 // ---------------------------------------------------------------------------
 
-const channelIdSchema = z.enum([
-  "telegram",
-  "phone",
-  "vellum",
-  "whatsapp",
-  "slack",
-  "email",
-  "platform",
-  "a2a",
-]);
+const channelIdSchema = z.enum(CHANNEL_IDS);
 
 const assistantAttentionSchema = z.object({
   hasUnseenLatestAssistantMessage: z.boolean(),
@@ -84,35 +77,6 @@ const assistantAttentionSchema = z.object({
       "slack_callback",
     ])
     .optional(),
-});
-
-const slackThreadSchema = z.object({
-  channelId: z.string(),
-  threadTs: z.string(),
-  link: z
-    .object({
-      appUrl: z.string().optional(),
-      webUrl: z.string().optional(),
-    })
-    .optional(),
-});
-
-const slackChannelSchema = z.object({
-  channelId: z.string(),
-  name: z.string().optional(),
-  link: z.object({ webUrl: z.string() }).optional(),
-});
-
-const channelBindingSchema = z.object({
-  sourceChannel: z.string(),
-  externalChatId: z.string(),
-  externalChatName: z.string().optional(),
-  externalThreadId: z.string().optional(),
-  externalUserId: z.string().nullable(),
-  displayName: z.string().nullable(),
-  username: z.string().nullable(),
-  slackThread: slackThreadSchema.optional(),
-  slackChannel: slackChannelSchema.optional(),
 });
 
 const forkParentSchema = z.object({
@@ -146,6 +110,12 @@ export const conversationSummarySchema = z.object({
   surfacedAt: z.number().optional(),
   inferenceProfile: z.string().optional(),
   /**
+   * Plugin-id list scoping this chat to a subset of installed plugins.
+   * Absent when there is no per-chat restriction (default: all enabled
+   * plugins); an explicit `[]` means the user cleared all optional plugins.
+   */
+  enabledPlugins: z.array(z.string()).nullable().optional(),
+  /**
    * True when the agent loop is currently mid-turn for this conversation.
    * Mirrors the in-memory `Conversation.isProcessing()` flag on the daemon
    * — `false` for rows that are cold (not currently resident in memory).
@@ -177,7 +147,9 @@ const conversationDetailResponseSchema = z.object({
 
 function resolveOrThrow(rawId: string): string {
   const id = resolveConversationId(rawId);
-  if (!id) throw new NotFoundError(`Unknown conversation: ${rawId}`);
+  if (!id) {
+    throw new NotFoundError(`Unknown conversation: ${rawId}`);
+  }
   return id;
 }
 
@@ -217,17 +189,35 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
         ? "all"
         : "active";
 
-  let rows = listConversations(limit, conversationType, offset, archiveStatus);
-  const totalCount = countConversations(conversationType, archiveStatus);
+  const originChannel =
+    queryParams.originChannel !== undefined && queryParams.originChannel !== ""
+      ? queryParams.originChannel
+      : undefined;
+
+  let rows = listConversations(
+    limit,
+    conversationType,
+    offset,
+    archiveStatus,
+    originChannel,
+  );
+  const totalCount = countConversations(
+    conversationType,
+    archiveStatus,
+    originChannel,
+  );
 
   // On the first page, ensure all pinned conversations are included
   // even if they fall outside the paginated window. Pinned injection is
   // skipped in archived/all views since the Archive page renders archived
-  // rows in archive-time order, not pin order.
+  // rows in archive-time order, not pin order. Also skipped for
+  // channel-scoped queries — those return only items matching the
+  // requested origin channel; pinned items render in their own section.
   if (
     offset === 0 &&
     conversationType === "standard" &&
-    archiveStatus === "active"
+    archiveStatus === "active" &&
+    originChannel === undefined
   ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
@@ -252,12 +242,9 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
         attentionState: attentionStates.get(conversation.id),
         displayMeta: displayMeta.get(conversation.id),
         parentCache,
-        // Cold (evicted / never-loaded) rows aren't in the in-memory
-        // store, so `findConversation` returns `undefined` and they
-        // report `isProcessing: false` — by definition they aren't
-        // mid-turn since the agent loop only runs on resident convs.
-        isProcessing:
-          findConversation(conversation.id)?.isProcessing() ?? false,
+        // Checks in-memory flag first (hot path), falls back to the
+        // persisted `processing_started_at` column for cold conversations.
+        isProcessing: isConversationProcessing(conversation.id),
       }),
     ),
     nextOffset,
@@ -451,6 +438,17 @@ export const ROUTES: RouteDefinition[] = [
         description:
           'Filter by archive state. Defaults to "active" (non-archived rows only). Pass "archived" to list only archived rows (for the Archive page) or "all" to include both.',
         schema: { type: "string", enum: ["active", "archived", "all"] },
+      },
+      {
+        name: "originChannel",
+        type: "string",
+        required: false,
+        description:
+          "Filter by origin channel. When provided, only conversations with this exact origin_channel value are returned. Omit to include all channels.",
+        schema: {
+          type: "string",
+          enum: [...CHANNEL_IDS],
+        },
       },
     ],
     responseBody: listConversationsResponseSchema,

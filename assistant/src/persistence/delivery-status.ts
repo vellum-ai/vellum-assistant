@@ -1,0 +1,457 @@
+/**
+ * Processing status tracking and dead-letter queue management for
+ * channel inbound events.
+ *
+ * Handles marking events as processed/failed/dead-lettered, fetching
+ * retryable and dead-lettered events, and replaying dead letters.
+ */
+
+import { and, eq, lte, ne, or } from "drizzle-orm";
+
+import { getDb } from "./db-connection.js";
+import {
+  classifyError,
+  RETRY_MAX_ATTEMPTS,
+  retryDelayForAttempt,
+} from "./job-utils.js";
+import { channelInboundEvents } from "./schema.js";
+
+/**
+ * How long {@link deferRetryUntilIdle} pushes `retryAfter` forward. Shorter than
+ * the retry sweep's own interval so a busy-deferred event is re-evaluated on the
+ * next sweep (and delivered soon after its conversation frees the lock), without
+ * being re-selected in a tight loop within a single sweep run.
+ */
+const BUSY_DEFER_RETRY_DELAY_MS = 15_000;
+
+/**
+ * Acknowledge delivery of an outbound message for a channel event.
+ */
+export function acknowledgeDelivery(
+  sourceChannel: string,
+  externalChatId: string,
+  externalMessageId: string,
+): boolean {
+  const db = getDb();
+  const now = Date.now();
+
+  const existing = db
+    .select({ id: channelInboundEvents.id })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.sourceChannel, sourceChannel),
+        eq(channelInboundEvents.externalChatId, externalChatId),
+        eq(channelInboundEvents.externalMessageId, externalMessageId),
+      ),
+    )
+    .get();
+
+  if (!existing) {
+    return false;
+  }
+
+  db.update(channelInboundEvents)
+    .set({
+      deliveryStatus: "delivered",
+      retryAfter: null,
+      updatedAt: now,
+    })
+    .where(eq(channelInboundEvents.id, existing.id))
+    .run();
+
+  return true;
+}
+
+/** Mark an event as successfully processed. */
+export function markProcessed(eventId: string): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({ processingStatus: "processed", updatedAt: Date.now() })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/** Mark an event's outbound callback delivery as complete. */
+export function markDeliveryDelivered(eventId: string): void {
+  const db = getDb();
+  db.update(channelInboundEvents)
+    .set({
+      deliveryStatus: "delivered",
+      retryAfter: null,
+      updatedAt: Date.now(),
+    })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Record a processing failure. Classifies the error to decide whether
+ * the event should be retried (status='failed') or dead-lettered
+ * (status='dead_letter') when the error is fatal or max attempts
+ * are exhausted.
+ */
+export function recordProcessingFailure(eventId: string, err: unknown): void {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select({ attempts: channelInboundEvents.processingAttempts })
+    .from(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .get();
+
+  const attempts = (row?.attempts ?? 0) + 1;
+  const category = classifyError(err);
+  const errorMsg = errorMessage(err);
+
+  if (category === "fatal" || attempts >= RETRY_MAX_ATTEMPTS) {
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "dead_letter",
+        processingAttempts: attempts,
+        lastProcessingError: errorMsg,
+        retryAfter: null,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  } else {
+    const delay = retryDelayForAttempt(attempts);
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "failed",
+        processingAttempts: attempts,
+        lastProcessingError: errorMsg,
+        retryAfter: now + delay,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  }
+}
+
+/**
+ * Record an outbound callback delivery failure without changing the processing
+ * status. Delivery uses its own retry budget so a turn that needed processing
+ * retries still gets a full delivery retry window.
+ */
+export function recordDeliveryFailure(eventId: string, err: unknown): void {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select({ attempts: channelInboundEvents.deliveryAttempts })
+    .from(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .get();
+
+  const attempts = (row?.attempts ?? 0) + 1;
+  const category = classifyError(err);
+  const errorMsg = errorMessage(err);
+
+  if (category === "fatal" || attempts >= RETRY_MAX_ATTEMPTS) {
+    db.update(channelInboundEvents)
+      .set({
+        deliveryStatus: "dead_letter",
+        deliveryAttempts: attempts,
+        lastProcessingError: errorMsg,
+        retryAfter: null,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  } else {
+    const delay = retryDelayForAttempt(attempts);
+    db.update(channelInboundEvents)
+      .set({
+        deliveryStatus: "failed",
+        deliveryAttempts: attempts,
+        lastProcessingError: errorMsg,
+        retryAfter: now + delay,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  }
+}
+
+/**
+ * Mark an event as failed with a specific error message, bypassing error
+ * classification. Use this when the failure reason is known and the event
+ * should remain retryable (up to max attempts).
+ */
+export function markRetryableFailure(
+  eventId: string,
+  errorMessage: string,
+): void {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select({ attempts: channelInboundEvents.processingAttempts })
+    .from(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .get();
+
+  const attempts = (row?.attempts ?? 0) + 1;
+
+  if (attempts >= RETRY_MAX_ATTEMPTS) {
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "dead_letter",
+        processingAttempts: attempts,
+        lastProcessingError: errorMessage,
+        retryAfter: null,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  } else {
+    const delay = retryDelayForAttempt(attempts);
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "failed",
+        processingAttempts: attempts,
+        lastProcessingError: errorMessage,
+        retryAfter: now + delay,
+        updatedAt: now,
+      })
+      .where(eq(channelInboundEvents.id, eventId))
+      .run();
+  }
+}
+
+/**
+ * Reschedule a retryable channel event for a later sweep WITHOUT consuming its
+ * processing-attempt budget or ever dead-lettering it.
+ *
+ * Used when a channel turn is deferred purely because its conversation is
+ * mid-turn (lock contention) — the turn never ran, so it is not a processing
+ * failure and must not count toward {@link RETRY_MAX_ATTEMPTS}. Counting it would
+ * dead-letter (silently drop) the deferred reply once a conversation stayed busy
+ * across ~8 sweeps — the exact failure this defer path exists to prevent. Keeps
+ * `processingStatus = 'failed'` so the sweep re-selects the event (promoting a
+ * still-`pending` orphan onto the retry path), leaves `processingAttempts`
+ * untouched, and pushes `retryAfter` forward so it is not re-selected in a tight
+ * loop. A conversation that stays busy indefinitely re-defers indefinitely
+ * rather than dropping the reply — matching the event-driven inbound admission
+ * gate, which also waits without a deadline.
+ */
+export function deferRetryUntilIdle(eventId: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(channelInboundEvents)
+    .set({
+      processingStatus: "failed",
+      retryAfter: now + BUSY_DEFER_RETRY_DELAY_MS,
+      updatedAt: now,
+    })
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/** Fetch events eligible for automatic retry (failed + past their backoff). */
+export function getRetryableEvents(limit = 20): Array<{
+  id: string;
+  conversationId: string;
+  processingAttempts: number;
+  rawPayload: string | null;
+}> {
+  const db = getDb();
+  const now = Date.now();
+  return db
+    .select({
+      id: channelInboundEvents.id,
+      conversationId: channelInboundEvents.conversationId,
+      processingAttempts: channelInboundEvents.processingAttempts,
+      rawPayload: channelInboundEvents.rawPayload,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.processingStatus, "failed"),
+        lte(channelInboundEvents.retryAfter, now),
+      ),
+    )
+    .limit(limit)
+    .all();
+}
+
+/** Fetch callback deliveries eligible for retry without rerunning processing. */
+export function getRetryableDeliveryEvents(limit = 20): Array<{
+  id: string;
+  conversationId: string;
+  messageId: string | null;
+  processingAttempts: number;
+  rawPayload: string | null;
+  deliveredSegmentCount: number;
+}> {
+  const db = getDb();
+  const now = Date.now();
+  return db
+    .select({
+      id: channelInboundEvents.id,
+      conversationId: channelInboundEvents.conversationId,
+      messageId: channelInboundEvents.messageId,
+      processingAttempts: channelInboundEvents.processingAttempts,
+      rawPayload: channelInboundEvents.rawPayload,
+      deliveredSegmentCount: channelInboundEvents.deliveredSegmentCount,
+    })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.processingStatus, "processed"),
+        eq(channelInboundEvents.deliveryStatus, "failed"),
+        lte(channelInboundEvents.retryAfter, now),
+      ),
+    )
+    .limit(limit)
+    .all();
+}
+
+/**
+ * Fetch the `deliveryStatus` of every OTHER inbound event linked to the given
+ * user message (excluding `excludeEventId`).
+ *
+ * An at-least-once redelivery that deduplicates against the original turn is
+ * `linkMessage`d to that turn's `messageId`, so the original and the
+ * redelivered event become siblings sharing `messageId`. The dedup dispatch
+ * path reads these statuses to tell an already-owned delivery from the crash
+ * window where the reply was persisted but never delivered.
+ */
+export function getSiblingEventDeliveryStatuses(
+  messageId: string,
+  excludeEventId: string,
+): string[] {
+  const db = getDb();
+  return db
+    .select({ deliveryStatus: channelInboundEvents.deliveryStatus })
+    .from(channelInboundEvents)
+    .where(
+      and(
+        eq(channelInboundEvents.messageId, messageId),
+        ne(channelInboundEvents.id, excludeEventId),
+      ),
+    )
+    .all()
+    .map((row) => row.deliveryStatus);
+}
+
+/**
+ * True when another inbound event linked to the same user message has already
+ * taken ownership of delivering this turn's reply — its delivery status has left
+ * `pending` (delivered, failed, or dead-lettered). A deduplicated replay must
+ * skip `finalizeEventDelivery` in that case, or it would re-post a reply the
+ * owning event already delivered (or is retrying). Shared by the live
+ * background dispatch and the retry sweep so both gate delivery identically.
+ */
+export function isDeduplicatedDeliveryOwnedBySibling(
+  messageId: string,
+  excludeEventId: string,
+): boolean {
+  return getSiblingEventDeliveryStatuses(messageId, excludeEventId).some(
+    (status) => status !== "pending",
+  );
+}
+
+/** Fetch dead-lettered events. */
+export function getDeadLetterEvents(): Array<{
+  id: string;
+  sourceChannel: string;
+  externalChatId: string;
+  externalMessageId: string;
+  conversationId: string;
+  processingAttempts: number;
+  lastProcessingError: string | null;
+  createdAt: number;
+}> {
+  const db = getDb();
+  return db
+    .select({
+      id: channelInboundEvents.id,
+      sourceChannel: channelInboundEvents.sourceChannel,
+      externalChatId: channelInboundEvents.externalChatId,
+      externalMessageId: channelInboundEvents.externalMessageId,
+      conversationId: channelInboundEvents.conversationId,
+      processingAttempts: channelInboundEvents.processingAttempts,
+      lastProcessingError: channelInboundEvents.lastProcessingError,
+      createdAt: channelInboundEvents.createdAt,
+    })
+    .from(channelInboundEvents)
+    .where(
+      or(
+        eq(channelInboundEvents.processingStatus, "dead_letter"),
+        and(
+          eq(channelInboundEvents.processingStatus, "processed"),
+          eq(channelInboundEvents.deliveryStatus, "dead_letter"),
+        ),
+      ),
+    )
+    .all();
+}
+
+/**
+ * Reset dead-lettered events back to 'failed' so the sweep can retry
+ * them. Resets attempt counter and sets an immediate retry_after.
+ */
+export function replayDeadLetters(eventIds: string[]): number {
+  const db = getDb();
+  const now = Date.now();
+  let count = 0;
+  for (const id of eventIds) {
+    const existing = db
+      .select({
+        id: channelInboundEvents.id,
+        processingStatus: channelInboundEvents.processingStatus,
+        deliveryStatus: channelInboundEvents.deliveryStatus,
+      })
+      .from(channelInboundEvents)
+      .where(
+        and(
+          eq(channelInboundEvents.id, id),
+          or(
+            eq(channelInboundEvents.processingStatus, "dead_letter"),
+            and(
+              eq(channelInboundEvents.processingStatus, "processed"),
+              eq(channelInboundEvents.deliveryStatus, "dead_letter"),
+            ),
+          ),
+        ),
+      )
+      .get();
+    if (!existing) {
+      continue;
+    }
+
+    if (existing.processingStatus === "dead_letter") {
+      db.update(channelInboundEvents)
+        .set({
+          processingStatus: "failed",
+          processingAttempts: 0,
+          lastProcessingError: null,
+          retryAfter: now,
+          updatedAt: now,
+        })
+        .where(eq(channelInboundEvents.id, id))
+        .run();
+    } else {
+      db.update(channelInboundEvents)
+        .set({
+          deliveryStatus: "failed",
+          deliveryAttempts: 0,
+          lastProcessingError: null,
+          retryAfter: now,
+          updatedAt: now,
+        })
+        .where(eq(channelInboundEvents.id, id))
+        .run();
+    }
+    count++;
+  }
+  return count;
+}

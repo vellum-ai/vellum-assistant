@@ -65,8 +65,9 @@ describe("skills catalog loading", () => {
 
   afterEach(() => {
     const skillsDir = join(TEST_DIR, "skills");
-    if (existsSync(skillsDir))
+    if (existsSync(skillsDir)) {
       rmSync(skillsDir, { recursive: true, force: true });
+    }
   });
 
   test("discovers valid skill directories alphabetically", () => {
@@ -185,11 +186,13 @@ describe("workspace skills", () => {
 
   afterEach(() => {
     const skillsDir = join(TEST_DIR, "skills");
-    if (existsSync(skillsDir))
+    if (existsSync(skillsDir)) {
       rmSync(skillsDir, { recursive: true, force: true });
+    }
     const outsideDir = join(TEST_DIR, "outside");
-    if (existsSync(outsideDir))
+    if (existsSync(outsideDir)) {
       rmSync(outsideDir, { recursive: true, force: true });
+    }
     if (existsSync(WORKSPACE_DIR)) {
       rmSync(WORKSPACE_DIR, { recursive: true, force: true });
     }
@@ -296,7 +299,9 @@ describe("plugin-resident skills", () => {
 
   afterEach(() => {
     for (const dir of [join(TEST_DIR, "skills"), pluginsDir]) {
-      if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+      if (existsSync(dir)) {
+        rmSync(dir, { recursive: true, force: true });
+      }
     }
   });
 
@@ -340,12 +345,61 @@ describe("plugin-resident skills", () => {
     expect(skill).toBeUndefined();
   });
 
-  test("ignores plugin dirs whose package.json name mismatches the directory", () => {
-    // Mirrors the loader's recognition gate: an un-adapted clone whose
-    // package.json declares `caveman-installer` in a `caveman` dir is skipped.
+  test("surfaces plugin skills when package.json name differs from the directory", () => {
+    // A plugin is installed under its slug (marketplace name or GitHub path
+    // leaf), which routinely differs from its authored `package.json` name —
+    // e.g. cognee installs to `cognee`/`vellum-assistant` while its package is
+    // named `cognee-memory`. The skill must still surface, attributed to the
+    // install directory (the identity every other surface uses).
     writePluginSkill("caveman", "caveman", "Caveman", "Terse mode", "body", {
       packageName: "caveman-installer",
     });
+
+    const skill = loadSkillCatalog().find((s) => s.id === "caveman");
+    expect(skill).toBeDefined();
+    expect(skill!.source).toBe("plugin");
+    expect(skill!.owner).toEqual({ kind: "plugin", id: "caveman" });
+  });
+
+  test("warns when a plugin directory is missing package.json", () => {
+    const warnings: unknown[][] = [];
+    const originalWarn = noopLogger.warn;
+    noopLogger.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+    try {
+      writePluginSkill(
+        "the-force",
+        "software-engineering",
+        "Software Engineering",
+        "Engineering workflow",
+        "body",
+        { withPackageJson: false },
+      );
+
+      const skill = loadSkillCatalog().find(
+        (s) => s.id === "software-engineering",
+      );
+      expect(skill).toBeUndefined();
+
+      const warnedForDir = warnings.some(
+        (args) =>
+          typeof args[0] === "object" &&
+          args[0] !== null &&
+          "pluginDir" in args[0] &&
+          (args[0] as { pluginDir: string }).pluginDir.endsWith("the-force") &&
+          typeof args[1] === "string" &&
+          args[1].includes("missing package.json"),
+      );
+      expect(warnedForDir).toBe(true);
+    } finally {
+      noopLogger.warn = originalWarn;
+    }
+  });
+
+  test("does not load resident skills from a plugin disabled via .disabled", () => {
+    writePluginSkill("caveman", "caveman", "Caveman", "Terse mode");
+    writeFileSync(join(pluginsDir, "caveman", ".disabled"), "");
 
     const skill = loadSkillCatalog().find((s) => s.id === "caveman");
     expect(skill).toBeUndefined();
@@ -384,8 +438,9 @@ describe("tool manifest detection", () => {
 
   afterEach(() => {
     const skillsDir = join(TEST_DIR, "skills");
-    if (existsSync(skillsDir))
+    if (existsSync(skillsDir)) {
       rmSync(skillsDir, { recursive: true, force: true });
+    }
   });
 
   test("attaches toolManifest metadata when valid TOOLS.json is present", () => {
@@ -557,8 +612,9 @@ describe("includes frontmatter parsing", () => {
 
   afterEach(() => {
     const skillsDir = join(TEST_DIR, "skills");
-    if (existsSync(skillsDir))
+    if (existsSync(skillsDir)) {
       rmSync(skillsDir, { recursive: true, force: true });
+    }
   });
 
   function writeSkillWithIncludes(skillId: string, includes: string): void {
@@ -646,8 +702,9 @@ describe("category frontmatter parsing", () => {
 
   afterEach(() => {
     const skillsDir = join(TEST_DIR, "skills");
-    if (existsSync(skillsDir))
+    if (existsSync(skillsDir)) {
       rmSync(skillsDir, { recursive: true, force: true });
+    }
   });
 
   function writeSkillWithCategory(skillId: string, category: string): void {
@@ -691,6 +748,58 @@ describe("category frontmatter parsing", () => {
   });
 });
 
+describe("always-candidate frontmatter parsing", () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  });
+
+  afterEach(() => {
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir)) {
+      rmSync(skillsDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeSkillWithAlwaysCandidate(skillId: string, value: string): void {
+    const skillDir = join(TEST_DIR, "skills", skillId);
+    mkdirSync(skillDir, { recursive: true });
+    const metadata = `{"vellum":{"always-candidate":${value}}}`;
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---\nname: "${skillId}"\ndescription: "test"\nmetadata: ${metadata}\n---\n\nBody.\n`,
+    );
+  }
+
+  test("parses always-candidate: true from metadata.vellum", () => {
+    writeSkillWithAlwaysCandidate("pinned", "true");
+    const skill = loadUserSkillCatalog().find((s) => s.id === "pinned");
+    expect(skill!.alwaysCandidate).toBe(true);
+  });
+
+  test("parses always-candidate: false", () => {
+    writeSkillWithAlwaysCandidate("unpinned", "false");
+    const skill = loadUserSkillCatalog().find((s) => s.id === "unpinned");
+    expect(skill!.alwaysCandidate).toBe(false);
+  });
+
+  test("returns undefined for a non-boolean always-candidate", () => {
+    writeSkillWithAlwaysCandidate("bad", '"yes"');
+    const skill = loadUserSkillCatalog().find((s) => s.id === "bad");
+    expect(skill!.alwaysCandidate).toBeUndefined();
+  });
+
+  test("skill without always-candidate has undefined", () => {
+    writeSkill("plain", "Plain", "Test");
+    const skill = loadUserSkillCatalog().find((s) => s.id === "plain");
+    expect(skill!.alwaysCandidate).toBeUndefined();
+  });
+
+  test("the bundled workflows skill is flagged always-candidate", () => {
+    const wf = loadSkillCatalog().find((s) => s.id === "workflows");
+    expect(wf?.alwaysCandidate).toBe(true);
+  });
+});
+
 describe("bundled skill categories", () => {
   test("every bundled skill declares a valid category slug", () => {
     const yamlPath = join(
@@ -730,8 +839,9 @@ describe("managed browser skill", () => {
 
   afterEach(() => {
     const skillsDir = join(TEST_DIR, "skills");
-    if (existsSync(skillsDir))
+    if (existsSync(skillsDir)) {
       rmSync(skillsDir, { recursive: true, force: true });
+    }
   });
 
   test("browser skill appears in full catalog", () => {
@@ -777,17 +887,23 @@ describe("ingress-dependent setup skills declare public-ingress intentionally", 
   ): string[] | undefined {
     const content = readFileSync(join(dir, skillId, "SKILL.md"), "utf-8");
     const match = content.match(FRONTMATTER_REGEX);
-    if (!match) return undefined;
+    if (!match) {
+      return undefined;
+    }
     for (const line of match[1].split(/\r?\n/)) {
       const sep = line.indexOf(":");
-      if (sep === -1) continue;
+      if (sep === -1) {
+        continue;
+      }
       const key = line.slice(0, sep).trim();
       // Check top-level includes (legacy format)
       if (key === "includes") {
         const val = line.slice(sep + 1).trim();
         try {
           const parsed = JSON.parse(val);
-          if (Array.isArray(parsed)) return parsed as string[];
+          if (Array.isArray(parsed)) {
+            return parsed as string[];
+          }
         } catch {
           /* ignore */
         }
@@ -798,7 +914,9 @@ describe("ingress-dependent setup skills declare public-ingress intentionally", 
         try {
           const parsed = JSON.parse(val);
           const includes = parsed?.vellum?.includes;
-          if (Array.isArray(includes)) return includes as string[];
+          if (Array.isArray(includes)) {
+            return includes as string[];
+          }
         } catch {
           /* ignore */
         }
@@ -838,8 +956,9 @@ describe("bundled computer-use skill", () => {
 
   afterEach(() => {
     const skillsDir = join(TEST_DIR, "skills");
-    if (existsSync(skillsDir))
+    if (existsSync(skillsDir)) {
       rmSync(skillsDir, { recursive: true, force: true });
+    }
   });
 
   test("computer-use skill appears in full catalog (including bundled)", () => {

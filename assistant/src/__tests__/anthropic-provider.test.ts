@@ -68,21 +68,27 @@ mock.module("@anthropic-ai/sdk", () => ({
           if (scriptedStream) {
             for (const event of scriptedStream) {
               if (event.kind === "text") {
-                for (const cb of handlers["text"] ?? []) cb(event.text);
+                for (const cb of handlers["text"] ?? []) {
+                  cb(event.text);
+                }
               } else if (event.kind === "blockStart") {
-                for (const cb of handlers["streamEvent"] ?? [])
+                for (const cb of handlers["streamEvent"] ?? []) {
                   cb({
                     type: "content_block_start",
                     content_block: { type: event.blockType ?? "text" },
                   });
+                }
               } else if (event.kind === "blockStop") {
-                for (const cb of handlers["streamEvent"] ?? [])
+                for (const cb of handlers["streamEvent"] ?? []) {
                   cb({ type: "content_block_stop" });
+                }
               }
             }
           } else {
             // Default: a single "Hello" text event (preserves existing tests).
-            for (const cb of handlers["text"] ?? []) cb("Hello");
+            for (const cb of handlers["text"] ?? []) {
+              cb("Hello");
+            }
           }
           return fakeResponse;
         },
@@ -541,16 +547,29 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const system = lastStreamParams!.system as
       | Array<{ cache_control?: unknown }>
       | undefined;
-    for (const b of system ?? []) if (b.cache_control) breakpoints++;
+    for (const b of system ?? []) {
+      if (b.cache_control) {
+        breakpoints++;
+      }
+    }
     const tools = lastStreamParams!.tools as
       | Array<{ cache_control?: unknown }>
       | undefined;
-    for (const t of tools ?? []) if (t.cache_control) breakpoints++;
+    for (const t of tools ?? []) {
+      if (t.cache_control) {
+        breakpoints++;
+      }
+    }
     const messages = lastStreamParams!.messages as Array<{
       content: Array<{ cache_control?: { type: string; ttl?: string } }>;
     }>;
-    for (const m of messages)
-      for (const b of m.content) if (b.cache_control) breakpoints++;
+    for (const m of messages) {
+      for (const b of m.content) {
+        if (b.cache_control) {
+          breakpoints++;
+        }
+      }
+    }
 
     expect(breakpoints).toBe(4);
     // The stable pages block specifically must hold the preserved breakpoint.
@@ -698,10 +717,12 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // -----------------------------------------------------------------------
   // mutableLatestUserMessage — volatile trailing user message cache anchor
   // -----------------------------------------------------------------------
-  test("mutableLatestUserMessage: first-of-turn skips the volatile turn-start anchor and anchors the previous stable user message", async () => {
+  test("mutableLatestUserMessage: first-of-turn moves the 1h anchor off the volatile latest message and bridges it with a 5m tail", async () => {
     // The latest user message carries per-turn-volatile content (e.g. an
-    // injected memory block). The long-TTL anchor must move off it onto the
-    // most recent stable user message so the cached prefix stays reusable.
+    // injected memory block). The 1h anchor must move off it onto the most
+    // recent stable user message so the cached prefix stays reusable across
+    // turns; the volatile message still gets a cheap 5m tail breakpoint so the
+    // next request in the same turn has an exact, reachable boundary.
     const messages: Message[] = [
       userMsg("Turn 1"),
       assistantMsg("Response 1"),
@@ -721,13 +742,13 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
     const userMessages = sent.filter((m) => m.role === "user");
 
-    // Latest (turn-start) user message gets NO long-TTL breakpoint — it's volatile.
+    // Latest (turn-start) user message gets the cheap 5m tail bridge, never the
+    // 1h anchor — it's volatile.
     const latest = userMessages[userMessages.length - 1];
-    for (const block of latest.content) {
-      expect(block.cache_control).toBeUndefined();
-    }
+    const latestLast = latest.content[latest.content.length - 1];
+    expect(latestLast.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
 
-    // Previous stable user message (Turn 1) becomes the primary anchor.
+    // Previous stable user message (Turn 1) becomes the primary 1h anchor.
     const prev = userMessages[userMessages.length - 2];
     const prevLast = prev.content[prev.content.length - 1];
     expect(prevLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
@@ -803,9 +824,141 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       }>;
     }>;
     // Only user message is volatile and there is no prior stable one, so no
-    // long-TTL breakpoint lands on any user message — graceful, no throw.
+    // 1h anchor and no 5m tail bridge land on any user message — there is no
+    // previous-turn anchor to bridge to. Graceful, no throw.
     const lastBlock = sent[0].content[sent[0].content.length - 1];
     expect(lastBlock.cache_control).toBeUndefined();
+  });
+
+  test("mutableLatestUserMessage: first-of-turn after a long autonomous tail bridges the volatile latest message so the next call stays within the lookback window", async () => {
+    // Reproduces the memory-retrospective / heartbeat case: a long run of
+    // autonomous assistant + tool turns sits between the previous user message
+    // and the volatile latest one. The 1h anchor moves back onto the previous
+    // user message (now >20 content blocks away); without a breakpoint on the
+    // latest message the next request's anchor would land beyond Anthropic's
+    // ~20-block lookback and re-create the whole prefix. The 5m tail bridge
+    // gives the next call an exact, reachable boundary.
+    const tail: Message[] = [];
+    for (let i = 0; i < 8; i++) {
+      tail.push(
+        assistantMsg(`heartbeat ${i}`),
+        toolUseMsg(`hb_${i}`, "bash"),
+        toolResultMsg(`hb_${i}`, "wake"),
+      );
+    }
+    // End the tail on an assistant message so the latest user message is not
+    // merged with a preceding tool_result (both user role).
+    tail.push(assistantMsg("still here"));
+    const messages: Message[] = [
+      userMsg("Turn 1"),
+      ...tail,
+      userMsg("Turn 2 (volatile)"),
+    ];
+    await provider.sendMessage(messages, {
+      config: { mutableLatestUserMessage: true },
+    });
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text?: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const findUser = (text: string) =>
+      sent.find(
+        (m) => m.role === "user" && m.content.some((b) => b.text === text),
+      )!;
+
+    // The volatile latest message gets the 5m tail bridge.
+    const turn2 = findUser("Turn 2 (volatile)");
+    const turn2Last = turn2.content[turn2.content.length - 1];
+    expect(turn2Last.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
+
+    // The previous stable user message — across the whole autonomous tail —
+    // is the 1h anchor.
+    const turn1 = findUser("Turn 1");
+    const turn1Last = turn1.content[turn1.content.length - 1];
+    expect(turn1Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("mutableLatestUserMessage absent: the same long autonomous tail gets no extra tail bridge (placement unchanged)", async () => {
+    // Regression guard: the tail bridge is gated on the volatile-latest flag,
+    // not on tail length. With the flag off, the latest message keeps the
+    // ordinary 1h turn-start anchor and no 5m bridge is added.
+    const tail: Message[] = [];
+    for (let i = 0; i < 8; i++) {
+      tail.push(
+        assistantMsg(`heartbeat ${i}`),
+        toolUseMsg(`hb_${i}`, "bash"),
+        toolResultMsg(`hb_${i}`, "wake"),
+      );
+    }
+    // End the tail on an assistant message so the latest user message is not
+    // merged with a preceding tool_result (both user role).
+    tail.push(assistantMsg("still here"));
+    const messages: Message[] = [userMsg("Turn 1"), ...tail, userMsg("Turn 2")];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text?: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const findUser = (text: string) =>
+      sent.find(
+        (m) => m.role === "user" && m.content.some((b) => b.text === text),
+      )!;
+
+    // Latest message keeps the 1h turn-start anchor — no 5m bridge.
+    const turn2 = findUser("Turn 2");
+    const turn2Last = turn2.content[turn2.content.length - 1];
+    expect(turn2Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    // Previous-turn anchor keeps 1h.
+    const turn1 = findUser("Turn 1");
+    const turn1Last = turn1.content[turn1.content.length - 1];
+    expect(turn1Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("mutableLatestUserMessage + disableTurnStartCache: the first-of-turn tail bridge is suppressed on the volatile latest block", async () => {
+    // The volatile-latest tail bridge lands on the turn-start block, so it must
+    // honor disableTurnStartCache (the explicit opt-out from paid cache writes
+    // on volatile turn-start content) just like the long-TTL anchor does. The
+    // previous-turn anchor is unaffected — it targets a stable prior block.
+    const messages: Message[] = [
+      userMsg("Turn 1"),
+      assistantMsg("Response 1"),
+      userMsg("Turn 2 (volatile)"),
+    ];
+    await provider.sendMessage(messages, {
+      config: { mutableLatestUserMessage: true, disableTurnStartCache: true },
+    });
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const userMessages = sent.filter((m) => m.role === "user");
+
+    // Latest (turn-start) user message gets NO breakpoint — disableTurnStartCache
+    // suppresses the 5m bridge.
+    const latest = userMessages[userMessages.length - 1];
+    for (const block of latest.content) {
+      expect(block.cache_control).toBeUndefined();
+    }
+
+    // Previous stable user message (Turn 1) still gets the 1h anchor.
+    const prev = userMessages[userMessages.length - 2];
+    const prevLast = prev.content[prev.content.length - 1];
+    expect(prevLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("mutableLatestUserMessage is not forwarded to the Anthropic API", async () => {
@@ -814,6 +967,17 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     });
     expect(
       (lastStreamParams as Record<string, unknown>).mutableLatestUserMessage,
+    ).toBeUndefined();
+  });
+
+  test("promptCacheKey is not forwarded to the Anthropic API", async () => {
+    // Reaches this client on OpenRouter's anthropic/* delegation path;
+    // Anthropic rejects unknown fields with "Extra inputs are not permitted".
+    await provider.sendMessage([userMsg("Hi")], {
+      config: { promptCacheKey: "conv-1" },
+    });
+    expect(
+      (lastStreamParams as Record<string, unknown>).promptCacheKey,
     ).toBeUndefined();
   });
 
@@ -1693,6 +1857,104 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[2].role).toBe("user");
   });
 
+  test("assistant skill_card message: ui_surface is stripped and the _surfaceFallback text reaches the wire", async () => {
+    // Contract-shaped block pair persisted by the memory retrospective's
+    // skill-card insertion (memory-retrospective-skill-card.ts): the
+    // ui_surface card plus a `_surfaceFallback` text sibling. The provider
+    // must drop the ui_surface block and send the fallback text as the
+    // assistant turn's real content — no placeholder needed.
+    const skillCardBlock = {
+      type: "ui_surface",
+      surfaceId: "skill-card-run-conv-1",
+      surfaceType: "skill_card",
+      title: "New skill learned",
+      display: "inline",
+      data: {
+        skills: [
+          {
+            skillId: "skill-1",
+            name: "Example skill",
+            description: "Does a thing",
+            emoji: null,
+          },
+        ],
+      },
+    } as unknown as ContentBlock;
+    const fallbackBlock = {
+      type: "text",
+      text: "New skill learned: Example skill",
+      _surfaceFallback: true,
+    } as unknown as ContentBlock;
+    const messages: Message[] = [
+      userMsg("Start"),
+      { role: "assistant", content: [skillCardBlock, fallbackBlock] },
+      userMsg("Continue"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    // No ui_surface block (or any of its payload) reaches the wire; the
+    // assistant turn carries the fallback text (stripped of the internal
+    // `_surfaceFallback` marker), so alternation holds without a placeholder.
+    expect(sent).toHaveLength(3);
+    expect(
+      sent.flatMap((m) => m.content).every((b) => b.type !== "ui_surface"),
+    ).toBe(true);
+    expect(JSON.stringify(sent)).not.toContain("skill_card");
+    expect(JSON.stringify(sent)).not.toContain("_surfaceFallback");
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content).toEqual([
+      { type: "text", text: "New skill learned: Example skill" },
+    ]);
+    for (let i = 1; i < sent.length; i++) {
+      expect(sent[i].role).not.toBe(sent[i - 1].role);
+    }
+  });
+
+  test("a card-only assistant turn placeholders, and no card payload reaches the wire", async () => {
+    // `ui_surface` is a rendering instruction, never model context: the card's
+    // opaque payload must not reach the API, and the turn falls back to the
+    // sentinel to preserve role alternation. Conveying the card's meaning is
+    // the producer's job, via the `_surfaceFallback` text sibling — not
+    // something the provider reconstructs at request time.
+    const callSummaryBlock = {
+      type: "ui_surface",
+      surfaceId: "call-1",
+      surfaceType: "call_summary",
+      completed: true,
+      data: {
+        summaryText: "**Call completed** (42s). 3 event(s) recorded.",
+        status: "completed",
+        duration: 42,
+        events: [],
+      },
+    } as unknown as ContentBlock;
+    const messages: Message[] = [
+      userMsg("Start"),
+      { role: "assistant", content: [callSummaryBlock] },
+      userMsg("Continue"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    expect(sent).toHaveLength(3);
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content).toEqual([
+      { type: "text", text: PLACEHOLDER_BLOCKS_OMITTED },
+    ]);
+    // The opaque card payload itself never reaches the wire.
+    expect(JSON.stringify(sent)).not.toContain("call_summary");
+    expect(JSON.stringify(sent)).not.toContain("summaryText");
+  });
+
   test("assistant message with mix of known and unknown blocks keeps known blocks", async () => {
     const messages: Message[] = [
       userMsg("Start"),
@@ -1898,7 +2160,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual(["Hello world"]);
@@ -1915,7 +2179,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual([]);
@@ -1930,7 +2196,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual([]);
@@ -1947,10 +2215,66 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual([]);
+  });
+
+  test("suppresses a leading-space-corrupted sentinel echo (proxy dropped the guard byte)", async () => {
+    // OpenRouter's Anthropic-compat path returns the `\x00` guard as a leading
+    // space; the normalized prefix check must still hold and drop it.
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: " __PLACEHOLDER__[empty assistant turn]" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], {
+      onEvent: (event) => {
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
+      },
+    });
+    expect(emitted).toEqual([]);
+  });
+
+  test("suppresses a leading-space-corrupted sentinel split across chunks", async () => {
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: " __PLACE" },
+      { kind: "text", text: "HOLDER__[empty assistant turn]" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], {
+      onEvent: (event) => {
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
+      },
+    });
+    expect(emitted).toEqual([]);
+  });
+
+  test("still streams real text that begins with whitespace", async () => {
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: " hello there" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], {
+      onEvent: (event) => {
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
+      },
+    });
+    expect(emitted.join("")).toBe(" hello there");
   });
 
   test("flushes buffered prefix when the continuation diverges from all sentinels", async () => {
@@ -1966,7 +2290,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted.join("")).toBe("__PLACEHOLDER__ is bold in markdown");
@@ -1983,7 +2309,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual(["__PLACEHOLDER__"]);
@@ -2001,7 +2329,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual(["Fresh block content"]);
@@ -3039,7 +3369,9 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
     // Collect all thinking blocks across all assistant messages
     const allThinking: Anthropic.ContentBlockParam[] = [];
     for (const m of sent) {
-      if (m.role !== "assistant") continue;
+      if (m.role !== "assistant") {
+        continue;
+      }
       const blocks = m.content as Anthropic.ContentBlockParam[];
       for (const b of blocks) {
         if (typeof b !== "string" && b.type === "thinking") {
@@ -3055,5 +3387,75 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
     expect(signatures).not.toContain("sig-old");
     expect(signatures).toContain("sig-step1");
     expect(signatures).toContain("sig-step2");
+  });
+});
+
+describe("AnthropicProvider — deprecated sampling params (temperature / top_p / top_k)", () => {
+  beforeEach(() => {
+    lastStreamParams = null;
+  });
+
+  // opus-4-7 / opus-4-8 / sonnet-5 (and, conservatively, fable) reject
+  // `temperature`, `top_p`, and `top_k` with a 400; the provider must strip
+  // all three. The OpenRouter `anthropic/...` form delegates here too.
+  for (const model of [
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+    "claude-sonnet-5",
+    "anthropic/claude-sonnet-5",
+    "claude-fable-5",
+  ]) {
+    test(`strips temperature, top_p, and top_k for ${model}`, async () => {
+      const provider = new AnthropicProvider("sk-ant-test", model);
+      await provider.sendMessage([userMsg("Hi")], {
+        systemPrompt: "You are helpful.",
+        config: { temperature: 0, top_p: 0.95, top_k: 40 },
+      });
+      expect(lastStreamParams!).not.toHaveProperty("temperature");
+      expect(lastStreamParams!).not.toHaveProperty("top_p");
+      expect(lastStreamParams!).not.toHaveProperty("top_k");
+    });
+  }
+
+  // opus-4-6 / sonnet-4-6 still accept the params — they must pass through,
+  // including `temperature: 0` (a value check, not truthiness).
+  test("forwards temperature (including 0), top_p, and top_k for opus-4-6", async () => {
+    const provider = new AnthropicProvider("sk-ant-test", "claude-opus-4-6");
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: { temperature: 0, top_p: 0.95, top_k: 40 },
+    });
+    expect(lastStreamParams!.temperature).toBe(0);
+    expect(lastStreamParams!.top_p).toBe(0.95);
+    expect(lastStreamParams!.top_k).toBe(40);
+  });
+
+  test("forwards temperature, top_p, and top_k for sonnet-4-6", async () => {
+    const provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: { temperature: 0.7, top_p: 0.9, top_k: 20 },
+    });
+    expect(lastStreamParams!.temperature).toBe(0.7);
+    expect(lastStreamParams!.top_p).toBe(0.9);
+    expect(lastStreamParams!.top_k).toBe(20);
+  });
+
+  // A per-call model override targeting a deprecating model must win over the
+  // provider's default (accepting) model.
+  test("strips params when a per-call model override deprecates them", async () => {
+    const provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: {
+        temperature: 0,
+        top_p: 0.95,
+        top_k: 40,
+        model: "claude-opus-4-8",
+      },
+    });
+    expect(lastStreamParams!).not.toHaveProperty("temperature");
+    expect(lastStreamParams!).not.toHaveProperty("top_p");
+    expect(lastStreamParams!).not.toHaveProperty("top_k");
   });
 });

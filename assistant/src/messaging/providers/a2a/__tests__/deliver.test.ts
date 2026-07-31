@@ -41,21 +41,14 @@ const defaultTask: A2ATask = {
 mock.module("../../../../a2a/task-store.js", () => ({
   completeWithArtifacts: (taskId: string, artifacts: Artifact[]): A2ATask => {
     completeWithArtifactsCalls.push({ taskId, artifacts });
-    if (completeError) throw completeError;
+    if (completeError) {
+      throw completeError;
+    }
     return completedTask ?? defaultTask;
   },
   getPushUrl: (taskId: string): string | null => {
     return pushUrlByTaskId[taskId] ?? null;
   },
-}));
-
-mock.module("../../../../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
 }));
 
 // Intercept global fetch for push notification testing
@@ -165,6 +158,17 @@ describe("deliverA2AReply", () => {
 
     expect(result.ok).toBe(false);
     expect(completeWithArtifactsCalls).toHaveLength(0);
+  });
+
+  test("completes task for a base-less (relative) callback URL", async () => {
+    const result = await deliverA2AReply("/deliver/a2a?taskId=task-123", {
+      chatId: "chat-1",
+      text: "Hello",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(completeWithArtifactsCalls).toHaveLength(1);
+    expect(completeWithArtifactsCalls[0].taskId).toBe("task-123");
   });
 
   test("returns ok: true when payload has no content", async () => {

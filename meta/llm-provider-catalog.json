@@ -38,6 +38,25 @@
           }
         },
         {
+          "id": "claude-opus-5",
+          "displayName": "Claude Opus 5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 25,
+            "cacheWritePer1mTokens": 6.25,
+            "cacheReadPer1mTokens": 0.5
+          }
+        },
+        {
           "id": "claude-opus-4-8",
           "displayName": "Claude Opus 4.8",
           "contextWindowTokens": 1000000,
@@ -92,6 +111,25 @@
             "outputPer1mTokens": 25,
             "cacheWritePer1mTokens": 6.25,
             "cacheReadPer1mTokens": 0.5
+          }
+        },
+        {
+          "id": "claude-sonnet-5",
+          "displayName": "Claude Sonnet 5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 10,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2
           }
         },
         {
@@ -185,6 +223,90 @@
       "supportsPlatformAuth": true,
       "defaultModel": "gpt-5.5",
       "models": [
+        {
+          "id": "gpt-5.6-sol",
+          "displayName": "GPT-5.6 Sol",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 30,
+            "cacheWritePer1mTokens": 6.25,
+            "cacheReadPer1mTokens": 0.5,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 10,
+                "outputPer1mTokens": 45,
+                "cacheWritePer1mTokens": 12.5,
+                "cacheReadPer1mTokens": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "displayName": "GPT-5.6 Terra",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 12,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 4,
+                "outputPer1mTokens": 18,
+                "cacheWritePer1mTokens": 5,
+                "cacheReadPer1mTokens": 0.4
+              }
+            ]
+          }
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "displayName": "GPT-5.6 Luna",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.2,
+            "outputPer1mTokens": 1.2,
+            "cacheWritePer1mTokens": 0.25,
+            "cacheReadPer1mTokens": 0.02,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 0.4,
+                "outputPer1mTokens": 1.8,
+                "cacheWritePer1mTokens": 0.5,
+                "cacheReadPer1mTokens": 0.04
+              }
+            ]
+          }
+        },
         {
           "id": "gpt-5.5",
           "displayName": "GPT-5.5",
@@ -331,6 +453,23 @@
       "defaultModel": "gemini-2.5-flash",
       "models": [
         {
+          "id": "gemini-3.6-flash",
+          "displayName": "Gemini 3.6 Flash",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 65536,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1.5,
+            "outputPer1mTokens": 7.5,
+            "cacheReadPer1mTokens": 0.15
+          }
+        },
+        {
           "id": "gemini-3.5-flash",
           "displayName": "Gemini 3.5 Flash",
           "contextWindowTokens": 1048576,
@@ -345,6 +484,23 @@
             "inputPer1mTokens": 1.5,
             "outputPer1mTokens": 9,
             "cacheReadPer1mTokens": 0.15
+          }
+        },
+        {
+          "id": "gemini-3.5-flash-lite",
+          "displayName": "Gemini 3.5 Flash-Lite",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 65536,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.3,
+            "outputPer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.03
           }
         },
         {
@@ -566,8 +722,26 @@
         "linkLabel": "Open Fireworks Dashboard"
       },
       "supportsPlatformAuth": true,
-      "defaultModel": "accounts/fireworks/models/kimi-k2p5",
+      "defaultModel": "accounts/fireworks/models/deepseek-v4-flash",
       "models": [
+        {
+          "id": "accounts/fireworks/models/kimi-k3",
+          "displayName": "Kimi K3",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 3,
+            "outputPer1mTokens": 15,
+            "cacheReadPer1mTokens": 0.3
+          }
+        },
         {
           "id": "accounts/fireworks/models/kimi-k2p6",
           "displayName": "Kimi K2.6",
@@ -586,19 +760,37 @@
           }
         },
         {
-          "id": "accounts/fireworks/models/kimi-k2p5",
-          "displayName": "Kimi K2.5",
-          "contextWindowTokens": 256000,
-          "maxOutputTokens": 32768,
+          "id": "accounts/fireworks/models/glm-5p2",
+          "displayName": "GLM 5.2",
+          "contextWindowTokens": 1040000,
+          "maxOutputTokens": 131072,
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
-          "supportsThinking": false,
-          "supportsCaching": false,
+          "supportsThinking": true,
+          "supportsCaching": true,
           "supportsVision": false,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.6,
-            "outputPer1mTokens": 2.5
+            "inputPer1mTokens": 1.4,
+            "outputPer1mTokens": 4.4,
+            "cacheReadPer1mTokens": 0.26
+          }
+        },
+        {
+          "id": "accounts/fireworks/models/minimax-m3",
+          "displayName": "MiniMax M3",
+          "contextWindowTokens": 524288,
+          "maxOutputTokens": 512000,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.3,
+            "outputPer1mTokens": 1.2,
+            "cacheReadPer1mTokens": 0.06
           }
         },
         {
@@ -648,6 +840,58 @@
             "inputPer1mTokens": 1.74,
             "outputPer1mTokens": 3.48
           }
+        },
+        {
+          "id": "accounts/fireworks/models/deepseek-v4-flash",
+          "displayName": "DeepSeek V4 Flash",
+          "contextWindowTokens": 1040000,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.14,
+            "outputPer1mTokens": 0.28,
+            "cacheReadPer1mTokens": 0.03
+          }
+        }
+      ]
+    },
+    {
+      "id": "together",
+      "displayName": "Together AI",
+      "subtitle": "Open models served by Together AI. Requires a Together API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Together API key to enable Together models.",
+      "envVar": "TOGETHER_API_KEY",
+      "apiKeyPlaceholder": "...",
+      "credentialsGuide": {
+        "description": "Sign in to the Together dashboard and create an API key.",
+        "url": "https://api.together.ai/settings/api-keys",
+        "linkLabel": "Open Together Dashboard"
+      },
+      "supportsPlatformAuth": true,
+      "defaultModel": "MiniMaxAI/MiniMax-M3",
+      "models": [
+        {
+          "id": "MiniMaxAI/MiniMax-M3",
+          "displayName": "MiniMax M3",
+          "contextWindowTokens": 524288,
+          "maxOutputTokens": 512000,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.3,
+            "outputPer1mTokens": 1.2,
+            "cacheReadPer1mTokens": 0.06
+          }
         }
       ]
     },
@@ -665,7 +909,7 @@
         "linkLabel": "Open OpenRouter"
       },
       "supportsPlatformAuth": false,
-      "defaultModel": "x-ai/grok-4.20-beta",
+      "defaultModel": "x-ai/grok-4.20",
       "models": [
         {
           "id": "anthropic/claude-fable-5",
@@ -685,6 +929,25 @@
             "outputPer1mTokens": 50,
             "cacheWritePer1mTokens": 12.5,
             "cacheReadPer1mTokens": 1
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-5",
+          "displayName": "Claude Opus 5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 25,
+            "cacheWritePer1mTokens": 6.25,
+            "cacheReadPer1mTokens": 0.5
           }
         },
         {
@@ -742,6 +1005,25 @@
             "outputPer1mTokens": 25,
             "cacheWritePer1mTokens": 6.25,
             "cacheReadPer1mTokens": 0.5
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-5",
+          "displayName": "Claude Sonnet 5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 10,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2
           }
         },
         {
@@ -818,10 +1100,178 @@
           }
         },
         {
-          "id": "x-ai/grok-4.20-beta",
-          "displayName": "Grok 4.20 Beta",
-          "contextWindowTokens": 256000,
-          "maxOutputTokens": 16000,
+          "id": "openai/gpt-5.6-sol",
+          "displayName": "GPT-5.6 Sol",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 30,
+            "cacheWritePer1mTokens": 6.25,
+            "cacheReadPer1mTokens": 0.5,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 10,
+                "outputPer1mTokens": 45,
+                "cacheWritePer1mTokens": 12.5,
+                "cacheReadPer1mTokens": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-5.6-sol-pro",
+          "displayName": "GPT-5.6 Sol Pro",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 30,
+            "cacheWritePer1mTokens": 6.25,
+            "cacheReadPer1mTokens": 0.5,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 10,
+                "outputPer1mTokens": 45,
+                "cacheWritePer1mTokens": 12.5,
+                "cacheReadPer1mTokens": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-5.6-terra",
+          "displayName": "GPT-5.6 Terra",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1,
+            "outputPer1mTokens": 6,
+            "cacheWritePer1mTokens": 1.25,
+            "cacheReadPer1mTokens": 0.1,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 2,
+                "outputPer1mTokens": 9,
+                "cacheWritePer1mTokens": 2.5,
+                "cacheReadPer1mTokens": 0.2
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-5.6-terra-pro",
+          "displayName": "GPT-5.6 Terra Pro",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1,
+            "outputPer1mTokens": 6,
+            "cacheWritePer1mTokens": 1.25,
+            "cacheReadPer1mTokens": 0.1,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 2,
+                "outputPer1mTokens": 9,
+                "cacheWritePer1mTokens": 2.5,
+                "cacheReadPer1mTokens": 0.2
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-5.6-luna",
+          "displayName": "GPT-5.6 Luna",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.1,
+            "outputPer1mTokens": 0.6,
+            "cacheWritePer1mTokens": 0.125,
+            "cacheReadPer1mTokens": 0.01,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 0.2,
+                "outputPer1mTokens": 0.9,
+                "cacheWritePer1mTokens": 0.25,
+                "cacheReadPer1mTokens": 0.02
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-5.6-luna-pro",
+          "displayName": "GPT-5.6 Luna Pro",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.1,
+            "outputPer1mTokens": 0.6,
+            "cacheWritePer1mTokens": 0.125,
+            "cacheReadPer1mTokens": 0.01,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 0.2,
+                "outputPer1mTokens": 0.9,
+                "cacheWritePer1mTokens": 0.25,
+                "cacheReadPer1mTokens": 0.02
+              }
+            ]
+          }
+        },
+        {
+          "id": "x-ai/grok-4.5",
+          "displayName": "Grok 4.5",
+          "contextWindowTokens": 500000,
+          "maxOutputTokens": 30000,
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
@@ -829,8 +1279,9 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 3,
-            "outputPer1mTokens": 15
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 6,
+            "cacheReadPer1mTokens": 0.5
           }
         },
         {
@@ -846,23 +1297,25 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 1.25,
-            "outputPer1mTokens": 2.5
+            "outputPer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2
           }
         },
         {
-          "id": "x-ai/grok-4",
-          "displayName": "Grok 4",
-          "contextWindowTokens": 131072,
+          "id": "x-ai/grok-4.20",
+          "displayName": "Grok 4.20",
+          "contextWindowTokens": 2000000,
           "maxOutputTokens": 16000,
-          "defaultContextWindowTokens": 131072,
-          "longContextMode": "unsupported",
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
           "supportsThinking": true,
           "supportsCaching": false,
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 3,
-            "outputPer1mTokens": 15
+            "inputPer1mTokens": 1.25,
+            "outputPer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2
           }
         },
         {
@@ -1007,6 +1460,23 @@
           "pricing": {
             "inputPer1mTokens": 0.5,
             "outputPer1mTokens": 1.5
+          }
+        },
+        {
+          "id": "moonshotai/kimi-k3",
+          "displayName": "Kimi K3",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": false,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 3,
+            "outputPer1mTokens": 15
           }
         },
         {
@@ -1170,6 +1640,22 @@
           }
         },
         {
+          "id": "z-ai/glm-5.2",
+          "displayName": "GLM-5.2",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1.4,
+            "outputPer1mTokens": 4.4
+          }
+        },
+        {
           "id": "mistralai/mistral-medium-3",
           "displayName": "Mistral Medium 3",
           "contextWindowTokens": 131072,
@@ -1284,6 +1770,272 @@
       ]
     },
     {
+      "id": "vercel-ai-gateway",
+      "displayName": "Vercel AI Gateway",
+      "subtitle": "Route to many LLM providers via a single Vercel AI Gateway API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Vercel AI Gateway API key to access multiple models.",
+      "envVar": "AI_GATEWAY_API_KEY",
+      "apiKeyPlaceholder": "vck_...",
+      "credentialsGuide": {
+        "description": "Open the Vercel dashboard's AI Gateway tab and create an API key.",
+        "url": "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
+        "linkLabel": "Open Vercel Dashboard"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "anthropic/claude-sonnet-4.6",
+      "models": [
+        {
+          "id": "anthropic/claude-fable-5",
+          "displayName": "Claude Fable 5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 10,
+            "outputPer1mTokens": 50,
+            "cacheWritePer1mTokens": 12.5,
+            "cacheReadPer1mTokens": 1
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-5",
+          "displayName": "Claude Opus 5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 25,
+            "cacheWritePer1mTokens": 6.25,
+            "cacheReadPer1mTokens": 0.5
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-4.8",
+          "displayName": "Claude Opus 4.8",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 25,
+            "cacheWritePer1mTokens": 6.25,
+            "cacheReadPer1mTokens": 0.5
+          }
+        },
+        {
+          "id": "anthropic/claude-opus-4.6",
+          "displayName": "Claude Opus 4.6",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 25,
+            "cacheWritePer1mTokens": 6.25,
+            "cacheReadPer1mTokens": 0.5
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-5",
+          "displayName": "Claude Sonnet 5",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2,
+            "outputPer1mTokens": 10,
+            "cacheWritePer1mTokens": 2.5,
+            "cacheReadPer1mTokens": 0.2
+          }
+        },
+        {
+          "id": "anthropic/claude-sonnet-4.6",
+          "displayName": "Claude Sonnet 4.6",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 64000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 3,
+            "outputPer1mTokens": 15,
+            "cacheWritePer1mTokens": 3.75,
+            "cacheReadPer1mTokens": 0.3
+          }
+        },
+        {
+          "id": "anthropic/claude-haiku-4.5",
+          "displayName": "Claude Haiku 4.5",
+          "contextWindowTokens": 200000,
+          "maxOutputTokens": 64000,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "unsupported",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1,
+            "outputPer1mTokens": 5,
+            "cacheWritePer1mTokens": 1.25,
+            "cacheReadPer1mTokens": 0.1
+          }
+        },
+        {
+          "id": "openai/gpt-5.5",
+          "displayName": "GPT-5.5",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 5,
+            "outputPer1mTokens": 30,
+            "cacheReadPer1mTokens": 0.5,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 10,
+                "outputPer1mTokens": 45,
+                "cacheReadPer1mTokens": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "openai/gpt-5.5-pro",
+          "displayName": "GPT-5.5 Pro",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 128000,
+          "defaultContextWindowTokens": 200000,
+          "longContextPricingThresholdTokens": 272000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 30,
+            "outputPer1mTokens": 180,
+            "tiers": [
+              {
+                "inputTokenThreshold": 272000,
+                "inputPer1mTokens": 60,
+                "outputPer1mTokens": 270
+              }
+            ]
+          }
+        },
+        {
+          "id": "xai/grok-4.3",
+          "displayName": "Grok 4.3",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 16000,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1.25,
+            "outputPer1mTokens": 2.5
+          }
+        },
+        {
+          "id": "moonshotai/kimi-k2.6",
+          "displayName": "Kimi K2.6",
+          "contextWindowTokens": 262144,
+          "maxOutputTokens": 32768,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.95,
+            "outputPer1mTokens": 4
+          }
+        },
+        {
+          "id": "deepseek/deepseek-v4-flash",
+          "displayName": "DeepSeek V4 Flash",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 384000,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.14,
+            "outputPer1mTokens": 0.28
+          }
+        }
+      ]
+    },
+    {
+      "id": "litellm",
+      "displayName": "LiteLLM",
+      "subtitle": "AI gateway proxy for 100+ LLM providers (OpenAI, Anthropic, Azure, Bedrock, Vertex, etc.).",
+      "setupMode": "api-key",
+      "setupHint": "Enter your LiteLLM proxy base URL and API key. Models are auto-discovered from the proxy.",
+      "envVar": "LITELLM_API_KEY",
+      "apiKeyPlaceholder": "sk-...",
+      "credentialsGuide": {
+        "description": "Set up a LiteLLM proxy, then use the master key or a virtual key.",
+        "url": "https://docs.litellm.ai/docs/proxy/quick_start",
+        "linkLabel": "LiteLLM Proxy Quick Start"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "",
+      "models": []
+    },
+    {
       "id": "openai-compatible",
       "displayName": "OpenAI-compatible",
       "subtitle": "Bring your own OpenAI-compatible endpoint (vLLM, LMStudio, Groq, Together, etc.).",
@@ -1331,6 +2083,113 @@
           "longContextMode": "unsupported",
           "supportsThinking": true,
           "supportsCaching": true,
+          "supportsVision": false,
+          "supportsToolUse": true
+        }
+      ]
+    },
+    {
+      "id": "atlascloud",
+      "displayName": "Atlas Cloud",
+      "subtitle": "Atlas Cloud AI models (OpenAI-compatible). Requires an Atlas Cloud API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Atlas Cloud API key to enable Atlas Cloud models.",
+      "envVar": "ATLASCLOUD_API_KEY",
+      "apiKeyPlaceholder": "apikey-...",
+      "credentialsGuide": {
+        "description": "Sign in to the Atlas Cloud console and create an API key.",
+        "url": "https://www.atlascloud.ai/console",
+        "linkLabel": "Open Atlas Cloud Console"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "deepseek-ai/deepseek-v4-pro",
+      "models": [
+        {
+          "id": "deepseek-ai/deepseek-v4-pro",
+          "displayName": "DeepSeek V4 Pro",
+          "contextWindowTokens": 128000,
+          "maxOutputTokens": 8192,
+          "defaultContextWindowTokens": 128000,
+          "longContextMode": "unsupported",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true
+        }
+      ]
+    },
+    {
+      "id": "baseten",
+      "displayName": "Baseten",
+      "subtitle": "Open models served by Baseten. Requires a Baseten API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Baseten API key to enable Baseten models.",
+      "envVar": "BASETEN_API_KEY",
+      "apiKeyPlaceholder": "Your Baseten API key",
+      "credentialsGuide": {
+        "description": "Sign in to the Baseten dashboard and create an API key.",
+        "url": "https://app.baseten.co/settings/api_keys",
+        "linkLabel": "Open Baseten Dashboard"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "thinkingmachines/inkling",
+      "models": [
+        {
+          "id": "thinkingmachines/inkling",
+          "displayName": "Inkling",
+          "contextWindowTokens": 262144,
+          "maxOutputTokens": 32768,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 1,
+            "outputPer1mTokens": 4.05,
+            "cacheReadPer1mTokens": 0.17
+          }
+        }
+      ]
+    },
+    {
+      "id": "poolside",
+      "displayName": "Poolside",
+      "subtitle": "Laguna models from Poolside (OpenAI-compatible). Requires a Poolside API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your Poolside API key to enable Laguna models.",
+      "envVar": "POOLSIDE_API_KEY",
+      "apiKeyPlaceholder": "Your Poolside API key",
+      "credentialsGuide": {
+        "description": "Sign in to Poolside and create an API key.",
+        "url": "https://poolside.ai",
+        "linkLabel": "Open Poolside"
+      },
+      "supportsPlatformAuth": false,
+      "defaultModel": "poolside/laguna-s-2.1",
+      "models": [
+        {
+          "id": "poolside/laguna-s-2.1",
+          "displayName": "Laguna S 2.1",
+          "contextWindowTokens": 1050000,
+          "maxOutputTokens": 131072,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": false,
+          "supportsToolUse": true
+        },
+        {
+          "id": "poolside/laguna-xs-2.1",
+          "displayName": "Laguna XS 2.1",
+          "contextWindowTokens": 262144,
+          "maxOutputTokens": 32768,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
           "supportsVision": false,
           "supportsToolUse": true
         }

@@ -22,7 +22,7 @@ describe("MemoryV2ConfigSchema", () => {
       sparse_weight: 0.15,
       bm25_k1: 1.2,
       bm25_b: 0.4,
-      consolidation_interval_hours: 4,
+      consolidation_interval_hours: 8,
       consolidation_max_buffer_lines: 100,
       consolidation_max_entries_per_run: 150,
       max_page_chars: 5000,
@@ -222,7 +222,7 @@ describe("MemoryConfigSchema integration with v2 block", () => {
     expect(parsed.v2.d).toBe(0.3);
     expect(parsed.v2.dense_weight).toBe(0.85);
     expect(parsed.v2.sparse_weight).toBe(0.15);
-    expect(parsed.v2.consolidation_interval_hours).toBe(4);
+    expect(parsed.v2.consolidation_interval_hours).toBe(8);
     expect(parsed.v2.max_page_chars).toBe(5000);
   });
 

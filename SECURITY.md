@@ -18,6 +18,7 @@ This policy covers the code in this repository, including:
 - The assistant runtime (`assistant/`)
 - The gateway (`gateway/`)
 - The CLI (`cli/`)
+- End-user app surfaces (`clients/` — web, iOS, macOS/Electron)
 - Native clients (`clients/`)
 - The credential execution service (`credential-executor/`)
 - The packages shared between services (`packages/`)

@@ -58,11 +58,15 @@ describe("fuzzy-match property-based tests", () => {
     fc.assert(
       fc.property(fc.string({ minLength: 3, maxLength: 200 }), (content) => {
         // Pick a non-empty substring from the content
-        if (content.length < 2) return;
+        if (content.length < 2) {
+          return;
+        }
         const start = 0;
         const end = Math.min(content.length, 3);
         const target = content.slice(start, end);
-        if (target.length === 0) return;
+        if (target.length === 0) {
+          return;
+        }
 
         const result = findMatch(content, target);
         expect(result).not.toBeNull();
@@ -80,7 +84,9 @@ describe("fuzzy-match property-based tests", () => {
         fc.string({ minLength: 1, maxLength: 100 }),
         (prefix, target, suffix) => {
           // Avoid cases where target appears in prefix or suffix
-          if (prefix.includes(target) || suffix.includes(target)) return;
+          if (prefix.includes(target) || suffix.includes(target)) {
+            return;
+          }
 
           const content = prefix + target + suffix;
           // Ensure target's first occurrence is exactly at the inserted position,
@@ -104,10 +110,14 @@ describe("fuzzy-match property-based tests", () => {
         fc.string({ minLength: 1, maxLength: 10 }),
         fc.integer({ min: 1, max: 5 }),
         (word, repeats) => {
-          if (word.length === 0) return;
+          if (word.length === 0) {
+            return;
+          }
           // Build content with the word repeated, separated by a delimiter
           const separator = "|||";
-          if (word.includes(separator)) return;
+          if (word.includes(separator)) {
+            return;
+          }
           const content = Array(repeats).fill(word).join(separator);
 
           const results = findAllMatches(content, word);
@@ -198,7 +208,9 @@ describe("fuzzy-match property-based tests", () => {
         }),
         (lines) => {
           const content = lines.join("\n");
-          if (content.length === 0) return;
+          if (content.length === 0) {
+            return;
+          }
 
           const result = findMatch(content, content);
           expect(result).not.toBeNull();

@@ -10,7 +10,9 @@ function unwrapToShape(schema: any): any {
   let current = schema;
   while (current && !current.shape) {
     const def = current._zod?.def;
-    if (!def) break;
+    if (!def) {
+      break;
+    }
     // Pipe/transform: follow the input side to get the pre-transform schema
     if (def.type === "pipe" && def.in) {
       current = def.in;
@@ -40,9 +42,13 @@ export function getSchemaAtPath(
   let current: any = schema;
   for (const key of keys) {
     current = unwrapToShape(current);
-    if (!current || !current.shape) return null;
+    if (!current || !current.shape) {
+      return null;
+    }
     current = current.shape[key];
-    if (!current) return null;
+    if (!current) {
+      return null;
+    }
   }
   return current;
 }

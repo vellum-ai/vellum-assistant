@@ -11,8 +11,9 @@ import { z } from "zod";
 import {
   cancelBackgroundTool,
   listBackgroundTools,
+  listCompletedBackgroundTools,
 } from "../../tools/background-tool-registry.js";
-import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -23,6 +24,7 @@ async function handleBackgroundToolList({
 }: RouteHandlerArgs) {
   const conversationId = queryParams.conversationId || undefined;
   const tools = listBackgroundTools(conversationId);
+  const completed = listCompletedBackgroundTools(conversationId);
 
   return {
     tools: tools.map((t) => ({
@@ -31,6 +33,20 @@ async function handleBackgroundToolList({
       conversationId: t.conversationId,
       command: t.command,
       startedAt: t.startedAt,
+    })),
+    // Recently-completed tools let a client that missed the live completion
+    // event (chat unmounted / different conversation active) recover the
+    // terminal status on rehydration instead of wrongly retiring as cancelled.
+    completed: completed.map((t) => ({
+      id: t.id,
+      toolName: t.toolName,
+      conversationId: t.conversationId,
+      command: t.command,
+      startedAt: t.startedAt,
+      status: t.status,
+      exitCode: t.exitCode,
+      output: t.output,
+      completedAt: t.completedAt,
     })),
   };
 }
@@ -55,14 +71,24 @@ const BackgroundToolSchema = z.object({
   startedAt: z.number(),
 });
 
+const CompletedBackgroundToolSchema = BackgroundToolSchema.extend({
+  status: z.enum(["completed", "failed", "cancelled"]),
+  exitCode: z.number().nullable(),
+  output: z.string(),
+  completedAt: z.number(),
+});
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "background_tool_list",
     endpoint: "background-tools",
     method: "GET",
+    // Read path for the chat UI's background-task rehydration, like the ACP
+    // `acp_list_sessions` route — so the web actor (not just a local CLI
+    // caller) can re-seed inline cards on reload.
     policy: {
-      requiredScopes: ["settings.read"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     handler: handleBackgroundToolList,
     summary: "List active background tools",
@@ -79,15 +105,18 @@ export const ROUTES: RouteDefinition[] = [
     ],
     responseBody: z.object({
       tools: z.array(BackgroundToolSchema),
+      completed: z.array(CompletedBackgroundToolSchema),
     }),
   },
   {
     operationId: "background_tool_cancel",
     endpoint: "background-tools/cancel",
     method: "POST",
+    // Write path for the inline card's Stop button, like ACP `acp_cancel` —
+    // the web actor cancels a running task it can see.
     policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     handler: handleBackgroundToolCancel,
     summary: "Cancel a background tool",

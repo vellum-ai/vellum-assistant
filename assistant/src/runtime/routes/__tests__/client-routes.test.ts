@@ -18,13 +18,6 @@ mock.module("../../../config/env.js", () => ({
   hasUngatedHttpAuthDisabled: () => false,
 }));
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Real imports (after mocks) ────────────────────────────────────────────
 
 import { assistantEventHub } from "../../assistant-event-hub.js";
@@ -39,7 +32,9 @@ afterAll(() => {
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -51,6 +46,7 @@ type ListClientsResponse = {
     machineName?: string;
     connectedAt: string;
     lastActiveAt: string;
+    degraded?: boolean;
   }>;
 };
 
@@ -151,5 +147,17 @@ describe("list_clients route — same-user filter", () => {
 
     const ids = result.clients.map((c) => c.clientId).sort();
     expect(ids).toEqual(["client-A1", "client-B1", "client-noprincipal"]);
+  });
+
+  test("includes a degraded flag (false for a freshly connected client)", () => {
+    registerClient({ clientId: "client-A1", actorPrincipalId: "user-A" });
+
+    const handler = findHandler("list_clients");
+    const result = handler({
+      headers: { "x-vellum-actor-principal-id": "user-A" },
+    }) as ListClientsResponse;
+
+    expect(result.clients).toHaveLength(1);
+    expect(result.clients[0].degraded).toBe(false);
   });
 });

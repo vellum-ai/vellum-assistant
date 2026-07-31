@@ -10,14 +10,14 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 
 // Capture every broadcast emitted by the tracker. The real hub is replaced
 // with a thin recorder so we can assert payloads deterministically.
-const publishedMessages: ServerMessage[] = [];
+const publishedMessages: AssistantEvent[] = [];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: ServerMessage) => {
+  broadcastMessage: (msg: AssistantEvent) => {
     publishedMessages.push(msg);
   },
   capabilityForMessageType: () => undefined,
@@ -41,7 +41,7 @@ afterEach(() => {
 function lastResolvedEvent() {
   const evt = publishedMessages.find((m) => m.type === "interaction_resolved");
   expect(evt).toBeDefined();
-  return evt as Extract<ServerMessage, { type: "interaction_resolved" }>;
+  return evt as Extract<AssistantEvent, { type: "interaction_resolved" }>;
 }
 
 describe("pendingInteractions.resolve emits interaction_resolved", () => {
@@ -102,6 +102,28 @@ describe("pendingInteractions.resolve emits interaction_resolved", () => {
     expect(publishedMessages).toHaveLength(0);
   });
 
+  test("no event is emitted for a conversation-less interaction", () => {
+    /**
+     * Conversation-less interactions (e.g. the CLI `credentials prompt`
+     * command) resolve through their own resolver rather than a conversation.
+     * The `interaction_resolved` envelope requires a conversationId, so the
+     * tracker skips the broadcast instead of emitting an invalid event.
+     */
+    // GIVEN a registered interaction with no owning conversation
+    pendingInteractions.register("req-detached", { kind: "secret" });
+
+    // WHEN it is resolved
+    const returned = pendingInteractions.resolve("req-detached", "answered");
+
+    // THEN the entry is still returned to its caller
+    expect(returned).toBeDefined();
+
+    // AND no interaction_resolved envelope is published
+    expect(
+      publishedMessages.filter((m) => m.type === "interaction_resolved"),
+    ).toHaveLength(0);
+  });
+
   test("a single resolve emits exactly one event", () => {
     pendingInteractions.register("req-once", {
       conversationId: "conv-e",
@@ -133,7 +155,7 @@ describe("pendingInteractions.resolve emits interaction_resolved", () => {
 });
 
 describe("removeByConversation emits interaction_resolved per entry", () => {
-  test("emits superseded for every non-host interaction in the conversation", () => {
+  test("emits superseded for every confirmation/secret interaction in the conversation", () => {
     pendingInteractions.register("conf-1", {
       conversationId: "conv-x",
       kind: "confirmation",
@@ -159,14 +181,17 @@ describe("removeByConversation emits interaction_resolved per entry", () => {
 
     const events = publishedMessages.filter(
       (m) => m.type === "interaction_resolved",
-    ) as Extract<ServerMessage, { type: "interaction_resolved" }>[];
-    expect(events).toHaveLength(3);
+    ) as Extract<AssistantEvent, { type: "interaction_resolved" }>[];
+    expect(events).toHaveLength(2);
     expect(events.every((e) => e.state === "superseded")).toBe(true);
     const requestIds = new Set(events.map((e) => e.requestId));
-    expect(requestIds).toEqual(new Set(["conf-1", "secret-1", "question-1"]));
+    expect(requestIds).toEqual(new Set(["conf-1", "secret-1"]));
 
-    // host_bash entries survive auto-deny — no event for them.
+    // host_bash and question entries both survive auto-deny — no event for
+    // either. host proxies are settled by their result POST; questions by the
+    // enqueue steer's turn abort (see removeByConversation's skip list).
     expect(pendingInteractions.get("host-bash-1")).toBeDefined();
+    expect(pendingInteractions.get("question-1")).toBeDefined();
     // Unrelated conversation is untouched.
     expect(pendingInteractions.get("conf-other")).toBeDefined();
   });
@@ -182,8 +207,70 @@ describe("removeByConversation emits interaction_resolved per entry", () => {
     );
     expect(events).toHaveLength(1);
     expect(
-      (events[0] as Extract<ServerMessage, { type: "interaction_resolved" }>)
+      (events[0] as Extract<AssistantEvent, { type: "interaction_resolved" }>)
         .state,
     ).toBe("cancelled");
+  });
+
+  test("settles a swept secret prompt's resolver with a superseded result", () => {
+    /**
+     * A secret prompt blocks its caller (the CLI `credentials prompt` command
+     * or the in-conversation SecretPrompter) on `rpcResolve`. Unlike questions
+     * (abort-signal teardown) and confirmations (denyAllPendingConfirmations),
+     * nothing else settles a secret when it is superseded, so removing the
+     * entry alone would hang the caller until its IPC client times out. The
+     * result carries `reason: "superseded"` so callers do not misreport the
+     * sweep as a deliberate user cancel.
+     */
+    // GIVEN a pending secret whose caller is blocked on rpcResolve
+    const resolved: unknown[] = [];
+    pendingInteractions.register("secret-sweep", {
+      conversationId: "conv-sweep",
+      kind: "secret",
+      rpcResolve: (value) => resolved.push(value),
+    });
+
+    // WHEN a new user message supersedes the conversation's interactions
+    pendingInteractions.removeByConversation("conv-sweep");
+
+    // THEN the secret resolver is settled once with a superseded result
+    expect(resolved).toEqual([
+      { value: null, delivery: "store", reason: "superseded" },
+    ]);
+  });
+
+  test("settles a swept secret with a cancelled reason for a cancelled sweep", () => {
+    // GIVEN a pending secret whose caller is blocked on rpcResolve
+    const resolved: unknown[] = [];
+    pendingInteractions.register("secret-cancel-sweep", {
+      conversationId: "conv-cancel-sweep",
+      kind: "secret",
+      rpcResolve: (value) => resolved.push(value),
+    });
+
+    // WHEN the conversation's interactions are removed with a cancelled state
+    pendingInteractions.removeByConversation("conv-cancel-sweep", "cancelled");
+
+    // THEN the secret resolver is settled with a cancelled result
+    expect(resolved).toEqual([
+      { value: null, delivery: "store", reason: "cancelled" },
+    ]);
+  });
+
+  test("does not invoke a swept confirmation's resolver with a secret result", () => {
+    // GIVEN a pending confirmation carrying an rpcResolve callback
+    const resolved: unknown[] = [];
+    pendingInteractions.register("conf-sweep", {
+      conversationId: "conv-conf",
+      kind: "confirmation",
+      rpcResolve: (value) => resolved.push(value),
+    });
+
+    // WHEN the conversation is superseded
+    pendingInteractions.removeByConversation("conv-conf");
+
+    // THEN the confirmation resolver is left untouched — only secret prompts
+    // are settled with a SecretPromptResult-shaped value here.
+    expect(resolved).toHaveLength(0);
   });
 });

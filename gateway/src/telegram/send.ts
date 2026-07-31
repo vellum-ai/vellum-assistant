@@ -1,18 +1,8 @@
+import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { getLogger } from "../logger.js";
-
-export type ApprovalAction = {
-  id: string;
-  label: string;
-};
-
-export type ApprovalPayload = {
-  requestId: string;
-  actions: ApprovalAction[];
-  plainTextFallback: string;
-};
 import {
   downloadAttachment,
   type RuntimeAttachmentMeta,
@@ -34,7 +24,7 @@ const IMAGE_MIME_PREFIXES = [
   "image/webp",
 ];
 
-export function buildInlineKeyboard(approval: ApprovalPayload): {
+export function buildInlineKeyboard(approval: ApprovalUIMetadata): {
   inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
 } {
   return {
@@ -59,16 +49,29 @@ export async function sendTelegramReply(
   config: GatewayConfig,
   chatId: string,
   text: string,
-  approval?: ApprovalPayload,
-  opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
+  approval?: ApprovalUIMetadata,
+  opts?: {
+    credentials?: CredentialCache;
+    configFile?: ConfigFileCache;
+    /** Private-chat topic to send into; omitted → main chat. */
+    messageThreadId?: string;
+  },
 ): Promise<void> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
+  const messageThreadId = opts?.messageThreadId?.trim();
 
   for (let i = 0; i < chunks.length; i++) {
     const payload: Record<string, unknown> = {
       chat_id: chatId,
       text: chunks[i],
     };
+
+    // message_thread_id is the Bot API topic field for both forum supergroups
+    // and private chats of bots with topic ("threaded") mode enabled.
+    // (direct_messages_topic_id is a different surface — channel monoforums.)
+    if (messageThreadId) {
+      payload.message_thread_id = Number(messageThreadId);
+    }
 
     // Attach inline keyboard only to the last chunk so buttons appear after
     // the full message text.

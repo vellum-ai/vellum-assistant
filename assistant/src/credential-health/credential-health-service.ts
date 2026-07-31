@@ -24,6 +24,7 @@ import {
   type OAuthConnectionRow,
   type OAuthProviderRow,
 } from "../oauth/oauth-store.js";
+import { scopeDifference } from "../oauth/scope-utils.js";
 import {
   TokenExpiredError,
   withValidToken,
@@ -69,17 +70,14 @@ export interface CredentialHealthReport {
 // ── Helpers ───────────────────────────────────────────────────────────
 
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
-  if (!raw) return fallback;
+  if (!raw) {
+    return fallback;
+  }
   try {
     return JSON.parse(raw) as T;
   } catch {
     return fallback;
   }
-}
-
-function scopeDifference(required: string[], granted: string[]): string[] {
-  const grantedSet = new Set(granted);
-  return required.filter((s) => !grantedSet.has(s));
 }
 
 // ── Liveness ping ─────────────────────────────────────────────────────
@@ -120,7 +118,9 @@ async function pingProvider(
       signal: AbortSignal.timeout(PING_TIMEOUT_MS),
     });
 
-    if (response.ok) return { ok: true, authError: false };
+    if (response.ok) {
+      return { ok: true, authError: false };
+    }
     if (response.status === 401 || response.status === 403) {
       return { ok: false, authError: true };
     }
@@ -147,7 +147,9 @@ function pingResultToHealthFailure(
   pingResult: { ok: boolean; authError: boolean },
   authErrorContext: PingFailureContext,
 ): CredentialHealthResult | null {
-  if (pingResult.ok) return null;
+  if (pingResult.ok) {
+    return null;
+  }
   if (pingResult.authError) {
     const suffix =
       authErrorContext === "after_refresh" ? " after a refresh attempt" : "";
@@ -327,7 +329,9 @@ async function checkConnection(
       pingResult,
       authContext,
     );
-    if (failure) return failure;
+    if (failure) {
+      return failure;
+    }
   }
 
   return {
@@ -349,12 +353,16 @@ async function isManagedProvider(
   providerRow: OAuthProviderRow,
 ): Promise<boolean> {
   const managedKey = providerRow.managedServiceConfigKey;
-  if (!managedKey) return false;
+  if (!managedKey) {
+    return false;
+  }
 
   try {
     const { ServicesSchema, getServiceMode } =
       await import("../config/schemas/services.js");
-    if (!(managedKey in ServicesSchema.shape)) return false;
+    if (!(managedKey in ServicesSchema.shape)) {
+      return false;
+    }
 
     const { getConfig } = await import("../config/loader.js");
     const services: Services = getConfig().services;
@@ -377,7 +385,9 @@ async function checkManagedProvider(
   try {
     const { VellumPlatformClient } = await import("../platform/client.js");
     const client = await VellumPlatformClient.create();
-    if (!client?.platformAssistantId) return results;
+    if (!client?.platformAssistantId) {
+      return results;
+    }
 
     // Query without a status filter so we can distinguish "never
     // connected" (empty result) from "previously connected but now
@@ -646,7 +656,9 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
   // evaluate it via the managed path even if stale BYO rows exist — the
   // user may have switched from BYO to managed.
   for (const providerRow of providers) {
-    if (!(await isManagedProvider(providerRow))) continue;
+    if (!(await isManagedProvider(providerRow))) {
+      continue;
+    }
 
     let managedResults: CredentialHealthResult[] = [];
     try {
@@ -705,13 +717,17 @@ export async function checkCredentialForProvider(
   provider: string,
 ): Promise<CredentialHealthResult | null> {
   const providerRow = getProvider(provider);
-  if (!providerRow) return null;
+  if (!providerRow) {
+    return null;
+  }
 
   // Check managed mode first — if the provider is currently configured for
   // managed mode, evaluate via the platform regardless of stale BYO rows.
   if (await isManagedProvider(providerRow)) {
     const managedResults = await checkManagedProvider(providerRow);
-    if (managedResults.length > 0) return managedResults[0]!;
+    if (managedResults.length > 0) {
+      return managedResults[0]!;
+    }
     return null;
   }
 

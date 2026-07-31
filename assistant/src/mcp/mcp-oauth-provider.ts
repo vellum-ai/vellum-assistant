@@ -131,7 +131,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async tokens(): Promise<OAuthTokens | undefined> {
     const raw = await getSecureKeyAsync(tokensKey(this.serverId));
-    if (!raw) return undefined;
+    if (!raw) {
+      return undefined;
+    }
     try {
       return JSON.parse(raw) as OAuthTokens;
     } catch {
@@ -144,9 +146,29 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
+    // RFC 6749 §6 lets a token endpoint rotate the refresh_token, omit
+    // it, or leave it unchanged. Many MCP servers issue a fresh
+    // access_token without a new refresh_token on every refresh grant;
+    // overwriting storage verbatim would then drop the refresh_token
+    // we still need to send on the next silent refresh. Carry forward
+    // the previous refresh_token when the incoming response omits one.
+    let toPersist: OAuthTokens = tokens;
+    if (!tokens.refresh_token) {
+      const previous = await getSecureKeyAsync(tokensKey(this.serverId));
+      if (previous) {
+        try {
+          const parsed = JSON.parse(previous) as OAuthTokens;
+          if (parsed.refresh_token) {
+            toPersist = { ...tokens, refresh_token: parsed.refresh_token };
+          }
+        } catch {
+          // Existing payload is malformed; fall through and save as-is.
+        }
+      }
+    }
     const ok = await setSecureKeyAsync(
       tokensKey(this.serverId),
-      JSON.stringify(tokens),
+      JSON.stringify(toPersist),
     );
     if (!ok) {
       log.warn(
@@ -158,11 +180,45 @@ export class McpOAuthProvider implements OAuthClientProvider {
     log.info({ serverId: this.serverId }, "OAuth tokens saved");
   }
 
+  // --- Refresh-Token Grant ---
+
+  /**
+   * Build the URL-encoded body for a refresh-token grant request.
+   *
+   * The MCP SDK calls this method when it needs to obtain a fresh
+   * access token without an authorization code (typically after a 401
+   * on an existing MCP request). We return a `refresh_token` grant if
+   * the stored tokens include one; otherwise we return `undefined` so
+   * the SDK falls back to the full authorization-code flow.
+   *
+   * Per RFC 6749 §6, omitting `scope` on refresh means the server
+   * reuses the originally authorized scope — the default most MCP
+   * servers (including Nirvana) expect.
+   */
+  async prepareTokenRequest(
+    scope?: string,
+  ): Promise<URLSearchParams | undefined> {
+    const tokens = await this.tokens();
+    if (!tokens?.refresh_token) {
+      return undefined;
+    }
+    const params = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: tokens.refresh_token,
+    });
+    if (scope) {
+      params.set("scope", scope);
+    }
+    return params;
+  }
+
   // --- Client Information ---
 
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
     const raw = await getSecureKeyAsync(clientInfoKey(this.serverId));
-    if (!raw) return undefined;
+    if (!raw) {
+      return undefined;
+    }
     try {
       return JSON.parse(raw) as OAuthClientInformationMixed;
     } catch {
@@ -228,7 +284,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
     const raw = await getSecureKeyAsync(discoveryKey(this.serverId));
-    if (!raw) return undefined;
+    if (!raw) {
+      return undefined;
+    }
     try {
       return JSON.parse(raw) as OAuthDiscoveryState;
     } catch {
@@ -416,6 +474,12 @@ export class McpOAuthProvider implements OAuthClientProvider {
     });
     this._codePromise = codePromise;
 
+    // stopCallbackServer() can reject this deferred before any consumer is
+    // attached. Without a handler that rejection is unhandled, which the daemon
+    // treats as fatal; the no-op catch keeps it observed while a real consumer
+    // awaits the same promise and still sees the rejection.
+    void codePromise.catch(() => {});
+
     log.info(
       { serverId: this.serverId, redirectUrl },
       "MCP OAuth gateway callback prepared (awaiting state from auth URL)",
@@ -495,7 +559,9 @@ export class McpOAuthProvider implements OAuthClientProvider {
           codeReject(new Error("MCP OAuth callback timed out"));
         }
       }, CALLBACK_TIMEOUT_MS);
-      if (typeof timeout === "object" && "unref" in timeout) timeout.unref();
+      if (typeof timeout === "object" && "unref" in timeout) {
+        timeout.unref();
+      }
       this.callbackTimeout = timeout;
 
       const cleanup = () => {
@@ -570,12 +636,20 @@ export class McpOAuthProvider implements OAuthClientProvider {
 // --- Static helpers ---
 
 /**
+ * Check whether OAuth tokens exist in the credential store for a server.
+ */
+export async function hasMcpOAuthTokens(serverId: string): Promise<boolean> {
+  const raw = await getSecureKeyAsync(tokensKey(serverId));
+  return raw != null && raw.length > 0;
+}
+
+/**
  * Delete all OAuth credentials for a given MCP server.
  * Used by `mcp remove` for cleanup.
  */
 export async function deleteMcpOAuthCredentials(
   serverId: string,
-): Promise<void> {
+): Promise<{ ok: boolean; failedKeys: string[] }> {
   const [tokensResult, clientResult, discoveryResult] = await Promise.all([
     deleteSecureKeyAsync(tokensKey(serverId)),
     deleteSecureKeyAsync(clientInfoKey(serverId)),
@@ -586,20 +660,23 @@ export async function deleteMcpOAuthCredentials(
     { key: "client_info", result: clientResult },
     { key: "discovery", result: discoveryResult },
   ];
-  const errors = results.filter((r) => r.result === "error").map((r) => r.key);
-  if (errors.length > 0) {
+  const failedKeys = results
+    .filter((r) => r.result === "error")
+    .map((r) => r.key);
+  if (failedKeys.length > 0) {
     log.warn(
-      { serverId, failedKeys: errors },
+      { serverId, failedKeys },
       "Some OAuth credentials could not be deleted from secure storage",
     );
   }
-  const hasErrors = errors.length > 0;
+  const ok = failedKeys.length === 0;
   log.info(
     { serverId },
-    hasErrors
-      ? "OAuth credential deletion completed with errors"
-      : "OAuth credentials deleted",
+    ok
+      ? "OAuth credentials deleted"
+      : "OAuth credential deletion completed with errors",
   );
+  return { ok, failedKeys };
 }
 
 // --- HTML rendering ---

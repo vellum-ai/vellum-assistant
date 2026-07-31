@@ -32,19 +32,17 @@ Once your user has gone through the setup process and has a Client ID and Client
 
 **Step 1: Collect Client ID and Client Secret together**
 
-Present BOTH the conversational Client ID request AND the `credential_store prompt` for the Client Secret in the same turn. Do not wait for the Client ID before showing the secret form. Output the chat text first asking for the Client ID, then invoke the `credential_store prompt` tool call in the same turn.
+Present BOTH the conversational Client ID request AND the `assistant credentials prompt` for the Client Secret in the same turn. Do not wait for the Client ID before showing the secret form. Output the chat text first asking for the Client ID, then run `assistant credentials prompt` (via the bash tool) in the same turn.
 
 Presenting both inputs together lets the user fill them in while the provider's credentials page is still open, instead of requiring a round-trip between each field.
 
 In your message, ask the user to paste the Client ID in chat (this is safe — Client ID is not a secret value), and simultaneously open the secure prompt for the Client Secret:
 
-```
-credential_store prompt:
-  service: "<provider-key>"
-  field: "client_secret"
-  label: "OAuth Client Secret"
-  description: "Copy the Client Secret from the app credentials page and paste it here."
-  placeholder: "..."
+```bash
+assistant credentials prompt --service <provider-key> --field client_secret \
+  --label "OAuth Client Secret" \
+  --placeholder "..." \
+  --description "Copy the Client Secret from the app credentials page and paste it here."
 ```
 
 Do NOT collect the client secret conversationally.

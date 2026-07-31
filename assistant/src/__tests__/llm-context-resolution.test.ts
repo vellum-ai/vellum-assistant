@@ -4,11 +4,13 @@ import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.
 import { LLMSchema } from "../config/schemas/llm.js";
 
 describe("resolveEffectiveContextWindow", () => {
-  test("existing config without context override resolves to 200k", () => {
+  test("call-site config without context override resolves to 200k", () => {
     const llm = LLMSchema.parse({
-      default: {
-        provider: "openai",
-        model: "gpt-5.5",
+      callSites: {
+        mainAgent: {
+          provider: "openai",
+          model: "gpt-5.5",
+        },
       },
     });
 
@@ -23,15 +25,12 @@ describe("resolveEffectiveContextWindow", () => {
     expect(resolved.isLongContextEnabled).toBe(false);
   });
 
-  test("active profile context override beats llm.default", () => {
+  test("active profile context override beats the code-default window", () => {
     const llm = LLMSchema.parse({
-      default: {
-        provider: "openai",
-        model: "gpt-5.5",
-        contextWindow: { maxInputTokens: 100000 },
-      },
       profiles: {
         long: {
+          provider: "openai",
+          model: "gpt-5.5",
           contextWindow: { maxInputTokens: 150000 },
         },
       },
@@ -53,18 +52,18 @@ describe("resolveEffectiveContextWindow", () => {
 
   test("main agent active profile context override beats call-site profile defaults", () => {
     const llm = LLMSchema.parse({
-      default: {
-        provider: "openai",
-        model: "gpt-5.5",
-      },
       profiles: {
         active: {
+          provider: "openai",
+          model: "gpt-5.5",
           contextWindow: { maxInputTokens: 150000 },
         },
         site: {
           label: "Site profile",
           description: "Used by one call site.",
           source: "user",
+          provider: "openai",
+          model: "gpt-5.5",
           contextWindow: { maxInputTokens: 175000 },
         },
       },
@@ -88,15 +87,15 @@ describe("resolveEffectiveContextWindow", () => {
 
   test("non-main call-site profile context override beats active profile", () => {
     const llm = LLMSchema.parse({
-      default: {
-        provider: "openai",
-        model: "gpt-5.5",
-      },
       profiles: {
         active: {
+          provider: "openai",
+          model: "gpt-5.5",
           contextWindow: { maxInputTokens: 150000 },
         },
         site: {
+          provider: "openai",
+          model: "gpt-5.5",
           contextWindow: { maxInputTokens: 175000 },
         },
       },
@@ -114,12 +113,32 @@ describe("resolveEffectiveContextWindow", () => {
     expect(resolved.maxInputTokens).toBe(175000);
   });
 
+  test("a routing-identity profile resolves the model's own context limits", () => {
+    const llm = LLMSchema.parse({
+      profiles: {
+        managed: { provider: "vellum", model: "gpt-5.5" },
+      },
+      activeProfile: "managed",
+    });
+
+    const resolved = resolveEffectiveContextWindow({
+      llm,
+      callSite: "mainAgent",
+    });
+
+    // The catalog owner (openai) carries gpt-5.5's limits; a raw "vellum"
+    // lookup would miss and misreport the model max as the 200k default.
+    expect(resolved.modelMaxInputTokens).toBe(1050000);
+  });
+
   test("unknown catalog model falls back safely to the default 200k cap", () => {
     const llm = LLMSchema.parse({
-      default: {
-        provider: "openai",
-        model: "custom-model",
-        contextWindow: { maxInputTokens: 300000 },
+      callSites: {
+        mainAgent: {
+          provider: "openai",
+          model: "custom-model",
+          contextWindow: { maxInputTokens: 300000 },
+        },
       },
     });
 
@@ -137,10 +156,12 @@ describe("resolveEffectiveContextWindow", () => {
 
   test("configured context above the model maximum is clamped", () => {
     const llm = LLMSchema.parse({
-      default: {
-        provider: "openai",
-        model: "gpt-5.5",
-        contextWindow: { maxInputTokens: 2000000 },
+      callSites: {
+        mainAgent: {
+          provider: "openai",
+          model: "gpt-5.5",
+          contextWindow: { maxInputTokens: 2000000 },
+        },
       },
     });
 
@@ -156,12 +177,10 @@ describe("resolveEffectiveContextWindow", () => {
 
   test("max output metadata is independent from context budget", () => {
     const llm = LLMSchema.parse({
-      default: {
-        provider: "openai",
-        model: "gpt-5.5",
-      },
       profiles: {
         capped: {
+          provider: "openai",
+          model: "gpt-5.5",
           contextWindow: { maxInputTokens: 150000 },
         },
       },

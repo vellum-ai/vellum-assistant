@@ -7,28 +7,28 @@ const updateConversationUsageCalls: Array<{
   estimatedCost: number;
 }> = [];
 
-let mockLlmConfig = createMockLlmConfig();
+let updateConversationUsageFailures = 0;
+let updateConversationUsageFailureCode = "SQLITE_BUSY";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+function sqliteError(code: string): Error {
+  const err = new Error("database is locked") as Error & { code: string };
+  err.code = code;
+  return err;
+}
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-  }),
-}));
-
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   updateConversationUsage: (
     conversationId: string,
     inputTokens: number,
     outputTokens: number,
     estimatedCost: number,
   ) => {
+    if (updateConversationUsageFailures > 0) {
+      updateConversationUsageFailures--;
+      throw sqliteError(updateConversationUsageFailureCode);
+    }
     updateConversationUsageCalls.push({
       conversationId,
       inputTokens,
@@ -40,70 +40,45 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 import { recordUsage } from "../daemon/conversation-usage.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { listUsageEvents } from "../memory/llm-usage-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { listUsageEvents } from "../persistence/llm-usage-store.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 import { UsageTrackingProvider } from "../providers/usage-tracking.js";
 import type { PricingUsage } from "../usage/types.js";
 import { resolvePricingForUsageWithOverrides } from "../util/pricing.js";
+import { setConfig } from "./helpers/set-config.js";
+import { waitFor } from "./helpers/wait-for.js";
 
-initializeDb();
+await initializeDb();
 
-function createMockLlmConfig() {
-  return {
-    default: {
-      provider: "anthropic" as const,
-      model: "claude-opus-4-6",
-      maxTokens: 64_000,
-      effort: "max" as const,
-      speed: "standard" as const,
-      verbosity: "medium" as const,
-      temperature: null,
-      thinking: { enabled: true, streamThinking: true },
-      contextWindow: {
-        enabled: true,
-        maxInputTokens: 200_000,
-        targetBudgetRatio: 0.3,
-        compactThreshold: 0.8,
-        summaryBudgetRatio: 0.05,
-        overflowRecovery: {
-          enabled: true,
-          safetyMarginRatio: 0.05,
-          maxAttempts: 3,
-          interactiveLatestTurnCompression: "summarize" as const,
-          nonInteractiveLatestTurnCompression: "truncate" as const,
-        },
-      },
-      openrouter: { only: [] },
+// The attribution assertions resolve profiles/call sites through the real
+// workspace config, so seed the fixtures the tests reference.
+setConfig("llm", {
+  profiles: {
+    conversationProfile: {
+      provider: "openai",
+      model: "gpt-4o",
     },
-    profiles: {
-      conversationProfile: {
-        provider: "openai" as const,
-        model: "gpt-4o",
-      },
-      summaryProfile: {
-        provider: "anthropic" as const,
-        model: "claude-haiku-3",
-      },
+    summaryProfile: {
+      provider: "anthropic",
+      model: "claude-haiku-3",
     },
-    profileOrder: [],
-    callSites: {
-      conversationSummarization: {
-        profile: "summaryProfile",
-      },
+  },
+  callSites: {
+    conversationSummarization: {
+      profile: "summaryProfile",
     },
-    activeProfile: undefined,
-    pricingOverrides: [],
-  };
-}
+  },
+});
 
 describe("recordUsage", () => {
   beforeEach(() => {
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
     updateConversationUsageCalls.length = 0;
-    mockLlmConfig = createMockLlmConfig();
+    updateConversationUsageFailures = 0;
+    updateConversationUsageFailureCode = "SQLITE_BUSY";
   });
 
   test("applies fast mode pricing when any response has speed: fast", () => {
@@ -256,6 +231,8 @@ describe("recordUsage", () => {
         conversationId: "conv-usage-1",
         inputTokens: 3_420_218,
         outputTokens: 11_768,
+        cacheCreationInputTokens: 373_619,
+        cacheReadInputTokens: 3_046_461,
         totalInputTokens: 3_420_218,
         totalOutputTokens: 11_768,
         estimatedCost: expectedPricing.estimatedCostUsd ?? 0,
@@ -396,9 +373,11 @@ describe("recordUsage", () => {
       undefined,
       1,
       undefined,
+      // No override profile: an override wins selection at every call site
+      // (covered by the main-agent test above), so attribution lands on the
+      // call-site rung only when the turn carries no override.
       {
         callSite: "conversationSummarization",
-        overrideProfile: "conversationProfile",
       },
     );
 
@@ -459,5 +438,175 @@ describe("recordUsage", () => {
       inferenceProfile: null,
       inferenceProfileSource: "default",
     });
+  });
+
+  test("transient SQLITE_BUSY on the totals write never escapes and retries persist the totals", async () => {
+    const usageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+    // Sync attempt fails, first background retry fails, second succeeds.
+    updateConversationUsageFailures = 2;
+
+    recordUsage(
+      {
+        conversationId: "conv-busy-1",
+        providerName: "openai",
+        usageStats,
+      },
+      100,
+      20,
+      "gpt-4o",
+      () => {},
+      "main_agent",
+    );
+
+    // The throwing write must not have escaped into the caller, and the
+    // in-memory accumulator must already reflect the event.
+    expect(usageStats.inputTokens).toBe(100);
+    expect(usageStats.outputTokens).toBe(20);
+
+    await waitFor(() => updateConversationUsageCalls.length === 1, {
+      timeoutMs: 3_000,
+    });
+    expect(updateConversationUsageCalls[0]).toMatchObject({
+      conversationId: "conv-busy-1",
+      inputTokens: 100,
+      outputTokens: 20,
+    });
+  });
+
+  test("exhausted retries are tolerated and the next usage event self-heals the totals", async () => {
+    const usageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+    // More failures than the sync attempt (1) plus the retry chain's
+    // initial-plus-3-retries budget (4), so the first event's write is
+    // dropped entirely.
+    updateConversationUsageFailures = 100;
+
+    recordUsage(
+      {
+        conversationId: "conv-busy-2",
+        providerName: "openai",
+        usageStats,
+      },
+      100,
+      20,
+      "gpt-4o",
+      () => {},
+      "main_agent",
+    );
+
+    await waitFor(() => updateConversationUsageFailures === 95, {
+      timeoutMs: 3_000,
+    });
+    // Give the chain a beat to settle after its final failure.
+    await Bun.sleep(50);
+    expect(updateConversationUsageCalls).toHaveLength(0);
+
+    updateConversationUsageFailures = 0;
+    recordUsage(
+      {
+        conversationId: "conv-busy-2",
+        providerName: "openai",
+        usageStats,
+      },
+      50,
+      10,
+      "gpt-4o",
+      () => {},
+      "main_agent",
+    );
+
+    // The second event's write carries the cumulative totals, healing the
+    // dropped first write.
+    await waitFor(() => updateConversationUsageCalls.length === 1, {
+      timeoutMs: 3_000,
+    });
+    expect(updateConversationUsageCalls[0]).toMatchObject({
+      conversationId: "conv-busy-2",
+      inputTokens: 150,
+      outputTokens: 30,
+    });
+  });
+
+  test("a usage event landing mid-retry coalesces and stale totals never overwrite newer ones", async () => {
+    const usageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+    // Sync attempt and the first two background attempts fail, leaving the
+    // chain alive in backoff while the second event lands.
+    updateConversationUsageFailures = 3;
+
+    const ctx = {
+      conversationId: "conv-busy-3",
+      providerName: "openai",
+      usageStats,
+    };
+    recordUsage(ctx, 100, 20, "gpt-4o", () => {}, "main_agent");
+    recordUsage(ctx, 50, 10, "gpt-4o", () => {}, "main_agent");
+
+    await waitFor(
+      () =>
+        updateConversationUsageCalls.some(
+          (call) => call.inputTokens === 150 && call.outputTokens === 30,
+        ),
+      { timeoutMs: 3_000 },
+    );
+    // Wait out any straggling coalesced write, then confirm nothing stale
+    // landed after the cumulative totals.
+    await Bun.sleep(300);
+    const last = updateConversationUsageCalls.at(-1);
+    expect(last).toMatchObject({
+      conversationId: "conv-busy-3",
+      inputTokens: 150,
+      outputTokens: 30,
+    });
+  });
+
+  test("a non-retryable write error is tolerated without retrying", async () => {
+    const usageStats = { inputTokens: 0, outputTokens: 0, estimatedCost: 0 };
+    updateConversationUsageFailures = 1;
+    updateConversationUsageFailureCode = "SQLITE_CORRUPT";
+
+    recordUsage(
+      {
+        conversationId: "conv-corrupt-1",
+        providerName: "openai",
+        usageStats,
+      },
+      100,
+      20,
+      "gpt-4o",
+      () => {},
+      "main_agent",
+    );
+
+    // No background chain: the failure budget is spent on the sync attempt
+    // and nothing retries afterwards.
+    await Bun.sleep(300);
+    expect(updateConversationUsageCalls).toHaveLength(0);
+    expect(usageStats.inputTokens).toBe(100);
+  });
+
+  test("NaN token counts never reach persistence and a poisoned total self-heals", () => {
+    const usageStats = {
+      inputTokens: Number.NaN,
+      outputTokens: 5,
+      estimatedCost: Number.NaN,
+    };
+
+    recordUsage(
+      {
+        conversationId: "conv-nan-1",
+        providerName: "anthropic",
+        usageStats,
+      },
+      Number.NaN,
+      10,
+      "claude-opus-4-6",
+      () => {},
+      "main_agent",
+    );
+
+    expect(updateConversationUsageCalls).toHaveLength(1);
+    const call = updateConversationUsageCalls[0];
+    expect(call.inputTokens).toBe(0);
+    expect(call.outputTokens).toBe(15);
+    expect(Number.isFinite(call.estimatedCost)).toBe(true);
   });
 });

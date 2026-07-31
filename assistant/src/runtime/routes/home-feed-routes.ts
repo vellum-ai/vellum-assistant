@@ -28,15 +28,21 @@ import {
   type FeedItemStatus,
   HomeFeedResponseSchema,
 } from "../../api/responses/home.js";
-import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
+import { enrichFeedItemsWithSource } from "../../home/feed-source-enrichment.js";
+import {
+  bulkSetFeedItemStatus,
+  patchFeedItemStatus,
+  readHomeFeed,
+} from "../../home/feed-writer.js";
 import { revalidateHomeContentInBackground } from "../../home/home-content-refresh.js";
 import { getPersonalizedGreeting } from "../../home/home-greeting.js";
 import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
 import {
   addMessage,
   createConversation,
-} from "../../memory/conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
+import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -77,20 +83,39 @@ const listHomeFeedResponseSchema = z.object({
   updatedAt: z.string(),
 });
 
+const bulkStatusRequestSchema = z.object({
+  from: z.array(z.enum(["new", "seen", "acted_on", "dismissed"])).min(1),
+  to: z.enum(["new", "seen", "acted_on", "dismissed"]),
+  ids: z.array(z.string()).optional(),
+});
+
+const bulkStatusResponseSchema = z.object({
+  updatedCount: z.number().int().min(0),
+  updatedAt: z.string(),
+});
+
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for direct testing)
 // ---------------------------------------------------------------------------
 
 export function computeGreeting(now: Date): string {
   const hour = now.getHours();
-  if (hour >= 5 && hour < 12) return "Good morning";
-  if (hour >= 12 && hour < 17) return "Good afternoon";
-  if (hour >= 17 && hour < 22) return "Good evening";
+  if (hour >= 5 && hour < 12) {
+    return "Good morning";
+  }
+  if (hour >= 12 && hour < 17) {
+    return "Good afternoon";
+  }
+  if (hour >= 17 && hour < 22) {
+    return "Good evening";
+  }
   return "Welcome back";
 }
 
 export function formatRelativeTime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 60) return "just now";
+  if (!Number.isFinite(seconds) || seconds < 60) {
+    return "just now";
+  }
   if (seconds < 3600) {
     const mins = Math.floor(seconds / 60);
     return `${mins} minute${mins === 1 ? "" : "s"} ago`;
@@ -99,16 +124,26 @@ export function formatRelativeTime(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
     return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   }
-  if (seconds < 172800) return "yesterday";
+  if (seconds < 172800) {
+    return "yesterday";
+  }
   const days = Math.floor(seconds / 86400);
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 function timeAwayBucket(seconds: number): string {
-  if (seconds < 1800) return "<1800";
-  if (seconds < 14400) return "1800-14400";
-  if (seconds < 43200) return "14400-43200";
-  if (seconds < 86400) return "43200-86400";
+  if (seconds < 1800) {
+    return "<1800";
+  }
+  if (seconds < 14400) {
+    return "1800-14400";
+  }
+  if (seconds < 43200) {
+    return "14400-43200";
+  }
+  if (seconds < 86400) {
+    return "43200-86400";
+  }
   return ">=86400";
 }
 
@@ -135,8 +170,10 @@ export async function handleGetHomeFeed({
   // v2 schema dropped per-item `minTimeAway` gating; surface every item
   // and let the client decide what to render based on its own
   // session state. `timeAwaySeconds` survives only to feed the
-  // context-banner relative-time label.
-  const filtered = feed.items;
+  // context-banner relative-time label. Each item is enriched with its
+  // source-conversation classification (`sourceType`/`sourceKey`/
+  // `sourceLabel`) so clients can filter the feed by what produced it.
+  const filtered = enrichFeedItemsWithSource(feed.items);
 
   const now = new Date();
 
@@ -251,34 +288,49 @@ export function handleListHomeFeed({
   const feed = readHomeFeed();
 
   const filtered = feed.items.filter((item) => {
-    if (statusFilter && !statusFilter.has(item.status)) return false;
+    if (statusFilter && !statusFilter.has(item.status)) {
+      return false;
+    }
     if (urgencySet) {
-      if (!item.urgency || !urgencySet.has(item.urgency)) return false;
+      if (!item.urgency || !urgencySet.has(item.urgency)) {
+        return false;
+      }
     }
     if (categorySet) {
-      if (!item.category || !categorySet.has(item.category)) return false;
+      if (!item.category || !categorySet.has(item.category)) {
+        return false;
+      }
     }
     if (
       params.conversationId !== undefined &&
       item.conversationId !== params.conversationId
-    )
+    ) {
       return false;
+    }
     if (
       params.fromAssistant !== undefined &&
       (item.fromAssistant ?? false) !== params.fromAssistant
-    )
+    ) {
       return false;
+    }
     if (
       params.noteworthy !== undefined &&
       (item.noteworthy ?? false) !== params.noteworthy
-    )
+    ) {
       return false;
+    }
 
     if (beforeMs !== undefined || afterMs !== undefined) {
       const createdMs = Date.parse(item.createdAt);
-      if (Number.isNaN(createdMs)) return false;
-      if (beforeMs !== undefined && createdMs >= beforeMs) return false;
-      if (afterMs !== undefined && createdMs <= afterMs) return false;
+      if (Number.isNaN(createdMs)) {
+        return false;
+      }
+      if (beforeMs !== undefined && createdMs >= beforeMs) {
+        return false;
+      }
+      if (afterMs !== undefined && createdMs <= afterMs) {
+        return false;
+      }
     }
 
     return true;
@@ -287,7 +339,9 @@ export function handleListHomeFeed({
   const total = filtered.length;
   const offset = params.offset ?? 0;
   const limit = params.limit ?? 20;
-  const items = filtered.slice(offset, offset + limit);
+  const items = enrichFeedItemsWithSource(
+    filtered.slice(offset, offset + limit),
+  );
 
   return {
     items,
@@ -296,6 +350,31 @@ export function handleListHomeFeed({
     hasMore: total > offset + items.length,
     updatedAt: feed.updatedAt,
   };
+}
+
+export async function handleBulkSetFeedItemStatus({
+  body,
+}: RouteHandlerArgs): Promise<Record<string, unknown>> {
+  const parsed = bulkStatusRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      `Invalid request body: ${parsed.error.issues
+        .map((i) => `${i.path.join(".")} ${i.message}`)
+        .join("; ")}`,
+    );
+  }
+
+  const { from, to, ids } = parsed.data;
+  const updatedCount = await bulkSetFeedItemStatus(from, to, ids);
+  if (updatedCount === -1) {
+    throw new InternalError("Failed to persist bulk feed item status update");
+  }
+
+  const { updatedAt } = readHomeFeed();
+
+  log.info({ from, to, updatedCount }, "POST /v1/home/feed/mark-all");
+
+  return { updatedCount, updatedAt };
 }
 
 export async function handlePostFeedAction({
@@ -316,10 +395,14 @@ export async function handlePostFeedAction({
   }
 
   try {
-    const conversation = createConversation({
-      title: action.label,
-      source: "home-feed",
-    });
+    const conversation = await withSqliteRetry(
+      () =>
+        createConversation({
+          title: action.label,
+          source: "home-feed",
+        }),
+      { op: "homeFeed.createConversation" },
+    );
     await addMessage(
       conversation.id,
       "user",
@@ -399,6 +482,25 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["home"],
     requestBody: listHomeFeedRequestSchema,
     responseBody: listHomeFeedResponseSchema,
+  },
+  {
+    operationId: "mark_all_home_feed",
+    endpoint: "home/feed/mark-all",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: handleBulkSetFeedItemStatus,
+    summary: "Bulk update home feed item statuses",
+    description:
+      "Flip every home feed item currently at one of the `from` statuses to the single `to` status. Returns the count of items whose status actually changed (items already at `to`, or outside `from`, are left untouched). Used to implement 'Mark all as read' (from=['new'], to='seen') and 'Clear all' (from=['new','seen','acted_on'], to='dismissed').",
+    tags: ["home"],
+    requestBody: bulkStatusRequestSchema,
+    responseBody: bulkStatusResponseSchema,
+    additionalResponses: {
+      "500": { description: "Failed to persist bulk status update" },
+    },
   },
   {
     operationId: "trigger_home_feed_action",

@@ -259,13 +259,39 @@ const localRuntimePollJobStatusMock = mock<
   },
 }));
 
+const localRuntimePreflightFromGcsMock = mock<
+  typeof localRuntimeClient.localRuntimePreflightFromGcs
+>(async () => ({
+  can_import: true,
+  summary: {
+    files_to_create: 2,
+    files_to_overwrite: 1,
+    files_unchanged: 0,
+    total_files: 3,
+  },
+  files: [],
+  conflicts: [],
+}));
+
 mock.module("../lib/local-runtime-client.js", () => ({
   ...realLocalRuntimeClient,
   localRuntimeExportToGcs: localRuntimeExportToGcsMock,
   localRuntimeImportFromGcs: localRuntimeImportFromGcsMock,
   localRuntimeIdentity: localRuntimeIdentityMock,
   localRuntimePollJobStatus: localRuntimePollJobStatusMock,
+  localRuntimePreflightFromGcs: localRuntimePreflightFromGcsMock,
 }));
+
+// Snapshot the remaining real modules before mocking so `afterAll` can
+// restore them too — otherwise these mocks leak into sibling test files that
+// import the same modules in the same `bun test` run.
+const realHatchLocal = { ...(await import("../lib/hatch-local.js")) };
+const realDocker = { ...(await import("../lib/docker.js")) };
+const realProcess = { ...(await import("../lib/process.js")) };
+const realRetireLocal = { ...(await import("../lib/retire-local.js")) };
+const realUpgradeLifecycle = {
+  ...(await import("../lib/upgrade-lifecycle.js")),
+};
 
 const hatchLocalMock = mock(async () => {});
 
@@ -335,6 +361,11 @@ afterAll(() => {
   mock.module("../lib/guardian-token.js", () => realGuardianToken);
   mock.module("../lib/platform-client.js", () => realPlatformClient);
   mock.module("../lib/local-runtime-client.js", () => realLocalRuntimeClient);
+  mock.module("../lib/hatch-local.js", () => realHatchLocal);
+  mock.module("../lib/docker.js", () => realDocker);
+  mock.module("../lib/process.js", () => realProcess);
+  mock.module("../lib/retire-local.js", () => realRetireLocal);
+  mock.module("../lib/upgrade-lifecycle.js", () => realUpgradeLifecycle);
   rmSync(testDir, { recursive: true, force: true });
   delete process.env.VELLUM_LOCKFILE_DIR;
 });
@@ -482,6 +513,18 @@ beforeEach(() => {
   localRuntimeImportFromGcsMock.mockReset();
   localRuntimeImportFromGcsMock.mockResolvedValue({
     jobId: "local-import-job-1",
+  });
+  localRuntimePreflightFromGcsMock.mockReset();
+  localRuntimePreflightFromGcsMock.mockResolvedValue({
+    can_import: true,
+    summary: {
+      files_to_create: 2,
+      files_to_overwrite: 1,
+      files_unchanged: 0,
+      total_files: 3,
+    },
+    files: [],
+    conflicts: [],
   });
   localRuntimeIdentityMock.mockReset();
   localRuntimeIdentityMock.mockResolvedValue({ version: "0.6.5" });
@@ -773,15 +816,12 @@ describe("resolveOrHatchTarget", () => {
     });
 
     const result = await resolveOrHatchTarget("docker", "new-one");
-    expect(hatchDockerMock).toHaveBeenCalledWith(
-      "vellum",
-      false,
-      "new-one",
-      false,
-      {},
-      {},
-      { setupProviderCredentials: false },
-    );
+    expect(hatchDockerMock).toHaveBeenCalledWith({
+      species: "vellum",
+      detached: false,
+      name: "new-one",
+      setupProviderCredentials: false,
+    });
     expect(result).toBe(newEntry);
   });
 
@@ -1935,7 +1975,7 @@ describe("dry-run", () => {
     }
   });
 
-  test("dry-run against local target fails fast (no preflight-from-gcs runtime endpoint yet)", async () => {
+  test("dry-run with existing local target calls preflight-from-gcs on runtime", async () => {
     setArgv("--from", "my-platform", "--local", "my-local", "--dry-run");
 
     const platformEntry = makeEntry("my-platform", {
@@ -1950,26 +1990,24 @@ describe("dry-run", () => {
       return null;
     });
 
-    platformPollJobStatusMock.mockResolvedValue({
-      jobId: "platform-export-job-1",
-      type: "export",
-      status: "complete",
-      bundleKey: "bundle-key-from-platform",
-    });
-
     const restoreFetch = installTrackingFetch();
     try {
-      await expect(teleport()).rejects.toThrow("process.exit:1");
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "--dry-run is not yet supported for local or docker targets",
-        ),
+      await teleport();
+
+      // Preflight was run against the local runtime
+      expect(localRuntimePreflightFromGcsMock).toHaveBeenCalledTimes(1);
+      expect(localRuntimePreflightFromGcsMock).toHaveBeenCalledWith(
+        expect.objectContaining({ assistantId: "my-local" }),
+        expect.any(String),
+        { bundleUrl: "https://storage.googleapis.com/bucket/signed-download" },
       );
 
-      // Must fail BEFORE any export work — no signed URL request, no runtime
-      // export kickoff, nothing that costs time or bandwidth.
-      expect(platformRequestSignedUrlMock).not.toHaveBeenCalled();
-      expect(localRuntimeExportToGcsMock).not.toHaveBeenCalled();
+      // No actual import happened — dry-run only
+      expect(localRuntimeImportFromGcsMock).not.toHaveBeenCalled();
+
+      // Source was not retired
+      expect(retireLocalMock).not.toHaveBeenCalled();
+      expect(retireDockerMock).not.toHaveBeenCalled();
     } finally {
       restoreFetch();
     }
@@ -2244,6 +2282,14 @@ describe("platform credential injection", () => {
         userId: "user-1",
         webhookSecret: "webhook-secret-123",
       });
+      expect(saveAssistantEntryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assistantId: "my-local",
+          platformAssistantId: "platform-assistant-1",
+          platformBaseUrl: "https://platform.vellum.ai",
+          platformOrganizationId: "org-1",
+        }),
+      );
     } finally {
       restoreFetch();
     }

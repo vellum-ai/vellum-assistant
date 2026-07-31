@@ -13,7 +13,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { TrustContext } from "../../daemon/trust-context.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 
 // ── Module mocks ─────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ let bootstrapCalls = 0;
 let bootstrapLastArgs: Record<string, unknown> | null = null;
 const STUB_CONVERSATION_ID = "conv-test-1";
 
-mock.module("../../memory/conversation-bootstrap.js", () => ({
+mock.module("../../persistence/conversation-bootstrap.js", () => ({
   bootstrapConversation: (opts: Record<string, unknown>) => {
     bootstrapCalls += 1;
     bootstrapLastArgs = opts;
@@ -35,7 +35,7 @@ const addMessageCalls: Array<{
   content: string;
 }> = [];
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: async (conversationId: string, role: string, content: string) => {
     addMessageCalls.push({ conversationId, role, content });
     return { id: `msg-${addMessageCalls.length}` };
@@ -47,7 +47,10 @@ let processMessageImpl: (
   conversationId: string,
   content: string,
   options: Record<string, unknown> | undefined,
-) => Promise<{ messageId: string }> = async () => ({ messageId: "msg-1" });
+) => Promise<{
+  messageId: string;
+  turnFailure?: { failureCode?: string };
+}> = async () => ({ messageId: "msg-1" });
 const processMessageCalls: Array<{
   conversationId: string;
   content: string;
@@ -159,7 +162,70 @@ describe("runBackgroundJob", () => {
       trustContext: TRUST_CONTEXT,
       callSite: "heartbeatAgent",
     });
+    // No requestOrigin set on baseOpts → none threaded to processMessage, so no
+    // origin-scoped permission grant can fire for an ordinary background job.
+    expect(
+      (processMessageCalls[0].options as { requestOrigin?: string })
+        .requestOrigin,
+    ).toBeUndefined();
     expect(emitCalls).toHaveLength(0);
+  });
+
+  test("threads requestOrigin into processMessage options when set", async () => {
+    await runBackgroundJob(baseOpts({ requestOrigin: "memory_consolidation" }));
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options).toMatchObject({
+      trustContext: TRUST_CONTEXT,
+      callSite: "heartbeatAgent",
+      requestOrigin: "memory_consolidation",
+    });
+  });
+
+  test("threads allowedTools + toolGateMode into processMessage options when set", async () => {
+    await runBackgroundJob(
+      baseOpts({
+        allowedTools: ["file_read", "bash"],
+        toolGateMode: "wire",
+      }),
+    );
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options).toMatchObject({
+      allowedTools: ["file_read", "bash"],
+      toolGateMode: "wire",
+    });
+  });
+
+  test("omits allowedTools/toolGateMode from processMessage options when unset (ordinary jobs unchanged)", async () => {
+    await runBackgroundJob(baseOpts());
+
+    expect(processMessageCalls).toHaveLength(1);
+    const opts = processMessageCalls[0].options as {
+      allowedTools?: unknown;
+      toolGateMode?: unknown;
+    };
+    expect(opts.allowedTools).toBeUndefined();
+    expect(opts.toolGateMode).toBeUndefined();
+  });
+
+  test("threads skipPromptIndexing as skipUserMessageIndexing when set", async () => {
+    await runBackgroundJob(baseOpts({ skipPromptIndexing: true }));
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options).toMatchObject({
+      skipUserMessageIndexing: true,
+    });
+  });
+
+  test("omits skipUserMessageIndexing when skipPromptIndexing is unset (prompts index by default)", async () => {
+    await runBackgroundJob(baseOpts());
+
+    expect(processMessageCalls).toHaveLength(1);
+    const opts = processMessageCalls[0].options as {
+      skipUserMessageIndexing?: unknown;
+    };
+    expect(opts.skipUserMessageIndexing).toBeUndefined();
   });
 
   test("generic exception: returns ok=false with errorKind=exception and emits activity.failed with dedupeKey", async () => {
@@ -196,6 +262,48 @@ describe("runBackgroundJob", () => {
     expect(emitted.dedupeKey as string).toMatch(
       /^activity-failed:test-job:\d{4}-\d{2}-\d{2}$/,
     );
+  });
+
+  test("non-throwing turn failure: returns ok=false with errorKind=model_provider and emits activity.failed", async () => {
+    // A failed LLM call (e.g. an invalid provider) does NOT throw — the turn
+    // persists a synthetic error message and processMessage resolves with a
+    // `turnFailure`. The runner must surface this as a failure, not ok=true.
+    processMessageImpl = async () => ({
+      messageId: "msg-failed-turn",
+      turnFailure: { failureCode: "provider_error" },
+    });
+
+    const result = await runBackgroundJob(baseOpts());
+
+    expect(result.ok).toBe(false);
+    expect(result.errorKind).toBe("model_provider");
+    expect(result.error?.message).toContain("provider_error");
+    expect(result.conversationId).toBe(STUB_CONVERSATION_ID);
+    // The stable classified code rides the result so callers can branch on
+    // the failure class without parsing the error message.
+    expect(result.failureCode).toBe("provider_error");
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].sourceEventName).toBe("activity.failed");
+    expect(
+      (emitCalls[0].contextPayload as { errorKind: string }).errorKind,
+    ).toBe("model_provider");
+  });
+
+  test("non-throwing turn failure with deferNotifications drops buffered notifications", async () => {
+    processMessageImpl = async () => ({
+      messageId: "msg-failed-turn",
+      turnFailure: { failureCode: "provider_error" },
+    });
+
+    const result = await runBackgroundJob(
+      baseOpts({ deferNotifications: true }),
+    );
+
+    expect(result.ok).toBe(false);
+    // Only the runner's failure signal emits — no committed "success" signal.
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].sourceEventName).toBe("activity.failed");
   });
 
   test("timeout: returns ok=false with errorKind=timeout and emits activity.failed", async () => {

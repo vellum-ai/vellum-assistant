@@ -95,7 +95,7 @@ describe("OpenRouter provider.only plumbing", () => {
     test("emits provider.only in extras when config has openrouter.only", () => {
       const provider = new ProbeOpenRouterProvider(
         "fake-key",
-        "x-ai/grok-4.20-beta",
+        "x-ai/grok-4.20",
       );
       const extras = provider.probeExtras({
         config: { openrouter: { only: ["xAI"] } },
@@ -108,7 +108,7 @@ describe("OpenRouter provider.only plumbing", () => {
     test("omits reasoning and provider when config is empty", () => {
       const provider = new ProbeOpenRouterProvider(
         "fake-key",
-        "x-ai/grok-4.20-beta",
+        "x-ai/grok-4.20",
       );
       const extras = provider.probeExtras({ config: {} });
       expect(extras).toEqual({});
@@ -119,7 +119,7 @@ describe("OpenRouter provider.only plumbing", () => {
     test("enables thinking with default detailed summary alongside provider.only", () => {
       const provider = new ProbeOpenRouterProvider(
         "fake-key",
-        "x-ai/grok-4.20-beta",
+        "x-ai/grok-4.20",
       );
       const extras = provider.probeExtras({
         config: {
@@ -136,7 +136,7 @@ describe("OpenRouter provider.only plumbing", () => {
     test("disabled thinking omits reasoning entirely", () => {
       const provider = new ProbeOpenRouterProvider(
         "fake-key",
-        "x-ai/grok-4.20-beta",
+        "x-ai/grok-4.20",
       );
       const extras = provider.probeExtras({
         config: {
@@ -185,12 +185,23 @@ describe("OpenRouter provider.only plumbing", () => {
     test("effort without thinking does not emit reasoning", () => {
       const provider = new ProbeOpenRouterProvider(
         "fake-key",
-        "x-ai/grok-4.20-beta",
+        "x-ai/grok-4.20",
       );
       const extras = provider.probeExtras({
         config: { thinking: { type: "disabled" }, effort: "low" },
       });
       expect(extras.reasoning).toBe(undefined);
+    });
+
+    test("disabled thinking with effort none leaves the opt-out to the flat reasoning_effort field", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "x-ai/grok-4.20",
+      );
+      const extras = provider.probeExtras({
+        config: { thinking: { type: "disabled" }, effort: "none" },
+      });
+      expect(extras).toEqual({});
     });
 
     test("omitting reasoning avoids 400 from reasoning-only models like DeepSeek R1", () => {
@@ -217,6 +228,68 @@ describe("OpenRouter provider.only plumbing", () => {
       });
       expect(extras).toEqual({
         reasoning: { enabled: true, summary: "detailed" },
+      });
+    });
+  });
+
+  describe("per-model reasoning-effort ceiling", () => {
+    test("clamps an inherited max effort down to high for grok-4.5", () => {
+      const provider = new ProbeOpenRouterProvider("fake-key", "x-ai/grok-4.5");
+      const extras = provider.probeExtras({
+        config: { thinking: { enabled: true }, effort: "max" },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "high", summary: "detailed" },
+      });
+    });
+
+    test("clamps an inherited xhigh effort down to high for grok-4.5", () => {
+      const provider = new ProbeOpenRouterProvider("fake-key", "x-ai/grok-4.5");
+      const extras = provider.probeExtras({
+        config: { thinking: { enabled: true }, effort: "xhigh" },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "high", summary: "detailed" },
+      });
+    });
+
+    test("leaves an effort at or below the grok-4.5 ceiling untouched", () => {
+      const provider = new ProbeOpenRouterProvider("fake-key", "x-ai/grok-4.5");
+      const extras = provider.probeExtras({
+        config: { thinking: { enabled: true }, effort: "low" },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "low", summary: "detailed" },
+      });
+    });
+
+    test("leaves models without a catalog ceiling on the provider default (xhigh)", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "x-ai/grok-4.20",
+      );
+      const extras = provider.probeExtras({
+        config: { thinking: { enabled: true }, effort: "max" },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "xhigh", summary: "detailed" },
+      });
+    });
+
+    test("keys the ceiling off a per-call model override, not the constructor model", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "moonshotai/kimi-k2.6",
+      );
+      const extras = provider.probeExtras({
+        config: {
+          model: "x-ai/grok-4.5",
+          thinking: { enabled: true },
+          effort: "max",
+        },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "high", summary: "detailed" },
       });
     });
   });

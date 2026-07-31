@@ -1,0 +1,431 @@
+/**
+ * Chat-domain MarkdownMessage that composes the design-library primitive
+ * with OAuth-aware link handling, vellum:// file link support, and inline
+ * image previews for external URLs and workspace/host file attachments.
+ */
+
+import {
+  type AnchorHTMLAttributes,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
+import { captureError } from "@/lib/sentry/capture-error";
+import {
+  type MarkdownImageComponent,
+  MarkdownMessage,
+  type MarkdownMessageProps,
+} from "@vellumai/design-library";
+import type { DisplayAttachment } from "@/types/attachment-types";
+import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
+import { defaultUrlTransform } from "react-markdown";
+import { handleNativeAnchorClick } from "@/utils/native-anchor";
+
+import {
+  openMarkdownOAuthLinkInPopup,
+  shouldOpenMarkdownLinkInOAuthPopup,
+} from "@/domains/chat/utils/oauth-popup-links";
+import {
+  RedactedCredentialChip,
+  type RedactedCredentialChipProps,
+} from "@/domains/chat/components/redacted-credential-chip";
+import {
+  REDACTED_CREDENTIAL_TAG,
+  rehypeRedactedCredential,
+} from "@/domains/chat/utils/rehype-redacted-credential";
+import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
+import { rehypeWorkspacePath } from "@/domains/chat/utils/rehype-workspace-path";
+import { WORKSPACE_PATH_TAG } from "@/domains/chat/utils/workspace-path-links";
+import { WorkspacePathLink } from "@/domains/chat/components/workspace-path-link";
+
+/** Returns true when `href` is a known `vellum://` attachment link. */
+export function isVellumLink(href: string | undefined): boolean {
+  return (
+    href != null &&
+    (href.startsWith("vellum://workspace/") ||
+      href.startsWith("vellum://host/"))
+  );
+}
+
+/**
+ * Extends react-markdown's default URL sanitization to allow known
+ * `vellum://workspace/` and `vellum://host/` attachment URIs. Other
+ * `vellum://` shapes are rejected to limit protocol-handler attack surface.
+ */
+function vellumUrlTransform(url: string): string {
+  if (isVellumLink(url)) {
+    return url;
+  }
+  return defaultUrlTransform(url);
+}
+
+function OAuthAwareLink({
+  href,
+  children,
+}: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">) {
+  const opensOAuthPopup = shouldOpenMarkdownLinkInOAuthPopup(href);
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel={opensOAuthPopup ? undefined : "noopener noreferrer"}
+      onClick={(event) => {
+        if (openMarkdownOAuthLinkInPopup(href)) {
+          event.preventDefault();
+          return;
+        }
+        // In the iOS webview a `target="_blank"` anchor silently no-ops;
+        // route through the native opener there (no-op elsewhere).
+        handleNativeAnchorClick(event, href);
+      }}
+      className="text-[var(--system-positive-strong)] underline hover:opacity-80"
+    >
+      {children}
+    </a>
+  );
+}
+
+const IMAGE_CLASSES =
+  "my-2 max-w-full max-h-[400px] rounded-lg border border-[var(--border-default)] object-contain";
+
+function ImageErrorFallback({ alt }: { alt: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded bg-[var(--surface-sunken)] px-1.5 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
+      Image failed to load{alt ? ` (${alt})` : ""}
+    </span>
+  );
+}
+
+function InlineImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return <ImageErrorFallback alt={alt} />;
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      onError={() => setFailed(true)}
+      className={IMAGE_CLASSES}
+    />
+  );
+}
+
+/**
+ * Decode a URL basename for matching against attachment filenames, which are
+ * stored decoded. Falls back to the raw value when the basename contains
+ * malformed percent-encoding (a literal `%` not followed by two hex digits).
+ */
+function decodeBasename(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function WorkspaceInlineImage({
+  src,
+  alt,
+  attachments,
+  assistantId,
+  onOpenPreview,
+}: {
+  src: string;
+  alt: string;
+  attachments: DisplayAttachment[] | undefined;
+  assistantId: string | null | undefined;
+  onOpenPreview?: (attachment: DisplayAttachment) => void;
+}) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const pathBasename = decodeBasename(src.split("/").pop() ?? "");
+  const attachment = attachments?.find((a) => a.filename === pathBasename);
+
+  useEffect(() => {
+    if (
+      !attachment ||
+      !assistantId ||
+      attachment.id.startsWith("rehydrated:")
+    ) {
+      return;
+    }
+
+    let revoked = false;
+    (async () => {
+      try {
+        const { data, error } = await attachmentsByIdContentGet({
+          path: { assistant_id: assistantId, id: attachment.id },
+          parseAs: "blob",
+          throwOnError: false,
+        });
+        if (revoked) {
+          return;
+        }
+        if (error || !(data instanceof Blob)) {
+          setFailed(true);
+          return;
+        }
+        const url = URL.createObjectURL(data);
+        setObjectUrl(url);
+      } catch (err) {
+        if (!revoked) {
+          setFailed(true);
+          captureError(err, {
+            context: "WorkspaceInlineImage",
+            bestEffort: true,
+          });
+        }
+      }
+    })();
+
+    return () => {
+      revoked = true;
+      setObjectUrl((prev) => {
+        if (prev) {
+          URL.revokeObjectURL(prev);
+        }
+        return null;
+      });
+    };
+  }, [attachment, assistantId]);
+
+  if (failed || (!attachment && !objectUrl)) {
+    return <ImageErrorFallback alt={alt || pathBasename} />;
+  }
+
+  if (!objectUrl) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded bg-[var(--surface-sunken)] px-1.5 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
+        Loading image…{alt ? ` (${alt})` : ""}
+      </span>
+    );
+  }
+
+  const image = <img src={objectUrl} alt={alt} className={IMAGE_CLASSES} />;
+
+  if (!attachment || !onOpenPreview) {
+    return image;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenPreview(attachment)}
+      className="cursor-zoom-in appearance-none border-0 bg-transparent p-0"
+      aria-label={alt ? `Expand image: ${alt}` : "Expand image"}
+    >
+      {image}
+    </button>
+  );
+}
+
+export interface ChatMarkdownMessageProps extends Omit<
+  MarkdownMessageProps,
+  "linkComponent" | "imageComponent"
+> {
+  /**
+   * Callback invoked when a `vellum://` link is clicked. Receives the full
+   * href (e.g. `vellum://workspace/scratch/report.pdf`) and the visible
+   * link text (e.g. `report.pdf`). When provided, `vellum://` links
+   * render as download triggers instead of navigating.
+   *
+   * Pass a stable reference (useCallback) to avoid rebuilding the markdown
+   * component tree on every render.
+   */
+  onVellumLinkClick?: (href: string, linkText: string) => void;
+  /** Message attachments used to resolve `vellum://` image URLs. */
+  attachments?: DisplayAttachment[];
+  /** Active assistant ID for fetching attachment content from the daemon. */
+  assistantId?: string | null;
+  /**
+   * Streamed-text reveal sweep (see `rehypeStreamWordFade`): each word is
+   * wrapped in a fade span, and while `"revealing"` the words nearest the
+   * reveal edge are graded toward transparent so the text appears through a
+   * soft left-to-right gradient wipe. Pass `"caughtUp"` once the reveal has
+   * drained the stream backlog so the tail lifts to full opacity (spans stay
+   * mounted, ready for the next chunk). Only enable for the actively-growing
+   * text of a streaming message — the spans cost DOM weight, so settled
+   * content should render plain (`undefined`).
+   */
+  streamWordFade?: "revealing" | "caughtUp";
+  /**
+   * Render redacted-credential sentinels as interactive chips (see
+   * `rehypeRedactedCredential`). Enable ONLY for daemon-persisted content
+   * (assistant text, tool results) — the persist seams neutralize forged
+   * sentinel strings there, so surviving sentinels are redactor-authored.
+   * Never enable for user-authored content: a pasted sentinel-shaped string
+   * must render as literal text, not manufacture a reveal affordance.
+   */
+  redactedCredentialChips?: boolean;
+  /**
+   * Resolve inline code spans that hold a workspace file path into file links
+   * (see `rehypeWorkspacePath`). Requires `onVellumLinkClick` — the resolved
+   * link opens the same file-action modal as an explicit `vellum://` link.
+   *
+   * Enable only for assistant-authored content. The affordance is a claim
+   * that the assistant is referring to a file it worked with; a path the user
+   * typed is their own prose and should render as they wrote it.
+   */
+  workspacePathLinks?: boolean;
+}
+
+export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
+  content,
+  className,
+  hardLineBreaks,
+  onVellumLinkClick,
+  attachments,
+  assistantId,
+  streamWordFade,
+  redactedCredentialChips,
+  workspacePathLinks,
+}: ChatMarkdownMessageProps) {
+  const { openPreview, previewModal } = useAttachmentPreview(
+    assistantId,
+    attachments,
+  );
+
+  const linkComponent = useCallback(
+    ({
+      href,
+      children,
+    }: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">) => {
+      if (onVellumLinkClick && isVellumLink(href)) {
+        return (
+          <a
+            href={href}
+            onClick={(event) => {
+              event.preventDefault();
+              if (href) {
+                const text = event.currentTarget.textContent ?? "";
+                onVellumLinkClick(href, text);
+              }
+            }}
+            className="text-[var(--system-positive-strong)] underline hover:opacity-80 cursor-pointer"
+          >
+            {children}
+          </a>
+        );
+      }
+
+      return <OAuthAwareLink href={href}>{children}</OAuthAwareLink>;
+    },
+    [onVellumLinkClick],
+  );
+
+  const extraRehypePlugins = useMemo(
+    () => [
+      // Upgrade redacted-credential sentinels into chip elements — only for
+      // content the daemon persisted (assistant text, tool results), where
+      // forged sentinel strings are neutralized at the persist seams. User
+      // messages never enable this, so pasted sentinel-shaped text renders
+      // as literal text instead of manufacturing a reveal affordance.
+      ...(redactedCredentialChips
+        ? [rehypeRedactedCredential as import("unified").Pluggable]
+        : []),
+      // Only worth running when a click handler exists to receive the
+      // resolved path — without one the upgraded span renders as plain code
+      // anyway.
+      ...(workspacePathLinks && onVellumLinkClick
+        ? [rehypeWorkspacePath as import("unified").Pluggable]
+        : []),
+      ...(streamWordFade
+        ? [
+            [
+              rehypeStreamWordFade,
+              { caughtUp: streamWordFade === "caughtUp" },
+            ] as import("unified").Pluggable,
+          ]
+        : []),
+    ],
+    [
+      redactedCredentialChips,
+      streamWordFade,
+      workspacePathLinks,
+      onVellumLinkClick,
+    ],
+  );
+
+  const imageComponent: MarkdownImageComponent = useMemo(
+    () =>
+      ({ src, alt }: { src: string; alt: string }) => {
+        if (isVellumLink(src)) {
+          return (
+            <WorkspaceInlineImage
+              src={src}
+              alt={alt}
+              attachments={attachments}
+              assistantId={assistantId}
+              onOpenPreview={openPreview}
+            />
+          );
+        }
+        return <InlineImage src={src} alt={alt} />;
+      },
+    [attachments, assistantId, openPreview],
+  );
+
+  // Built per-render (not module-level) so the chip's reveal request is scoped
+  // to THIS transcript's assistant. A static map would leave the chip reading
+  // the globally active assistant, which can differ from the transcript owner
+  // (inspector, document view, multi-assistant surfaces) and reveal the wrong
+  // assistant's credential for a colliding service:field name.
+  //
+  // The chip is keyed by its full identity (assistant + vault coordinates):
+  // when a re-render puts a DIFFERENT sentinel at the same tree position
+  // (transcript snapshot replacing streamed content, edited history), React
+  // would otherwise preserve the old instance's state by position — leaving
+  // a revealed plaintext, or an in-flight reveal response, attached to the
+  // new credential's label. The key change remounts the chip with fresh
+  // state, and any in-flight reveal resolves against the unmounted instance
+  // as a no-op.
+  const extraComponents = useMemo(
+    () => ({
+      [REDACTED_CREDENTIAL_TAG]: (props: RedactedCredentialChipProps) => (
+        <RedactedCredentialChip
+          key={`${assistantId ?? ""}\u0000${props.service ?? ""}\u0000${props.field ?? ""}`}
+          {...props}
+          assistantId={assistantId}
+        />
+      ),
+      [WORKSPACE_PATH_TAG]: (props: { path?: string; raw?: string }) => (
+        <WorkspacePathLink
+          {...props}
+          assistantId={assistantId}
+          onOpen={onVellumLinkClick}
+        />
+      ),
+    }),
+    [assistantId, onVellumLinkClick],
+  );
+
+  // Both tags are registered together: each is only ever emitted by its own
+  // rehype plugin, so a tag whose plugin didn't run never appears in the tree.
+  const hasExtraComponents =
+    redactedCredentialChips || (workspacePathLinks && onVellumLinkClick);
+
+  return (
+    <>
+      <MarkdownMessage
+        content={content}
+        className={className}
+        hardLineBreaks={hardLineBreaks}
+        linkComponent={linkComponent}
+        imageComponent={imageComponent}
+        urlTransform={vellumUrlTransform}
+        extraRehypePlugins={extraRehypePlugins}
+        extraComponents={hasExtraComponents ? extraComponents : undefined}
+      />
+      {previewModal}
+    </>
+  );
+});

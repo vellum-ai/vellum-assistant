@@ -11,8 +11,8 @@ import { join } from "node:path";
 import { count } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb } from "../../memory/db-connection.js";
-import { memoryGraphNodes } from "../../memory/schema.js";
+import { getMemoryDb } from "../../persistence/db-connection.js";
+import { memoryGraphNodes } from "../../persistence/schema/index.js";
 import { resolveBundledDir } from "../../util/bundled-asset.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { RouteError } from "./errors.js";
@@ -42,16 +42,16 @@ function getMemoryKindColor(kind: string): string {
 }
 
 function handleGetBrainGraph() {
-  const db = getDb();
-
-  const kindCountRows = db
-    .select({
-      kind: memoryGraphNodes.type,
-      count: count(),
-    })
-    .from(memoryGraphNodes)
-    .groupBy(memoryGraphNodes.type)
-    .all();
+  const db = getMemoryDb();
+  const kindCountRows =
+    db
+      ?.select({
+        kind: memoryGraphNodes.type,
+        count: count(),
+      })
+      .from(memoryGraphNodes)
+      .groupBy(memoryGraphNodes.type)
+      .all() ?? [];
 
   const memorySummary = kindCountRows.map((row) => ({
     kind: row.kind,

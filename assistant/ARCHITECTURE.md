@@ -16,10 +16,10 @@ This document owns assistant-runtime architecture details. The repo-level archit
 - Guardian/non-guardian/unverified classification is centralized in `assistant/src/runtime/trust-context-resolver.ts`.
 - The same resolver is used by:
   - `/channels/inbound` (Telegram/WhatsApp path) before run orchestration.
-  - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
+  - Inbound Twilio voice setup (media-stream `routeSetup`) to seed call-time actor context.
 - Runtime channel runs pass this as `trustContext`, and conversation runtime assembly includes actor context in the unified `<turn_context>` block (via `buildUnifiedTurnContextBlock()`) injected into provider-facing prompts.
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
-- Voice-specific behavior (DTMF/speech verification flow, relay state machine) remains voice-local; only actor-role resolution is shared.
+- Voice-specific behavior (DTMF/speech verification flow, call-setup state machine) remains voice-local; only actor-role resolution is shared.
 
 ### Safe Storage Limits
 
@@ -33,7 +33,7 @@ Safe storage limits protect the workspace volume from running out of disk. The d
 
 **Background work:** Heartbeats, scheduled tasks, filing work, retry sweeps, and background tool completions call `src/daemon/disk-pressure-background-gate.ts` before starting work. While effectively locked they skip the wake or job and log throttled disk-pressure fields.
 
-**Prompt and tools:** Cleanup-mode turns carry `diskPressureContext` through runtime assembly and receive the `<disk_pressure_warning>` injector in `src/plugins/defaults/injectors.ts`. The instruction tells the assistant to warn first, focus only on freeing storage, inspect before deleting, ask for deletion approval, and explain that background processes and trusted-contact messages are blocked. Tool setup marks the turn as cleanup mode; `src/tools/tool-approval-handler.ts` rejects non-cleanup-safe tools, and foreground shell inspection remains available while background `bash` and `host_bash` modes are rejected. When a new lock is created, active background terminal tools are cancelled with reason `disk_pressure`.
+**Prompt and tools:** Cleanup-mode turns carry `diskPressureContext` through runtime assembly and receive the concise `<disk_pressure_warning>` injector in `src/plugins/defaults/memory-retrieval/injectors.ts`. The instruction tells the assistant to warn first, call `skill_load` for `system-storage-cleanup`, and explain that background processes and trusted-contact messages are blocked. Tool setup marks the turn as cleanup mode; `skill_load` remains available so the assistant can load the cleanup skill (or another already-installed skill) for its instructions, but under the lock it performs **no side effects** — it skips catalog auto-install (workspace writes / `bun install`) and strips inline command tokens instead of executing them, so loading a skill cannot write to the workspace or run shell. `skill_execute` and skill-origin tools remain unavailable, and a loaded skill's own tools stay filtered by the cleanup allowlist. The bundled `system-storage-cleanup` skill (`src/config/bundled-skills/system-storage-cleanup/SKILL.md`) carries the detailed cleanup procedure and deletion safety rules, including read-only SQLite diagnosis only; product-owned retention and maintenance work remains tracked separately by ATL-450 and related tickets. `src/tools/tool-approval-handler.ts` rejects non-cleanup-safe tools, and foreground shell inspection remains available while background `bash` and `host_bash` modes are rejected. When a new lock is created, active background terminal tools are cancelled with reason `disk_pressure`.
 
 ### Single-Header JWT Auth Model
 
@@ -98,28 +98,28 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `src/runtime/auth/route-policy.ts`                | Route-level scope/principal enforcement                                                       |
 | `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/guardian/init` (initial JWT issuance)                                               |
 | `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/guardian/refresh` (token rotation)                                                  |
-| `src/runtime/local-actor-identity.ts`             | `resolveLocalGuardianContext` — deterministic local identity                                  |
-| `src/memory/channel-verification-sessions.ts`     | Guardian binding types, verification session management                                       |
+| `src/runtime/local-actor-identity.ts`             | `resolveLocalAuthContext` — synthetic local AuthContext + guardian principal lookup           |
+| `src/runtime/local-principal-trust.ts`            | `resolveLocalPrincipalTrustContext` — local-principal trust from the gateway guardian binding |
+| `src/channels/channel-verification-sessions.ts`   | Guardian binding types, verification session management                                       |
 
 ### Channel-Agnostic Scoped Approval Grants
 
 Scoped approval grants allow a guardian's approval decision on one channel (e.g., Telegram) to authorize a tool execution on a different channel (e.g., voice). Two scope modes exist: `request_id` (bound to a specific pending request) and `tool_signature` (bound to `toolName` + canonical `inputDigest`). Grants are one-time-use, exact-match, fail-closed, and TTL-bound. Full architecture details (lifecycle flow, security invariants, key files) live in [`docs/architecture/security.md`](docs/architecture/security.md#channel-agnostic-scoped-approval-grants).
 
-### Guardian Decision Primitive (Dual-Mode Approval)
+### Guardian Decision Primitive
 
-All guardian approval decisions — regardless of how they arrive — route through a single unified primitive in `src/approvals/guardian-decision-primitive.ts`. This centralizes decision logic that was previously duplicated across callback button handlers, the conversational approval engine, and the requester self-cancel path.
+All guardian approval decisions — regardless of how they arrive — route through a single primitive in `src/approvals/guardian-decision-primitive.ts`, which centralizes decision logic for callback button handlers, the conversational approval engine, and channel reactions/text.
 
 **Core API:**
 
-| Function                                          | Purpose                                                                                                                                                                                                                                                               |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `applyGuardianDecision(params)`                   | Apply a guardian decision atomically: downgrade `approve_always` for guardian-on-behalf requests, capture approval info, resolve the pending interaction, update the approval record, and mint a scoped grant on approve. Returns `{ applied, reason?, requestId? }`. |
-| `listGuardianDecisionPrompts({ conversationId })` | List pending prompts for a conversation, aggregating channel guardian approval requests and pending confirmation interactions into a uniform `GuardianDecisionPrompt` shape.                                                                                          |
+| Function                        | Purpose                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `applyGuardianDecision(params)` | Apply a guardian decision against the gateway-owned request store: validate status/identity/expiry, commit via `guardian_requests_decide` (status CAS + ACL outcome, first-writer-wins, one gateway transaction), dispatch daemon side effects to the kind-specific resolver, mint a scoped grant on approve, and withdraw the request's approval cards. Returns a structured applied/failed result. |
 
 **Security invariants enforced by the primitive:**
 
 - Decision application is identity-bound to the expected guardian identity.
-- Decisions are first-response-wins (CAS-like stale protection via `handleChannelDecision`).
+- Decisions are first-response-wins (CAS stale protection via the gateway's `guardian_requests_decide`).
 - `approve_always` is downgraded to `approve_once` for guardian-on-behalf requests (guardians cannot permanently allowlist tools for requesters).
 - Scoped grant minting only fires on explicit approve for requests with tool metadata.
 
@@ -128,7 +128,7 @@ All guardian approval decisions — regardless of how they arrive — route thro
 **Button-first path (deterministic):**
 
 - Desktop clients (macOS) render `GuardianDecisionPrompt` objects as tappable card UIs with kind-aware headers and action buttons. The `GuardianDecisionBubble` renders distinct headers for each kind: "Tool Approval Required", "Question Pending", or "Access Request".
-- Desktop clients submit decisions via HTTP (`POST /v1/guardian-actions/decision`), routed through `applyCanonicalGuardianDecision`.
+- Desktop clients submit decisions via HTTP (`POST /v1/guardian-actions/decision`), routed through `applyGuardianDecision`.
 - Channel adapters (Telegram inline keyboards, WhatsApp) encode actions as callback data (`apr:<requestId>:<action>`).
 
 **Text fallback path (always available):**
@@ -136,7 +136,7 @@ All guardian approval decisions — regardless of how they arrive — route thro
 - Every prompt includes a `requestCode` (6-char alphanumeric). Guardians can reply with `<requestCode> approve` or `<requestCode> reject` on any channel.
 - `access_request` prompts additionally embed explicit text directives in `questionText`: the request-code approve/reject directive and the `"open invite flow"` phrase for starting the Trusted Contacts invite flow.
 - `pending_question` prompts (voice-originated) support `<requestCode> <your answer>` for free-text answers.
-- The `routeGuardianReply` router processes text replies through a priority-ordered pipeline: callback parsing -> request code parsing -> NL classification. All paths converge on `applyCanonicalGuardianDecision`.
+- The `routeGuardianReply` router processes text replies through a priority-ordered pipeline: callback parsing -> request code parsing -> NL classification. All paths converge on `applyGuardianDecision`.
 
 **Shared type system:** `GuardianDecisionPrompt` and `GuardianDecisionAction` (in `src/runtime/guardian-decision-types.ts`) define the structured prompt model. `buildDecisionActions()` computes the action set respecting `persistentDecisionsAllowed` and `forGuardianOnBehalf` flags. `buildPlainTextFallback()` generates parser-compatible text instructions. Channel adapters map these to channel-specific formats via `toApprovalActionOptions()` in `channel-approval-types.ts`.
 
@@ -173,40 +173,37 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 | `src/runtime/guardian-decision-types.ts`         | `buildDecisionActions()` — controls which temporary options appear in approval prompts                                   |
 | `src/tools/permission-checker.ts`                | Permission pipeline integration — checks temporary overrides before prompting                                            |
 
-### Canonical Guardian Request System
+### Guardian Request System
 
-The canonical guardian request system provides a channel-agnostic, unified domain for all guardian approval and question flows. It replaces the fragmented per-channel storage with a single source of truth that works identically for voice calls, Telegram/WhatsApp, and desktop UI.
+The guardian request system provides a channel-agnostic, unified domain for all guardian approval and question flows — a single source of truth that works identically for voice calls, Telegram/WhatsApp, and desktop UI.
 
 **Architecture layers:**
 
-1. **Canonical domain (single source of truth):** All guardian requests — tool approvals, pending questions, access requests — are persisted in the `canonical_guardian_requests` table (`src/memory/canonical-guardian-store.js`). Each request has a unique ID, a short human-readable request code, and a status that follows a CAS (compare-and-swap) lifecycle: `pending` -> `approved` | `denied` | `expired` | `cancelled`. Deliveries (notifications sent to guardians) are tracked in `canonical_guardian_deliveries`.
+1. **Gateway-owned domain (single source of truth):** All guardian requests — tool approvals, pending questions, access requests — are persisted in the gateway's `guardian_requests` table, with per-surface delivery records in `guardian_request_deliveries` (`gateway/src/db/guardian-request-store.ts`). Each request has a unique caller-supplied ID, a short human-readable request code, and a status that follows a CAS (compare-and-swap) lifecycle: `pending` -> `approved` | `denied` | `expired` | `cancelled`. The daemon reads and writes requests exclusively through the `guardian_requests_*` IPC client (`src/channels/gateway-guardian-requests.ts`).
 
-2. **Unified apply primitive (single write path):** `applyCanonicalGuardianDecision()` in `src/approvals/guardian-decision-primitive.ts` is the single write path for all guardian decisions. It enforces identity validation, expiry checks, CAS resolution, `approve_always` downgrade (guardian-on-behalf invariant), kind-specific resolver dispatch via the resolver registry, and scoped grant minting. All callers — HTTP API, inbound channel router, desktop session — route decisions through this function.
+2. **Unified apply primitive (single write path):** `applyGuardianDecision()` in `src/approvals/guardian-decision-primitive.ts` is the single write path for all guardian decisions. It enforces identity validation, expiry checks, and `approve_always` downgrade (guardian-on-behalf invariant), then commits through the gateway's `guardian_requests_decide` — the status CAS and any ACL outcome (member activation/seed/block, outbound-session mint) execute in one gateway transaction, so an approved request can never exist without its ACL write. Daemon-domain side effects (resolver dispatch, scoped grant minting, notifications) run after a successful decide. All callers — HTTP API, inbound channel router, desktop session — route decisions through this function.
 
-3. **Shared reply router (priority-ordered routing):** `routeGuardianReply()` in `src/runtime/guardian-reply-router.ts` provides a single entry point for all inbound guardian reply processing across channels. It routes through a priority-ordered pipeline: (a) deterministic callback parsing (button presses with `apr:<requestId>:<action>`), (b) request code parsing (6-char alphanumeric prefix), (c) NL classification via the conversational approval engine. All decisions flow through `applyCanonicalGuardianDecision`.
+3. **Shared reply router (priority-ordered routing):** `routeGuardianReply()` in `src/runtime/guardian-reply-router.ts` provides a single entry point for all inbound guardian reply processing across channels. It routes through a priority-ordered pipeline: (a) deterministic callback parsing (button presses with `apr:<requestId>:<action>`), (b) request code parsing (6-char alphanumeric prefix), (c) NL classification via the conversational approval engine. All decisions flow through `applyGuardianDecision`.
 
-4. **Deterministic API (prompt listing and decision endpoints):** Desktop clients and API consumers use `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` (HTTP). These endpoints surface canonical requests alongside legacy pending interactions and channel approval records, with deduplication to avoid double-rendering.
+4. **Deterministic API (prompt listing and decision endpoints):** Desktop clients and API consumers use `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` (HTTP). These endpoints surface guardian requests alongside legacy pending interactions and channel approval records, with deduplication to avoid double-rendering.
 
 5. **Buttons first, text fallback:** All request kinds (`tool_approval`, `pending_question`, `access_request`) are rendered as structured button cards when displayed in macOS guardian conversations. Each prompt also embeds deterministic text fallback instructions (request-code-based approve/reject directives, and for `access_request` the "open invite flow" phrase) so text-based channels and manual fallback always work. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed — no auto-resolve when the target is ambiguous.
 
 **Resolver registry:** Kind-specific resolvers (`src/approvals/guardian-request-resolvers.ts`) handle side effects after CAS resolution. Built-in resolvers: `tool_approval` (channel/desktop approval path), `pending_question` (voice call question path), and `access_request` (trusted-contact verification session creation). New request kinds register resolvers without touching the core primitive.
 
-**Expiry sweeps:** Three complementary sweeps run on 60-second intervals to clean up stale requests:
-
-- `src/calls/guardian-action-sweep.ts` — voice call guardian action requests
-- `src/runtime/routes/guardian-expiry-sweep.ts` — channel guardian approval requests
-- `src/runtime/routes/canonical-guardian-expiry-sweep.ts` — canonical guardian requests (CAS-safe)
+**Expiry:** the daemon's 60-second sweep (`src/runtime/routes/guardian-expiry-sweep.ts`) asks the gateway to CAS-expire pending requests past `expiresAt` (`guardian_requests_sweep_expired`) and fans out card withdrawal + requester notices from the returned rows; interaction-bound kinds (`tool_approval`, `pending_question`) are expired at daemon boot via `guardian_requests_expire_interaction_bound` since they die with the in-memory pending-interactions map. `src/calls/guardian-action-sweep.ts` sends the guardian-facing expiry notices for voice questions.
 
 **Key source files:**
 
-| File                                                    | Purpose                                                                                                       |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `src/memory/canonical-guardian-store.ts`                | Canonical request and delivery persistence (CRUD, CAS resolve, list with filters)                             |
-| `src/approvals/guardian-decision-primitive.ts`          | Unified decision primitive: `applyCanonicalGuardianDecision` (canonical) and `applyGuardianDecision` (legacy) |
-| `src/approvals/guardian-request-resolvers.ts`           | Resolver registry: kind-specific side-effect dispatch after CAS resolution                                    |
-| `src/runtime/guardian-reply-router.ts`                  | Shared inbound router: callback -> code -> NL classification pipeline                                         |
-| `src/runtime/routes/guardian-action-routes.ts`          | HTTP endpoints for prompt listing and decision submission                                                     |
-| `src/runtime/routes/canonical-guardian-expiry-sweep.ts` | Canonical request expiry sweep                                                                                |
+| File                                                | Purpose                                                                       |
+| --------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `src/channels/gateway-guardian-requests.ts`         | Typed IPC client for the gateway-owned request/delivery lifecycle             |
+| `gateway/src/approvals/guardian-request-service.ts` | Gateway service: create/reads/decide (CAS + ACL outcome in one transaction)   |
+| `src/approvals/guardian-decision-primitive.ts`      | Decision primitive: `applyGuardianDecision` + scoped grant minting            |
+| `src/approvals/guardian-request-resolvers.ts`       | Resolver registry: kind-specific daemon side-effect dispatch after the decide |
+| `src/runtime/guardian-reply-router.ts`              | Shared inbound router: callback -> code -> NL classification pipeline         |
+| `src/runtime/routes/guardian-action-routes.ts`      | HTTP endpoints for prompt listing and decision submission                     |
+| `src/runtime/routes/guardian-expiry-sweep.ts`       | Request expiry sweep (gateway CAS + daemon fan-out)                           |
 
 ### Outbound Channel Verification (HTTP Endpoints)
 
@@ -252,55 +249,25 @@ The policy is implemented in `src/tools/verification-control-plane-policy.ts`, w
 
 The `guardian-verify-setup` skill is the exclusive handler for channel verification intents in the system prompt. Other skills (e.g., `phone-calls`) hand off to `guardian-verify-setup` rather than orchestrating verification directly.
 
-### Guardian Action Timeout-to-Follow-Up Lifecycle
+### Guardian Question Timeout & Expiry Lifecycle
 
-When a voice call's ASK_GUARDIAN consultation times out before the guardian responds, the system enters a follow-up lifecycle that allows the guardian to act on their late answer after the call has moved on. The entire flow uses LLM-generated copy (never hardcoded user-facing strings) to maintain a natural, conversational tone across voice and text channels.
+Guardian requests (tool approvals, access requests, voice ASK_GUARDIAN questions) live in the gateway's `guardian_requests` / `guardian_request_deliveries` tables and carry an `expiresAt` timestamp. Two paths retire a request the guardian never answered, and all user-facing copy on those paths is LLM-generated (never hardcoded strings) to maintain a natural, conversational tone across voice and text channels.
 
-**Lifecycle stages:**
+**Voice consultation timeout:** When a voice call's ASK_GUARDIAN consultation times out before the guardian responds, the call controller expires the request via the gateway (`guardian_requests_expire` — deliveries expire with it), sends expiry notices to every surface the approval card reached (vellum conversations get an assistant message; external channels get a direct channel reply), and injects a `[GUARDIAN_TIMEOUT]` instruction so the model apologizes to the caller and offers a message or callback on the next voice turn.
 
-```
- ASK_GUARDIAN fires on call
-         |
-         v
- [pending] -- guardian answers in time --> [answered] (normal flow)
-         |
-         | (timeout expires)
-         v
- [expired, followup_state=none]
-         |
-         | (guardian replies late)
-         v
- [expired, followup_state=awaiting_guardian_choice]
-         |
-         | (conversation engine classifies intent)
-         v
- call_back / decline
-         |                        |
-         v                        v
- [dispatching]              [declined] (terminal)
-         |
-         | (executor runs action)
-         v
- [completed] or [failed] (terminal)
-```
+**Background expiry sweep:** Independent of any active call, a 60-second sweep asks the gateway to CAS-expire pending guardian requests past their `expiresAt` (`guardian_requests_sweep_expired` — a concurrent decision that wins the race is never overwritten), then fans out the side effects per expired row: withdrawing the approval cards on every surface, notifying the requester, and releasing any in-memory pending interaction.
 
-**Generated messaging requirement:** All user-facing copy in the guardian timeout/follow-up path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files (call-controller, inbound-message-handler, conversation-process) outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
-
-**Callback branch:** When the conversation engine classifies the guardian's intent as `call_back`, the executor starts an outbound call to the counterparty with context about the guardian's answer. The counterparty phone number is resolved from the original call session by call direction (inbound: `fromNumber`; outbound: `toNumber`).
+**Generated messaging requirement:** All user-facing copy in the guardian timeout/expiry path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
 
 **Key source files:**
 
-| File                                                    | Purpose                                                                                                                                                                                     |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/memory/guardian-action-store.ts`                   | Follow-up state machine with atomic transitions (`startFollowupFromExpiredRequest`, `progressFollowupState`, `finalizeFollowup`) and query helpers for pending/expired/follow-up deliveries |
-| `src/runtime/guardian-action-message-composer.ts`       | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates. Covers all scenarios from timeout acknowledgment through follow-up completion                  |
-| `src/runtime/guardian-action-followup-executor.ts`      | Action dispatch: resolves counterparty from call session, executes `call_back` (outbound call via `startCall`), finalizes follow-up state                                                   |
-| `src/daemon/guardian-action-generators.ts`              | Daemon-injected generator factory: `createGuardianActionCopyGenerator` (latency-optimized text rewriting for guardian-facing copy)                                                          |
-| `src/calls/call-controller.ts`                          | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response                                            |
-| `src/runtime/routes/inbound-message-handler.ts`         | Late reply interception for Telegram channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                            |
-| `src/daemon/conversation-process.ts`                    | Late reply interception for mac channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                              |
-| `src/calls/guardian-action-sweep.ts`                    | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations                                                                                                    |
-| `src/memory/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`)                                            |
+| File                                              | Purpose                                                                                                                                            |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/channels/gateway-guardian-requests.ts`       | Gateway-backed guardian-request client: typed wrappers over the `guardian_requests_*` IPC routes that own request/delivery state and expiry        |
+| `src/runtime/routes/guardian-expiry-sweep.ts`     | Periodic 60s sweep: gateway CAS-expiry (`guardian_requests_sweep_expired`) plus card-withdrawal, requester-notice, and pending-interaction fan-out |
+| `src/calls/call-controller.ts`                    | Voice timeout handling: expires the request, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for the generated voice response       |
+| `src/calls/guardian-action-sweep.ts`              | Expiry notice delivery to guardian destinations (vellum conversation message or direct channel reply)                                              |
+| `src/runtime/guardian-action-message-composer.ts` | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates                                                        |
 
 ### WhatsApp Channel (Meta Cloud API)
 
@@ -343,11 +310,11 @@ The Slack channel provides text-based messaging via Slack's Socket Mode API. Unl
 
 **Control-plane endpoints** (`/v1/integrations/slack/channel/config`):
 
-| Endpoint                                | Method | Description                                                                                                                                                                                                                                                                     |
-| --------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `hasUserToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`)                                                                                                            |
-| `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string, userToken?: string }`                                                                                                                                                                          |
-| `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials (bot, app, and user tokens) from secure storage and credential metadata. Surgical user-token-only deletion is exposed internally via `clearSlackUserToken` (used by the credential vault) but is not reachable through this HTTP endpoint. |
+| Endpoint                                | Method | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/integrations/slack/channel/config` | GET    | Returns current config status: `hasBotToken`, `hasAppToken`, `hasUserToken`, `connected`, plus workspace metadata (`teamId`, `teamName`, `botUserId`, `botUsername`)                                                                                                                                                                                                                                                                                              |
+| `/v1/integrations/slack/channel/config` | POST   | Validates and stores credentials. Body: `{ botToken?: string, appToken?: string, userToken?: string }`                                                                                                                                                                                                                                                                                                                                                            |
+| `/v1/integrations/slack/channel/config` | DELETE | Clears all Slack channel credentials (bot, app, and user tokens) from secure storage and credential metadata. The `credentials delete` route handles `slack_channel`/`user_token` like any other credential except that it skips the OAuth teardown, so removing just the user token leaves the channel's connection (run on the bot + app tokens) intact. `clearSlackUserToken` is the surgical user-token-only helper used internally by Slack config handling. |
 
 All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
 
@@ -407,10 +374,9 @@ External users who are not the guardian can gain access to the assistant through
 **Notification signals:** The flow emits signals at each lifecycle transition via `emitNotificationSignal()`:
 
 - `ingress.access_request` — unknown contact denied, guardian notified
-- `ingress.trusted_contact.guardian_decision` — guardian approved or denied
-- `ingress.trusted_contact.verification_sent` — code created and delivered
+- `ingress.trusted_contact.guardian_decision` — the guardian's verdict (the payload's `decision` field carries approved/denied; exactly one lifecycle signal fires per denial)
+- `ingress.trusted_contact.verification_sent` — code created and delivered (stands in for `guardian_decision` on approve so the pipeline doesn't announce approval before verification)
 - `ingress.trusted_contact.activated` — requester verified, contact active
-- `ingress.trusted_contact.denied` — guardian explicitly denied
 
 **HTTP API (for management):**
 
@@ -424,19 +390,18 @@ External users who are not the guardian can gain access to the assistant through
 
 **Key source files:**
 
-| File                                                   | Purpose                                                                       |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `src/runtime/routes/inbound-message-handler.ts`        | Ingress ACL, unknown-contact rejection, verification code interception        |
-| `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                             |
-| `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
-| `src/runtime/channel-verification-service.ts`          | Verification session lifecycle, identity binding, rate limiting               |
-| `src/runtime/routes/contact-routes.ts`                 | HTTP API handlers for contact and channel management                          |
-| `src/runtime/routes/invite-routes.ts`                  | HTTP API handlers for invite management                                       |
-| `src/runtime/invite-service.ts`                        | Business logic for invite operations                                          |
-| `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
-| `src/memory/guardian-approvals.ts`                     | Approval request persistence                                                  |
-| `src/memory/channel-verification-sessions.ts`          | Verification challenge persistence                                            |
-| `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links        |
+| File                                                   | Purpose                                                                                         |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `src/runtime/routes/inbound-message-handler.ts`        | Ingress ACL, unknown-contact rejection, verification code interception                          |
+| `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                                               |
+| `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler                   |
+| `src/runtime/channel-verification-service.ts`          | Verification session lifecycle, identity binding, rate limiting                                 |
+| `src/runtime/routes/contact-routes.ts`                 | HTTP/IPC handlers for contacts, channels, and invites (invite ops relay to gateway IPC)         |
+| `src/runtime/invite-service.ts`                        | Daemon-owned invite presentation (share link, guardian instruction) over gateway-minted invites |
+| `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations                             |
+| `src/memory/guardian-approvals.ts`                     | Approval request persistence                                                                    |
+| `src/channels/channel-verification-sessions.ts`        | Verification challenge persistence                                                              |
+| `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links                          |
 
 ### Guardian-Initiated Invite Links
 
@@ -456,11 +421,12 @@ A complementary access-granting flow where the guardian proactively creates a sh
 │    • extractInboundToken(payload) → token | undefined        │
 │  Registered: Telegram  │  Deferred: Slack, Voice             │
 ├─────────────────────────────────────────────────────────────┤
-│  Core Redemption Engine (invite-redemption-service.ts)       │
-│  Channel-agnostic token validation, expiry, use-count,       │
-│  channel-match enforcement, contact activation/reactivation  │
+│  Core Redemption Engine (gateway-native)                     │
+│  gateway/src/verification/invite-redemption.ts               │
+│  Token/code validation, expiry, use-count, channel-match     │
+│  enforcement, atomic claim, gateway ACL activation           │
 │  Returns: InviteRedemptionOutcome (discriminated union)      │
-│  Reply templates: invite-redemption-templates.ts             │
+│  Daemon mirrors contact info via the invite_redeemed event   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -468,42 +434,42 @@ A complementary access-granting flow where the guardian proactively creates a sh
 
 1. Guardian asks the assistant to create an invite via desktop chat.
 2. `guardian-invite-intent.ts` detects the intent and rewrites the message to force-load the `contacts` skill.
-3. The skill calls the ingress HTTP API to create an invite token, then calls the Telegram transport adapter to build a deep link: `https://t.me/<bot>?start=iv_<token>`.
+3. The skill calls the invites HTTP API; the daemon relays the mint to the gateway (`invites_create` IPC), which writes the canonical `ingress_invites` row, then the daemon's Telegram transport adapter builds a deep link: `https://t.me/<bot>?start=iv_<token>`.
 4. Guardian shares the link with the invitee out-of-band.
 5. Invitee clicks the link, opening Telegram which sends `/start iv_<token>` to the bot.
-6. The gateway forwards the message to `/channels/inbound`. The inbound handler calls `getInviteAdapterRegistry().get('telegram').extractInboundToken()` to parse the `iv_` token.
-7. The token is redeemed via `invite-redemption-service.ts`, which validates, activates the contact, and returns a `redeemed` outcome.
+6. The gateway intercepts the `/start iv_<token>` message at ingress (before any daemon forwarding) and redeems the token against its canonical `ingress_invites` row.
+7. The gateway's redemption engine validates, activates the channel in the gateway ACL, and notifies the daemon (`invite_redeemed`) to mirror the contact info locally.
 8. A deterministic welcome message is delivered to the invitee (bypasses the LLM pipeline).
 
 **Token prefix convention:** The `iv_` prefix distinguishes invite tokens from `gv_` (guardian verification) tokens. Both use the same Telegram `/start` deep-link mechanism but are routed to different handlers.
 
-**Inbound intercept points:** Invite token extraction runs early in the inbound handler, before ACL denial, so valid invites short-circuit the contact check. Two intercept branches handle: (a) unknown contacts — the invite creates their first contact record; (b) inactive contacts (revoked/pending) — the invite reactivates them.
+**Inbound intercept points:** Invite token/code extraction runs at gateway ingress for non-member senders, before ACL denial, so valid invites short-circuit the contact check. The engine handles: (a) unknown contacts — the invite creates their first channel record; (b) inactive contacts (revoked) — the invite reactivates them; blocked channels are never reactivated.
 
 **Channel adapter status:**
 
-| Channel  | Status   | Prerequisites                                                                                                                                                 |
-| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Telegram | Shipped  | Bot username resolved from credential metadata or config                                                                                                      |
-| Voice    | Shipped  | Identity-bound voice code redemption via DTMF/speech in the relay state machine. Always-on canonical behavior with personalized friend/guardian name prompts. |
-| Slack    | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing                                                       |
+| Channel  | Status   | Prerequisites                                                                                                                                             |
+| -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telegram | Shipped  | Bot username resolved from credential metadata or config                                                                                                  |
+| Voice    | Shipped  | Identity-bound voice code redemption via DTMF/speech in the call setup flow. Always-on canonical behavior with personalized friend/guardian name prompts. |
+| Slack    | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing                                                   |
 
-### Voice Invite Flow (invite_redemption_pending)
+### Voice Invite Flow (invite_redemption)
 
-Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL token. The guardian creates an invite bound to the invitee's E.164 phone number; the invitee redeems it by entering the code during an inbound voice call.
+Voice invites use a short numeric code (6 digits) instead of a URL token. The guardian creates an invite bound to the invitee's E.164 phone number; the invitee redeems it by entering the code during an inbound voice call.
 
 **Creation flow:**
 
 1. Guardian creates a voice invite via `POST /v1/contacts/invites` with `sourceChannel: "phone"` and `expectedExternalUserId` (E.164 phone).
-2. `invite-service.ts` generates a cryptographically random numeric code (`generateVoiceCode`), hashes it with SHA-256 (`hashVoiceCode`), and stores only the hash.
+2. The daemon relays the mint to the gateway (`invites_create` IPC), which generates a cryptographically random numeric code and stores only its SHA-256 hash on the canonical `ingress_invites` row.
 3. The one-time plaintext `voiceCode` is returned in the creation response. The raw token is NOT returned for voice invites — redemption uses the identity-bound code flow exclusively.
 4. Guardian communicates the code to the invitee out-of-band.
 
-**Call-time redemption subflow (`invite_redemption_pending`):**
+**Call-time redemption subflow (`invite_redemption`):**
 
-1. Unknown caller dials in. `relay-server.ts` resolves trust via `resolveActorTrust`. Caller is `unknown`, no pending guardian challenge.
-2. The relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
-3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
-4. `redeemVoiceInviteCode` validates: identity match, code hash match, expiry, use count. On success, the contact is activated and the call transitions to the normal call flow.
+1. Unknown caller dials in. The media-stream server resolves trust from the gateway trust verdict (a missing/failed verdict denies fail-closed). Caller is `unknown`, no pending guardian challenge.
+2. `routeSetup` asks the gateway for the active voice invite bound to the caller's phone number (`get_active_voice_invite` IPC via `calls/gateway-invite-reader.ts`; fail-soft — any gateway failure falls through to the unverified path).
+3. If an active, non-expired invite exists, the `CallSetupFlow` runs the `invite_redemption` sub-flow (collecting the code via DTMF or spoken digits) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
+4. The gateway's `redeem_voice_invite` engine validates: identity match, code hash match, expiry, use count. On success, the phone channel is activated in the gateway ACL and the call transitions to the normal call flow.
 5. On invalid/expired code, the caller hears deterministic failure copy: `Sorry, the code you provided is incorrect or has since expired. Please ask <guardian-name> for a new code. Goodbye.` and the call ends immediately.
 
 **Security invariants:**
@@ -515,24 +481,21 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 
 **Key source files:**
 
-| File                                                | Purpose                                                                                                            |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, voice code redemption, contact activation, discriminated-union outcomes |
-| `src/runtime/invite-redemption-templates.ts`        | Deterministic reply templates for each redemption outcome                                                          |
-| `src/runtime/channel-invite-transport.ts`           | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                           |
-| `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                        |
-| `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                           |
-| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                      |
-| `src/runtime/invite-service.ts`                     | Shared business logic for invite operations (used by HTTP routes)                                                  |
-| `src/runtime/routes/invite-routes.ts`               | HTTP API handlers for invite management including voice invite creation and redemption                             |
-| `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (unknown-contact and inactive-contact branches)                         |
-| `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                     |
-| `src/util/voice-code.ts`                            | Cryptographic voice code generation and SHA-256 hashing                                                            |
-| `src/memory/invite-store.ts`                        | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup                                    |
+| File                                                      | Purpose                                                                                                                                |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `gateway/src/verification/invite-redemption.ts` (gateway) | Core redemption engine + gateway-ingress token/code intercept — validation, atomic claim, ACL activation, discriminated-union outcomes |
+| `src/runtime/channel-invite-transport.ts`                 | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                                               |
+| `src/runtime/channel-invite-transports/telegram.ts`       | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                                            |
+| `src/runtime/channel-invite-transports/voice.ts`          | Voice transport adapter — code-based redemption metadata                                                                               |
+| `src/daemon/guardian-invite-intent.ts`                    | Intent detection — routes create/list/revoke requests into the contacts skill                                                          |
+| `src/runtime/invite-service.ts`                           | Daemon-owned invite presentation (share link, guardian instruction, channel handle) over gateway-minted invites                        |
+| `src/runtime/routes/contact-routes.ts`                    | HTTP/IPC invite handlers — relay mint/list/revoke/redeem to the gateway's invite IPC routes                                            |
+| `src/calls/call-setup-flow.ts`                            | Transport-agnostic call setup flow — `invite_redemption` sub-flow (always-on canonical behavior)                                       |
+| `src/calls/gateway-invite-reader.ts`                      | Gateway IPC read of the active voice invite for a caller identity                                                                      |
 
 ### Voice Inbound Security Model (Canonical)
 
-The voice inbound security model determines how unknown callers are handled when they dial in. Three paths exist, evaluated in priority order by `relay-server.ts` during the `handleSetup` phase. All guardian decisions route through `applyCanonicalGuardianDecision` in the canonical guardian request system.
+The voice inbound security model determines how unknown callers are handled when they dial in. Three paths exist, evaluated in priority order by `routeSetup` (`call-setup-router.ts`) when the media-stream session starts. All guardian decisions route through `applyGuardianDecision` in the guardian request system.
 
 **Decision tree for inbound unknown callers:**
 
@@ -540,18 +503,17 @@ The voice inbound security model determines how unknown callers are handled when
 Unknown caller dials in
         |
         v
-resolveActorTrust() → trustClass
+gateway trust verdict → trustClass
         |
         ├── guardian / trusted_contact → normal call flow
         ├── blocked → immediate denial + disconnect
         ├── policy: deny → immediate denial + disconnect
-        ├── policy: escalate → denial (voice cannot hold for async approval)
         |
         └── unknown (no binding) ──┐
                                    |
               ┌────────────────────┼──────────────────────┐
               |                    |                       |
-    pendingChallenge?     activeVoiceInvites?      no invite, no challenge
+    pendingChallenge?     activeVoiceInvite?       no invite, no challenge
               |                    |                       |
               v                    v                       v
     Guardian verification   Invite redemption     Name capture +
@@ -560,42 +522,44 @@ resolveActorTrust() → trustClass
 
 **Path 1: Voice invite code redemption (guardian-initiated)**
 
-The guardian proactively creates a voice invite bound to the caller's E.164 phone number. When the unknown caller dials in and has an active, non-expired invite, the relay enters the `invite_redemption_pending` subflow with personalized prompts using the friend's and guardian's names. This is always-on canonical behavior (no feature flag). See [Voice Invite Flow](#voice-invite-flow-invite_redemption_pending) above.
+The guardian proactively creates a voice invite bound to the caller's E.164 phone number. When the unknown caller dials in and has an active, non-expired invite, the setup flow enters the `invite_redemption` sub-flow with personalized prompts using the friend's and guardian's names. This is always-on canonical behavior (no feature flag). See [Voice Invite Flow](#voice-invite-flow-invite_redemption) above.
 
 **Path 2: Live in-call guardian approval (friend-initiated)**
 
-When no invite exists and no pending guardian challenge is active, the relay enters the name capture + guardian approval wait flow:
+When no invite exists and no pending guardian challenge is active, the setup flow enters the name capture + guardian approval wait flow:
 
-1. The relay transitions to `awaiting_name` state and prompts the caller for their name with a timeout.
-2. On name capture, `notifyGuardianOfAccessRequest` creates a canonical guardian request (`kind: 'access_request'`) and notifies the guardian via the notification pipeline.
-3. The relay transitions to `awaiting_guardian_decision` and plays hold music/messaging while polling the canonical request status.
-4. The guardian approves or denies via any channel (Telegram, desktop). All decisions route through `applyCanonicalGuardianDecision`, which dispatches to the `access_request` resolver in `guardian-request-resolvers.ts`.
-5. On approval: the resolver directly activates the caller as a trusted contact (sets channel `status: 'active'`, `policy: 'allow'`), the poll detects the approved status, the relay transitions to the normal call flow with the caller's guardian context updated.
+1. The setup flow transitions to `capturing_name` state and prompts the caller for their name with a timeout.
+2. On name capture, `notifyGuardianOfAccessRequest` creates a guardian request (`kind: 'access_request'`) in the gateway and notifies the guardian via the notification pipeline.
+3. The setup flow hands off to a `GuardianWaitController` (`awaiting_guardian_decision`), which speaks hold messaging and heartbeat updates while polling the request status via the gateway client.
+4. The guardian approves or denies via any channel (Telegram, desktop). All decisions route through `applyGuardianDecision`, which commits via `guardian_requests_decide` and dispatches daemon side effects to the `access_request` resolver in `guardian-request-resolvers.ts`.
+5. On approval: the decide transaction activates the caller as a trusted contact (sets channel `status: 'active'`, `policy: 'allow'` in the gateway ACL), the poll detects the approved status, and the setup flow completes into the normal call flow with the caller's guardian context updated.
 6. On denial or timeout: the caller hears a denial message and the call ends.
 
 **Path 3: Inbound guardian verification (pending challenge)**
 
 When a pending voice guardian challenge exists (`getPendingSession`), the caller enters the DTMF/speech verification flow to complete an outbound-initiated guardian binding. This path is for guardian identity verification, not trusted-contact access.
 
-**Canonical decision routing:**
+**Decision routing:**
 
 All guardian decisions for voice access requests flow through:
 
-- `applyCanonicalGuardianDecision` (canonical guardian request system)
-- `accessRequestResolver` in `guardian-request-resolvers.ts` (kind-specific resolver)
-- For voice approvals: direct trusted-contact activation (no verification session needed since the caller is already on the line)
-- For text-channel access requests: verification session creation with 6-digit code (existing `access-request-decision.ts` path for legacy `channel_guardian_approval_requests`)
+- `applyGuardianDecision` (guardian request system; commits via the gateway's `guardian_requests_decide`)
+- `accessRequestResolver` in `guardian-request-resolvers.ts` (kind-specific daemon side effects)
+- For voice approvals: an `activate_member` ACL outcome inside the decide transaction (no verification session needed since the caller is already on the line)
+- For text-channel access requests: a `mint_outbound_session` outcome mints the 6-digit verification session inside the decide transaction
 
 **Key source files:**
 
 | File                                           | Purpose                                                                                |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `src/calls/relay-server.ts`                    | Inbound call decision tree, name capture, guardian approval wait polling               |
-| `src/runtime/access-request-helper.ts`         | Creates canonical access request and notifies guardian                                 |
-| `src/approvals/guardian-decision-primitive.ts` | `applyCanonicalGuardianDecision` — unified decision primitive                          |
+| `src/calls/call-setup-router.ts`               | Inbound call decision tree (`routeSetup`)                                              |
+| `src/calls/call-setup-flow.ts`                 | Name capture, verification, and invite sub-flows over the media-stream transport       |
+| `src/calls/guardian-wait-controller.ts`        | Guardian approval wait — hold messaging, heartbeats, poll/timeout                      |
+| `src/runtime/access-request-helper.ts`         | Creates the access request in the gateway and notifies the guardian                    |
+| `src/approvals/guardian-decision-primitive.ts` | `applyGuardianDecision` — unified decision primitive                                   |
 | `src/approvals/guardian-request-resolvers.ts`  | `access_request` resolver — voice direct activation, text-channel verification session |
-| `src/runtime/actor-trust-resolver.ts`          | `resolveActorTrust` — caller trust classification                                      |
-| `src/memory/canonical-guardian-store.ts`       | Canonical request persistence and CAS resolution                                       |
+| `src/runtime/trust-verdict-consumer.ts`        | Gateway verdict → caller trust classification (`actorTrustContextFromVerdict`)         |
+| `src/channels/gateway-guardian-requests.ts`    | Gateway client for request persistence and the atomic decide                           |
 
 ### Speech-to-Text (STT) Boundaries
 
@@ -605,40 +569,43 @@ Audio-to-text conversion occurs in six distinct runtime boundaries, each with it
 
 **Boundary overview:**
 
-| Boundary                     | Runtime                                                                       | Provider (current)                           | Adapter module                                                                                                                                                                                                                                             | Caller                                                                         |
-| ---------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`) | `src/calls/telephony-stt-routing.ts`                                                                                                                                                                                                                       | `src/calls/twilio-routes.ts`                                                   |
-| **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                        |
-| **Conversation streaming**   | Daemon process (WebSocket-based)                                              | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | `VoiceInputManager` (macOS conversation) via gateway WS proxy                  |
-| **Live voice channel**       | Assistant process (gateway-authenticated WebSocket)                           | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | `LiveVoiceChannelManager` (macOS voice mode) via `/v1/live-voice`              |
-| **Client service-first**     | macOS via gateway → daemon                                                    | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                                                                                                                               | `VoiceInputManager` (macOS dictation), `OpenAIVoiceService` (macOS voice mode) |
-| **Client-native (fallback)** | macOS on-device                                                               | Apple Speech (`SFSpeechRecognizer`)          | `clients/macos/.../SpeechRecognizerAdapter.swift`                                                                                                                                                                                                          | Fallback when STT service is unconfigured or fails                             |
+| Boundary                     | Runtime                                             | Provider (current)                           | Adapter module                                                                                                                                                                                                                                             | Caller                                                  |
+| ---------------------------- | --------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| **Telephony (media-stream)** | Daemon process (Twilio Media Streams WebSocket)     | Configured STT provider (via `services.stt`) | `src/calls/media-stream-stt-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                                                                                                            | `src/calls/media-stream-server.ts`                      |
+| **Daemon batch**             | Daemon process (REST API to provider)               | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts` |
+| **Conversation streaming**   | Daemon process (WebSocket-based)                    | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | Web/Electron dictation client via gateway WS proxy      |
+| **Live voice channel**       | Assistant process (gateway-authenticated WebSocket) | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | Web/Electron live voice client via `/v1/live-voice`     |
+| **Client service-first**     | Web/Electron via gateway → daemon                   | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`                                                                                                                                                                                                                         | Web/Electron dictation and voice clients                |
 
-**Telephony boundary (hybrid routing):**
+**Telephony boundary (media-stream):**
 
-Telephony STT uses a provider-conditional hybrid model driven by `services.stt.provider`. The routing resolver (`src/calls/telephony-stt-routing.ts`) maps the configured provider to a discriminated strategy at call setup time:
+Every phone call connects over Twilio Media Streams: the voice webhook emits `<Connect><Stream>` TwiML pointing to the gateway's media-stream proxy, and the daemon performs both STT and TTS itself — Twilio only carries mu-law audio frames. The `<Stream url="...">` encodes `callSessionId` and auth `token` as **URL path segments** (e.g. `.../media-stream/<callSessionId>/<token>`) because Twilio Media Streams does not reliably preserve query parameters across the WebSocket upgrade. The gateway extracts metadata from path segments (with query-parameter fallback for backward compatibility) and proxies raw audio frames to the daemon.
 
-- **`conversation-relay-native`** (Deepgram, Google) — TwiML emits `<Connect><ConversationRelay>` with `transcriptionProvider` and `speechModel` attributes. Twilio handles audio ingestion and transcription natively; the daemon receives transcribed text via the relay WebSocket. The Twilio-native provider name and default speech model are read from the provider catalog entry's `telephonyRouting.twilioNativeMapping` (e.g. Deepgram maps to `provider: "Deepgram"` with `defaultSpeechModel: "nova-3"`; Google maps to `provider: "Google"` with `defaultSpeechModel: undefined`).
+Transcription mode is selected once per session in `media-stream-stt-session.ts`:
 
-- **`media-stream-custom`** (OpenAI Whisper) — TwiML emits `<Connect><Stream>` pointing to the gateway's media-stream proxy. The `<Stream url="...">` encodes `callSessionId` and auth `token` as **URL path segments** (e.g. `.../media-stream/<callSessionId>/<token>`) because Twilio Media Streams does not reliably preserve query parameters across the WebSocket upgrade. The gateway extracts metadata from path segments (with query-parameter fallback for backward compatibility) and proxies raw audio frames to the daemon, which transcribes server-side via the provider's batch API.
+- **Streaming** (default) — when `calls.voice.telephonyStreaming` is enabled and the configured provider resolves a streaming transcriber (`resolveStreamingTranscriber()`), inbound audio is decoded (mu-law → PCM16, resampled 8 kHz → 16 kHz) and fed to the provider's realtime adapter. Replies trigger only on utterance-boundary finals (for Deepgram, `speech_final`/`UtteranceEnd`, never mid-sentence `is_final` segments), and barge-in fires from local energy VAD, never from transcriber partials.
+- **Batch fallback** — otherwise the session segments turns with the energy-based `MediaTurnDetector` and transcribes each completed turn via the provider's batch API.
+
+A credential preflight (`resolveTelephonyCredentialReadiness()` in `src/calls/telephony-credential-preflight.ts`) gates every call: it requires a credentialed, telephony-capable STT provider **and** a media-stream-playable TTS provider (the configured one or a credentialed playable fallback). Inbound calls that fail the preflight receive `<Say>` setup-required copy plus `<Hangup/>` instead of a doomed stream; outbound placement fails before dialing via `preflightVoiceIngress()` with the same user-facing message.
 
 Key modules:
 
-| Module                                              | Purpose                                                                |
-| --------------------------------------------------- | ---------------------------------------------------------------------- |
-| `src/calls/telephony-stt-routing.ts`                | Maps `services.stt.provider` to a discriminated `TelephonySttStrategy` |
-| `src/calls/twilio-routes.ts`                        | Voice webhook handler; generates provider-conditional TwiML            |
-| `src/calls/media-stream-parser.ts`                  | Twilio Media Streams protocol parser                                   |
-| `src/calls/media-turn-detector.ts`                  | Energy-based VAD turn detector for raw audio                           |
-| `src/calls/media-stream-stt-session.ts`             | STT session that transcribes audio turns via `services.stt`            |
-| `src/calls/call-transport.ts`                       | Transport interface decoupling CallController from wire protocol       |
-| `src/calls/media-stream-output.ts`                  | Output adapter for sending TTS audio back via Media Streams            |
-| `src/calls/media-stream-server.ts`                  | WebSocket server binding media-stream lifecycle to call sessions       |
-| `gateway/src/http/routes/twilio-media-websocket.ts` | Gateway WebSocket proxy for Media Streams frames                       |
+| Module                                              | Purpose                                                                                               |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `src/calls/twilio-routes.ts`                        | Voice webhook handler; generates `<Connect><Stream>` TwiML, enforces the inbound credential preflight |
+| `src/calls/telephony-credential-preflight.ts`       | Combined STT + TTS credential-readiness resolver                                                      |
+| `src/calls/media-stream-parser.ts`                  | Twilio Media Streams protocol parser                                                                  |
+| `src/calls/media-turn-detector.ts`                  | Energy-based VAD turn detector for raw audio (batch mode)                                             |
+| `src/calls/media-stream-stt-session.ts`             | STT session — streaming/batch mode selection and transcription via `services.stt`                     |
+| `src/calls/media-stream-audio-transcode.ts`         | Mu-law ↔ PCM16 codecs and resampling                                                                  |
+| `src/calls/call-transport.ts`                       | Transport interface decoupling CallController from wire protocol                                      |
+| `src/calls/media-stream-output.ts`                  | Output adapter for sending TTS audio back via Media Streams                                           |
+| `src/calls/media-stream-server.ts`                  | WebSocket server binding media-stream lifecycle to call sessions and setup flows                      |
+| `gateway/src/http/routes/twilio-media-websocket.ts` | Gateway WebSocket proxy for Media Streams frames                                                      |
 
-Guard tests in `__tests__/twilio-routes-twiml.test.ts` and `__tests__/twilio-routes.test.ts` assert that TwiML generation matches the provider-conditional strategy for each supported provider.
+Guard tests in `__tests__/twilio-routes-twiml.test.ts` and `__tests__/twilio-routes.test.ts` assert that every supported STT provider yields `<Connect><Stream>` TwiML for both inbound and outbound calls.
 
-To add a new telephony STT provider: add a `telephonyRouting` entry to the provider's catalog entry in `provider-catalog.ts`. Set `strategyKind` to `"conversation-relay-native"` for Twilio-native providers (and include a `twilioNativeMapping` with the Twilio `provider` name and `defaultSpeechModel`), or `"media-stream-custom"` for providers that require daemon-side transcription. The routing resolver reads these fields from the catalog — no hardcoded maps to update.
+To add a new telephony STT provider: declare `telephonyMode` and `supportedBoundaries` on the provider's catalog entry in `provider-catalog.ts`. The telephony capability resolver (`resolveTelephonySttCapability()`) reads these fields plus credential availability from the catalog — no per-provider routing maps exist.
 
 **Daemon batch boundary:**
 
@@ -657,10 +624,10 @@ Real-time conversation chat message capture on macOS uses a WebSocket-based stre
 
 Two provider adapters are supported, each implementing the `StreamingTranscriber` interface from `src/stt/types.ts`:
 
-| Provider          | Adapter                                                     | Mode          | Mechanism                                                                                                                                                                                                                                             |
-| ----------------- | ----------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Deepgram**      | `src/providers/speech-to-text/deepgram-realtime.ts`         | `realtime-ws` | Opens a WebSocket to Deepgram's `/v1/listen` endpoint, forwards raw PCM audio, normalizes Deepgram's `is_final`/`speech_final` semantics into `partial`/`final` events. Uses model `nova-2`.                                                          |
-| **Google Gemini** | `src/providers/speech-to-text/google-gemini-live-stream.ts` | `realtime-ws` | Opens a bidirectional streaming session against Gemini's Live API (`ai.live.connect`), forwards PCM audio frames, and normalizes `serverContent.inputTranscription` events into `partial`/`final` events. Uses model `gemini-live-2.5-flash-preview`. |
+| Provider          | Adapter                                                     | Mode          | Mechanism                                                                                                                                                                                                                                                    |
+| ----------------- | ----------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Deepgram**      | `src/providers/speech-to-text/deepgram-realtime.ts`         | `realtime-ws` | Opens a WebSocket to Deepgram's `/v1/listen` endpoint, forwards raw PCM audio, normalizes Deepgram's `is_final`/`speech_final` semantics into `partial`/`final` events. Uses model `nova-2`.                                                                 |
+| **Google Gemini** | `src/providers/speech-to-text/google-gemini-live-stream.ts` | `realtime-ws` | Opens a bidirectional streaming session against Gemini's Live API (`ai.live.connect`), forwards PCM audio frames, and normalizes `serverContent.inputTranscription` events into `partial`/`final` events. Uses model `gemini-2.5-flash-native-audio-latest`. |
 
 **Provider-specific behavior differences:**
 
@@ -679,16 +646,14 @@ Two provider adapters are supported, each implementing the `StreamingTranscriber
 
 **Session lifecycle (client side):**
 
-- `STTStreamingClient` (`clients/shared/Network/STTStreamingClient.swift`) manages the WebSocket session using `URLSessionWebSocketTask`. It builds the gateway WebSocket URL via `GatewayHTTPClient.buildWebSocketRequest(path: "stt/stream", params:)`.
-- `STTProviderRegistry` (`clients/shared/Utilities/STTProviderRegistry.swift`) exposes `isStreamingAvailable` (checks the configured provider's `conversationStreamingMode` from the `GET /v1/stt/providers` API) and `isServiceConfigured` (checks whether any STT provider is set).
-- macOS: `VoiceInputManager.startStreamingSession()` creates a fresh `STTStreamingClient` per recording session. Streaming partials take priority over `SFSpeechRecognizer` partials while the stream is active and healthy. When recording stops, if the stream delivered at least one `final` event (`streamingReceivedFinal`) and has not failed (`streamingFailed`), the streaming final text is used directly. Otherwise, the batch STT path (`STTClient.transcribe()`) provides the fallback.
+The web client streaming dictation client lives at `clients/web/src/domains/chat/voice/dictation-stream.ts`; it opens the gateway WebSocket to `/v1/stt/stream`, parses `partial`/`final` frames, and reports failures so the caller can fall back to batch transcription. Before opening a session the client checks the configured provider's `conversationStreamingMode` from the `GET /v1/stt/providers` API. When the stream delivers at least one `final` event and has not failed, the streaming final text is used directly; otherwise the batch STT path (`clients/web/src/domains/chat/voice/stt-api.ts`) provides the fallback.
 
 **Fallback semantics:**
 
 The conversation streaming path degrades gracefully to the existing batch STT path:
 
-1. **Unsupported provider** (a hypothetical provider with `conversationStreamingMode: "none"`): The client checks `STTProviderRegistry.isStreamingAvailable` before attempting a streaming session. When `false`, recording proceeds with the batch-only flow (no WebSocket is opened). On the daemon side, if a streaming session is somehow opened for an unsupported provider, the session sends an `error` event followed by `closed` and closes the socket with code 1000.
-2. **Connection failure** (network error, gateway down, auth failure): The `STTStreamingClient` reports an `STTStreamFailure` to the client's `onFailure` callback. macOS sets `streamingFailed = true` and falls through to batch STT resolution when recording stops.
+1. **Unsupported provider** (a hypothetical provider with `conversationStreamingMode: "none"`): The client checks streaming availability (the configured provider's `conversationStreamingMode` from `GET /v1/stt/providers`) before attempting a streaming session. When unavailable, recording proceeds with the batch-only flow (no WebSocket is opened). On the daemon side, if a streaming session is somehow opened for an unsupported provider, the session sends an `error` event followed by `closed` and closes the socket with code 1000.
+2. **Connection failure** (network error, gateway down, auth failure): The streaming client reports the failure to its caller, which marks the stream as failed and falls through to batch STT resolution when recording stops.
 3. **Mid-session provider error** (provider WebSocket disconnect, timeout, rate limit): The daemon session emits an `error` event (with a normalized `SttErrorCategory`) followed by `closed`. The client marks the stream as failed and defers to batch STT.
 4. **Missing credentials**: `resolveStreamingTranscriber()` returns `null` when the API key is not configured. The session sends an `error`+`closed` pair and the client falls back to batch.
 
@@ -703,19 +668,18 @@ The conversation streaming path degrades gracefully to the existing batch STT pa
 
 **Key source files:**
 
-| File                                                        | Purpose                                                                                                                                               |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/stt/types.ts`                                          | `StreamingTranscriber` interface, `SttStreamClientEvent`/`SttStreamServerEvent` discriminated unions, `ConversationStreamingMode` type                |
-| `src/stt/stt-stream-session.ts`                             | Runtime session orchestrator: lifecycle management, idle timeout, event forwarding with `seq` ordering                                                |
-| `src/providers/speech-to-text/deepgram-realtime.ts`         | Deepgram realtime-ws adapter: WebSocket to Deepgram `/v1/listen`, `is_final`/`speech_final` normalization                                             |
-| `src/providers/speech-to-text/google-gemini-live-stream.ts` | Google Gemini realtime-ws adapter: bidirectional Live API session, `serverContent.inputTranscription` normalization                                   |
-| `src/providers/speech-to-text/provider-catalog.ts`          | Provider catalog with `conversationStreamingMode` per entry (`realtime-ws`, `incremental-batch`, `none`)                                              |
-| `src/providers/speech-to-text/resolve.ts`                   | `resolveStreamingTranscriber()`: credential-aware factory for streaming adapters; `resolveConversationStreamingSttCapability()`: capability validator |
-| `src/runtime/http-server.ts`                                | Runtime WebSocket upgrade handler for `/v1/stt/stream`, session registry (`activeSttStreamSessions`), graceful shutdown                               |
-| `gateway/src/http/routes/stt-stream-websocket.ts`           | Gateway WebSocket proxy: authenticates client, opens upstream WS to daemon with service token                                                         |
-| `clients/shared/Network/STTStreamingClient.swift`           | Shared Swift WebSocket client: `URLSessionWebSocketTask`-based, event parsing, failure reporting                                                      |
-| `clients/shared/Utilities/STTProviderRegistry.swift`        | Client-side provider catalog: `isStreamingAvailable`, `conversationStreamingMode` per provider                                                        |
-| `clients/macos/.../VoiceInputManager.swift`                 | macOS integration: `startStreamingSession()`, streaming/batch priority, fallback on failure                                                           |
+| File                                                          | Purpose                                                                                                                                               |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/stt/types.ts`                                            | `StreamingTranscriber` interface, `SttStreamClientEvent`/`SttStreamServerEvent` discriminated unions, `ConversationStreamingMode` type                |
+| `src/stt/stt-stream-session.ts`                               | Runtime session orchestrator: lifecycle management, idle timeout, event forwarding with `seq` ordering                                                |
+| `src/providers/speech-to-text/deepgram-realtime.ts`           | Deepgram realtime-ws adapter: WebSocket to Deepgram `/v1/listen`, `is_final`/`speech_final` normalization                                             |
+| `src/providers/speech-to-text/google-gemini-live-stream.ts`   | Google Gemini realtime-ws adapter: bidirectional Live API session, `serverContent.inputTranscription` normalization                                   |
+| `src/providers/speech-to-text/provider-catalog.ts`            | Provider catalog with `conversationStreamingMode` per entry (`realtime-ws`, `incremental-batch`, `none`)                                              |
+| `src/providers/speech-to-text/resolve.ts`                     | `resolveStreamingTranscriber()`: credential-aware factory for streaming adapters; `resolveConversationStreamingSttCapability()`: capability validator |
+| `src/runtime/http-server.ts`                                  | Runtime WebSocket upgrade handler for `/v1/stt/stream`, session registry (`activeSttStreamSessions`), graceful shutdown                               |
+| `gateway/src/http/routes/stt-stream-websocket.ts`             | Gateway WebSocket proxy: authenticates client, opens upstream WS to daemon with service token                                                         |
+| `clients/web/src/domains/chat/voice/dictation-stream.ts`      | Web streaming dictation client: WebSocket session, event parsing, failure reporting                                                                   |
+| `clients/web/src/domains/chat/voice/voice-recording-store.ts` | Web voice recording state: streaming/batch priority, fallback on failure                                                                              |
 
 **Live voice channel boundary:**
 
@@ -736,43 +700,32 @@ The assistant-side live voice module is intentionally bounded under `src/live-vo
 
 Live voice STT uses the same `resolveStreamingTranscriber()` path as conversation streaming. For V1 latency-sensitive behavior, the selected `services.stt.provider` must resolve to a `daemon-streaming` transcriber whose catalog entry has `conversationStreamingMode: "realtime-ws"` and usable credentials. Providers that only support batch or incremental-batch transcription remain valid for other voice surfaces, but do not satisfy live voice's streaming STT requirement.
 
-Live voice TTS uses `streamLiveVoiceTtsAudio()` and the configured `services.tts.provider`. The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Fish Audio is the current catalog provider with streaming synthesis support; non-streaming providers remain available for buffered message playback or other supported surfaces, but live voice reports a TTS error instead of silently falling back to buffered playback.
+Live voice TTS uses `streamLiveVoiceTtsAudio()` and the configured `services.tts.provider`. The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Providers whose catalog entry advertises `supportsStreaming` (currently all four catalog providers: ElevenLabs, Fish Audio, Deepgram, and xAI) satisfy this requirement; a buffered-only provider would remain available for buffered message playback or other supported surfaces, but live voice reports a TTS error instead of silently falling back to buffered playback.
 
 V1 is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region routing, and p50/p95 latency guarantees are out of scope for this version. Metrics frames expose timing data for measurement, but the architecture does not promise a hard latency SLO.
 
 **Client service-first boundary:**
 
-All product-facing dictation and voice-streaming paths on macOS use a service-first STT strategy. Clients record audio, encode it to WAV via `AudioWavEncoder` (shared utility in `clients/shared/Utilities/AudioWavEncoder.swift`), and POST it through the gateway to the daemon's `POST /v1/stt/transcribe` endpoint via `STTClient` (`clients/shared/Network/STTClient.swift`). The daemon resolves the configured STT provider through `resolveBatchTranscriber()` and returns the transcribed text.
+All product-facing dictation and voice-streaming paths use a service-first STT strategy. Clients record audio, encode it to WAV, and POST it through the gateway to the daemon's `POST /v1/stt/transcribe` endpoint. The daemon resolves the configured STT provider through `resolveBatchTranscriber()` and returns the transcribed text.
 
-- `STTClient` conforms to `STTClientProtocol` and returns a typed `STTResult` enum (`success`, `notConfigured`, `serviceUnavailable`, `error`). Callers pattern-match on the result to deterministically trigger native fallback.
+- The client receives a typed result distinguishing success from `notConfigured`, `serviceUnavailable`, and `error`, so callers can deterministically trigger their fallback path.
 - The gateway proxies the request via assistant-scoped path rewriting: `/v1/assistants/:id/stt/transcribe` is rewritten to `/v1/stt/transcribe` on the daemon.
 - `stt-routes.ts` (`src/runtime/routes/stt-routes.ts`) defines the HTTP endpoint, validates the audio payload, and delegates to `resolveBatchTranscriber()`.
 
-Product-facing flows using service-first STT:
-
-| Flow                          | Client | Entry point                                                                                                                                                                                         |
-| ----------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Push-to-talk dictation**    | macOS  | `VoiceInputManager.resolveTranscription()` — encodes accumulated PCM buffers to WAV, calls `sttClient.transcribe()`, falls back to native text on failure                                           |
-| **Conversation chat capture** | macOS  | `VoiceInputManager.handleFinalTranscription()` — prefers streaming final when available; falls back to batch `sttClient.transcribe()` when streaming was not used, failed, or produced no finals    |
-| **Voice mode (streaming)**    | macOS  | `OpenAIVoiceService.stopRecordingAndGetTranscription()` — encodes per-turn PCM to WAV, calls `sttClient.transcribe()` for turn-final transcript resolution, falls back to SFSpeechRecognizer result |
-
-**Client-native fallback boundary:**
-
-Apple-native on-device recognition via `SFSpeechRecognizer` serves two roles in all three product-facing flows above: (1) it provides low-latency partial transcriptions for real-time display during recording, and (2) it provides the fallback final transcription when the STT service is unconfigured (HTTP 503), temporarily unavailable (HTTP 5xx), or returns an empty result. The `SpeechRecognizerAdapter` protocols on each platform abstract Apple Speech for **testability and dependency injection**.
-
-The macOS `SpeechRecognizerAdapter` protocol in `clients/macos/vellum-assistant/Features/Voice/SpeechRecognizerAdapter.swift` abstracts `SFSpeechRecognizer` static APIs and instance creation. `AppleSpeechRecognizerAdapter` is the production implementation. `OpenAIVoiceService` and `VoiceInputManager` consume the adapter via dependency injection. **Note:** The protocol leaks Apple Speech types through its surface — `authorizationStatus()` returns `SFSpeechRecognizerAuthorizationStatus` and `makeRecognizer(locale:)` returns `SFSpeechRecognizer?` directly. This means callers depend on the Speech framework at compile time.
+The web client implements these flows in `clients/web/src/domains/chat/voice/`: `stt-api.ts` (batch transcribe), `dictation-stream.ts` (streaming dictation), and `voice-recording-store.ts` (recording state, streaming/batch priority, fallback). Push-to-talk dictation and conversation chat capture prefer a streaming final when available and fall back to batch transcription when streaming was not used, failed, or produced no finals.
 
 **Cross-boundary notes:**
 
-- The `services.stt` config block is the single source of truth for STT provider selection across the daemon batch boundary, the conversation streaming boundary, the client service-first boundary, and the telephony boundary. The batch and streaming resolvers (`resolveBatchTranscriber()`, `resolveStreamingTranscriber()`) both read from `services.stt.provider` and resolve credentials through the same catalog; the telephony boundary uses `resolveTelephonySttRouting()` to determine the Twilio integration strategy. The daemon provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the authoritative registry of supported providers. Native clients fetch display metadata via `GET /v1/stt/providers`.
+- The `services.stt` config block is the single source of truth for STT provider selection across the daemon batch boundary, the conversation streaming boundary, the client service-first boundary, and the telephony boundary. The batch and streaming resolvers (`resolveBatchTranscriber()`, `resolveStreamingTranscriber()`) both read from `services.stt.provider` and resolve credentials through the same catalog; the telephony boundary's media-stream STT session uses these same resolvers — it selects streaming vs batch transcription via `resolveStreamingTranscriber()`/`resolveBatchTranscriber()` under the `calls.voice.telephonyStreaming` flag, gated by `resolveTelephonySttCapability()`, while call placement/TwiML is gated by `resolveTelephonyCredentialReadiness()`. The daemon provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the authoritative registry of supported providers. Native clients fetch display metadata via `GET /v1/stt/providers`.
+- **Spoken language** is a second axis on the same block: `services.stt.language` is read by `resolveStreamingTranscriber()` and `resolveBatchTranscriber()` and forwarded to the adapters that accept one (Deepgram, xAI, and the managed relay, which passes it to Deepgram server-side). Callers may override it per streaming session, but none need to: reading it in the resolvers means every boundary inherits the setting. Gemini and Whisper take no language option and auto-detect natively, so they ignore it. Leaving it unset is **not** auto-detection on Deepgram or the managed relay: Deepgram's default is English, so non-English speech transcribes as English-sounding nonsense. `"multi"` selects nova-3 code-switching across English, Spanish, French, German, Hindi, Russian, Portuguese, Japanese, Italian, and Dutch, the mode to use when a speaker mixes languages inside one utterance. BYOK Deepgram pins `model=nova-3` for **any** explicitly configured language, not just `"multi"`: the curated roster is verified against nova-3 (the default nova-2 supports only a subset, and rejects `"multi"` outright), and `deepgramLanguageOptions()` owns the model+language pairing so every call site inherits the rule; leaving the language unset keeps the adapter default model with no language param. `"multi"` is never forwarded to xAI (it is not a BCP-47 code; xAI auto-handles multilingual audio). The managed relay pins nova-3 and allowlists `language`, so streaming needs no platform-side change; managed **batch** goes through the platform speech proxy, which accepts no language parameter, so forwarding it there is deferred pending a platform-side change.
 - Conversation streaming does not replace the client service-first batch path. When streaming is available, it runs concurrently during recording and provides real-time partials and finals. The batch path remains the fallback for providers that do not support streaming, when streaming fails mid-session, or when streaming produces no final transcript.
 - Credential mapping is catalog-driven: `provider-secret-catalog.ts` derives STT API-key provider names from the daemon catalog via `listCredentialProviderNames()`, deduplicating against the LLM/search provider list. Adding a provider to the catalog automatically includes its credential name in `API_KEY_PROVIDERS`.
-- Terminology: "STT" and "transcription" refer to the same operation (converting audio to text). "Speech recognition" is used in client-native contexts where Apple's Speech framework terminology is canonical. All three terms map to the same conceptual operation.
+- Terminology: "STT", "transcription", and "speech recognition" all refer to the same operation (converting audio to text).
 - **Onboarding**: For a step-by-step guide to adding a new STT provider, see `docs/stt-provider-onboarding.md`.
 
 ### On-Demand Home Content Generation
 
-LLM-generated content shown by clients (personalized home greeting, suggested prompts, conversation starters, identity intro) is produced on demand, never at daemon startup or on unconditional timers.
+LLM-generated content shown by clients (personalized home greeting, suggested prompts, conversation starters) is produced on demand, never at daemon startup or on unconditional timers.
 
 **Data flow (home greeting + suggested prompts):**
 
@@ -799,7 +752,7 @@ Conversation starters follow the same pattern via `GET /v1/conversation-starters
 
 The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is the canonical module for determining whether an assistant feature flag is enabled. It loads default values from the unified registry at `meta/feature-flags/feature-flag-registry.json` (bundled copy at `src/config/feature-flag-registry.json`) and resolves the effective state for each declared assistant-scope flag. Assistant feature flags are declaration-driven assistant-scoped booleans that can gate any assistant behavior; skill availability is one consumer.
 
-**Canonical key format:** Simple kebab-case (e.g., `contacts`, `ces-tools`).
+**Canonical key format:** Simple kebab-case (e.g., `contacts`, `browser`).
 
 **Resolution priority** (highest wins):
 
@@ -816,32 +769,32 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 **Skill-gating guarantee:** Skill feature-flag gating is **opt-in**: only skills whose SKILL.md frontmatter contains a `featureFlag` field are gated. Skills without the field are always available regardless of feature flag state. For skills that declare a `featureFlag`, when the corresponding flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at six independent points:
 
-| Enforcement Point                | Module                                                        | Effect                                                                                                                                                                                                      |
-| -------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Client skill list**         | `resolveSkillStates()` in `config/skill-state.ts`             | Skills with flag OFF are excluded from the resolved list returned to clients (macOS skill list, settings UI). The skill never appears in the client.                                                        |
-| **2. Capability memory seeding** | `seedSkillGraphNodes()` in `memory/graph/capability-seed.ts`  | Skills with flag OFF are excluded from capability memory seeding. The model cannot discover them via semantic recall.                                                                                       |
-| **3. `skill_load` tool**         | `executeSkillLoad()` in `tools/skills/load.ts`                | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
-| **4. Runtime tool projection**   | `projectSkillTools()` in `daemon/conversation-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
-| **5. Included child skills**     | `executeSkillLoad()` in `tools/skills/load.ts`                | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
-| **6. Skill install gate**        | `installSkill()` in `daemon/handlers/skills.ts`               | When a client requests skill installation, the function checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                       |
+| Enforcement Point                | Module                                                                        | Effect                                                                                                                                                                                                      |
+| -------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. Client skill list**         | `resolveSkillStates()` in `config/skill-state.ts`                             | Skills with flag OFF are excluded from the resolved list returned to clients (macOS skill list, settings UI). The skill never appears in the client.                                                        |
+| **2. Capability memory seeding** | `seedSkillGraphNodes()` in `plugins/defaults/memory/graph/capability-seed.ts` | Skills with flag OFF are excluded from capability memory seeding. The model cannot discover them via semantic recall.                                                                                       |
+| **3. `skill_load` tool**         | `executeSkillLoad()` in `tools/skills/load.ts`                                | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
+| **4. Runtime tool projection**   | `projectSkillTools()` in `daemon/conversation-skill-tools.ts`                 | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
+| **5. Included child skills**     | `executeSkillLoad()` in `tools/skills/load.ts`                                | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
+| **6. Skill install gate**        | `installSkill()` in `daemon/handlers/skills.ts`                               | When a client requests skill installation, the function checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                       |
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
-**Migration path:** The legacy `skills.<id>.enabled` and `feature_flags.<id>.enabled` key formats are no longer supported. All code must use simple kebab-case keys (e.g., `contacts`, `ces-tools`). Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
+**Migration path:** The legacy `skills.<id>.enabled` and `feature_flags.<id>.enabled` key formats are no longer supported. All code must use simple kebab-case keys (e.g., `contacts`, `browser`). Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
 
 **Key source files:**
 
-| File                                            | Purpose                                                                                                                                                                   |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, registry loader                                                                                                    |
-| `src/config/skill-state.ts`                     | `skillFlagKey(skill)` — returns canonical flag key for skills with a `featureFlag` frontmatter field, `undefined` otherwise; `resolveSkillStates()` — enforcement point 1 |
-| `src/memory/graph/capability-seed.ts`           | `seedSkillGraphNodes()` — enforcement point 2                                                                                                                             |
-| `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |
-| `src/daemon/conversation-skill-tools.ts`        | `projectSkillTools()` — enforcement point 4                                                                                                                               |
-| `src/config/schema.ts`                          | `AssistantConfig` Zod schema definition (feature flag values are no longer stored here)                                                                                   |
-| `src/daemon/handlers/skills.ts`                 | `listSkills()` — uses `resolveSkillStates()` for client responses; `installSkill()` — enforcement point 6                                                                 |
-| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                                                        |
-| `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                                                                       |
+| File                                                   | Purpose                                                                                                                                                                   |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/config/assistant-feature-flags.ts`                | Canonical resolver: `isAssistantFeatureFlagEnabled()`, registry loader                                                                                                    |
+| `src/config/skill-state.ts`                            | `skillFlagKey(skill)` — returns canonical flag key for skills with a `featureFlag` frontmatter field, `undefined` otherwise; `resolveSkillStates()` — enforcement point 1 |
+| `src/plugins/defaults/memory/graph/capability-seed.ts` | `seedSkillGraphNodes()` — enforcement point 2                                                                                                                             |
+| `src/tools/skills/load.ts`                             | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |
+| `src/daemon/conversation-skill-tools.ts`               | `projectSkillTools()` — enforcement point 4                                                                                                                               |
+| `src/config/schema.ts`                                 | `AssistantConfig` Zod schema definition (feature flag values are no longer stored here)                                                                                   |
+| `src/daemon/handlers/skills.ts`                        | `listSkills()` — uses `resolveSkillStates()` for client responses; `installSkill()` — enforcement point 6                                                                 |
+| `meta/feature-flags/feature-flag-registry.json`        | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                                                        |
+| `src/config/feature-flag-registry.json`                | Bundled copy of the unified registry for compiled binary resolution                                                                                                       |
 
 ---
 
@@ -868,15 +821,18 @@ graph LR
         SL["logs/session-*.json<br/>───────────────<br/>Per-session JSON log<br/>task, start/end times, result<br/>Per-turn: AX tree, screenshot,<br/>action, token usage"]
     end
 
-    subgraph "$VELLUM_WORKSPACE_DIR/data/db/assistant.db (SQLite + WAL)"
+    subgraph "$VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db (SQLite + WAL)"
         direction TB
-        CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>conversation_type: 'standard' | 'background' | 'scheduled'<br/>memory_scope_id: 'default' | '_pkb_workspace' | 'subagent:&lt;id&gt;'"]
-        MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
-        TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
         SEG["memory_segments<br/>───────────────<br/>Text chunks for retrieval<br/>Linked to messages<br/>token_estimate per segment"]
-        ITEMS["memory_items<br/>───────────────<br/>Extracted facts/entities<br/>kind, subject, statement<br/>confidence, fingerprint (dedup)<br/>verification_state, scope_id<br/>first/last seen timestamps"]
         SUM["memory_summaries<br/>───────────────<br/>scope: conversation | weekly<br/>Compressed history for context<br/>window management"]
         EMB["memory_embeddings<br/>───────────────<br/>target: segment | item | summary<br/>provider + model metadata<br/>vector_json (float array)<br/>Powers semantic search"]
+    end
+
+    subgraph "$VELLUM_WORKSPACE_DIR/data/db/assistant.db (SQLite + WAL)"
+        direction TB
+        CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>conversation_type: 'standard' | 'background' | 'scheduled'"]
+        MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
+        TOOL["tool_invocations<br/>───────────────<br/>tool_name, input, result<br/>decision, risk_level<br/>duration_ms"]
         JOBS["memory_jobs<br/>───────────────<br/>Async task queue<br/>Types: embed, extract,<br/>summarize, backfill, cleanup<br/>Status: pending → running →<br/>completed | failed"]
         ATT["attachments<br/>───────────────<br/>base64-encoded file data<br/>mime_type, size_bytes<br/>Linked to messages via<br/>message_attachments join"]
         REM["reminders<br/>───────────────<br/>One-time scheduled reminders<br/>label, message, fireAt<br/>mode: notify | execute<br/>status: pending → fired | cancelled<br/>routing_intent: single_channel |<br/>multi_channel | all_channels<br/>routing_hints_json (free-form)"]
@@ -884,7 +840,6 @@ graph LR
         SCHED_RUNS["cron_runs (schedule runs)<br/>───────────────<br/>Execution history per schedule<br/>job_id (FK → cron_jobs)<br/>status: ok | error<br/>duration_ms, output, error<br/>Legacy alias: scheduleRuns"]
         TASKS["tasks<br/>───────────────<br/>Reusable prompt templates<br/>title, Handlebars template<br/>inputSchema, contextFlags<br/>requiredTools, status"]
         TASK_RUNS["task_runs<br/>───────────────<br/>Execution history per task<br/>taskId (FK → tasks)<br/>conversationId, status<br/>startedAt, finishedAt, error"]
-        WORK_ITEMS["work_items<br/>───────────────<br/>Task Queue entries<br/>taskId (FK → tasks)<br/>title, notes, status<br/>priority_tier (0-3), sort_index<br/>last_run_id, last_run_status<br/>source_type, source_id"]
     end
 
     subgraph "~/.vellum/ (Root Files)"
@@ -1460,12 +1415,15 @@ Editing any file in the root skill or any included child invalidates the transit
 
 #### Permission Gating (`skill_load_dynamic:*`)
 
-Skills containing inline command expansions use a separate permission candidate namespace (`skill_load_dynamic:*`) instead of the normal `skill_load:*` namespace. This prevents them from falling through to the permissive default `skill_load:*` allow rule. The permission checker emits candidates in specificity order:
+Inline-command skill loads are classified **High** risk — in the gateway skill risk classifier (`gateway/src/risk/skill-risk-classifier.ts`), with a defense-in-depth elevation in `check()` for the gateway-unreachable path. The standard auto-approve threshold then governs them like any other high-risk action: they run without a prompt only at **Full access** (`autoApproveUpTo: "high"`) and prompt at every level below it. There is no separate "always ask" override outside the threshold.
 
-1. `skill_load_dynamic:<skill-id>@<transitive-hash>` — version-pinned approval (most specific)
-2. `skill_load_dynamic:<skill-id>` — any-version approval
+These guarantees sit alongside the threshold:
 
-A default ask rule at priority 200 (`default:ask-skill_load_dynamic-global`) catches these candidates, ensuring the guardian is always prompted before inline commands execute. The user can create a pinned trust rule for a specific transitive hash to auto-approve known-good versions. Non-interactive sessions (no human present) deny dynamic skill loads rather than silently auto-approving.
+- **Escape hatch (guardian).** A user trust rule that covers the load re-classifies its risk inside the gateway (arriving as matchType `user_rule`), so a guardian's own load runs without prompting at any threshold. (A trust rule does not lift the sensitive-tool capability floor, so a non-guardian actor's covered dynamic load is still escalated to the guardian — like any other sensitive tool.) Approvals are offered in a separate candidate namespace so a pinned rule can auto-approve a known-good version rather than falling through to the permissive default `skill_load:*` allow rule:
+  1.  `skill_load_dynamic:<skill-id>@<transitive-hash>` — version-pinned (most specific)
+  2.  `skill_load_dynamic:<skill-id>` — any-version
+- **Guardian-only self-approval (sensitive-tool gate).** An uncovered dynamic load is routed through the sensitive-tool gate (`tools/tool-approval-handler.ts`: `isSensitiveTool` → `resolveSensitiveToolDecision`). A non-guardian actor is escalated to the guardian via the capability floor — which no threshold, including Full access, can lift — while the guardian self-approves (`proceed`) and the threshold then governs (allow at Full access, prompt below). `skill_load` is otherwise not a side-effect tool, so this makes the dynamic case participate in the same capability floor as host/side-effect tools.
+- **Non-interactive denial.** An uncovered dynamic load in a session with no interactive client is denied outright — regardless of threshold, including Full access — because embedded shell must never run unattended without a covering rule. Enforced in `tools/permission-checker.ts` (lane B) via `isDynamicSkillLoadInvocation`, independent of the threshold decision.
 
 ```mermaid
 graph TB
@@ -1478,11 +1436,17 @@ graph TB
     SOURCE -->|"No (extra)"| FAIL_SOURCE["Fail closed:<br/>source not eligible"]
     SOURCE -->|"Yes"| HASH["Compute transitive hash"]
     HASH --> DYN["skill_load_dynamic:id@hash<br/>candidate emitted"]
-    DYN --> PERM["PermissionChecker"]
-    PERM --> RULE{"Trust rule?"}
-    RULE -->|"Pinned allow"| RENDER["Execute + render"]
-    RULE -->|"No rule"| PROMPT["Prompt guardian"]
+    DYN --> PERM["PermissionChecker<br/>(classified High risk)"]
+    PERM --> RULE{"Covering trust rule?"}
+    RULE -->|"Allow"| RENDER["Execute + render"]
     RULE -->|"Deny"| DENY["Blocked"]
+    RULE -->|"None"| SENS{"Sensitive-tool gate<br/>(lane A): can self-approve?"}
+    SENS -->|"No (non-guardian)"| ESCALATE["Escalate to guardian<br/>(capability floor)"]
+    SENS -->|"Yes (guardian)"| INTERACTIVE{"Interactive client?"}
+    INTERACTIVE -->|"No"| DENY
+    INTERACTIVE -->|"Yes"| THRESH{"autoApproveUpTo"}
+    THRESH -->|"Full access"| RENDER
+    THRESH -->|"Below full"| PROMPT["Prompt guardian"]
 ```
 
 #### Sandbox-Only Execution
@@ -1533,16 +1497,16 @@ Every layer in the pipeline defaults to rejection rather than silent degradation
 
 #### Key Source Files
 
-| File                                                | Role                                                                             |
-| --------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `assistant/src/skills/inline-command-expansions.ts` | `parseInlineCommandExpansions()` — parser for `!`command`` tokens                |
-| `assistant/src/skills/inline-command-runner.ts`     | `runInlineCommand()` — sandbox-only command executor                             |
-| `assistant/src/skills/inline-command-render.ts`     | `renderInlineCommands()` — token replacement and XML wrapping                    |
-| `assistant/src/skills/transitive-version-hash.ts`   | `computeTransitiveSkillVersionHash()` — hash covering root + included children   |
-| `assistant/src/tools/skills/load.ts`                | `skill_load` execute path — feature flag check, source check, render integration |
-| `assistant/src/permissions/checker.ts`              | `skill_load_dynamic:*` candidate emission and allowlist options                  |
-| `assistant/src/permissions/defaults.ts`             | `default:ask-skill_load_dynamic-global` rule (priority 200)                      |
-| `meta/feature-flags/feature-flag-registry.json`     | `inline-skill-commands` flag definition                                          |
+| File                                                | Role                                                                               |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `assistant/src/skills/inline-command-expansions.ts` | `parseInlineCommandExpansions()` — parser for `!`command`` tokens                  |
+| `assistant/src/skills/inline-command-runner.ts`     | `runInlineCommand()` — sandbox-only command executor                               |
+| `assistant/src/skills/inline-command-render.ts`     | `renderInlineCommands()` — token replacement and XML wrapping                      |
+| `assistant/src/skills/transitive-version-hash.ts`   | `computeTransitiveSkillVersionHash()` — hash covering root + included children     |
+| `assistant/src/tools/skills/load.ts`                | `skill_load` execute path — feature flag check, source check, render integration   |
+| `assistant/src/permissions/checker.ts`              | `skill_load_dynamic:*` candidate emission, allowlist options, High-risk elevation  |
+| `assistant/src/tools/permission-checker.ts`         | Non-interactive denial of uncovered dynamic loads (`isDynamicSkillLoadInvocation`) |
+| `meta/feature-flags/feature-flag-registry.json`     | `inline-skill-commands` flag definition                                            |
 
 ### Key Source Files
 
@@ -1784,99 +1748,6 @@ sequenceDiagram
 
 ---
 
-## Trace System — Debug Panel Data Flow
-
-The trace system provides real-time observability of daemon conversation internals. Each conversation creates a `TraceEmitter` that emits structured `trace_event` SSE events as the conversation processes requests, makes LLM calls, and executes tools.
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Chat as ChatView
-    participant DC as DaemonClient
-    participant Daemon as Session (Daemon)
-    participant TE as TraceEmitter
-    participant EB as EventBus
-    participant TTL as ToolTraceListener
-    participant LLM as LLM Provider
-    participant TS as TraceStore (Swift)
-    participant DP as DebugPanel
-
-    User->>Chat: send message
-    Chat->>DC: user_message
-    DC->>Daemon: HTTP
-
-    Daemon->>TE: emit(request_received)
-    TE-->>DC: trace_event (request_received)
-    DC-->>TS: onTraceEvent → ingest()
-
-    Daemon->>LLM: API call
-    Daemon->>TE: emit(llm_call_started)
-    TE-->>DC: trace_event (llm_call_started)
-    DC-->>TS: ingest()
-
-    LLM-->>Daemon: streaming response
-    Daemon->>TE: emit(llm_call_finished, tokens + latency)
-    TE-->>DC: trace_event (llm_call_finished)
-    DC-->>TS: ingest()
-
-    Note over Daemon,EB: Tool execution triggers domain events
-
-    Daemon->>EB: tool.execution.started
-    EB->>TTL: onAny(event)
-    TTL->>TE: emit(tool_started)
-    TE-->>DC: trace_event (tool_started)
-    DC-->>TS: ingest()
-
-    Daemon->>EB: tool.execution.finished
-    EB->>TTL: onAny(event)
-    TTL->>TE: emit(tool_finished, durationMs)
-    TE-->>DC: trace_event (tool_finished)
-    DC-->>TS: ingest()
-
-    Daemon->>TE: emit(message_complete)
-    TE-->>DC: trace_event (message_complete)
-    DC-->>TS: ingest()
-
-    Note over TS: Events deduplicated by eventId,<br/>ordered by sequence + timestampMs,<br/>grouped by conversation and requestId,<br/>capped at 5000 per conversation
-
-    TS-->>DP: @Published eventsByConversation
-    Note over DP: Metrics strip: requests, LLM calls,<br/>tokens (in/out), avg latency, failures<br/>Timeline: events grouped by requestId
-```
-
-### Trace Event Kinds
-
-Events emitted during a conversation lifecycle:
-
-| Kind                        | Emitted by              | When                                                                                            |
-| --------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------- |
-| `request_received`          | Handlers / Conversation | User message or surface action arrives                                                          |
-| `request_queued`            | Handlers / Conversation | Message queued while conversation is busy                                                       |
-| `request_dequeued`          | Conversation            | Queued message begins processing                                                                |
-| `llm_call_started`          | Conversation            | LLM API call initiated                                                                          |
-| `llm_call_finished`         | Conversation            | LLM API call completed (carries `inputTokens`, `outputTokens`, `latencyMs`)                     |
-| `assistant_message`         | Conversation            | Assistant response assembled (carries `toolUseCount`)                                           |
-| `tool_started`              | ToolTraceListener       | Tool execution begins                                                                           |
-| `tool_permission_requested` | ToolTraceListener       | Permission check needed (carries `riskLevel`)                                                   |
-| `tool_permission_decided`   | ToolTraceListener       | Permission granted or denied (carries `decision`)                                               |
-| `tool_finished`             | ToolTraceListener       | Tool execution completed (carries `durationMs`)                                                 |
-| `tool_failed`               | ToolTraceListener       | Tool execution failed (carries `durationMs`)                                                    |
-| `generation_handoff`        | Conversation            | Yielding to next queued message                                                                 |
-| `message_complete`          | Conversation            | Full request processing finished                                                                |
-| `generation_cancelled`      | Conversation            | User cancelled the generation                                                                   |
-| `request_error`             | Handlers / Conversation | Unrecoverable error during processing (includes queue-full rejection and persist-failure paths) |
-
-### Architecture
-
-- **TraceEmitter** (daemon, per-conversation): Constructed with a `conversationId` and a `sendToClient` callback. Maintains a monotonic sequence counter for stable ordering. Truncates summaries to 200 chars and attribute values to 500 chars. Each call to `emit()` sends a `trace_event` SSE event to connected clients.
-- **ToolTraceListener** (daemon): Subscribes to the conversation's `EventBus` via `onAny()` and translates tool domain events (`tool.execution.started`, `tool.execution.finished`, `tool.execution.failed`, `tool.permission.requested`, `tool.permission.decided`) into trace events through the `TraceEmitter`.
-- **DaemonClient** (Swift, shared): Decodes `trace_event` SSE events into `TraceEventMessage` structs and invokes the `onTraceEvent` callback.
-- **TraceStore** (Swift, macOS): `@MainActor ObservableObject` that ingests `TraceEventMessage` structs. Deduplicates by `eventId`, maintains stable sort order (sequence, then timestampMs, then insertion order), groups events by conversation and requestId, and enforces a retention cap of 5,000 events per conversation. Each request group is classified with a terminal status: `completed` (via `message_complete`), `cancelled` (via `generation_cancelled`), `handedOff` (via `generation_handoff`), `error` (via `request_error` or any event with `status == "error"`), or `active` (no terminal event yet).
-- **DebugPanel** (Swift, macOS): SwiftUI view that observes `TraceStore`. Displays a metrics strip (request count, LLM calls, total tokens, average latency, tool failures) and a `TraceTimelineView` showing events grouped by requestId with color-coded status indicators. The timeline auto-scrolls to new events while the user is at the bottom; scrolling up pauses auto-scroll and shows a "Jump to bottom" button that resumes it.
-
----
-
----
-
 ## Assistant Events — SSE Transport Layer
 
 The assistant-events system provides a single, shared publish path that fans out to all connected clients via HTTP SSE. The `ServerMessage` payload is wrapped in an `AssistantEvent` envelope and serialised as JSON.
@@ -2005,7 +1876,7 @@ The pairing function (`pairDeliveryWithConversation`) is resilient — errors ar
 The notification pipeline uses a single conversation materialization path across producers:
 
 1. **Canonical pipeline** (`emitNotificationSignal` → decision engine → broadcaster → conversation pairing → adapters): The broadcaster pairs each delivery with a conversation, then dispatches a `notification_intent` SSE event via the Vellum adapter. The payload includes `deepLinkMetadata` (e.g. `{ conversationId, messageId }`) so the macOS client can deep-link to the relevant context when the user taps the notification. When `messageId` is present, the client scrolls to that specific message within the conversation (message-level anchoring).
-2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates `guardian_action_request` / `guardian_action_delivery` audit rows derived from pipeline delivery results and the per-dispatch `onConversationCreated` callback — there is no separate conversation-creation path.
+2. **Guardian bookkeeping** (`dispatchGuardianQuestion`): Guardian dispatch creates the gateway `guardian_requests` row and records `guardian_request_deliveries` derived from pipeline delivery results and the per-dispatch `onConversationCreated` callback — there is no separate conversation-creation path.
 
 ### Conversation Surfacing via `notification_conversation_created` (Creation-Only)
 
@@ -2015,12 +1886,11 @@ When a new vellum notification conversation is created (strategy `start_new_conv
 
 ### Conversation-Created Events
 
-Two SSE push events surface new conversations in the macOS client sidebar:
+An SSE push event surfaces new conversations in the macOS client sidebar:
 
 - **`notification_conversation_created`** — Emitted by `broadcaster.ts` when a notification delivery **creates** a new vellum conversation (strategy `start_new_conversation`, `createdNewConversation: true`). **Not** emitted when a conversation is reused. Payload: `{ conversationId, title, sourceEventName }`.
-- **`task_run_conversation_created`** — Emitted by `work-item-runner.ts` when a task run creates a conversation. Payload: `{ conversationId, workItemId, title }`.
 
-All events follow the same pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the SSE event so the macOS `ConversationManager` can create a visible conversation in the sidebar.
+The event follows this pattern: the daemon creates a server-side conversation, persists an initial message, and broadcasts the SSE event so the macOS `ConversationManager` can create a visible conversation in the sidebar.
 
 ### Conversation Routing Decision Flow
 
@@ -2070,9 +1940,9 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | Module                                                                     | Purpose                                                                                                                               |
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `assistant/src/channels/config.ts`                                         | Channel policy registry — single source of truth for per-channel notification behavior                                                |
-| `assistant/src/notifications/emit-signal.ts`                               | Single entry point for all producers; orchestrates the full pipeline                                                                  |
+| `assistant/src/notifications/emit-signal.ts`                               | Single entry point for all producers; orchestrates the full pipeline; runs the source-active pre-decision gate                        |
 | `assistant/src/notifications/decision-engine.ts`                           | LLM-based routing decisions with deterministic fallback                                                                               |
-| `assistant/src/notifications/deterministic-checks.ts`                      | Hard invariant checks (dedupe, source-active suppression, channel availability)                                                       |
+| `assistant/src/notifications/deterministic-checks.ts`                      | Post-decision hard invariant checks (schema, dedupe, channel availability, copy quality)                                              |
 | `assistant/src/notifications/broadcaster.ts`                               | Dispatches decisions to channel adapters; emits `notification_conversation_created` SSE event (creation-only)                         |
 | `assistant/src/notifications/conversation-pairing.ts`                      | Materializes conversation + message per delivery; executes conversation reuse decisions                                               |
 | `assistant/src/notifications/conversation-candidates.ts`                   | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
@@ -2087,7 +1957,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 **Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `conversationActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_id`, `conversation_fallback_used`)
 
-**Configuration:** `llm.callSites.notificationDecision` (decision engine) and `llm.callSites.preferenceExtraction` (preference extractor) in `config.json`. Both fall back to `llm.default` when unset.
+**Configuration:** `llm.callSites.notificationDecision` (decision engine) and `llm.callSites.preferenceExtraction` (preference extractor) in `config.json`. Both fall back to their shipped call-site defaults when unset.
 
 ---
 
@@ -2102,15 +1972,14 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | User preferences                         | UserDefaults                                           | plist                               | Foundation                         | Permanent                                               |
 | Session logs                             | `~/Library/.../logs/session-*.json`                    | JSON per session                    | Swift Codable                      | Unbounded                                               |
 | Conversations & messages                 | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                               |
-| Memory segments                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
+| Memory segments                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db`    | SQLite                              | Drizzle ORM                        | Permanent                                               |
 | Extracted facts                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, deduped                                      |
-| Embeddings                               | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | JSON float arrays                   | Drizzle ORM                        | Permanent                                               |
+| Embeddings                               | `$VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db`    | JSON float arrays                   | Drizzle ORM                        | Permanent                                               |
 | Async job queue                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Completed jobs persist                                  |
 | Attachments                              | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | Base64 in SQLite                    | Drizzle ORM                        | Permanent                                               |
 | Sandbox filesystem                       | `$VELLUM_WORKSPACE_DIR`                                | Real filesystem tree                | Node FS APIs                       | Persistent across sessions                              |
 | Tool permission rules                    | `~/.vellum/protected/trust.json`                       | JSON                                | File I/O                           | Permanent                                               |
 | Web users & assistants                   | PostgreSQL                                             | Relational                          | Drizzle ORM (pg)                   | Permanent                                               |
-| Trace events                             | In-memory (TraceStore)                                 | Structured events                   | Swift ObservableObject             | Max 5,000 per session, ephemeral                        |
 | Media embed settings                     | `$VELLUM_WORKSPACE_DIR/config.json` (`ui.mediaEmbeds`) | JSON                                | `WorkspaceConfigIO` (atomic merge) | Permanent                                               |
 | Media embed MIME cache                   | In-memory (`ImageMIMEProbe`)                           | `NSCache` (500 entries)             | HTTP HEAD                          | Ephemeral; cleared on app restart                       |
 | Tasks & task runs                        | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
@@ -2169,7 +2038,7 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 **Explicit trust gates:** `trustClass` is a **required** field in `ToolContext` (in `src/tools/types.ts`). Every tool execution must carry a trust classification — the field is not optional. This ensures trust-gated tool policies (guardian control-plane restrictions, host-tool blocking for untrusted actors) cannot be bypassed by omitting the classification.
 
-**Guardian bindings** (in `src/memory/channel-verification-sessions.ts`) always carry `guardianPrincipalId: string` as a required, non-null field. A binding without a principal ID is invalid and cannot be created.
+**Guardian bindings** (in `src/channels/channel-verification-sessions.ts`) always carry `guardianPrincipalId: string` as a required, non-null field. A binding without a principal ID is invalid and cannot be created.
 
 **Strict retry sweep parsing:** The channel retry sweep (`src/runtime/channel-retry-sweep.ts`) uses `parseTrustRuntimeContext()` which validates `trustClass` against the canonical three-value set. There is no fallback to a legacy `actorRole` field — stored payloads that lack a valid `trustClass` are rejected deterministically to prevent silent privilege escalation. When `trustCtx` is entirely absent from a stored payload (pre-guardian events), the sweep synthesizes an explicit `trustClass: 'unknown'` context so that replay never proceeds without a trust classification.
 
@@ -2177,13 +2046,13 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 **Key files:**
 
-| File                                          | Purpose                                               |
-| --------------------------------------------- | ----------------------------------------------------- |
-| `src/daemon/conversation-runtime-assembly.ts` | `TrustContext` type definition                        |
-| `src/tools/types.ts`                          | `ToolContext.trustClass` (required trust gate)        |
-| `src/runtime/channel-retry-sweep.ts`          | Strict `trustClass` parser for retry sweep            |
-| `src/memory/channel-verification-sessions.ts` | `GuardianBinding` with required `guardianPrincipalId` |
-| `src/__tests__/trust-context-guards.test.ts`  | Guard tests enforcing trust-context type invariants   |
+| File                                            | Purpose                                               |
+| ----------------------------------------------- | ----------------------------------------------------- |
+| `src/daemon/conversation-runtime-assembly.ts`   | `TrustContext` type definition                        |
+| `src/tools/types.ts`                            | `ToolContext.trustClass` (required trust gate)        |
+| `src/runtime/channel-retry-sweep.ts`            | Strict `trustClass` parser for retry sweep            |
+| `src/channels/channel-verification-sessions.ts` | `GuardianBinding` with required `guardianPrincipalId` |
+| `src/__tests__/trust-context-guards.test.ts`    | Guard tests enforcing trust-context type invariants   |
 
 ### TTS Provider Abstraction (`services.tts`)
 
@@ -2195,11 +2064,10 @@ A parallel **client artifact** (`meta/tts-provider-catalog.json`) captures the s
 
 **Config schema (`services.tts`):** The canonical config block lives at `services.tts` in the assistant config. The set of valid provider IDs and provider-specific config objects is catalog-driven — the Zod schema reads from the catalog rather than maintaining a separate hardcoded enum. It contains:
 
-| Field                         | Type   | Default        | Description                                               |
-| ----------------------------- | ------ | -------------- | --------------------------------------------------------- |
-| `services.tts.mode`           | enum   | `"your-own"`   | Service mode (only `"your-own"` is supported)             |
-| `services.tts.provider`       | enum   | `"elevenlabs"` | Active TTS provider (must be a catalog-known provider ID) |
-| `services.tts.providers.<id>` | object | _(defaults)_   | Provider-specific settings, one block per catalog entry   |
+| Field                         | Type   | Default        | Description                                                                              |
+| ----------------------------- | ------ | -------------- | ---------------------------------------------------------------------------------------- |
+| `services.tts.provider`       | enum   | `"elevenlabs"` | Active TTS provider (must be a catalog-known provider ID); `"vellum"` = platform-managed |
+| `services.tts.providers.<id>` | object | _(defaults)_   | Provider-specific settings, one block per catalog entry                                  |
 
 Provider-specific config is nested under `services.tts.providers.<id>`. All legacy top-level keys (`elevenlabs.*`, `fishAudio.*`) were removed by workspace migration 032 — only canonical `services.tts` paths are supported at runtime.
 
@@ -2218,12 +2086,12 @@ The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets pro
 
 **Synthesis orchestrator (`synthesize-text.ts`):** `synthesizeText()` is the top-level entry point. It resolves the globally configured provider via the config resolver, looks up the adapter in the registry, and delegates synthesis. Provider selection is always global — per-use-case policy only gates capabilities (e.g. format checks), never overrides the chosen provider.
 
-**Call strategy abstraction (`tts-call-strategy.ts`):** The call strategy layer determines how a TTS provider integrates with the Twilio ConversationRelay telephony path. Instead of inferring call behavior from runtime capabilities, `resolveCallStrategy(config)` reads the provider's `callMode` from the canonical catalog and returns a `TtsCallStrategy` with the provider ID and call mode. Two modes exist:
+**Call strategy abstraction (`tts-call-strategy.ts`):** The call strategy layer determines how a TTS provider integrates with the telephony path. Instead of inferring call behavior from runtime capabilities, `resolveCallStrategy(config)` reads the provider's `callMode` from the canonical catalog and returns a `TtsCallStrategy` with the provider ID and call mode. Two modes exist:
 
-- **`native-twilio`** — Twilio handles TTS natively via ConversationRelay. The profile needs a real `ttsProvider` name (e.g. `"ElevenLabs"`) and a provider-specific voice spec string. New native providers plug in by registering a `NativeTwilioVoiceSpecBuilder` via `registerNativeTwilioVoiceSpec()` — no edits to core call routing logic required.
-- **`synthesized-play`** — The assistant synthesises audio via the provider's HTTP API and streams chunks to Twilio via `play` messages. Uses a placeholder TTS provider (`"Google"`) and an empty voice string because Twilio never drives TTS itself on this path.
+- **`native-twilio`** — the text-token path: spoken text is sent via `sendTextToken()`, which the media-stream transport re-synthesizes through daemon TTS. Collapsing this mode into `synthesized-play` is a documented deferred follow-up.
+- **`synthesized-play`** — The assistant synthesises audio via the provider's HTTP API and streams it through the audio store / `sendPlayUrl()` path.
 
-**Phone call integration:** `resolveVoiceQualityProfile()` in `voice-quality.ts` uses `resolveCallStrategy()` to determine the call mode, then dispatches to the appropriate path. For `native-twilio`, it looks up the registered `NativeTwilioVoiceSpec` to build the voice string. For `synthesized-play`, it uses the placeholder profile. This replaces the previous `supportsStreaming`-based branching with explicit catalog-declared modes.
+**Phone call integration:** Phone calls run on the media-stream transport, where the daemon synthesises speech via the configured TTS provider and transcodes it to mu-law 8 kHz frames (`media-stream-output.ts`). Each catalog entry declares `mediaStreamPlayback.outputFormat` (`pcm`, `wav`, or `none`); `resolveTelephonyTtsCapability()` (`src/calls/telephony-tts-capability.ts`) combines that field with credential availability into a playable / not-playable verdict, and the call TTS resolver falls back to a credentialed playable provider rather than producing silence.
 
 **Adding a new TTS provider (catalog-first checklist):**
 
@@ -2232,7 +2100,6 @@ The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets pro
 3. **Config schema** — Add a new Zod object under `TtsProvidersSchema` in `src/config/schemas/tts.ts` for the provider's settings. The valid provider ID enum is catalog-driven.
 4. **Provider adapter** — Create `src/tts/providers/<id>-provider.ts` implementing `TtsProvider` with the appropriate `capabilities` and `synthesize`/`synthesizeStream` methods.
 5. **Register the adapter** — Add a factory entry for the provider to the `providerFactories` map in `src/tts/providers/index.ts`. The `register-builtins.ts` module iterates the catalog at startup and looks up each ID in this map — a missing entry is a fatal error.
-6. **Optional: native Twilio voice builder** — If the provider uses `native-twilio` call mode, add a `NativeTwilioVoiceSpec` entry to the `nativeVoiceSpecs` map in `src/tts/providers/register-builtins.ts`. Synthesized-play providers skip this step entirely.
 
 No hardcoded enum edits are required — the `TtsProviderId` union in `types.ts` uses an open string union (`(string & {})`), the config schema reads valid IDs from the catalog, and the call strategy dispatches based on the catalog's `callMode` field. The registry, resolver, orchestrator, and call strategy all automatically pick up the new provider when selected via `services.tts.provider`.
 
@@ -2249,8 +2116,7 @@ No hardcoded enum edits are required — the `TtsProviderId` union in `types.ts`
 | `src/tts/providers/elevenlabs-provider.ts`                 | ElevenLabs adapter implementation                                                            |
 | `src/tts/providers/fish-audio-provider.ts`                 | Fish Audio adapter implementation                                                            |
 | `src/config/schemas/tts.ts`                                | Zod schema for `services.tts` config block (catalog-driven valid provider IDs)               |
-| `src/calls/tts-call-strategy.ts`                           | Explicit call strategy: resolves call mode from catalog, native voice spec registry          |
-| `src/calls/voice-quality.ts`                               | Phone call integration: `resolveVoiceQualityProfile()` uses call strategy                    |
+| `src/calls/tts-call-strategy.ts`                           | Explicit call strategy: resolves call mode from catalog                                      |
 | `meta/tts-provider-catalog.json`                           | Client artifact: provider metadata for macOS settings UI                                     |
 | `src/tts/__tests__/provider-catalog-consistency.test.ts`   | CI guard: catalog vs client artifact provider ID consistency                                 |
 | `src/workspace/migrations/032-tts-provider-unification.ts` | Migration that materialised canonical `services.tts` fields                                  |

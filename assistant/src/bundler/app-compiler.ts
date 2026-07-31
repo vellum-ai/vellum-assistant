@@ -71,8 +71,11 @@ function parseEsbuildStderr(stderr: string): {
         }
       }
 
-      if (errorMatch) errors.push(diag);
-      else warnings.push(diag);
+      if (errorMatch) {
+        errors.push(diag);
+      } else {
+        warnings.push(diag);
+      }
     }
   }
 
@@ -88,9 +91,15 @@ function decodeJsEscapes(raw: string): string {
   return raw.replace(
     /\\(?:x([0-9a-fA-F]{2})|u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|([nrtbfv0'"\\]))/g,
     (_, hex2, codePoint, hex4, std) => {
-      if (hex2) return String.fromCharCode(parseInt(hex2, 16));
-      if (codePoint) return String.fromCodePoint(parseInt(codePoint, 16));
-      if (hex4) return String.fromCharCode(parseInt(hex4, 16));
+      if (hex2) {
+        return String.fromCharCode(parseInt(hex2, 16));
+      }
+      if (codePoint) {
+        return String.fromCodePoint(parseInt(codePoint, 16));
+      }
+      if (hex4) {
+        return String.fromCharCode(parseInt(hex4, 16));
+      }
       const map: Record<string, string> = {
         n: "\n",
         r: "\r",
@@ -127,9 +136,13 @@ function stripJsComments(source: string): string {
         if (source[i] === "\\") {
           out += source[i++]; // backslash
         }
-        if (i < source.length) out += source[i++]; // char or escaped char
+        if (i < source.length) {
+          out += source[i++];
+        } // char or escaped char
       }
-      if (i < source.length) out += source[i++]; // closing quote
+      if (i < source.length) {
+        out += source[i++];
+      } // closing quote
       continue;
     }
 
@@ -184,7 +197,9 @@ async function validateImportPaths(
     const fileName = String(file);
     const isJs = /\.[jt]sx?$/.test(fileName);
     const isCss = /\.css$/.test(fileName);
-    if (!isJs && !isCss) continue;
+    if (!isJs && !isCss) {
+      continue;
+    }
 
     const filePath = join(srcDir, fileName);
     const content = await readFile(filePath, "utf-8");
@@ -206,7 +221,9 @@ async function validateImportPaths(
       const re =
         /(?:@import\s+(?:url\s*\(\s*)?|url\s*\(\s*)["']?([^"')\s;]+)["']?/g;
       for (const m of content.matchAll(re)) {
-        if (m[1]) specifiers.push({ specifier: m[1], index: m.index! });
+        if (m[1]) {
+          specifiers.push({ specifier: m[1], index: m.index! });
+        }
       }
     }
 
@@ -215,7 +232,9 @@ async function validateImportPaths(
       const decoded = isJs ? decodeJsEscapes(specifier) : specifier;
 
       // Only validate path-based imports (starting with . or /)
-      if (!decoded.startsWith(".") && !decoded.startsWith("/")) continue;
+      if (!decoded.startsWith(".") && !decoded.startsWith("/")) {
+        continue;
+      }
 
       const resolved = resolve(fileDir, decoded);
       if (
@@ -245,13 +264,19 @@ async function resolveAppImports(srcDir: string): Promise<void> {
 
   const files = await readdir(srcDir, { recursive: true });
   for (const file of files) {
-    if (!/\.[jt]sx?$/.test(String(file))) continue;
+    if (!/\.[jt]sx?$/.test(String(file))) {
+      continue;
+    }
     const content = await readFile(join(srcDir, String(file)), "utf-8");
     for (const match of content.matchAll(importRe)) {
       const specifier = match[1];
-      if (!isBareImport(specifier)) continue;
+      if (!isBareImport(specifier)) {
+        continue;
+      }
       const pkg = packageName(specifier);
-      if (seen.has(pkg)) continue;
+      if (seen.has(pkg)) {
+        continue;
+      }
       seen.add(pkg);
       const result = await resolvePackage(pkg);
       if (result === null) {
@@ -307,17 +332,20 @@ const compileSlots = new Map<string, CompileSlot>();
  * fresh compile.
  */
 export function compileApp(appDir: string): Promise<CompileResult> {
+  const distDir = join(appDir, "dist");
   const slot = compileSlots.get(appDir);
 
   if (!slot) {
-    const current = runCompile(appDir);
+    const current = runCompile(appDir, distDir);
     const onSettled = () => slotCompileSettled(appDir, current);
     current.then(onSettled, onSettled);
     compileSlots.set(appDir, { current });
     return current;
   }
 
-  if (slot.pending) return slot.pending;
+  if (slot.pending) {
+    return slot.pending;
+  }
 
   // A second distinct caller arrived while `current` is running. Queue a
   // follow-up that starts once `current` settles (success or failure) so
@@ -328,7 +356,7 @@ export function compileApp(appDir: string): Promise<CompileResult> {
     } catch {
       // Ignore: we want to rerun regardless of the prior compile's outcome.
     }
-    return runCompile(appDir);
+    return runCompile(appDir, distDir);
   };
   const pending = rerun();
   const onSettled = () => slotCompileSettled(appDir, pending);
@@ -342,7 +370,9 @@ function slotCompileSettled(
   finished: Promise<CompileResult>,
 ): void {
   const slot = compileSlots.get(appDir);
-  if (!slot) return;
+  if (!slot) {
+    return;
+  }
 
   if (slot.current !== finished) {
     // finished is a rerun that hasn't been promoted yet, or a stale entry.
@@ -358,11 +388,45 @@ function slotCompileSettled(
   }
 }
 
-async function runCompile(appDir: string): Promise<CompileResult> {
+/**
+ * Compile a TSX app from `appDir/src/` into `distDir`, laid out exactly like a
+ * normal `dist/` (`distDir/main.js`, `distDir/index.html`, …).
+ *
+ * {@link compileApp} wraps this to build `appDir/dist` through the per-`appDir`
+ * serialisation queue. Call it directly to build into a caller-owned directory
+ * instead: because each caller supplies its own private `distDir`, such builds
+ * never share a mutable target and need no serialisation. This is how a
+ * plugin-bundled app is rendered on open without writing into the plugin tree
+ * (which the daemon treats as read-only) or racing the monitor process, which
+ * is the sole writer of a plugin app's real `dist/`.
+ */
+export async function runCompile(
+  appDir: string,
+  distDir: string,
+): Promise<CompileResult> {
   const start = performance.now();
   const srcDir = join(appDir, "src");
-  const distDir = join(appDir, "dist");
   const entryPoint = join(srcDir, "main.tsx");
+
+  // An app without src/main.tsx has nothing to build — report a diagnostic
+  // instead of letting the source scan below throw on the missing directory.
+  // When a source tree exists but the entrypoint is gone, also clear stale
+  // dist/ so serve/publish surface the failure instead of old compiled
+  // output; a directory with no src/ at all (e.g. a retired single-file app)
+  // is left untouched.
+  if (!existsSync(entryPoint)) {
+    if (existsSync(srcDir) && existsSync(distDir)) {
+      rmSync(distDir, { recursive: true, force: true });
+    }
+    return {
+      ok: false,
+      errors: [
+        { text: "App has no src/main.tsx — there is no source to compile." },
+      ],
+      warnings: [],
+      durationMs: Math.round(performance.now() - start),
+    };
+  }
 
   // Clear stale dist/ output so removed assets (e.g. CSS) don't persist
   if (existsSync(distDir)) {
@@ -453,6 +517,14 @@ async function runCompile(appDir: string): Promise<CompileResult> {
   const htmlSrc = join(srcDir, "index.html");
   if (existsSync(htmlSrc)) {
     let html = await readFile(htmlSrc, "utf-8");
+
+    // Strip source-file script tags (e.g. <script src="/src/main.tsx">) that
+    // models often write in Vite style; browsers cannot load raw TSX/TS/JSX.
+    // The compiled main.js tag is injected below instead.
+    html = html.replace(
+      /<script\b[^>]*\bsrc=["'][^"']*\.(?:tsx|ts|jsx)["'][^>]*>\s*<\/script>\s*/gi,
+      "",
+    );
 
     // Check if CSS output was produced
     const distFiles = await readdir(distDir);

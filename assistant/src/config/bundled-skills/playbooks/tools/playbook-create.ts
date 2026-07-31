@@ -1,17 +1,20 @@
 import { sql } from "drizzle-orm";
 
-import { getDb } from "../../../../memory/db-connection.js";
-import { createNode, updateNode } from "../../../../memory/graph/store.js";
-import type { NewNode } from "../../../../memory/graph/types.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
-} from "../../../../memory/jobs-store.js";
-import { memoryGraphNodes } from "../../../../memory/schema.js";
+} from "../../../../persistence/jobs-store.js";
+import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import type {
   Playbook,
   PlaybookAutonomyLevel,
 } from "../../../../playbooks/types.js";
+import {
+  createNode,
+  updateNode,
+} from "../../../../plugins/defaults/memory/graph/store.js";
+import type { NewNode } from "../../../../plugins/defaults/memory/graph/types.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -61,10 +64,12 @@ export async function executePlaybookCreate(
   const sanitizedTrigger = trigger.replace(/[\r\n]+/g, " ");
   const subject = `Playbook: ${sanitizedTrigger}`.slice(0, 80);
   const content = `${subject}\n${statement}`;
-  const scopeId = "default";
 
   try {
-    const db = getDb();
+    const db = getMemoryDb();
+    if (!db) {
+      return { content: "Error: memory database unavailable.", isError: true };
+    }
 
     // Check for duplicate by matching content in playbook-prefixed graph nodes
     const existing = db
@@ -73,7 +78,6 @@ export async function executePlaybookCreate(
       .where(
         sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'
             AND ${memoryGraphNodes.content} = ${content}
-            AND ${memoryGraphNodes.scopeId} = ${scopeId}
             AND ${memoryGraphNodes.fidelity} != 'gone'`,
       )
       .get();
@@ -111,7 +115,6 @@ export async function executePlaybookCreate(
       narrativeRole: null,
       partOfStory: null,
       imageRefs: null,
-      scopeId,
     };
 
     const node = createNode(newNode);

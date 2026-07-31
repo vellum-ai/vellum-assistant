@@ -9,20 +9,25 @@
  */
 import { z } from "zod";
 
-import type { ChannelId } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
+import type { TrustContext } from "../../daemon/trust-context-types.js";
 import { getLogger } from "../../util/logger.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
-import { resolveLocalTrustContext } from "../local-actor-identity.js";
+import { processGuardianDecision } from "../guardian-action-service.js";
 import {
-  resolveTrustContext,
-  withSourceChannel,
-} from "../trust-context-resolver.js";
-import { BadRequestError, InternalError, NotFoundError, RouteError } from "./errors.js";
+  findLocalGuardianPrincipalId,
+  resolveActorPrincipalIdForLocalGuardian,
+} from "../local-actor-identity.js";
+import { parseCallbackData } from "./channel-route-shared.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  RouteError,
+} from "./errors.js";
 import { resolveSurfaceConversation } from "./surface-conversation-resolver.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { resolveVellumActorTrustContext } from "./vellum-actor-trust.js";
 
 const log = getLogger("surface-action-routes");
 
@@ -31,58 +36,27 @@ const log = getLogger("surface-action-routes");
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve trust context from the actor principal ID and set it on the
- * conversation, following the same pattern as POST /v1/messages. This ensures
- * surface actions inherit the correct trust class (guardian vs trusted_contact)
- * rather than defaulting to unknown.
+ * Resolve trust context for the actor principal from the gateway guardian
+ * binding and set it on the conversation. A vellum principal is the guardian or
+ * nobody, so the mapper yields guardian or unknown. Resolution (including the
+ * dev-bypass principal translation and the mutating reset-drift repair) lives
+ * in the shared {@link resolveVellumActorTrustContext} so the surface content
+ * route's read-only requester scoping cannot drift from it.
  */
-function applyTrustContext(
+async function applyTrustContext(
   conversation: {
-    setTrustContext?(ctx: {
-      trustClass: "guardian" | "trusted_contact" | "unknown";
-      sourceChannel: ChannelId;
-    }): void;
+    setTrustContext?(ctx: TrustContext): void;
   },
   actorPrincipalId: string | undefined,
-): void {
-  if (!conversation.setTrustContext) return;
-
-  const sourceChannel = "vellum";
-
-  if (actorPrincipalId) {
-    if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
-      conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
-    } else {
-      const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-      let trustCtx = resolveTrustContext({
-        assistantId,
-        sourceChannel,
-        conversationExternalId: "local",
-        actorExternalId: actorPrincipalId,
-      });
-      if (trustCtx.trustClass === "unknown") {
-        const healed = healGuardianBindingDrift(actorPrincipalId);
-        if (healed) {
-          trustCtx = resolveTrustContext({
-            assistantId,
-            sourceChannel,
-            conversationExternalId: "local",
-            actorExternalId: actorPrincipalId,
-          });
-          log.info(
-            {
-              actorPrincipalId,
-              trustClass: trustCtx.trustClass,
-            },
-            "Trust re-resolved after guardian binding drift heal (surface action)",
-          );
-        }
-      }
-      conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
-    }
-  } else {
-    conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
+): Promise<void> {
+  if (!conversation.setTrustContext) {
+    return;
   }
+  conversation.setTrustContext(
+    await resolveVellumActorTrustContext(actorPrincipalId, {
+      healResetDrift: true,
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +69,10 @@ async function handleSurfaceAction({
 }: RouteHandlerArgs): Promise<{
   ok: boolean;
   conversationId?: string;
+  applied?: boolean;
+  reason?: string;
+  replyText?: string;
+  decidedAction?: string;
 }> {
   const conversationId = body?.conversationId as string | null | undefined;
   const surfaceId = body?.surfaceId as string | undefined;
@@ -111,6 +89,61 @@ async function handleSurfaceAction({
     throw new BadRequestError("conversationId must be a string");
   }
 
+  // Intercept access-request approval actions (apr:<requestId>:<action>)
+  // before conversation resolution — these are cross-conversation decisions
+  // that route through the guardian decision primitive.
+  const aprDecision = parseCallbackData(actionId, "vellum");
+  if (aprDecision) {
+    // Resolve the actor's guardian principal ID. In dev mode the synthetic
+    // "dev-bypass" principal won't match the real guardian binding, so resolve
+    // the local guardian principal — mirrors guardian-action-routes.ts.
+    let guardianPrincipalId: string | undefined =
+      headers?.["x-vellum-actor-principal-id"] ?? undefined;
+    if (
+      isHttpAuthDisabled() &&
+      headers?.["x-vellum-actor-principal-id"] === "dev-bypass"
+    ) {
+      guardianPrincipalId = (await findLocalGuardianPrincipalId()) ?? undefined;
+    }
+
+    const result = await processGuardianDecision({
+      requestId: aprDecision.requestId!,
+      action: aprDecision.action,
+      conversationId: conversationId ?? undefined,
+      channel: "vellum",
+      actorContext: {
+        actorPrincipalId: guardianPrincipalId,
+        guardianPrincipalId,
+      },
+    });
+
+    if (!result.ok) {
+      throw new BadRequestError(result.message);
+    }
+    if (!result.applied) {
+      log.warn(
+        { actionId, requestId: aprDecision.requestId, reason: result.reason },
+        "Access request decision not applied",
+      );
+    } else {
+      log.info(
+        { actionId, requestId: result.requestId },
+        "Access request decision applied via surface action",
+      );
+    }
+    return {
+      ok: true,
+      applied: result.applied,
+      ...(!result.applied ? { reason: result.reason } : {}),
+      ...(result.applied && result.replyText
+        ? { replyText: result.replyText }
+        : {}),
+      ...(result.applied && result.decidedAction
+        ? { decidedAction: result.decidedAction }
+        : {}),
+    };
+  }
+
   const conversation = await resolveSurfaceConversation(
     conversationId,
     surfaceId,
@@ -121,13 +154,22 @@ async function handleSurfaceAction({
   }
 
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
-  applyTrustContext(conversation, actorPrincipalId);
+  await applyTrustContext(conversation, actorPrincipalId);
+
+  // Translate dev-bypass → real guardian so the surface turn's principal matches
+  // the SSE host-proxy client's registered principal; otherwise CU/app-control
+  // same-actor checks reject the turn. Real principals pass through unchanged.
+  const resolvedActorPrincipalId =
+    await resolveActorPrincipalIdForLocalGuardian(
+      actorPrincipalId ?? undefined,
+    );
 
   try {
     const raw = await conversation.handleSurfaceAction(
       surfaceId,
       actionId,
       data,
+      resolvedActorPrincipalId,
     );
     const result =
       raw && typeof raw === "object" && "accepted" in raw
@@ -160,7 +202,9 @@ async function handleSurfaceAction({
     }
     return { ok: true };
   } catch (err) {
-    if (err instanceof RouteError) throw err;
+    if (err instanceof RouteError) {
+      throw err;
+    }
     log.error(
       {
         err,
@@ -208,7 +252,9 @@ async function handleSurfaceUndo({ body, pathParams }: RouteHandlerArgs) {
     );
     return { ok: true };
   } catch (err) {
-    if (err instanceof RouteError) throw err;
+    if (err instanceof RouteError) {
+      throw err;
+    }
     log.error(
       { err, conversationId: conversationId ?? undefined, surfaceId },
       "Failed to handle surface undo",
@@ -255,6 +301,30 @@ export const ROUTES: RouteDefinition[] = [
           "Id of a newly launched conversation when the action dispatched one. Omitted otherwise.",
         )
         .optional(),
+      applied: z
+        .boolean()
+        .describe(
+          "Whether the action was applied. Present only for guardian decision actions (apr:*). False when the request was already resolved, expired, or the actor lacks permission.",
+        )
+        .optional(),
+      reason: z
+        .string()
+        .describe(
+          "Explanation when applied is false (e.g. 'already_resolved', 'expired', 'principal_mismatch').",
+        )
+        .optional(),
+      replyText: z
+        .string()
+        .describe(
+          "Guardian-facing reply from the resolver (e.g. verification code for access-request approvals). Present only when applied is true and the resolver produced a reply.",
+        )
+        .optional(),
+      decidedAction: z
+        .string()
+        .describe(
+          "The action to present on the resolved card — the resolved outcome, not necessarily the raw button (an access-request 'reject' resolves to the 'leave_unverified' park). Present only when applied is true; lets a client completing the card optimistically render the correct tone.",
+        )
+        .optional(),
     }),
     handler: handleSurfaceAction,
   },
@@ -270,9 +340,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Revert the most recent action on a surface.",
     tags: ["surfaces"],
     requestBody: z.object({
-      conversationId: z
-        .string()
-        .describe("Conversation that owns the surface"),
+      conversationId: z.string().describe("Conversation that owns the surface"),
     }),
     responseBody: z.object({
       ok: z.boolean(),

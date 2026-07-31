@@ -12,7 +12,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -20,74 +20,38 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 // Mocks — must precede Conversation import
 // ---------------------------------------------------------------------------
 
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "high" as const,
-        speed: "standard",
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
+import { setConfig } from "./helpers/set-config.js";
+
+// Seed the real workspace config with the non-default values these tests
+// depend on instead of mocking the loader.
+setConfig("llm", {
+  profiles: {
+    // Disable the catalog default so resolution lands on llm.default.
+    balanced: { source: "managed", status: "disabled" },
+    "cost-optimized": { source: "managed", status: "disabled" },
+  },
+  callSites: {
+    // This file's blanket assistant-feature-flags mock forces the
+    // override-or-default resolution flag ON, so the windows the
+    // gate-sizing tests depend on live in call-site tweaks (which apply
+    // under both resolution semantics) rather than llm.default.
+    mainAgent: {
+      contextWindow: { maxInputTokens: 100000 },
     },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    memory: { v2: { enabled: false } },
-    conversations: { skipAutoRetitling: false },
-    timeouts: { permissionTimeoutSec: 1 },
-    skills: { entries: {}, allowBundled: true },
-    permissions: { mode: "workspace" },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+    // Resolves a SMALLER window than mainAgent — exercised by the
+    // maybeCompact gate-sizing tests below.
+    memoryRetrospective: {
+      contextWindow: { maxInputTokens: 50000 },
+    },
+  },
+});
+setConfig("memory", { v2: { enabled: false } });
+setConfig("timeouts", { permissionTimeoutSec: 1 });
 
 mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
@@ -117,7 +81,9 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   setConversationHistoryStrippedAt: () => {},
@@ -144,11 +110,11 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
   linkAttachmentToMessage: () => {},
 }));
@@ -182,11 +148,24 @@ let mockCompactResult: ContextWindowResult = {
   summaryText: "",
 };
 
+// Config payloads handed to the manager's updateConfig — runCompaction calls
+// it with the (possibly sizing-threaded) resolved context-window config
+// before delegating to the manager.
+const updateConfigCalls: Array<{ maxInputTokens?: number }> = [];
+
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     nonPersistedPrefixCount = 0;
     constructor() {}
-    updateConfig() {}
+    updateConfig(cfg: { maxInputTokens?: number }) {
+      updateConfigCalls.push(cfg);
+    }
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
@@ -202,13 +181,9 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   getSummaryFromContextMessage: () => null,
 }));
 
-mock.module("../memory/llm-usage-store.js", () => ({
+mock.module("../persistence/llm-usage-store.js", () => ({
   recordUsageEvent: () => ({ id: "mock-id", createdAt: Date.now() }),
   listUsageEvents: () => [],
-}));
-
-mock.module("../memory/auto-analysis-enqueue.js", () => ({
-  enqueueAutoAnalysisOnCompaction: () => {},
 }));
 
 mock.module("../agent/loop.js", () => ({
@@ -231,26 +206,6 @@ mock.module("../agent/loop.js", () => ({
       return [];
     }
   },
-}));
-
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
 // ---------------------------------------------------------------------------
@@ -278,7 +233,7 @@ function makeProvider() {
 }
 
 function makeConversation(
-  collected: ServerMessage[],
+  collected: AssistantEvent[],
   id = "conv-compact-events",
 ): Conversation {
   return new Conversation(
@@ -299,7 +254,7 @@ function makeConversation(
 
 describe("forceCompact event emission", () => {
   test("emits context_compacted and a usage_update without contextWindow when compacted", async () => {
-    const collected: ServerMessage[] = [];
+    const collected: AssistantEvent[] = [];
     mockCompactResult = {
       messages: [],
       compacted: true,
@@ -324,7 +279,7 @@ describe("forceCompact event emission", () => {
     );
     expect(compactedEvents.length).toBe(1);
     const compactedEvent = compactedEvents[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "context_compacted" }
     >;
     expect(compactedEvent.conversationId).toBe("conv-compact-events");
@@ -343,7 +298,7 @@ describe("forceCompact event emission", () => {
     const usageEvents = collected.filter((m) => m.type === "usage_update");
     expect(usageEvents.length).toBe(1);
     const usageEvent = usageEvents[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "usage_update" }
     >;
     // `context_compacted` is now the single source of truth for the UI
@@ -357,7 +312,7 @@ describe("forceCompact event emission", () => {
   });
 
   test("emits context_compacted even when summary LLM was skipped (truncation-only path)", async () => {
-    const collected: ServerMessage[] = [];
+    const collected: AssistantEvent[] = [];
     mockCompactResult = {
       messages: [],
       compacted: true,
@@ -387,7 +342,7 @@ describe("forceCompact event emission", () => {
     );
     expect(compactedEvents.length).toBe(1);
     const compactedEvent = compactedEvents[0] as Extract<
-      ServerMessage,
+      AssistantEvent,
       { type: "context_compacted" }
     >;
     expect(compactedEvent.conversationId).toBe("conv-compact-trunc");
@@ -401,7 +356,7 @@ describe("forceCompact event emission", () => {
   });
 
   test("skips emission when compacted is false", async () => {
-    const collected: ServerMessage[] = [];
+    const collected: AssistantEvent[] = [];
     mockCompactResult = {
       messages: [],
       compacted: false,
@@ -425,6 +380,53 @@ describe("forceCompact event emission", () => {
       0,
     );
     expect(collected.filter((m) => m.type === "usage_update").length).toBe(0);
+  });
+});
+
+describe("maybeCompact gate sizing", () => {
+  test("default sizing resolves mainAgent's window; wake sizing resolves the wake's call-site window", async () => {
+    // The auto-threshold gate derives its trip point from the
+    // context-window config pushed via updateConfig. Sized against
+    // mainAgent (100k here), a wake whose call site resolves a smaller
+    // window (memoryRetrospective → 50k) would pass the gate un-compacted
+    // and then overflow at the provider — threading the sizing makes the
+    // gate see the 50k window instead.
+    mockCompactResult = {
+      messages: [],
+      compacted: false,
+      previousEstimatedInputTokens: 0,
+      estimatedInputTokens: 0,
+      maxInputTokens: 0,
+      thresholdTokens: 0,
+      compactedMessages: 0,
+      compactedPersistedMessages: 0,
+      summaryCalls: 0,
+      summaryInputTokens: 0,
+      summaryOutputTokens: 0,
+      summaryModel: "",
+      summaryText: "",
+    };
+    const conversation = makeConversation([], "conv-compact-sizing");
+
+    updateConfigCalls.length = 0;
+    await conversation.maybeCompact();
+    await conversation.maybeCompact({ callSite: "memoryRetrospective" });
+
+    expect(updateConfigCalls.map((cfg) => cfg.maxInputTokens)).toEqual([
+      100000, 50000,
+    ]);
+  });
+
+  test("forceCompact keeps mainAgent sizing", async () => {
+    mockCompactResult = { ...mockCompactResult, compacted: false };
+    const conversation = makeConversation([], "conv-compact-force-sizing");
+
+    updateConfigCalls.length = 0;
+    await conversation.forceCompact();
+
+    expect(updateConfigCalls.map((cfg) => cfg.maxInputTokens)).toEqual([
+      100000,
+    ]);
   });
 });
 

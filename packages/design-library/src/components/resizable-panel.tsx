@@ -104,7 +104,9 @@ export function ResizablePanel({
   const clamp = useCallback(
     (width: number) => {
       const container = containerRef.current;
-      if (!container) return width;
+      // Unmeasured container (offsetWidth 0): keep the requested width instead
+      // of collapsing to the minimum on a negative max.
+      if (!container || container.offsetWidth <= 0) return width;
       const maxLeft = container.offsetWidth - minRightWidth;
       return Math.max(minLeftWidth, Math.min(width, maxLeft));
     },

@@ -1,0 +1,137 @@
+import { describe, test, expect } from "bun:test";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join, sep } from "node:path";
+
+/**
+ * db_proxy surface guard: the assistant-DB proxy (`assistant-db-proxy.ts` +
+ * the daemon-side `db-proxy` route) is a data-migrations-only bridge.
+ * Gateway one-time migrations (m0002/m0010/m0014 et al.) need raw read/drop
+ * access to the assistant DB on first boot of upgraded installs; no runtime
+ * feature may use this surface. This source scan fails if any gateway file
+ * OUTSIDE the proxy module and `db/data-migrations/` imports the proxy or
+ * names the raw-SQL bridge method (`db_proxy`).
+ */
+
+// Relative to GATEWAY_SRC (POSIX-separated). New entries must NOT be added.
+const ALLOWLIST = new Set<string>([
+  // The proxy definition itself (calls ipcCallAssistant("db_proxy")).
+  "db/assistant-db-proxy.ts",
+]);
+
+// One-time data migrations legitimately touch the assistant DB broadly.
+// Allowed wholesale by directory prefix.
+const ALLOWED_DIR_PREFIX = "db/data-migrations/";
+
+const GATEWAY_SRC = join(import.meta.dirname!, "..");
+
+function collectSourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) {
+      out.push(...collectSourceFiles(full));
+      continue;
+    }
+    if (!entry.endsWith(".ts")) continue;
+    if (entry.endsWith(".test.ts")) continue;
+    out.push(full);
+  }
+  return out;
+}
+
+function relPosix(file: string): string {
+  return file.slice(GATEWAY_SRC.length + 1).split(sep).join("/");
+}
+
+// A static/dynamic import of the proxy module, or a direct db_proxy IPC call.
+const IMPORTS_PROXY =
+  /(?:from|import)\s*\(?\s*["'`][^"'`]*assistant-db-proxy(?:\.js)?["'`]/;
+// Matches the raw-SQL bridge method (`db_proxy`) by the quoted method name
+// itself — single, double, OR backtick quotes — independent of the callee
+// identifier, so aliasing `ipcCallAssistant`, stashing it in a local, or a
+// template-literal method string cannot slip a new raw-SQL caller past the
+// guard. The method-name string only appears at these call sites (verified:
+// no bare-mention false positives in the scanned tree). A regex scan cannot
+// catch a fully dynamic name (e.g. "db_" + "proxy"); that residual is
+// accepted — the surface can still only shrink, never grow, for realistic code.
+const CALLS_DB_PROXY = /["'`]db_proxy["'`]/;
+
+// Strip `//` line and `/* */` block comments so a doc-comment mention of the
+// method name (markdown code spans use backticks) can't trip the matcher — only
+// real code is scanned.
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+/** True if `src` reaches the assistant-DB proxy (import or direct IPC call). */
+function usesDbProxy(src: string): boolean {
+  const code = stripComments(src);
+  return IMPORTS_PROXY.test(code) || CALLS_DB_PROXY.test(code);
+}
+
+describe("db_proxy caller allowlist guard", () => {
+  test("only allowlisted gateway files reach the db_proxy", () => {
+    const violations: string[] = [];
+
+    for (const file of collectSourceFiles(GATEWAY_SRC)) {
+      const rel = relPosix(file);
+      if (ALLOWLIST.has(rel) || rel.startsWith(ALLOWED_DIR_PREFIX)) continue;
+      if (usesDbProxy(readFileSync(file, "utf-8"))) {
+        violations.push(rel);
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  test("matcher detects both proxy imports and direct db_proxy calls", () => {
+    expect(
+      usesDbProxy(`import { assistantDbRun } from "../db/assistant-db-proxy.js";`),
+    ).toBe(true);
+    expect(
+      usesDbProxy(`const m = await import("./db/assistant-db-proxy.js");`),
+    ).toBe(true);
+    // Template-literal module specifiers are caught too.
+    expect(
+      usesDbProxy("const m = await import(`./db/assistant-db-proxy.js`);"),
+    ).toBe(true);
+    expect(usesDbProxy(`await ipcCallAssistant("db_proxy", { sql });`)).toBe(
+      true,
+    );
+    // Aliased / indirected callees are caught via the method-name string.
+    expect(
+      usesDbProxy(`import { ipcCallAssistant as call } from "x";\ncall("db_proxy", { sql });`),
+    ).toBe(true);
+    expect(
+      usesDbProxy(`const M = "db_proxy";\nawait send(M, { sql });`),
+    ).toBe(true);
+    // Template-literal method strings (backtick-quoted) are caught too.
+    expect(usesDbProxy("await ipcCallAssistant(`db_proxy`, { sql });")).toBe(
+      true,
+    );
+    // Unrelated IPC methods and identifiers must NOT match.
+    expect(
+      usesDbProxy(`await ipcCallAssistant("contacts_mirror_upsert_channel", {});`),
+    ).toBe(false);
+    expect(usesDbProxy(`import { getGatewayDb } from "../db/connection.js";`)).toBe(
+      false,
+    );
+    // A doc-comment mention of the method name must NOT count as a caller.
+    expect(usesDbProxy("/**\n * `db_proxy` SELECTs the gateway used to run.\n */")).toBe(
+      false,
+    );
+    expect(usesDbProxy(`// legacy db_proxy("db_proxy") note\nconst x = 1;`)).toBe(
+      false,
+    );
+  });
+
+  test("every allowlisted file exists and still reaches the db_proxy", () => {
+    for (const rel of ALLOWLIST) {
+      const full = join(GATEWAY_SRC, ...rel.split("/"));
+      expect(existsSync(full)).toBe(true);
+      expect(usesDbProxy(readFileSync(full, "utf-8"))).toBe(true);
+    }
+  });
+});

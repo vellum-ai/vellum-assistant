@@ -8,6 +8,7 @@
 
 import { estimateContentBlockTokens } from "../context/token-estimator.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
+import { mediaSourceByteLength } from "../providers/media-resolve.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 export interface StripMediaOptions {
@@ -33,9 +34,15 @@ export function stripMediaPayloadsForRetry(
   let latestUserIndex: number | null = null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (msg.role !== "user") continue;
-    if (isToolResultOnlyMessage(msg)) continue;
-    if (getSummaryFromContextMessage(msg) != null) continue;
+    if (msg.role !== "user") {
+      continue;
+    }
+    if (isToolResultOnlyMessage(msg)) {
+      continue;
+    }
+    if (getSummaryFromContextMessage(msg) != null) {
+      continue;
+    }
     latestUserIndex = i;
     break;
   }
@@ -161,9 +168,15 @@ export function estimateUnconditionalStubTokens(
   let latestUserIndex: number | null = null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (msg.role !== "user") continue;
-    if (isToolResultOnlyMessage(msg)) continue;
-    if (getSummaryFromContextMessage(msg) != null) continue;
+    if (msg.role !== "user") {
+      continue;
+    }
+    if (isToolResultOnlyMessage(msg)) {
+      continue;
+    }
+    if (getSummaryFromContextMessage(msg) != null) {
+      continue;
+    }
     latestUserIndex = i;
     break;
   }
@@ -206,7 +219,7 @@ export function estimateUnconditionalStubTokens(
 function imageBlockToStub(
   block: Extract<ContentBlock, { type: "image" }>,
 ): Extract<ContentBlock, { type: "text" }> {
-  const sizeBytes = Math.ceil(block.source.data.length / 4) * 3;
+  const sizeBytes = mediaSourceByteLength(block.source);
   return {
     type: "text",
     text: `[Image omitted from retry context: ${block.source.media_type}, ${sizeBytes} bytes]`,
@@ -216,7 +229,7 @@ function imageBlockToStub(
 function fileBlockToStub(
   block: Extract<ContentBlock, { type: "file" }>,
 ): Extract<ContentBlock, { type: "text" }> {
-  const sizeBytes = Math.ceil(block.source.data.length / 4) * 3;
+  const sizeBytes = mediaSourceByteLength(block.source);
   const extracted = (block.extracted_text ?? "").trim();
   const preview =
     extracted.length > MAX_MEDIA_STUB_TEXT

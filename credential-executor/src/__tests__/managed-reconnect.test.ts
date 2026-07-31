@@ -1,7 +1,7 @@
 /**
  * Managed CES reconnection test (real entrypoint subprocess).
  *
- * Spawns the actual `managed-main.ts` entrypoint and verifies that the CES
+ * Spawns the actual `main.ts` entrypoint and verifies that the CES
  * sidecar survives the assistant disconnecting and accepts a reconnection,
  * rather than shutting down when the RPC stream ends.
  *
@@ -179,7 +179,7 @@ describe("managed CES reconnection (real entrypoint)", () => {
     mkdirSync(join(assistantDataMount, ".vellum"), { recursive: true });
 
     const healthPort = await pickFreePort();
-    const managedMain = resolve(__dirname, "..", "managed-main.ts");
+    const managedMain = resolve(__dirname, "..", "main.ts");
 
     proc = Bun.spawn({
       cmd: [process.execPath, managedMain],

@@ -23,6 +23,7 @@ const mockIsBackgroundToolLimitReached = mock(() => false);
 mock.module("../tools/background-tool-registry.js", () => ({
   registerBackgroundTool: mockRegisterBackgroundTool,
   removeBackgroundTool: mockRemoveBackgroundTool,
+  recordCompletedBackgroundTool: () => {},
   generateBackgroundToolId: mockGenerateBackgroundToolId,
   isBackgroundToolLimitReached: mockIsBackgroundToolLimitReached,
   MAX_BACKGROUND_TOOLS: 20,
@@ -51,40 +52,6 @@ function makeFakeChild(): FakeChild {
 
 mock.module("node:child_process", () => ({
   spawn: mock(() => makeFakeChild()),
-}));
-
-const mockConfig = {
-  provider: "anthropic",
-  model: "test",
-  maxTokens: 4096,
-  dataDir: "/tmp",
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: {
-    enabled: true,
-  },
-  auditLog: { retentionDays: 0 },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  loadConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
 }));
 
 // Mock HostBashProxy singleton — proxy delegation tests configure this.
@@ -117,6 +84,7 @@ mock.module("../daemon/host-bash-proxy.js", () => ({
 // Import under test — MUST come after mock.module calls.
 // ---------------------------------------------------------------------------
 
+import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { hostShellTool } from "../tools/host-terminal/host-shell.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 
@@ -247,9 +215,21 @@ describe("host_bash background mode — proxy path", () => {
     )[0]![0] as Record<string, unknown>;
     expect(wakeCall.conversationId).toBe("conv-xyz");
     expect(wakeCall.hint).toBe(
-      "Background host command completed (id=bg-test-0001):\nproxy success output",
+      "Background host command completed (id=bg-test-0001):",
     );
+    expect(wakeCall.persistTriggerAsEvent).toBe(true);
+    // Command output is fenced as untrusted output, not inlined in the hint.
+    expect(wakeCall.untrustedOutput).toEqual({
+      content: "proxy success output",
+      source: "tool_result",
+      maxChars: 40_000,
+    });
     expect(wakeCall.source).toBe("background-tool");
+    const completion =
+      wakeCall.backgroundToolCompletion as CompletedBackgroundTool;
+    expect(completion.id).toBe("bg-test-0001");
+    expect(completion.status).toBe("completed");
+    expect(completion.exitCode).toBeNull();
   });
 
   test("calls wakeAgentForOpportunity on proxy error result", async () => {
@@ -273,7 +253,11 @@ describe("host_bash background mode — proxy path", () => {
       mockWakeAgentForOpportunity.mock.calls as unknown[][]
     )[0]![0] as Record<string, unknown>;
     expect(wakeCall.hint).toContain("Background host command failed");
-    expect(wakeCall.hint).toContain("command not found");
+    expect(wakeCall.untrustedOutput).toEqual({
+      content: "command not found",
+      source: "tool_result",
+      maxChars: 40_000,
+    });
   });
 
   test("calls wakeAgentForOpportunity on proxy rejection", async () => {
@@ -382,7 +366,15 @@ describe("host_bash background mode — direct execution path", () => {
     )[0]![0] as Record<string, unknown>;
     expect(wakeCall.conversationId).toBe("conv-xyz");
     expect(wakeCall.source).toBe("background-tool");
-    expect(wakeCall.hint).toContain("hello world");
+    expect(wakeCall.hint).toContain("Background host command completed");
+    expect((wakeCall.untrustedOutput as { content: string }).content).toContain(
+      "hello world",
+    );
+    const completion =
+      wakeCall.backgroundToolCompletion as CompletedBackgroundTool;
+    expect(completion.id).toBe("bg-test-0001");
+    expect(completion.status).toBe("completed");
+    expect(completion.exitCode).toBe(0);
   });
 
   test("calls wakeAgentForOpportunity with error hint on non-zero exit", async () => {

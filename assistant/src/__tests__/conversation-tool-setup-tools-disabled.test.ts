@@ -28,10 +28,8 @@ mock.module("../daemon/conversation-skill-tools.js", () => ({
 // Import after mocks
 // ---------------------------------------------------------------------------
 
-import {
-  createResolveToolsCallback,
-  type SkillProjectionContext,
-} from "../daemon/conversation-tool-setup.js";
+import type { Conversation } from "../daemon/conversation.js";
+import { createResolveToolsCallback } from "../daemon/conversation-tool-setup.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,16 +39,13 @@ function makeToolDef(name: string): ToolDefinition {
   return { name, description: `${name} tool`, input_schema: {} };
 }
 
-function makeCtx(
-  overrides: Partial<SkillProjectionContext> = {},
-): SkillProjectionContext {
+function makeCtx(overrides: Partial<Conversation> = {}): Conversation {
   return {
     skillProjectionState: new Map(),
     skillProjectionCache: {} as SkillProjectionCache,
-    coreToolNames: new Set(["tool_a", "tool_b"]),
     toolsDisabledDepth: 0,
     ...overrides,
-  };
+  } as unknown as Conversation;
 }
 
 const EMPTY_HISTORY: Message[] = [];
@@ -155,7 +150,7 @@ describe("createResolveToolsCallback — toolsDisabledDepth", () => {
     expect(ctx.allowedToolNames).toEqual(new Set());
   });
 
-  test("records the resolved set on lastResolvedToolNames for inventory queries", () => {
+  test("records the resolved set on registeredToolDefinitions for inventory queries", () => {
     // GIVEN a normal resolver call
     const toolDefs = [makeToolDef("tool_a"), makeToolDef("tool_b")];
     const ctx = makeCtx();
@@ -165,18 +160,21 @@ describe("createResolveToolsCallback — toolsDisabledDepth", () => {
     resolve(EMPTY_HISTORY);
 
     // THEN the durable snapshot mirrors the per-turn gate
-    expect(ctx.lastResolvedToolNames).toEqual(ctx.allowedToolNames!);
-    expect(ctx.lastResolvedToolNames?.has("tool_a")).toBe(true);
-    expect(ctx.lastResolvedToolNames?.has("tool_b")).toBe(true);
+    const resolvedNames = new Set(
+      ctx.registeredToolDefinitions?.map((d) => d.name),
+    );
+    expect(resolvedNames).toEqual(ctx.allowedToolNames!);
+    expect(resolvedNames.has("tool_a")).toBe(true);
+    expect(resolvedNames.has("tool_b")).toBe(true);
   });
 
-  test("preserves lastResolvedToolNames when a later call disables tools", () => {
+  test("preserves registeredToolDefinitions when a later call disables tools", () => {
     // GIVEN a conversation that resolved tools on a normal turn
     const toolDefs = [makeToolDef("tool_a"), makeToolDef("tool_b")];
     const ctx = makeCtx();
     const resolve = createResolveToolsCallback(toolDefs, ctx)!;
     resolve(EMPTY_HISTORY);
-    const snapshot = ctx.lastResolvedToolNames;
+    const snapshot = ctx.registeredToolDefinitions;
 
     // WHEN a subsequent call disables tools (e.g. pointer generation, or the
     // turn-teardown that clears the per-turn gate)
@@ -185,7 +183,9 @@ describe("createResolveToolsCallback — toolsDisabledDepth", () => {
 
     // THEN the per-turn gate is empty but the inventory snapshot survives
     expect(ctx.allowedToolNames).toEqual(new Set());
-    expect(ctx.lastResolvedToolNames).toBe(snapshot);
-    expect(ctx.lastResolvedToolNames?.has("tool_a")).toBe(true);
+    expect(ctx.registeredToolDefinitions).toBe(snapshot);
+    expect(
+      ctx.registeredToolDefinitions?.some((d) => d.name === "tool_a"),
+    ).toBe(true);
   });
 });

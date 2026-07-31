@@ -29,6 +29,12 @@ const BottomSheetContext = createContext<{
  * top corners and a slide-up entrance animation. Designed for mobile
  * surfaces like menus, pickers, and confirmation sheets.
  *
+ * The default height band (`min-h`/`max-h` on `Content`) suits those: enough
+ * floor that one row still reads as a sheet, and a ceiling that leaves the
+ * page visible behind it. A sheet that should rest against something specific
+ * instead (below a header, say) overrides that band and sets its own `top`;
+ * `className` merges over the defaults.
+ *
  * Compound API: `BottomSheet.Root`, `BottomSheet.Trigger`,
  * `BottomSheet.Content`, `BottomSheet.Title`, `BottomSheet.Description`,
  * `BottomSheet.Close`, `BottomSheet.Header`, `BottomSheet.Body`,
@@ -57,12 +63,22 @@ function Trigger(props: ComponentProps<typeof Dialog.Trigger>) {
 
 interface BottomSheetContentProps extends ComponentProps<typeof Dialog.Content> {
   overlayClassName?: string;
+  /**
+   * Whether the sheet insets its content. Sheets carrying rows of text and
+   * controls want the inset; sheets whose content is itself a surface (a
+   * full-bleed color fill, a canvas, artwork that must reach the rounded
+   * corners) supply their own spacing and set this false. The safe-area
+   * allowance goes with it, so an unpadded sheet is responsible for keeping
+   * its own content clear of the home indicator.
+   */
+  padded?: boolean;
   children?: ReactNode;
 }
 
 function Content({
   overlayClassName,
   className,
+  padded = true,
   children,
   ref,
   ...props
@@ -81,13 +97,22 @@ function Content({
         data-slot="bottom-sheet-content"
         className={cn(
           "fixed inset-x-0 bottom-0 z-50 flex w-full flex-col rounded-t-[24px] border-t bg-[var(--surface-lift)] border-[var(--border-base)] shadow-xl focus:outline-none",
-          "max-h-[50dvh]",
+          // Sheets keep a floor so short content (e.g. a single row) still
+          // reads as a sheet rather than a sliver pinned to the bottom edge.
+          "min-h-[min(280px,45dvh)] max-h-[50dvh]",
           "data-[state=open]:animate-[bottomSheetIn_180ms_ease-out]",
           className,
         )}
         {...props}
       >
-        <div className="flex min-h-0 flex-1 flex-col px-4 pt-4 pb-[calc(16px+var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)))]">
+        <div
+          data-slot="bottom-sheet-content-inner"
+          className={cn(
+            "flex min-h-0 flex-1 flex-col",
+            padded &&
+              "px-4 pt-4 pb-[calc(16px+var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)))]",
+          )}
+        >
           {children}
         </div>
       </Dialog.Content>
@@ -128,7 +153,10 @@ function Title({
           <Icon className="h-5 w-5 text-[var(--primary-base)]" />
         </span>
       ) : null}
-      <span className="min-w-0 truncate">{children}</span>
+      {/* `text-title-*` set line-height: 1, so `truncate`'s `overflow: hidden`
+          shears glyph descenders (the tail of a g/p/y). `leading-snug` grows
+          the line box to contain them; single-line ellipsis still works. */}
+      <span className="min-w-0 truncate leading-snug">{children}</span>
     </Dialog.Title>
   );
 }

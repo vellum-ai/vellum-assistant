@@ -11,16 +11,21 @@
  * - Notification routing goes through emitNotificationSignal().
  */
 
-import type { ChannelId } from "../channels/types.js";
 import {
-  createCanonicalGuardianDelivery,
-  createCanonicalGuardianRequest,
-  listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
+  createGuardianRequest,
+  listGuardianRequestsOrEmpty,
+} from "../channels/gateway-guardian-requests.js";
+import type { ChannelId } from "../channels/types.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import type { NotificationSourceChannel } from "../notifications/signal.js";
+import {
+  recordApprovalCardDelivery,
+  recordGuardianRequestDeliveries,
+} from "../notifications/guardian-delivery-recorder.js";
+import { buildVellumCardAffinity } from "../notifications/vellum-card-affinity.js";
 import { getLogger } from "../util/logger.js";
+import { resolveApprovalSourceReference } from "./approval-source-link.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
+import { resolveDecidableGuardianPrincipalId } from "./local-actor-identity.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("tool-grant-request-helper");
@@ -39,6 +44,10 @@ export interface ToolGrantRequestParams {
   toolName: string;
   inputDigest: string;
   questionText: string;
+  /** Channel-native id of the inbound message that triggered the escalation. */
+  sourceMessageId?: string;
+  /** Channel-native thread id of that message, when threaded. */
+  sourceThreadId?: string;
 }
 
 export type ToolGrantRequestResult =
@@ -57,9 +66,9 @@ export type ToolGrantRequestResult =
  * Returns a result indicating whether a new request was created, an existing
  * one was deduped, or the escalation failed (no binding, missing identity).
  */
-export function createOrReuseToolGrantRequest(
+export async function createOrReuseToolGrantRequest(
   params: ToolGrantRequestParams,
-): ToolGrantRequestResult {
+): Promise<ToolGrantRequestResult> {
   const {
     assistantId,
     sourceChannel,
@@ -70,13 +79,15 @@ export function createOrReuseToolGrantRequest(
     toolName,
     inputDigest,
     questionText,
+    sourceMessageId,
+    sourceThreadId,
   } = params;
 
   if (!requesterExternalUserId) {
     return { failed: true, reason: "missing_identity" };
   }
 
-  const binding = getGuardianBinding(assistantId, sourceChannel);
+  const binding = await getGuardianBinding(assistantId, sourceChannel);
   if (!binding) {
     log.debug(
       { sourceChannel, assistantId },
@@ -85,14 +96,31 @@ export function createOrReuseToolGrantRequest(
     return { failed: true, reason: "no_guardian_binding" };
   }
 
-  // Deduplicate: skip creation if there is already a pending canonical request
+  // A binding with no principal is unresolved, not empty: adopt the vellum
+  // anchor principal so the resulting request is decidable by the guardian.
+  // When neither resolves, fail closed — a principal-less tool_grant_request
+  // can never be authorized by anyone.
+  const guardianPrincipalId = await resolveDecidableGuardianPrincipalId(
+    binding.guardianPrincipalId,
+  );
+  if (!guardianPrincipalId) {
+    log.warn(
+      { sourceChannel, assistantId },
+      "Guardian principal unresolved for tool grant request escalation",
+    );
+    return { failed: true, reason: "no_guardian_binding" };
+  }
+
+  // Deduplicate: skip creation if there is already a pending guardian request
   // for the same requester + conversation + tool + input digest + guardian.
   // Guardian identity is included so that after a guardian rebind, old requests
-  // tied to the previous guardian don't block creation of a new approvable request.
-  const existing = listCanonicalGuardianRequests({
+  // tied to the previous guardian don't block creation of a new approvable
+  // request. A degraded (empty) read falls through to creation, whose
+  // fail-closed throw prevents a prompt without a persisted request.
+  const existing = await listGuardianRequestsOrEmpty({
     status: "pending",
     requesterExternalUserId,
-    conversationId,
+    sourceConversationId: conversationId,
     kind: "tool_grant_request",
     toolName,
   });
@@ -121,33 +149,38 @@ export function createOrReuseToolGrantRequest(
   const senderLabel = requesterIdentifier || requesterExternalUserId;
   const requestId = `tool-grant-${assistantId}-${sourceChannel}-${requesterExternalUserId}-${Date.now()}`;
 
-  const canonicalRequest = createCanonicalGuardianRequest({
+  const guardianRequest = await createGuardianRequest({
     id: requestId,
     kind: "tool_grant_request",
-    sourceType: "channel",
     sourceChannel,
-    conversationId,
+    sourceConversationId: conversationId,
     requesterExternalUserId,
     requesterChatId: requesterChatId ?? undefined,
     guardianExternalUserId: binding.guardianExternalUserId,
-    guardianPrincipalId: binding.guardianPrincipalId,
+    guardianPrincipalId,
     toolName,
     inputDigest,
     questionText,
     expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
   });
   const requestCode =
-    canonicalRequest.requestCode ??
-    canonicalRequest.id.slice(0, 6).toUpperCase();
+    guardianRequest.requestCode ?? guardianRequest.id.slice(0, 6).toUpperCase();
+
+  // The vellum delivery row is created up front in onConversationCreated so the
+  // in-app client sees it immediately; the post-resolve recorder reuses it.
+  let vellumDeliveryIdPromise: Promise<string | undefined> | undefined;
 
   // Emit notification so guardian is alerted. Uses 'guardian.question' as
   // sourceEventName so that existing request-code guidance in the notification
   // pipeline is preserved.
   const signalPromise = emitNotificationSignal({
     sourceEventName: "guardian.question",
-    sourceChannel: sourceChannel as NotificationSourceChannel,
+    sourceChannel,
     sourceContextId: conversationId,
     requiresConversation: true,
+    // Pin the in-app (vellum) card to the conversation the escalated tool is
+    // running in, so the guardian decides it in context.
+    ...(buildVellumCardAffinity(conversationId) ?? {}),
     attentionHints: {
       requiresAction: true,
       urgency: "high",
@@ -155,7 +188,7 @@ export function createOrReuseToolGrantRequest(
       visibleInSourceNow: false,
     },
     contextPayload: {
-      requestId: canonicalRequest.id,
+      requestId: guardianRequest.id,
       requestKind: "tool_grant_request",
       requestCode,
       sourceChannel,
@@ -164,28 +197,35 @@ export function createOrReuseToolGrantRequest(
       requesterIdentifier: senderLabel,
       toolName,
       questionText,
+      // Reference to the channel message that triggered the escalation, so
+      // approval cards can link the guardian back to the source conversation.
+      ...resolveApprovalSourceReference(sourceChannel, conversationId, {
+        requesterChatId,
+        sourceMessageId,
+        sourceThreadId,
+      }),
     },
-    dedupeKey: `tool-grant-request:${canonicalRequest.id}`,
+    dedupeKey: `tool-grant-request:${guardianRequest.id}`,
+    // The broadcaster awaits the returned promise, so the delivery row is
+    // durable before the client can act on the conversation.
     onConversationCreated: (info) => {
-      createCanonicalGuardianDelivery({
-        requestId: canonicalRequest.id,
-        destinationChannel: "vellum",
-        destinationConversationId: info.conversationId,
-      });
+      vellumDeliveryIdPromise ??= recordApprovalCardDelivery({
+        requestId: guardianRequest.id,
+        channel: "vellum",
+        conversationId: info.conversationId,
+      }).then((delivery) => delivery?.id);
+      return vellumDeliveryIdPromise.then(() => undefined);
     },
   });
 
-  // Record deliveries from the notification pipeline results (fire-and-forget).
-  void signalPromise.then((signalResult) => {
-    for (const result of signalResult.deliveryResults) {
-      if (result.channel === "vellum") continue; // handled in onConversationCreated
-      createCanonicalGuardianDelivery({
-        requestId: canonicalRequest.id,
-        destinationChannel: result.channel,
-        destinationChatId:
-          result.destination.length > 0 ? result.destination : undefined,
-      });
-    }
+  // Record deliveries from the notification pipeline results (fire-and-forget;
+  // the recorder is best-effort and never rejects).
+  void signalPromise.then(async (signalResult) => {
+    await recordGuardianRequestDeliveries({
+      requestId: guardianRequest.id,
+      deliveryResults: signalResult.deliveryResults,
+      vellumDeliveryId: await vellumDeliveryIdPromise,
+    });
   });
 
   log.info(
@@ -193,15 +233,15 @@ export function createOrReuseToolGrantRequest(
       sourceChannel,
       requesterExternalUserId,
       toolName,
-      requestId: canonicalRequest.id,
-      requestCode: canonicalRequest.requestCode,
+      requestId: guardianRequest.id,
+      requestCode: guardianRequest.requestCode,
     },
     "Guardian notified of tool grant request",
   );
 
   return {
     created: true,
-    requestId: canonicalRequest.id,
-    requestCode: canonicalRequest.requestCode,
+    requestId: guardianRequest.id,
+    requestCode: guardianRequest.requestCode,
   };
 }

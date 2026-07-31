@@ -10,12 +10,9 @@
  * is a `Tool` (`Required<ToolDefinition>`).
  */
 
-import type {
-  RiskLevel,
-  Tool,
-  ToolDefinition,
-  ToolExecutionResult,
-} from "./types.js";
+import { resolveExecutionTarget } from "./execution-target.js";
+import type { RiskLevel } from "./tool-types.js";
+import type { Tool, ToolDefinition, ToolExecutionResult } from "./types.js";
 
 /**
  * Default values applied by `finalizeTool` when the author omits a field.
@@ -30,7 +27,10 @@ import type {
  *   are rejected at the JSON-schema layer.
  * - `executionTarget` defaults to `sandbox` — author-supplied tool code
  *   runs in the assistant container by default; opt in to `host` when
- *   the tool proxies work to the connected client.
+ *   the tool proxies work to the connected client. The name-prefix
+ *   heuristic (`host_*` / `computer_use_*` resolves to host) is applied
+ *   by `resolveExecutionTarget` in `finalizeTool`, so a tool named
+ *   `host_my_thing` defaults to host even without an explicit field.
  * - `category` defaults to empty — Slack channel `allowedToolCategories`
  *   policy denies uncategorized tools when a category allow-list is set,
  *   which is the correct deny-by-default for tools the author didn't
@@ -90,8 +90,10 @@ export function finalizeTool(tool: ToolDefinition, defaultName = ""): Tool {
           content: `tool ${name} has no execute implementation`,
           isError: true,
         });
-  const executionTarget = tool.executionTarget ?? TOOL_DEFAULTS.executionTarget;
+  const executionTarget =
+    tool.executionTarget ?? resolveExecutionTarget({ name });
   const category = tool.category ?? TOOL_DEFAULTS.category;
+  const exclusive = tool.exclusive ?? false;
   return {
     ...tool,
     name,
@@ -101,5 +103,6 @@ export function finalizeTool(tool: ToolDefinition, defaultName = ""): Tool {
     executionTarget,
     execute,
     category,
+    exclusive,
   };
 }

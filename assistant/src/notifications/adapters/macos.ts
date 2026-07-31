@@ -11,15 +11,15 @@
  * does not surface a push banner. Urgent signals (`high`/`critical`)
  * broadcast with `silent: false` and fire the banner.
  *
- * Guardian-sensitive notifications (approval requests, escalation alerts)
+ * Guardian-sensitive notifications (approval requests, access requests)
  * are annotated with `targetGuardianPrincipalId` so that only clients
  * bound to the guardian identity display them. Non-guardian clients
  * should ignore notifications with a `targetGuardianPrincipalId` that
  * does not match their own identity.
  */
 
+import type { AssistantEvent } from "../../api/index.js";
 import type { InterfaceId } from "../../channels/types.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   ChannelAdapter,
@@ -44,20 +44,18 @@ export interface BroadcastFnOptions {
 }
 
 export type BroadcastFn = (
-  msg: ServerMessage,
+  msg: AssistantEvent,
   conversationId?: string,
   options?: BroadcastFnOptions,
 ) => void;
 
 /**
  * Event name prefixes that carry guardian-sensitive content (approval
- * requests, escalation alerts, access requests). Notifications for
- * these events are scoped to bound guardian devices via
- * `targetGuardianPrincipalId`.
+ * requests, access requests). Notifications for these events are scoped
+ * to bound guardian devices via `targetGuardianPrincipalId`.
  */
 const GUARDIAN_SENSITIVE_EVENT_PREFIXES = [
   "guardian.question",
-  "ingress.escalation",
   "ingress.access_request",
   "guardian.channel_activation",
 ] as const;
@@ -109,7 +107,7 @@ export class VellumAdapter implements ChannelAdapter {
         deepLinkMetadata: payload.deepLinkTarget,
         targetGuardianPrincipalId,
         silent,
-      } as ServerMessage);
+      } as AssistantEvent);
 
       log.info(
         {

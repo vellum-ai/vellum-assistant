@@ -2,7 +2,7 @@
 
 ## New Non-Skill Tools Are Strongly Discouraged
 
-**Prefer skills over new non-skill tool registrations.** Non-skill tools require approval from Team Jarvis.
+**Prefer skills over new non-skill tool registrations.** Non-skill tools require approval from the core team.
 
 Skills are the preferred approach for adding new capabilities — they are progressively disclosed into context, more portable, and can be iterated on independently. New non-skill tool registrations (`class ... implements Tool` + `registerTool()`) carry additional costs:
 
@@ -20,35 +20,9 @@ Instead of creating a new tool, consider:
 
 3. **External CLI tools** - If you need new functionality, consider whether it can be exposed as a CLI tool that the assistant can invoke via bash.
 
-## Approved Exception: Credential Execution Service (CES) Tools
-
-The following three CES tools are approved exceptions that justify tool registrations over skills:
-
-| Tool                         | Purpose                                                                                                                                                    |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run_authenticated_command`  | Execute a shell command with credential env vars injected by CES across a hard process boundary                                                            |
-| `make_authenticated_request` | Execute an authenticated HTTP request with credentials injected by CES; returns response body and status only                                              |
-| `manage_secure_command_tool` | Register and manage secure command tool bundles in the CES toolstore; handles bundle lifecycle (registration, unregistration) for manifest-driven commands |
-
-These tools exist as `class ... implements Tool` registrations because:
-
-- They enforce hard process-boundary isolation - credential values are materialized only inside the CES process (`credential-executor/` package), never in the assistant process
-- Skills run inside the assistant process and cannot provide this isolation guarantee
-- The tools are thin RPC stubs; actual credential materialization and execution logic lives in the separate `credential-executor/` package
-
-**Key constraints**:
-
-- CES is a **separate package and image** - no direct source imports from `assistant/` to `credential-executor/` or vice versa
-- **Grants and audit logs are CES-owned** durable state - the assistant never reads or writes CES grant or audit tables directly
-- `host_bash` is **outside the strong CES secrecy guarantee** - it does not enforce credential isolation
-- Secure generic authenticated HTTP **must not** run through `run_authenticated_command` - use `make_authenticated_request` instead, which enforces domain validation and produces structured audit logs
-- Managed rollout requires a **third runtime image** (alongside assistant and gateway) and `vembda` pod-template changes
-
-See [`assistant/docs/credential-execution-service.md`](../../docs/credential-execution-service.md) for the full ADR.
-
 ## If You Have Approval
 
-If Team Jarvis has approved your new tool:
+If the core team has approved your new tool:
 
 1. The pre-commit hook will block your commit by default
 2. Use `git commit --no-verify` to bypass the hook
@@ -56,4 +30,4 @@ If Team Jarvis has approved your new tool:
 
 ## Questions?
 
-Contact Team Jarvis before shipping a new tool.
+Contact the core team before shipping a new tool.

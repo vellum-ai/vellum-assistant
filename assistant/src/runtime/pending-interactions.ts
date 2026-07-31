@@ -19,6 +19,7 @@
  */
 
 import type { InteractionResolutionState } from "../api/events/interaction-resolved.js";
+import type { QuestionEntry } from "../api/events/question-request.js";
 import type { UserDecision } from "../permissions/types.js";
 import { getLogger } from "../util/logger.js";
 import { broadcastMessage } from "./assistant-event-hub.js";
@@ -50,8 +51,43 @@ export interface ConfirmationDetails {
   }>;
 }
 
+/**
+ * Full batched question payload carried on a pending `question` interaction, so
+ * a history-load render can stamp the outstanding prompt back onto its tool
+ * call and rehydrate the question card on a cold reconnect. Mirrors the
+ * `question_request` event's `questions[]` — `metadata` only retains the
+ * `orderedIds`/`optionsById` the response route needs to validate submissions,
+ * which is insufficient to reconstruct the card.
+ */
+export interface QuestionDetails {
+  entries: QuestionEntry[];
+}
+
+/**
+ * Public prompt metadata for a pending `secret` interaction, retained so a
+ * cold conversation load can rehydrate the secret prompt with its full
+ * descriptive context. SECURITY: never carries the secret value — only the
+ * public fields already broadcast on the `secret_request` event.
+ */
+export interface SecretDetails {
+  service: string;
+  field: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
+  purpose?: string;
+  allowedTools?: string[];
+  allowedDomains?: string[];
+  allowOneTimeSend?: boolean;
+}
+
 export interface PendingInteraction {
-  conversationId: string;
+  /**
+   * Owning conversation, when the interaction was raised inside one. Absent
+   * for interactions raised outside any conversation (e.g. the CLI
+   * `credentials prompt` command), which resolve via {@link rpcResolve}.
+   */
+  conversationId?: string;
   kind:
     | "confirmation"
     | "secret"
@@ -62,8 +98,13 @@ export interface PendingInteraction {
     | "host_browser"
     | "host_app_control"
     | "host_transfer"
+    | "host_ui_snapshot"
     | "acp_confirmation";
   confirmationDetails?: ConfirmationDetails;
+  /** For a pending `question`: the full batched entries, so a history-load render can rehydrate the question card. */
+  questionDetails?: QuestionDetails;
+  /** For a pending `secret`: the public prompt metadata, so a cold load can rehydrate the secret prompt. */
+  secretDetails?: SecretDetails;
   /** For ACP permissions: resolves directly without a Conversation object. */
   directResolve?: (decision: UserDecision) => void;
   /** When set, the host_bash request should be routed to this specific client. */
@@ -118,9 +159,13 @@ export function resolve(
   state: InteractionResolutionState = "cancelled",
 ): PendingInteraction | undefined {
   const interaction = pending.get(requestId);
-  if (!interaction) return undefined;
+  if (!interaction) {
+    return undefined;
+  }
   pending.delete(requestId);
-  if (interaction.timer != null) clearTimeout(interaction.timer);
+  if (interaction.timer != null) {
+    clearTimeout(interaction.timer);
+  }
   interaction.detachAbort?.();
   emitResolved(requestId, interaction, state);
   return interaction;
@@ -140,6 +185,12 @@ function emitResolved(
     },
     "Pending interaction resolved",
   );
+  // interaction_resolved is conversation-scoped on the wire; a conversation-less
+  // interaction has no conversation for clients to route the event to, so skip
+  // the broadcast.
+  if (interaction.conversationId === undefined) {
+    return;
+  }
   broadcastMessage({
     type: "interaction_resolved",
     requestId,
@@ -185,6 +236,15 @@ export function getByConversation(
  * /v1/host-browser-result, /v1/host-app-control-result, or
  * /v1/host-transfer-result after completing the operation, get a 404, and the
  * proxy timer would fire with a spurious timeout error.
+ *
+ * `question` interactions are also skipped: a new message supersedes an open
+ * ask_question by steering to it (see the enqueue path in
+ * conversation-routes.ts), which aborts the parked turn and settles the
+ * question via its abort signal. Clearing the entry here instead would drop it
+ * without settling the prompt's Promise (questions carry no `rpcResolve`
+ * fallback like secrets do) and would strip the steer of the entry it needs to
+ * fire — which can co-occur with a confirmation, since one model response can
+ * open both tools concurrently.
  */
 export function removeByConversation(
   conversationId: string,
@@ -200,10 +260,26 @@ export function removeByConversation(
       interaction.kind !== "host_browser" &&
       interaction.kind !== "host_app_control" &&
       interaction.kind !== "host_transfer" &&
-      interaction.kind !== "acp_confirmation"
+      interaction.kind !== "acp_confirmation" &&
+      interaction.kind !== "question"
     ) {
       // resolve() clears the stored timer and detaches abort listeners.
       resolve(requestId, state);
+      // Secret prompts have no abort-signal teardown (unlike questions) and
+      // are not pre-settled by denyAllPendingConfirmations (unlike
+      // confirmations), so removing the entry alone would leave the caller's
+      // Promise — the CLI `credentials prompt` command or the in-conversation
+      // SecretPrompter — hanging until its IPC client times out. Settle it
+      // with a null result tagged with the resolution state so callers report
+      // a supersession honestly instead of a user cancel. rpcResolve is
+      // idempotent, so any later resolveSecret/dispose call is a no-op.
+      if (interaction.kind === "secret") {
+        interaction.rpcResolve?.({
+          value: null,
+          delivery: "store",
+          reason: state === "superseded" ? "superseded" : "cancelled",
+        });
+      }
     }
   }
 }

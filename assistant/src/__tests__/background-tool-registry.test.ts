@@ -4,9 +4,13 @@ import {
   _clearRegistryForTesting,
   type BackgroundTool,
   cancelBackgroundTool,
+  type CompletedBackgroundTool,
   generateBackgroundToolId,
   listBackgroundTools,
+  listCompletedBackgroundTools,
   MAX_BACKGROUND_TOOLS,
+  MAX_COMPLETED_BACKGROUND_TOOLS,
+  recordCompletedBackgroundTool,
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../tools/background-tool-registry.js";
@@ -126,6 +130,99 @@ describe("background-tool-registry", () => {
         registerBackgroundTool(makeTool({ id: "bg-cap-new" })),
       ).not.toThrow();
       expect(listBackgroundTools()).toHaveLength(MAX_BACKGROUND_TOOLS);
+    });
+  });
+
+  describe("completed ring (recordCompletedBackgroundTool)", () => {
+    function makeCompletion(
+      overrides: Partial<CompletedBackgroundTool> = {},
+    ): CompletedBackgroundTool {
+      return {
+        id: overrides.id ?? "bg-done-1",
+        toolName: overrides.toolName ?? "bash",
+        conversationId: overrides.conversationId ?? "conv-1",
+        command: overrides.command ?? "echo hi",
+        startedAt: overrides.startedAt ?? 1,
+        status: overrides.status ?? "completed",
+        exitCode: overrides.exitCode ?? 0,
+        output: overrides.output ?? "hi",
+        completedAt: overrides.completedAt ?? 2,
+      };
+    }
+
+    test("records a completed tool and lists it with terminal fields", () => {
+      recordCompletedBackgroundTool(
+        makeCompletion({ id: "bg-c1", status: "failed", exitCode: 1 }),
+      );
+
+      const listed = listCompletedBackgroundTools();
+      expect(listed).toHaveLength(1);
+      expect(listed[0]).toMatchObject({
+        id: "bg-c1",
+        status: "failed",
+        exitCode: 1,
+        output: "hi",
+      });
+    });
+
+    test("filters completed tools by conversationId", () => {
+      recordCompletedBackgroundTool(
+        makeCompletion({ id: "bg-c1", conversationId: "conv-1" }),
+      );
+      recordCompletedBackgroundTool(
+        makeCompletion({ id: "bg-c2", conversationId: "conv-2" }),
+      );
+
+      expect(listCompletedBackgroundTools("conv-1").map((t) => t.id)).toEqual([
+        "bg-c1",
+      ]);
+      expect(listCompletedBackgroundTools("conv-9")).toHaveLength(0);
+    });
+
+    test("re-recording the same id replaces rather than duplicates", () => {
+      recordCompletedBackgroundTool(
+        makeCompletion({ id: "bg-c1", status: "completed" }),
+      );
+      recordCompletedBackgroundTool(
+        makeCompletion({ id: "bg-c1", status: "cancelled" }),
+      );
+
+      const listed = listCompletedBackgroundTools();
+      expect(listed).toHaveLength(1);
+      expect(listed[0]!.status).toBe("cancelled");
+    });
+
+    test("evicts the oldest beyond MAX_COMPLETED_BACKGROUND_TOOLS", () => {
+      for (let i = 0; i < MAX_COMPLETED_BACKGROUND_TOOLS + 5; i++) {
+        recordCompletedBackgroundTool(makeCompletion({ id: `bg-r${i}` }));
+      }
+
+      const listed = listCompletedBackgroundTools();
+      expect(listed).toHaveLength(MAX_COMPLETED_BACKGROUND_TOOLS);
+      // Oldest five evicted; newest retained.
+      expect(listed.some((t) => t.id === "bg-r0")).toBe(false);
+      expect(listed.some((t) => t.id === "bg-r5")).toBe(true);
+      expect(
+        listed.some(
+          (t) => t.id === `bg-r${MAX_COMPLETED_BACKGROUND_TOOLS + 4}`,
+        ),
+      ).toBe(true);
+    });
+
+    test("recording a completion does not touch the active registry", () => {
+      registerBackgroundTool(makeTool({ id: "bg-active" }));
+      recordCompletedBackgroundTool(makeCompletion({ id: "bg-done" }));
+
+      expect(listBackgroundTools().map((t) => t.id)).toEqual(["bg-active"]);
+      expect(listCompletedBackgroundTools().map((t) => t.id)).toEqual([
+        "bg-done",
+      ]);
+    });
+
+    test("_clearRegistryForTesting clears the completed ring", () => {
+      recordCompletedBackgroundTool(makeCompletion({ id: "bg-c1" }));
+      _clearRegistryForTesting();
+      expect(listCompletedBackgroundTools()).toHaveLength(0);
     });
   });
 

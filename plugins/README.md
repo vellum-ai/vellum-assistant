@@ -36,10 +36,12 @@ wired surface.
 
 The external plugin loader extends the assistant by wiring these contribution surfaces.
 
-| Surface             | Directory         | Discovery                                     |
-| ------------------- | ----------------- | --------------------------------------------- |
-| Lifecycle hooks     | `hooks/<name>.ts` | filename → `plugin.hooks[<name>]`             |
-| Model-visible tools | `tools/<name>.ts` | each file's default export → `plugin.tools[]` |
+| Surface             | Directory                | Discovery                                                       |
+| ------------------- | ------------------------ | --------------------------------------------------------------- |
+| Lifecycle hooks     | `hooks/<name>.ts`        | filename → `plugin.hooks[<name>]`                               |
+| Model-visible tools | `tools/<name>.ts`        | each file's default export → `plugin.tools[]`                   |
+| Skills              | `skills/<id>/SKILL.md`   | picked up on disk by the skill catalog loader                   |
+| Skill-scoped tools  | `skills/<id>/TOOLS.json` | registered only while the skill is active (see [Tools](#tools)) |
 
 ---
 
@@ -131,7 +133,7 @@ filename becomes the hook key. **One hook per file.**
 The hook signature is:
 
 ```ts
-type PluginHookFn<TCtx> = (ctx: TCtx) => Promise<Partial<TCtx> | void>;
+type HookFunction<TCtx> = (ctx: TCtx) => Promise<Partial<TCtx> | void>;
 ```
 
 The return shape means a hook can either **mutate `ctx` in place and
@@ -152,11 +154,10 @@ plugin.
 
 ```ts
 // hooks/init.ts
-import type { PluginInitContext } from "@vellumai/plugin-api";
+import type { InitContext } from "@vellumai/plugin-api";
 
-export default async function init(ctx: PluginInitContext): Promise<void> {
+export default async function init(ctx: InitContext): Promise<void> {
   // ctx.config            — your validated config (typed `unknown` for now)
-  // ctx.credentials       — resolved credential values, keyed by manifest entry
   // ctx.logger            — pino child, bound to { plugin: <name> }
   // ctx.pluginStorageDir  — writable dir at <workspace>/plugins-data/<name>/
   // ctx.assistantVersion  — host semver string
@@ -177,10 +178,10 @@ explicit unload, etc.).
 
 ```ts
 // hooks/shutdown.ts
-import type { PluginShutdownContext } from "@vellumai/plugin-api";
+import type { ShutdownContext } from "@vellumai/plugin-api";
 
 export default async function shutdown(
-  ctx: PluginShutdownContext,
+  ctx: ShutdownContext,
 ): Promise<void> {
   // ctx.assistantVersion  — host semver string
 }
@@ -239,15 +240,75 @@ export default async function preModelCall(
   // ctx.conversationId       — ID of the conversation the call belongs to
   // ctx.callSite             — call site ("mainAgent" for the user-facing reply)
   // ctx.systemPrompt         — system prompt about to be sent; replace to edit it
+  // ctx.modelProfile         — inference profile (key in `llm.profiles`) this call
+  //                            routes to; set it to route to a different profile
   // ctx.deferAssistantOutput — set true to suppress this turn's live text stream
   //                            (a `post-model-call` hook then emits the text)
   // ctx.logger               — turn-scoped; tag log fields with { plugin: <name> }
 }
 ```
 
+Setting `ctx.modelProfile` to a profile key (one of the entries in the
+workspace's `llm.profiles`) routes this single call to that profile — the lever a
+**model router** uses to pick a model per message. It is seeded with the call's
+already-resolved override profile; clear it to `null` to send no override. For
+the user-facing `mainAgent` call the named profile sits at the top of resolution
+precedence (above the workspace's active profile), so the hook's choice wins; a
+key that names no profile falls through unchanged.
+
+Context-window sizing and overflow recovery for a call are computed from the
+profile resolved before the hook runs, so routing a near-budget conversation to
+a profile with a smaller context window relies on the loop's overflow recovery
+(compact and retry) rather than proactive compaction.
+
+```ts
+// hooks/pre-model-call.ts — route the user-facing reply by classified intent
+import type { PreModelCallContext } from "@vellumai/plugin-api";
+
+export default function preModelCall(ctx: PreModelCallContext): void {
+  // Only route the user-facing reply; leave background/utility calls untouched.
+  if (ctx.callSite !== "mainAgent") return;
+  ctx.modelProfile = classify(ctx); // e.g. "cost-optimized" | "balanced" | "quality-optimized"
+}
+```
+
 Multiple plugins' hooks chain in registration order — each sees the previous
 hook's edits. Throwing is contained by the loop: the provider call proceeds with
 the original request.
+
+**Discovering routable profiles.** Profile keys vary per workspace, so a router
+shouldn't hard-code them. The runtime handle `getModelProfiles()` returns the
+profiles this workspace defines, in the order the `/model` picker shows them —
+each entry is `{ key, label, description, isActive, isDisabled, isMix }`. Assign
+a `key` to `ctx.modelProfile` to route a call there. Disabled profiles are
+included and flagged via `isDisabled`; weighted "mix" profiles are included and
+flagged via `isMix` (a mix is a valid target — routing to it A/B-splits the call
+across its constituents per conversation). It reads live config, so call it
+whenever you need the current set — at `init` to build a map once, or per call.
+
+```ts
+// hooks/init.ts — build and validate the router's category → profile map
+import { getModelProfiles, type InitContext } from "@vellumai/plugin-api";
+
+const CATEGORY_PROFILE: Record<string, string> = {
+  chat: "cost-optimized",
+  research: "balanced",
+  deep: "quality-optimized",
+};
+
+export default function init(ctx: InitContext): void {
+  const routable = new Set(
+    getModelProfiles()
+      .filter((p) => !p.isDisabled)
+      .map((p) => p.key),
+  );
+  for (const [category, key] of Object.entries(CATEGORY_PROFILE)) {
+    if (!routable.has(key)) {
+      ctx.logger.warn({ category, key }, "configured profile missing or disabled");
+    }
+  }
+}
+```
 
 ### `post-tool-use`
 
@@ -412,8 +473,8 @@ export default async function postCompact(
   // ctx.conversationId   — conversation the turn being compacted is scoped to
   // ctx.isNonInteractive — true when no human is present (scheduled, background,
   //                        or headless run)
-  // ctx.modelProfileKey  — active inference-profile key to surface, or null when
-  //                        unchanged since last announced to the model
+  // ctx.modelProfileKey  — effective inference-profile identity for the model
+  //                        the compacted turn keeps using
   // ctx.injectionMode    — "full" (restore complete runtime context) or
   //                        "minimal" (reduced volume the overflow-recovery
   //                        downgrade selects); defaults to "full"
@@ -444,6 +505,19 @@ derives the model-visible tool name from the file basename (for example,
 `tools/recall.ts` becomes `recall`). Plugin tools land in the same registry
 as built-in tools and are visible to the model through the standard tool
 catalog.
+
+**Always-on cost — prefer skill-scoped tools.** A `tools/<name>.ts` tool sits
+on every conversation's tool catalog on every turn, whether or not the plugin
+is relevant. When a tool only matters while one of the plugin's skills is
+active, declare it in that skill's `TOOLS.json` instead: it registers when the
+skill loads, unregisters when the skill deactivates, and is invoked through
+`skill_execute` (its schema is rendered into the `skill_load` output). Skill
+tools in plugin skills must declare `execution_target: "sandbox"` — host
+execution is reserved for first-party bundled skills — and a tool name may be
+owned by only one skill, so share a single carrier skill via the parents'
+`includes` rather than duplicating the entry. See the `plugin-builder` skill's
+`references/skills.md` for the manifest shape; `admin-copilot` is the
+reference implementation.
 
 ```ts
 // tools/my_tool.ts
@@ -563,6 +637,32 @@ Whitelisting makes an external plugin **appear in the catalog and install by
 name**. It does not by itself guarantee the plugin's hooks/tools match this
 loader's conventions — a plugin authored for another ecosystem may install yet
 contribute nothing on boot. A **postinstall adapter** bridges that gap.
+
+### Installing a plugin not in the marketplace (untrusted)
+
+While a plugin is still under development — before it is whitelisted here —
+install it directly from its GitHub repo by passing a URL (anything containing a
+slash) instead of a marketplace name:
+
+```bash
+assistant plugins install https://github.com/owner/repo
+assistant plugins install https://github.com/owner/repo/tree/my-branch/sub/path
+assistant plugins install owner/repo --name my-plugin
+```
+
+The ref comes from the URL's `/tree/<ref>/` segment, or defaults to the
+repository's default branch. The install directory name is derived from the repo
+(or sub-path leaf) and can be overridden with `--name`.
+
+A direct install **bypasses marketplace curation entirely**: the tree is
+materialized verbatim (no [postinstall adapter](#postinstall-adapters) is
+overlaid), and the source is **untrusted** — it has not been reviewed and its
+hooks/tools run inside the assistant with full access. The CLI prints a yellow
+warning naming the source, so the choice to trust it is explicit. Unlike
+marketplace installs — which pin an immutable, reviewed commit SHA — a branch or
+`HEAD` ref is mutable, so a direct install is a development convenience, not a
+reproducible pin. The marketplace-only flags (`--ref`, `--pin`,
+`--allow-unreviewed`) do not apply.
 
 ### Postinstall adapters
 

@@ -1,28 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    heartbeat: {
-      enabled: false,
-      intervalMs: 60_000,
-      activeHoursStart: null,
-      activeHoursEnd: null,
-      cronExpression: null,
-      timezone: null,
-    },
-  }),
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-}));
-
 mock.module("../heartbeat/heartbeat-service.js", () => ({
   HeartbeatService: {
     getInstance: () => null,
@@ -61,22 +38,23 @@ mock.module("../daemon/conversation-store.js", () => ({
   },
 }));
 
+import type { AssistantEventEnvelope } from "../api/index.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import {
   insertPendingHeartbeatRun,
   startHeartbeatRun,
+  supersedePendingRun,
 } from "../heartbeat/heartbeat-run-store.js";
 import {
   archiveConversation,
   createConversation,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { recordUsageEvent } from "../memory/llm-usage-store.js";
-import { rawRun } from "../memory/raw-query.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { recordUsageEvent } from "../persistence/llm-usage-store.js";
+import { rawRun } from "../persistence/raw-query.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { BadRequestError } from "../runtime/routes/errors.js";
+import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "../runtime/routes/heartbeat-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
@@ -84,13 +62,10 @@ import {
   completeScheduleRun,
   createSchedule,
   createScheduleRun,
-  getScheduleRuns,
   listSchedules,
 } from "../schedule/schedule-store.js";
-import { scheduleTask } from "../tasks/task-scheduler.js";
-import { createTask } from "../tasks/task-store.js";
 
-initializeDb();
+await initializeDb();
 
 function clearTables(): void {
   const db = getDb();
@@ -108,7 +83,9 @@ function findRoute(endpoint: string, method: string): RouteDefinition {
   const route = SCHEDULE_ROUTES.find(
     (r) => r.endpoint === endpoint && r.method === method,
   );
-  if (!route) throw new Error(`Route ${method} ${endpoint} not found`);
+  if (!route) {
+    throw new Error(`Route ${method} ${endpoint} not found`);
+  }
   return route;
 }
 
@@ -116,7 +93,9 @@ function findHeartbeatRoute(endpoint: string, method: string): RouteDefinition {
   const route = HEARTBEAT_ROUTES.find(
     (r) => r.endpoint === endpoint && r.method === method,
   );
-  if (!route) throw new Error(`Route ${method} ${endpoint} not found`);
+  if (!route) {
+    throw new Error(`Route ${method} ${endpoint} not found`);
+  }
   return route;
 }
 
@@ -145,6 +124,7 @@ function recordUsageCostAt(
     { estimatedCostUsd, pricingStatus: "priced" },
   );
   rawRun(
+    "test:setUsageCreatedAt",
     "UPDATE llm_usage_events SET created_at = ? WHERE id = ?",
     createdAt,
     event.id,
@@ -163,6 +143,7 @@ function setScheduleRunWindow({
   status?: "ok" | "error" | "running";
 }) {
   rawRun(
+    "test:setCronRunWindow",
     "UPDATE cron_runs SET status = ?, started_at = ?, finished_at = ?, duration_ms = ?, created_at = ? WHERE id = ?",
     status,
     startedAt,
@@ -176,7 +157,9 @@ function setScheduleRunWindow({
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 500;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error("Timed out waiting for schedule route event");
@@ -189,7 +172,7 @@ describe("schedule run-now trust propagation", () => {
   });
 
   test("manual run-now executes plain schedules with guardian trust", async () => {
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Direct schedule",
       cronExpression: "* * * * *",
       message: "scan my inbox",
@@ -212,117 +195,6 @@ describe("schedule run-now trust propagation", () => {
     expect(processCalls[0].isInteractive).toBe(false);
     expect(fakeConversation.taskRunId).toBeUndefined();
   });
-
-  test("manual run-now executes scheduled tasks with guardian trust and taskRunId", async () => {
-    const task = createTask({
-      title: "Email triage",
-      template: "triage inbox in background",
-    });
-    const schedule = scheduleTask({
-      taskId: task.id,
-      name: "Scheduled task",
-      cronExpression: "* * * * *",
-    });
-
-    const observedTaskRunIds: Array<string | undefined> = [];
-    fakeConversation = {
-      taskRunId: undefined,
-      async processMessage(options: Record<string, unknown>) {
-        observedTaskRunIds.push(fakeConversation.taskRunId);
-        processCalls.push(options);
-        return "message-id";
-      },
-    };
-
-    const route = findRoute("schedules/:id/run", "POST");
-    const result = (await route.handler({
-      pathParams: { id: schedule.id },
-    })) as { schedules: unknown[] };
-
-    expect(result.schedules).toBeDefined();
-    expect(getOrCreateCalls).toHaveLength(1);
-    expect(getOrCreateCalls[0].options?.trustContext).toEqual({
-      sourceChannel: "vellum",
-      trustClass: "guardian",
-    });
-    expect(processCalls).toHaveLength(1);
-    expect(processCalls[0].content).toBe("triage inbox in background");
-    expect(processCalls[0].isInteractive).toBe(false);
-    expect(typeof observedTaskRunIds[0]).toBe("string");
-    expect(fakeConversation.taskRunId).toBeUndefined();
-  });
-
-  test("manual run-now opens task-backed schedule runs before task processing", async () => {
-    const task = createTask({
-      title: "Manual Usage Task",
-      template: "spend tokens manually",
-    });
-    const schedule = scheduleTask({
-      taskId: task.id,
-      name: "Manual scheduled task",
-      cronExpression: "* * * * *",
-    });
-
-    const from = Date.now() - 1000;
-    let usageEventCreatedAt: number | null = null;
-    let runsDuringProcessing: ReturnType<typeof getScheduleRuns> = [];
-    fakeConversation = {
-      taskRunId: undefined,
-      async processMessage(options: Record<string, unknown>) {
-        processCalls.push(options);
-        const conversationId = getOrCreateCalls[0]?.conversationId;
-        runsDuringProcessing = getScheduleRuns(schedule.id);
-        usageEventCreatedAt = Date.now();
-        recordUsageCostAt(
-          conversationId ?? "missing-conversation",
-          "manual-scheduled-task-usage",
-          usageEventCreatedAt,
-          0.25,
-        );
-        return "message-id";
-      },
-    };
-
-    const route = findRoute("schedules/:id/run", "POST");
-    await route.handler({ pathParams: { id: schedule.id } });
-    const to = Date.now() + 1000;
-
-    expect(usageEventCreatedAt).not.toBeNull();
-    expect(runsDuringProcessing).toHaveLength(1);
-    expect(runsDuringProcessing[0].status).toBe("running");
-    expect(runsDuringProcessing[0].conversationId).toBeNull();
-    expect(runsDuringProcessing[0].startedAt).toBeLessThanOrEqual(
-      usageEventCreatedAt!,
-    );
-
-    const runs = getScheduleRuns(schedule.id);
-    expect(runs).toHaveLength(1);
-    expect(runs[0].id).toBe(runsDuringProcessing[0].id);
-    expect(runs[0].status).toBe("ok");
-    expect(runs[0].conversationId).toBe(getOrCreateCalls[0].conversationId);
-    expect(runs[0].finishedAt).not.toBeNull();
-    expect(runs[0].finishedAt!).toBeGreaterThanOrEqual(usageEventCreatedAt!);
-
-    const summaryRoute = findRoute("schedules/usage-summary", "GET");
-    const summaryResult = summaryRoute.handler({
-      queryParams: { from: String(from), to: String(to) },
-    }) as {
-      summaries: Array<{
-        scheduleId: string;
-        runCount: number;
-        totalEstimatedCostUsd: number;
-        eventCount: number;
-      }>;
-    };
-    expect(
-      summaryResult.summaries.find((row) => row.scheduleId === schedule.id),
-    ).toEqual({
-      scheduleId: schedule.id,
-      runCount: 1,
-      totalEstimatedCostUsd: 0.25,
-      eventCount: 1,
-    });
-  });
 });
 
 // ── GET /schedules — default defer exclusion ──────────────────────────────
@@ -332,14 +204,14 @@ describe("GET /schedules — default defer exclusion", () => {
     clearTables();
   });
 
-  test("excludes deferred wakes by default", () => {
-    createSchedule({
+  test("excludes deferred wakes by default", async () => {
+    await createSchedule({
       name: "Agent schedule",
       cronExpression: "* * * * *",
       message: "hello",
       syntax: "cron",
     });
-    const deferred = createSchedule({
+    const deferred = await createSchedule({
       name: "Deferred wake",
       cronExpression: "0 9 * * *",
       message: "wake up",
@@ -348,21 +220,21 @@ describe("GET /schedules — default defer exclusion", () => {
     });
 
     const route = findRoute("schedules", "GET");
-    const result = route.handler({}) as {
+    const result = (await route.handler({})) as {
       schedules: Array<{ id: string }>;
     };
     expect(result.schedules).toHaveLength(1);
     expect(result.schedules.every((s) => s.id !== deferred.id)).toBe(true);
   });
 
-  test("returns all schedules when include_all=true", () => {
-    createSchedule({
+  test("returns all schedules when include_all=true", async () => {
+    await createSchedule({
       name: "Agent schedule",
       cronExpression: "* * * * *",
       message: "hello",
       syntax: "cron",
     });
-    createSchedule({
+    await createSchedule({
       name: "Deferred wake",
       cronExpression: "0 9 * * *",
       message: "wake up",
@@ -371,39 +243,39 @@ describe("GET /schedules — default defer exclusion", () => {
     });
 
     const route = findRoute("schedules", "GET");
-    const result = route.handler({
+    const result = (await route.handler({
       queryParams: { include_all: "true" },
-    }) as { schedules: Array<{ id: string }> };
+    })) as { schedules: Array<{ id: string }> };
     expect(result.schedules).toHaveLength(2);
   });
 
-  test("includes source conversation availability metadata", () => {
+  test("includes source conversation availability metadata", async () => {
     const activeSource = createConversation("Active schedule source");
     const archivedSource = createConversation("Archived schedule source");
     expect(archiveConversation(archivedSource.id)).toBe(true);
 
-    createSchedule({
+    await createSchedule({
       name: "Active source schedule",
       cronExpression: "* * * * *",
       message: "active source",
       syntax: "cron",
       createdFromConversationId: activeSource.id,
     });
-    createSchedule({
+    await createSchedule({
       name: "Archived source schedule",
       cronExpression: "0 9 * * *",
       message: "archived source",
       syntax: "cron",
       createdFromConversationId: archivedSource.id,
     });
-    createSchedule({
+    await createSchedule({
       name: "Missing source schedule",
       cronExpression: "0 10 * * *",
       message: "missing source",
       syntax: "cron",
       createdFromConversationId: "conv-missing",
     });
-    createSchedule({
+    await createSchedule({
       name: "No source schedule",
       cronExpression: "0 11 * * *",
       message: "no source",
@@ -411,7 +283,7 @@ describe("GET /schedules — default defer exclusion", () => {
     });
 
     const route = findRoute("schedules", "GET");
-    const result = route.handler({}) as {
+    const result = (await route.handler({})) as {
       schedules: Array<{
         name: string;
         createdFromConversationId: string | null;
@@ -441,8 +313,8 @@ describe("GET /schedules — default defer exclusion", () => {
     expect(noSource.createdFromConversationArchivedAt).toBeNull();
   });
 
-  test("returns authored descriptions separately from cadence descriptions", () => {
-    createSchedule({
+  test("returns authored descriptions separately from cadence descriptions", async () => {
+    await createSchedule({
       name: "Described schedule",
       description: "Review the morning queue",
       cronExpression: "0 9 * * *",
@@ -451,7 +323,7 @@ describe("GET /schedules — default defer exclusion", () => {
     });
 
     const route = findRoute("schedules", "GET");
-    const result = route.handler({}) as {
+    const result = (await route.handler({})) as {
       schedules: Array<{
         name: string;
         description: string;
@@ -467,8 +339,8 @@ describe("GET /schedules — default defer exclusion", () => {
     });
   });
 
-  test("returns One-time as the cadence description for one-shot schedules", () => {
-    createSchedule({
+  test("returns One-time as the cadence description for one-shot schedules", async () => {
+    await createSchedule({
       name: "One-shot schedule",
       description: "Send a one-time reminder",
       cronExpression: null,
@@ -477,7 +349,7 @@ describe("GET /schedules — default defer exclusion", () => {
     });
 
     const route = findRoute("schedules", "GET");
-    const result = route.handler({}) as {
+    const result = (await route.handler({})) as {
       schedules: Array<{
         name: string;
         description: string;
@@ -492,14 +364,14 @@ describe("GET /schedules — default defer exclusion", () => {
     });
   });
 
-  test("humanizes rrule cadences and flags single-fire rrules as one-shot", () => {
-    createSchedule({
+  test("humanizes rrule cadences and flags single-fire rrules as one-shot", async () => {
+    await createSchedule({
       name: "RRule single fire",
       cronExpression: "DTSTART:20990612T080000\nRRULE:FREQ=DAILY;COUNT=1",
       syntax: "rrule",
       message: "brush teeth",
     });
-    createSchedule({
+    await createSchedule({
       name: "RRule weekly",
       cronExpression: "DTSTART:20990612T080000\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE",
       syntax: "rrule",
@@ -507,7 +379,7 @@ describe("GET /schedules — default defer exclusion", () => {
     });
 
     const route = findRoute("schedules", "GET");
-    const result = route.handler({}) as {
+    const result = (await route.handler({})) as {
       schedules: Array<{
         name: string;
         cadenceDescription: string;
@@ -526,14 +398,14 @@ describe("GET /schedules — default defer exclusion", () => {
     });
   });
 
-  test("mutation responses also exclude deferred wakes", () => {
-    createSchedule({
+  test("mutation responses also exclude deferred wakes", async () => {
+    await createSchedule({
       name: "Agent schedule",
       cronExpression: "* * * * *",
       message: "hello",
       syntax: "cron",
     });
-    createSchedule({
+    await createSchedule({
       name: "Deferred wake",
       cronExpression: "0 9 * * *",
       message: "wake up",
@@ -543,16 +415,16 @@ describe("GET /schedules — default defer exclusion", () => {
 
     const route = findRoute("schedules/:id/toggle", "POST");
     const agent = listSchedules().find((j) => j.createdBy === "agent")!;
-    const result = route.handler({
+    const result = (await route.handler({
       pathParams: { id: agent.id },
       body: { enabled: false },
-    }) as { schedules: Array<{ id: string }> };
+    })) as { schedules: Array<{ id: string }> };
     expect(result.schedules).toHaveLength(1);
     expect(result.schedules[0].id).toBe(agent.id);
   });
 
   test("mutation routes emit schedule sync invalidation", async () => {
-    const received: AssistantEvent[] = [];
+    const received: AssistantEventEnvelope[] = [];
     const subscription = assistantEventHub.subscribe({
       type: "process",
       callback: (event) => {
@@ -561,7 +433,7 @@ describe("GET /schedules — default defer exclusion", () => {
     });
 
     try {
-      const agent = createSchedule({
+      const agent = await createSchedule({
         name: "Agent schedule",
         cronExpression: "* * * * *",
         message: "hello",
@@ -571,7 +443,7 @@ describe("GET /schedules — default defer exclusion", () => {
       received.length = 0;
 
       const route = findRoute("schedules/:id/toggle", "POST");
-      route.handler({
+      await route.handler({
         pathParams: { id: agent.id },
         body: { enabled: false },
       });
@@ -587,6 +459,75 @@ describe("GET /schedules — default defer exclusion", () => {
   });
 });
 
+// ── GET /schedules/:id ────────────────────────────────────────────────────
+
+describe("GET /schedules/:id", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("returns the full schedule by ID", async () => {
+    const source = createConversation("Schedule source");
+    const schedule = await createSchedule({
+      name: "Single schedule",
+      description: "Fetch me by ID",
+      cronExpression: "0 9 * * *",
+      message: "review queue",
+      syntax: "cron",
+      createdFromConversationId: source.id,
+    });
+
+    const route = findRoute("schedules/:id", "GET");
+    const result = (await route.handler({
+      pathParams: { id: schedule.id },
+    })) as {
+      schedule: Record<string, unknown>;
+    };
+
+    expect(result.schedule).toMatchObject({
+      id: schedule.id,
+      name: "Single schedule",
+      description: "Fetch me by ID",
+      cadenceDescription: "Every day at 9:00 AM",
+      message: "review queue",
+      mode: "execute",
+      enabled: true,
+      isOneShot: false,
+      createdFromConversationId: source.id,
+      createdFromConversationExists: true,
+      createdFromConversationArchivedAt: null,
+    });
+  });
+
+  test("returns deferred schedules that the list hides by default", async () => {
+    const deferred = await createSchedule({
+      name: "Deferred wake",
+      cronExpression: "0 9 * * *",
+      message: "wake up",
+      syntax: "cron",
+      createdBy: "defer",
+    });
+
+    const route = findRoute("schedules/:id", "GET");
+    const result = (await route.handler({
+      pathParams: { id: deferred.id },
+    })) as {
+      schedule: { id: string };
+    };
+    expect(result.schedule.id).toBe(deferred.id);
+  });
+
+  test("throws NotFoundError for a missing schedule", () => {
+    const route = findRoute("schedules/:id", "GET");
+    expect(() =>
+      route.handler({ pathParams: { id: "missing-schedule" } }),
+    ).toThrow(NotFoundError);
+    expect(() =>
+      route.handler({ pathParams: { id: "missing-schedule" } }),
+    ).toThrow("Schedule not found");
+  });
+});
+
 // ── schedules/:id/runs limit handling ─────────────────────────────────────
 
 describe("schedule runs list — limit handling", () => {
@@ -594,109 +535,109 @@ describe("schedule runs list — limit handling", () => {
     clearTables();
   });
 
-  test("returns with default limit when no param is provided", () => {
-    const job = createSchedule({
+  test("returns with default limit when no param is provided", async () => {
+    const job = await createSchedule({
       name: "runs default",
       cronExpression: "* * * * *",
       message: "hi",
       syntax: "cron",
     });
     for (let i = 0; i < 3; i += 1) {
-      createScheduleRun(job.id, `conv-${i}`);
+      await createScheduleRun(job.id, `conv-${i}`);
     }
     const route = findRoute("schedules/:id/runs", "GET");
-    const result = route.handler({ pathParams: { id: job.id } }) as {
+    const result = (await route.handler({ pathParams: { id: job.id } })) as {
       runs: unknown[];
     };
     expect(Array.isArray(result.runs)).toBe(true);
     expect(result.runs).toHaveLength(3);
   });
 
-  test("non-numeric limit falls back to default", () => {
-    const job = createSchedule({
+  test("non-numeric limit falls back to default", async () => {
+    const job = await createSchedule({
       name: "runs nan",
       cronExpression: "* * * * *",
       message: "hi",
       syntax: "cron",
     });
-    createScheduleRun(job.id, "conv");
+    await createScheduleRun(job.id, "conv");
     const route = findRoute("schedules/:id/runs", "GET");
-    const result = route.handler({
+    const result = (await route.handler({
       pathParams: { id: job.id },
       queryParams: { limit: "abc" },
-    }) as { runs: unknown[] };
+    })) as { runs: unknown[] };
     expect(Array.isArray(result.runs)).toBe(true);
   });
 
-  test("negative limit is clamped to 1", () => {
-    const job = createSchedule({
+  test("negative limit is clamped to 1", async () => {
+    const job = await createSchedule({
       name: "runs negative",
       cronExpression: "* * * * *",
       message: "hi",
       syntax: "cron",
     });
     for (let i = 0; i < 5; i += 1) {
-      createScheduleRun(job.id, `conv-${i}`);
+      await createScheduleRun(job.id, `conv-${i}`);
     }
     const route = findRoute("schedules/:id/runs", "GET");
-    const result = route.handler({
+    const result = (await route.handler({
       pathParams: { id: job.id },
       queryParams: { limit: "-5" },
-    }) as { runs: unknown[] };
+    })) as { runs: unknown[] };
     expect(result.runs).toHaveLength(1);
   });
 
-  test("zero limit is clamped to 1", () => {
-    const job = createSchedule({
+  test("zero limit is clamped to 1", async () => {
+    const job = await createSchedule({
       name: "runs zero",
       cronExpression: "* * * * *",
       message: "hi",
       syntax: "cron",
     });
     for (let i = 0; i < 3; i += 1) {
-      createScheduleRun(job.id, `conv-${i}`);
+      await createScheduleRun(job.id, `conv-${i}`);
     }
     const route = findRoute("schedules/:id/runs", "GET");
-    const result = route.handler({
+    const result = (await route.handler({
       pathParams: { id: job.id },
       queryParams: { limit: "0" },
-    }) as { runs: unknown[] };
+    })) as { runs: unknown[] };
     expect(result.runs).toHaveLength(1);
   });
 
-  test("limit above 100 is capped at 100", () => {
-    const job = createSchedule({
+  test("limit above 100 is capped at 100", async () => {
+    const job = await createSchedule({
       name: "runs huge",
       cronExpression: "* * * * *",
       message: "hi",
       syntax: "cron",
     });
     for (let i = 0; i < 5; i += 1) {
-      createScheduleRun(job.id, `conv-${i}`);
+      await createScheduleRun(job.id, `conv-${i}`);
     }
     const route = findRoute("schedules/:id/runs", "GET");
-    const result = route.handler({
+    const result = (await route.handler({
       pathParams: { id: job.id },
       queryParams: { limit: "9999" },
-    }) as { runs: unknown[] };
+    })) as { runs: unknown[] };
     expect(result.runs).toHaveLength(5);
   });
 
-  test("fractional limit is floored", () => {
-    const job = createSchedule({
+  test("fractional limit is floored", async () => {
+    const job = await createSchedule({
       name: "runs frac",
       cronExpression: "* * * * *",
       message: "hi",
       syntax: "cron",
     });
     for (let i = 0; i < 5; i += 1) {
-      createScheduleRun(job.id, `conv-${i}`);
+      await createScheduleRun(job.id, `conv-${i}`);
     }
     const route = findRoute("schedules/:id/runs", "GET");
-    const result = route.handler({
+    const result = (await route.handler({
       pathParams: { id: job.id },
       queryParams: { limit: "2.7" },
-    }) as { runs: unknown[] };
+    })) as { runs: unknown[] };
     expect(result.runs).toHaveLength(2);
   });
 });
@@ -708,8 +649,8 @@ describe("schedule and heartbeat run metadata", () => {
     clearTables();
   });
 
-  test("schedule runs expose conversation availability and cost by run window", () => {
-    const job = createSchedule({
+  test("schedule runs expose conversation availability and cost by run window", async () => {
+    const job = await createSchedule({
       name: "windowed run",
       cronExpression: "* * * * *",
       message: "hi",
@@ -721,9 +662,10 @@ describe("schedule and heartbeat run metadata", () => {
       source: "schedule",
       scheduleJobId: job.id,
     });
-    const runId = createScheduleRun(job.id, conversation.id);
-    completeScheduleRun(runId, { status: "ok" });
+    const runId = await createScheduleRun(job.id, conversation.id);
+    await completeScheduleRun(runId, { status: "ok" });
     rawRun(
+      "test:setCronRunTimes",
       "UPDATE cron_runs SET started_at = ?, finished_at = ?, duration_ms = ?, created_at = ? WHERE id = ?",
       1000,
       2000,
@@ -739,7 +681,7 @@ describe("schedule and heartbeat run metadata", () => {
     recordUsageCostAt(conversation.id, "req-after-run", 2500, 0.75);
 
     const route = findRoute("schedules/:id/runs", "GET");
-    const result = route.handler({ pathParams: { id: job.id } }) as {
+    const result = (await route.handler({ pathParams: { id: job.id } })) as {
       runs: Array<{
         conversationId: string | null;
         conversationExists: boolean;
@@ -755,8 +697,8 @@ describe("schedule and heartbeat run metadata", () => {
     expect(result.runs[0].estimatedCostUsd).toBeCloseTo(0.06);
   });
 
-  test("schedule runs keep archived conversations distinguishable from missing ones", () => {
-    const job = createSchedule({
+  test("schedule runs keep archived conversations distinguishable from missing ones", async () => {
+    const job = await createSchedule({
       name: "archived conversation",
       cronExpression: "* * * * *",
       message: "hi",
@@ -769,15 +711,16 @@ describe("schedule and heartbeat run metadata", () => {
     });
     const archivedAt = 3000;
     rawRun(
+      "test:archiveConversation",
       "UPDATE conversations SET archived_at = ? WHERE id = ?",
       archivedAt,
       conversation.id,
     );
-    const runId = createScheduleRun(job.id, conversation.id);
-    completeScheduleRun(runId, { status: "ok" });
+    const runId = await createScheduleRun(job.id, conversation.id);
+    await completeScheduleRun(runId, { status: "ok" });
 
     const route = findRoute("schedules/:id/runs", "GET");
-    const result = route.handler({ pathParams: { id: job.id } }) as {
+    const result = (await route.handler({ pathParams: { id: job.id } })) as {
       runs: Array<{
         conversationExists: boolean;
         conversationArchivedAt: number | null;
@@ -788,17 +731,17 @@ describe("schedule and heartbeat run metadata", () => {
     expect(result.runs[0].conversationArchivedAt).toBe(archivedAt);
   });
 
-  test("schedule runs keep missing and synthetic conversation ids non-clickable", () => {
-    const missingJob = createSchedule({
+  test("schedule runs keep missing and synthetic conversation ids non-clickable", async () => {
+    const missingJob = await createSchedule({
       name: "missing conversation",
       cronExpression: "* * * * *",
       message: "hi",
       syntax: "cron",
     });
-    const missingRunId = createScheduleRun(missingJob.id, "conv-missing");
-    completeScheduleRun(missingRunId, { status: "ok" });
+    const missingRunId = await createScheduleRun(missingJob.id, "conv-missing");
+    await completeScheduleRun(missingRunId, { status: "ok" });
 
-    const scriptJob = createSchedule({
+    const scriptJob = await createSchedule({
       name: "script schedule",
       cronExpression: "* * * * *",
       message: "",
@@ -807,22 +750,22 @@ describe("schedule and heartbeat run metadata", () => {
       syntax: "cron",
     });
     const syntheticId = `script:${scriptJob.id}`;
-    const scriptRunId = createScheduleRun(scriptJob.id, syntheticId);
-    completeScheduleRun(scriptRunId, { status: "ok" });
+    const scriptRunId = await createScheduleRun(scriptJob.id, syntheticId);
+    await completeScheduleRun(scriptRunId, { status: "ok" });
 
     const route = findRoute("schedules/:id/runs", "GET");
-    const missingResult = route.handler({
+    const missingResult = (await route.handler({
       pathParams: { id: missingJob.id },
-    }) as {
+    })) as {
       runs: Array<{
         conversationId: string | null;
         conversationExists: boolean;
         conversationArchivedAt: number | null;
       }>;
     };
-    const scriptResult = route.handler({
+    const scriptResult = (await route.handler({
       pathParams: { id: scriptJob.id },
-    }) as {
+    })) as {
       runs: Array<{
         conversationId: string | null;
         conversationExists: boolean;
@@ -846,6 +789,7 @@ describe("schedule and heartbeat run metadata", () => {
     const runId = insertPendingHeartbeatRun(900);
     startHeartbeatRun(runId);
     rawRun(
+      "test:setHeartbeatRunOk",
       "UPDATE heartbeat_runs SET status = 'ok', scheduled_for = ?, started_at = ?, finished_at = ?, duration_ms = ?, conversation_id = ?, created_at = ? WHERE id = ?",
       900,
       1000,
@@ -886,6 +830,7 @@ describe("schedule and heartbeat run metadata", () => {
     });
     const runId = insertPendingHeartbeatRun(1000);
     rawRun(
+      "test:setHeartbeatRunRunning",
       "UPDATE heartbeat_runs SET status = 'running', finished_at = NULL, conversation_id = ?, created_at = ? WHERE id = ?",
       conversation.id,
       1000,
@@ -901,6 +846,38 @@ describe("schedule and heartbeat run metadata", () => {
     };
 
     expect(result.runs[0].estimatedCostUsd).toBeCloseTo(0.02);
+  });
+
+  test("heartbeat runs omit bookkeeping rows so timer resets don't render as runs", () => {
+    const now = Date.now();
+
+    // Timer resets (e.g. guardian messages) supersede the pending row and
+    // schedule a new one an interval into the future.
+    for (let i = 0; i < 3; i++) {
+      supersedePendingRun(insertPendingHeartbeatRun(now + 60 * 60 * 1000 + i));
+    }
+    // The next scheduled run, not yet fired.
+    insertPendingHeartbeatRun(now + 60 * 60 * 1000 + 10);
+
+    // The one run that actually executed.
+    const okId = insertPendingHeartbeatRun(now - 1000);
+    startHeartbeatRun(okId);
+    rawRun(
+      "test:setHeartbeatRunOk",
+      "UPDATE heartbeat_runs SET status = 'ok', finished_at = ?, duration_ms = ? WHERE id = ?",
+      now,
+      1000,
+      okId,
+    );
+
+    const route = findHeartbeatRoute("heartbeat/runs", "GET");
+    const result = route.handler({}) as {
+      runs: Array<{ id: string; status: string }>;
+    };
+
+    expect(result.runs).toHaveLength(1);
+    expect(result.runs[0].id).toBe(okId);
+    expect(result.runs[0].status).toBe("ok");
   });
 });
 
@@ -929,14 +906,14 @@ describe("GET /schedules/usage-summary", () => {
     expect(result.summaries).toEqual([]);
   });
 
-  test("includes active and inactive schedules with zero activity", () => {
-    const active = createSchedule({
+  test("includes active and inactive schedules with zero activity", async () => {
+    const active = await createSchedule({
       name: "Active summary schedule",
       cronExpression: "* * * * *",
       message: "hi",
       syntax: "cron",
     });
-    const inactive = createSchedule({
+    const inactive = await createSchedule({
       name: "Inactive summary schedule",
       cronExpression: "0 9 * * *",
       message: "hi",
@@ -963,18 +940,18 @@ describe("GET /schedules/usage-summary", () => {
     });
   });
 
-  test("counts runs by started_at in the inclusive range regardless of status", () => {
-    const schedule = createSchedule({
+  test("counts runs by started_at in the inclusive range regardless of status", async () => {
+    const schedule = await createSchedule({
       name: "Run count schedule",
       cronExpression: "* * * * *",
       message: "hi",
       syntax: "cron",
     });
-    const beforeRun = createScheduleRun(schedule.id, "conv-runs");
-    const startRun = createScheduleRun(schedule.id, "conv-runs");
-    const errorRun = createScheduleRun(schedule.id, "conv-runs");
-    const runningRun = createScheduleRun(schedule.id, "conv-runs");
-    const afterRun = createScheduleRun(schedule.id, "conv-runs");
+    const beforeRun = await createScheduleRun(schedule.id, "conv-runs");
+    const startRun = await createScheduleRun(schedule.id, "conv-runs");
+    const errorRun = await createScheduleRun(schedule.id, "conv-runs");
+    const runningRun = await createScheduleRun(schedule.id, "conv-runs");
+    const afterRun = await createScheduleRun(schedule.id, "conv-runs");
 
     setScheduleRunWindow({
       runId: beforeRun,
@@ -1010,8 +987,8 @@ describe("GET /schedules/usage-summary", () => {
     expect(result.summaries[0].runCount).toBe(3);
   });
 
-  test("sums usage by schedule run windows and excludes reused-conversation usage outside those windows", () => {
-    const schedule = createSchedule({
+  test("sums usage by schedule run windows and excludes reused-conversation usage outside those windows", async () => {
+    const schedule = await createSchedule({
       name: "Usage attribution schedule",
       cronExpression: "* * * * *",
       message: "hi",
@@ -1023,8 +1000,11 @@ describe("GET /schedules/usage-summary", () => {
       source: "schedule",
       scheduleJobId: schedule.id,
     });
-    const includedRun = createScheduleRun(schedule.id, conversation.id);
-    const outsideRangeRun = createScheduleRun(schedule.id, conversation.id);
+    const includedRun = await createScheduleRun(schedule.id, conversation.id);
+    const outsideRangeRun = await createScheduleRun(
+      schedule.id,
+      conversation.id,
+    );
 
     setScheduleRunWindow({
       runId: includedRun,
@@ -1074,19 +1054,21 @@ describe("POST /schedules — create", () => {
     clearTables();
   });
 
-  function postCreate(body: Record<string, unknown>) {
+  async function postCreate(body: Record<string, unknown>) {
     const route = findRoute("schedules", "POST");
-    return route.handler({ body }) as { schedules: Array<{ id: string }> };
+    return (await route.handler({ body })) as {
+      schedule: { id: string; inferenceProfile: string | null };
+    };
   }
 
-  test("creates a recurring execute schedule with defaults", () => {
-    const result = postCreate({
+  test("creates a recurring execute schedule with defaults", async () => {
+    const result = await postCreate({
       name: "Morning ping",
       description: "Start the morning workflow",
       expression: "0 9 * * *",
       message: "good morning",
     });
-    expect(result.schedules).toHaveLength(1);
+    expect(result.schedule.id).toBeDefined();
     const job = listSchedules()[0];
     expect(job.name).toBe("Morning ping");
     expect(job.mode).toBe("execute");
@@ -1097,8 +1079,8 @@ describe("POST /schedules — create", () => {
     expect(job.timezone).toBeNull();
   });
 
-  test("trims whitespace and accepts an explicit timezone", () => {
-    postCreate({
+  test("trims whitespace and accepts an explicit timezone", async () => {
+    await postCreate({
       name: "  Trimmed  ",
       description: "  Trimmed description  ",
       expression: "  0 9 * * *  ",
@@ -1112,9 +1094,9 @@ describe("POST /schedules — create", () => {
     expect(job.timezone).toBe("America/New_York");
   });
 
-  test("accepts an rrule expression and detects syntax", () => {
+  test("accepts an rrule expression and detects syntax", async () => {
     const expression = "DTSTART:20260101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO";
-    postCreate({
+    await postCreate({
       name: "Weekly",
       description: "Weekly wake",
       expression,
@@ -1125,28 +1107,28 @@ describe("POST /schedules — create", () => {
     expect(job.expression).toBe(expression);
   });
 
-  test("rejects missing required fields", () => {
-    expect(() =>
+  test("rejects missing required fields", async () => {
+    await expect(
       postCreate({ expression: "* * * * *", message: "hi" }),
-    ).toThrow("name is required");
-    expect(() => postCreate({ name: "x", message: "hi" })).toThrow(
+    ).rejects.toThrow("name is required");
+    await expect(postCreate({ name: "x", message: "hi" })).rejects.toThrow(
       "expression is required",
     );
-    expect(() => postCreate({ name: "x", expression: "* * * * *" })).toThrow(
-      "message is required",
-    );
-    expect(() =>
+    await expect(
+      postCreate({ name: "x", expression: "* * * * *" }),
+    ).rejects.toThrow("message is required");
+    await expect(
       postCreate({
         name: "x",
         description: "   ",
         expression: "* * * * *",
         message: "hi",
       }),
-    ).toThrow("description is required");
+    ).rejects.toThrow("description is required");
   });
 
-  test("defaults omitted create descriptions for backward compatibility", () => {
-    postCreate({
+  test("defaults omitted create descriptions for backward compatibility", async () => {
+    await postCreate({
       name: "Description fallback",
       expression: "0 9 * * *",
       message: "hi",
@@ -1156,8 +1138,8 @@ describe("POST /schedules — create", () => {
     expect(job.description).toBe("Description fallback");
   });
 
-  test("rejects non-execute modes", () => {
-    expect(() =>
+  test("rejects modes other than execute/workflow/script", async () => {
+    await expect(
       postCreate({
         name: "x",
         description: "Run the thing",
@@ -1165,33 +1147,67 @@ describe("POST /schedules — create", () => {
         message: "hi",
         mode: "notify",
       }),
-    ).toThrow("Only 'execute' mode is supported");
+    ).rejects.toThrow(
+      "Only 'execute', 'script', and 'workflow' modes are supported",
+    );
   });
 
-  test("rejects an unparseable expression", () => {
-    expect(() =>
+  test("rejects an unparseable expression", async () => {
+    await expect(
       postCreate({
         name: "x",
         description: "Run the thing",
         expression: "not-a-cron",
         message: "hi",
       }),
-    ).toThrow("could not be parsed");
+    ).rejects.toThrow("could not be parsed");
   });
 
-  test("surfaces invalid-cron errors from the store as 400s", () => {
-    expect(() =>
+  test("surfaces invalid-cron errors from the store as 400s", async () => {
+    await expect(
       postCreate({
         name: "x",
         description: "Run the thing",
         expression: "99 99 99 99 99",
         message: "hi",
       }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 
-  test("respects enabled=false", () => {
-    postCreate({
+  test("persists and round-trips workflowName/workflowArgs in the list response", async () => {
+    // Store-level round trip: exercise persistence directly via the store,
+    // which is what the scheduler reads.
+    await createSchedule({
+      name: "Workflow schedule",
+      cronExpression: "0 9 * * *",
+      message: "trigger",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+      workflowArgs: { folder: "primary", limit: 10 },
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = (await route.handler({})) as {
+      schedules: Array<{
+        name: string;
+        mode: string;
+        workflowName: string | null;
+      }>;
+    };
+    const job = result.schedules.find((s) => s.name === "Workflow schedule");
+    expect(job).toBeDefined();
+    expect(job!.mode).toBe("workflow");
+    expect(job!.workflowName).toBe("triage-inbox");
+
+    // workflowArgs is not in the list projection; assert it round-trips at the
+    // store layer (this is what the scheduler reads).
+    const stored = listSchedules().find((s) => s.name === "Workflow schedule")!;
+    expect(stored.workflowArgs).toEqual({ folder: "primary", limit: 10 });
+  });
+
+  test("respects enabled=false", async () => {
+    await postCreate({
       name: "Off",
       description: "Disabled schedule",
       expression: "0 9 * * *",
@@ -1200,6 +1216,52 @@ describe("POST /schedules — create", () => {
     });
     const job = listSchedules()[0];
     expect(job.enabled).toBe(false);
+  });
+
+  test("persists a valid inferenceProfile and serializes it", async () => {
+    const result = await postCreate({
+      name: "Cheap digest",
+      description: "High-frequency digest on a cheap model",
+      expression: "0 * * * *",
+      message: "write the digest",
+      inferenceProfile: "cost-optimized",
+    });
+    expect(result.schedule.inferenceProfile).toBe("cost-optimized");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("defaults inferenceProfile to null when omitted", async () => {
+    const result = await postCreate({
+      name: "Default profile",
+      description: "Runs on the main-agent selection",
+      expression: "0 9 * * *",
+      message: "hi",
+    });
+    expect(result.schedule.inferenceProfile).toBeNull();
+  });
+
+  test("rejects an unknown inferenceProfile", async () => {
+    await expect(
+      postCreate({
+        name: "Bad profile",
+        description: "Unknown profile",
+        expression: "0 9 * * *",
+        message: "hi",
+        inferenceProfile: "does-not-exist",
+      }),
+    ).rejects.toThrow('Inference profile "does-not-exist" is not defined');
+  });
+
+  test("rejects a non-string inferenceProfile", async () => {
+    await expect(
+      postCreate({
+        name: "Bad profile type",
+        description: "Wrong type",
+        expression: "0 9 * * *",
+        message: "hi",
+        inferenceProfile: 42,
+      }),
+    ).rejects.toThrow("inferenceProfile must be a string or null");
   });
 });
 
@@ -1210,8 +1272,8 @@ describe("PATCH /schedules/:id — description", () => {
     clearTables();
   });
 
-  test("updates authored descriptions", () => {
-    const schedule = createSchedule({
+  test("updates authored descriptions", async () => {
+    const schedule = await createSchedule({
       name: "Description update",
       description: "Original description",
       cronExpression: "0 9 * * *",
@@ -1220,10 +1282,10 @@ describe("PATCH /schedules/:id — description", () => {
     });
 
     const route = findRoute("schedules/:id", "PATCH");
-    const result = route.handler({
+    const result = (await route.handler({
       pathParams: { id: schedule.id },
       body: { description: "Updated description" },
-    }) as {
+    })) as {
       schedules: Array<{ id: string; description: string }>;
     };
 
@@ -1232,6 +1294,76 @@ describe("PATCH /schedules/:id — description", () => {
       description: "Updated description",
     });
     expect(listSchedules()[0].description).toBe("Updated description");
+  });
+
+  test("sets, validates, and clears inferenceProfile", async () => {
+    const schedule = await createSchedule({
+      name: "Profile pin",
+      description: "Pinned profile schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    const route = findRoute("schedules/:id", "PATCH");
+
+    await route.handler({
+      pathParams: { id: schedule.id },
+      body: { inferenceProfile: "balanced" },
+    });
+    expect(listSchedules()[0].inferenceProfile).toBe("balanced");
+
+    await expect(
+      route.handler({
+        pathParams: { id: schedule.id },
+        body: { inferenceProfile: "does-not-exist" },
+      }),
+    ).rejects.toThrow('Inference profile "does-not-exist" is not defined');
+    expect(listSchedules()[0].inferenceProfile).toBe("balanced");
+
+    await route.handler({
+      pathParams: { id: schedule.id },
+      body: { inferenceProfile: null },
+    });
+    expect(listSchedules()[0].inferenceProfile).toBeNull();
+  });
+
+  test("re-derives syntax when the expression switches cron to rrule", async () => {
+    const schedule = await createSchedule({
+      name: "Syntax switch",
+      description: "Cron schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules/:id", "PATCH");
+    const rrule = "DTSTART:20260101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO";
+    await route.handler({
+      pathParams: { id: schedule.id },
+      body: { expression: rrule },
+    });
+
+    const updated = listSchedules()[0];
+    expect(updated.syntax).toBe("rrule");
+    expect(updated.cronExpression).toBe(rrule);
+  });
+
+  test("rejects an expression that parses as neither cron nor rrule", async () => {
+    const schedule = await createSchedule({
+      name: "Bad expression",
+      description: "Cron schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules/:id", "PATCH");
+    await expect(
+      route.handler({
+        pathParams: { id: schedule.id },
+        body: { expression: "not a schedule" },
+      }),
+    ).rejects.toThrow(BadRequestError);
   });
 });
 
@@ -1242,8 +1374,8 @@ describe("wake mode in schedule routes", () => {
     clearTables();
   });
 
-  test("PATCH accepts 'wake' as a valid mode", () => {
-    const schedule = createSchedule({
+  test("PATCH accepts 'wake' as a valid mode for an owner", async () => {
+    const schedule = await createSchedule({
       name: "Wake test",
       cronExpression: "* * * * *",
       message: "check deferred",
@@ -1251,10 +1383,12 @@ describe("wake mode in schedule routes", () => {
     });
 
     const route = findRoute("schedules/:id", "PATCH");
-    const result = route.handler({
+    // Wake mutations are owner-gated; a local IPC caller is the owner.
+    const result = (await route.handler({
       pathParams: { id: schedule.id },
       body: { mode: "wake", wakeConversationId: "conv-xyz" },
-    }) as {
+      headers: { "x-vellum-principal-type": "local" },
+    })) as {
       schedules: Array<{
         id: string;
         mode: string;
@@ -1267,8 +1401,8 @@ describe("wake mode in schedule routes", () => {
     expect(updated!.wakeConversationId).toBe("conv-xyz");
   });
 
-  test("list schedules includes wakeConversationId", () => {
-    createSchedule({
+  test("list schedules includes wakeConversationId", async () => {
+    await createSchedule({
       name: "Wake schedule",
       cronExpression: "0 9 * * *",
       message: "morning wake",
@@ -1278,7 +1412,7 @@ describe("wake mode in schedule routes", () => {
     });
 
     const route = findRoute("schedules", "GET");
-    const result = route.handler({}) as {
+    const result = (await route.handler({})) as {
       schedules: Array<{ name: string; wakeConversationId: string | null }>;
     };
     const wakeSchedule = result.schedules.find(
@@ -1302,9 +1436,9 @@ describe("PATCH /schedules/:id — timeout override", () => {
     return result.schedules[0];
   }
 
-  test("sets and clears the script timeout, exposing it in the list", () => {
+  test("sets and clears the script timeout, exposing it in the list", async () => {
     // GIVEN a script schedule with no timeout override
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Script job",
       cronExpression: "0 9 * * *",
       message: "",
@@ -1317,7 +1451,7 @@ describe("PATCH /schedules/:id — timeout override", () => {
     const patch = findRoute("schedules/:id", "PATCH");
 
     // WHEN the guardian sets a custom timeout
-    patch.handler({
+    await patch.handler({
       pathParams: { id: schedule.id },
       body: { timeoutMs: 5000 },
     });
@@ -1326,7 +1460,7 @@ describe("PATCH /schedules/:id — timeout override", () => {
     expect(listOne().timeoutMs).toBe(5000);
 
     // AND WHEN the guardian clears it
-    patch.handler({
+    await patch.handler({
       pathParams: { id: schedule.id },
       body: { timeoutMs: null },
     });
@@ -1335,9 +1469,9 @@ describe("PATCH /schedules/:id — timeout override", () => {
     expect(listOne().timeoutMs).toBeNull();
   });
 
-  test("rejects an out-of-range timeout", () => {
+  test("rejects an out-of-range timeout", async () => {
     // GIVEN a script schedule
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Guarded job",
       cronExpression: "0 9 * * *",
       message: "",
@@ -1349,12 +1483,12 @@ describe("PATCH /schedules/:id — timeout override", () => {
     const patch = findRoute("schedules/:id", "PATCH");
 
     // WHEN/THEN patching with a below-minimum timeout throws a RouteError
-    expect(() =>
+    await expect(
       patch.handler({
         pathParams: { id: schedule.id },
         body: { timeoutMs: 10 },
       }),
-    ).toThrow("timeout_ms must be between");
+    ).rejects.toThrow("timeout_ms must be between");
     expect(listOne().timeoutMs).toBeNull();
   });
 });

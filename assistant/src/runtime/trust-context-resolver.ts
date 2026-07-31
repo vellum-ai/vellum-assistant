@@ -1,21 +1,22 @@
 /**
- * Shared inbound trust resolution for channel actors.
+ * Routing-state helpers plus the residual sync trust entry point.
  *
- * Provides routing-state helpers and a convenience wrapper
- * ({@link resolveTrustContext}) around {@link resolveActorTrust} that
- * converts the result to a {@link TrustContext}.
- *
- * Trust resolution itself lives in `actor-trust-resolver.ts`; the resolved
- * {@link ActorTrustContext} is converted to {@link TrustContext} via
- * {@link toTrustContext}.
+ * {@link resolveTrustContext} wraps {@link resolveActorTrust} (a sync,
+ * IO-free guardian-or-unknown view — see `actor-trust-resolver.ts`) and
+ * converts the result to a {@link TrustContext}. Its sole production caller
+ * is the vellum reset-drift re-resolution in `guardian-vellum-migration.ts`,
+ * which runs exactly when the gateway verdict came back `unknown` and so
+ * cannot consume a verdict. Verdict-stamped ingress uses
+ * `trustContextFromVerdict` in `trust-verdict-consumer.ts` instead.
  */
 import type { ChannelId } from "../channels/types.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   resolveActorTrust,
   type ResolveActorTrustInput,
   toTrustContext,
 } from "./actor-trust-resolver.js";
+import { resolveCapabilities } from "./capabilities.js";
 
 /**
  * Resolve route-level trust context from canonical identity state.
@@ -64,14 +65,15 @@ export interface RoutingState {
  * Compute the routing state for a channel actor turn.
  *
  * Guardian actors are always interactive (they self-approve).
- * Trusted contacts are only interactive when a guardian binding exists
- * to receive approval notifications. Unknown actors are never interactive.
+ * Trusted and unverified contacts are only interactive when a guardian
+ * binding exists to receive approval notifications. Unknown actors are
+ * never interactive.
  */
 export function resolveRoutingState(
   ctx: Pick<TrustContext, "trustClass" | "guardianExternalUserId">,
 ): RoutingState {
+  const caps = resolveCapabilities(ctx.trustClass);
   const isGuardian = ctx.trustClass === "guardian";
-  const isTrustedContact = ctx.trustClass === "trusted_contact";
 
   // Guardians self-approve — they are always interactive and route-resolvable.
   if (isGuardian) {
@@ -82,12 +84,13 @@ export function resolveRoutingState(
     };
   }
 
-  // Trusted contacts can be interactive only if a guardian destination
+  // Identity-known non-guardian contacts (trusted_contact /
+  // unverified_contact) can be interactive only if a guardian destination
   // exists. The guardian binding populates guardianExternalUserId during
   // trust resolution; its presence means there is a verified guardian
   // to route approval notifications to.
   const guardianRouteResolvable = !!ctx.guardianExternalUserId;
-  if (isTrustedContact) {
+  if (caps.mayBeInteractive) {
     return {
       canBeInteractive: true,
       guardianRouteResolvable,

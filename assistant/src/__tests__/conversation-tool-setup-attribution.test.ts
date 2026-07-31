@@ -7,10 +7,9 @@
  * attribution resolution failures must never break tool execution.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
-import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -19,38 +18,6 @@ import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 // ---------------------------------------------------------------------------
 // Module mocks (must precede the import of the module under test)
 // ---------------------------------------------------------------------------
-
-let mockLlmConfig: Record<string, unknown> = {};
-let configThrows = false;
-
-// Non-llm fields used by other conversation-tool-setup consumers (e.g.
-// createResolveToolsCallback reads `tools.exclude`), so test files sharing
-// this process keep working against the mocked loader.
-const baseConfig = {
-  tools: { exclude: [] as string[] },
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-    toolExecutionTimeoutSec: 600,
-  },
-  services: {},
-};
-
-function mockGetConfig() {
-  if (configThrows) throw new Error("config unavailable");
-  return { ...baseConfig, llm: mockLlmConfig };
-}
-
-mock.module("../config/loader.js", () => ({
-  getConfig: mockGetConfig,
-  loadConfig: mockGetConfig,
-  invalidateConfigCache: () => {},
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: mock(() => {}),
@@ -71,31 +38,57 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
   registerConversationSender: mock(() => {}),
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
-  isMultifileApp: mock(() => false),
   getAppsDir: mock(() => "/tmp/test-apps"),
   resolveAppIdByDirName: mock(() => null),
   resolveAppIdFromPath: mock(() => null),
+}));
+
+// Controls the conversation binding returned to the channel-permission
+// channel-ID population in createToolExecutor. Kept as a module mock so
+// these tests need no live external_conversation_bindings table.
+let mockBindingExternalChatId: string | null = null;
+const bindingLookups: string[] = [];
+mock.module("../persistence/external-conversation-store.js", () => ({
+  getBindingByConversation: (conversationId: string) => {
+    bindingLookups.push(conversationId);
+    return mockBindingExternalChatId
+      ? { conversationId, externalChatId: mockBindingExternalChatId }
+      : null;
+  },
 }));
 
 // ---------------------------------------------------------------------------
 // Imports after mocks are in place
 // ---------------------------------------------------------------------------
 
-import { LLMSchema } from "../config/schemas/llm.js";
+import * as configLoader from "../config/loader.js";
 import {
   createToolExecutor,
   resolveConversationAttribution,
 } from "../daemon/conversation-tool-setup.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
+}
+
+/**
+ * Make the config loader throw for the failure-path tests: attribution
+ * resolution must degrade to `null` on any error. The real loader never
+ * throws on its own (it falls back to defaults), so this injects the fault
+ * at the read site.
+ */
+function makeGetConfigThrow(): ReturnType<typeof spyOn> {
+  return spyOn(configLoader, "getConfig").mockImplementation(() => {
+    throw new Error("config unavailable");
+  });
 }
 
 /** Build a minimal ToolSetupContext stub. */
@@ -105,14 +98,10 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     currentRequestId: "req-1",
     workingDir: "/tmp/test",
     abortController: null,
-    traceEmitter: { emit: () => {} },
     sendToClient: mock(() => {}),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
-    surfaceState: new Map<
-      string,
-      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map(),
     accumulatedSurfaceState: new Map(),
     surfaceActionRequestIds: new Set<string>(),
@@ -150,23 +139,10 @@ const noopSecretPrompter = {
 } as unknown as SecretPrompter;
 
 function makeToolFn(executor: ToolExecutor, ctx: ToolSetupContext) {
-  return createToolExecutor(
-    executor,
-    noopPrompter,
-    noopSecretPrompter,
-    ctx,
-    () => {},
-  );
+  return createToolExecutor(executor, noopPrompter, noopSecretPrompter, ctx);
 }
 
-// The module mock outlives this file when multiple test files share a
-// process, so leave the config in a working (non-throwing) state.
-afterEach(() => {
-  configThrows = false;
-});
-
 beforeEach(() => {
-  configThrows = false;
   setLlmConfig({
     default: { provider: "anthropic", model: "model-default" },
     profiles: {
@@ -231,11 +207,14 @@ describe("resolveConversationAttribution", () => {
   });
 
   test("returns null instead of throwing when resolution fails", () => {
-    configThrows = true;
-
-    expect(
-      resolveConversationAttribution({ conversationId: "conv-test" }),
-    ).toBeNull();
+    const getConfigSpy = makeGetConfigThrow();
+    try {
+      expect(
+        resolveConversationAttribution({ conversationId: "conv-test" }),
+      ).toBeNull();
+    } finally {
+      getConfigSpy.mockRestore();
+    }
   });
 });
 
@@ -309,15 +288,115 @@ describe("createToolExecutor attribution threading", () => {
   });
 
   test("attribution resolution failure yields null and does not break tool execution", async () => {
-    configThrows = true;
+    const getConfigSpy = makeGetConfigThrow();
+    try {
+      const { executor, calls } = makeCapturingExecutor();
+      const toolFn = makeToolFn(executor, makeCtx());
 
+      const result = await toolFn("file_read", { path: "/tmp/a" });
+
+      expect(result).toMatchObject({ content: "ok", isError: false });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].context.attribution).toBeNull();
+    } finally {
+      getConfigSpy.mockRestore();
+    }
+  });
+});
+
+describe("createToolExecutor isInteractive threading", () => {
+  test("uses the resolved turn-level interactivity over live client state", async () => {
+    // A scheduled/background turn (currentTurnIsNonInteractive=true) must read
+    // as non-interactive even when a client is attached (hasNoClient=false), so
+    // ask_question short-circuits instead of parking on the response backstop.
     const { executor, calls } = makeCapturingExecutor();
-    const toolFn = makeToolFn(executor, makeCtx());
+    const toolFn = makeToolFn(
+      executor,
+      makeCtx({ currentTurnIsNonInteractive: true, hasNoClient: false }),
+    );
 
-    const result = await toolFn("file_read", { path: "/tmp/a" });
+    await toolFn("file_read", { path: "/tmp/a" });
 
-    expect(result).toMatchObject({ content: "ok", isError: false });
-    expect(calls).toHaveLength(1);
-    expect(calls[0].context.attribution).toBeNull();
+    expect(calls[0].context.isInteractive).toBe(false);
+  });
+
+  test("reflects an interactive turn as interactive", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeCtx({ currentTurnIsNonInteractive: false }),
+    );
+
+    await toolFn("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.isInteractive).toBe(true);
+  });
+
+  test("falls back to live client state when no turn value is set", async () => {
+    // No in-flight turn resolution (e.g. tool execution outside runAgentLoop):
+    // derive interactivity from whether a client is connected.
+    const noClient = makeCapturingExecutor();
+    await makeToolFn(
+      noClient.executor,
+      makeCtx({ currentTurnIsNonInteractive: undefined, hasNoClient: true }),
+    )("file_read", { path: "/tmp/a" });
+    expect(noClient.calls[0].context.isInteractive).toBe(false);
+
+    const withClient = makeCapturingExecutor();
+    await makeToolFn(
+      withClient.executor,
+      makeCtx({ currentTurnIsNonInteractive: undefined, hasNoClient: false }),
+    )("file_read", { path: "/tmp/a" });
+    expect(withClient.calls[0].context.isInteractive).toBe(true);
+  });
+});
+
+describe("createToolExecutor channel-permission coordinate threading", () => {
+  beforeEach(() => {
+    mockBindingExternalChatId = null;
+    bindingLookups.length = 0;
+  });
+
+  test("stamps the binding's external chat id for any external channel adapter", async () => {
+    // The channel tier of permission-matrix cell resolution keys on this id
+    // for every channel adapter — a Telegram turn must carry its chat id
+    // exactly like a Slack turn, or a strict channel-scoped cell can never
+    // match its own channel.
+    mockBindingExternalChatId = "-1001234500000";
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        conversationId: "conv-tg",
+        currentTurnTrustContext: {
+          sourceChannel: "telegram",
+          trustClass: "trusted_contact",
+          conversationType: "private",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.channelPermissionChannelId).toBe("-1001234500000");
+    expect(calls[0].context.channelConversationType).toBe("private");
+    expect(bindingLookups).toEqual(["conv-tg"]);
+  });
+
+  test("internal turns carry no channel id and skip the binding lookup", async () => {
+    // "vellum" is the internal control-plane channel (and the fallback trust
+    // context); it never has an external conversation binding.
+    mockBindingExternalChatId = "should-not-appear";
+    const { executor, calls } = makeCapturingExecutor();
+    await makeToolFn(
+      executor,
+      makeCtx({
+        currentTurnTrustContext: {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+        },
+      }),
+    )("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.channelPermissionChannelId).toBeUndefined();
+    expect(bindingLookups).toEqual([]);
   });
 });

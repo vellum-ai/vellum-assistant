@@ -205,7 +205,10 @@ export async function pollForToken(
 
     if (errorCode === "slow_down") {
       interval += 5;
-      log.info({ newInterval: interval }, "Received slow_down, increasing poll interval");
+      log.info(
+        { newInterval: interval },
+        "Received slow_down, increasing poll interval",
+      );
       continue;
     }
 
@@ -294,7 +297,9 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       return;
     }
     const timer = setTimeout(resolve, ms);
-    if (typeof timer === "object" && "unref" in timer) timer.unref();
+    if (typeof timer === "object" && "unref" in timer) {
+      timer.unref();
+    }
     signal?.addEventListener(
       "abort",
       () => {

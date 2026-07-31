@@ -1,14 +1,14 @@
 import { and, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../../../../memory/db-connection.js";
+import { extractStylePatterns } from "../../../../messaging/style-analyzer.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
-} from "../../../../memory/jobs-store.js";
-import { memoryGraphNodes } from "../../../../memory/schema.js";
-import { clampUnitInterval } from "../../../../memory/validation.js";
-import { extractStylePatterns } from "../../../../messaging/style-analyzer.js";
+} from "../../../../persistence/jobs-store.js";
+import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
+import { clampUnitInterval } from "../../../../plugins/defaults/memory/validation.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -27,9 +27,11 @@ function upsertMemoryItem(opts: {
   subject: string;
   statement: string;
   importance: number;
-  scopeId: string;
 }): void {
-  const db = getDb();
+  const db = getMemoryDb();
+  if (!db) {
+    return;
+  }
   const now = Date.now();
   const content = `${opts.subject}\n${opts.statement}`;
 
@@ -39,7 +41,6 @@ function upsertMemoryItem(opts: {
     .where(
       and(
         eq(memoryGraphNodes.content, content),
-        eq(memoryGraphNodes.scopeId, opts.scopeId),
         sql`${memoryGraphNodes.fidelity} != 'gone'`,
       ),
     )
@@ -84,7 +85,6 @@ function upsertMemoryItem(opts: {
         sourceType: "inferred",
         narrativeRole: null,
         partOfStory: null,
-        scopeId: opts.scopeId,
       })
       .run();
     if (isMemoryEnabled()) {
@@ -127,7 +127,6 @@ export async function run(
       return err("No style patterns were extracted. Try with more messages.");
     }
 
-    const scopeId = "default";
     let savedCount = 0;
 
     for (const pattern of result.stylePatterns) {
@@ -140,13 +139,14 @@ export async function run(
         subject,
         statement: pattern.summary,
         importance,
-        scopeId,
       });
       savedCount++;
     }
 
     for (const contact of result.contactObservations) {
-      if (!contact.name || !contact.toneNote) continue;
+      if (!contact.name || !contact.toneNote) {
+        continue;
+      }
       const subject = `${provider.id} relationship: ${contact.name}`;
       upsertMemoryItem({
         kind: "relationship",
@@ -157,7 +157,6 @@ export async function run(
           "",
         ),
         importance: 0.6,
-        scopeId,
       });
       savedCount++;
     }

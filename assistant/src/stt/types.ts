@@ -24,25 +24,22 @@ export type SttProviderId =
   | "openai-whisper"
   | "deepgram"
   | "google-gemini"
-  | "xai";
+  | "xai"
+  | "vellum";
 
 /**
  * Telephony-specific STT capability class.
  *
  * Describes the provider's native audio-ingestion capability when used in
- * a telephony context. This is a **capability classification**, not a direct
- * Twilio strategy selector — the telephony routing resolver
- * (`telephony-stt-routing.ts`) maps capability classes plus catalog routing
- * metadata to concrete Twilio setup strategies (conversation-relay-native
- * vs media-stream-custom).
+ * a telephony context. This is a **capability classification** consumed by
+ * `resolveTelephonySttCapability` (providers/speech-to-text/resolve.ts) —
+ * every supported provider transcribes call audio server-side on the
+ * media-stream transport; this field describes how it ingests that audio.
  *
  * - `"realtime-ws"` — provider offers a WebSocket streaming endpoint suitable
  *   for low-latency telephony audio (e.g. Deepgram live transcription).
  * - `"batch-only"` — provider supports only REST batch transcription as its
- *   native capability. A `batch-only` provider may still participate in
- *   telephony via Twilio-native ConversationRelay (e.g. Google Gemini) or
- *   via the media-stream custom path — the routing strategy is determined
- *   by the catalog's telephony routing metadata, not this field alone.
+ *   native capability; call audio is transcribed in incremental batches.
  * - `"none"` — provider has no telephony support.
  */
 export type TelephonySttMode = "realtime-ws" | "batch-only" | "none";
@@ -153,10 +150,24 @@ export type SttErrorCategory =
 export class SttError extends Error {
   readonly category: SttErrorCategory;
 
-  constructor(category: SttErrorCategory, message: string) {
+  /**
+   * When true, {@link message} is already user-facing, provider-appropriate
+   * copy and must be surfaced verbatim rather than rewritten by
+   * `describeSttFailure`. Set by adapters (e.g. managed speech) whose failures
+   * carry specific remediation — a credit top-up or platform reconnect — that
+   * the generic BYOK "check your API key" copy would erase.
+   */
+  readonly userFacing: boolean;
+
+  constructor(
+    category: SttErrorCategory,
+    message: string,
+    options?: { userFacing?: boolean },
+  ) {
     super(message);
     this.name = "SttError";
     this.category = category;
+    this.userFacing = options?.userFacing ?? false;
   }
 }
 
@@ -233,6 +244,7 @@ export interface SttStreamClientStopEvent {
 export type SttStreamServerEvent =
   | SttStreamServerPartialEvent
   | SttStreamServerFinalEvent
+  | SttStreamServerFinalizedEvent
   | SttStreamServerErrorEvent
   | SttStreamServerClosedEvent;
 
@@ -267,6 +279,23 @@ export interface SttStreamServerFinalEvent {
    * provider does not surface confidence on this chunk.
    */
   readonly confidence?: number;
+  /**
+   * True when this final is the flush response to
+   * {@link StreamingTranscriber.finalizeUtterance} — i.e. it commits audio
+   * that was buffered before the finalize request, not new speech.
+   * Undefined on ordinary finals and on providers without finalize.
+   */
+  readonly fromFinalize?: boolean;
+}
+
+/**
+ * All provider-buffered audio has been flushed into `final` event(s) in
+ * response to {@link StreamingTranscriber.finalizeUtterance}. Emitted
+ * exactly once per finalize request, after the flushed `final` event(s).
+ * The stream stays open and continues to accept audio.
+ */
+export interface SttStreamServerFinalizedEvent {
+  readonly type: "finalized";
 }
 
 /** An error occurred during streaming transcription. */
@@ -298,8 +327,10 @@ export interface SttStreamServerClosedEvent {
  * Lifecycle:
  * 1. Call {@link start} to open the provider session.
  * 2. Feed audio chunks via {@link sendAudio}.
- * 3. Call {@link stop} when the client finishes recording.
- * 4. The `onEvent` callback receives server events until `closed`.
+ * 3. Optionally call {@link finalizeUtterance} between utterances to
+ *    flush buffered audio into finals while keeping the stream open.
+ * 4. Call {@link stop} when the client finishes recording.
+ * 5. The `onEvent` callback receives server events until `closed`.
  */
 export interface StreamingTranscriber {
   /** Which provider backs this transcriber. */
@@ -322,6 +353,17 @@ export interface StreamingTranscriber {
    * {@link stop} has been called.
    */
   sendAudio(audio: Buffer, mimeType: string): void;
+
+  /**
+   * Flush all buffered audio into final transcript(s) without closing
+   * the stream.
+   *
+   * Emits `final` event(s) for pending audio followed by one `finalized`
+   * event; the stream stays open for more audio. Optional — callers must
+   * feature-detect this method and fall back to {@link stop} (full
+   * teardown) when the provider does not support it.
+   */
+  finalizeUtterance?(): void;
 
   /**
    * Signal that the client has finished sending audio.

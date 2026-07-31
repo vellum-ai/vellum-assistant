@@ -3,6 +3,8 @@ export interface OnboardingContext {
   tasks: string[];
   tone: string;
   userName?: string;
+  /** The user's role / occupation, e.g. "Software Engineer". */
+  occupation?: string;
   assistantName?: string;
   priorAssistants?: string[];
   googleConnected?: boolean;
@@ -16,4 +18,12 @@ export interface OnboardingContext {
   initialMessage?: string;
   /** Skills to eagerly load on first turn (e.g. ["geo-writing", "document-editor"]). Informational — the bootstrap template drives actual loading. */
   skills?: string[];
+  /**
+   * Findings from the pre-chat onboarding research that the user explicitly
+   * kept on the results screen (removed/rejected claims are excluded
+   * client-side). Rendered into the persona's onboarding section so they're
+   * available from the very first turn — the greeting turn is barred from
+   * `recall`/file reads and would otherwise be blind to them.
+   */
+  researchFindings?: string[];
 }

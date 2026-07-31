@@ -9,7 +9,21 @@ export const VALID_STT_PROVIDERS = [
   "google-gemini",
   "openai-whisper",
   "xai",
+  "vellum",
 ] as const;
+
+/**
+ * Forgiving aliases normalized to a canonical provider id before the enum
+ * check, so a natural value like `openai` or `whisper` is accepted rather than
+ * silently reset (which cascades into a full `services` section reset).
+ */
+const STT_PROVIDER_ALIASES: Record<
+  string,
+  (typeof VALID_STT_PROVIDERS)[number]
+> = {
+  openai: "openai-whisper",
+  whisper: "openai-whisper",
+};
 
 /**
  * Sparse provider config map under `services.stt.providers`.
@@ -32,29 +46,48 @@ export type SttProviders = z.infer<typeof SttProvidersSchema>;
 /**
  * Canonical STT service configuration.
  *
- * `mode` is locked to `"your-own"` -- managed STT is not supported.
- * Attempting to set `mode: "managed"` will fail schema validation.
+ * `provider` is the only axis: `"vellum"` transcribes through the platform,
+ * billed to Vellum credits; any other provider uses the user's own API key.
  */
 export const SttServiceSchema = z
   .object({
-    mode: z
-      .literal("your-own", {
-        error:
-          'services.stt.mode must be "your-own" -- managed STT is not supported',
-      })
-      .default("your-own" as const)
-      .describe(
-        'STT service mode -- only "your-own" is supported (managed STT is not available)',
-      ),
     provider: z
-      .enum(VALID_STT_PROVIDERS, {
-        error: `services.stt.provider must be one of: ${VALID_STT_PROVIDERS.join(", ")}`,
-      })
+      .preprocess(
+        (v) => {
+          if (typeof v !== "string") {
+            return v;
+          }
+          const k = v.trim().toLowerCase();
+          return STT_PROVIDER_ALIASES[k] ?? k;
+        },
+        z.enum(VALID_STT_PROVIDERS, {
+          error: `services.stt.provider must be one of: ${VALID_STT_PROVIDERS.join(", ")} (aliases: openai/whisper -> openai-whisper)`,
+        }),
+      )
       .describe("Active STT provider used for speech-to-text transcription"),
+    /**
+     * Spoken-language selection, forwarded to providers whose adapters accept
+     * a language (Deepgram, xAI, and the managed relay). Left unset the
+     * provider applies its own default, which for Deepgram (and therefore
+     * for the managed relay) is English, NOT auto-detection.
+     *
+     * `"multi"` selects Deepgram's nova-3 code-switching mode, which follows
+     * a speaker moving between languages inside a single utterance (e.g.
+     * Hinglish). Providers that auto-detect natively and take no language
+     * option (Gemini, Whisper) ignore this field.
+     */
+    language: z
+      .string({ error: "services.stt.language must be a string" })
+      .trim()
+      .min(1, { error: "services.stt.language must not be empty" })
+      .optional()
+      .describe(
+        "BCP-47 language code (e.g. 'en-US', 'hi') or 'multi' for code-switching across languages. Unset uses the provider default (English on Deepgram/managed, not auto-detect)",
+      ),
     providers: SttProvidersSchema.default({}),
   })
   .describe(
-    "Speech-to-text service configuration -- provider selection and per-provider settings",
+    "Speech-to-text service configuration -- provider selection, spoken language, and per-provider settings",
   );
 
 export type SttService = z.infer<typeof SttServiceSchema>;

@@ -16,20 +16,26 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
+import {
+  canonicalizeTimeZone,
+  formatTurnTimestamp,
+  resolveTurnTimezoneContext,
+} from "../../daemon/date-context.js";
 import { readNowScratchpad } from "../../daemon/now-scratchpad.js";
-import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import { getConversationByKey } from "../../persistence/conversation-key-store.js";
 import { getAllToolDefinitions } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
+import {
+  getCachedEmptyStateGreeting,
+  setCachedEmptyStateGreeting,
+} from "./empty-state-greeting-cache.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
-import { getCachedIntro, setCachedIntro } from "./identity-intro-cache.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { readWorkspaceGreetings } from "./workspace-greetings.js";
 
 const log = getLogger("btw-routes");
-
-/** Conversation key used by the client for identity intro generation. */
-const IDENTITY_INTRO_KEY = "identity-intro";
 
 /** Conversation key used by the client for empty-state greeting generation. */
 const GREETING_KEY = "greeting";
@@ -63,35 +69,70 @@ async function handleBtw({
   }
 
   const trimmedContent = content.trim();
+  const config = getConfig();
+  const clientTimezone =
+    typeof body?.clientTimezone === "string"
+      ? canonicalizeTimeZone(body.clientTimezone)
+      : null;
+  const timezoneOptions = {
+    configuredUserTimeZone: config.ui?.userTimezone ?? null,
+    clientTimezone,
+    detectedTimezone: config.ui?.detectedTimezone ?? null,
+  };
+  const greetingCacheScope =
+    conversationKey === GREETING_KEY
+      ? resolveTurnTimezoneContext(timezoneOptions).effectiveTimezone
+      : null;
 
-  // ----- Cached identity intro fast-path -----
-  if (conversationKey === IDENTITY_INTRO_KEY) {
-    const fastText = getCachedIntro()?.greetings[0];
-    if (fastText) {
-      log.debug("Returning identity intro fast-path");
-      return streamText(fastText);
+  // ----- Empty-state greeting fast-path -----
+  // User-authored `## Greetings` win; otherwise replay a cached greeting when
+  // one is fresh within the configurable TTL (`ui.emptyStateGreetingCacheTtlMs`,
+  // 0 = always regenerate). Either path avoids an LLM call and streams the
+  // text straight back.
+  if (conversationKey === GREETING_KEY) {
+    const authored = readWorkspaceGreetings();
+    if (authored && authored.length > 0) {
+      log.debug("Returning authored empty-state greeting");
+      return streamText(pickRandom(authored));
+    }
+    const cached = getCachedEmptyStateGreeting(greetingCacheScope);
+    if (cached) {
+      log.debug("Returning cached empty-state greeting");
+      return streamText(cached);
     }
   }
 
   // ----- Greeting context enrichment -----
   let effectiveContent = trimmedContent;
+  if (conversationKey === GREETING_KEY) {
+    effectiveContent = `${effectiveContent}\n\n<turn_context>\ncurrent_time: ${formatTurnTimestamp(
+      timezoneOptions,
+    )}\n</turn_context>`;
+  }
   if (
     conversationKey === GREETING_KEY &&
-    getConfig().memory.retrieval.scratchpadInjection.enabled
+    config.memory.retrieval.scratchpadInjection.enabled
   ) {
     const now = readNowScratchpad();
     if (now) {
-      effectiveContent = `${trimmedContent}\n\n<context>\n${now}\n</context>`;
+      effectiveContent = `${effectiveContent}\n\n<context>\n${now}\n</context>`;
     }
   }
 
-  // Look up an existing conversation or create an ephemeral one.
+  // Look up an existing conversation or create an ephemeral one. An unmapped
+  // key (e.g. "greeting") does not correspond to a real conversation, so the
+  // side-chain runs against an ephemeral in-memory conversation with no
+  // persisted row — keeping the "no messages are persisted" contract and off
+  // the sidebar. A mapped key targets a real conversation and reuses its row.
   const mapping = getConversationByKey(conversationKey);
   const conversationId = mapping?.conversationId ?? conversationKey;
 
   let conversation;
   try {
-    conversation = await getOrCreateConversation(conversationId);
+    conversation = await getOrCreateConversation(
+      conversationId,
+      mapping ? undefined : { ephemeral: true },
+    );
   } catch {
     throw new ServiceUnavailableError("Message processing is not available");
   }
@@ -100,7 +141,6 @@ async function handleBtw({
     start(controller) {
       (async () => {
         try {
-          const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
           const isGreeting = conversationKey === GREETING_KEY;
           const result = await runBtwSidechain({
             content: effectiveContent,
@@ -127,13 +167,10 @@ async function handleBtw({
             );
           }
 
-          if (isIntroRequest && result.text) {
-            try {
-              setCachedIntro([result.text]);
-              log.debug("Cached identity intro text");
-            } catch {
-              // Non-fatal — next request will regenerate.
-            }
+          if (isGreeting && result.text) {
+            // setCachedEmptyStateGreeting is a no-op when the TTL is 0.
+            setCachedEmptyStateGreeting(result.text, greetingCacheScope);
+            log.debug("Cached empty-state greeting text");
           }
 
           controller.enqueue(sseEvent("btw_complete", {}));
@@ -151,6 +188,10 @@ async function handleBtw({
       })();
     },
   });
+}
+
+function pickRandom<T>(items: readonly T[]): T {
+  return items[Math.floor(Math.random() * items.length)]!;
 }
 
 function streamText(text: string): ReadableStream<Uint8Array> {
@@ -190,6 +231,10 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .describe("Conversation key to scope the call"),
       content: z.string().describe("User prompt content"),
+      clientTimezone: z
+        .string()
+        .optional()
+        .describe("IANA timezone reported by the active client"),
     }),
     handler: handleBtw,
   },

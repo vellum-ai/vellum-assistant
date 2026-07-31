@@ -4,13 +4,31 @@
  * Explicit request kinds provide a stable contract between producers and
  * notification rendering logic, avoiding implicit inference from incidental
  * fields like `toolName`.
+ *
+ * Payload shapes are defined as Zod schemas — single source of truth for
+ * both runtime validation and TypeScript types.
+ * https://zod.dev/?id=basic-usage
  */
 
-type GuardianQuestionRequestKind =
-  | "pending_question"
-  | "tool_approval"
-  | "tool_grant_request"
-  | "access_request";
+import { z } from "zod";
+
+import { externalSourceLinkSchema } from "../messaging/channel-binding-schema.js";
+import { isSlackDmConversation } from "../messaging/providers/slack/message-metadata.js";
+import { nonEmpty } from "./notification-utils.js";
+
+// ── Schema primitives ──────────────────────────────────────────────────
+
+export const GuardianQuestionRequestKindSchema = z.enum([
+  "pending_question",
+  "tool_approval",
+  "tool_grant_request",
+  "access_request",
+]);
+
+export type GuardianQuestionRequestKind = z.infer<
+  typeof GuardianQuestionRequestKindSchema
+>;
+
 type GuardianQuestionInstructionMode = "approval" | "answer";
 
 interface GuardianRequestKindModeConfig {
@@ -37,15 +55,225 @@ const REQUEST_KIND_MODE_CONFIG: Record<
   },
 };
 
-interface GuardianQuestionPayloadBase {
-  requestId: string;
-  requestCode: string;
-  questionText: string;
+// ── Zod schemas for guardian.question payloads ──────────────────────────
+
+const GuardianQuestionPayloadBaseSchema = z.object({
+  requestId: z.string().min(1),
+  requestCode: z.string().min(1),
+  questionText: z.string().min(1),
+  /** Channel the request originated from. Set by producers but previously
+   *  invisible to the type system (passed via index signature). */
+  sourceChannel: z.string().optional(),
+  /** Display name or identifier of the requester. */
+  requesterIdentifier: z.string().optional(),
+  /** External user ID of the requester (e.g. Slack user ID). */
+  requesterExternalUserId: z.string().optional(),
+  /** External chat ID of the requester. */
+  requesterChatId: z.string().nullable().optional(),
+});
+
+export const PendingQuestionPayloadSchema =
+  GuardianQuestionPayloadBaseSchema.extend({
+    requestKind: z.literal("pending_question"),
+    /** Present only for voice-call questions; absent for ask_question prompts. */
+    callSessionId: z.string().min(1).optional(),
+    activeGuardianRequestCount: z.number().optional(),
+    toolName: z.string().optional(),
+    /**
+     * Structured answer options for an ask_question prompt (2–4 entries).
+     * When present, the broadcaster renders them as tappable option actions
+     * (see {@link buildQuestionOptionActionId}); absent payloads render as
+     * plain text with request-code reply instructions.
+     */
+    options: z
+      .array(z.object({ id: z.string().min(1), label: z.string().min(1) }))
+      .optional(),
+  });
+
+/**
+ * Channel-neutral reference to the message that triggered the approval,
+ * resolved per-channel by `runtime/approval-source-link.ts` (currently only
+ * Slack registers a resolver). Card renderers consume it via
+ * {@link buildToolApprovalSourceView} without channel-format knowledge.
+ */
+const sourceReferenceFields = {
+  /** Channel-native chat/conversation id the request originated from. */
+  sourceChatId: z.string().optional(),
+  /** Deep link to the originating message/thread, when derivable. */
+  sourceLink: externalSourceLinkSchema.optional(),
+};
+
+export const ToolApprovalPayloadSchema =
+  GuardianQuestionPayloadBaseSchema.extend({
+    requestKind: z.literal("tool_approval"),
+    toolName: z.string().min(1),
+    /** Risk classification from the permission checker (e.g. "low", "medium", "high"). */
+    riskLevel: z.string().optional(),
+    /** Secret-redacted summary of the tool invocation arguments. */
+    commandPreview: z.string().optional(),
+    ...sourceReferenceFields,
+  });
+
+export const ToolGrantPayloadSchema = GuardianQuestionPayloadBaseSchema.extend({
+  requestKind: z.literal("tool_grant_request"),
+  toolName: z.string().min(1),
+  /** Risk classification from the permission checker (e.g. "low", "medium", "high"). */
+  riskLevel: z.string().optional(),
+  /** Secret-redacted summary of the tool invocation arguments. */
+  commandPreview: z.string().optional(),
+  ...sourceReferenceFields,
+});
+
+export const AccessRequestGuardianPayloadSchema =
+  GuardianQuestionPayloadBaseSchema.extend({
+    requestKind: z.literal("access_request"),
+  });
+
+export const GuardianQuestionPayloadSchema = z.discriminatedUnion(
+  "requestKind",
+  [
+    PendingQuestionPayloadSchema,
+    ToolApprovalPayloadSchema,
+    ToolGrantPayloadSchema,
+    AccessRequestGuardianPayloadSchema,
+  ],
+);
+
+/**
+ * Lenient schema for tool-approval rendering. Requires only `requestKind`
+ * (for mode detection) — everything else is optional. Handles partially
+ * constructed payloads that don't satisfy the strict discriminated union
+ * (e.g. missing `callSessionId` on a `pending_question` with `toolName`).
+ *
+ * Used by `buildToolApprovalSeedContentBlocks` which must degrade
+ * gracefully rather than refuse to render when optional card fields
+ * are absent.
+ */
+export const LenientToolApprovalPayloadSchema = z.object({
+  requestKind: GuardianQuestionRequestKindSchema,
+  requestId: z.string().nullable().optional(),
+  requestCode: z.string().nullable().optional(),
+  questionText: z.string().nullable().optional(),
+  toolName: z.string().nullable().optional(),
+  sourceChannel: z.string().nullable().optional(),
+  requesterIdentifier: z.string().nullable().optional(),
+  requesterExternalUserId: z.string().nullable().optional(),
+  requesterChatId: z.string().nullable().optional(),
+  riskLevel: z.string().nullable().optional(),
+  commandPreview: z.string().nullable().optional(),
+  sourceChatId: z.string().nullable().optional(),
+  sourceLink: sourceReferenceFields.sourceLink.nullable(),
+});
+
+export type LenientToolApprovalPayload = z.infer<
+  typeof LenientToolApprovalPayloadSchema
+>;
+
+// ── Source reference projection ─────────────────────────────────────────
+
+/**
+ * Display-ready source reference for a tool-approval card, shared by every
+ * renderer (the Vellum Surface card and the channel adapters) so the
+ * chat-id/permalink derivation lives in exactly one place. Declared as a
+ * Zod schema because the broadcaster carries the projected view on
+ * `ChannelDeliveryPayload` (computed once per broadcast, never re-derived
+ * per channel).
+ *
+ * Core fields (`channel`, `chatId`, `permalink`) are channel-neutral.
+ * Channel-scoped display facts are named for their channel (`isSlackDm`)
+ * and gated on `channel` — renderers branch on them for richer labels but
+ * must degrade to the neutral fields for every other channel, so a new
+ * channel renders correctly with no projection changes.
+ */
+export const ToolApprovalSourceViewSchema = z.object({
+  /** Channel the request originated from (e.g. `"slack"`). */
+  channel: z.string(),
+  /** Channel-native chat id, when the payload carries one. */
+  chatId: z.string().optional(),
+  /** Whether the source chat is a Slack direct message (`false` for other channels). */
+  isSlackDm: z.boolean(),
+  /** Link to the originating message/thread, when derivable. */
+  permalink: z.string().optional(),
+});
+
+export type ToolApprovalSourceView = z.infer<
+  typeof ToolApprovalSourceViewSchema
+>;
+
+/**
+ * Project a tool-approval payload's source reference into display-ready
+ * facts. Returns `undefined` when the payload names no chat and carries no
+ * link — renderers then fall back to the plain channel label.
+ */
+export function buildToolApprovalSourceView(
+  p: Pick<
+    LenientToolApprovalPayload,
+    "sourceChannel" | "sourceChatId" | "sourceLink" | "requesterChatId"
+  >,
+): ToolApprovalSourceView | undefined {
+  const channel = nonEmpty(p.sourceChannel);
+  if (!channel) {
+    return undefined;
+  }
+  const chatId = nonEmpty(p.sourceChatId) ?? nonEmpty(p.requesterChatId);
+  const permalink =
+    nonEmpty(p.sourceLink?.webUrl) ?? nonEmpty(p.sourceLink?.appUrl);
+  if (!chatId && !permalink) {
+    return undefined;
+  }
+
+  return {
+    channel,
+    chatId,
+    isSlackDm:
+      channel === "slack" && chatId != null && isSlackDmConversation(chatId),
+    permalink,
+  };
 }
 
-interface GuardianQuestionPayloadBaseWithDiscriminator extends GuardianQuestionPayloadBase {
-  requestKind: GuardianQuestionRequestKind;
-  [key: string]: unknown;
+// ── Answer-option action tokens ─────────────────────────────────────────
+
+/**
+ * Action-id scheme for answer-mode option buttons on a `pending_question`
+ * card. The broadcaster builds card actions with these ids (so every channel
+ * adapter renders them without knowing they're question options), the reply
+ * router recognizes a tapped id as an answer selection rather than an
+ * approval action, and the question resolver maps the index back to the
+ * pending interaction's option. Index-based (not the raw option id) so the
+ * channel callback stays small and the LLM-supplied option id never rides
+ * the wire.
+ */
+export const QUESTION_SKIP_ACTION_ID = "answer_skip";
+
+/** Action id for the option at `index` on a question card. */
+export function buildQuestionOptionActionId(index: number): string {
+  return `answer_${index}`;
+}
+
+export type QuestionAnswerSelection =
+  | { kind: "option"; index: number }
+  | { kind: "skip" };
+
+/**
+ * Parse an action token from a question card. Returns `null` for anything
+ * that is not an answer-option token (including ordinary approval actions),
+ * so callers can fall through to approval handling.
+ */
+export function parseQuestionAnswerActionId(
+  token: string,
+): QuestionAnswerSelection | null {
+  if (token === QUESTION_SKIP_ACTION_ID) {
+    return { kind: "skip" };
+  }
+  const match = /^answer_(\d+)$/.exec(token);
+  if (!match) {
+    return null;
+  }
+  const index = Number(match[1]);
+  if (!Number.isInteger(index) || index < 0) {
+    return null;
+  }
+  return { kind: "option", index };
 }
 
 interface GuardianRequestModeInput {
@@ -105,136 +333,39 @@ const MODE_TEXT_CONFIG: Record<
   },
 };
 
-export interface PendingQuestionGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
-  requestKind: "pending_question";
-  callSessionId: string;
-  activeGuardianRequestCount: number;
-  /**
-   * Voice tool-approval requests are persisted as pending_question with tool
-   * metadata so they still route through pending-question resolution.
-   */
-  toolName?: string;
-}
+// ── Derived TypeScript types ─────────────────────────────────────────────
 
-export interface ToolApprovalGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
-  requestKind: "tool_approval";
-  toolName: string;
-}
-
-export interface ToolGrantGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
-  requestKind: "tool_grant_request";
-  toolName: string;
-}
-
-export interface AccessRequestGuardianPayload extends GuardianQuestionPayloadBaseWithDiscriminator {
-  requestKind: "access_request";
-}
-
-export type GuardianQuestionPayload =
-  | PendingQuestionGuardianPayload
-  | ToolApprovalGuardianPayload
-  | ToolGrantGuardianPayload
-  | AccessRequestGuardianPayload;
+export type PendingQuestionGuardianPayload = z.infer<
+  typeof PendingQuestionPayloadSchema
+>;
+export type ToolApprovalGuardianPayload = z.infer<
+  typeof ToolApprovalPayloadSchema
+>;
+export type ToolGrantGuardianPayload = z.infer<typeof ToolGrantPayloadSchema>;
+export type AccessRequestGuardianPayload = z.infer<
+  typeof AccessRequestGuardianPayloadSchema
+>;
+export type GuardianQuestionPayload = z.infer<
+  typeof GuardianQuestionPayloadSchema
+>;
 
 interface GuardianQuestionModeResolution {
   mode: GuardianQuestionInstructionMode;
   requestKind: GuardianQuestionRequestKind | null;
 }
 
-function nonEmptyString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function parseGuardianQuestionRequestKind(
-  payload: Record<string, unknown>,
-): GuardianQuestionRequestKind | null {
-  const raw = nonEmptyString(payload.requestKind);
-  if (!raw) return null;
-
-  switch (raw) {
-    case "pending_question":
-    case "tool_approval":
-    case "tool_grant_request":
-    case "access_request":
-      return raw;
-    default:
-      return null;
-  }
-}
-
-function parseBasePayload(
-  payload: Record<string, unknown>,
-): GuardianQuestionPayloadBase | null {
-  const requestId = nonEmptyString(payload.requestId);
-  const requestCode = nonEmptyString(payload.requestCode);
-  const questionText = nonEmptyString(payload.questionText);
-  if (!requestId || !requestCode || !questionText) return null;
-  return { requestId, requestCode, questionText };
-}
+// ── Payload parsing ────────────────────────────────────────────────────
 
 /**
- * Parse a guardian.question context payload into a strict discriminated union.
- *
- * Returns null when required fields for the declared requestKind are missing,
- * or when requestKind is absent/unknown.
+ * Parse a guardian.question context payload into a strict discriminated union
+ * using Zod validation. Returns null when the payload is missing required
+ * fields or has an unknown/missing requestKind.
  */
 export function parseGuardianQuestionPayload(
   payload: Record<string, unknown>,
 ): GuardianQuestionPayload | null {
-  const requestKind = parseGuardianQuestionRequestKind(payload);
-  if (!requestKind) return null;
-
-  const base = parseBasePayload(payload);
-  if (!base) return null;
-
-  switch (requestKind) {
-    case "pending_question": {
-      const callSessionId = nonEmptyString(payload.callSessionId);
-      const activeGuardianRequestCount =
-        typeof payload.activeGuardianRequestCount === "number"
-          ? payload.activeGuardianRequestCount
-          : undefined;
-      const toolName = nonEmptyString(payload.toolName);
-      if (
-        !callSessionId ||
-        activeGuardianRequestCount === undefined ||
-        Number.isNaN(activeGuardianRequestCount)
-      ) {
-        return null;
-      }
-      const pendingQuestionPayload: PendingQuestionGuardianPayload = {
-        requestKind,
-        ...base,
-        callSessionId,
-        activeGuardianRequestCount,
-      };
-      if (toolName) {
-        pendingQuestionPayload.toolName = toolName;
-      }
-      return {
-        ...pendingQuestionPayload,
-      };
-    }
-    case "tool_approval":
-    case "tool_grant_request": {
-      const toolName = nonEmptyString(payload.toolName);
-      if (!toolName) return null;
-      return {
-        requestKind,
-        ...base,
-        toolName,
-      };
-    }
-    case "access_request":
-      return {
-        requestKind,
-        ...base,
-      };
-    default:
-      return null;
-  }
+  const result = GuardianQuestionPayloadSchema.safeParse(payload);
+  return result.success ? result.data : null;
 }
 
 function resolveGuardianInstructionModeForRequestKind(
@@ -242,7 +373,7 @@ function resolveGuardianInstructionModeForRequestKind(
   toolName?: string | null,
 ): GuardianQuestionInstructionMode {
   const config = REQUEST_KIND_MODE_CONFIG[requestKind];
-  const normalizedToolName = nonEmptyString(toolName);
+  const normalizedToolName = nonEmpty(toolName ?? undefined) ?? null;
   if (normalizedToolName && config.modeWhenToolNamePresent) {
     return config.modeWhenToolNamePresent;
   }
@@ -257,16 +388,16 @@ export function resolveGuardianInstructionModeFromFields(
   requestKind: GuardianQuestionRequestKind;
   mode: GuardianQuestionInstructionMode;
 } | null {
-  const requestKind = parseGuardianQuestionRequestKind({
-    requestKind: requestKindValue,
-  });
-  if (!requestKind) return null;
+  const parsed = GuardianQuestionRequestKindSchema.safeParse(requestKindValue);
+  if (!parsed.success) {
+    return null;
+  }
 
   return {
-    requestKind,
+    requestKind: parsed.data,
     mode: resolveGuardianInstructionModeForRequestKind(
-      requestKind,
-      nonEmptyString(toolNameValue),
+      parsed.data,
+      typeof toolNameValue === "string" ? toolNameValue : null,
     ),
   };
 }
@@ -274,13 +405,34 @@ export function resolveGuardianInstructionModeFromFields(
 export function resolveGuardianInstructionModeForRequest(
   request?: GuardianRequestModeInput | null,
 ): GuardianQuestionInstructionMode {
-  if (!request) return "approval";
+  if (!request) {
+    return "approval";
+  }
   const modeResolution = resolveGuardianInstructionModeFromFields(
     request.kind,
     request.toolName,
   );
-  if (!modeResolution) return "approval";
+  if (!modeResolution) {
+    return "approval";
+  }
   return modeResolution.mode;
+}
+
+/**
+ * Resolve instruction mode directly from a typed guardian question payload.
+ * Avoids re-parsing when the caller already holds a validated payload.
+ */
+export function resolveGuardianInstructionModeFromPayload(
+  payload: GuardianQuestionPayload,
+): GuardianQuestionModeResolution {
+  const toolName = "toolName" in payload ? payload.toolName : undefined;
+  return {
+    mode: resolveGuardianInstructionModeForRequestKind(
+      payload.requestKind,
+      toolName ?? null,
+    ),
+    requestKind: payload.requestKind,
+  };
 }
 
 function getModeTextConfig(
@@ -320,7 +472,9 @@ export function buildGuardianInvalidActionReply(
   requestCode?: string,
 ): string {
   const config = getModeTextConfig(mode);
-  if (requestCode) return config.invalidActionWithCode(requestCode);
+  if (requestCode) {
+    return config.invalidActionWithCode(requestCode);
+  }
   return config.invalidActionWithoutCode;
 }
 
@@ -359,7 +513,9 @@ export function hasGuardianRequestCodeInstruction(
   requestCode: string,
   mode: GuardianQuestionInstructionMode,
 ): boolean {
-  if (typeof text !== "string") return false;
+  if (typeof text !== "string") {
+    return false;
+  }
   const upper = text.toUpperCase();
   const normalizedCode = requestCode.toUpperCase();
 
@@ -396,52 +552,90 @@ function normalizeInstructionText(value: string): string {
     .trim();
 }
 
+function buildApprovalInstructionPattern(escapedCode: string): RegExp {
+  return new RegExp(
+    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+approve"\\s+or\\s+"${escapedCode}\\s+reject"\\.?`,
+    "ig",
+  );
+}
+
+function buildAnswerInstructionPattern(escapedCode: string): RegExp {
+  return new RegExp(
+    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+<your\\s+answer>"\\.?`,
+    "ig",
+  );
+}
+
 export function stripConflictingGuardianRequestInstructions(
   text: string,
   requestCode: string,
   mode: GuardianQuestionInstructionMode,
 ): string {
   const escapedCode = escapeRegExp(requestCode);
-  const approvalInstructionPattern = new RegExp(
-    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+approve"\\s+or\\s+"${escapedCode}\\s+reject"\\.?`,
-    "ig",
-  );
-  const answerInstructionPattern = new RegExp(
-    `(?:Reference\\s+code:\\s*${escapedCode}\\.?\\s*)?Reply\\s+"${escapedCode}\\s+<your\\s+answer>"\\.?`,
-    "ig",
-  );
-
   const next =
     mode === "answer"
-      ? text.replace(approvalInstructionPattern, "")
-      : text.replace(answerInstructionPattern, "");
+      ? text.replace(buildApprovalInstructionPattern(escapedCode), "")
+      : text.replace(buildAnswerInstructionPattern(escapedCode), "");
 
   return normalizeInstructionText(next);
 }
 
 /**
- * Resolve guardian reply instruction mode from request kind.
+ * Remove every request-code reply instruction (both modes) plus bare
+ * "Reference code: X." / "Approval code: X." mentions from copy destined
+ * for a surface that renders interactive Approve/Reject buttons, where
+ * code-reply instructions are redundant noise.
+ */
+export function stripGuardianRequestCodeInstructions(
+  text: string,
+  requestCode: string,
+): string {
+  const escapedCode = escapeRegExp(requestCode);
+  const next = text
+    .replace(buildApprovalInstructionPattern(escapedCode), "")
+    .replace(buildAnswerInstructionPattern(escapedCode), "")
+    .replace(
+      new RegExp(`(?:Reference|Approval)\\s+code:\\s*${escapedCode}\\.?`, "ig"),
+      "",
+    );
+
+  return normalizeInstructionText(next);
+}
+
+/**
+ * Parse a guardian.question payload that renders channel-native
+ * Approve/Reject actions on button-capable channels: it parses strictly,
+ * resolves to approval mode, and carries the requestId the action
+ * callbacks target. Returns `null` otherwise — those payloads render as
+ * plain text and rely on request-code replies.
+ */
+export function parseInteractiveApprovalPayload(
+  payload: Record<string, unknown>,
+): GuardianQuestionPayload | null {
+  const parsed = parseGuardianQuestionPayload(payload);
+  if (!parsed) {
+    return null;
+  }
+  const { mode } = resolveGuardianInstructionModeFromPayload(parsed);
+  if (mode !== "approval") {
+    return null;
+  }
+  return nonEmpty(parsed.requestId) ? parsed : null;
+}
+
+/**
+ * Resolve guardian reply instruction mode from a raw context payload.
  *
- * Requires a valid requestKind in the payload. When the payload cannot be
- * fully parsed as a typed guardian question, falls back to field-level
- * requestKind resolution. If requestKind is missing or unknown, defaults
- * to "approval" mode.
+ * Attempts Zod-based parsing first. When that fails, falls back to
+ * field-level requestKind resolution. Defaults to "approval" mode
+ * when requestKind is missing or unknown.
  */
 export function resolveGuardianQuestionInstructionMode(
   payload: Record<string, unknown>,
 ): GuardianQuestionModeResolution {
   const parsed = parseGuardianQuestionPayload(payload);
   if (parsed) {
-    const parsedToolName = nonEmptyString(
-      "toolName" in parsed ? parsed.toolName : null,
-    );
-    return {
-      mode: resolveGuardianInstructionModeForRequestKind(
-        parsed.requestKind,
-        parsedToolName,
-      ),
-      requestKind: parsed.requestKind,
-    };
+    return resolveGuardianInstructionModeFromPayload(parsed);
   }
 
   const requestKindResolution = resolveGuardianInstructionModeFromFields(

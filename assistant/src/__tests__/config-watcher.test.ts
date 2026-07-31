@@ -20,14 +20,6 @@ const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 // Mock platform paths
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (v: string) => v,
-}));
-
 // ---------------------------------------------------------------------------
 // Capture fs.watch and fs.watchFile calls so we can simulate file system
 // events deterministically. Bun's libuv-based fs.watchFile is too unreliable
@@ -91,21 +83,16 @@ mock.module("node:fs", () => {
     },
     unwatchFile: (filePath: string) => {
       const idx = capturedFileWatches.findIndex((w) => w.filePath === filePath);
-      if (idx !== -1) capturedFileWatches.splice(idx, 1);
+      if (idx !== -1) {
+        capturedFileWatches.splice(idx, 1);
+      }
     },
   };
 });
 
-// Mock config/loader and other dependencies that ConfigWatcher imports
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-  }),
-  loadConfig: () => ({ ui: {} }),
-  invalidateConfigCache: () => {},
-}));
-
-mock.module("../memory/embedding-backend.js", () => ({
+// Mock dependencies that ConfigWatcher imports. The real config loader is
+// used — nothing here depends on non-default config values.
+mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 
@@ -142,6 +129,39 @@ mock.module("../signals/cancel.js", () => ({
   handleCancelSignal: () => {},
 }));
 
+// The watcher reacts to file changes by calling these directly; capture the
+// reaction counts so tests can assert dispatch without driving real eviction
+// or client broadcasts.
+let evictCallCount = 0;
+let identityCallCount = 0;
+let themeCallCount = 0;
+
+mock.module("../daemon/conversation-store.js", () => ({
+  evictConversationsForReload: () => {
+    evictCallCount++;
+  },
+}));
+
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishIdentityChanged: () => {
+    identityCallCount++;
+  },
+  publishConfigChanged: () => {},
+  publishSoundsConfigUpdated: () => {},
+  publishAvatarChanged: () => {},
+  publishWorkspaceThemeChanged: () => {
+    themeCallCount++;
+  },
+}));
+
+mock.module("../daemon/skill-memory-refresh.js", () => ({
+  refreshSkillCapabilityMemories: () => {},
+}));
+
+mock.module("../platform/sync-identity.js", () => ({
+  syncIdentityNameToPlatform: () => {},
+}));
+
 // Import after mocks are set up
 const { ConfigWatcher } = await import("../daemon/config-watcher.js");
 
@@ -161,7 +181,12 @@ function findFileWatch(filePath: string): CapturedFileWatch | undefined {
   return capturedFileWatches.find((w) => w.filePath === filePath);
 }
 
-const WORKSPACE_FILES = new Set(["config.json", "SOUL.md", "IDENTITY.md"]);
+const WORKSPACE_FILES = new Set([
+  "config.json",
+  "SOUL.md",
+  "IDENTITY.md",
+  "ui/theme.json",
+]);
 
 // Each call advances the inode + mtime so the listener's early-return guard
 // (curr.ino === prev.ino && curr.mtimeMs === prev.mtimeMs) doesn't fire.
@@ -206,16 +231,14 @@ beforeAll(() => {
 });
 
 let watcher: InstanceType<typeof ConfigWatcher>;
-let evictCallCount: number;
-const onConversationEvict = () => {
-  evictCallCount++;
-};
 
 beforeEach(() => {
   capturedWatchers.length = 0;
   capturedFileWatches.length = 0;
   inoMap.clear();
   evictCallCount = 0;
+  identityCallCount = 0;
+  themeCallCount = 0;
   watcher = new ConfigWatcher(undefined, TEST_DEBOUNCE_MS);
 });
 
@@ -224,55 +247,42 @@ afterEach(() => {
 });
 
 describe("ConfigWatcher workspace file handlers", () => {
-  test("SOUL.md change triggers onConversationEvict", async () => {
-    watcher.start(onConversationEvict);
+  test("SOUL.md change evicts conversations", async () => {
+    watcher.start();
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     await new Promise((r) => setTimeout(r, WAIT_MS));
     expect(evictCallCount).toBe(1);
   });
 
-  test("SOUL.md change triggers identity intro refetch notification", async () => {
-    let introCallCount = 0;
-    watcher.start(
-      onConversationEvict,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      () => {
-        introCallCount += 1;
-      },
-    );
-    simulateFileChange(WORKSPACE_DIR, "SOUL.md");
-    await new Promise((r) => setTimeout(r, WAIT_MS));
-    expect(introCallCount).toBe(1);
-  });
-
-  test("IDENTITY.md change triggers onConversationEvict", async () => {
-    watcher.start(onConversationEvict);
+  test("IDENTITY.md change evicts conversations", async () => {
+    watcher.start();
     simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
     await new Promise((r) => setTimeout(r, WAIT_MS));
     expect(evictCallCount).toBe(1);
   });
 
-  test("IDENTITY.md change triggers onIdentityChanged", async () => {
-    let identityCallCount = 0;
-    watcher.start(onConversationEvict, () => {
-      identityCallCount += 1;
-    });
+  test("IDENTITY.md change broadcasts the identity update", async () => {
+    watcher.start();
     simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
     await new Promise((r) => setTimeout(r, WAIT_MS));
     expect(identityCallCount).toBe(1);
   });
 
   test("unregistered workspace files are not subscribed (only the registered handler set is)", () => {
-    watcher.start(onConversationEvict);
-    // Per-file watching only registers config.json, SOUL.md, IDENTITY.md.
-    // The whole workspace dir must not be watched either — that was the
-    // ENXIO-on-Unix-sockets bug.
+    watcher.start();
+    // Per-file watching only registers config.json, SOUL.md, IDENTITY.md,
+    // and ui/theme.json. The whole workspace dir must not be watched
+    // either — that was the ENXIO-on-Unix-sockets bug.
     expect(findFileWatch(join(WORKSPACE_DIR, "OTHER.md"))).toBeUndefined();
     expect(findWatcher(WORKSPACE_DIR)).toBeUndefined();
+  });
+
+  test("ui/theme.json change publishes the workspace-theme invalidation", async () => {
+    watcher.start();
+    simulateFileChange(WORKSPACE_DIR, "ui/theme.json");
+    await new Promise((r) => setTimeout(r, WAIT_MS));
+    expect(themeCallCount).toBe(1);
+    expect(evictCallCount).toBe(0);
   });
 
   test("config.json change calls refreshConfigFromSources", async () => {
@@ -281,16 +291,16 @@ describe("ConfigWatcher workspace file handlers", () => {
       refreshCalled = true;
       return false;
     };
-    watcher.start(onConversationEvict);
+    watcher.start();
     simulateFileChange(WORKSPACE_DIR, "config.json");
     await new Promise((r) => setTimeout(r, WAIT_MS));
     expect(refreshCalled).toBe(true);
     expect(evictCallCount).toBe(0);
   });
 
-  test("config.json change triggers onConversationEvict when config actually changed", async () => {
+  test("config.json change evicts conversations when config actually changed", async () => {
     watcher.refreshConfigFromSources = async () => true;
-    watcher.start(onConversationEvict);
+    watcher.start();
     simulateFileChange(WORKSPACE_DIR, "config.json");
     await new Promise((r) => setTimeout(r, WAIT_MS));
     expect(evictCallCount).toBe(1);
@@ -303,7 +313,7 @@ describe("ConfigWatcher workspace file handlers", () => {
       return true;
     };
     watcher.suppressConfigReload = true;
-    watcher.start(onConversationEvict);
+    watcher.start();
     simulateFileChange(WORKSPACE_DIR, "config.json");
     await new Promise((r) => setTimeout(r, WAIT_MS));
     expect(refreshCalled).toBe(false);
@@ -313,7 +323,7 @@ describe("ConfigWatcher workspace file handlers", () => {
 
 describe("ConfigWatcher watcher lifecycle", () => {
   test("start does NOT subscribe to /workspace as a directory (regression: ENXIO on Unix sockets)", () => {
-    watcher.start(onConversationEvict);
+    watcher.start();
     expect(findWatcher(WORKSPACE_DIR)).toBeUndefined();
     // The per-file watchFile subscriptions are tracked separately from
     // capturedWatchers; assert the expected ones are present.
@@ -323,7 +333,7 @@ describe("ConfigWatcher watcher lifecycle", () => {
   });
 
   test("stop cancels pending debounce work, no eviction fires after", async () => {
-    watcher.start(onConversationEvict);
+    watcher.start();
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     watcher.stop();
     await new Promise((r) => setTimeout(r, WAIT_MS));
@@ -331,7 +341,7 @@ describe("ConfigWatcher watcher lifecycle", () => {
   });
 
   test("multiple rapid changes to the same workspace file are coalesced to one eviction", async () => {
-    watcher.start(onConversationEvict);
+    watcher.start();
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
@@ -340,7 +350,7 @@ describe("ConfigWatcher watcher lifecycle", () => {
   });
 
   test("changes to different files each trigger their own handler", async () => {
-    watcher.start(onConversationEvict);
+    watcher.start();
     simulateFileChange(WORKSPACE_DIR, "SOUL.md");
     simulateFileChange(WORKSPACE_DIR, "IDENTITY.md");
     await new Promise((r) => setTimeout(r, WAIT_MS));
@@ -353,7 +363,7 @@ describe("ConfigWatcher per-file polling listener", () => {
     // Simulates `writeFile(tmp) + rename(tmp, target)`: the inode at the
     // path is replaced. The listener should fire once per debounced window.
     watcher.refreshConfigFromSources = async () => true;
-    watcher.start(onConversationEvict);
+    watcher.start();
     const fw = findFileWatch(join(WORKSPACE_DIR, "config.json"));
     expect(fw).toBeDefined();
     fw!.listener({ ino: 2, mtimeMs: 1_001 }, { ino: 1, mtimeMs: 1_000 });
@@ -363,7 +373,7 @@ describe("ConfigWatcher per-file polling listener", () => {
 
   test("mtime change is treated as a file change (in-place edit)", async () => {
     watcher.refreshConfigFromSources = async () => true;
-    watcher.start(onConversationEvict);
+    watcher.start();
     const fw = findFileWatch(join(WORKSPACE_DIR, "config.json"));
     expect(fw).toBeDefined();
     // Same inode, different mtime — what an `echo >> file` produces.
@@ -376,7 +386,7 @@ describe("ConfigWatcher per-file polling listener", () => {
     // fs.watchFile sometimes invokes the listener with curr === prev
     // (e.g. on initial subscription); the watcher must not re-fire in that case.
     watcher.refreshConfigFromSources = async () => true;
-    watcher.start(onConversationEvict);
+    watcher.start();
     const fw = findFileWatch(join(WORKSPACE_DIR, "config.json"));
     expect(fw).toBeDefined();
     fw!.listener({ ino: 1, mtimeMs: 1_000 }, { ino: 1, mtimeMs: 1_000 });
@@ -388,8 +398,8 @@ describe("ConfigWatcher per-file polling listener", () => {
 describe("ConfigWatcher users directory watcher", () => {
   const USERS_DIR = join(WORKSPACE_DIR, "users");
 
-  test("editing users/<slug>.md triggers onConversationEvict", async () => {
-    watcher.start(onConversationEvict);
+  test("editing users/<slug>.md evicts conversations", async () => {
+    watcher.start();
     simulateFileChange(USERS_DIR, "alice.md");
 
     await new Promise((r) => setTimeout(r, WAIT_MS));
@@ -397,7 +407,7 @@ describe("ConfigWatcher users directory watcher", () => {
   });
 
   test("non-.md files in users/ do NOT trigger eviction", async () => {
-    watcher.start(onConversationEvict);
+    watcher.start();
     simulateFileChange(USERS_DIR, "alice.json");
     simulateFileChange(USERS_DIR, "notes.txt");
     simulateFileChange(USERS_DIR, "README");
@@ -407,7 +417,7 @@ describe("ConfigWatcher users directory watcher", () => {
   });
 
   test("null filename in users/ does not trigger eviction", async () => {
-    watcher.start(onConversationEvict);
+    watcher.start();
     const usersWatcher = findWatcher(USERS_DIR);
     expect(usersWatcher).toBeDefined();
     usersWatcher!.callback("change", null);
@@ -417,7 +427,7 @@ describe("ConfigWatcher users directory watcher", () => {
   });
 
   test("multiple rapid changes to the same persona file are debounced", async () => {
-    watcher.start(onConversationEvict);
+    watcher.start();
     simulateFileChange(USERS_DIR, "bob.md");
     simulateFileChange(USERS_DIR, "bob.md");
     simulateFileChange(USERS_DIR, "bob.md");

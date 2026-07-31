@@ -2,6 +2,7 @@ import { getIsPlatform } from "../config/env-registry.js";
 import { loadConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
+import { resolveTelephonyCredentialReadiness } from "./telephony-credential-preflight.js";
 
 const SERVICE_UNAVAILABLE_STATUS = 503 as const;
 
@@ -31,6 +32,14 @@ function fail(error: string): VoiceIngressPreflightFailure {
 
 export async function preflightVoiceIngress(): Promise<VoiceIngressPreflightResult> {
   const ingressConfig = loadConfig();
+
+  // The daemon performs both STT and TTS on the media-stream transport —
+  // in every deployment mode, platform-hosted included — so credential
+  // readiness gates outbound placement before any Twilio call is made.
+  const readiness = await resolveTelephonyCredentialReadiness();
+  if (readiness.status === "not-ready") {
+    return fail(readiness.userMessage);
+  }
 
   // Platform-callback deployments register routes with the platform and receive
   // stable callback URLs. No public ingress URL or local gateway is involved.

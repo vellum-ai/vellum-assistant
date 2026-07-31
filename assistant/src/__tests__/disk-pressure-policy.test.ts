@@ -109,6 +109,18 @@ describe("classifyDiskPressureTurnPolicy", () => {
       expected: { action: "block", reason: "trusted-contact" },
     },
     {
+      name: "unverified contact is blocked",
+      status: status(),
+      metadata: {
+        ...guardianTurn,
+        trustContext: {
+          sourceChannel: "telegram",
+          trustClass: "unverified_contact",
+        },
+      },
+      expected: { action: "block", reason: "trusted-contact" },
+    },
+    {
       name: "non-guardian contact is blocked",
       status: status(),
       metadata: {

@@ -9,6 +9,8 @@
  * verification) tokens that use the same `/start` deep-link mechanism.
  */
 
+import type { CommandIntent, SourceMetadata } from "@vellumai/gateway-client";
+
 import type { ChannelId } from "../../channels/types.js";
 import {
   invalidateConfigCache,
@@ -34,10 +36,10 @@ import type {
 
 /**
  * Ensure the Telegram bot username is resolved and cached in config.
- * When the bot token was configured via CLI `credential set`,
- * `credential_store` tool, or ingress secret redirect, the `getMe` API
- * call that populates the config is skipped — this function fills that
- * gap so that invite share links can be generated.
+ * When the bot token was configured via the `assistant credentials set` CLI
+ * or ingress secret redirect, the `getMe` API call that populates the config
+ * is skipped — this function fills that gap so that invite share links can be
+ * generated.
  */
 export async function ensureTelegramBotUsernameResolved(): Promise<void> {
   if (getTelegramBotUsername() && getTelegramBotId()) {
@@ -45,7 +47,9 @@ export async function ensureTelegramBotUsernameResolved(): Promise<void> {
   }
 
   const token = await getSecureKeyAsync(credentialKey("telegram", "bot_token"));
-  if (!token) return;
+  if (!token) {
+    return;
+  }
 
   try {
     const controller = new AbortController();
@@ -125,22 +129,23 @@ export const telegramInviteAdapter: ChannelInviteAdapter = {
 
   resolveChannelHandle(): string | undefined {
     const botUsername = getTelegramBotUsername();
-    if (!botUsername) return undefined;
+    if (!botUsername) {
+      return undefined;
+    }
     return `@${botUsername}`;
   },
 
   extractInboundToken(params: {
-    commandIntent?: Record<string, unknown>;
+    commandIntent?: CommandIntent;
     content: string;
-    sourceMetadata?: Record<string, unknown>;
+    sourceMetadata?: SourceMetadata;
   }): string | undefined {
     // Primary path: structured command intent from the gateway.
     // The gateway normalizes `/start <payload>` into
     // `{ type: 'start', payload: '<payload>' }`.
     if (
-      params.commandIntent &&
-      params.commandIntent.type === "start" &&
-      typeof params.commandIntent.payload === "string"
+      params.commandIntent?.type === "start" &&
+      params.commandIntent.payload
     ) {
       const payload = params.commandIntent.payload;
       if (payload.startsWith(INVITE_TOKEN_PREFIX)) {

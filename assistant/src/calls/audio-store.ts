@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 
+/** Audio formats that flow through call synthesis and the audio store. */
+export type CallAudioFormat = "mp3" | "wav" | "opus" | "pcm";
+
 interface AudioEntry {
   buffer: Buffer;
   contentType: string;
@@ -22,15 +25,14 @@ const TTL_MS = 60_000; // 60 seconds
 
 let currentBytes = 0;
 
-export function storeAudio(
-  buffer: Buffer,
-  format: "mp3" | "wav" | "opus" | "pcm",
-): string {
+export function storeAudio(buffer: Buffer, format: CallAudioFormat): string {
   evictExpired();
   // Evict oldest if over capacity
   while (currentBytes + buffer.length > MAX_STORE_BYTES && store.size > 0) {
     const oldest = store.keys().next().value;
-    if (oldest) removeEntry(oldest);
+    if (oldest) {
+      removeEntry(oldest);
+    }
   }
   const id = randomUUID();
   const contentType = contentTypeForFormat(format);
@@ -50,7 +52,7 @@ export interface StreamingAudioHandle {
 }
 
 export function createStreamingEntry(
-  format: "mp3" | "wav" | "opus" | "pcm",
+  format: CallAudioFormat,
 ): StreamingAudioHandle {
   evictExpired();
   const id = randomUUID();
@@ -146,7 +148,9 @@ export function getAudio(id: string): AudioResult | null {
 
   // Check regular store
   const entry = store.get(id);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   if (Date.now() > entry.expiresAt) {
     removeEntry(id);
     return null;
@@ -162,7 +166,7 @@ export function getAudio(id: string): AudioResult | null {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function contentTypeForFormat(format: "mp3" | "wav" | "opus" | "pcm"): string {
+function contentTypeForFormat(format: CallAudioFormat): string {
   return format === "mp3"
     ? "audio/mpeg"
     : format === "wav"
@@ -194,7 +198,9 @@ function removeEntry(id: string): void {
 function evictExpired(): void {
   const now = Date.now();
   for (const [id, entry] of store) {
-    if (now > entry.expiresAt) removeEntry(id);
+    if (now > entry.expiresAt) {
+      removeEntry(id);
+    }
   }
   for (const [id, entry] of streamingStore) {
     if (now > entry.expiresAt) {

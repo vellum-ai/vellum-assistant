@@ -14,27 +14,19 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // Use an object wrapper so TypeScript doesn't narrow the captured type to
 // `undefined` based on the initial assignment in the test setup.
 const captured: {
   callSite?: string;
   constructorMaxTokens?: unknown;
-  resolvedMaxTokens?: unknown;
-  resolvedHasMaxTokens?: boolean;
 } = {};
 
 function clearCaptured(): void {
   captured.callSite = undefined;
   captured.constructorMaxTokens = undefined;
-  captured.resolvedMaxTokens = undefined;
-  captured.resolvedHasMaxTokens = undefined;
 }
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
 
 const mockProviderStub = { name: "mock-provider" };
 mock.module("../providers/registry.js", () => ({
@@ -60,66 +52,20 @@ mock.module("../providers/inference/connections.js", () => ({
   }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "anthropic",
-        provider_connection: "anthropic-conn",
-        model: "claude-opus-4-6",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
+// Seed the workspace config for real. The main-agent call-site tweak applies
+// last over the winning profile, so it fully pins the provider/connection/
+// model these tests run under. Memory is disabled so no memory subsystem work
+// runs inside these turns.
+setConfig("llm", {
+  callSites: {
+    mainAgent: {
+      provider: "anthropic",
+      provider_connection: "anthropic-conn",
+      model: "claude-opus-4-6",
     },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    memory: {
-      v2: { enabled: false },
-      retrieval: { scratchpadInjection: { enabled: true } },
-    },
-    daemon: {
-      startupSocketWaitMs: 5000,
-      stopTimeoutMs: 5000,
-      sigkillGracePeriodMs: 2000,
-      titleGenerationMaxTokens: 30,
-      standaloneRecording: true,
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+  },
+});
+setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
@@ -160,7 +106,9 @@ mock.module("../workspace/git-service.js", () => ({
 let mockDbMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockConversation: Record<string, unknown> | null = null;
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -182,7 +130,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
@@ -207,14 +155,8 @@ mock.module("../agent/loop.js", () => ({
       provider?: unknown;
       systemPrompt?: string;
       config?: Record<string, unknown>;
-      resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>;
     }) {
       captured.constructorMaxTokens = options?.config?.maxTokens;
-      const resolved = options?.resolveSystemPrompt?.([]);
-      captured.resolvedMaxTokens = resolved?.maxTokens;
-      captured.resolvedHasMaxTokens =
-        resolved !== undefined &&
-        Object.prototype.hasOwnProperty.call(resolved, "maxTokens");
     }
     getToolTokenBudget() {
       return 0;
@@ -246,6 +188,12 @@ mock.module("../agent/loop.js", () => ({
 
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
+    estimateInputTokens() {
+      return 0;
+    }
+    get tokenCountInputs() {
+      return { systemPrompt: "", tools: undefined };
+    }
     constructor() {}
     updateConfig() {}
     shouldCompact() {
@@ -261,26 +209,6 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
     content: [{ type: "text", text: "summary" }],
   }),
   getSummaryFromContextMessage: () => null,
-}));
-
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
 }));
 
 import { Conversation } from "../daemon/conversation.js";
@@ -375,8 +303,6 @@ describe("processMessage callSite threading", () => {
     await getOrCreateConversation("conv-store-default");
 
     expect(captured.constructorMaxTokens).toBeUndefined();
-    expect(captured.resolvedMaxTokens).toBeUndefined();
-    expect(captured.resolvedHasMaxTokens).toBe(false);
   });
 
   test("preserves explicit maxResponseTokens at conversation creation", async () => {
@@ -397,8 +323,6 @@ describe("processMessage callSite threading", () => {
     });
 
     expect(captured.constructorMaxTokens).toBe(1234);
-    expect(captured.resolvedMaxTokens).toBe(1234);
-    expect(captured.resolvedHasMaxTokens).toBe(true);
   });
 
   test("applies clientTimezone in the create and reuse transport metadata path", async () => {
@@ -436,5 +360,42 @@ describe("processMessage callSite threading", () => {
     });
 
     expect(conversation.clientTimezone).toBe("Europe/London");
+  });
+
+  test("applies clientOs in the create and reuse transport metadata path", async () => {
+    mockConversation = {
+      id: "conv-store-client-os",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [];
+    clearCaptured();
+    clearAllActiveConversations();
+
+    // `interface` is always the transport surface (here "web"); the OS is
+    // carried separately as `clientOs` and must be applied on both the create
+    // and reuse paths so each turn reflects its own surface.
+    const conversation = await getOrCreateConversation("conv-store-client-os", {
+      transport: {
+        channelId: "vellum",
+        interfaceId: "web",
+        clientOs: "macos",
+      },
+    });
+
+    expect(conversation.clientOs).toBe("macos");
+
+    await getOrCreateConversation("conv-store-client-os", {
+      transport: {
+        channelId: "vellum",
+        interfaceId: "web",
+        clientOs: "ios",
+      },
+    });
+
+    expect(conversation.clientOs).toBe("ios");
   });
 });

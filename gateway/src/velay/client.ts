@@ -8,6 +8,7 @@ import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { mutateConfigFile } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
+import { ExponentialBackoff } from "../util/exponential-backoff.js";
 import {
   VELAY_ALLOWED_PATHS_HEADER,
   VELAY_ALLOWED_PATHS_HEADER_VALUE,
@@ -76,17 +77,13 @@ export class VelayTunnelClient {
   private readonly webSocketConstructor: WebSocketConstructorWithOptions;
   private readonly httpBridge: typeof bridgeVelayHttpRequest;
   private readonly webSocketBridge: VelayWebSocketBridge;
-  private readonly baseReconnectDelayMs: number;
-  private readonly maxReconnectDelayMs: number;
-  private readonly reconnectJitterRatio: number;
-  private readonly random: () => number;
+  private readonly backoff: ExponentialBackoff;
   private readonly heartbeatIntervalMs: number;
   private readonly heartbeatReadTimeoutMs: number;
   private readonly timerApi: TimerApi;
   private ws: WebSocket | null = null;
   private running = false;
   private connecting = false;
-  private reconnectAttempt = 0;
   private reconnectTimer: unknown = null;
   private heartbeatTimer: unknown = null;
   private readTimeoutTimer: unknown = null;
@@ -94,6 +91,9 @@ export class VelayTunnelClient {
   private publishedPublicBaseUrl: string | undefined;
   private credentialRefreshPending = false;
   private unsubscribeConfigInvalidation: (() => void) | undefined;
+  // Last observed value of `ingress.enabled === false`, so a config change can
+  // detect a disabled → enabled transition and wake a waiting reconnect.
+  private lastPublicIngressDisabled = false;
 
   constructor(private readonly options: VelayTunnelClientOptions) {
     this.webSocketConstructor =
@@ -103,13 +103,15 @@ export class VelayTunnelClient {
     this.webSocketBridge = (
       options.webSocketBridgeFactory ?? defaultWebSocketBridgeFactory
     )(options.gatewayLoopbackBaseUrl, (frame) => this.sendFrame(frame));
-    this.baseReconnectDelayMs =
-      options.reconnect?.baseDelayMs ?? BASE_RECONNECT_DELAY_MS;
-    this.maxReconnectDelayMs =
-      options.reconnect?.maxDelayMs ?? MAX_RECONNECT_DELAY_MS;
-    this.reconnectJitterRatio =
-      options.reconnect?.jitterRatio ?? RECONNECT_JITTER_RATIO;
-    this.random = options.reconnect?.random ?? Math.random;
+    this.backoff = new ExponentialBackoff({
+      baseDelayMs: options.reconnect?.baseDelayMs ?? BASE_RECONNECT_DELAY_MS,
+      maxDelayMs: options.reconnect?.maxDelayMs ?? MAX_RECONNECT_DELAY_MS,
+      jitter: {
+        mode: "additive",
+        ratio: options.reconnect?.jitterRatio ?? RECONNECT_JITTER_RATIO,
+      },
+      random: options.reconnect?.random,
+    });
     this.heartbeatIntervalMs =
       options.heartbeat?.intervalMs ?? HEARTBEAT_INTERVAL_MS;
     this.heartbeatReadTimeoutMs =
@@ -131,7 +133,7 @@ export class VelayTunnelClient {
   refreshCredentials(reason = "credentials changed"): void {
     if (!this.running) return;
 
-    this.reconnectAttempt = 0;
+    this.backoff.reset();
     if (this.reconnectTimer) {
       this.timerApi.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -162,6 +164,7 @@ export class VelayTunnelClient {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.lastPublicIngressDisabled = this.isPublicIngressDisabled();
     this.unsubscribeConfigInvalidation ??= this.options.configFile.onInvalidate(
       () => {
         this.handleConfigInvalidated();
@@ -431,7 +434,7 @@ export class VelayTunnelClient {
 
     await writeManagedPublicBaseUrl(publicUrl, this.options.configFile);
     this.publishedPublicBaseUrl = publicUrl;
-    this.reconnectAttempt = 0;
+    this.backoff.reset();
     log.info({ publicUrl }, "Velay tunnel registered");
   }
 
@@ -567,13 +570,7 @@ export class VelayTunnelClient {
   private scheduleReconnect(): void {
     if (!this.running || this.reconnectTimer) return;
 
-    const backoff = Math.min(
-      this.baseReconnectDelayMs * Math.pow(2, this.reconnectAttempt),
-      this.maxReconnectDelayMs,
-    );
-    const jitter = backoff * this.reconnectJitterRatio * this.random();
-    const delay = Math.round(backoff + jitter);
-    this.reconnectAttempt++;
+    const delay = this.backoff.nextDelayMs();
 
     this.reconnectTimer = this.timerApi.setTimeout(() => {
       this.reconnectTimer = null;
@@ -586,11 +583,37 @@ export class VelayTunnelClient {
   }
 
   private handleConfigInvalidated(): void {
-    const ws = this.ws;
-    if (!ws || !this.isPublicIngressDisabled()) return;
+    const disabled = this.isPublicIngressDisabled();
+    const wasDisabled = this.lastPublicIngressDisabled;
+    this.lastPublicIngressDisabled = disabled;
 
-    log.info("Closing Velay tunnel because public ingress is disabled");
-    this.disconnectActiveWebSocket(ws, 1000, "public ingress disabled");
+    const ws = this.ws;
+
+    if (disabled) {
+      if (ws) {
+        log.info("Closing Velay tunnel because public ingress is disabled");
+        this.disconnectActiveWebSocket(ws, 1000, "public ingress disabled");
+      }
+      return;
+    }
+
+    // Public ingress just transitioned disabled → enabled. If the client is
+    // running but idling on a backoff timer (it was started while disabled, so
+    // `connect()` kept re-scheduling), reconnect now instead of waiting out the
+    // backoff — otherwise a link minted right after enabling ingress (which
+    // also starts the tunnel) stays unreachable for up to the max backoff.
+    if (wasDisabled && this.running && !ws && !this.connecting) {
+      this.backoff.reset();
+      if (this.reconnectTimer) {
+        this.timerApi.clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
+      void this.connect().catch((err) => {
+        this.connecting = false;
+        log.error({ err }, "Velay reconnect after ingress enable failed");
+        this.scheduleReconnect();
+      });
+    }
   }
 
   private isPublicIngressDisabled(): boolean {
@@ -679,6 +702,34 @@ async function writeManagedPublicBaseUrl(
 
       ingress.publicBaseUrl = publicUrl;
       ingress.publicBaseUrlManagedBy = VELAY_MANAGED_BY;
+      data.ingress = ingress;
+      return true;
+    },
+  );
+}
+
+/**
+ * Enable public ingress by setting `ingress.enabled = true` in the gateway
+ * config file. No-op when it is already truthy (the mutate callback returns
+ * `false`, so nothing is written).
+ *
+ * Flipping `enabled` from `false` → `true` triggers the gateway config
+ * watcher, which lets the Velay reconnect loop (`connect()` re-checks
+ * `isPublicIngressDisabled()` on each attempt) establish the tunnel and
+ * publish the public URL.
+ */
+export async function enablePublicIngress(
+  configFile: ConfigFileCache,
+): Promise<void> {
+  return mutateGatewayConfigFile(
+    configFile,
+    "Cannot enable public ingress because config.json is malformed",
+    (data) => {
+      const ingress = getMutableIngress(data);
+      if (ingress.enabled === true) {
+        return false;
+      }
+      ingress.enabled = true;
       data.ingress = ingress;
       return true;
     },

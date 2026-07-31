@@ -120,7 +120,6 @@ function handleRenderFromTraits({ body, headers }: RouteHandlerArgs) {
     }
   }
 
-  updateIdentityAvatarSection(null, log);
   publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true };
 }
@@ -153,7 +152,6 @@ async function handleGenerateAvatar({ body, headers }: RouteHandlerArgs) {
   // character sidecars (traits + ASCII), and records an AI-sourced manifest.
   setImage(result.pngBuffer, "ai");
 
-  updateIdentityAvatarSection(null, log);
   publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true, message: result.content };
 }
@@ -202,7 +200,6 @@ function handleUploadAvatarImage({ body, headers }: RouteHandlerArgs) {
   // character sidecars (traits + ASCII), and records an uploaded-image manifest.
   setImage(buffer, "upload");
 
-  updateIdentityAvatarSection(null, log);
   publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true };
 }
@@ -235,7 +232,6 @@ function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
   // recorded as an uploaded image atomically (no more stale both-files state).
   setImage(readFileSync(normalized), "upload");
 
-  updateIdentityAvatarSection(null, log);
   publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true };
 }

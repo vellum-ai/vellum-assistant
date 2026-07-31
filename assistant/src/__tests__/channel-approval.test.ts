@@ -23,12 +23,15 @@ describe("parseCallbackData", () => {
     ["apr:req-123:approve_10m", "approve_once"],
     ["apr:req-123:approve_conversation", "approve_once"],
     ["apr:req-123:approve_always", "approve_once"],
-  ])('maps legacy action "%s" to %s (backward compat)', (data, expectedAction) => {
-    const result = parseCallbackData(data);
-    expect(result).not.toBeNull();
-    expect(result!.action).toBe(expectedAction as ApprovalAction);
-    expect(result!.requestId).toBe("req-123");
-  });
+  ])(
+    'maps legacy action "%s" to %s (backward compat)',
+    (data, expectedAction) => {
+      const result = parseCallbackData(data);
+      expect(result).not.toBeNull();
+      expect(result!.action).toBe(expectedAction as ApprovalAction);
+      expect(result!.requestId).toBe("req-123");
+    },
+  );
 
   test("parses slack source channel", () => {
     const result = parseCallbackData("apr:req-789:approve_once", "slack");

@@ -12,6 +12,33 @@ export function isLoopbackHost(hostname: string): boolean {
   );
 }
 
+/** Unwrap IPv4-mapped IPv6 (e.g. ::ffff:10.0.0.1) to its IPv4 part. */
+function unwrapV4Mapped(addr: string): string {
+  const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  return v4Mapped ? v4Mapped[1] : addr;
+}
+
+/**
+ * Determine whether an IP address string is a loopback address —
+ * 127.0.0.0/8, ::1, or their IPv4-mapped IPv6 forms. Strictly narrower
+ * than {@link isPrivateAddress}: LAN peers (RFC 1918, link-local) are
+ * private but not loopback.
+ */
+export function isLoopbackAddress(addr: string): boolean {
+  const normalized = unwrapV4Mapped(addr);
+
+  if (normalized.includes(".")) {
+    const parts = normalized.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) {
+      return false;
+    }
+    // Loopback: 127.0.0.0/8
+    return parts[0] === 127;
+  }
+
+  return normalized.toLowerCase() === "::1";
+}
+
 /**
  * @internal Exported for testing.
  *
@@ -24,26 +51,35 @@ export function isLoopbackHost(hostname: string): boolean {
  *   - IPv4-mapped IPv6 variants of all of the above (::ffff:x.x.x.x)
  */
 export function isPrivateAddress(addr: string): boolean {
-  // Handle IPv4-mapped IPv6 (e.g. ::ffff:10.0.0.1) -- extract the IPv4 part
-  const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
-  const normalized = v4Mapped ? v4Mapped[1] : addr;
+  const normalized = unwrapV4Mapped(addr);
 
   // IPv4 checks
   if (normalized.includes(".")) {
     const parts = normalized.split(".").map(Number);
-    if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255))
+    if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) {
       return false;
+    }
 
     // Loopback: 127.0.0.0/8
-    if (parts[0] === 127) return true;
+    if (parts[0] === 127) {
+      return true;
+    }
     // 10.0.0.0/8
-    if (parts[0] === 10) return true;
+    if (parts[0] === 10) {
+      return true;
+    }
     // 172.16.0.0/12 (172.16.x.x -- 172.31.x.x)
-    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) {
+      return true;
+    }
     // 192.168.0.0/16
-    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 192 && parts[1] === 168) {
+      return true;
+    }
     // Link-local: 169.254.0.0/16
-    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 169 && parts[1] === 254) {
+      return true;
+    }
 
     return false;
   }
@@ -51,11 +87,17 @@ export function isPrivateAddress(addr: string): boolean {
   // IPv6 checks
   const lower = normalized.toLowerCase();
   // Loopback
-  if (lower === "::1") return true;
+  if (lower === "::1") {
+    return true;
+  }
   // Unique local: fc00::/7 (fc00:: through fdff::)
-  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+  if (lower.startsWith("fc") || lower.startsWith("fd")) {
+    return true;
+  }
   // Link-local: fe80::/10
-  if (lower.startsWith("fe80")) return true;
+  if (lower.startsWith("fe80")) {
+    return true;
+  }
 
   return false;
 }
@@ -79,7 +121,9 @@ export function isPrivateNetworkPeer(
   req: Request,
 ): boolean {
   const ip = server.requestIP(req);
-  if (!ip) return false;
+  if (!ip) {
+    return false;
+  }
   return isPrivateAddress(ip.address);
 }
 
@@ -91,11 +135,15 @@ export function isPrivateNetworkPeer(
 export function isPrivateNetworkOrigin(req: Request): boolean {
   const origin = req.headers.get("origin");
   // No origin header (e.g., server-initiated or same-origin) -- allow
-  if (!origin) return true;
+  if (!origin) {
+    return true;
+  }
   try {
     const url = new URL(origin);
     const host = url.hostname;
-    if (host === "localhost") return true;
+    if (host === "localhost") {
+      return true;
+    }
     // URL.hostname wraps IPv6 addresses in brackets (e.g. "[::1]") -- strip them
     const rawHost =
       host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;

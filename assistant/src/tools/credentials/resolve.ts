@@ -51,7 +51,9 @@ export function resolveByServiceField(
   field: string,
 ): ResolvedCredential | undefined {
   const metadata = getCredentialMetadata(service, field);
-  if (!metadata) return undefined;
+  if (!metadata) {
+    return undefined;
+  }
   return toResolved(metadata);
 }
 
@@ -63,7 +65,9 @@ export function resolveById(
   credentialId: string,
 ): ResolvedCredential | undefined {
   const metadata = getCredentialMetadataById(credentialId);
-  if (!metadata) return undefined;
+  if (!metadata) {
+    return undefined;
+  }
   return toResolved(metadata);
 }
 
@@ -80,17 +84,25 @@ export function resolveById(
 export function resolveCredentialRef(
   ref: string,
 ): ResolvedCredential | undefined {
-  if (!ref || ref.trim().length === 0) return undefined;
+  if (!ref || ref.trim().length === 0) {
+    return undefined;
+  }
 
   // Try as UUID first
   const byId = resolveById(ref);
-  if (byId) return byId;
+  if (byId) {
+    return byId;
+  }
 
   // Try as service/field
   const slashIndex = ref.indexOf("/");
-  if (slashIndex <= 0 || slashIndex >= ref.length - 1) return undefined;
+  if (slashIndex <= 0 || slashIndex >= ref.length - 1) {
+    return undefined;
+  }
   // Reject refs with more than one slash (e.g. "fal/api/key")
-  if (ref.indexOf("/", slashIndex + 1) !== -1) return undefined;
+  if (ref.indexOf("/", slashIndex + 1) !== -1) {
+    return undefined;
+  }
 
   const service = ref.slice(0, slashIndex);
   const field = ref.slice(slashIndex + 1);
@@ -114,7 +126,9 @@ export function resolveForDomain(hostname: string): ResolvedCredential[] {
           includeApexForWildcard: true,
         }) !== "none",
     );
-    if (matching.length === 0) continue;
+    if (matching.length === 0) {
+      continue;
+    }
     results.push({
       ...toResolved(meta),
       injectionTemplates: matching,

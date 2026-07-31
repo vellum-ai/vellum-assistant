@@ -40,7 +40,9 @@ const idempotencyCache = new Map<string, IdempotencyEntry>();
 function pruneIdempotencyCache(): void {
   const now = Date.now();
   for (const [key, entry] of idempotencyCache) {
-    if (entry.expiresAt <= now) idempotencyCache.delete(key);
+    if (entry.expiresAt <= now) {
+      idempotencyCache.delete(key);
+    }
   }
 }
 
@@ -59,7 +61,11 @@ const STATUS_CODE_MAP: Record<number, string> = {
 };
 
 function throwDomainError(error: string, status: number): never {
-  throw new RouteError(error, STATUS_CODE_MAP[status] ?? "INTERNAL_ERROR", status);
+  throw new RouteError(
+    error,
+    STATUS_CODE_MAP[status] ?? "INTERNAL_ERROR",
+    status,
+  );
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────

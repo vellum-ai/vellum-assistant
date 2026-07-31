@@ -25,7 +25,7 @@ import { homedir } from "node:os";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 
 // ---------------------------------------------------------------------------
-// Path resolution (mirrors managed-main.ts)
+// Path resolution (mirrors the managed-mode path in main.ts)
 // ---------------------------------------------------------------------------
 
 function resolveVellumRoot(): string {

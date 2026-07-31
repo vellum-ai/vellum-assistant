@@ -22,42 +22,15 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Mock platform (must precede imports that read it) ─────────────────────────
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: false, watchDebounceMs: 0 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
-
 let mockedRowContent = "";
 const updates: Array<{ id: string; content: string }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: (id: string) =>
-    mockedRowContent ? { id, content: mockedRowContent } : null,
+    mockedRowContent ? { id, content: JSON.parse(mockedRowContent) } : null,
   updateMessageContent: (id: string, content: string) => {
     updates.push({ id, content });
   },
@@ -65,7 +38,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
@@ -88,7 +61,6 @@ function makeDeps(): EventHandlerDeps {
     ctx: {
       conversationId: "test-conv",
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       streamThinking: false,
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},
@@ -128,7 +100,9 @@ function findBlockById(
 ): Record<string, unknown> {
   const parsed = JSON.parse(rawContent) as Array<Record<string, unknown>>;
   const block = parsed.find((b) => b.id === id);
-  if (!block) throw new Error(`block ${id} not found`);
+  if (!block) {
+    throw new Error(`block ${id} not found`);
+  }
   return block;
 }
 

@@ -8,7 +8,12 @@
       "risk": "low",
       "input_schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
+          }
+        },
         "required": []
       },
       "executor": "tools/computer-use-observe.ts",

@@ -4,10 +4,6 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
 
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({}),
-}));
-
 let _listRows: Array<{
   id: string;
   title: string;
@@ -27,7 +23,9 @@ mock.module("../helpers.js", () => ({
   },
   deleteConversationById: (id: string) => {
     deleteCalls.push(id);
-    return typeof _deleteReturn === "function" ? _deleteReturn(id) : _deleteReturn;
+    return typeof _deleteReturn === "function"
+      ? _deleteReturn(id)
+      : _deleteReturn;
   },
   createPlaygroundConversation: () => ({ id: "conv-test" }),
   addPlaygroundMessage: async () => ({ id: "msg-test" }),
@@ -46,7 +44,9 @@ function resetSpies() {
 
 function findRoute(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not registered`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not registered`);
+  }
   return route;
 }
 
@@ -68,9 +68,9 @@ describe("GET playground/seeded-conversations", () => {
       },
     ];
 
-    const body = (await findRoute(
-      "playgroundListSeededConversations",
-    ).handler({})) as { conversations: typeof _listRows };
+    const body = (await findRoute("playgroundListSeededConversations").handler(
+      {},
+    )) as { conversations: typeof _listRows };
 
     expect(body.conversations).toEqual(_listRows);
     expect(listCalls).toEqual([PLAYGROUND_TITLE_PREFIX]);
@@ -113,11 +113,11 @@ describe("DELETE playground/seeded-conversations/:id", () => {
       },
     ];
 
-    const body = (await findRoute(
-      "playgroundDeleteSeededConversation",
-    ).handler({
-      pathParams: { id: "conv-seeded" },
-    })) as { deletedCount: number };
+    const body = (await findRoute("playgroundDeleteSeededConversation").handler(
+      {
+        pathParams: { id: "conv-seeded" },
+      },
+    )) as { deletedCount: number };
 
     expect(body.deletedCount).toBe(1);
     expect(deleteCalls).toEqual(["conv-seeded"]);
@@ -135,11 +135,11 @@ describe("DELETE playground/seeded-conversations/:id", () => {
     ];
     _deleteReturn = false;
 
-    const body = (await findRoute(
-      "playgroundDeleteSeededConversation",
-    ).handler({
-      pathParams: { id: "conv-seeded" },
-    })) as { deletedCount: number };
+    const body = (await findRoute("playgroundDeleteSeededConversation").handler(
+      {
+        pathParams: { id: "conv-seeded" },
+      },
+    )) as { deletedCount: number };
 
     expect(body.deletedCount).toBe(0);
     expect(deleteCalls).toEqual(["conv-seeded"]);

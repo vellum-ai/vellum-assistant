@@ -32,7 +32,9 @@ function int(name: string, fallback: number): number;
 function int(name: string): number | undefined;
 function int(name: string, fallback?: number): number | undefined {
   const raw = str(name);
-  if (!raw) return fallback;
+  if (!raw) {
+    return fallback;
+  }
   const n = parseInt(raw, 10);
   if (isNaN(n)) {
     throw new Error(
@@ -95,12 +97,6 @@ export function isHttpAuthDisabled(): boolean {
   return str("DISABLE_HTTP_AUTH")?.toLowerCase() === "true";
 }
 
-// ── Monitoring ───────────────────────────────────────────────────────────────
-
-export function getSentryDsn(): string {
-  return str("SENTRY_DSN_ASSISTANT") ?? "";
-}
-
 // ── Qdrant ───────────────────────────────────────────────────────────────────
 
 export function getQdrantUrlEnv(): string | undefined {
@@ -133,7 +129,9 @@ export function getPlatformBaseUrl(): string {
   let configUrl: string | undefined;
   try {
     const val = getConfig().platform.baseUrl;
-    if (val) configUrl = val;
+    if (val) {
+      configUrl = val;
+    }
   } catch {
     // Config not yet available (early bootstrap) — fall through
   }

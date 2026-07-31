@@ -475,7 +475,8 @@ describe("GET /v1/feature-flags handler", () => {
 
   test("string flag uses registry default when no override exists", async () => {
     if (existsSync(featureFlagStorePath)) rmSync(featureFlagStorePath);
-    if (existsSync(remoteFeatureFlagStorePath)) rmSync(remoteFeatureFlagStorePath);
+    if (existsSync(remoteFeatureFlagStorePath))
+      rmSync(remoteFeatureFlagStorePath);
     clearFeatureFlagStoreCache();
     clearRemoteFeatureFlagStoreCache();
 
@@ -892,5 +893,61 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     for (const key of flagKeys) {
       expect(persisted[key]).toBe(false);
     }
+  });
+
+  test("invokes onFlagChanged once after a successful write", async () => {
+    let calls = 0;
+    const handler = createFeatureFlagsPatchHandler(() => {
+      calls += 1;
+    });
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags/browser", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      }),
+      "browser",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls).toBe(1);
+  });
+
+  test("does not invoke onFlagChanged when the request is rejected", async () => {
+    let calls = 0;
+    const handler = createFeatureFlagsPatchHandler(() => {
+      calls += 1;
+    });
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags/totally-unknown-flag", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: true }),
+      }),
+      "totally-unknown-flag",
+    );
+
+    expect(res.status).toBe(400);
+    expect(calls).toBe(0);
+  });
+
+  test("a throwing onFlagChanged does not fail an already-committed write", async () => {
+    const handler = createFeatureFlagsPatchHandler(() => {
+      throw new Error("notification boom");
+    });
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags/browser", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      }),
+      "browser",
+    );
+
+    expect(res.status).toBe(200);
+
+    clearFeatureFlagStoreCache();
+    const persisted = readPersistedFeatureFlags();
+    expect(persisted["browser"]).toBe(false);
   });
 });

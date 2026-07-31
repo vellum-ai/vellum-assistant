@@ -62,9 +62,15 @@ mock.module("../../../ipc/cli-client.js", () => ({
 }));
 
 function exitCodeFromIpcResult(result: { statusCode?: number }): number {
-  if (result.statusCode === undefined) return 10;
-  if (result.statusCode >= 500) return 3;
-  if (result.statusCode >= 400) return 2;
+  if (result.statusCode === undefined) {
+    return 10;
+  }
+  if (result.statusCode >= 500) {
+    return 3;
+  }
+  if (result.statusCode >= 400) {
+    return 2;
+  }
   return 1;
 }
 
@@ -98,10 +104,12 @@ mock.module("../../../messaging/providers/slack/send.js", () => ({
     options?: Record<string, unknown>,
   ) => {
     slackReplyCalls.push({ chatId, text, options });
-    if (slackReplyError) throw slackReplyError;
+    if (slackReplyError) {
+      throw slackReplyError;
+    }
     return { ok: true, ts: "1700000000.000200" };
   },
-  sendSlackTypingIndicator: async () => "1700000000.000200",
+  sendSlackStreamOp: async () => ({ ok: true, ts: "1700000000.000200" }),
   sendSlackReaction: async () => {},
   sendSlackAssistantThreadStatus: async () => {},
   sendSlackAttachments: async () => ({
@@ -110,7 +118,7 @@ mock.module("../../../messaging/providers/slack/send.js", () => ({
   }),
 }));
 
-mock.module("../../../memory/external-conversation-store.js", () => ({
+mock.module("../../../persistence/external-conversation-store.js", () => ({
   upsertBinding: () => {},
   upsertOutboundBinding: () => {},
   updateExternalChatName: () => {},
@@ -142,6 +150,7 @@ mock.module("../../../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
   pruneOldLogFiles: () => 0,
   LOG_FILE_PATTERN: /^assistant-(\d{4}-\d{2}-\d{2})\.log$/,
+  getCurrentLogFilePath: () => "/tmp/test-assistant.log",
 }));
 
 const { registerConversationsCommand } = await import("../conversations.js");
@@ -221,7 +230,9 @@ async function runCommand(
     registerConversationsCommand(program);
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;

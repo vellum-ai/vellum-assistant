@@ -20,14 +20,13 @@
 
 import { type IntervalHistogram, monitorEventLoopDelay } from "node:perf_hooks";
 
-import * as Sentry from "@sentry/node";
 import { z } from "zod";
 
 import type { HostProxyCapability } from "../../channels/types.js";
 import { parseInterfaceId, supportsHostProxy } from "../../channels/types.js";
-import { emitContactChange } from "../../contacts/contact-events.js";
-import { getConversation } from "../../memory/conversation-crud.js";
-import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
+import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
+import { getOrCreateConversation } from "../../persistence/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
 import type {
@@ -42,18 +41,26 @@ import {
 import type { ReplaySubscriber } from "../assistant-stream-state.js";
 import { getReplayWindow } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
-import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
+import { DEFAULT_HEARTBEAT_INTERVAL_MS } from "../client-health.js";
+import { resolveActorPrincipalIdForLocalGuardianSync } from "../local-actor-identity.js";
 import {
   BadRequestError,
   NotFoundError,
   ServiceUnavailableError,
 } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("events-routes");
 
-/** Keep-alive comment sent to idle clients every 7 s by default. */
-const DEFAULT_HEARTBEAT_INTERVAL_MS = 7_000;
+const ALL_CAPABILITIES: HostProxyCapability[] = [
+  "host_bash",
+  "host_file",
+  "host_cu",
+  "host_app_control",
+  "host_browser",
+  "host_ui_snapshot",
+];
 
 /**
  * Resolution of the event-loop delay histogram, per
@@ -80,11 +87,13 @@ let eventLoopResetTimer: ReturnType<typeof setInterval> | null = null;
  *
  * Guarded with try/catch because `node:perf_hooks.monitorEventLoopDelay`
  * was a stub in some older Bun versions; if the runtime ever regresses,
- * we still emit the shed log + Sentry capture without lag stats rather
- * than crashing the SSE handler.
+ * we still emit the shed log without lag stats rather than crashing the
+ * SSE handler.
  */
 function ensureEventLoopDelayMonitorStarted(): void {
-  if (eventLoopDelay !== null) return;
+  if (eventLoopDelay !== null) {
+    return;
+  }
   try {
     const histogram = monitorEventLoopDelay({
       resolution: EVENT_LOOP_DELAY_RESOLUTION_MS,
@@ -115,7 +124,9 @@ export interface EventLoopDelaySnapshot {
 }
 
 function nsToMs(ns: number): number | null {
-  if (!Number.isFinite(ns)) return null;
+  if (!Number.isFinite(ns)) {
+    return null;
+  }
   // Round to the nearest microsecond, then express in ms (3 decimal places).
   return Math.round(ns / 1e3) / 1e3;
 }
@@ -159,16 +170,14 @@ export type SseShedReporter = (
 ) => void;
 
 /**
- * Build the structured payload sent to Sentry when an SSE subscriber is
- * shed under backpressure.
+ * Build the structured payload logged when an SSE subscriber is shed
+ * under backpressure.
  *
  * The conversation key is deliberately excluded: for channel-backed
  * conversations (WhatsApp, Telegram, etc.) the key embeds external
- * identifiers — phone numbers, chat IDs — and Sentry contexts are not
- * run through the PII redactor in `instrument.ts` (only
- * `exception.values`, `breadcrumbs`, and `extra` are). Correlation
- * with the client-side `sse_watchdog_fired` event is achieved via the
- * `client_id` tag + timestamp instead.
+ * identifiers — phone numbers, chat IDs. Correlation with the
+ * client-side `sse_watchdog_fired` event is achieved via the
+ * `client_id` field + timestamp instead.
  */
 export function buildSseShedSentryContext(
   reason: SseShedReason,
@@ -191,18 +200,18 @@ export function buildSseShedSentryContext(
 }
 
 /**
- * Report a backpressure-shed event from an SSE subscriber to logs and Sentry.
+ * Report a backpressure-shed event from an SSE subscriber to logs.
  *
  * SSE subscribers are shed when `controller.desiredSize <= 0`: the consumer
  * has stopped reading and the stream's bounded queue is full. From the
  * daemon's side this looks identical to a hung client — and the visible
- * symptom on the client side is the 45 s idle-watchdog firing (Sentry
- * issue `sse_watchdog_fired`). Surfacing the shed lets us time-correlate
+ * symptom on the client side is the 45 s idle-watchdog firing
+ * (`sse_watchdog_fired`). Surfacing the shed lets us time-correlate
  * the two sides and attribute stalls to either backpressure or another
  * cause (network drop, event-loop starvation, etc.).
  *
- * The Sentry call uses level="warning" intentionally: a shed is a
- * saturation event, not an internal error.
+ * Logged at `warn` intentionally: a shed is a saturation event, not an
+ * internal error.
  */
 const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
   const elDelay = sampleEventLoopDelay();
@@ -216,20 +225,6 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
     { ...sentryContext, conversation_key: inst.conversationKey },
     "sse subscriber shed under backpressure",
   );
-
-  try {
-    Sentry.withScope((scope) => {
-      scope.setLevel("warning");
-      scope.setTag("sse_shed_reason", reason);
-      if (inst.clientId) scope.setTag("client_id", inst.clientId);
-      if (inst.interfaceId) scope.setTag("interface_id", inst.interfaceId);
-      if (inst.connectionId) scope.setTag("connection_id", inst.connectionId);
-      scope.setContext("sse_shed", sentryContext);
-      Sentry.captureMessage(`sse_subscriber_shed:${reason}`);
-    });
-  } catch {
-    // Never let a telemetry failure break the SSE path.
-  }
 };
 
 /**
@@ -260,7 +255,7 @@ const defaultSseShedReporter: SseShedReporter = (reason, inst) => {
  *   hub               -- override the event hub (defaults to process singleton).
  *   heartbeatIntervalMs -- how often to emit keep-alive comments (default 7 s).
  *   shedReporter      -- override the callback invoked when a subscriber is shed
- *                        under backpressure (defaults to log + Sentry capture).
+ *                        under backpressure (defaults to a log line).
  */
 export function handleSubscribeAssistantEvents(
   args: RouteHandlerArgs,
@@ -313,7 +308,7 @@ export function handleSubscribeAssistantEvents(
   // bearer token's AuthContext. May be absent for legacy / service-token
   // connections that have no principal. See `resolveActorPrincipalId` for the
   // dev-bypass translation rationale.
-  const actorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
+  const actorPrincipalId = resolveActorPrincipalIdForLocalGuardianSync(
     rawActorPrincipalId?.trim() || undefined,
   );
 
@@ -331,14 +326,6 @@ export function handleSubscribeAssistantEvents(
   const heartbeatIntervalMs =
     options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
   const shedReporter = options?.shedReporter ?? defaultSseShedReporter;
-
-  const ALL_CAPABILITIES: HostProxyCapability[] = [
-    "host_bash",
-    "host_file",
-    "host_cu",
-    "host_app_control",
-    "host_browser",
-  ];
 
   // Resolve the scope. `conversationId` (when supplied) is the
   // assistant-minted internal id — looked up directly; 404 if absent.
@@ -405,7 +392,9 @@ export function handleSubscribeAssistantEvents(
 
   const callback: AssistantEventCallback = (event) => {
     const controller = controllerRef;
-    if (!controller) return;
+    if (!controller) {
+      return;
+    }
     if (
       event.seq != null &&
       highWaterReplaySeq >= 0 &&
@@ -454,7 +443,7 @@ export function handleSubscribeAssistantEvents(
             type: "process" as const,
           });
     // Stamp the hub-assigned connection id so a later backpressure shed can be
-    // tied back to this specific connection in logs and Sentry.
+    // tied back to this specific connection in logs.
     instrumentation.connectionId = sub.connectionId;
   } catch (err) {
     if (err instanceof RangeError) {
@@ -559,6 +548,93 @@ export function handleSubscribeAssistantEvents(
   return stream;
 }
 
+/**
+ * Replay-by-request companion to the SSE `lastSeenSeq` resume: return the
+ * ring-buffered event tail for one conversation with `seq > fromSeq`.
+ *
+ * A client recovering from a delivery gap fetches the `/messages` snapshot
+ * (anchored at the seq of the last durably persisted event) and then this
+ * tail from that anchor, folding the returned envelopes through the same
+ * apply path as live SSE events. Snapshot-at-anchor plus tail-from-anchor
+ * is deterministically complete, without bouncing the live connection —
+ * the request/response twin of reconnecting with `lastSeenSeq`.
+ *
+ * `complete: false` means the ring no longer reaches back to `fromSeq`
+ * (eviction) and no contiguous tail can be served — the caller must treat
+ * the snapshot alone as the recovery, exactly as an out-of-ring reconnect
+ * does. Targeting filters are re-applied from the caller's client identity
+ * headers, mirroring the SSE replay path, so targeted events do not leak
+ * outside their delivery set.
+ */
+function handleEventsTail({
+  queryParams,
+  headers,
+}: RouteHandlerArgs): Record<string, unknown> {
+  const conversationId = queryParams?.conversationId?.trim();
+  if (!conversationId) {
+    throw new BadRequestError("conversationId query parameter is required");
+  }
+  const rawFromSeq = queryParams?.fromSeq;
+  if (rawFromSeq == null || rawFromSeq.trim() === "") {
+    throw new BadRequestError("fromSeq query parameter is required");
+  }
+  const fromSeq = Number(rawFromSeq);
+  if (!Number.isInteger(fromSeq) || fromSeq < 0) {
+    throw new BadRequestError("fromSeq must be a non-negative integer");
+  }
+  // Optional upper bound: a caller that already knows where its live
+  // delivery resumed (e.g. the seq-gap heal's first live event) can trim
+  // the response to exactly the hole. Purely a bandwidth trim — the
+  // client fold is seq-idempotent, so an unbounded overlap with live
+  // delivery is harmless.
+  const rawToSeq = queryParams?.toSeq;
+  let toSeq: number | null = null;
+  if (rawToSeq != null && rawToSeq.trim() !== "") {
+    const parsed = Number(rawToSeq);
+    if (!Number.isInteger(parsed) || parsed < fromSeq) {
+      throw new BadRequestError(
+        "toSeq must be an integer greater than or equal to fromSeq",
+      );
+    }
+    toSeq = parsed;
+  }
+
+  // Same client-identity resolution as the SSE subscribe handler, so the
+  // replay filter matches what a live subscription would have delivered.
+  const rawClientId = headers?.["x-vellum-client-id"];
+  const clientId = rawClientId?.trim() || null;
+  const interfaceId = clientId
+    ? parseInterfaceId(headers?.["x-vellum-interface-id"]?.trim())
+    : null;
+  const subscriber: ReplaySubscriber | undefined =
+    clientId && interfaceId
+      ? {
+          type: "client",
+          clientId,
+          interfaceId,
+          capabilities: ALL_CAPABILITIES.filter((cap) =>
+            supportsHostProxy(interfaceId, cap),
+          ),
+        }
+      : undefined;
+
+  const window = getReplayWindow(fromSeq, subscriber, conversationId);
+  if (window === null) {
+    return { events: [], complete: false, frontier: null };
+  }
+  const bounded =
+    toSeq === null
+      ? window
+      : window.filter((e) => typeof e.seq === "number" && e.seq <= toSeq);
+  const lastSeq =
+    bounded.length > 0 ? bounded[bounded.length - 1]?.seq : undefined;
+  return {
+    events: bounded,
+    complete: true,
+    frontier: typeof lastSeq === "number" ? lastSeq : fromSeq,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -583,9 +659,9 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: EmitEventBodySchema,
     responseStatus: "204",
     handler: ({ body }) => {
-      const { kind } = EmitEventBodySchema.parse(body);
+      const { kind } = parseBody(EmitEventBodySchema, body);
       if (kind === "contacts_changed") {
-        emitContactChange();
+        notifyContactsChanged();
       }
       return null;
     },
@@ -624,5 +700,54 @@ export const ROUTES: RouteDefinition[] = [
       Connection: "keep-alive",
     },
     handler: (args) => handleSubscribeAssistantEvents(args),
+  },
+  {
+    operationId: "events_tail_get",
+    endpoint: "events/tail",
+    method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Fetch a conversation's buffered event tail",
+    description:
+      "Return the ring-buffered assistant events for one conversation with seq greater than fromSeq — the request/response twin of reconnecting the SSE stream with lastSeenSeq. A client recovering from a delivery gap fetches the /messages snapshot (anchored at its seq watermark) and then this tail from that anchor, folding the returned envelopes through the same apply path as live events; snapshot plus tail is deterministically complete. complete=false means the ring no longer reaches back to fromSeq and the snapshot alone must serve as the recovery.",
+    tags: ["events"],
+    queryParams: [
+      {
+        name: "conversationId",
+        description:
+          "Assistant-minted internal conversation id whose events to return. Required.",
+      },
+      {
+        name: "fromSeq",
+        description:
+          "Return buffered events with seq strictly greater than this value — typically the seq watermark of a just-fetched /messages snapshot. Must be a non-negative integer.",
+      },
+      {
+        name: "toSeq",
+        description:
+          "Optional inclusive upper bound on returned seqs. A caller that already knows where its live delivery resumed (e.g. the first live event after a gap) can trim the response to exactly the hole. Purely a bandwidth trim — client folds are seq-idempotent, so overlap with live delivery is harmless without it. Must be an integer >= fromSeq.",
+      },
+    ],
+    responseBody: z.object({
+      events: z
+        .array(z.unknown())
+        .describe(
+          "Buffered assistant event envelopes ({id, conversationId, emittedAt, seq, message}) with seq > fromSeq, ascending, filtered to the conversation and to the caller's delivery set (client identity headers). Same wire shape as the /events SSE data frames.",
+        ),
+      complete: z
+        .boolean()
+        .describe(
+          "True when the ring still covered fromSeq, so the returned events are the contiguous tail. False when eviction broke contiguity — events is empty and the caller must recover from the snapshot alone.",
+        ),
+      frontier: z
+        .number()
+        .nullable()
+        .describe(
+          "Seq of the last returned event (or fromSeq when the tail is empty but contiguous). Null when complete is false.",
+        ),
+    }),
+    handler: (args) => handleEventsTail(args),
   },
 ];

@@ -99,7 +99,7 @@ mock.module("../util/logger.js", () =>
 const {
   startDiskPressureGuardForLifecycle,
   stopDiskPressureGuardForLifecycle,
-} = await import("../daemon/lifecycle.js");
+} = await import("../daemon/disk-pressure-guard-lifecycle.js");
 
 async function flushStartupSample(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));

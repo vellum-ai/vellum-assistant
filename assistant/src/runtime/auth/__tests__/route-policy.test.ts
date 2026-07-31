@@ -20,13 +20,6 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Track auth bypass state for tests
 let authDisabled = false;
 mock.module("../../../config/env.js", () => ({
@@ -210,6 +203,18 @@ describe("ROUTES policy declarations", () => {
     expect(route!.policy!.requiredScopes).toContain("chat.write");
   });
 
+  test("platform/status is readable by browser actors", async () => {
+    const { ROUTES } = await import("../../routes/index.js");
+    const route = ROUTES.find(
+      (r) => r.endpoint === "platform/status" && r.method === "GET",
+    );
+    expect(route).toBeDefined();
+    expect(route!.policy).not.toBeNull();
+    expect(route!.policy!.allowedPrincipalTypes).toContain("actor");
+    expect(route!.policy!.allowedPrincipalTypes).toContain("local");
+    expect(route!.policy!.requiredScopes).toContain("settings.read");
+  });
+
   test("confirm declares an approval-write policy", async () => {
     const { ROUTES } = await import("../../routes/index.js");
     const route = ROUTES.find((r) => r.endpoint === "confirm");
@@ -228,6 +233,37 @@ describe("ROUTES policy declarations", () => {
     expect(route!.policy!.allowedPrincipalTypes).toContain("svc_gateway");
     expect(route!.policy!.allowedPrincipalTypes).toContain("svc_daemon");
     expect(route!.policy!.allowedPrincipalTypes).toContain("local");
+  });
+
+  test("contacts/invites/:id/call is gateway-only", async () => {
+    // The handler dials whatever number the body supplies — the invite
+    // validation lives in the gateway's triggerInviteCallNative, so an
+    // actor-reachable policy would be an arbitrary-outbound-call primitive.
+    const { ROUTES } = await import("../../routes/index.js");
+    const route = ROUTES.find((r) => r.operationId === "invites_trigger_call");
+    expect(route).toBeDefined();
+    expect(route!.policy).not.toBeNull();
+    expect(route!.policy!.allowedPrincipalTypes).toEqual(["svc_gateway"]);
+    expect(route!.policy!.requiredScopes).toContain("internal.write");
+
+    // An actor principal with settings.write is denied.
+    authDisabled = false;
+    const actorCtx = buildTestContext({
+      principalType: "actor",
+      scopes: ["settings.write"],
+    });
+    const denied = enforcePolicy(route!.endpoint, route!.policy!, actorCtx);
+    expect(denied).not.toBeNull();
+    expect(denied!.status).toBe(403);
+
+    // The gateway service principal with internal.write is allowed.
+    const gatewayCtx = buildTestContext({
+      principalType: "svc_gateway",
+      scopes: ["internal.write"],
+    });
+    expect(
+      enforcePolicy(route!.endpoint, route!.policy!, gatewayCtx),
+    ).toBeNull();
   });
 
   test("internal/oauth/connect/start is gateway-only", async () => {

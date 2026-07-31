@@ -4,7 +4,7 @@ import { basename, extname } from "node:path";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
-} from "../../../../memory/jobs-store.js";
+} from "../../../../persistence/jobs-store.js";
 import {
   computeFileHashStreaming,
   createProcessingStage,
@@ -12,7 +12,7 @@ import {
   type MediaType,
   registerMediaAsset,
   updateMediaAssetStatus,
-} from "../../../../memory/media-store.js";
+} from "../../../../persistence/media-store.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -67,9 +67,15 @@ function detectMimeType(filePath: string): string | null {
 }
 
 function classifyMediaType(mimeType: string): MediaType | null {
-  if (mimeType.startsWith("video/")) return "video";
-  if (mimeType.startsWith("audio/")) return "audio";
-  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) {
+    return "video";
+  }
+  if (mimeType.startsWith("audio/")) {
+    return "audio";
+  }
+  if (mimeType.startsWith("image/")) {
+    return "image";
+  }
   return null;
 }
 
@@ -92,7 +98,9 @@ async function extractDuration(filePath: string): Promise<number | null> {
       ],
       FFPROBE_TIMEOUT_MS,
     );
-    if (result.exitCode !== 0) return null;
+    if (result.exitCode !== 0) {
+      return null;
+    }
     const duration = parseFloat(result.stdout.trim());
     return Number.isFinite(duration) ? duration : null;
   } catch {

@@ -1,48 +1,42 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { utimesSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   sampleConcepts as sharedSampleConcepts,
   sampleConfig,
-} from "../../../memory/__tests__/fixtures/memory-v2-activation-fixtures.js";
+} from "../../../plugins/defaults/memory/__tests__/fixtures/memory-v2-activation-fixtures.js";
 
+// In-memory source of truth for the workspace raw config. Tests assign or
+// mutate this, then `seedRawConfig()` mirrors it to the real config.json the
+// loader reads. Config-editing routes write back through the real
+// `saveRawConfig`, so persisted state is asserted via `loadRawConfig()`.
 let rawConfigFixture: Record<string, unknown> = {};
-let savedRawConfig: Record<string, unknown> | null = null;
-// Counters / spies so tests can assert that `commitConfigWrite` ran its
-// post-write side effects. Each `replaceProfileRoute.handler` call that
-// hits `commitConfigWrite` should bump these once.
-let invalidateConfigCacheCalls = 0;
+// Counters so tests can assert that `commitConfigWrite` ran its post-write
+// side effects. Both downstream modules stay mocked. Each committed write
+// bumps them once; a guard-rejection leaves them at zero.
 let initializeProvidersCalls = 0;
 let clearEmbeddingBackendCacheCalls = 0;
 
-mock.module("../../../config/loader.js", () => ({
-  loadRawConfig: () => structuredClone(rawConfigFixture),
-  saveRawConfig: (raw: Record<string, unknown>) => {
-    savedRawConfig = raw;
-  },
-  deepMergeOverwrite: (
-    target: Record<string, unknown>,
-    overrides: Record<string, unknown>,
-  ) => {
-    Object.assign(target, overrides);
-  },
-  // `commitConfigWrite` (used by `handleReplaceInferenceProfile`) pulls
-  // in `getConfig` for the provider reinit's config arg and
-  // `invalidateConfigCache` so the next caller sees the fresh write.
-  // Stub both: getConfig returns whatever was last saved (or the fixture
-  // if nothing has been saved yet) and the cache-invalidation function
-  // is a counter so we can assert it fired.
-  getConfig: () => structuredClone(savedRawConfig ?? rawConfigFixture),
-  invalidateConfigCache: () => {
-    invalidateConfigCacheCalls += 1;
-  },
-}));
+let seedMtimeSeq = 0;
+/** Write `rawConfigFixture` to the workspace config.json for the real loader. */
+function seedRawConfig(): void {
+  const path = join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
+  writeFileSync(path, JSON.stringify(rawConfigFixture));
+  // Monotonic mtime bump so the loader's size+mtime+ctime signature never
+  // reads two consecutive seeds as identical.
+  seedMtimeSeq += 1;
+  const stamp = new Date(Date.now() + seedMtimeSeq);
+  utimesSync(path, stamp, stamp);
+}
+
+/** Read a persisted profile entry back from the real workspace config file. */
+function persistedProfile(name: string): Record<string, unknown> {
+  const llm = loadRawConfig().llm as
+    | { profiles?: Record<string, Record<string, unknown>> }
+    | undefined;
+  return llm?.profiles?.[name] ?? {};
+}
 
 mock.module("../../../providers/registry.js", () => ({
   initializeProviders: async () => {
@@ -50,28 +44,34 @@ mock.module("../../../providers/registry.js", () => ({
   },
 }));
 
-mock.module("../../../memory/embedding-backend.js", () => ({
+mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {
     clearEmbeddingBackendCacheCalls += 1;
   },
 }));
 
-import type { ConversationCreateType } from "../../../memory/conversation-crud.js";
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
+import { getConfig, loadRawConfig } from "../../../config/loader.js";
+import { LLMConfigBase } from "../../../config/schemas/llm.js";
+import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
+import {
+  getDb,
+  getLogsDb,
+  getMemorySqlite,
+} from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import {
+  conversationKeys,
+  conversations,
+  llmRequestLogs,
+  messages,
+  providerConnections,
+} from "../../../persistence/schema/index.js";
 import {
   backfillMemoryV2ActivationMessageId,
   type MemoryV2ConceptRowRecord,
   type MemoryV2ConfigSnapshot,
   recordMemoryV2ActivationLog,
-} from "../../../memory/memory-v2-activation-log-store.js";
-import {
-  conversationKeys,
-  conversations,
-  llmRequestLogs,
-  memoryV2ActivationLogs,
-  messages,
-} from "../../../memory/schema.js";
+} from "../../../plugins/defaults/memory/v2/activation-log-store.js";
 import {
   createConnection,
   getConnection,
@@ -84,7 +84,7 @@ const sampleConcepts: MemoryV2ConceptRowRecord[] = sharedSampleConcepts.slice(
   1,
 );
 
-initializeDb();
+await initializeDb();
 
 const llmContextRoute = ROUTES.find(
   (r) => r.method === "GET" && r.endpoint === "messages/:id/llm-context",
@@ -98,6 +98,34 @@ const replaceProfileRoute = ROUTES.find(
   (r) => r.operationId === "config_llm_profiles_replace",
 )!;
 
+const deleteQueuedMessageRoute = ROUTES.find(
+  (r) => r.operationId === "messages_queued_delete",
+)!;
+
+const steerQueuedMessageRoute = ROUTES.find(
+  (r) => r.operationId === "messages_queued_steer",
+)!;
+
+describe("queued message conversation context", () => {
+  test("delete accepts the forwarded conversation header when the query is absent", () => {
+    expect(() =>
+      deleteQueuedMessageRoute.handler({
+        pathParams: { id: "request-1" },
+        headers: { "x-vellum-conversation-id": "missing-conversation" },
+      }),
+    ).toThrow("Conversation not found");
+  });
+
+  test("steer accepts the forwarded conversation header when the query is absent", () => {
+    expect(() =>
+      steerQueuedMessageRoute.handler({
+        pathParams: { id: "request-1" },
+        headers: { "x-vellum-conversation-id": "missing-conversation" },
+      }),
+    ).toThrow("Conversation not found");
+  });
+});
+
 function dispatchLlmContext(messageId: string) {
   return llmContextRoute.handler({ pathParams: { id: messageId } });
 }
@@ -108,8 +136,8 @@ function dispatchConversationLlmContext(queryParams: Record<string, string>) {
 
 function clearTables(): void {
   const db = getDb();
-  db.delete(llmRequestLogs).run();
-  db.delete(memoryV2ActivationLogs).run();
+  getLogsDb()!.delete(llmRequestLogs).run();
+  getMemorySqlite()!.exec(`DELETE FROM memory_v2_activation_logs`);
   db.delete(messages).run();
   db.delete(conversationKeys).run();
   db.delete(conversations).run();
@@ -132,7 +160,6 @@ function seedConversationAndMessage(args: {
       updatedAt: now,
       source: args.source,
       conversationType: args.conversationType,
-      memoryScopeId: "default",
       ...(args.totalEstimatedCost != null
         ? { totalEstimatedCost: args.totalEstimatedCost }
         : {}),
@@ -156,7 +183,7 @@ function seedRequestLog(
   id: string,
   options: { agentLoopExitReason?: string | null } = {},
 ): void {
-  getDb()
+  getLogsDb()!
     .insert(llmRequestLogs)
     .values({
       id,
@@ -176,7 +203,7 @@ function seedRequestLog(
 }
 
 function seedRequestLogWithSections(messageId: string, id: string): void {
-  getDb()
+  getLogsDb()!
     .insert(llmRequestLogs)
     .values({
       id,
@@ -243,7 +270,7 @@ describe("GET /v1/conversations/llm-context", () => {
     seedConversationKey("conv-key", "conv-1");
     seedRequestLog("msg-2", "log-b");
     seedRequestLog("msg-1", "log-a");
-    getDb()
+    getLogsDb()!
       .insert(llmRequestLogs)
       .values({
         id: "log-other",
@@ -290,6 +317,75 @@ describe("GET /v1/conversations/llm-context", () => {
 
     expect(body.conversationId).toBeNull();
     expect(body.conversationKey).toBe("missing-key");
+    expect(body.logs).toEqual([]);
+  });
+});
+
+describe("inspector reads when llmRequestLogs.enabled is false", () => {
+  const payloadRoute = ROUTES.find(
+    (r) => r.operationId === "llm_request_logs_payload_get",
+  )!;
+  const contextRoute = ROUTES.find(
+    (r) => r.operationId === "llm_request_logs_context_get",
+  )!;
+
+  beforeEach(() => {
+    clearTables();
+    rawConfigFixture = {
+      llmRequestLogs: { readSource: "local", enabled: false },
+    };
+    seedRawConfig();
+  });
+
+  afterEach(() => {
+    // Restore the neutral default so read blocks that rely on it (and don't
+    // reset the fixture themselves) aren't polluted by the disabled state.
+    rawConfigFixture = {};
+    seedRawConfig();
+  });
+
+  async function expectDisabled(promise: unknown): Promise<void> {
+    // The handler throws a RouteError; assert on its wire-facing fields so the
+    // client can key on the stable code / 403 status.
+    let thrown: unknown;
+    try {
+      await promise;
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeDefined();
+    expect((thrown as { code: string }).code).toBe("LLM_REQUEST_LOGS_DISABLED");
+    expect((thrown as { statusCode: number }).statusCode).toBe(403);
+  }
+
+  test("message llm-context is rejected", async () => {
+    await expectDisabled(dispatchLlmContext("msg-1"));
+  });
+
+  test("conversation llm-context is rejected", async () => {
+    await expectDisabled(
+      dispatchConversationLlmContext({ conversationId: "conv-1" }),
+    );
+  });
+
+  test("single-log payload is rejected", async () => {
+    await expectDisabled(payloadRoute.handler({ pathParams: { id: "log-a" } }));
+  });
+
+  test("single-log context is rejected", async () => {
+    await expectDisabled(contextRoute.handler({ pathParams: { id: "log-a" } }));
+  });
+
+  test("reads succeed again once logging is re-enabled", async () => {
+    rawConfigFixture = {
+      llmRequestLogs: { readSource: "local", enabled: true },
+    };
+    seedRawConfig();
+    // An unresolved conversation key returns an empty inspector response
+    // (no throw), proving the disabled guard no longer short-circuits.
+    const body = (await dispatchConversationLlmContext({
+      conversationKey: "missing-key",
+    })) as { logs: unknown[] };
     expect(body.logs).toEqual([]);
   });
 });
@@ -630,7 +726,7 @@ describe("GET /v1/messages/:id/llm-context — synthetic call_site projection", 
     // loop was about to send; response = the notice text the user saw),
     // `call_site = "syntheticAgentErrorMessage"`, exit reason stamped at
     // insert time.
-    getDb()
+    getLogsDb()!
       .insert(llmRequestLogs)
       .values({
         id: "log-yield",
@@ -681,7 +777,7 @@ describe("GET /v1/messages/:id/llm-context — synthetic call_site projection", 
       source: "user",
       conversationType: "standard",
     });
-    getDb()
+    getLogsDb()!
       .insert(llmRequestLogs)
       .values({
         id: "log-regular",
@@ -712,8 +808,6 @@ describe("GET /v1/messages/:id/llm-context — synthetic call_site projection", 
 
 describe("PUT /v1/config/llm/profiles/:name", () => {
   beforeEach(() => {
-    savedRawConfig = null;
-    invalidateConfigCacheCalls = 0;
     initializeProvidersCalls = 0;
     clearEmbeddingBackendCacheCalls = 0;
     rawConfigFixture = {
@@ -739,6 +833,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         },
       },
     };
+    seedRawConfig();
   });
 
   test("owns contextWindow maxInputTokens while preserving non-UI profile leaves", async () => {
@@ -752,18 +847,24 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
     expect(result).toEqual({ ok: true });
     const savedProfile = (
-      savedRawConfig?.llm as {
+      loadRawConfig().llm as {
         profiles: Record<string, Record<string, unknown>>;
       }
     ).profiles.custom;
 
     expect(savedProfile.provider).toBe("openai");
     expect(savedProfile.model).toBe("gpt-5.5");
-    expect(savedProfile.maxTokens).toBeUndefined();
+    // Write normalization completes the entry against llm.default (schema
+    // defaults here — the fixture has none), so UI-cleared fields land as
+    // explicit values instead of inherit-by-absence.
+    const schemaDefault = LLMConfigBase.parse({});
+    expect(savedProfile.maxTokens).toBe(schemaDefault.maxTokens);
     expect(savedProfile.contextWindow).toEqual({
+      ...schemaDefault.contextWindow,
       targetBudgetRatio: 0.3,
       summaryBudgetRatio: 0.08,
       overflowRecovery: {
+        ...schemaDefault.contextWindow.overflowRecovery,
         enabled: true,
         maxAttempts: 4,
       },
@@ -786,16 +887,19 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
     expect(result).toEqual({ ok: true });
     const savedProfile = (
-      savedRawConfig?.llm as {
+      loadRawConfig().llm as {
         profiles: Record<string, Record<string, unknown>>;
       }
     ).profiles.custom;
 
+    const schemaDefault = LLMConfigBase.parse({});
     expect(savedProfile.contextWindow).toEqual({
+      ...schemaDefault.contextWindow,
       maxInputTokens: 150000,
       targetBudgetRatio: 0.3,
       summaryBudgetRatio: 0.08,
       overflowRecovery: {
+        ...schemaDefault.contextWindow.overflowRecovery,
         enabled: true,
         maxAttempts: 4,
       },
@@ -815,7 +919,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
     expect(result).toEqual({ ok: true });
     const savedProfile = (
-      savedRawConfig?.llm as {
+      loadRawConfig().llm as {
         profiles: Record<string, Record<string, unknown>>;
       }
     ).profiles.custom;
@@ -825,12 +929,23 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
   });
 
   test("auto-derives provider_connection when omitted from body (Any active)", async () => {
+    // Start from a clean connection slate — provider_connections persists
+    // across tests in this file, so a leaked openai-personal would otherwise
+    // win the derivation.
+    getDb().delete(providerConnections).run();
+    // The single Vellum-managed connection serves managed-routable providers.
+    createConnection(getDb(), {
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
     // Seed an existing binding so the test starts from a non-empty state.
     (
       rawConfigFixture.llm as {
         profiles: { custom: Record<string, unknown> };
       }
     ).profiles.custom.provider_connection = "stale-openai";
+    seedRawConfig();
 
     const result = await replaceProfileRoute.handler({
       pathParams: { name: "custom" },
@@ -846,14 +961,43 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
     expect(result).toEqual({ ok: true });
     const savedProfile = (
-      savedRawConfig?.llm as {
+      loadRawConfig().llm as {
         profiles: Record<string, Record<string, unknown>>;
       }
     ).profiles.custom;
 
-    // The canonical "openai-managed" connection exists in the test DB;
-    // the route auto-derives it when the UI omits provider_connection.
-    expect(savedProfile.provider_connection).toBe("openai-managed");
+    // No personal openai connection exists, so the route auto-derives the
+    // single Vellum-managed connection for this managed-routable provider.
+    expect(savedProfile.provider_connection).toBe("vellum");
+  });
+
+  test("Any active derivation skips orphaned legacy *-managed rows", async () => {
+    getDb().delete(providerConnections).run();
+    // Upgraded workspaces may still carry a legacy openai-managed row (hidden
+    // from the list route, deleted by a follow-up migration). It must not be
+    // auto-picked — the derivation should bind to `vellum` instead.
+    createConnection(getDb(), {
+      name: "openai-managed",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    createConnection(getDb(), {
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
+
+    await replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: { provider: "openai", model: "gpt-5.5" },
+    });
+
+    const savedProfile = (
+      loadRawConfig().llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+    expect(savedProfile.provider_connection).toBe("vellum");
   });
 
   test("auto-derives provider_connection for BYOK provider (Any active)", async () => {
@@ -874,7 +1018,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
     expect(result).toEqual({ ok: true });
     const savedProfile = (
-      savedRawConfig?.llm as {
+      loadRawConfig().llm as {
         profiles: Record<string, Record<string, unknown>>;
       }
     ).profiles.custom;
@@ -894,7 +1038,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
     expect(result).toEqual({ ok: true });
     const savedProfile = (
-      savedRawConfig?.llm as {
+      loadRawConfig().llm as {
         profiles: Record<string, Record<string, unknown>>;
       }
     ).profiles.custom;
@@ -924,7 +1068,7 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
     expect(result).toEqual({ ok: true });
     const savedProfile = (
-      savedRawConfig?.llm as {
+      loadRawConfig().llm as {
         profiles: Record<string, Record<string, unknown>>;
       }
     ).profiles.custom;
@@ -940,71 +1084,85 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
   describe("managed profile guard", () => {
     beforeEach(() => {
-      // Seed a managed profile alongside the existing custom one.
-      (rawConfigFixture.llm as { profiles: Record<string, unknown> }).profiles[
-        "balanced"
-      ] = {
+      // Seed two managed-source profiles alongside the existing custom one.
+      // Every managed profile name (including the flag-gated os-beta) is
+      // invariant while its entry is managed-source: fully read-only except
+      // the disabled → active status transition.
+      const profiles = (
+        rawConfigFixture.llm as { profiles: Record<string, unknown> }
+      ).profiles;
+      profiles["balanced"] = {
         source: "managed",
         provider: "anthropic",
         model: "claude-sonnet-4-6",
         label: "Balanced",
         status: "active",
       };
+      profiles["os-beta"] = {
+        source: "managed",
+        provider: "together",
+        model: "zai-org/GLM-5.2",
+        label: "OS Beta",
+        status: "active",
+      };
+      seedRawConfig();
     });
 
-    test("allows label edit on managed profile, preserving seed fields", async () => {
+    test("rejects label edit on managed os-beta profile (invariant)", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "os-beta" },
+          body: { label: "My OS Beta" },
+        }),
+      ).rejects.toThrow(
+        /Cannot edit managed profile "os-beta" fields \[label\]/,
+      );
+      // Guard rejects before any write — the seed label is untouched.
+      expect(persistedProfile("os-beta").label).toBe("OS Beta");
+    });
+
+    test("rejects disable on managed os-beta profile (invariant)", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "os-beta" },
+          body: { status: "disabled" },
+        }),
+      ).rejects.toThrow(
+        'Cannot edit managed profile "os-beta". Managed profiles are read-only',
+      );
+      // Guard rejects before any write — the seed status is untouched.
+      expect(persistedProfile("os-beta").status).toBe("active");
+    });
+
+    test("re-enables a disabled managed os-beta profile, preserving seed fields", async () => {
+      (
+        rawConfigFixture.llm as {
+          profiles: Record<string, Record<string, unknown>>;
+        }
+      ).profiles["os-beta"]!.status = "disabled";
+      seedRawConfig();
+
       const result = await replaceProfileRoute.handler({
-        pathParams: { name: "balanced" },
-        body: { label: "My Balanced" },
+        pathParams: { name: "os-beta" },
+        body: { status: "active" },
       });
 
       expect(result).toEqual({ ok: true });
       const savedProfile = (
-        savedRawConfig?.llm as {
+        loadRawConfig().llm as {
           profiles: Record<string, Record<string, unknown>>;
         }
-      ).profiles.balanced;
+      ).profiles["os-beta"]!;
 
-      expect(savedProfile.label).toBe("My Balanced");
+      expect(savedProfile.status).toBe("active");
       // Seed fields preserved.
-      expect(savedProfile.provider).toBe("anthropic");
-      expect(savedProfile.model).toBe("claude-sonnet-4-6");
+      expect(savedProfile.provider).toBe("together");
+      expect(savedProfile.model).toBe("zai-org/GLM-5.2");
       expect(savedProfile.source).toBe("managed");
     });
 
-    test("allows status edit on managed profile", async () => {
-      const result = await replaceProfileRoute.handler({
-        pathParams: { name: "balanced" },
-        body: { status: "disabled" },
-      });
-
-      expect(result).toEqual({ ok: true });
-      const savedProfile = (
-        savedRawConfig?.llm as {
-          profiles: Record<string, Record<string, unknown>>;
-        }
-      ).profiles.balanced;
-
-      expect(savedProfile.status).toBe("disabled");
-      expect(savedProfile.provider).toBe("anthropic");
-    });
-
-    test("allows label+status edit together", async () => {
-      const result = await replaceProfileRoute.handler({
-        pathParams: { name: "balanced" },
-        body: { label: "Renamed", status: "disabled" },
-      });
-
-      expect(result).toEqual({ ok: true });
-      const savedProfile = (
-        savedRawConfig?.llm as {
-          profiles: Record<string, Record<string, unknown>>;
-        }
-      ).profiles.balanced;
-
-      expect(savedProfile.label).toBe("Renamed");
-      expect(savedProfile.status).toBe("disabled");
-    });
+    // The full commit-time rejection matrix for invariant managed profiles
+    // lives in src/__tests__/managed-profile-guard.test.ts.
 
     test("rejects provider edit on managed profile with disallowed-keys error", async () => {
       // The handler is `async`, so synchronous BadRequest throws still
@@ -1019,31 +1177,31 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       );
     });
 
-    test("rejects mixed allowed+disallowed fields", async () => {
-      // label is allowed but maxTokens is not — must reject without partially
-      // applying label, so saver should never be invoked.
+    test("rejects mixed-field bodies without partially applying anything", async () => {
+      // Neither label nor maxTokens is writable on a managed profile — the
+      // reject must fire before any write, so the saver is never invoked.
       await expect(
         replaceProfileRoute.handler({
           pathParams: { name: "balanced" },
           body: { label: "Try", maxTokens: 999 },
         }),
       ).rejects.toThrow(
-        /Cannot edit managed profile "balanced" fields \[maxTokens\]/,
+        /Cannot edit managed profile "balanced" fields \[maxTokens, label\]/,
       );
-      expect(savedRawConfig).toBeNull();
       // Reject path skips commitConfigWrite entirely — no provider reinit
       // or cache invalidation should fire on a guard rejection.
       expect(initializeProvidersCalls).toBe(0);
-      expect(invalidateConfigCacheCalls).toBe(0);
       expect(clearEmbeddingBackendCacheCalls).toBe(0);
     });
   });
 
   describe("commitConfigWrite side effects", () => {
-    test("status flip on managed profile triggers provider reinit + cache invalidation", async () => {
-      // Seed a managed profile that the user will disable. commitConfigWrite
-      // must reinit the provider registry so the status change is reflected
-      // in the running daemon immediately, not at the next watcher tick.
+    test("re-enabling a disabled default profile triggers provider reinit + cache invalidation", async () => {
+      // Seed a hatch-disabled default profile that the user re-enables — the
+      // only status transition the invariant guard permits on a default
+      // profile. commitConfigWrite must reinit the provider registry so the
+      // status change is reflected in the running daemon immediately, not at
+      // the next watcher tick.
       (rawConfigFixture.llm as { profiles: Record<string, unknown> }).profiles[
         "balanced"
       ] = {
@@ -1051,17 +1209,17 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         provider: "anthropic",
         model: "claude-sonnet-4-6",
         label: "Balanced",
-        status: "active",
+        status: "disabled",
       };
+      seedRawConfig();
 
       const result = await replaceProfileRoute.handler({
         pathParams: { name: "balanced" },
-        body: { status: "disabled" },
+        body: { status: "active" },
       });
 
       expect(result).toEqual({ ok: true });
       expect(initializeProvidersCalls).toBe(1);
-      expect(invalidateConfigCacheCalls).toBe(1);
       expect(clearEmbeddingBackendCacheCalls).toBe(1);
     });
 
@@ -1079,8 +1237,463 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
       expect(result).toEqual({ ok: true });
       expect(initializeProvidersCalls).toBe(1);
-      expect(invalidateConfigCacheCalls).toBe(1);
       expect(clearEmbeddingBackendCacheCalls).toBe(1);
     });
+  });
+});
+
+describe("custom profile write normalization (complete overrides)", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+  const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
+  const distinctiveDefault = {
+    provider: "anthropic",
+    model: "claude-opus-4-8",
+    maxTokens: 12345,
+    temperature: 0.7,
+    logitBias: "suppress-cjk",
+  };
+
+  beforeEach(() => {
+    rawConfigFixture = {
+      llm: {
+        default: structuredClone(distinctiveDefault),
+        profiles: {
+          partial: { source: "user", model: "claude-haiku-4-5-20251001" },
+        },
+      },
+    };
+    seedRawConfig();
+  });
+
+  const savedProfiles = () =>
+    (
+      loadRawConfig().llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles;
+
+  test("PUT of a partial body stores a complete profile", async () => {
+    await replaceProfileRoute.handler({
+      pathParams: { name: "mine" },
+      body: { model: "claude-haiku-4-5-20251001" },
+    });
+    const saved = savedProfiles().mine;
+    expect(saved.model).toBe("claude-haiku-4-5-20251001");
+    expect(saved.provider).toBe("anthropic");
+    expect(saved.maxTokens).toBe(12345);
+    // Non-null default sampling is baked in; logitBias never is.
+    expect(saved.temperature).toBe(0.7);
+    expect(saved.logitBias).toBeUndefined();
+    expect(saved.thinking).toBeDefined();
+    expect(saved.contextWindow).toBeDefined();
+  });
+
+  test("PATCH creating a partial profile stores it complete", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          default: structuredClone(distinctiveDefault),
+          profiles: {
+            mine: { source: "user", model: "claude-haiku-4-5-20251001" },
+          },
+        },
+      },
+    });
+    const saved = savedProfiles().mine;
+    expect(saved.provider).toBe("anthropic");
+    expect(saved.maxTokens).toBe(12345);
+    expect(saved.temperature).toBe(0.7);
+    expect(saved.logitBias).toBeUndefined();
+  });
+
+  test("SET on a profile leaf completes the whole entry", async () => {
+    await configSetRoute.handler({
+      body: { path: "llm.profiles.partial.maxTokens", value: 999 },
+    });
+    const saved = savedProfiles().partial;
+    expect(saved.maxTokens).toBe(999);
+    expect(saved.provider).toBe("anthropic");
+    expect(saved.temperature).toBe(0.7);
+    expect(saved.model).toBe("claude-haiku-4-5-20251001");
+  });
+
+  test("an unrelated write leaves untouched partial profiles byte-identical", async () => {
+    await configSetRoute.handler({
+      body: { path: "heartbeat.activeHoursStart", value: 9 },
+    });
+    expect(savedProfiles().partial).toEqual({
+      source: "user",
+      model: "claude-haiku-4-5-20251001",
+    });
+  });
+
+  test("nested unknown keys survive completion of a touched entry", async () => {
+    (
+      rawConfigFixture.llm as { profiles: Record<string, unknown> }
+    ).profiles.partial = {
+      source: "user",
+      model: "claude-haiku-4-5-20251001",
+      contextWindow: { futureField: "keep-me", maxInputTokens: 111 },
+    };
+    seedRawConfig();
+    await configSetRoute.handler({
+      body: { path: "llm.profiles.partial.maxTokens", value: 999 },
+    });
+    const saved = savedProfiles().partial;
+    const contextWindow = saved.contextWindow as Record<string, unknown>;
+    expect(contextWindow.futureField).toBe("keep-me");
+    expect(contextWindow.maxInputTokens).toBe(111);
+    expect(saved.provider).toBe("anthropic");
+  });
+
+  test("unknown profile keys survive completion of a touched entry", async () => {
+    (
+      rawConfigFixture.llm as { profiles: Record<string, unknown> }
+    ).profiles.partial = {
+      source: "user",
+      model: "claude-haiku-4-5-20251001",
+      futureField: "keep-me",
+    };
+    seedRawConfig();
+    await configSetRoute.handler({
+      body: { path: "llm.profiles.partial.maxTokens", value: 999 },
+    });
+    const saved = savedProfiles().partial;
+    expect(saved.futureField).toBe("keep-me");
+    expect(saved.maxTokens).toBe(999);
+    expect(saved.provider).toBe("anthropic");
+  });
+
+  test("a bogus managed source on a non-catalog name is normalized and completed", async () => {
+    await replaceProfileRoute.handler({
+      pathParams: { name: "mine" },
+      body: { source: "managed", model: "claude-haiku-4-5-20251001" },
+    });
+    const saved = savedProfiles().mine;
+    expect(saved.source).toBe("user");
+    expect(saved.provider).toBe("anthropic");
+    expect(saved.maxTokens).toBe(12345);
+  });
+
+  test("a managed status re-enable stays a thin stub", async () => {
+    (
+      rawConfigFixture.llm as { profiles: Record<string, unknown> }
+    ).profiles.balanced = { source: "managed", status: "disabled" };
+    seedRawConfig();
+    await replaceProfileRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { status: null },
+    });
+    expect(savedProfiles().balanced).toEqual({ source: "managed" });
+  });
+
+  test("a mix profile write is not completed", async () => {
+    await replaceProfileRoute.handler({
+      pathParams: { name: "ab" },
+      body: {
+        label: "A/B",
+        mix: [
+          { profile: "balanced", weight: 1 },
+          { profile: "cost-optimized", weight: 1 },
+        ],
+      },
+    });
+    const saved = savedProfiles().ab;
+    expect(saved.mix).toBeDefined();
+    expect(saved.provider).toBeUndefined();
+    expect(saved.model).toBeUndefined();
+    expect(saved.maxTokens).toBeUndefined();
+  });
+
+  test("re-writing a completed profile is idempotent", async () => {
+    // Deterministic connection state: the PUT handler derives a connection
+    // for provider-carrying bodies, so both writes must see the same rows.
+    getDb().delete(providerConnections).run();
+    await replaceProfileRoute.handler({
+      pathParams: { name: "mine" },
+      body: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+    });
+    const first = structuredClone(savedProfiles().mine);
+    rawConfigFixture = structuredClone(loadRawConfig());
+    seedRawConfig();
+    await replaceProfileRoute.handler({
+      pathParams: { name: "mine" },
+      body: first as Record<string, unknown>,
+    });
+    expect(savedProfiles().mine).toEqual(first);
+  });
+});
+
+describe("call-site override tuning backfill", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  const savedCallSites = () =>
+    (
+      loadRawConfig().llm as {
+        callSites?: Record<string, Record<string, unknown>>;
+      }
+    ).callSites ?? {};
+
+  beforeEach(() => {
+    rawConfigFixture = { llm: {} };
+    seedRawConfig();
+  });
+
+  test("PATCH creating a bare { profile } entry backfills shipped tuning", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: {
+            memoryRouter: { profile: "mine", provider: null, model: null },
+            commitMessage: { profile: "mine", provider: null, model: null },
+          },
+        },
+      },
+    });
+    const memoryRouter = savedCallSites().memoryRouter!;
+    expect(memoryRouter.profile).toBe("mine");
+    expect(memoryRouter.contextWindow).toEqual({ maxInputTokens: 1_000_000 });
+    const commitMessage = savedCallSites().commitMessage!;
+    expect(commitMessage.profile).toBe("mine");
+    expect(commitMessage.maxTokens).toBe(120);
+    expect(commitMessage.effort).toBe("low");
+  });
+
+  test("explicit patch values win over shipped tuning on a new entry", async () => {
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: { commitMessage: { profile: "mine", maxTokens: 500 } },
+        },
+      },
+    });
+    const saved = savedCallSites().commitMessage!;
+    expect(saved.maxTokens).toBe(500);
+    expect(saved.temperature).toBe(0.2);
+  });
+
+  test("existing entries are never backfilled — customization is preserved", async () => {
+    rawConfigFixture = {
+      llm: { callSites: { recall: { profile: "old", maxTokens: 200 } } },
+    };
+    seedRawConfig();
+    await configPatchRoute.handler({
+      body: {
+        llm: {
+          callSites: {
+            recall: { profile: "mine", provider: null, model: null },
+          },
+        },
+      },
+    });
+    const saved = savedCallSites().recall!;
+    expect(saved.profile).toBe("mine");
+    expect(saved.maxTokens).toBe(200);
+    expect(saved.disableCache).toBeUndefined();
+  });
+
+  test("deleting an entry (null) is untouched by the backfill", async () => {
+    rawConfigFixture = {
+      llm: { callSites: { recall: { profile: "old" } } },
+    };
+    seedRawConfig();
+    await configPatchRoute.handler({
+      body: { llm: { callSites: { recall: null } } },
+    });
+    expect(savedCallSites().recall).toBeUndefined();
+  });
+});
+
+describe("sparse services.stt patch provider seeding", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  const savedServices = () =>
+    (loadRawConfig().services ?? {}) as Record<
+      string,
+      Record<string, unknown> | undefined
+    >;
+
+  beforeEach(() => {
+    // No services.stt block: exactly the sparse state where the web
+    // language picker's hot-apply patch would otherwise persist a
+    // provider-less stt block. The tts block is the canary for the
+    // LUM-2758 failure family (a validation reset wipes it too).
+    rawConfigFixture = {
+      services: { tts: { provider: "elevenlabs" } },
+    };
+    seedRawConfig();
+  });
+
+  test("language-only patch onto a config with no stt block seeds the effective provider", async () => {
+    const effectiveProvider = getConfig().services.stt.provider;
+
+    await configPatchRoute.handler({
+      body: { services: { stt: { language: "hi" } } },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.language).toBe("hi");
+    expect(stt.provider).toBe(effectiveProvider);
+    // The persisted block validates, so the language round-trips through
+    // the parsed config instead of tripping the salvage ladder.
+    const parsed = getConfig().services;
+    expect(parsed.stt.language).toBe("hi");
+    expect(parsed.stt.provider).toBe(effectiveProvider);
+    // Unrelated tts settings survive: no services-section reset happened.
+    expect(savedServices().tts).toEqual({ provider: "elevenlabs" });
+  });
+
+  test("language patch onto a config that has a provider is a pure merge", async () => {
+    rawConfigFixture = {
+      services: { stt: { provider: "xai" }, tts: { provider: "elevenlabs" } },
+    };
+    seedRawConfig();
+
+    await configPatchRoute.handler({
+      body: { services: { stt: { language: "hi" } } },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.provider).toBe("xai");
+    expect(stt.language).toBe("hi");
+  });
+
+  test("non-language stt patch without a provider is seeded too", async () => {
+    // The schema requires a provider whenever the stt block exists, so the
+    // seed covers every sparse stt write, not just language.
+    const effectiveProvider = getConfig().services.stt.provider;
+
+    await configPatchRoute.handler({
+      body: { services: { stt: { providers: { deepgram: {} } } } },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.provider).toBe(effectiveProvider);
+    expect(stt.providers).toEqual({ deepgram: {} });
+  });
+
+  test("a patch not touching stt invents no stt block", async () => {
+    await configPatchRoute.handler({
+      body: { heartbeat: { activeHoursStart: 9 } },
+    });
+
+    expect(savedServices().stt).toBeUndefined();
+    expect(savedServices().tts).toEqual({ provider: "elevenlabs" });
+  });
+
+  test("a config_set language write onto a sparse config seeds the provider", async () => {
+    // The CLI leaf-write path (`assistant config set services.stt.language`)
+    // creates the stt block via setNestedValue; the same seed that guards
+    // PATCH keeps its persisted block schema-valid.
+    const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+    const effectiveProvider = getConfig().services.stt.provider;
+
+    await configSetRoute.handler({
+      body: { path: "services.stt.language", value: "hi" },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.language).toBe("hi");
+    expect(stt.provider).toBe(effectiveProvider);
+    const parsed = getConfig().services;
+    expect(parsed.stt.language).toBe("hi");
+    expect(savedServices().tts).toEqual({ provider: "elevenlabs" });
+  });
+
+  test("a config_set onto a config with a provider leaves it untouched", async () => {
+    rawConfigFixture = {
+      services: { stt: { provider: "xai" }, tts: { provider: "elevenlabs" } },
+    };
+    seedRawConfig();
+    const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
+    await configSetRoute.handler({
+      body: { path: "services.stt.language", value: "hi" },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.provider).toBe("xai");
+    expect(stt.language).toBe("hi");
+  });
+});
+
+describe("config invariant flag enrichment", () => {
+  const configGetRoute = ROUTES.find((r) => r.operationId === "config_get")!;
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  type WireProfiles = Record<string, Record<string, unknown>>;
+
+  function wireProfiles(body: unknown): WireProfiles {
+    return (body as { llm: { profiles: WireProfiles } }).llm.profiles;
+  }
+
+  beforeEach(() => {
+    rawConfigFixture = {
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "fireworks",
+            model: "accounts/fireworks/models/glm-5p2",
+            label: "Balanced",
+            status: "active",
+          },
+          "os-beta": {
+            source: "managed",
+            provider: "together",
+            model: "zai-org/GLM-5.2",
+            label: "OS Beta",
+            status: "active",
+          },
+          // A user-owned profile sharing a managed name: no invariant flag —
+          // the stamp is gated on `source: "managed"` to match the guard.
+          "cost-optimized": {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-haiku-4-5",
+          },
+          custom: {
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+          },
+        },
+      },
+    };
+    seedRawConfig();
+  });
+
+  test("GET /v1/config marks managed-source profiles invariant (incl. os-beta), not user-owned ones", async () => {
+    const body = await configGetRoute.handler({});
+    const profiles = wireProfiles(body);
+
+    expect(profiles.balanced!.invariant).toBe(true);
+    expect(profiles["os-beta"]!.invariant).toBe(true);
+    expect(profiles["cost-optimized"]!).not.toHaveProperty("invariant");
+    expect(profiles.custom!).not.toHaveProperty("invariant");
+  });
+
+  test("PATCH /v1/config stamps the flag on the response but never persists it", async () => {
+    const body = await configPatchRoute.handler({
+      body: { memory: { enabled: true } },
+    });
+    const profiles = wireProfiles(body);
+    expect(profiles.balanced!.invariant).toBe(true);
+
+    const savedProfiles = (
+      loadRawConfig().llm as { profiles: WireProfiles } | undefined
+    )?.profiles;
+    expect(savedProfiles).toBeDefined();
+    for (const profile of Object.values(savedProfiles!)) {
+      expect(profile).not.toHaveProperty("invariant");
+    }
   });
 });

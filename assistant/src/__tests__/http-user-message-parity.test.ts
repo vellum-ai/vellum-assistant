@@ -24,13 +24,6 @@ const routeGuardianReplyMock = mock(async () => ({
   type: "not_consumed" as const,
 })) as any;
 
-const listPendingByDestinationMock = mock(
-  (_conversationId: string, _sourceChannel?: string) =>
-    [] as Array<{ id: string; kind?: string }>,
-);
-const listCanonicalMock = mock(
-  (_filters?: Record<string, unknown>) => [] as Array<{ id: string }>,
-);
 const addMessageMock = mock(
   async (
     _conversationId: string,
@@ -42,19 +35,12 @@ const addMessageMock = mock(
   }),
 );
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-parity-test" }),
   getConversationByKey: () => null,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 
@@ -62,38 +48,35 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   routeGuardianReply: routeGuardianReplyMock,
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: () => ({
-    id: "canonical-id",
+// Stub for the shared reset-drift helper. handleSendMessage only consumes its
+// result (a guardian TrustContext or null) on a first-pass-unknown actor; the
+// gate itself is covered in runtime/__tests__/guardian-vellum-migration.test.ts.
+const reResolveCalls: string[] = [];
+let mockReResolve: { trustClass: string; sourceChannel: string } | null = null;
+mock.module("../runtime/guardian-vellum-migration.js", () => ({
+  reResolveTrustOnResetDrift: async (
+    incomingPrincipalId: string,
+    _sourceChannel: string,
+  ) => {
+    reResolveCalls.push(incomingPrincipalId);
+    return mockReResolve;
+  },
+}));
+
+mock.module("../channels/gateway-guardian-requests.js", () => ({
+  createGuardianRequest: async (params: Record<string, unknown>) => ({
+    ...params,
     requestCode: "ABC123",
   }),
-  generateCanonicalRequestCode: () => "ABC123",
-  listPendingCanonicalGuardianRequestsByDestinationConversation: (
-    conversationId: string,
-    sourceChannel?: string,
-  ) => listPendingByDestinationMock(conversationId, sourceChannel),
-  listCanonicalGuardianRequests: (filters?: Record<string, unknown>) =>
-    listCanonicalMock(filters),
-  listPendingRequestsByConversationScope: (conversationId: string) => {
-    const byDest = listPendingByDestinationMock(conversationId);
-    const bySrc = listCanonicalMock({ status: "pending", conversationId });
-    const seen = new Set<string>();
-    const result: Array<{ id: string; kind?: string }> = [];
-    for (const r of [...bySrc, ...byDest]) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id);
-        result.push(r);
-      }
-    }
-    return result;
-  },
 }));
 
 mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   bridgeConfirmationRequestToGuardian: async () => undefined,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -101,75 +84,77 @@ mock.module("../memory/conversation-crud.js", () => ({
     options?: { metadata?: Record<string, unknown> },
   ) => addMessageMock(conversationId, role, content, options),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  }),
+  findLocalGuardianPrincipalId: async () =>
+    mockGuardians?.find(
+      (g) => g.channelType === "vellum" && g.status === "active",
+    )?.principalId as string | undefined,
 }));
 
+// Capture the sourceActorPrincipalId that handleSendMessage threads into
+// shouldAttachHostProxyForCapability / preactivateHostProxySkills, so tests
+// can assert the dev-bypass translation landed before the CU proxy gate.
+// The macOS "native_support" path short-circuits before reading the
+// principal, so only web/ios turns exercise the same-actor branch.
+const hostProxyAttachCalls: Array<{
+  capability: string;
+  sourceInterface: unknown;
+  sourceActorPrincipalId: string | undefined;
+}> = [];
+const preactivateCalls: Array<{
+  sourceInterface: unknown;
+  sourceActorPrincipalId: string | undefined;
+}> = [];
+mock.module("../daemon/host-proxy-preactivation.js", () => ({
+  shouldAttachHostProxyForCapability: (
+    capability: string,
+    sourceInterface: unknown,
+    sourceActorPrincipalId: string | undefined,
+  ) => {
+    hostProxyAttachCalls.push({
+      capability,
+      sourceInterface,
+      sourceActorPrincipalId,
+    });
+    // Return false so the route skips proxy instantiation; we only care
+    // that the translated principal reached the gate.
+    return false;
+  },
+  preactivateHostProxySkills: (
+    _conversation: unknown,
+    sourceInterface: unknown,
+    sourceActorPrincipalId: string | undefined,
+  ) => {
+    preactivateCalls.push({ sourceInterface, sourceActorPrincipalId });
+  },
+}));
+
+let mockGuardians: Array<Record<string, unknown>> | null = [
+  {
+    channelType: "vellum",
+    contactId: "guardian-contact",
+    principalId: "test-user",
+    address: "test-user",
+    status: "active",
+  },
+];
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => mockGuardians,
+  guardianForChannel: (
+    list: Array<Record<string, unknown>>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
+// handleSendMessage wraps the first-pass resolve with withSourceChannel.
 mock.module("../runtime/trust-context-resolver.js", () => ({
-  resolveTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  }),
   withSourceChannel: (sourceChannel: unknown, ctx: unknown) => ({
     ...(ctx as Record<string, unknown>),
     sourceChannel,
-  }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    secretDetection: {
-      enabled: true,
-    },
-    model: "test",
-    provider: "test",
-    contextWindow: { maxInputTokens: 200000 },
-    llm: {
-      default: {
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        maxTokens: 64000,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: true, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
   }),
 }));
 
@@ -233,13 +218,18 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
 }
 
 // ── Helper: create an HTTP request to POST /v1/messages ────────────────────
-function makeRequest(content: string, extra: Record<string, unknown> = {}) {
+function makeRequest(
+  content: string,
+  extra: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
+) {
   return new Request("http://localhost/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-vellum-actor-principal-id": "test-user",
       "x-vellum-principal-type": "actor",
+      ...headers,
     },
     body: JSON.stringify({
       conversationKey: "parity-test-key",
@@ -261,6 +251,7 @@ async function sendMessage(
       conversationId: string,
       opts?: Record<string, unknown>,
     ) => void;
+    headers?: Record<string, string>;
   } = {},
 ) {
   return callHandler(
@@ -278,7 +269,7 @@ async function sendMessage(
           resolveAttachments: () => [],
         },
       }),
-    makeRequest(content, extra),
+    makeRequest(content, extra, options.headers ?? {}),
     undefined,
     202,
   );
@@ -290,8 +281,6 @@ async function sendMessage(
 describe("HTTP POST /v1/messages does not intercept recording intents (by design)", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
-    listPendingByDestinationMock.mockClear();
-    listCanonicalMock.mockClear();
     addMessageMock.mockClear();
   });
 
@@ -358,8 +347,6 @@ describe("HTTP POST /v1/messages does not intercept recording intents (by design
 describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
   beforeEach(() => {
     routeGuardianReplyMock.mockClear();
-    listPendingByDestinationMock.mockClear();
-    listCanonicalMock.mockClear();
     addMessageMock.mockClear();
   });
 
@@ -452,5 +439,357 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
     });
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================================
+// CLIENT METADATA — sanitized x-vellum-* headers persisted under
+// metadata.client for turn analytics
+// ============================================================================
+describe("HTTP POST /v1/messages client metadata headers", () => {
+  beforeEach(() => {
+    routeGuardianReplyMock.mockClear();
+    addMessageMock.mockClear();
+  });
+
+  const clientMetadataHeaders = {
+    "x-vellum-browser-family": "safari",
+    "x-vellum-browser-version": "17",
+    "x-vellum-client-os": "ios",
+    "x-vellum-interface-version": "1.2.3",
+  };
+
+  test("persists client metadata on immediate user messages", async () => {
+    const persistUserMessage = mock(
+      async (_options: { metadata?: Record<string, unknown> }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      {},
+      {
+        headers: clientMetadataHeaders,
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    const persistCall = persistUserMessage.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const [persistOptions] = persistCall as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(persistOptions.metadata).toEqual({
+      client: {
+        browser_family: "safari",
+        browser_version: "17",
+        os: "ios",
+        interface_version: "1.2.3",
+      },
+    });
+  });
+
+  test("persists client metadata on queued user messages", async () => {
+    const enqueueMessage = mock(
+      (_options: { metadata?: Record<string, unknown> }) => ({
+        queued: true,
+        requestId: "queued-id",
+      }),
+    );
+    const conversation = makeConversation({
+      isProcessing: () => true,
+      enqueueMessage,
+    });
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      {},
+      {
+        headers: clientMetadataHeaders,
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(enqueueMessage).toHaveBeenCalledTimes(1);
+    const enqueueCall = enqueueMessage.mock.calls[0];
+    expect(enqueueCall).toBeDefined();
+    const [enqueueOptions] = enqueueCall as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(enqueueOptions.metadata).toMatchObject({
+      client: {
+        browser_family: "safari",
+        browser_version: "17",
+        os: "ios",
+        interface_version: "1.2.3",
+      },
+    });
+  });
+
+  test("malformed header values are dropped, valid ones kept", async () => {
+    const persistUserMessage = mock(
+      async (_options: { metadata?: Record<string, unknown> }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      {},
+      {
+        headers: {
+          // Uppercase + space + disallowed chars → normalized or dropped.
+          "x-vellum-browser-family": "  SAFARI  ",
+          "x-vellum-browser-version": "not allowed!",
+          "x-vellum-client-os": "a".repeat(65),
+        },
+      },
+    );
+
+    expect(res.status).toBe(202);
+    const [persistOptions] = persistUserMessage.mock.calls[0] as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(persistOptions.metadata).toEqual({
+      client: { browser_family: "safari" },
+    });
+  });
+
+  test("no client metadata headers → metadata unchanged", async () => {
+    const persistUserMessage = mock(
+      async (_options: { metadata?: Record<string, unknown> }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage("hello", conversation);
+
+    expect(res.status).toBe(202);
+    const [persistOptions] = persistUserMessage.mock.calls[0] as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(persistOptions.metadata).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// TRUST CONTEXT — derived from the gateway guardian binding
+// ============================================================================
+describe("HTTP POST /v1/messages trust context from the gateway binding", () => {
+  beforeEach(() => {
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "test-user",
+        address: "test-user",
+        status: "active",
+      },
+    ];
+    reResolveCalls.length = 0;
+    mockReResolve = null;
+  });
+
+  function requestAs(principalId: string, sourceChannel = "vellum") {
+    return new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": principalId,
+        "x-vellum-principal-type": "actor",
+      },
+      body: JSON.stringify({
+        conversationKey: "trust-test-key",
+        content: "hi",
+        sourceChannel,
+        interface: "macos",
+      }),
+    });
+  }
+
+  async function trustContextFor(
+    principalId: string,
+    sourceChannel = "vellum",
+  ): Promise<Record<string, unknown>> {
+    let captured: Record<string, unknown> | undefined;
+    const conversation = makeConversation({
+      setTrustContext: (ctx: Record<string, unknown>) => {
+        captured = ctx;
+      },
+    });
+    const res = await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => conversation,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      requestAs(principalId, sourceChannel),
+      undefined,
+      202,
+    );
+    expect(res.status).toBe(202);
+    return captured ?? {};
+  }
+
+  async function trustClassFor(principalId: string): Promise<string> {
+    return (await trustContextFor(principalId)).trustClass as string;
+  }
+
+  test("guardian principal resolves to guardian context, helper not called", async () => {
+    expect(await trustClassFor("test-user")).toBe("guardian");
+    expect(reResolveCalls).toEqual([]);
+  });
+
+  test("non-guardian principal: helper consulted, null result stays unknown", async () => {
+    mockReResolve = null;
+    expect(await trustClassFor("vellum-principal-stranger")).toBe("unknown");
+    expect(reResolveCalls).toEqual(["vellum-principal-stranger"]);
+  });
+
+  test("reset drift: helper returns guardian → route adopts it", async () => {
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "vellum-principal-stale",
+        address: "vellum-principal-stale",
+        status: "active",
+      },
+    ];
+    mockReResolve = { trustClass: "guardian", sourceChannel: "vellum" };
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("guardian");
+    expect(reResolveCalls).toEqual(["vellum-principal-healed"]);
+  });
+
+  test("helper returns an unknown-class ctx → trust stays unknown (not adopted)", async () => {
+    mockGuardians = [
+      {
+        channelType: "vellum",
+        contactId: "guardian-contact",
+        principalId: "vellum-principal-stale",
+        address: "vellum-principal-stale",
+        status: "active",
+      },
+    ];
+    mockReResolve = { trustClass: "unknown", sourceChannel: "vellum" };
+
+    expect(await trustClassFor("vellum-principal-healed")).toBe("unknown");
+  });
+
+  test("dev-bypass maps the gateway guardian principal to guardian", async () => {
+    expect(await trustClassFor("dev-bypass")).toBe("guardian");
+  });
+
+  test("dev-bypass fails closed to unknown on an empty gateway", async () => {
+    // No active gateway binding: dev-bypass cannot translate to a real guardian,
+    // and the helper (null) leaves trust unknown — parity with /v1/surface-actions.
+    mockGuardians = [];
+    mockReResolve = null;
+    expect(await trustClassFor("dev-bypass")).toBe("unknown");
+  });
+
+  test("preserves the request body channel on the guardian-match happy path", async () => {
+    const ctx = await trustContextFor("test-user", "telegram");
+    expect(ctx.trustClass).toBe("guardian");
+    expect(ctx.sourceChannel).toBe("telegram");
+  });
+
+  // A web turn's "dev-bypass" principal must translate to the real guardian
+  // principal before the CU/app-control same-actor proxy-attachment gate,
+  // so it matches the macOS client's SSE-registered principal.
+  test("dev-bypass is translated to the guardian principal before the CU proxy attach gate (web turn)", async () => {
+    hostProxyAttachCalls.length = 0;
+    preactivateCalls.length = 0;
+    const conversation = makeConversation();
+    const res = await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => conversation,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-actor-principal-id": "dev-bypass",
+          "x-vellum-principal-type": "actor",
+        },
+        body: JSON.stringify({
+          conversationKey: "cu-attach-key",
+          content: "hi",
+          sourceChannel: "vellum",
+          interface: "web",
+        }),
+      }),
+      undefined,
+      202,
+    );
+    expect(res.status).toBe(202);
+
+    // The CU attach gate receives the translated guardian principal, not
+    // the raw "dev-bypass" string.
+    const cuCall = hostProxyAttachCalls.find((c) => c.capability === "host_cu");
+    expect(cuCall).toBeDefined();
+    expect(cuCall?.sourceActorPrincipalId).toBe("test-user");
+    expect(cuCall?.sourceActorPrincipalId).not.toBe("dev-bypass");
+
+    // Preactivation receives the same translated principal.
+    const preactivateCall = preactivateCalls[0];
+    expect(preactivateCall?.sourceActorPrincipalId).toBe("test-user");
+  });
+
+  test("real (non-dev-bypass) principal passes through the CU proxy attach gate unchanged", async () => {
+    hostProxyAttachCalls.length = 0;
+    const conversation = makeConversation();
+    await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => conversation,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-actor-principal-id": "real-jwt-principal",
+          "x-vellum-principal-type": "actor",
+        },
+        body: JSON.stringify({
+          conversationKey: "cu-attach-real-key",
+          content: "hi",
+          sourceChannel: "vellum",
+          interface: "web",
+        }),
+      }),
+      undefined,
+      202,
+    );
+
+    const cuCall = hostProxyAttachCalls.find((c) => c.capability === "host_cu");
+    expect(cuCall?.sourceActorPrincipalId).toBe("real-jwt-principal");
   });
 });

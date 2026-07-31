@@ -12,14 +12,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  truncateForLog: (value: string) => value,
-}));
-
 // Mock task run rules — no task run rules by default
 mock.module("../tasks/ephemeral-permissions.js", () => ({
   getTaskRunRules: () => [],
@@ -37,6 +29,7 @@ const fakeTool = {
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => (name === "bash" ? fakeTool : undefined),
+  resolveTool: (name: string) => (name === "bash" ? fakeTool : undefined),
   getAllTools: () => [fakeTool],
 }));
 
@@ -71,9 +64,16 @@ mock.module("../runtime/channel-verification-service.js", () => ({
     }
     return null;
   },
-  createOutboundSession: () => ({
-    conversationId: "test-session",
+}));
+
+// Gateway session client — the resolver mints verification sessions here.
+mock.module("../channels/gateway-verification-sessions.js", () => ({
+  createOutboundSession: async () => ({
+    sessionId: "test-session",
     secret: "123456",
+    challengeHash: "hash",
+    expiresAt: Date.now() + 600_000,
+    ttlSeconds: 600,
   }),
 }));
 
@@ -88,43 +88,59 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
+// Grant escalation creates AND decides its guardian request through the
+// gateway client; the sim serves that whole surface.
+import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
+
+const sim = createGuardianGatewaySim();
+mock.module("../channels/gateway-guardian-requests.js", () => sim.module);
+
+import { applyGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import {
   getRegisteredKinds,
   getResolver,
 } from "../approvals/guardian-request-resolvers.js";
-import {
-  createCanonicalGuardianRequest,
-  getCanonicalGuardianRequest,
-  listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { scopedApprovalGrants } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { scopedApprovalGrants } from "../persistence/schema/index.js";
 import {
   ToolApprovalHandler,
   waitForInlineGrant,
 } from "../tools/tool-approval-handler.js";
-import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
+import type { ToolContext } from "../tools/types.js";
 
 /** Short wait config for tests — avoids blocking test suite on the 60s default. */
 const TEST_INLINE_WAIT_CONFIG = { maxWaitMs: 100, intervalMs: 20 };
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
   db.delete(scopedApprovalGrants).run();
-  db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversations");
+  sim.reset();
   const now = Date.now();
   getSqlite().run(
     "INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)",
     ["conv-1", now, now],
   );
+}
+
+/** Seed a pending tool_grant_request in the gateway sim. */
+function seedGrantRequest(inputDigest: string) {
+  return sim.seedRequest({
+    kind: "tool_grant_request",
+    sourceChannel: "telegram",
+    sourceConversationId: "conv-1",
+    requesterExternalUserId: "requester-1",
+    guardianExternalUserId: "guardian-1",
+    guardianPrincipalId: "test-principal-id",
+    toolName: "bash",
+    inputDigest,
+    expiresAt: Date.now() + 60_000,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -183,16 +199,53 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
   const handler = new ToolApprovalHandler({
     inlineGrantWait: TEST_INLINE_WAIT_CONFIG,
   });
-  const events: ToolLifecycleEvent[] = [];
-  const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
-    events.push(event);
-  };
 
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
+  });
+
+  test("escalation copy is tool-framed — identity appears only as context", async () => {
+    const context = makeContext({
+      trustClass: "trusted_contact",
+      requesterDisplayName: "Bob",
+    });
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { command: "ls -la" },
+      context,
+      "high",
+      Date.now(),
+    );
+
+    // Trusted contact with a guardian binding: an escalation request is
+    // created, the short inline wait times out, and the invocation is denied.
+    expect(result.allowed).toBe(false);
+    if (result.allowed) {
+      return;
+    }
+
+    // The guardian-facing question asks about the tool, never about the person.
+    expect(emittedSignals.length).toBe(1);
+    // The in-app card is pinned to the conversation the escalated tool runs
+    // in — never left to LLM conversation routing.
+    expect(emittedSignals[0].conversationAffinityHint).toEqual({
+      vellum: "conv-1",
+    });
+    const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
+    const questionText = payload.questionText as string;
+    expect(questionText.startsWith("Approve tool: bash")).toBe(true);
+    // Requester identity is context, not the subject of the question.
+    expect(questionText).toContain("(requested by Bob)");
+    expect(questionText).not.toMatch(/wants to use/i);
+    expect(questionText).not.toMatch(/is requesting/i);
+
+    // Denial copy is about the tool, not about actor identity.
+    expect(result.result.content).toContain(`Permission denied for "bash"`);
+    expect(result.result.content).toContain("guardian approval");
+    expect(result.result.content).not.toMatch(/actor/i);
+    expect(result.result.content).not.toMatch(/not the guardian/i);
   });
 
   test("unverified_channel does NOT create escalation request", async () => {
@@ -208,110 +261,80 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     // Should get the generic denial message, not escalation
     expect(result.result.content).toContain("verified channel identity");
 
-    // No canonical request should have been created
-    const requests = listCanonicalGuardianRequests({
+    // No guardian request should have been created
+    const requests = await sim.module.listGuardianRequestsOrEmpty({
       kind: "tool_grant_request",
       status: "pending",
     });
     expect(requests.length).toBe(0);
   });
-
 });
 
 // ---------------------------------------------------------------------------
 // 3. Canonical decision and grant minting for tool_grant_request kind
 // ---------------------------------------------------------------------------
 
-describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
+describe("applyGuardianDecision / tool_grant_request", () => {
   beforeEach(() => {
     resetTables();
     deliveredReplies.length = 0;
   });
 
   test("approving tool_grant_request with tool metadata mints a grant", async () => {
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_grant_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-1",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      inputDigest: "sha256:testdigest",
-      expiresAt: Date.now() + 60_000,
-    });
+    const req = seedGrantRequest("sha256:testdigest");
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "approve_once",
       actorContext: guardianActor(),
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.grantMinted).toBe(true);
 
-    // Verify canonical request is approved
-    const resolved = getCanonicalGuardianRequest(req.id);
+    // Verify guardian request is approved
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("approved");
     expect(resolved!.decidedByExternalUserId).toBe("guardian-1");
   });
 
   test("rejecting tool_grant_request does NOT mint a grant", async () => {
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_grant_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-1",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      inputDigest: "sha256:testdigest",
-      expiresAt: Date.now() + 60_000,
-    });
+    const req = seedGrantRequest("sha256:testdigest");
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "reject",
       actorContext: guardianActor(),
     });
 
     expect(result.applied).toBe(true);
-    if (!result.applied) return;
+    if (!result.applied) {
+      return;
+    }
     expect(result.grantMinted).toBe(false);
 
-    const resolved = getCanonicalGuardianRequest(req.id);
+    const resolved = sim.getRequest(req.id);
     expect(resolved!.status).toBe("denied");
   });
 
   test("identity mismatch blocks tool_grant_request approval", async () => {
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_grant_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-1",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      inputDigest: "sha256:testdigest",
-      expiresAt: Date.now() + 60_000,
-    });
+    const req = seedGrantRequest("sha256:testdigest");
 
-    const result = await applyCanonicalGuardianDecision({
+    const result = await applyGuardianDecision({
       requestId: req.id,
       action: "approve_once",
       actorContext: guardianActor({
@@ -320,10 +343,12 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
     });
 
     expect(result.applied).toBe(false);
-    if (result.applied) return;
+    if (result.applied) {
+      return;
+    }
     expect(result.reason).toBe("identity_mismatch");
 
-    const unchanged = getCanonicalGuardianRequest(req.id);
+    const unchanged = sim.getRequest(req.id);
     expect(unchanged!.status).toBe("pending");
   });
 });
@@ -340,22 +365,11 @@ describe("end-to-end: tool grant escalation -> approval -> consume", () => {
 
   test("waitForInlineGrant: approve-then-consume round-trip works correctly", async () => {
     // Test the grant lifecycle directly: create request, approve it, consume grant.
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_grant_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-1",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      inputDigest: "sha256:roundtrip",
-      expiresAt: Date.now() + 60_000,
-    });
+    const req = seedGrantRequest("sha256:roundtrip");
 
     // Schedule guardian approval after 50ms
     setTimeout(async () => {
-      await applyCanonicalGuardianDecision({
+      await applyGuardianDecision({
         requestId: req.id,
         action: "approve_once",
         actorContext: guardianActor(),
@@ -387,36 +401,19 @@ describe("end-to-end: tool grant escalation -> approval -> consume", () => {
 // ---------------------------------------------------------------------------
 
 describe("inline wait-and-resume", () => {
-  const events: ToolLifecycleEvent[] = [];
-  const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
-    events.push(event);
-  };
-
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
   });
 
   test("waitForInlineGrant returns granted when grant appears during wait", async () => {
-    // Create a canonical request manually
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_grant_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-1",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      inputDigest: "sha256:waitgrant",
-      expiresAt: Date.now() + 60_000,
-    });
+    // Create a guardian request manually
+    const req = seedGrantRequest("sha256:waitgrant");
 
     // Schedule approval after 50ms
     setTimeout(async () => {
-      await applyCanonicalGuardianDecision({
+      await applyGuardianDecision({
         requestId: req.id,
         action: "approve_once",
         actorContext: guardianActor(),
@@ -443,22 +440,11 @@ describe("inline wait-and-resume", () => {
   });
 
   test("waitForInlineGrant returns denied when guardian rejects during wait", async () => {
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_grant_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-1",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      inputDigest: "sha256:denywait",
-      expiresAt: Date.now() + 60_000,
-    });
+    const req = seedGrantRequest("sha256:denywait");
 
     // Schedule rejection after 50ms
     setTimeout(async () => {
-      await applyCanonicalGuardianDecision({
+      await applyGuardianDecision({
         requestId: req.id,
         action: "reject",
         actorContext: guardianActor(),
@@ -482,18 +468,7 @@ describe("inline wait-and-resume", () => {
   });
 
   test("waitForInlineGrant returns timeout when no decision arrives", async () => {
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_grant_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-1",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      inputDigest: "sha256:timeoutwait",
-      expiresAt: Date.now() + 60_000,
-    });
+    const req = seedGrantRequest("sha256:timeoutwait");
 
     const start = Date.now();
     const result = await waitForInlineGrant(
@@ -516,18 +491,7 @@ describe("inline wait-and-resume", () => {
   });
 
   test("waitForInlineGrant returns aborted when signal fires during wait", async () => {
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_grant_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-1",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      inputDigest: "sha256:abortwait",
-      expiresAt: Date.now() + 60_000,
-    });
+    const req = seedGrantRequest("sha256:abortwait");
 
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 50);
@@ -550,23 +514,12 @@ describe("inline wait-and-resume", () => {
 
   test("waitForInlineGrant: guardian rejects -> outcome is denied", async () => {
     // Test rejection via the waitForInlineGrant primitive directly.
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_grant_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-1",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      inputDigest: "sha256:reject-e2e",
-      expiresAt: Date.now() + 60_000,
-    });
+    const req = seedGrantRequest("sha256:reject-e2e");
 
     // Schedule rejection after 100ms
     const rejectionPromise = (async () => {
       await new Promise((r) => setTimeout(r, 100));
-      await applyCanonicalGuardianDecision({
+      await applyGuardianDecision({
         requestId: req.id,
         action: "reject",
         actorContext: guardianActor(),
@@ -597,18 +550,7 @@ describe("inline wait-and-resume", () => {
 
   test("waitForInlineGrant: abort signal cancels cleanly during wait", async () => {
     // Test abort via the waitForInlineGrant primitive directly.
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_grant_request",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-1",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      inputDigest: "sha256:abort-e2e",
-      expiresAt: Date.now() + 60_000,
-    });
+    const req = seedGrantRequest("sha256:abort-e2e");
 
     const controller = new AbortController();
     // Abort after 100ms
@@ -648,22 +590,22 @@ describe("inline wait-and-resume", () => {
       toolName,
       input,
       context,
-      "host",
       "high",
       Date.now(),
-      emitLifecycleEvent,
     );
     const elapsed = Date.now() - start;
 
     expect(result.allowed).toBe(false);
-    if (result.allowed) return;
+    if (result.allowed) {
+      return;
+    }
     // Unknown actors get the generic fail-closed message, not the wait behavior
     expect(result.result.content).toContain("verified channel identity");
     // Should be near-instant, no waiting
     expect(elapsed).toBeLessThan(200);
 
-    // No canonical request created
-    const requests = listCanonicalGuardianRequests({
+    // No guardian request created
+    const requests = await sim.module.listGuardianRequestsOrEmpty({
       kind: "tool_grant_request",
       status: "pending",
     });

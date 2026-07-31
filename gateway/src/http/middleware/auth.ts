@@ -13,6 +13,7 @@ import { credentialKey } from "../../credential-key.js";
 import { readCredential } from "../../credential-reader.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackPeer } from "../../util/is-loopback-address.js";
+import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
 
 const log = getLogger("auth");
 
@@ -373,6 +374,8 @@ export function createAuthMiddleware(
     guard: string,
     extra?: Record<string, unknown>,
   ): boolean {
+    if (requestArrivedViaEdgeProxy(req)) return false;
+
     // When a trusted reverse proxy is declared, judge loopback-ness by the
     // real client IP (first X-Forwarded-For entry) rather than the raw socket
     // peer. A same-host proxy/tunnel always connects over 127.0.0.1, so without

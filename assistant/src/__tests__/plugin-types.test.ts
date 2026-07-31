@@ -10,12 +10,12 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
+  type InitContext,
   type Plugin,
   PluginExecutionError,
-  type PluginInitContext,
   type PluginManifest,
   type TurnContext,
 } from "../plugins/types.js";
@@ -38,9 +38,10 @@ describe("plugin core types", () => {
     const manifest: PluginManifest = {
       name: "sample-plugin",
       version: "0.1.0",
-      requiresCredential: ["SAMPLE_API_KEY"],
-      requiresFlag: ["sample-feature"],
       config: { parse: (input: unknown) => input },
+      credentialKeyPatterns: [
+        { label: "Example API token", pattern: "^ex_tkn_[A-Za-z0-9]{24}$" },
+      ],
     };
 
     const sampleTool: Tool = {
@@ -58,10 +59,9 @@ describe("plugin core types", () => {
     const plugin = {
       manifest,
       hooks: {
-        async init(ctx: PluginInitContext) {
+        async init(ctx: InitContext) {
           // Touch every field so refactors that rename any of them break here.
           void ctx.config;
-          void ctx.credentials;
           void ctx.logger;
           void ctx.pluginStorageDir;
           void ctx.assistantVersion;
@@ -71,13 +71,6 @@ describe("plugin core types", () => {
         },
       },
       tools: [sampleTool],
-      routes: [
-        {
-          pattern: /^\/sample$/,
-          methods: ["GET"],
-          handler: async () => new Response("ok", { status: 200 }),
-        },
-      ],
     } satisfies Plugin;
 
     // Minimal runtime check so the test body is non-empty.

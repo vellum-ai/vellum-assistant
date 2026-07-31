@@ -5,31 +5,13 @@
  *   - subscribing with machineName set results in listClients() returning the name
  *   - subscribing without machineName results in listClients() returning undefined
  */
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
-
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
 
-initializeDb();
+await initializeDb();
 
 describe("AssistantEventHub — machineName", () => {
   test("subscribing with machineName returns it from listClients()", () => {
@@ -72,9 +54,7 @@ describe("AssistantEventHub — machineName", () => {
     );
 
     const clients = hub.listClients();
-    const entry = clients.find(
-      (c) => c.clientId === "client-without-name-001",
-    );
+    const entry = clients.find((c) => c.clientId === "client-without-name-001");
     expect(entry).toBeDefined();
     expect(entry?.machineName).toBeUndefined();
 

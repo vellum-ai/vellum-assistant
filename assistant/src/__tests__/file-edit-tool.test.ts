@@ -9,15 +9,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 
-import { getTool } from "../tools/registry.js";
+import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 
 let fileEditTool: Tool;
 const testDirs: string[] = [];
 
 beforeAll(async () => {
-  await import("../tools/filesystem/edit.js");
-  fileEditTool = getTool("file_edit")!;
+  const { fileEditTool: definition } =
+    await import("../tools/filesystem/edit.js");
+  fileEditTool = finalizeTool(definition, "file_edit");
 });
 
 function makeContext(workingDir: string): ToolContext {
@@ -127,15 +128,35 @@ describe("file_edit tool (sandbox)", () => {
     expect(result.content).toContain("old_string not found");
   });
 
-  test("blocks path traversal escape", async () => {
+  test("edits a file outside the workspace boundary (non-containerized)", async () => {
     const dir = makeTempDir();
+    const outside = makeTempDir();
+    const target = join(outside, "escape.txt");
+    writeFileSync(target, "hello world\n");
 
     const result = await fileEditTool.execute(
-      { path: "../../../etc/hosts", old_string: "a", new_string: "b" },
+      { path: target, old_string: "hello world", new_string: "updated" },
       makeContext(dir),
     );
 
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("outside the working directory");
+    expect(result.isError).toBe(false);
+    expect(readFileSync(target, "utf-8")).toBe("updated\n");
+  });
+
+  test("blocks path traversal escape when containerized", async () => {
+    const dir = makeTempDir();
+    process.env.IS_CONTAINERIZED = "true";
+    try {
+      const result = await fileEditTool.execute(
+        { path: "../../../etc/hosts", old_string: "a", new_string: "b" },
+        makeContext(dir),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("outside the working directory");
+      expect(result.content).toContain("host_file_edit");
+    } finally {
+      delete process.env.IS_CONTAINERIZED;
+    }
   });
 });

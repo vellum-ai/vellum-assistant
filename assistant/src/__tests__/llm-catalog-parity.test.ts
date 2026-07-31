@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import {
+  getCatalogProviderForModel,
+  isModelInCatalog,
+  PROVIDER_CATALOG,
+} from "../providers/model-catalog.js";
 import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
 
@@ -30,13 +34,6 @@ function getRepoRoot(): string {
 }
 
 const META_JSON_PATH = join(getRepoRoot(), "meta", "llm-provider-catalog.json");
-const SWIFTPM_MIRROR_PATH = join(
-  getRepoRoot(),
-  "clients",
-  "shared",
-  "Resources",
-  "llm-provider-catalog.json",
-);
 
 interface ClientCatalogCredentialsGuide {
   description: string;
@@ -214,7 +211,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     for (const entry of PROVIDER_CATALOG) {
       // Providers with an empty models list (e.g. openai-compatible) use
       // per-connection model identifiers instead of a static catalog.
-      if (entry.models.length === 0) continue;
+      if (entry.models.length === 0) {
+        continue;
+      }
       const found = entry.models.some((m) => m.id === entry.defaultModel);
       expect(
         found,
@@ -226,7 +225,9 @@ describe("LLM catalog parity: daemon vs client", () => {
   test("cache pricing rates are positive when defined", () => {
     for (const entry of PROVIDER_CATALOG) {
       for (const model of entry.models) {
-        if (!model.pricing) continue;
+        if (!model.pricing) {
+          continue;
+        }
         if (model.pricing.cacheReadPer1mTokens !== undefined) {
           expect(
             model.pricing.cacheReadPer1mTokens,
@@ -249,7 +250,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     for (const entry of PROVIDER_CATALOG) {
       for (const model of entry.models) {
         expect(model.defaultContextWindowTokens).toBeGreaterThan(0);
-        if (model.contextWindowTokens === undefined) continue;
+        if (model.contextWindowTokens === undefined) {
+          continue;
+        }
         expect(
           model.defaultContextWindowTokens,
           `${entry.id}/${model.id} default context exceeds context window`,
@@ -260,7 +263,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     for (const entry of json.providers) {
       for (const model of entry.models) {
         expect(model.defaultContextWindowTokens).toBeGreaterThan(0);
-        if (model.contextWindowTokens === undefined) continue;
+        if (model.contextWindowTokens === undefined) {
+          continue;
+        }
         expect(
           model.defaultContextWindowTokens,
           `${entry.id}/${model.id} JSON default context exceeds context window`,
@@ -309,6 +314,32 @@ describe("LLM catalog parity: daemon vs client", () => {
     });
   });
 
+  test("Fireworks catalog includes GLM 5.2", () => {
+    expect(
+      isModelInCatalog("fireworks", "accounts/fireworks/models/glm-5p2"),
+    ).toBe(true);
+
+    const fireworks = PROVIDER_CATALOG.find(
+      (entry) => entry.id === "fireworks",
+    );
+    expect(
+      fireworks?.models.find(
+        (model) => model.id === "accounts/fireworks/models/glm-5p2",
+      ),
+    ).toMatchObject({
+      displayName: "GLM 5.2",
+      contextWindowTokens: 1040000,
+      maxOutputTokens: 131072,
+      supportsToolUse: true,
+      supportsVision: false,
+      pricing: {
+        inputPer1mTokens: 1.4,
+        outputPer1mTokens: 4.4,
+        cacheReadPer1mTokens: 0.26,
+      },
+    });
+  });
+
   test("MiniMax catalog includes MiniMax M3", () => {
     const minimax = PROVIDER_CATALOG.find((entry) => entry.id === "minimax");
     expect(
@@ -345,7 +376,9 @@ describe("LLM catalog parity: daemon vs client", () => {
 
     for (const provider of PROVIDER_CATALOG) {
       for (const model of provider.models) {
-        if (!model.pricing) continue;
+        if (!model.pricing) {
+          continue;
+        }
 
         const inputResult = resolvePricing(
           provider.id,
@@ -389,7 +422,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     for (const provider of PROVIDER_CATALOG) {
       for (const model of provider.models) {
         const cacheReadCatalogRate = model.pricing?.cacheReadPer1mTokens;
-        if (cacheReadCatalogRate === undefined) continue;
+        if (cacheReadCatalogRate === undefined) {
+          continue;
+        }
 
         const result = resolvePricingForUsage(provider.id, model.id, {
           directInputTokens: 0,
@@ -418,7 +453,9 @@ describe("LLM catalog parity: daemon vs client", () => {
     for (const provider of PROVIDER_CATALOG) {
       for (const model of provider.models) {
         const tiers = model.pricing?.tiers;
-        if (!tiers || tiers.length === 0) continue;
+        if (!tiers || tiers.length === 0) {
+          continue;
+        }
 
         for (const tier of tiers) {
           const probeTokens = tier.inputTokenThreshold + 1_000;
@@ -444,6 +481,25 @@ describe("LLM catalog parity: daemon vs client", () => {
     }
   });
 
+  test("getCatalogProviderForModel breaks shared-ID ties by catalog order", () => {
+    // OpenRouter and the Vercel AI Gateway both list this ID; OpenRouter comes
+    // first in PROVIDER_CATALOG, so model→provider inference must keep
+    // returning "openrouter" for configs that predate the gateway.
+    expect(getCatalogProviderForModel("anthropic/claude-sonnet-4.6")).toBe(
+      "openrouter",
+    );
+  });
+
+  test("getCatalogProviderForModel resolves gateway-unique IDs", () => {
+    expect(getCatalogProviderForModel("xai/grok-4.3")).toBe(
+      "vercel-ai-gateway",
+    );
+  });
+
+  test("getCatalogProviderForModel returns undefined for unknown IDs", () => {
+    expect(getCatalogProviderForModel("unknown/model")).toBeUndefined();
+  });
+
   test("Gemini 2.5 Pro catalog context matches provider limits", () => {
     const gemini = PROVIDER_CATALOG.find((entry) => entry.id === "gemini");
     expect(
@@ -456,20 +512,5 @@ describe("LLM catalog parity: daemon vs client", () => {
       longContextPricingThresholdTokens: 200000,
       longContextMode: "native-model",
     });
-  });
-
-  // -----------------------------------------------------------------------
-  // Mirror byte-equality
-  // -----------------------------------------------------------------------
-
-  test("SwiftPM mirror is byte-identical to meta/ copy", () => {
-    // `sync-llm-catalog.ts` writes both files from the same serializer; this
-    // guard catches any case where one copy is regenerated without the other.
-    // Byte equality is required because SwiftPM bundles the resource verbatim
-    // into `VellumAssistantShared` while the meta/ JSON is consumed as a
-    // cross-package artifact (web codegen, etc.).
-    const metaBytes = readFileSync(META_JSON_PATH);
-    const swiftPmBytes = readFileSync(SWIFTPM_MIRROR_PATH);
-    expect(swiftPmBytes.equals(metaBytes)).toBe(true);
   });
 });

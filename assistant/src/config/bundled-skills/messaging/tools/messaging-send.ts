@@ -1,12 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 
-import {
-  addMessage,
-  getConversation,
-} from "../../../../memory/conversation-crud.js";
-import { syncMessageToDisk } from "../../../../memory/conversation-disk-view.js";
-import { getBindingByChannelChat } from "../../../../memory/external-conversation-store.js";
+import type { OutboundAttachment } from "../../../../messaging/provider-types.js";
 import {
   createDraft,
   createDraftRaw,
@@ -14,12 +9,18 @@ import {
   getThread,
 } from "../../../../messaging/providers/gmail/client.js";
 import { buildMultipartMime } from "../../../../messaging/providers/gmail/mime-builder.js";
+import {
+  addMessage,
+  getConversation,
+} from "../../../../persistence/conversation-crud.js";
+import { syncMessageToDisk } from "../../../../persistence/conversation-disk-view.js";
+import { getBindingByChannelChat } from "../../../../persistence/external-conversation-store.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { getLogger } from "../../../../util/logger.js";
-import { guessMimeType } from "./gmail-mime-helpers.js";
+import { guessMimeType } from "../../../../util/mime-type.js";
 import {
   err,
   extractEmail,
@@ -31,6 +32,20 @@ import {
 } from "./shared.js";
 
 const log = getLogger("messaging-send");
+
+/** Read attachment files from disk into in-memory parts for outbound sending. */
+async function readAttachments(paths: string[]): Promise<OutboundAttachment[]> {
+  return Promise.all(
+    paths.map(async (filePath) => ({
+      filename: basename(filePath),
+      mimeType: guessMimeType(filePath),
+      data: await readFile(filePath),
+    })),
+  );
+}
+
+/** Email providers that accept file attachments on outbound sends. */
+const ATTACHMENT_CAPABLE_PLATFORMS = new Set(["gmail", "outlook"]);
 
 export async function run(
   input: Record<string, unknown>,
@@ -54,9 +69,12 @@ export async function run(
   try {
     const provider = await resolveProvider(platform);
 
-    // Non-Gmail platforms: reject attachment_paths
-    if (provider.id !== "gmail" && attachmentPaths?.length) {
-      return err("Attachments are only supported on Gmail.");
+    // Reject attachments on platforms that can't carry them (e.g. Telegram, WhatsApp).
+    if (
+      attachmentPaths?.length &&
+      !ATTACHMENT_CAPABLE_PLATFORMS.has(provider.id)
+    ) {
+      return err("Attachments are only supported on Gmail and Outlook.");
     }
 
     const account = input.account as string | undefined;
@@ -64,10 +82,11 @@ export async function run(
 
     // Gmail: create a draft instead of sending directly
     if (provider.id === "gmail") {
-      if (!conn)
+      if (!conn) {
         return err(
           "Gmail requires an OAuth connection — is the account connected?",
         );
+      }
       const gmailConn = conn;
       // Reply mode: thread_id provided - create a threaded draft with reply-all recipients
       if (threadId) {
@@ -106,7 +125,9 @@ export async function run(
         const toAddrs = extractHeader(latestHeaders, "To");
         const ccAddrs = extractHeader(latestHeaders, "Cc");
 
-        if (fromAddr) allRecipients.add(fromAddr);
+        if (fromAddr) {
+          allRecipients.add(fromAddr);
+        }
         for (const addr of parseAddressList(toAddrs)) {
           allRecipients.add(addr);
         }
@@ -125,14 +146,7 @@ export async function run(
 
         // With attachments: build multipart MIME for threaded reply
         if (attachmentPaths?.length) {
-          const attachments = await Promise.all(
-            attachmentPaths.map(async (filePath) => {
-              const data = await readFile(filePath);
-              const filename = basename(filePath);
-              const mimeType = guessMimeType(filePath);
-              return { filename, mimeType, data };
-            }),
-          );
+          const attachments = await readAttachments(attachmentPaths);
 
           const raw = buildMultipartMime({
             to: toList.join(", "),
@@ -176,14 +190,7 @@ export async function run(
 
       // With attachments: build multipart MIME and use createDraftRaw
       if (attachmentPaths?.length) {
-        const attachments = await Promise.all(
-          attachmentPaths.map(async (filePath) => {
-            const data = await readFile(filePath);
-            const filename = basename(filePath);
-            const mimeType = guessMimeType(filePath);
-            return { filename, mimeType, data };
-          }),
-        );
+        const attachments = await readAttachments(attachmentPaths);
 
         const raw = buildMultipartMime({
           to: conversationId,
@@ -217,10 +224,14 @@ export async function run(
     }
 
     // Non-Gmail platforms
+    const attachments = attachmentPaths?.length
+      ? await readAttachments(attachmentPaths)
+      : undefined;
     const result = await provider.sendMessage(conn, conversationId, text, {
       subject,
       inReplyTo,
       threadId,
+      attachments,
       assistantId: context.assistantId,
     });
 

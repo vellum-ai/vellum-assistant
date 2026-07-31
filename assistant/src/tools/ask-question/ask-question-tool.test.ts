@@ -34,7 +34,8 @@ mock.module("../../permissions/question-prompter.js", () => ({
 
 // Import after the mock so the tool's `import { QuestionPrompter }` binds
 // to the stub class above.
-const { askQuestionTool } = await import("./ask-question-tool.js");
+const { askQuestionTool, formatQuestionsAsTextFallback } =
+  await import("./ask-question-tool.js");
 
 type PromptParams = QuestionPromptParams;
 
@@ -59,7 +60,9 @@ beforeEach(() => {
   };
 });
 
-const validInput = {
+// A single question used to build batches. The tool only accepts the
+// batched `{ questions: [...] }` shape.
+const singleQ = {
   question: "Which fruit?",
   description: "Pick one to add to the smoothie.",
   options: [
@@ -69,12 +72,7 @@ const validInput = {
   freeTextPlaceholder: "Type a fruit",
 };
 
-const singleQ = {
-  question: validInput.question,
-  description: validInput.description,
-  options: validInput.options,
-  freeTextPlaceholder: validInput.freeTextPlaceholder,
-};
+const validInput = { questions: [singleQ] };
 
 describe("askQuestionTool definition", () => {
   test("exposes the expected schema shape and description language", () => {
@@ -91,7 +89,6 @@ describe("askQuestionTool definition", () => {
     expect(def.description).toContain("remove guessing");
     expect(def.description).toContain("a question is skipped");
     expect(def.description).toContain("every question in the batch is skipped");
-    // Batching language is back now that the prompter handles batches.
     expect(def.description).toContain("Batch related clarifications");
     expect(def.description).toContain("up to 5");
     expect(def.description).toContain("Skip button");
@@ -99,13 +96,23 @@ describe("askQuestionTool definition", () => {
     const schema = def.input_schema as {
       properties: Record<
         string,
-        { type?: string; minItems?: number; maxItems?: number }
+        {
+          type?: string;
+          items?: {
+            properties?: Record<
+              string,
+              { type?: string; minItems?: number; maxItems?: number }
+            >;
+          };
+        }
       >;
       required?: string[];
     };
-    expect(schema.properties.options?.type).toBe("array");
-    expect(schema.properties.options?.minItems).toBe(2);
-    expect(schema.properties.options?.maxItems).toBe(4);
+    const optionsSchema =
+      schema.properties.questions?.items?.properties?.options;
+    expect(optionsSchema?.type).toBe("array");
+    expect(optionsSchema?.minItems).toBe(2);
+    expect(optionsSchema?.maxItems).toBe(4);
   });
 });
 
@@ -132,17 +139,17 @@ describe("AskQuestionTool.execute", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.conversationId).toBe("conv-1");
     expect(calls[0]?.questions).toHaveLength(1);
-    expect(calls[0]?.questions[0]?.question).toBe(validInput.question);
-    expect(calls[0]?.questions[0]?.description).toBe(validInput.description);
-    expect(calls[0]?.questions[0]?.options).toEqual(validInput.options);
+    expect(calls[0]?.questions[0]?.question).toBe(singleQ.question);
+    expect(calls[0]?.questions[0]?.description).toBe(singleQ.description);
+    expect(calls[0]?.questions[0]?.options).toEqual(singleQ.options);
     expect(calls[0]?.questions[0]?.freeTextPlaceholder).toBe(
-      validInput.freeTextPlaceholder,
+      singleQ.freeTextPlaceholder,
     );
     expect(calls[0]?.toolUseId).toBe("tu-1");
 
     expect(result.isError).toBe(false);
     expect(result.content).toBe(
-      `Question "${validInput.question}" → Option: a (Apple)`,
+      `Question "${singleQ.question}" → Option: a (Apple)`,
     );
   });
 
@@ -150,7 +157,7 @@ describe("AskQuestionTool.execute", () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "b" }));
     const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.content).toBe(
-      `Question "${validInput.question}" → Option: b (Banana)`,
+      `Question "${singleQ.question}" → Option: b (Banana)`,
     );
     expect(result.isError).toBe(false);
   });
@@ -159,7 +166,7 @@ describe("AskQuestionTool.execute", () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "ghost" }));
     const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.content).toBe(
-      `Question "${validInput.question}" → Option: ghost ((unknown))`,
+      `Question "${singleQ.question}" → Option: ghost ((unknown))`,
     );
     expect(result.isError).toBe(false);
   });
@@ -168,7 +175,7 @@ describe("AskQuestionTool.execute", () => {
     setNextResult(singleCompleted({ decision: "free_text", text: "Cherry" }));
     const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.content).toBe(
-      `Question "${validInput.question}" → Free text: Cherry`,
+      `Question "${singleQ.question}" → Free text: Cherry`,
     );
     expect(result.isError).toBe(false);
   });
@@ -176,7 +183,7 @@ describe("AskQuestionTool.execute", () => {
   test("formats skipped result", async () => {
     setNextResult(singleCompleted({ decision: "skipped" }));
     const result = await askQuestionTool.execute(validInput, makeContext());
-    expect(result.content).toBe(`Question "${validInput.question}" → Skipped`);
+    expect(result.content).toBe(`Question "${singleQ.question}" → Skipped`);
     expect(result.isError).toBe(false);
   });
 
@@ -200,10 +207,39 @@ describe("AskQuestionTool.execute", () => {
     expect(result.content).toBe("Question aborted");
   });
 
-  test("rejects input with fewer than 2 options", async () => {
+  test("short-circuits without prompting when no interactive user is present", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({ isInteractive: false }),
+    );
+
+    // The prompter must never be invoked — there is no one to answer, so the
+    // turn proceeds with defaults instead of parking on the response backstop.
+    expect(calls).toHaveLength(0);
+    expect(result.isError).toBe(false);
+    expect(result.content.toLowerCase()).toContain("no interactive user");
+  });
+
+  test("still prompts when isInteractive is true or unset", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+
+    // The short-circuit keys off an explicit `false`, not a missing flag, so an
+    // interactive turn (or one that never set the flag) still prompts.
+    await askQuestionTool.execute(
+      validInput,
+      makeContext({ isInteractive: true }),
+    );
+    await askQuestionTool.execute(validInput, makeContext());
+
+    expect(calls).toHaveLength(2);
+  });
+
+  test("rejects a question with fewer than 2 options", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
     const result = await askQuestionTool.execute(
-      { ...validInput, options: [{ id: "a", label: "Apple" }] },
+      { questions: [{ ...singleQ, options: [{ id: "a", label: "Apple" }] }] },
       makeContext(),
     );
     expect(result.isError).toBe(true);
@@ -211,17 +247,21 @@ describe("AskQuestionTool.execute", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("rejects input with more than 4 options", async () => {
+  test("rejects a question with more than 4 options", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
     const result = await askQuestionTool.execute(
       {
-        ...validInput,
-        options: [
-          { id: "a", label: "A" },
-          { id: "b", label: "B" },
-          { id: "c", label: "C" },
-          { id: "d", label: "D" },
-          { id: "e", label: "E" },
+        questions: [
+          {
+            ...singleQ,
+            options: [
+              { id: "a", label: "A" },
+              { id: "b", label: "B" },
+              { id: "c", label: "C" },
+              { id: "d", label: "D" },
+              { id: "e", label: "E" },
+            ],
+          },
         ],
       },
       makeContext(),
@@ -230,10 +270,10 @@ describe("AskQuestionTool.execute", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("rejects input with empty question", async () => {
+  test("rejects a question with empty text", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
     const result = await askQuestionTool.execute(
-      { ...validInput, question: "" },
+      { questions: [{ ...singleQ, question: "" }] },
       makeContext(),
     );
     expect(result.isError).toBe(true);
@@ -251,21 +291,159 @@ describe("AskQuestionTool.execute", () => {
   });
 });
 
+// ── Text fallback on channels without dynamic UI ────────────────────
+
+describe("AskQuestionTool text fallback (supportsDynamicUi === false)", () => {
+  test("returns a formatted text block without ever prompting", async () => {
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({ supportsDynamicUi: false }),
+    );
+
+    // The channel can't render the interactive card, so the prompter must
+    // never be invoked — broadcasting a question_request would reach app
+    // clients but never the channel the turn came from. Instead the model gets
+    // text to relay in its reply, which IS what reaches the channel.
+    expect(calls).toHaveLength(0);
+    expect(result.isError).toBe(false);
+    // Carries the question, both option labels, the option description, and an
+    // instruction to present the question as plain text.
+    expect(result.content).toContain(singleQ.question);
+    expect(result.content).toContain("Apple");
+    expect(result.content).toContain("Banana");
+    expect(result.content).toContain("Ripe");
+    expect(result.content).toContain("Options:");
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
+
+  test("still prompts when supportsDynamicUi is true or unset", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+
+    // The fallback keys off an explicit `false`; a dynamic-UI channel (true)
+    // and a client that never set the flag (unset) both take the card path.
+    await askQuestionTool.execute(
+      validInput,
+      makeContext({ supportsDynamicUi: true }),
+    );
+    await askQuestionTool.execute(validInput, makeContext());
+
+    expect(calls).toHaveLength(2);
+  });
+
+  test("isInteractive:false short-circuits before the text fallback", async () => {
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({ isInteractive: false, supportsDynamicUi: false }),
+    );
+
+    // No interactive user present wins over the channel fallback: there is no
+    // one to answer at all, so proceed with defaults rather than emitting a
+    // question the turn would never get a reply to.
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("no interactive user");
+  });
+
+  test("parks a single guardian question on a card-capable channel", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+
+    // A guardian's single-question turn on a channel with a card-rendering
+    // notification adapter parks on the prompter: the guardian-request
+    // pipeline delivers it as a tappable card, so falling back to text would
+    // regress it to an untappable message.
+    await askQuestionTool.execute(
+      validInput,
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: true,
+        trustClass: "guardian",
+      }),
+    );
+
+    expect(calls).toHaveLength(1);
+  });
+
+  test("text fallback when the channel has no question-card delivery", async () => {
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: false,
+        trustClass: "guardian",
+      }),
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
+
+  test("text fallback for a non-guardian channel turn even with card delivery", async () => {
+    // The pipeline delivers cards to the guardian; a non-guardian chatter
+    // would never see one, so their turn degrades to text.
+    const result = await askQuestionTool.execute(
+      validInput,
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: true,
+        trustClass: "trusted_contact",
+      }),
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
+
+  test("text fallback for a multi-question batch on a channel", async () => {
+    // One card carries one answer; multi-question batches stay text on
+    // channels (the app card still handles them when dynamic UI is present).
+    const result = await askQuestionTool.execute(
+      { questions: [singleQ, { ...singleQ, question: "Which size?" }] },
+      makeContext({
+        supportsDynamicUi: false,
+        supportsGuardianQuestionCards: true,
+        trustClass: "guardian",
+      }),
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(result.content.toLowerCase()).toContain("plain-text");
+  });
+});
+
+describe("formatQuestionsAsTextFallback", () => {
+  test("renders a single question with un-numbered options by label", () => {
+    const text = formatQuestionsAsTextFallback([singleQ]);
+
+    expect(text).toContain("Question: Which fruit?");
+    expect(text).toContain("Pick one to add to the smoothie.");
+    expect(text).toContain("Options:");
+    expect(text).toContain("- Apple");
+    expect(text).toContain("- Banana — Ripe");
+    // A single question is not numbered.
+    expect(text).not.toContain("Question 1:");
+  });
+
+  test("numbers questions in a multi-question batch", () => {
+    const q2 = {
+      question: "Preferred time?",
+      options: [
+        { id: "morning", label: "Morning" },
+        { id: "afternoon", label: "Afternoon" },
+      ],
+    };
+
+    const text = formatQuestionsAsTextFallback([singleQ, q2]);
+
+    expect(text).toContain("2 questions");
+    expect(text).toContain("Question 1: Which fruit?");
+    expect(text).toContain("Question 2: Preferred time?");
+    expect(text).toContain("- Morning");
+    expect(text).toContain("- Afternoon");
+  });
+});
+
 // ── Batched input ───────────────────────────────────────────────────
 
 describe("AskQuestionTool batched input", () => {
-  test("normalizes legacy flat input into a one-element batch forwarded to the prompter", async () => {
-    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
-
-    const result = await askQuestionTool.execute(validInput, makeContext());
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.questions).toHaveLength(1);
-    expect(calls[0]?.questions[0]?.question).toBe(validInput.question);
-    expect(calls[0]?.questions[0]?.options).toEqual(validInput.options);
-    expect(result.isError).toBe(false);
-  });
-
   test("accepts a single-element `questions` batch", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
@@ -454,7 +632,7 @@ describe("AskQuestionTool batched input", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("rejects input missing both `questions` and flat fields", async () => {
+  test("rejects input missing `questions`", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
     const result = await askQuestionTool.execute({}, makeContext());
@@ -464,11 +642,17 @@ describe("AskQuestionTool batched input", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("rejects legacy `question` without `options`", async () => {
+  test("rejects the dropped flat single-question shape", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
     const result = await askQuestionTool.execute(
-      { question: "Hi?" },
+      {
+        question: "Hi?",
+        options: [
+          { id: "a", label: "A" },
+          { id: "b", label: "B" },
+        ],
+      },
       makeContext(),
     );
 
@@ -479,7 +663,7 @@ describe("AskQuestionTool batched input", () => {
 });
 
 describe("askQuestionTool definition (batched schema)", () => {
-  test("exposes `questions[]` shape, keeps legacy fields, omits per-question id", () => {
+  test("exposes `questions[]` shape, requires it, and drops the flat fields", () => {
     const def = askQuestionTool;
     const schema = def.input_schema as unknown as {
       properties: Record<
@@ -517,8 +701,12 @@ describe("askQuestionTool definition (batched schema)", () => {
 
     expect(questions?.items?.required).toEqual(["question", "options"]);
 
-    // Legacy fields still present.
-    expect(schema.properties.question).toBeDefined();
-    expect(schema.properties.options).toBeDefined();
+    // `questions` is the only top-level input now.
+    expect(schema.required).toEqual(["questions"]);
+    expect(Object.keys(schema.properties)).toEqual(["questions"]);
+
+    // The legacy flat fields are gone.
+    expect(schema.properties.question).toBeUndefined();
+    expect(schema.properties.options).toBeUndefined();
   });
 });

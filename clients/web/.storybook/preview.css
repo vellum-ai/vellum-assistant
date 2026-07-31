@@ -1,0 +1,9 @@
+@import "tailwindcss";
+@import "@vellumai/design-library/tokens.css";
+@source "../src/**/*.{ts,tsx}";
+
+body {
+  background: var(--surface-base);
+  color: var(--content-default);
+  transition: background-color 200ms, color 200ms;
+}

@@ -1,48 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { Conversation } from "../daemon/conversation.js";
 import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js";
-import type { SkillProjectionContext } from "../daemon/conversation-tool-setup.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { DiskUsageInfo } from "../util/disk-usage.js";
+import * as realDiskUsage from "../util/disk-usage.js";
 
 let diskSample: DiskUsageInfo | null = null;
-
-const mockConfig = {
-  timeouts: {
-    shellDefaultTimeoutSec: 120,
-    shellMaxTimeoutSec: 600,
-    permissionTimeoutSec: 300,
-  },
-  sandbox: {
-    enabled: false,
-    backend: "native" as const,
-    docker: {
-      image: "vellum-sandbox:latest",
-      cpus: 1,
-      memoryMb: 512,
-      pidsLimit: 256,
-      network: "none" as const,
-    },
-  },
-  permissions: { mode: "workspace" as const },
-  tools: { exclude: [] },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfig,
-  getConfigReadOnly: () => mockConfig,
-  loadConfig: () => mockConfig,
-  applyNestedDefaults: () => mockConfig,
-  deepMergeOverwrite: (_base: unknown, override: unknown) => override,
-  invalidateConfigCache: () => undefined,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => undefined,
-  getNestedValue: () => undefined,
-  setNestedValue: () => undefined,
-  mergeDefaultWorkspaceConfig: (config: unknown) => config,
-  API_KEY_PROVIDERS: [] as const,
-  _writeQuarantineNotice: () => undefined,
-}));
 
 mock.module("../daemon/conversation-skill-tools.js", () => ({
   projectSkillTools: mock((_history: Message[], _opts: unknown) => ({
@@ -76,7 +40,12 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+// Spread the real module and override only what we need: `mock.module` is
+// global across the test process, so a partial mock missing exports that
+// other modules in this graph import (e.g. cgroup-memory's
+// `parseK8sMemoryBytes`) would break them.
 mock.module("../util/disk-usage.js", () => ({
+  ...realDiskUsage,
   getDiskUsageInfo: () => diskSample,
 }));
 
@@ -96,21 +65,23 @@ const {
 } = await import("../tools/background-tool-registry.js");
 const { shellTool } = await import("../tools/terminal/shell.js");
 const { hostShellTool } = await import("../tools/host-terminal/host-shell.js");
+const { __clearRegistryForTesting: clearToolRegistryForTesting, registerTool } =
+  await import("../tools/registry.js");
+const { skillLoadTool } = await import("../tools/skills/load.js");
 
 function makeToolDef(name: string): ToolDefinition {
   return { name, description: `${name} tool`, input_schema: {} };
 }
 
 function makeProjectionCtx(
-  overrides: Partial<SkillProjectionContext> = {},
-): SkillProjectionContext {
+  overrides: Partial<Conversation> = {},
+): Conversation {
   return {
     skillProjectionState: new Map(),
     skillProjectionCache: {} as SkillProjectionCache,
-    coreToolNames: new Set(),
     toolsDisabledDepth: 0,
     ...overrides,
-  };
+  } as unknown as Conversation;
 }
 
 function setDiskUsage(usedMb: number, totalMb = 100): void {
@@ -124,12 +95,15 @@ function setDiskUsage(usedMb: number, totalMb = 100): void {
 
 beforeEach(() => {
   _clearRegistryForTesting();
+  clearToolRegistryForTesting();
+  registerTool(skillLoadTool);
   __resetDiskPressureGuardForTests();
   setDiskUsage(10);
 });
 
 afterEach(() => {
   _clearRegistryForTesting();
+  clearToolRegistryForTesting();
   __resetDiskPressureGuardForTests();
   diskSample = null;
 });
@@ -140,6 +114,7 @@ describe("disk pressure cleanup tool restrictions", () => {
       makeToolDef("bash"),
       makeToolDef("host_bash"),
       makeToolDef("file_read"),
+      makeToolDef("skill_load"),
       makeToolDef("file_write"),
       makeToolDef("skill_execute"),
       makeToolDef("web_fetch"),
@@ -150,8 +125,14 @@ describe("disk pressure cleanup tool restrictions", () => {
     const cleanupTools = resolve([]);
     const cleanupNames = cleanupTools.map((tool) => tool.name).sort();
 
-    expect(cleanupNames).toEqual(["bash", "file_read", "host_bash"]);
+    expect(cleanupNames).toEqual([
+      "bash",
+      "file_read",
+      "host_bash",
+      "skill_load",
+    ]);
     expect(ctx.allowedToolNames?.has("bash")).toBe(true);
+    expect(ctx.allowedToolNames?.has("skill_load")).toBe(true);
     expect(ctx.allowedToolNames?.has("file_write")).toBe(false);
     expect(ctx.allowedToolNames?.has("skill_execute")).toBe(false);
 
@@ -177,10 +158,8 @@ describe("disk pressure cleanup tool restrictions", () => {
         allowedToolNames: new Set(["file_write"]),
         diskPressureCleanupModeActive: true,
       },
-      "sandbox",
       "low",
       Date.now(),
-      () => undefined,
     );
 
     expect(result.allowed).toBe(false);
@@ -190,6 +169,31 @@ describe("disk pressure cleanup tool restrictions", () => {
     expect(result.result.content).toContain(
       "not available during disk pressure cleanup mode",
     );
+  });
+
+  test("executor fallback allows normal skill_load during cleanup mode", async () => {
+    const handler = new ToolApprovalHandler();
+    const result = await handler.checkPreExecutionGates(
+      "skill_load",
+      { skill: "system-storage-cleanup" },
+      {
+        workingDir: "/workspace",
+        conversationId: "conv-cleanup",
+        trustClass: "guardian",
+        allowedToolNames: new Set(["skill_load"]),
+        diskPressureCleanupModeActive: true,
+      },
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(true);
+    if (!result.allowed) {
+      throw new Error(
+        "Expected disk pressure cleanup mode to allow skill_load",
+      );
+    }
+    expect(result.tool.name).toBe("skill_load");
   });
 
   test("locking cancels registered terminal background tools with disk pressure reason", () => {

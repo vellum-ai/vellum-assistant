@@ -3,17 +3,15 @@ import { describe, expect, test } from "bun:test";
 import { PROVIDER_SEED_DATA } from "../oauth/seed-providers.js";
 
 /**
- * Allowed CDN prefixes for ``logoUrl``. Mirrors the source registry in
- * ``clients/shared/Resources/integration-logos-manifest.json``:
+ * Allowed CDN prefixes for the ``logoUrl`` field on ``PROVIDER_SEED_DATA``
+ * (``assistant/src/oauth/seed-providers.ts``):
  *
  * - Simple Icons (CC0) is the default for most providers.
  * - thesvg via jsDelivr is the documented fallback for brands Simple Icons
  *   doesn't host (e.g. Salesforce, which Simple Icons removed for
- *   trademark reasons). Same source is already used for the bundled PDFs
- *   of figma/github/gmail/linear/notion/outlook/slack.
+ *   trademark reasons).
  *
- * Adding another CDN should be a deliberate choice — extend this list
- * and update the manifest in tandem.
+ * Adding another CDN should be a deliberate choice — extend this list.
  */
 const ALLOWED_LOGO_URL_PREFIXES = [
   "https://cdn.simpleicons.org/",

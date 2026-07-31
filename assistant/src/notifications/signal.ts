@@ -2,10 +2,16 @@
  * NotificationSignal -- the flexible input from producers.
  * Uses free-form event names and structured attention hints that let the
  * decision engine route contextually.
+ *
+ * All data shapes are defined as Zod schemas — types are derived via
+ * `z.infer` so runtime validation and compile-time types stay in sync.
  */
 
-import type { ConversationCreateType } from "../memory/conversation-crud.js";
+import { z } from "zod";
+
+import type { ConversationCreateType } from "../persistence/conversation-types.js";
 import type { GuardianQuestionPayload } from "./guardian-question-mode.js";
+import { UrgencySchema } from "./urgency.js";
 
 // ── Source channel registry ────────────────────────────────────────────
 
@@ -14,13 +20,30 @@ export const NOTIFICATION_SOURCE_CHANNELS = [
   { id: "vellum", description: "Vellum native client (macOS/iOS)" },
   { id: "phone", description: "Phone call pipeline" },
   { id: "telegram", description: "Telegram channel" },
+  { id: "whatsapp", description: "WhatsApp channel" },
   { id: "slack", description: "Slack channel" },
+  { id: "email", description: "Email channel" },
+  { id: "platform", description: "Platform-managed channel" },
+  { id: "a2a", description: "Agent-to-agent protocol channel" },
+  { id: "discord", description: "Discord channel" },
   { id: "scheduler", description: "Scheduled task runner (reminders, cron)" },
   { id: "watcher", description: "File/event watcher subsystem" },
 ] as const;
 
 export type NotificationSourceChannel =
   (typeof NOTIFICATION_SOURCE_CHANNELS)[number]["id"];
+
+/** Typed tuple of all source channel IDs — usable with `z.enum()`. */
+export const NOTIFICATION_SOURCE_CHANNEL_IDS = NOTIFICATION_SOURCE_CHANNELS.map(
+  (c) => c.id,
+) as unknown as readonly [
+  NotificationSourceChannel,
+  ...NotificationSourceChannel[],
+];
+
+export const NotificationSourceChannelSchema = z.enum(
+  NOTIFICATION_SOURCE_CHANNEL_IDS,
+);
 
 export function isNotificationSourceChannel(
   value: unknown,
@@ -57,16 +80,8 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description: "Caller requested callback while unreachable",
   },
   {
-    id: "ingress.escalation",
-    description: "Incoming message escalated for attention",
-  },
-  {
     id: "ingress.trusted_contact.guardian_decision",
     description: "Guardian decided on trusted contact request",
-  },
-  {
-    id: "ingress.trusted_contact.denied",
-    description: "Trusted contact request denied",
   },
   {
     id: "ingress.trusted_contact.verification_sent",
@@ -107,6 +122,11 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     description:
       "OAuth credential health issue detected (expired, revoked, missing scopes)",
   },
+  {
+    id: "telegram.webhook_health_alert",
+    description:
+      "Telegram webhook is not delivering (unregistered, or failing per getWebhookInfo)",
+  },
 ] as const;
 
 export type NotificationSourceEventName =
@@ -114,15 +134,21 @@ export type NotificationSourceEventName =
 
 // ── Attention hints & routing ──────────────────────────────────────────
 
-export interface AttentionHints {
-  requiresAction: boolean;
-  urgency: "low" | "medium" | "high" | "critical";
-  deadlineAt?: number; // epoch ms
-  isAsyncBackground: boolean;
-  visibleInSourceNow: boolean;
-}
+export const AttentionHintsSchema = z.object({
+  requiresAction: z.boolean(),
+  urgency: UrgencySchema,
+  deadlineAt: z.number().optional(),
+  isAsyncBackground: z.boolean(),
+  visibleInSourceNow: z.boolean(),
+});
+export type AttentionHints = z.infer<typeof AttentionHintsSchema>;
 
-export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
+export const RoutingIntentSchema = z.enum([
+  "single_channel",
+  "multi_channel",
+  "all_channels",
+]);
+export type RoutingIntent = z.infer<typeof RoutingIntentSchema>;
 
 // ── Typed context payloads ──────────────────────────────────────────────
 
@@ -140,36 +166,51 @@ export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
  * This is channel-agnostic by design — any channel's access request that
  * resolves to a non-source-channel guardian gets the same treatment.
  */
-export type GuardianResolutionSource =
-  | "source-channel-contact"
-  | "vellum-anchor"
-  | "none";
+export const GuardianResolutionSourceSchema = z.enum([
+  "source-channel-contact",
+  "vellum-anchor",
+  "none",
+]);
+export type GuardianResolutionSource = z.infer<
+  typeof GuardianResolutionSourceSchema
+>;
 
-export interface AccessRequestContextPayload {
-  requestId: string;
-  requestCode: string;
-  sourceChannel: string;
-  conversationExternalId: string;
-  actorExternalId: string;
-  actorDisplayName: string | null;
-  actorUsername: string | null;
-  senderIdentifier: string;
-  guardianBindingChannel: string | null;
-  guardianResolutionSource: GuardianResolutionSource;
-  previousMemberStatus: string | null;
-  /** Preview of the requester's original message (first ~200 chars). */
-  messagePreview: string | null;
-}
+export const AccessRequestContextPayloadSchema = z.object({
+  requestId: z.string(),
+  requestCode: z.string(),
+  sourceChannel: z.string(),
+  conversationExternalId: z.string(),
+  actorExternalId: z.string(),
+  actorDisplayName: z.string().nullable(),
+  actorUsername: z.string().nullable(),
+  senderIdentifier: z.string(),
+  guardianBindingChannel: z.string().nullable(),
+  guardianResolutionSource: GuardianResolutionSourceSchema,
+  previousMemberStatus: z.string().nullable(),
+  messagePreview: z.string().nullable(),
+  isBot: z.boolean().optional(),
+  isStranger: z.boolean().optional(),
+  isRestricted: z.boolean().optional(),
+  messageTs: z.string().optional(),
+  /** `admitted` marks an introduction nudge for a floor-admitted sender. */
+  trigger: z.enum(["denied", "admitted"]).optional(),
+});
+export type AccessRequestContextPayload = z.infer<
+  typeof AccessRequestContextPayloadSchema
+>;
 
-export interface GuardianChannelActivationPayload {
-  verificationCode: string;
-  sourceChannel: string;
-  actorExternalId: string;
-  actorDisplayName: string | null;
-  actorUsername: string | null;
-  sessionId: string;
-  expiresAt: number;
-}
+export const GuardianChannelActivationPayloadSchema = z.object({
+  verificationCode: z.string(),
+  sourceChannel: z.string(),
+  actorExternalId: z.string(),
+  actorDisplayName: z.string().nullable(),
+  actorUsername: z.string().nullable(),
+  sessionId: z.string(),
+  expiresAt: z.number(),
+});
+export type GuardianChannelActivationPayload = z.infer<
+  typeof GuardianChannelActivationPayloadSchema
+>;
 
 export interface NotificationEventContextPayloadMap {
   "guardian.question": GuardianQuestionPayload;

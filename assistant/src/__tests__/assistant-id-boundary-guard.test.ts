@@ -91,7 +91,6 @@ describe("assistant ID boundary", () => {
       "runtime/verification-outbound-actions.ts",
       "daemon/handlers/config-channels.ts",
       "runtime/routes/channel-route-shared.ts",
-      "calls/relay-server.ts",
     ];
 
     const srcDir = join(import.meta.dir, "..");
@@ -266,8 +265,12 @@ describe("assistant ID boundary", () => {
     const lines = grepOutput.split("\n").filter((l) => l.length > 0);
     const violations = lines.filter((line) => {
       const filePath = line.split(":")[0];
-      if (isTestFile(filePath)) return false;
-      if (isMigrationFile(filePath)) return false;
+      if (isTestFile(filePath)) {
+        return false;
+      }
+      if (isMigrationFile(filePath)) {
+        return false;
+      }
 
       // Allow comments (lines where the code portion starts with //)
       const parts = line.split(":");
@@ -313,64 +316,6 @@ describe("assistant ID boundary", () => {
   // surfaces invites callers to pass external IDs into daemon scoping.
   // -------------------------------------------------------------------------
 
-  test("message contract types do not contain assistantId for guardian requests", () => {
-    const contractPath = join(
-      import.meta.dir,
-      "..",
-      "daemon",
-      "message-types",
-      "integrations.ts",
-    );
-    const content = readFileSync(contractPath, "utf-8");
-
-    // Extract the interface blocks for the request types and verify
-    // none of them declare an assistantId property.
-    const requestTypeNames = ["ChannelVerificationSessionRequest"];
-
-    for (const typeName of requestTypeNames) {
-      // Find the interface/type block — match from the type name to the next
-      // closing brace at the same indentation level. We use a simple heuristic:
-      // find the line declaring the type, then scan forward to the closing '}'.
-      const typeIndex = content.indexOf(typeName);
-      expect(
-        typeIndex,
-        `Expected to find ${typeName} in message contract`,
-      ).toBeGreaterThan(-1);
-
-      // Extract from the type declaration to the next '}' line
-      const blockStart = content.indexOf("{", typeIndex);
-      if (blockStart === -1) continue;
-      let braceDepth = 0;
-      let blockEnd = blockStart;
-      for (let i = blockStart; i < content.length; i++) {
-        if (content[i] === "{") braceDepth++;
-        if (content[i] === "}") braceDepth--;
-        if (braceDepth === 0) {
-          blockEnd = i + 1;
-          break;
-        }
-      }
-      const block = content.slice(blockStart, blockEnd);
-
-      // The block should not contain an assistantId property declaration
-      // (matches "assistantId?" or "assistantId:" on a non-comment line)
-      const lines = block.split("\n");
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (
-          trimmed.startsWith("//") ||
-          trimmed.startsWith("*") ||
-          trimmed.startsWith("/*")
-        )
-          continue;
-        expect(
-          /\bassistantId\s*[?:]/.test(trimmed),
-          `${typeName} must not declare an assistantId property. Found: "${trimmed}"`,
-        ).toBe(false);
-      }
-    }
-  });
-
   test("guardian outbound param interfaces do not contain assistantId", () => {
     const actionsPath = join(
       import.meta.dir,
@@ -394,12 +339,18 @@ describe("assistant ID boundary", () => {
       ).toBeGreaterThan(-1);
 
       const blockStart = content.indexOf("{", idx);
-      if (blockStart === -1) continue;
+      if (blockStart === -1) {
+        continue;
+      }
       let braceDepth = 0;
       let blockEnd = blockStart;
       for (let i = blockStart; i < content.length; i++) {
-        if (content[i] === "{") braceDepth++;
-        if (content[i] === "}") braceDepth--;
+        if (content[i] === "{") {
+          braceDepth++;
+        }
+        if (content[i] === "}") {
+          braceDepth--;
+        }
         if (braceDepth === 0) {
           blockEnd = i + 1;
           break;
@@ -414,8 +365,9 @@ describe("assistant ID boundary", () => {
           trimmed.startsWith("//") ||
           trimmed.startsWith("*") ||
           trimmed.startsWith("/*")
-        )
+        ) {
           continue;
+        }
         expect(
           /\bassistantId\s*[?:]/.test(trimmed),
           `${name} must not declare an assistantId property. Found: "${trimmed}"`,
@@ -581,7 +533,9 @@ describe("assistant ID boundary", () => {
       /export\s+(?:async\s+)?function\s+\w+\s*\(|export\s+const\s+\w+\s*=\s*(?:async\s+)?\(/g;
 
     for (const relPath of matchedFiles) {
-      if (isTestFile(relPath) || isMigrationFile(relPath)) continue;
+      if (isTestFile(relPath) || isMigrationFile(relPath)) {
+        continue;
+      }
 
       const content = readFileSync(join(repoRoot, relPath), "utf-8");
 
@@ -626,8 +580,12 @@ describe("assistant ID boundary", () => {
         let depth = 1;
         let paramEnd = parenStart + 1;
         for (let i = parenStart + 1; i < content.length && depth > 0; i++) {
-          if (content[i] === "(") depth++;
-          if (content[i] === ")") depth--;
+          if (content[i] === "(") {
+            depth++;
+          }
+          if (content[i] === ")") {
+            depth--;
+          }
           if (depth === 0) {
             paramEnd = i;
             break;

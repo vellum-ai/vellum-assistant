@@ -74,7 +74,11 @@ function createMockTransport(): CesTransport & {
   messages: string[];
   messageHandler: ((msg: string) => void) | null;
   alive: boolean;
+  /** Simulate the transport dying (e.g. a spurious stdout EOF): mark it dead
+   *  and fire the registered close handlers, as the real transports do. */
+  die: () => void;
 } {
+  const closeHandlers: Array<() => void> = [];
   const transport = {
     messages: [] as string[],
     messageHandler: null as ((msg: string) => void) | null,
@@ -88,8 +92,15 @@ function createMockTransport(): CesTransport & {
     isAlive() {
       return transport.alive;
     },
+    onClose(handler: () => void) {
+      closeHandlers.push(handler);
+    },
     close() {
       transport.alive = false;
+    },
+    die() {
+      transport.alive = false;
+      for (const handler of closeHandlers) handler();
     },
   };
   return transport;
@@ -603,6 +614,42 @@ describe("CesRpcClient", () => {
     }
 
     expect(client.isReady()).toBe(false);
+  });
+
+  test("a pending request fails fast when the transport dies (no timeout wait)", async () => {
+    const transport = createMockTransport();
+    const client = createCesRpcClient(transport, {
+      handshakeTimeoutMs: 5000,
+      // Long timeout on purpose: the call must reject from the transport
+      // DEATH, not this timer. Without the fail-fast it would hang 60s.
+      requestTimeoutMs: 60_000,
+    });
+
+    // Handshake
+    const hPromise = client.handshake();
+    const hSent = JSON.parse(transport.messages[0]!);
+    transport.messageHandler!(
+      JSON.stringify({
+        type: "handshake_ack",
+        protocolVersion: CES_PROTOCOL_VERSION,
+        sessionId: hSent.sessionId,
+        accepted: true,
+      }),
+    );
+    await hPromise;
+
+    const callPromise = client.call("list_credentials", {});
+
+    // The transport's read side dies (e.g. a spurious stdout EOF on a CES
+    // bounce) while the request is in flight — the response can never arrive.
+    transport.die();
+
+    try {
+      await callPromise;
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(CesTransportError);
+    }
   });
 
   test("subsequent handshake call returns immediately if already ready", async () => {

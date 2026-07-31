@@ -42,6 +42,13 @@ export interface GmailMessagePart {
   parts?: GmailMessagePart[];
 }
 
+/**
+ * Gmail API mailbox base. Request paths in this client are mailbox-relative
+ * (e.g. `/messages`), so the full URL pins the Gmail host and mailbox prefix
+ * explicitly rather than relying on the google provider's default base URL.
+ */
+const GMAIL_API_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
+
 const MAX_RETRIES = 3;
 /** Higher retry count for batch modify — each retry is cheap relative to restarting the whole run. */
 const MAX_RETRIES_BATCH_MODIFY = 5;
@@ -109,7 +116,7 @@ export async function gmailRequest<T = unknown>(
       args.push("--account", opts.account);
     }
 
-    let path = opts.path;
+    let path = `${GMAIL_API_BASE_URL}${opts.path}`;
     if (opts.query && Object.keys(opts.query).length > 0) {
       const qs = new URLSearchParams(opts.query).toString();
       path += "?" + qs;

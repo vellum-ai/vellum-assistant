@@ -31,18 +31,10 @@ const RETENTION_DAYS = 30;
 // ---------------------------------------------------------------------------
 
 export type OpStatus =
-  | "staged"
-  | "committed"
-  | "failed"
-  | "interrupted"
-  | "completed";
+  "staged" | "committed" | "failed" | "interrupted" | "completed";
 
 export type OpType =
-  | "archive"
-  | "label_add"
-  | "label_remove"
-  | "filter_create"
-  | "trash";
+  "archive" | "label_add" | "label_remove" | "filter_create" | "trash";
 
 export interface OpEntry {
   ts: string;

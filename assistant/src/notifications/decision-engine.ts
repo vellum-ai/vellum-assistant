@@ -12,7 +12,11 @@
 import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
-import { listGuardianChannels } from "../contacts/contact-store.js";
+import { findContactInfoById } from "../contacts/contact-store.js";
+import {
+  anyGuardian,
+  getGuardianDelivery,
+} from "../contacts/guardian-delivery-reader.js";
 import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import {
   createTimeout,
@@ -28,25 +32,29 @@ import {
   buildAccessRequestInviteDirective,
   hasAccessRequestInstructions,
   hasInviteFlowDirective,
+  isHandshakeOfferedForPayload,
+  parseAccessRequestPayload,
 } from "./access-request-copy.js";
+import {
+  buildAccessRequestSeedContentBlocks,
+  buildToolApprovalSeedContentBlocks,
+} from "./approval-card-data.js";
 import {
   buildConversationCandidates,
   type ConversationCandidateSet,
   serializeCandidatesForPrompt,
 } from "./conversation-candidates.js";
-import {
-  composeFallbackCopy,
-  deriveTitle,
-  nonEmpty,
-  readPayloadString,
-} from "./copy-composer.js";
+import { composeFallbackCopy, deriveTitle } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
   buildGuardianRequestCodeInstruction,
   hasGuardianRequestCodeInstruction,
+  parseInteractiveApprovalPayload,
   resolveGuardianQuestionInstructionMode,
   stripConflictingGuardianRequestInstructions,
+  stripGuardianRequestCodeInstructions,
 } from "./guardian-question-mode.js";
+import { nonEmpty, readPayloadString } from "./notification-utils.js";
 import { getPreferenceSummary } from "./preference-summary.js";
 import type { NotificationSignal, RoutingIntent } from "./signal.js";
 import type {
@@ -139,6 +147,7 @@ function buildSystemPrompt(
     `  - Avoid meta-send phrasing (e.g. "I'd like to send a notification", "May I go ahead with that?"). Write the recipient-facing message directly.`,
     `  - Avoid intermediary-instruction phrasing like "consider telling the guardian", "ask the recipient to", or "the assistant should remind them". Rewrite it as final copy the recipient can act on directly.`,
     `  - For telegram: 1-2 concise sentences.`,
+    `  - For slack approval requests: the message renders inside an interactive card with Approve/Reject buttons. Describe only what needs approval — never include approval/reference codes, code-reply instructions, or directions to respond in another app.`,
     `- \`conversationSeedMessage\` is the opening message in the internal notification conversation and also the expanded detail shown in the home feed. It should be richer and more contextual than the popup body.`,
     `  - For vellum (desktop): use structured markdown for readability. Break content into bullet points, numbered lists, or short sections with **bold** labels. Avoid long unbroken paragraphs — scan-friendly formatting is preferred.`,
     `  - Never dump raw JSON. Include only human-readable context.`,
@@ -378,11 +387,19 @@ function validateDecisionOutput(
   availableChannels: NotificationChannel[],
   candidateSet?: ConversationCandidateSet,
 ): NotificationDecision | null {
-  if (typeof input.shouldNotify !== "boolean") return null;
-  if (typeof input.reasoningSummary !== "string") return null;
-  if (typeof input.dedupeKey !== "string") return null;
+  if (typeof input.shouldNotify !== "boolean") {
+    return null;
+  }
+  if (typeof input.reasoningSummary !== "string") {
+    return null;
+  }
+  if (typeof input.dedupeKey !== "string") {
+    return null;
+  }
 
-  if (!Array.isArray(input.selectedChannels)) return null;
+  if (!Array.isArray(input.selectedChannels)) {
+    return null;
+  }
   const validatedChannels = (input.selectedChannels as unknown[]).filter(
     (ch): ch is NotificationChannel =>
       typeof ch === "string" &&
@@ -478,7 +495,9 @@ export function validateConversationActions(
 ): Partial<Record<NotificationChannel, ConversationAction>> {
   const result: Partial<Record<NotificationChannel, ConversationAction>> = {};
 
-  if (!raw || typeof raw !== "object") return result;
+  if (!raw || typeof raw !== "object") {
+    return result;
+  }
 
   const actionsObj = raw as Record<string, unknown>;
   const channelSet = new Set(validChannels);
@@ -498,8 +517,12 @@ export function validateConversationActions(
   }
 
   for (const [ch, actionRaw] of Object.entries(actionsObj)) {
-    if (!channelSet.has(ch as NotificationChannel)) continue;
-    if (!actionRaw || typeof actionRaw !== "object") continue;
+    if (!channelSet.has(ch as NotificationChannel)) {
+      continue;
+    }
+    if (!actionRaw || typeof actionRaw !== "object") {
+      continue;
+    }
 
     const channel = ch as NotificationChannel;
     const action = actionRaw as Record<string, unknown>;
@@ -554,8 +577,9 @@ function ensureGuardianRequestCodeInCopy(
       requestCode,
       mode,
     );
-    if (hasGuardianRequestCodeInstruction(sanitized, requestCode, mode))
+    if (hasGuardianRequestCodeInstruction(sanitized, requestCode, mode)) {
       return sanitized;
+    }
     return sanitized.length > 0
       ? `${sanitized}\n\n${instruction}`
       : instruction;
@@ -574,41 +598,133 @@ function ensureGuardianRequestCodeInCopy(
 }
 
 /**
+ * Remove request-code reply instructions from copy for a channel whose
+ * approval UI makes them redundant. Instruction-only fields keep their
+ * original text rather than becoming empty — downstream treats an empty
+ * body as missing copy.
+ */
+function stripGuardianRequestCodeInCopy(
+  copy: RenderedChannelCopy,
+  requestCode: string,
+): RenderedChannelCopy {
+  const strip = (text: string): string => {
+    const stripped = stripGuardianRequestCodeInstructions(text, requestCode);
+    return stripped.length > 0 ? stripped : text;
+  };
+
+  return {
+    ...copy,
+    body: strip(copy.body),
+    deliveryText: copy.deliveryText
+      ? strip(copy.deliveryText)
+      : copy.deliveryText,
+    conversationSeedMessage: copy.conversationSeedMessage
+      ? strip(copy.conversationSeedMessage)
+      : copy.conversationSeedMessage,
+  };
+}
+
+/**
  * Guardian questions that share a conversation require explicit request-code
  * targeting. Enforce request-code instructions in rendered copy so guardians
  * can always disambiguate replies even when model copy omits them.
+ *
+ * Slack is the exception for approval-mode questions: the Slack adapter
+ * renders those as an interactive card with Approve/Reject buttons (see
+ * `resolveApprovalContext` in broadcaster.ts, gated on the same
+ * `parseInteractiveApprovalPayload`), so code-reply instructions are
+ * redundant noise there and are stripped instead of enforced in.
  */
 function enforceGuardianRequestCode(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== "guardian.question") return decision;
-  const rawCode = signal.contextPayload.requestCode;
-  if (typeof rawCode !== "string" || rawCode.trim().length === 0)
+  if (signal.sourceEventName !== "guardian.question") {
     return decision;
+  }
+  const rawCode = signal.contextPayload.requestCode;
+  if (typeof rawCode !== "string" || rawCode.trim().length === 0) {
+    return decision;
+  }
 
   const requestCode = rawCode.trim().toUpperCase();
   const modeResolution = resolveGuardianQuestionInstructionMode(
     signal.contextPayload,
   );
+  const slackRendersApprovalButtons =
+    parseInteractiveApprovalPayload(signal.contextPayload) != null;
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };
 
   for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
     const copy = nextCopy[channel];
-    if (!copy) continue;
-    nextCopy[channel] = ensureGuardianRequestCodeInCopy(
-      copy,
-      requestCode,
-      modeResolution.mode,
-    );
+    if (!copy) {
+      continue;
+    }
+    nextCopy[channel] =
+      channel === "slack" && slackRendersApprovalButtons
+        ? stripGuardianRequestCodeInCopy(copy, requestCode)
+        : ensureGuardianRequestCodeInCopy(
+            copy,
+            requestCode,
+            modeResolution.mode,
+          );
   }
 
   return {
     ...decision,
     renderedCopy: nextCopy,
   };
+}
+
+/**
+ * Inject seedContentBlocks into every channel's copy when not already present.
+ * Used by both tool-approval and access-request guards to ensure Surface cards
+ * render on all decision paths (LLM, assistant_tool, fallback).
+ */
+function ensureSeedContentBlocks(
+  decision: NotificationDecision,
+  blocks: unknown[] | null | undefined,
+): NotificationDecision {
+  if (!blocks) {
+    return decision;
+  }
+
+  const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
+    ...decision.renderedCopy,
+  };
+  for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
+    const copy = nextCopy[channel];
+    if (!copy) {
+      continue;
+    }
+    if (!copy.seedContentBlocks) {
+      nextCopy[channel] = { ...copy, seedContentBlocks: blocks };
+    }
+  }
+
+  return {
+    ...decision,
+    renderedCopy: nextCopy,
+  };
+}
+
+/**
+ * Tool-approval and tool-grant notifications need a Surface card with
+ * Approve/Reject buttons on all decision paths.
+ */
+function enforceToolApprovalSeedBlocks(
+  decision: NotificationDecision,
+  signal: NotificationSignal,
+): NotificationDecision {
+  if (signal.sourceEventName !== "guardian.question") {
+    return decision;
+  }
+  return ensureSeedContentBlocks(
+    decision,
+    buildToolApprovalSeedContentBlocks(signal.contextPayload),
+  );
 }
 
 /**
@@ -628,7 +744,9 @@ function enforceAccessRequestInstructions(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== "ingress.access_request") return decision;
+  if (signal.sourceEventName !== "ingress.access_request") {
+    return decision;
+  }
 
   const rawCode = signal.contextPayload.requestCode;
   const hasRequestCode =
@@ -641,14 +759,20 @@ function enforceAccessRequestInstructions(
   if (hasRequestCode) {
     const requestCode = rawCode.trim().toUpperCase();
     const contractText = buildAccessRequestContractText(signal.contextPayload);
+    const handshakeOffered = isHandshakeOfferedForPayload(
+      parseAccessRequestPayload(signal.contextPayload),
+    );
 
     for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
       const copy = nextCopy[channel];
-      if (!copy) continue;
+      if (!copy) {
+        continue;
+      }
       nextCopy[channel] = ensureAccessRequestInstructionsInCopy(
         copy,
         requestCode,
         contractText,
+        handshakeOffered,
       );
     }
   } else {
@@ -657,7 +781,9 @@ function enforceAccessRequestInstructions(
 
     for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
       const copy = nextCopy[channel];
-      if (!copy) continue;
+      if (!copy) {
+        continue;
+      }
       nextCopy[channel] = ensureInviteFlowDirectiveInCopy(
         copy,
         inviteDirective,
@@ -665,20 +791,31 @@ function enforceAccessRequestInstructions(
     }
   }
 
-  return {
+  let result: NotificationDecision = {
     ...decision,
     renderedCopy: nextCopy,
   };
+
+  // Ensure seedContentBlocks on all paths (LLM, assistant_tool, fallback).
+  result = ensureSeedContentBlocks(
+    result,
+    buildAccessRequestSeedContentBlocks(signal.contextPayload),
+  );
+
+  return result;
 }
 
 function ensureAccessRequestInstructionsInCopy(
   copy: RenderedChannelCopy,
   requestCode: string,
   contractText: string,
+  handshakeOffered: boolean,
 ): RenderedChannelCopy {
   const ensureText = (text: string | undefined): string => {
     const base = typeof text === "string" ? text.trim() : "";
-    if (hasAccessRequestInstructions(base, requestCode)) return base;
+    if (hasAccessRequestInstructions(base, requestCode, { handshakeOffered })) {
+      return base;
+    }
     return base.length > 0 ? `${base}\n\n${contractText}` : contractText;
   };
 
@@ -700,7 +837,9 @@ function ensureInviteFlowDirectiveInCopy(
 ): RenderedChannelCopy {
   const ensureText = (text: string | undefined): string => {
     const base = typeof text === "string" ? text.trim() : "";
-    if (hasInviteFlowDirective(base)) return base;
+    if (hasInviteFlowDirective(base)) {
+      return base;
+    }
     return base.length > 0 ? `${base}\n\n${inviteDirective}` : inviteDirective;
   };
 
@@ -744,7 +883,7 @@ export async function evaluateSignal(
   // so candidate lookup failures do not block the decision path.
   let candidateSet: ConversationCandidateSet | undefined;
   try {
-    candidateSet = buildConversationCandidates(availableChannels);
+    candidateSet = await buildConversationCandidates(availableChannels);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.warn(
@@ -833,8 +972,9 @@ export async function evaluateSignal(
       ...(deepLinkTarget ? { deepLinkTarget } : {}),
     };
     decision = enforceGuardianRequestCode(decision, signal);
+    decision = enforceToolApprovalSeedBlocks(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
-    decision = enforceGuardianCallConversationAffinity(decision, signal);
+    decision = enforceGuardianRequestConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
       decision,
       signal.conversationAffinityHint,
@@ -850,8 +990,9 @@ export async function evaluateSignal(
     );
     let decision = buildFallbackDecision(signal, availableChannels);
     decision = enforceGuardianRequestCode(decision, signal);
+    decision = enforceToolApprovalSeedBlocks(decision, signal);
     decision = enforceAccessRequestInstructions(decision, signal);
-    decision = enforceGuardianCallConversationAffinity(decision, signal);
+    decision = enforceGuardianRequestConversationAffinity(decision, signal);
     decision = enforceConversationAffinity(
       decision,
       signal.conversationAffinityHint,
@@ -879,8 +1020,9 @@ export async function evaluateSignal(
   }
 
   decision = enforceGuardianRequestCode(decision, signal);
+  decision = enforceToolApprovalSeedBlocks(decision, signal);
   decision = enforceAccessRequestInstructions(decision, signal);
-  decision = enforceGuardianCallConversationAffinity(decision, signal);
+  decision = enforceGuardianRequestConversationAffinity(decision, signal);
   decision = enforceConversationAffinity(
     decision,
     signal.conversationAffinityHint,
@@ -909,15 +1051,19 @@ async function classifyWithLLM(
     ? truncate(rawIdentityContext, MAX_IDENTITY_CONTEXT_CHARS, "\n…[truncated]")
     : undefined;
 
-  // Resolve guardian contact notes for recipient context. Use the channel-
-  // agnostic guardian lookup so notes are available even when the only
-  // deliverable channel is "vellum" (which has no contact channel type).
+  // Resolve guardian contact notes for recipient context. The guardian's
+  // identity (ACL) comes from the gateway pull, channel-agnostic so notes are
+  // available even when the only deliverable channel is "vellum". Notes (INFO)
+  // stay local and are joined by contactId.
   let recipientNotes: string | undefined;
   try {
-    const guardianResult = listGuardianChannels();
-    if (guardianResult?.contact.notes) {
+    const guardian = anyGuardian((await getGuardianDelivery()) ?? []);
+    const notes = guardian
+      ? findContactInfoById(guardian.contactId)?.notes
+      : undefined;
+    if (notes) {
       recipientNotes = truncate(
-        guardianResult.contact.notes,
+        notes,
         MAX_IDENTITY_CONTEXT_CHARS,
         "\n…[truncated]",
       );
@@ -1076,15 +1222,21 @@ export function enforceRoutingIntent(
       // Preserve the decision's selected channels first, then add connected
       // channels until we reach two channels total.
       for (const ch of selectedConnected) {
-        if (seen.has(ch)) continue;
+        if (seen.has(ch)) {
+          continue;
+        }
         expanded.push(ch);
         seen.add(ch);
       }
       for (const ch of connectedChannels) {
-        if (seen.has(ch)) continue;
+        if (seen.has(ch)) {
+          continue;
+        }
         expanded.push(ch);
         seen.add(ch);
-        if (expanded.length >= 2) break;
+        if (expanded.length >= 2) {
+          break;
+        }
       }
 
       const enforced = { ...decision };
@@ -1106,31 +1258,35 @@ export function enforceRoutingIntent(
   return decision;
 }
 
-// ── Guardian call conversation affinity ──────────────────────────────────
+// ── Guardian request conversation affinity ───────────────────────────────
 
 /**
- * Force a new vellum conversation for the first guardian question in a phone call.
+ * Force a new vellum conversation for guardian-request signals that carry no
+ * vellum affinity hint.
  *
- * When a guardian.question signal carries a callSessionId but has no
- * conversationAffinityHint, this is the first dispatch in a new call and
- * should get its own conversation. Without this guard the LLM might reuse a
- * conversation from a previous call. For subsequent dispatches within the same
- * call, the affinity hint already exists and enforceConversationAffinity
- * handles routing — so this guard is a no-op.
+ * Guardian cards (tool approvals, tool grants, access requests, voice and
+ * ask_question prompts) are pinned to their originating conversation by the
+ * producer via `conversationAffinityHint`. When no pin exists — e.g. an
+ * access request from a sender with no prior conversation, or the first
+ * question in a phone call — the card must open its own conversation:
+ * leaving the choice to the LLM lets unrelated requests accumulate in
+ * whichever guardian conversation is most recent. For hinted signals,
+ * enforceConversationAffinity applies the pin — this guard is a no-op.
  */
-export function enforceGuardianCallConversationAffinity(
+export function enforceGuardianRequestConversationAffinity(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== "guardian.question") return decision;
-
-  const callSessionId = signal.contextPayload?.callSessionId;
-  if (typeof callSessionId !== "string" || callSessionId.trim().length === 0)
+  if (
+    signal.sourceEventName !== "guardian.question" &&
+    signal.sourceEventName !== "ingress.access_request"
+  ) {
     return decision;
+  }
 
-  // If an affinity hint already exists for vellum, the second+ dispatch
-  // will be handled by enforceConversationAffinity — nothing to do here.
-  if (signal.conversationAffinityHint?.vellum) return decision;
+  if (signal.conversationAffinityHint?.vellum) {
+    return decision;
+  }
 
   const enforced = { ...decision };
   const conversationActions: Partial<
@@ -1142,8 +1298,8 @@ export function enforceGuardianCallConversationAffinity(
   enforced.conversationActions = conversationActions;
 
   log.info(
-    { callSessionId },
-    "Guardian call conversation affinity: first question in call — forcing start_new for vellum",
+    { sourceEventName: signal.sourceEventName },
+    "Guardian request conversation affinity: no vellum pin — forcing start_new",
   );
 
   return enforced;
@@ -1164,13 +1320,17 @@ function enforceConversationAffinity(
   decision: NotificationDecision,
   affinityHint: Partial<Record<string, string>> | undefined,
 ): NotificationDecision {
-  if (!affinityHint) return decision;
+  if (!affinityHint) {
+    return decision;
+  }
 
   const entries = Object.entries(affinityHint).filter(
     ([, conversationId]) =>
       typeof conversationId === "string" && conversationId.length > 0,
   );
-  if (entries.length === 0) return decision;
+  if (entries.length === 0) {
+    return decision;
+  }
 
   const enforced = { ...decision };
   const conversationActions: Partial<

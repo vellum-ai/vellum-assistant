@@ -50,7 +50,7 @@
         "properties": {
           "surface_id": {
             "type": "string",
-            "description": "The ID of the document surface to update"
+            "description": "The ID of the document surface to update. Optional — when omitted, the most recently updated document in this conversation is used, so streaming successive chunks needs only `content`."
           },
           "content": {
             "type": "string",
@@ -62,7 +62,7 @@
             "description": "Whether to replace all content or append to the end. Defaults to append."
           }
         },
-        "required": ["surface_id", "content"]
+        "required": ["content"]
       },
       "executor": "tools/document-update.ts",
       "execution_target": "host"

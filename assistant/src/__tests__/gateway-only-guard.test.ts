@@ -22,12 +22,7 @@ const ALLOWLIST = new Set([
   // Matched by prefix check below: gateway/
 
   // --- Intentional local daemon-control paths ---
-  "assistant/src/cli/commands/conversations.ts", // CLI wipe talks to runtime directly
-  "clients/shared/Network/DaemonClient.swift",
-  "clients/shared/App/Auth/PlatformOAuthService.swift", // comment explaining runtimeUrl vs platformUrl
-  "clients/macos/vellum-assistant/App/AppDelegate.swift",
-  "clients/macos/vellum-assistant/Features/Settings/SettingsConnectTab.swift",
-  "apps/macos/src/main/bundle-flow.ts", // Electron main calls the local gateway (gatewayPort) with a Guardian token to scan bundles
+  "clients/macos/src/main/bundle-flow.ts", // Electron main calls the local gateway (gatewayPort) with a Guardian token to scan bundles
   ".claude/skills/update/SKILL.md", // daemon health check script
 
   // --- Test fixtures that poll the daemon directly (gateway may require auth) ---
@@ -87,12 +82,12 @@ function isGatewayInternal(filePath: string): boolean {
 
 /** Additional files allowed for the interpolated-port check only (use gateway port, not runtime). */
 const INTERPOLATED_PORT_ALLOWLIST = new Set([
-  "apps/macos/src/main/bundle-flow.ts",
+  "clients/macos/src/main/bundle-flow.ts",
   // Electron main bridges the host proxy to a local assistant's gateway
   // (gatewayPort) over loopback with a Guardian-minted gateway token — same
   // class as bundle-flow.ts. Added with #34049 (host proxy for cloud/managed
   // assistants); the allowlist entry was missed there.
-  "apps/macos/src/main/host-proxy-router.ts",
+  "clients/macos/src/main/host-proxy-router.ts",
 ]);
 
 /** Shared violation filter: exempt test files, gateway internals, and allowlisted paths. */
@@ -101,10 +96,18 @@ function filterViolations(
   extraAllowlist?: Set<string>,
 ): string[] {
   return files.filter((f) => {
-    if (isTestFile(f)) return false;
-    if (isGatewayInternal(f)) return false;
-    if (ALLOWLIST.has(f)) return false;
-    if (extraAllowlist?.has(f)) return false;
+    if (isTestFile(f)) {
+      return false;
+    }
+    if (isGatewayInternal(f)) {
+      return false;
+    }
+    if (ALLOWLIST.has(f)) {
+      return false;
+    }
+    if (extraAllowlist?.has(f)) {
+      return false;
+    }
     return true;
   });
 }

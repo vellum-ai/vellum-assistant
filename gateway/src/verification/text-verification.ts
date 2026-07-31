@@ -9,7 +9,7 @@
  *   2. Check rate limits
  *   3. Hash + find matching session
  *   4. Verify identity binding (outbound sessions)
- *   5. Consume session (dual-write, atomic status guard)
+ *   5. Consume session (atomic status guard)
  *   6. Apply side effects (guardian binding OR trusted contact upsert)
  *   7. Deliver deterministic reply
  *
@@ -18,6 +18,11 @@
  */
 
 import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
+import {
+  consumeSession,
+  findPendingSessionByHash,
+  hasInterceptableSession,
+} from "../db/session-store.js";
 import { getLogger } from "../logger.js";
 
 import {
@@ -25,9 +30,14 @@ import {
   resolveCanonicalPrincipal,
   revokeExistingChannelGuardian,
 } from "./binding-helpers.js";
-import { extractEmailReplyBody, parseVerificationCode, hashVerificationSecret } from "./code-parsing.js";
 import {
-  findContactChannelByExternalUserId,
+  extractEmailReplyBody,
+  parseVerificationCode,
+  hashVerificationSecret,
+} from "./code-parsing.js";
+import {
+  findContactChannelByAddress,
+  gatewayChannelStatus,
   upsertVerifiedContactChannel,
 } from "./contact-helpers.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
@@ -42,11 +52,6 @@ import {
   composeVerificationSuccessReply,
   deliverVerificationReply,
 } from "./reply-delivery.js";
-import {
-  consumeSession,
-  findSessionByHash,
-  hasPendingOrActiveSession,
-} from "./session-helpers.js";
 
 const log = getLogger("text-verification");
 
@@ -106,8 +111,7 @@ export async function tryTextVerificationIntercept(
   }
 
   // 2. Fast guard — is there any pending session for this channel?
-  const hasSessions = await hasPendingOrActiveSession(sourceChannel);
-  if (!hasSessions) {
+  if (!hasInterceptableSession(sourceChannel)) {
     return { intercepted: false };
   }
 
@@ -137,7 +141,7 @@ export async function tryTextVerificationIntercept(
 
   // 4. Hash + find session
   const challengeHash = hashVerificationSecret(code);
-  const session = await findSessionByHash(sourceChannel, challengeHash);
+  const session = findPendingSessionByHash(sourceChannel, challengeHash);
 
   if (!session) {
     await recordInvalidAttempt(sourceChannel, canonicalUserId, actorChatId);
@@ -175,19 +179,16 @@ export async function tryTextVerificationIntercept(
     return {
       intercepted: true,
       outcome: "failed",
-      trustClass: session.verificationPurpose === "trusted_contact"
-        ? "trusted_contact"
-        : "guardian",
+      trustClass:
+        session.verificationPurpose === "trusted_contact"
+          ? "trusted_contact"
+          : "guardian",
       pendingReplyText,
     };
   }
 
   // 6. Consume session (atomic — only the first consumer wins)
-  const consumed = await consumeSession(
-    session.id,
-    canonicalUserId,
-    actorChatId,
-  );
+  const { consumed } = consumeSession(session.id, canonicalUserId, actorChatId);
   if (!consumed) {
     log.warn(
       { sessionId: session.id },
@@ -202,9 +203,10 @@ export async function tryTextVerificationIntercept(
     return {
       intercepted: true,
       outcome: "failed",
-      trustClass: session.verificationPurpose === "trusted_contact"
-        ? "trusted_contact"
-        : "guardian",
+      trustClass:
+        session.verificationPurpose === "trusted_contact"
+          ? "trusted_contact"
+          : "guardian",
       pendingReplyText,
     };
   }
@@ -217,23 +219,43 @@ export async function tryTextVerificationIntercept(
       ? "trusted_contact"
       : "guardian";
 
-  // 7. Apply side effects
-  if (trustClass === "guardian") {
-    await applyGuardianSideEffects({
-      sourceChannel,
-      canonicalUserId,
+  // 7. Apply side effects. A blocked/revoked authoritative gateway row rejects
+  //    the verification: the actor must not regain trusted status nor see a
+  //    success reply, even though the code matched and the session consumed.
+  const sideEffectsVerified =
+    trustClass === "guardian"
+      ? await applyGuardianSideEffects({
+          sourceChannel,
+          canonicalUserId,
+          actorChatId,
+          actorDisplayName,
+          actorUsername,
+        })
+      : await applyTrustedContactSideEffects({
+          sourceChannel,
+          canonicalUserId,
+          actorChatId,
+          actorDisplayName,
+          actorUsername,
+        });
+
+  if (!sideEffectsVerified) {
+    log.warn(
+      { sourceChannel, actorExternalUserId: canonicalUserId, trustClass },
+      "Verification rejected: authoritative gateway channel is blocked/revoked",
+    );
+    const pendingReplyText = await replyWithFailure(
+      replyCallbackUrl,
       actorChatId,
-      actorDisplayName,
-      actorUsername,
-    });
-  } else {
-    await applyTrustedContactSideEffects({
-      sourceChannel,
-      canonicalUserId,
-      actorChatId,
-      actorDisplayName,
-      actorUsername,
-    });
+      assistantId,
+      "The verification code is invalid or has expired.",
+    );
+    return {
+      intercepted: true,
+      outcome: "failed",
+      trustClass,
+      pendingReplyText,
+    };
   }
 
   // 8. Deliver success reply
@@ -260,7 +282,12 @@ export async function tryTextVerificationIntercept(
     "Text verification succeeded",
   );
 
-  return { intercepted: true, outcome: "verified", trustClass, pendingReplyText };
+  return {
+    intercepted: true,
+    outcome: "verified",
+    trustClass,
+    pendingReplyText,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +300,7 @@ async function applyGuardianSideEffects(params: {
   actorChatId: string;
   actorDisplayName?: string;
   actorUsername?: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const {
     sourceChannel,
     canonicalUserId,
@@ -283,43 +310,56 @@ async function applyGuardianSideEffects(params: {
   } = params;
 
   // Check for binding conflict — another user already holds guardian
-  const existing = await getExistingGuardianBinding(sourceChannel);
-  if (existing?.externalUserId && existing.externalUserId !== canonicalUserId) {
+  const existing = getExistingGuardianBinding(sourceChannel);
+  if (existing?.address && existing.address !== canonicalUserId) {
     log.warn(
       {
         sourceChannel,
-        existingGuardian: existing.externalUserId,
+        existingGuardian: existing.address,
         newActor: canonicalUserId,
       },
       "Guardian binding conflict: another user already holds this channel",
     );
     // Still upsert the contact channel so the sender is a known contact,
     // but skip guardian binding creation.
-    await upsertVerifiedContactChannel({
+    const { verified } = await upsertVerifiedContactChannel({
       sourceChannel,
       externalUserId: canonicalUserId,
       externalChatId: actorChatId,
       displayName: actorDisplayName,
       username: actorUsername,
     });
-    return;
+    return verified;
+  }
+
+  // The gateway is the source of truth: a blocked/revoked gateway row rejects
+  // the binding. Check BEFORE the same-user revoke below so a legitimately
+  // re-verifying guardian (whose current row is active) isn't blocked by their
+  // own about-to-be-revoked row. createGuardianBinding writes "active"
+  // unconditionally, so this guard is the only thing stopping a blocked actor.
+  const gwStatus = gatewayChannelStatus(sourceChannel, canonicalUserId);
+  if (gwStatus === "blocked" || gwStatus === "revoked") {
+    log.warn(
+      { sourceChannel, address: canonicalUserId, status: gwStatus },
+      "Skipping guardian binding: authoritative gateway channel is blocked or revoked",
+    );
+    return false;
   }
 
   // Revoke existing binding (same-user re-verification)
-  await revokeExistingChannelGuardian(sourceChannel);
+  revokeExistingChannelGuardian(sourceChannel);
 
   // Resolve canonical principal — unify all channel bindings
-  const canonicalPrincipal = await resolveCanonicalPrincipal(canonicalUserId);
+  const canonicalPrincipal = resolveCanonicalPrincipal(canonicalUserId);
 
   // Determine display name — preserve existing if user is re-verifying
-  const existingContact = await findContactChannelByExternalUserId(
+  const existingContact = await findContactChannelByAddress(
     sourceChannel,
     canonicalUserId,
   );
-  const displayName =
-    existingContact?.displayName?.trim().length
-      ? existingContact.displayName
-      : actorDisplayName ?? actorUsername ?? canonicalUserId;
+  const displayName = existingContact?.displayName?.trim().length
+    ? existingContact.displayName
+    : (actorDisplayName ?? actorUsername ?? canonicalUserId);
 
   // Create guardian binding (dual-writes to both DBs)
   await createGuardianBinding({
@@ -329,16 +369,24 @@ async function applyGuardianSideEffects(params: {
     guardianPrincipalId: canonicalPrincipal,
     displayName,
     verifiedVia: "challenge",
+    reactivateRevoked: true,
   });
+  return true;
 }
 
-async function applyTrustedContactSideEffects(params: {
+/**
+ * Trusted-contact side effect for a consumed verification session:
+ * idempotent verified-channel upsert. Shared with the session service's
+ * validate+consume path so the write has exactly one implementation.
+ * Returns false when the authoritative gateway row is blocked/revoked.
+ */
+export async function applyTrustedContactSideEffects(params: {
   sourceChannel: string;
   canonicalUserId: string;
   actorChatId: string;
   actorDisplayName?: string;
   actorUsername?: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const {
     sourceChannel,
     canonicalUserId,
@@ -348,22 +396,22 @@ async function applyTrustedContactSideEffects(params: {
   } = params;
 
   // Preserve existing display name if available
-  const existingContact = await findContactChannelByExternalUserId(
+  const existingContact = await findContactChannelByAddress(
     sourceChannel,
     canonicalUserId,
   );
-  const displayName =
-    existingContact?.displayName?.trim().length
-      ? existingContact.displayName
-      : actorDisplayName ?? actorUsername ?? canonicalUserId;
+  const displayName = existingContact?.displayName?.trim().length
+    ? existingContact.displayName
+    : (actorDisplayName ?? actorUsername ?? canonicalUserId);
 
-  await upsertVerifiedContactChannel({
+  const { verified } = await upsertVerifiedContactChannel({
     sourceChannel,
     externalUserId: canonicalUserId,
     externalChatId: actorChatId,
     displayName,
     username: actorUsername,
   });
+  return verified;
 }
 
 // ---------------------------------------------------------------------------

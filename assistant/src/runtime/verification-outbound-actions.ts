@@ -1,15 +1,28 @@
 /**
  * Shared outbound verification action logic.
  *
- * These pure functions encapsulate the business logic for starting, resending,
+ * These functions encapsulate the business logic for starting, resending,
  * and cancelling outbound verification flows (Telegram, voice, Slack, email).
  * They return transport-agnostic result objects and are consumed by both the
  * message handler (config-channels.ts) and the HTTP route layer (channel-verification-routes.ts).
+ *
+ * Session state is gateway-owned: lifecycle calls go through the gateway
+ * session client and fail loudly when the gateway is unreachable (no local
+ * fallback writes). Message composition and delivery stay daemon-side.
  */
 
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
+
+import { hashVerificationSecret } from "@vellumai/gateway-client";
 
 import { startVerificationCall } from "../calls/call-domain.js";
+import {
+  countRecentSendsToDestination,
+  createOutboundSession,
+  findActiveSession,
+  updateSessionDelivery,
+  updateSessionStatus,
+} from "../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../channels/types.js";
 import { sendSlackReply } from "../messaging/providers/slack/send.js";
 import { sendTelegramReply } from "../messaging/providers/telegram-bot/send.js";
@@ -17,14 +30,7 @@ import { getTelegramBotUsername } from "../telegram/bot-username.js";
 import { getLogger } from "../util/logger.js";
 import { normalizePhoneNumber } from "../util/phone.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
-import {
-  countRecentSendsToDestination,
-  createOutboundSession,
-  findActiveSession,
-  getGuardianBinding,
-  updateSessionDelivery,
-  updateSessionStatus,
-} from "./channel-verification-service.js";
+import { isGuardianBoundForChannel } from "./channel-verification-service.js";
 import {
   composeVerificationEmail,
   composeVerificationSlack,
@@ -74,7 +80,9 @@ function isTelegramChatId(destination: string): boolean {
  * Numeric chat IDs are returned as-is.
  */
 export function normalizeTelegramDestination(destination: string): string {
-  if (isTelegramChatId(destination)) return destination;
+  if (isTelegramChatId(destination)) {
+    return destination;
+  }
   return destination.replace(/^@/, "").toLowerCase();
 }
 
@@ -126,7 +134,12 @@ interface OutboundActionResult {
    *  deliverVerificationSlack() after receiving this payload. */
   _pendingSlackDm?: { userId: string; text: string; assistantId: string };
   /** Internal: email delivery payload for the caller to dispatch (same pattern as Slack). */
-  _pendingEmail?: { to: string; text: string; subject: string; assistantId: string };
+  _pendingEmail?: {
+    to: string;
+    text: string;
+    subject: string;
+    assistantId: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +237,7 @@ export async function startOutbound(
       originConversationId,
     );
   } else if (channel === "phone") {
-    return startOutboundVoice(
+    return await startOutboundVoice(
       params.destination,
       assistantId,
       channel,
@@ -232,7 +245,7 @@ export async function startOutbound(
       originConversationId,
     );
   } else if (channel === "slack") {
-    return startOutboundSlack(
+    return await startOutboundSlack(
       params.destination,
       assistantId,
       channel,
@@ -240,7 +253,7 @@ export async function startOutbound(
       originConversationId,
     );
   } else if (channel === "email") {
-    return startOutboundEmail(
+    return await startOutboundEmail(
       params.destination,
       assistantId,
       channel,
@@ -274,8 +287,8 @@ async function startOutboundTelegram(
     };
   }
 
-  const existingBinding = getGuardianBinding(assistantId, channel);
-  if (existingBinding && !rebind) {
+  const alreadyBound = await isGuardianBoundForChannel(channel);
+  if (alreadyBound && !rebind) {
     return {
       success: false,
       error: "already_bound",
@@ -287,7 +300,7 @@ async function startOutboundTelegram(
 
   const normalizedDestination = normalizeTelegramDestination(destination);
 
-  const recentSendCount = countRecentSendsToDestination(
+  const recentSendCount = await countRecentSendsToDestination(
     channel,
     normalizedDestination,
     DESTINATION_RATE_WINDOW_MS,
@@ -314,7 +327,7 @@ async function startOutboundTelegram(
       };
     }
 
-    const sessionResult = createOutboundSession({
+    const sessionResult = await createOutboundSession({
       channel,
       expectedChatId: destination,
       identityBindingStatus: "bound",
@@ -334,7 +347,7 @@ async function startOutboundTelegram(
     const nextResendAt = now + RESEND_COOLDOWN_MS;
     const sendCount = 1;
 
-    updateSessionDelivery(
+    await updateSessionDelivery(
       sessionResult.sessionId,
       now,
       sendCount,
@@ -370,11 +383,9 @@ async function startOutboundTelegram(
   }
 
   const bootstrapToken = randomBytes(16).toString("hex");
-  const bootstrapTokenHash = createHash("sha256")
-    .update(bootstrapToken)
-    .digest("hex");
+  const bootstrapTokenHash = hashVerificationSecret(bootstrapToken);
 
-  const sessionResult = createOutboundSession({
+  const sessionResult = await createOutboundSession({
     channel,
     identityBindingStatus: "pending_bootstrap",
     destinationAddress: normalizedDestination,
@@ -394,13 +405,13 @@ async function startOutboundTelegram(
   };
 }
 
-function startOutboundVoice(
+async function startOutboundVoice(
   rawDestination: string | undefined,
   assistantId: string,
   channel: ChannelId,
   rebind?: boolean,
   originConversationId?: string,
-): OutboundActionResult {
+): Promise<OutboundActionResult> {
   if (!rawDestination) {
     return {
       success: false,
@@ -422,8 +433,8 @@ function startOutboundVoice(
     };
   }
 
-  const existingBinding = getGuardianBinding(assistantId, channel);
-  if (existingBinding && !rebind) {
+  const alreadyBound = await isGuardianBoundForChannel(channel);
+  if (alreadyBound && !rebind) {
     return {
       success: false,
       error: "already_bound",
@@ -433,7 +444,7 @@ function startOutboundVoice(
     };
   }
 
-  const recentSendCount = countRecentSendsToDestination(
+  const recentSendCount = await countRecentSendsToDestination(
     channel,
     destination,
     DESTINATION_RATE_WINDOW_MS,
@@ -448,7 +459,7 @@ function startOutboundVoice(
     };
   }
 
-  const sessionResult = createOutboundSession({
+  const sessionResult = await createOutboundSession({
     channel,
     expectedPhoneE164: destination,
     expectedExternalUserId: destination,
@@ -461,7 +472,12 @@ function startOutboundVoice(
   const nextResendAt = now + RESEND_COOLDOWN_MS;
   const sendCount = 1;
 
-  updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
+  await updateSessionDelivery(
+    sessionResult.sessionId,
+    now,
+    sendCount,
+    nextResendAt,
+  );
   initiateGuardianVoiceCall(
     destination,
     sessionResult.sessionId,
@@ -533,12 +549,12 @@ export function deliverVerificationEmail(
 ): void {
   (async () => {
     try {
-      const { VellumPlatformClient } = await import(
-        "../platform/client.js"
-      );
+      const { VellumPlatformClient } = await import("../platform/client.js");
       const client = await VellumPlatformClient.create();
       if (!client?.platformAssistantId) {
-        log.error("Cannot deliver verification email: platform client not configured");
+        log.error(
+          "Cannot deliver verification email: platform client not configured",
+        );
         return;
       }
 
@@ -546,7 +562,10 @@ export function deliverVerificationEmail(
         `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
       );
       if (!listResponse.ok) {
-        log.error({ status: listResponse.status }, "Failed to list email addresses for verification");
+        log.error(
+          { status: listResponse.status },
+          "Failed to list email addresses for verification",
+        );
         return;
       }
       const listData = (await listResponse.json()) as {
@@ -554,14 +573,14 @@ export function deliverVerificationEmail(
       };
       const addresses = listData.results ?? [];
       if (addresses.length === 0) {
-        log.error("No email address registered — cannot deliver verification email");
+        log.error(
+          "No email address registered — cannot deliver verification email",
+        );
         return;
       }
       const fromAddress = addresses[0].address;
 
-      const { markdownToEmailHtml } = await import(
-        "../email/html-renderer.js"
-      );
+      const { markdownToEmailHtml } = await import("../email/html-renderer.js");
       const html = markdownToEmailHtml(text);
 
       const response = await client.fetch("/v1/runtime-proxy/email/send/", {
@@ -591,13 +610,13 @@ export function deliverVerificationEmail(
   })();
 }
 
-function startOutboundSlack(
+async function startOutboundSlack(
   destination: string | undefined,
   assistantId: string,
   channel: ChannelId,
   rebind?: boolean,
   originConversationId?: string,
-): OutboundActionResult {
+): Promise<OutboundActionResult> {
   if (!destination) {
     return {
       success: false,
@@ -607,8 +626,8 @@ function startOutboundSlack(
     };
   }
 
-  const existingBinding = getGuardianBinding(assistantId, channel);
-  if (existingBinding && !rebind) {
+  const alreadyBound = await isGuardianBoundForChannel(channel);
+  if (alreadyBound && !rebind) {
     return {
       success: false,
       error: "already_bound",
@@ -618,7 +637,7 @@ function startOutboundSlack(
     };
   }
 
-  const recentSendCount = countRecentSendsToDestination(
+  const recentSendCount = await countRecentSendsToDestination(
     channel,
     destination,
     DESTINATION_RATE_WINDOW_MS,
@@ -633,7 +652,7 @@ function startOutboundSlack(
     };
   }
 
-  const sessionResult = createOutboundSession({
+  const sessionResult = await createOutboundSession({
     channel,
     expectedExternalUserId: destination,
     expectedChatId: destination,
@@ -654,7 +673,12 @@ function startOutboundSlack(
   const nextResendAt = now + RESEND_COOLDOWN_MS;
   const sendCount = 1;
 
-  updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
+  await updateSessionDelivery(
+    sessionResult.sessionId,
+    now,
+    sendCount,
+    nextResendAt,
+  );
 
   return {
     success: true,
@@ -669,27 +693,26 @@ function startOutboundSlack(
   };
 }
 
-function startOutboundEmail(
+async function startOutboundEmail(
   destination: string | undefined,
   assistantId: string,
   channel: ChannelId,
   rebind?: boolean,
   originConversationId?: string,
-): OutboundActionResult {
+): Promise<OutboundActionResult> {
   if (!destination) {
     return {
       success: false,
       error: "missing_destination",
-      message:
-        "An email address is required for outbound email verification.",
+      message: "An email address is required for outbound email verification.",
       channel,
     };
   }
 
   const normalizedEmail = destination.trim().toLowerCase();
 
-  const existingBinding = getGuardianBinding(assistantId, channel);
-  if (existingBinding && !rebind) {
+  const alreadyBound = await isGuardianBoundForChannel(channel);
+  if (alreadyBound && !rebind) {
     return {
       success: false,
       error: "already_bound",
@@ -699,7 +722,7 @@ function startOutboundEmail(
     };
   }
 
-  const recentSendCount = countRecentSendsToDestination(
+  const recentSendCount = await countRecentSendsToDestination(
     channel,
     normalizedEmail,
     DESTINATION_RATE_WINDOW_MS,
@@ -714,7 +737,7 @@ function startOutboundEmail(
     };
   }
 
-  const sessionResult = createOutboundSession({
+  const sessionResult = await createOutboundSession({
     channel,
     expectedExternalUserId: normalizedEmail,
     expectedChatId: normalizedEmail,
@@ -735,7 +758,12 @@ function startOutboundEmail(
   const nextResendAt = now + RESEND_COOLDOWN_MS;
   const sendCount = 1;
 
-  updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
+  await updateSessionDelivery(
+    sessionResult.sessionId,
+    now,
+    sendCount,
+    nextResendAt,
+  );
 
   return {
     success: true,
@@ -759,14 +787,14 @@ function startOutboundEmail(
 // Resend outbound
 // ---------------------------------------------------------------------------
 
-export function resendOutbound(
+export async function resendOutbound(
   params: ResendOutboundParams,
-): OutboundActionResult {
+): Promise<OutboundActionResult> {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const channel = params.channel;
   const originConversationId = params.originConversationId;
 
-  const session = findActiveSession(channel);
+  const session = await findActiveSession(channel);
   if (!session) {
     return {
       success: false,
@@ -810,7 +838,7 @@ export function resendOutbound(
     session.expectedPhoneE164 ??
     session.expectedChatId;
   if (resendDestination) {
-    const recentDestSends = countRecentSendsToDestination(
+    const recentDestSends = await countRecentSendsToDestination(
       channel,
       resendDestination,
       DESTINATION_RATE_WINDOW_MS,
@@ -840,7 +868,7 @@ export function resendOutbound(
   }
 
   if (channel === "telegram") {
-    const newSession = createOutboundSession({
+    const newSession = await createOutboundSession({
       channel,
       expectedChatId: destination,
       identityBindingStatus: "bound",
@@ -860,7 +888,7 @@ export function resendOutbound(
     const newSendCount = currentSendCount + 1;
     const nextResendAt = now + RESEND_COOLDOWN_MS;
 
-    updateSessionDelivery(
+    await updateSessionDelivery(
       newSession.sessionId,
       now,
       newSendCount,
@@ -878,7 +906,7 @@ export function resendOutbound(
       originConversationId,
     };
   } else if (channel === "phone") {
-    const newSession = createOutboundSession({
+    const newSession = await createOutboundSession({
       channel,
       expectedPhoneE164: destination,
       expectedExternalUserId: destination,
@@ -891,7 +919,7 @@ export function resendOutbound(
     const newSendCount = currentSendCount + 1;
     const nextResendAt = now + RESEND_COOLDOWN_MS;
 
-    updateSessionDelivery(
+    await updateSessionDelivery(
       newSession.sessionId,
       now,
       newSendCount,
@@ -914,7 +942,7 @@ export function resendOutbound(
       originConversationId,
     };
   } else if (channel === "slack") {
-    const newSession = createOutboundSession({
+    const newSession = await createOutboundSession({
       channel,
       expectedExternalUserId: destination,
       expectedChatId: destination,
@@ -935,7 +963,7 @@ export function resendOutbound(
     const newSendCount = currentSendCount + 1;
     const nextResendAt = now + RESEND_COOLDOWN_MS;
 
-    updateSessionDelivery(
+    await updateSessionDelivery(
       newSession.sessionId,
       now,
       newSendCount,
@@ -953,7 +981,7 @@ export function resendOutbound(
       _pendingSlackDm: { userId: destination, text: slackBody, assistantId },
     };
   } else if (channel === "email") {
-    const newSession = createOutboundSession({
+    const newSession = await createOutboundSession({
       channel,
       expectedExternalUserId: destination,
       expectedChatId: destination,
@@ -974,7 +1002,7 @@ export function resendOutbound(
     const newSendCount = currentSendCount + 1;
     const nextResendAt = now + RESEND_COOLDOWN_MS;
 
-    updateSessionDelivery(
+    await updateSessionDelivery(
       newSession.sessionId,
       now,
       newSendCount,
@@ -1010,12 +1038,12 @@ export function resendOutbound(
 // Cancel outbound
 // ---------------------------------------------------------------------------
 
-export function cancelOutbound(
+export async function cancelOutbound(
   params: CancelOutboundParams,
-): OutboundActionResult {
+): Promise<OutboundActionResult> {
   const channel = params.channel;
 
-  const session = findActiveSession(channel);
+  const session = await findActiveSession(channel);
   if (!session) {
     return {
       success: false,
@@ -1025,7 +1053,7 @@ export function cancelOutbound(
     };
   }
 
-  updateSessionStatus(session.id, "revoked");
+  await updateSessionStatus(session.id, "revoked");
 
   return {
     success: true,

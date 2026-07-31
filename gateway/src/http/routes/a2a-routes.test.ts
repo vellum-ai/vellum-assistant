@@ -83,10 +83,27 @@ describe("Agent Card", () => {
       capabilities: { push_notifications: boolean };
     };
     expect(card.name).toBe("Vellum Assistant");
-    expect(card.supported_interfaces[0].url).toBe(
-      "https://my-assistant.example.com/a2a/message:send",
-    );
     expect(card.capabilities.push_notifications).toBe(true);
+  });
+
+  // The gateway serves agent-card discovery only. Advertising a protocol
+  // interface would point peers at a path no route serves, which reaches them
+  // as a 404 from the runtime-proxy catch-all.
+  it("advertises no protocol interfaces", async () => {
+    const configFile = makeConfigFileCache({
+      a2aEnabled: true,
+      publicBaseUrl: "https://my-assistant.example.com",
+    });
+    const handler = createAgentCardHandler(configFile);
+
+    const res = await handler(
+      new Request("http://localhost:7830/.well-known/agent-card.json"),
+    );
+
+    const card = (await res.json()) as {
+      supported_interfaces: Array<{ url: string }>;
+    };
+    expect(card.supported_interfaces).toEqual([]);
   });
 
   it("reads assistant name from IDENTITY.md", async () => {
@@ -110,7 +127,7 @@ describe("Agent Card", () => {
     expect(res.status).toBe(200);
     const card = (await res.json()) as { name: string; description: string };
     expect(card.name).toBe("Alice");
-    expect(card.description).toBe("Alice — a Vellum AI assistant");
+    expect(card.description).toBe("Alice - a Vellum AI assistant");
   });
 
   it("returns 503 when no public base URL is configured", async () => {

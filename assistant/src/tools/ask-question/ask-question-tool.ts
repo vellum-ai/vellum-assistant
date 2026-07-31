@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import { QuestionPrompter } from "../../permissions/question-prompter.js";
 import { RiskLevel } from "../../permissions/types.js";
+import {
+  invalidToolInputResult,
+  toToolInputSchema,
+} from "../shared/zod-tool-schema.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -9,15 +13,21 @@ import type {
 } from "../types.js";
 
 // ── Input schema ────────────────────────────────────────────────────
-// Runtime validation lives in Zod; the wire-level definition surfaced
-// to the LLM is the hand-written JSON Schema in `input_schema` below.
-// (The codebase does not currently use zod-to-json-schema for tool defs,
-// so the two are kept in sync manually.)
+// One Zod source for both runtime validation (via `TOOL_INPUT_SCHEMAS`)
+// and the LLM-facing `input_schema` (derived with `toToolInputSchema`).
 
 const OptionSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1),
-  description: z.string().optional(),
+  id: z
+    .string()
+    .min(1)
+    .describe(
+      "Stable identifier for this option (returned verbatim in the response).",
+    ),
+  label: z.string().min(1).describe("Short human-readable label."),
+  description: z
+    .string()
+    .describe("Optional one-line context shown beneath the label.")
+    .optional(),
 });
 
 // One question in a (possibly single-element) batch. Intentionally has no
@@ -26,13 +36,27 @@ const OptionSchema = z.object({
 // smaller and removes a validation surface (no duplicate-id check, no
 // length cap on ids).
 const SingleQuestionSchema = z.object({
-  question: z.string().min(1),
-  description: z.string().optional(),
+  question: z.string().min(1).describe("The clarifying question to display."),
+  description: z
+    .string()
+    .describe("Optional one-line context shown beneath the question.")
+    .optional(),
   // 2–4 LLM-supplied options. The client renders a fixed 5th "Type
   // something else" slot for free-text, so the model must keep the
   // structured set to 4 or fewer.
-  options: z.array(OptionSchema).min(2).max(4),
-  freeTextPlaceholder: z.string().optional(),
+  options: z
+    .array(OptionSchema)
+    .min(2)
+    .max(4)
+    .describe(
+      "2–4 structured options. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
+    ),
+  freeTextPlaceholder: z
+    .string()
+    .describe(
+      "Optional placeholder text shown inside the free-text fallback input.",
+    )
+    .optional(),
 });
 
 // Cap at 5 questions per batch. Past that it starts to feel like a form,
@@ -40,38 +64,23 @@ const SingleQuestionSchema = z.object({
 // input with ≥6 entries is rejected with a clear Zod error.
 const MAX_QUESTIONS_PER_BATCH = 5;
 
-// Both the new batched shape (`questions[]`) and the legacy flat shape are
-// accepted. `execute()` normalizes legacy callers into a one-element
-// `questions` array before forwarding to the prompter.
-const InputSchema = z
-  .object({
-    questions: z
-      .array(SingleQuestionSchema)
-      .min(1)
-      .max(MAX_QUESTIONS_PER_BATCH, {
-        message: `At most ${MAX_QUESTIONS_PER_BATCH} questions per batch; split into multiple turns if you need more.`,
-      })
-      .optional(),
-    // Legacy flat fields. Optional so batched callers can omit them; when
-    // present and `questions` is absent, they are normalized into a
-    // one-element batch in `execute()`.
-    question: z.string().min(1).optional(),
-    description: z.string().optional(),
-    options: z.array(OptionSchema).min(2).max(4).optional(),
-    freeTextPlaceholder: z.string().optional(),
-  })
-  .refine(
-    (v) =>
-      v.questions !== undefined ||
-      (v.question !== undefined && v.options !== undefined),
-    {
-      message:
-        "Provide `questions` (preferred) or the legacy flat fields (`question` + `options`).",
-    },
-  );
+// Callers pass a (possibly single-element) batch of questions. `execute()`
+// forwards them straight to the prompter. Loose so injected fields (e.g.
+// `activity`) never fail validation.
+export const askQuestionInputSchema = z.looseObject({
+  questions: z
+    .array(SingleQuestionSchema)
+    .min(1)
+    .max(MAX_QUESTIONS_PER_BATCH, {
+      message: `At most ${MAX_QUESTIONS_PER_BATCH} questions per batch; split into multiple turns if you need more.`,
+    })
+    .describe(
+      `1–${MAX_QUESTIONS_PER_BATCH} clarifying questions to ask in a single turn. Use a batch when several independent ambiguities block progress; ask one at a time when they're sequentially dependent. Past ${MAX_QUESTIONS_PER_BATCH} questions you should be implementing, not asking.`,
+    ),
+});
 
 export type SingleQuestion = z.infer<typeof SingleQuestionSchema>;
-export type AskQuestionInput = z.infer<typeof InputSchema>;
+export type AskQuestionInput = z.infer<typeof askQuestionInputSchema>;
 
 // ── Tool description ────────────────────────────────────────────────
 
@@ -111,27 +120,46 @@ const DESCRIPTION = [
   "context shown beneath the label.",
 ].join("\n");
 
-// Shared option-schema fragment used by both the batched `questions[]`
-// shape and the legacy flat `options` field.
-const OPTION_ITEMS_SCHEMA = {
-  type: "object",
-  properties: {
-    id: {
-      type: "string",
-      description:
-        "Stable identifier for this option (returned verbatim in the response).",
-    },
-    label: {
-      type: "string",
-      description: "Short human-readable label.",
-    },
-    description: {
-      type: "string",
-      description: "Optional one-line context shown beneath the label.",
-    },
-  },
-  required: ["id", "label"],
-} as const;
+// ── Text fallback for channels without dynamic UI ───────────────────
+
+/**
+ * Render a batch of questions and their options as a plain-text block for
+ * channels that can't display the interactive question card (Telegram, SMS,
+ * …). Returned as the tool result so the model relays it to the user in its
+ * reply — which is what actually gets delivered to the channel — and waits for
+ * a free-text answer instead of re-invoking `ask_question`.
+ *
+ * Options are shown by `label` (+ optional `description`), never their `id`:
+ * the id is the machine value the card would return, meaningless to a user
+ * typing a free-text answer.
+ */
+export function formatQuestionsAsTextFallback(
+  questions: SingleQuestion[],
+): string {
+  const multi = questions.length > 1;
+  const header = multi
+    ? `This channel can't display tappable option buttons. Present these ${questions.length} questions to the user as a plain-text message — list every option so they can reply with a choice or in their own words — then wait for their answer. Do not call ask_question again for these.`
+    : "This channel can't display tappable option buttons. Present this question to the user as a plain-text message — list every option so they can reply with a choice or in their own words — then wait for their answer. Do not call ask_question again for this.";
+
+  const blocks = questions.map((q, i) => {
+    const lines: string[] = [];
+    lines.push(
+      multi ? `Question ${i + 1}: ${q.question}` : `Question: ${q.question}`,
+    );
+    if (q.description) {
+      lines.push(q.description);
+    }
+    lines.push("Options:");
+    for (const o of q.options) {
+      lines.push(
+        o.description ? `- ${o.label} — ${o.description}` : `- ${o.label}`,
+      );
+    }
+    return lines.join("\n");
+  });
+
+  return [header, "", blocks.join("\n\n")].join("\n");
+}
 
 // ── Tool ────────────────────────────────────────────────────────────
 
@@ -147,99 +175,59 @@ export const askQuestionTool = {
   category: "interaction",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
-  input_schema: {
-    type: "object",
-    properties: {
-      // ── Recommended shape ─────────────────────────────────────
-      questions: {
-        type: "array",
-        minItems: 1,
-        maxItems: MAX_QUESTIONS_PER_BATCH,
-        description: `Recommended shape. 1–${MAX_QUESTIONS_PER_BATCH} clarifying questions to ask in a single turn. Use a batch when several independent ambiguities block progress; ask one at a time when they're sequentially dependent. Past ${MAX_QUESTIONS_PER_BATCH} questions you should be implementing, not asking.`,
-        items: {
-          type: "object",
-          properties: {
-            question: {
-              type: "string",
-              description: "The clarifying question to display.",
-            },
-            description: {
-              type: "string",
-              description:
-                "Optional one-line context shown beneath the question.",
-            },
-            options: {
-              type: "array",
-              minItems: 2,
-              maxItems: 4,
-              description:
-                "2–4 structured options. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
-              items: OPTION_ITEMS_SCHEMA,
-            },
-            freeTextPlaceholder: {
-              type: "string",
-              description:
-                "Optional placeholder text shown inside the free-text fallback input.",
-            },
-          },
-          required: ["question", "options"],
-        },
-      },
-      // ── Legacy single-question fields ─────────────────────────
-      // Kept optional so existing prompt caches and any single-question
-      // callers continue to work. New callers should use `questions`.
-      question: {
-        type: "string",
-        description:
-          "Legacy: the single clarifying question. Prefer `questions[]` for new code.",
-      },
-      description: {
-        type: "string",
-        description:
-          "Legacy: optional one-line context shown beneath the question. Prefer `questions[].description`.",
-      },
-      options: {
-        type: "array",
-        minItems: 2,
-        maxItems: 4,
-        description:
-          "Legacy: 2–4 structured options. Prefer `questions[].options`. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
-        items: OPTION_ITEMS_SCHEMA,
-      },
-      freeTextPlaceholder: {
-        type: "string",
-        description:
-          "Legacy: optional placeholder text for the free-text fallback input. Prefer `questions[].freeTextPlaceholder`.",
-      },
-    },
-    // No top-level `required` — caller must supply either `questions`
-    // or the legacy flat trio (`question` + `options`). Enforced in Zod.
-  },
+  input_schema: toToolInputSchema(askQuestionInputSchema),
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const parsed = InputSchema.safeParse(input);
+    const parsed = askQuestionInputSchema.safeParse(input);
     if (!parsed.success) {
+      return invalidToolInputResult("ask_question", parsed.error);
+    }
+
+    const questions: SingleQuestion[] = parsed.data.questions;
+
+    // No interactive user is present to answer (scheduled/headless/background
+    // turn). Don't park the turn on a prompt no one can resolve — proceed with
+    // defaults immediately. Non-interactive turns are already instructed not to
+    // ask (NON_INTERACTIVE_CONTEXT_BLOCK); this is the backstop for when the
+    // model asks anyway, so it doesn't wait out the full response timeout.
+    if (context.isInteractive === false) {
       return {
-        content: `Invalid input: ${parsed.error.message}`,
-        isError: true,
+        content:
+          "No interactive user is present to answer; proceeding with reasonable defaults.",
+        isError: false,
       };
     }
 
-    // Normalize legacy flat input into a one-element `questions` batch so
-    // downstream code only has to deal with the batched shape. The refine
-    // above guarantees `question` and `options` are present whenever
-    // `questions` is absent.
-    const questions: SingleQuestion[] = parsed.data.questions ?? [
-      {
-        question: parsed.data.question!,
-        description: parsed.data.description,
-        options: parsed.data.options!,
-        freeTextPlaceholder: parsed.data.freeTextPlaceholder,
-      },
-    ];
+    // Channel turns (no dynamic UI) park only when the question can reach the
+    // user as a guardian-request card with tappable options: a single-question
+    // batch, asked by the guardian, on a channel whose notification adapter
+    // renders card actions. The prompter's promotion then delivers the card
+    // through the guardian-request pipeline, and a tap / request-code reply /
+    // bare-text answer resolves the parked prompt.
+    //
+    // Every other channel turn degrades to text: hand the model the formatted
+    // question(s) and options to present in its reply — which IS what gets
+    // delivered to the channel — and wait for a free-text answer. Mirrors the
+    // isInteractive guard above: return immediately instead of parking on a
+    // prompt the surface can't answer. (UI surface tools like ui_show are
+    // instead dropped from the wire for these channels; ask_question stays
+    // available because a question with options reads cleanly as text.)
+    const canDeliverGuardianQuestionCard =
+      questions.length === 1 &&
+      context.trustClass === "guardian" &&
+      context.supportsGuardianQuestionCards === true;
+    if (
+      context.supportsDynamicUi === false &&
+      !canDeliverGuardianQuestionCard
+    ) {
+      return {
+        content: formatQuestionsAsTextFallback(questions),
+        isError: false,
+      };
+    }
 
     const prompter = new QuestionPrompter();
     const result = await prompter.prompt({

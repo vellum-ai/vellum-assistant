@@ -1,21 +1,37 @@
-import { v4 as uuid } from "uuid";
+import { v4 as uuid, v7 as uuidv7 } from "uuid";
+import { z } from "zod";
 
-import { isActivationSession } from "../memory/activation-session-store.js";
+import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
+import type { AssistantEvent } from "../api/index.js";
 import {
-  addAppConversationId,
+  CardSurfaceDataSchema,
+  ChoiceSurfaceDataSchema,
+  coerceSurfaceDataRecord,
+  DynamicPagePreviewSchema,
+  DynamicPageSurfaceDataSchema,
+  isDaemonInternalSurfaceType,
+  isKnownSurfaceType,
+  MODEL_INVOKABLE_SURFACE_TYPES,
+  normalizeCopyBlockShowData,
+  OAuthConnectSurfaceDataSchema,
+  safeParseSurfaceData,
+  SurfaceTypeSchema,
+} from "../api/surfaces.js";
+import {
   getApp,
   getAppDirPath,
   getAppPreview,
-  isMultifileApp,
+  linkAppToConversationLineage,
   resolveAppDir,
   resolveEffectiveAppHtml,
   updateApp,
-} from "../memory/app-store.js";
+} from "../apps/app-store.js";
+import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
   updateMessageContent,
-} from "../memory/conversation-crud.js";
-import { recordActivationEvent } from "../memory/onboarding-events-store.js";
+} from "../persistence/conversation-crud.js";
+import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import {
   assistantEventHub,
   broadcastMessage,
@@ -36,6 +52,7 @@ import {
   activationStepNameForMomentParam,
   isActivationMomentParam,
 } from "../telemetry/activation-funnel.js";
+import { resolveAppId } from "../tools/apps/resolve-app-id.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -43,31 +60,55 @@ import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
 import type { EnqueueMessageOptions } from "./conversation-messaging.js";
 import type { ProcessMessageOptions } from "./conversation-process.js";
+import {
+  buildSurfaceShowPair,
+  type CurrentTurnSurface,
+  parseShowPairOrThrow,
+  type SurfaceShowPair,
+  type SurfaceStateEntry,
+} from "./conversation-surface-state.js";
 import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
+  AnySurfaceData,
   CardSurfaceData,
   ChoiceSurfaceData,
   ConfirmationSurfaceData,
-  CopyBlockSurfaceData,
+  DynamicPagePreview,
   DynamicPageSurfaceData,
   FormSurfaceData,
-  ListSurfaceData,
-  OAuthConnectSurfaceData,
-  ServerMessage,
+  SurfaceAction,
   SurfaceData,
   SurfaceType,
   TableColumn,
   TableRow,
-  TableSurfaceData,
   UiSurfaceShow,
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
+export {
+  buildSurfaceShowPair,
+  type CurrentTurnSurface,
+  parseSurfaceShowPair,
+  restoreSurfaceStateEntry,
+  type StoredSurfaceAction,
+  type SurfaceShowPair,
+  type SurfaceStateEntry,
+} from "./conversation-surface-state.js";
 import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("conversation-surfaces");
+
+// Tolerant variant of SurfaceActionSchema for parsing raw model output.
+// The canonical schema rejects unknown style values; this one coerces them
+// to "secondary" so a single mistyped style doesn't drop all actions.
+const ModelActionSchema = SurfaceActionSchema.extend({
+  style: z
+    .enum(["primary", "secondary", "destructive"])
+    .catch("secondary")
+    .optional(),
+});
 
 const MAX_UNDO_DEPTH = 10;
 
@@ -92,7 +133,7 @@ const pendingSurfacePersists = new Map<
   {
     timer: ReturnType<typeof setTimeout>;
     conversationId: string;
-    data: SurfaceData;
+    data: AnySurfaceData;
   }
 >();
 
@@ -114,15 +155,7 @@ function persistSurfaceData(
   try {
     const rows = getMessages(conversationId);
     for (let r = rows.length - 1; r >= 0; r--) {
-      let parsed: unknown[];
-      try {
-        const result = JSON.parse(rows[r].content);
-        if (!Array.isArray(result)) continue;
-        parsed = result;
-      } catch {
-        // Plain-text content rows — skip and keep scanning.
-        continue;
-      }
+      const parsed: unknown[] = rows[r].content;
       let found = false;
       for (const pb of parsed) {
         const rb = pb as Record<string, unknown>;
@@ -173,10 +206,26 @@ export function scheduleSurfaceDataPersist(
  */
 export function flushSurfaceDataPersist(surfaceId: string): void {
   const pending = pendingSurfacePersists.get(surfaceId);
-  if (!pending) return;
+  if (!pending) {
+    return;
+  }
   clearTimeout(pending.timer);
   pendingSurfacePersists.delete(surfaceId);
   persistSurfaceData(pending.conversationId, surfaceId, pending.data);
+}
+
+/**
+ * Discard (without writing) any pending debounced persist for `surfaceId`.
+ * Called on dismissal so an in-flight `ui_update` snapshot cannot land after
+ * the surface block has been removed.
+ */
+export function cancelSurfaceDataPersist(surfaceId: string): void {
+  const pending = pendingSurfacePersists.get(surfaceId);
+  if (!pending) {
+    return;
+  }
+  clearTimeout(pending.timer);
+  pendingSurfacePersists.delete(surfaceId);
 }
 
 /**
@@ -191,7 +240,9 @@ export function cancelPendingSurfaceDataPersists(
   conversationId?: string,
 ): void {
   for (const [surfaceId, pending] of pendingSurfacePersists) {
-    if (conversationId && pending.conversationId !== conversationId) continue;
+    if (conversationId && pending.conversationId !== conversationId) {
+      continue;
+    }
     clearTimeout(pending.timer);
     pendingSurfacePersists.delete(surfaceId);
   }
@@ -206,7 +257,9 @@ export function cancelPendingSurfaceDataPersists(
  */
 export function flushPendingSurfaceDataPersists(conversationId?: string): void {
   for (const [surfaceId, pending] of pendingSurfacePersists) {
-    if (conversationId && pending.conversationId !== conversationId) continue;
+    if (conversationId && pending.conversationId !== conversationId) {
+      continue;
+    }
     clearTimeout(pending.timer);
     pendingSurfacePersists.delete(surfaceId);
     persistSurfaceData(pending.conversationId, surfaceId, pending.data);
@@ -232,7 +285,9 @@ export function markSurfaceCompleted(
   if (ctx.messages) {
     for (let i = ctx.messages.length - 1; i >= 0; i--) {
       const msg = ctx.messages[i];
-      if (!Array.isArray(msg.content)) continue;
+      if (!Array.isArray(msg.content)) {
+        continue;
+      }
       for (const block of msg.content) {
         const b = block as Record<string, unknown>;
         if (b.type === "ui_surface" && b.surfaceId === surfaceId) {
@@ -248,16 +303,7 @@ export function markSurfaceCompleted(
   try {
     const rows = getMessages(ctx.conversationId);
     for (let r = rows.length - 1; r >= 0; r--) {
-      let parsed: unknown[];
-      try {
-        const result = JSON.parse(rows[r].content);
-        if (!Array.isArray(result)) continue;
-        parsed = result;
-      } catch {
-        // Some rows store plain text content (e.g. notification seeding) —
-        // skip them and keep scanning.
-        continue;
-      }
+      const parsed: unknown[] = rows[r].content;
       let found = false;
       for (const pb of parsed) {
         const rb = pb as Record<string, unknown>;
@@ -277,7 +323,155 @@ export function markSurfaceCompleted(
     log.warn({ err, surfaceId }, "Failed to persist surface completion to DB");
   }
 }
+
+/**
+ * Complete a `ui_surface` card and notify live clients, addressed only by
+ * conversation + surface id.
+ *
+ * Unlike {@link completeSurfaceFromAction}, this needs no live `Conversation`
+ * instance, so it can run from flows that don't own one — projecting a
+ * terminal guardian-request status onto its in-app approval card when the
+ * request was resolved on another surface (or by the expiry sweep). Persists
+ * the completion (reload-safe) and broadcasts `ui_surface_complete` so every
+ * connected client of this guardian converges. No-ops when the surface block
+ * isn't found in the conversation.
+ */
+export function completeSurfaceAndNotify(
+  conversationId: string,
+  surfaceId: string,
+  summary: string,
+): void {
+  markSurfaceCompleted({ conversationId }, surfaceId, summary);
+  broadcastMessage({
+    type: "ui_surface_complete",
+    conversationId,
+    surfaceId,
+    summary,
+  });
+}
+
+/**
+ * Remove a `ui_surface` content block from history so a passively dismissed
+ * surface does not survive a reload. The live client drops a dismissed surface
+ * entirely; this converges persisted state with that behaviour. Cancels any
+ * pending debounced data persist first so a late `ui_update` snapshot cannot
+ * re-add the block, then strips the block from in-memory messages and the DB.
+ */
+export function removeSurfaceBlock(
+  ctx: { conversationId: string; messages?: Array<{ content: unknown }> },
+  surfaceId: string,
+): void {
+  cancelSurfaceDataPersist(surfaceId);
+
+  if (ctx.messages) {
+    for (let i = ctx.messages.length - 1; i >= 0; i--) {
+      const msg = ctx.messages[i];
+      if (!Array.isArray(msg.content)) {
+        continue;
+      }
+      const idx = msg.content.findIndex((block) => {
+        const b = block as Record<string, unknown>;
+        return b.type === "ui_surface" && b.surfaceId === surfaceId;
+      });
+      if (idx !== -1) {
+        msg.content.splice(idx, 1);
+        break;
+      }
+    }
+  }
+
+  try {
+    const rows = getMessages(ctx.conversationId);
+    for (let r = rows.length - 1; r >= 0; r--) {
+      const parsed: unknown[] = rows[r].content;
+      const idx = parsed.findIndex((pb) => {
+        const rb = pb as Record<string, unknown>;
+        return rb.type === "ui_surface" && rb.surfaceId === surfaceId;
+      });
+      if (idx !== -1) {
+        parsed.splice(idx, 1);
+        updateMessageContent(rows[r].id, JSON.stringify(parsed));
+        return;
+      }
+    }
+  } catch (err) {
+    log.warn({ err, surfaceId }, "Failed to remove dismissed surface from DB");
+  }
+}
 const TASK_PROGRESS_TEMPLATE_FIELDS = ["title", "status", "steps"] as const;
+
+const TASK_PROGRESS_CARD_STATUSES = new Set([
+  "in_progress",
+  "completed",
+  "failed",
+]);
+const TASK_PROGRESS_STEP_STATUSES = new Set([
+  "pending",
+  "in_progress",
+  "completed",
+  "failed",
+]);
+
+/**
+ * Coerce a model-supplied `steps` value into a renderable array. Drops
+ * non-object and label-less entries, accepts `title` as a `label` alias, and
+ * defaults a missing/invalid per-step status to "pending". Returns `[]` for a
+ * missing or non-array input so an indeterminate card still renders.
+ */
+function normalizeTaskProgressSteps(
+  value: unknown,
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((step): step is Record<string, unknown> => isPlainObject(step))
+    .map((step) => {
+      const label =
+        typeof step.label === "string"
+          ? step.label
+          : typeof step.title === "string"
+            ? step.title
+            : "";
+      const status =
+        typeof step.status === "string" &&
+        TASK_PROGRESS_STEP_STATUSES.has(step.status)
+          ? step.status
+          : "pending";
+      return { ...step, label, status };
+    })
+    .filter((step) => (step.label as string).trim().length > 0);
+}
+
+/**
+ * Guarantee a task_progress card reaches the client with a well-formed
+ * `templateData` object so a coarse or indeterminate attempt (missing steps,
+ * missing status) renders instead of being silently dropped. Fills only
+ * missing fields — a fully-specified card is left intact.
+ */
+function ensureTaskProgressTemplateData(
+  normalized: Record<string, unknown>,
+): void {
+  const templateData: Record<string, unknown> = isPlainObject(
+    normalized.templateData,
+  )
+    ? { ...normalized.templateData }
+    : {};
+  if (
+    typeof templateData.title !== "string" &&
+    typeof normalized.title === "string"
+  ) {
+    templateData.title = normalized.title;
+  }
+  if (
+    typeof templateData.status !== "string" ||
+    !TASK_PROGRESS_CARD_STATUSES.has(templateData.status)
+  ) {
+    templateData.status = "in_progress";
+  }
+  templateData.steps = normalizeTaskProgressSteps(templateData.steps);
+  normalized.templateData = templateData;
+}
 
 /**
  * Migrate dynamic_page fields from the top-level tool input into `data`.
@@ -305,7 +499,28 @@ function normalizeDynamicPageShowData(
     normalized.preview = input.preview;
   }
 
-  return normalized as unknown as DynamicPageSurfaceData;
+  return DynamicPageSurfaceDataSchema.parse(normalized);
+}
+
+/** First entry that is a non-empty (trimmed) string, else undefined. */
+function firstNonEmptyString(values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/** All non-empty (trimmed) strings from the values list. */
+function allNonEmptyStrings(values: unknown[]): string[] {
+  const result: string[] = [];
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      result.push(value);
+    }
+  }
+  return result;
 }
 
 function normalizeCardShowData(
@@ -343,6 +558,91 @@ function normalizeCardShowData(
     normalized.body = input.body;
   }
 
+  // The model sees every surface type's schema in the ui_show tool description,
+  // so it frequently borrows keys from sibling surfaces when emitting a card.
+  // Recover those into the canonical card fields, checking both data-level and
+  // top-level (input) placement. Multiple matches are concatenated (body) or
+  // first-wins (title/subtitle); all alias keys are deleted afterward so they
+  // don't appear as droppedKeys noise.
+  //
+  // body aliases: copy_block's `text`, confirmation's `message`, generic
+  // `content`, and cross-surface `description` (choice/form/oauth/work_result/
+  // dynamic_page — 5 types use it), work_result's `summary`, confirmation's
+  // `detail`.
+  const bodyAliasKeys = [
+    "text",
+    "message",
+    "content",
+    "description",
+    "summary",
+    "detail",
+  ] as const;
+  if (typeof normalized.body !== "string" || normalized.body.trim() === "") {
+    const candidates = allNonEmptyStrings(
+      bodyAliasKeys.map((k) => {
+        const dataVal = normalized[k];
+        if (typeof dataVal === "string" && dataVal.trim().length > 0) {
+          return dataVal;
+        }
+        return input[k];
+      }),
+    );
+    if (candidates.length > 0) {
+      // Temporary: concatenate all matching aliases so no content is lost.
+      // A future pass should define per-alias semantic roles (e.g. summary
+      // as a subtitle, detail as supplementary) once production telemetry
+      // reveals which combinations actually occur.
+      normalized.body = candidates.join("\n\n");
+    }
+  }
+  for (const key of bodyAliasKeys) {
+    delete normalized[key];
+  }
+
+  // title aliases: natural synonyms the model reaches for when it doesn't
+  // use `title` verbatim.
+  const titleAliasKeys = ["heading", "header", "name"] as const;
+  if (typeof normalized.title !== "string" || normalized.title.trim() === "") {
+    const aliased = firstNonEmptyString([
+      ...titleAliasKeys.map((k) => normalized[k]),
+      ...titleAliasKeys.map((k) => input[k]),
+    ]);
+    if (aliased !== undefined) {
+      normalized.title = aliased;
+    }
+  }
+  for (const key of titleAliasKeys) {
+    delete normalized[key];
+  }
+
+  // subtitle aliases: table's `caption`, natural synonym `subheading`.
+  if (
+    typeof normalized.subtitle !== "string" &&
+    typeof input.subtitle === "string"
+  ) {
+    normalized.subtitle = input.subtitle;
+  }
+  const subtitleAliasKeys = ["subheading", "caption"] as const;
+  if (
+    typeof normalized.subtitle !== "string" ||
+    normalized.subtitle.trim() === ""
+  ) {
+    const aliased = firstNonEmptyString([
+      ...subtitleAliasKeys.map((k) => normalized[k]),
+      ...subtitleAliasKeys.map((k) => input[k]),
+    ]);
+    if (aliased !== undefined) {
+      normalized.subtitle = aliased;
+    }
+  }
+  for (const key of subtitleAliasKeys) {
+    delete normalized[key];
+  }
+
+  if (!Array.isArray(normalized.metadata) && Array.isArray(input.metadata)) {
+    normalized.metadata = input.metadata;
+  }
+
   // task_progress cards: additional fallbacks for title from templateData.
   if (
     normalized.template === "task_progress" &&
@@ -365,7 +665,38 @@ function normalizeCardShowData(
     normalized.body = "";
   }
 
-  return normalized as unknown as CardSurfaceData;
+  if (normalized.template === "task_progress") {
+    ensureTaskProgressTemplateData(normalized);
+  }
+
+  // Parse, don't assert. The old `as unknown as CardSurfaceData` accepted any
+  // shape, so anything the model nested under an unmodelled key was carried
+  // through unread. Parsing draws the boundary; the dropped-key log surfaces
+  // the shapes we still don't recover, so the recovery list above can grow from
+  // real traffic rather than guesswork.
+  const droppedKeys = Object.keys(normalized).filter(
+    (key) => !(key in CardSurfaceDataSchema.shape),
+  );
+  if (droppedKeys.length > 0) {
+    log.warn(
+      { droppedKeys },
+      "ui_show card data carried keys the card contract does not model; their content will not render",
+    );
+  }
+  const parsed = CardSurfaceDataSchema.safeParse(normalized);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  log.warn(
+    { issues: parsed.error.issues },
+    "ui_show card data failed CardSurfaceDataSchema; rendering only the fields that validated",
+  );
+  return CardSurfaceDataSchema.parse({
+    title: typeof normalized.title === "string" ? normalized.title : undefined,
+    subtitle:
+      typeof normalized.subtitle === "string" ? normalized.subtitle : undefined,
+    body: typeof normalized.body === "string" ? normalized.body : undefined,
+  });
 }
 
 function normalizeTaskProgressCardPatch(
@@ -407,91 +738,7 @@ function normalizeTaskProgressCardPatch(
   return normalizedPatch;
 }
 
-function normalizeChoiceShowData(
-  rawData: Record<string, unknown>,
-): ChoiceSurfaceData {
-  const options = Array.isArray(rawData.options)
-    ? rawData.options
-        .filter((option): option is Record<string, unknown> =>
-          isPlainObject(option),
-        )
-        .map((option) => {
-          const id = typeof option.id === "string" ? option.id.trim() : "";
-          const title =
-            typeof option.title === "string"
-              ? option.title.trim()
-              : typeof option.label === "string"
-                ? option.label.trim()
-                : "";
-          if (!id || !title) return null;
-          return {
-            id,
-            title,
-            ...(typeof option.description === "string"
-              ? { description: option.description }
-              : {}),
-            ...(option.recommended === true ? { recommended: true } : {}),
-            ...(isPlainObject(option.data)
-              ? { data: option.data as Record<string, unknown> }
-              : {}),
-          };
-        })
-        .filter(
-          (option): option is NonNullable<typeof option> => option !== null,
-        )
-    : [];
-
-  return {
-    ...(typeof rawData.description === "string"
-      ? { description: rawData.description }
-      : {}),
-    options,
-    selectionMode: rawData.selectionMode === "multiple" ? "multiple" : "single",
-    ...(typeof rawData.submitLabel === "string"
-      ? { submitLabel: rawData.submitLabel }
-      : {}),
-    ...(typeof rawData.commitOnSelect === "boolean"
-      ? { commitOnSelect: rawData.commitOnSelect }
-      : {}),
-  };
-}
-
-function normalizeCopyBlockShowData(
-  rawData: Record<string, unknown>,
-): CopyBlockSurfaceData {
-  return {
-    text: typeof rawData.text === "string" ? rawData.text : "",
-    ...(typeof rawData.label === "string" ? { label: rawData.label } : {}),
-    ...(typeof rawData.language === "string"
-      ? { language: rawData.language }
-      : {}),
-  };
-}
-
-function normalizeOAuthConnectShowData(
-  rawData: Record<string, unknown>,
-): OAuthConnectSurfaceData {
-  return {
-    providerKey:
-      typeof rawData.providerKey === "string" ? rawData.providerKey.trim() : "",
-    ...(typeof rawData.displayName === "string"
-      ? { displayName: rawData.displayName }
-      : {}),
-    ...(typeof rawData.description === "string"
-      ? { description: rawData.description }
-      : {}),
-    ...(typeof rawData.logoUrl === "string" || rawData.logoUrl === null
-      ? { logoUrl: rawData.logoUrl }
-      : {}),
-  };
-}
-
-function buildChoiceActions(data: ChoiceSurfaceData): Array<{
-  id: string;
-  label: string;
-  style?: string;
-  data?: Record<string, unknown>;
-}> {
+function buildChoiceActions(data: ChoiceSurfaceData): SurfaceAction[] {
   return data.options.map((option) => ({
     id: option.id,
     label: option.title,
@@ -517,27 +764,34 @@ function isSlackTaskProgressUiException(
   toolName: string,
   input: Record<string, unknown>,
 ): boolean {
-  if (ctx.channelCapabilities?.channel !== "slack") return false;
+  if (ctx.channelCapabilities?.channel !== "slack") {
+    return false;
+  }
   if (toolName === "ui_show") {
-    const surfaceType = input.surface_type as SurfaceType;
-    if (surfaceType !== "card") return false;
-    const rawData = isPlainObject(input.data) ? input.data : {};
-    const data = normalizeCardShowData(input, rawData);
+    if (input.surface_type !== "card") {
+      return false;
+    }
+    const data = normalizeCardShowData(
+      input,
+      coerceSurfaceDataRecord(input.data),
+    );
     return isTaskProgressCardData(data);
   }
   if (toolName === "ui_update") {
     const surfaceId = input.surface_id;
-    if (typeof surfaceId !== "string") return false;
+    if (typeof surfaceId !== "string") {
+      return false;
+    }
     const stored = ctx.surfaceState.get(surfaceId);
-    if (!stored || stored.surfaceType !== "card") return false;
-    if (!isTaskProgressCardData(stored.data)) return false;
-    const rawPatch = isPlainObject(input.data) ? input.data : {};
-    const patch = normalizeTaskProgressCardPatch(
-      stored.data as CardSurfaceData,
-      rawPatch,
-    );
-    const mergedData = { ...stored.data, ...patch } as SurfaceData;
-    return isTaskProgressCardData(mergedData);
+    if (!stored || stored.surfaceType !== "card") {
+      return false;
+    }
+    if (!isTaskProgressCardData(stored.data)) {
+      return false;
+    }
+    const rawPatch = coerceSurfaceDataRecord(input.data);
+    const patch = normalizeTaskProgressCardPatch(stored.data, rawPatch);
+    return isTaskProgressCardData({ ...stored.data, ...patch });
   }
   return false;
 }
@@ -547,6 +801,7 @@ function isSlackTaskProgressUiException(
  * The Conversation class implements this interface so its instances can be
  * passed directly to the extracted functions.
  */
+
 export interface SurfaceConversationContext {
   readonly conversationId: string;
   /** Assistant id (if known) — used when publishing launch-triggered events. */
@@ -563,37 +818,13 @@ export interface SurfaceConversationContext {
     channel: string;
     supportsDynamicUi: boolean;
   };
-  readonly traceEmitter: {
-    emit(type: string, message: string, meta?: Record<string, unknown>): void;
-  };
-  sendToClient(msg: ServerMessage): void;
+  sendToClient(msg: AssistantEvent): void;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   lastSurfaceAction: Map<
     string,
     { actionId: string; data?: Record<string, unknown> }
   >;
-  surfaceState: Map<
-    string,
-    {
-      surfaceType: SurfaceType;
-      data: SurfaceData;
-      title?: string;
-      actions?: Array<{
-        id: string;
-        label: string;
-        style?: string;
-        data?: Record<string, unknown>;
-      }>;
-      /**
-       * Activation-rail telemetry tag (daemon-only). When the model tags a
-       * `ui_show` surface as an activation funnel moment, the token is captured
-       * here so the milestone can be recorded deterministically when the user
-       * commits the surface (`handleSurfaceAction`). Never forwarded to the
-       * client.
-       */
-      activationMoment?: ActivationMomentParam;
-    }
-  >;
+  surfaceState: Map<string, SurfaceStateEntry>;
   surfaceUndoStacks: Map<string, string[]>;
   accumulatedSurfaceState: Map<string, Record<string, unknown>>;
   /** Request IDs that originated from surface action button clicks (not regular user messages). */
@@ -622,27 +853,7 @@ export interface SurfaceConversationContext {
     string,
     ReturnType<typeof setTimeout>
   >;
-  currentTurnSurfaces: Array<{
-    surfaceId: string;
-    surfaceType: SurfaceType;
-    title?: string;
-    data: SurfaceData;
-    actions?: Array<{
-      id: string;
-      label: string;
-      style?: string;
-      data?: Record<string, unknown>;
-    }>;
-    display?: string;
-    persistent?: boolean;
-    toolCallId?: string;
-    /**
-     * Commit-timing activation-rail tag (daemon-only). Carried through to the
-     * persisted `ui_surface` history block so it survives a reload — never sent
-     * to the client.
-     */
-    activationMoment?: ActivationMomentParam;
-  }>;
+  currentTurnSurfaces: CurrentTurnSurface[];
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: HostCuProxy;
   /** Optional proxy for delegating per-app app-control actions to a connected desktop client. */
@@ -730,7 +941,9 @@ const STANDALONE_TOMBSTONE_TTL_MS = 30_000; // 30 seconds
 export function canShowInteractiveUi(
   ctx: Pick<SurfaceConversationContext, "hasNoClient" | "channelCapabilities">,
 ): boolean {
-  if (ctx.hasNoClient) return false;
+  if (ctx.hasNoClient) {
+    return false;
+  }
   if (ctx.channelCapabilities && !ctx.channelCapabilities.supportsDynamicUi) {
     return false;
   }
@@ -786,9 +999,9 @@ export function showStandaloneSurface(
 
   const timeoutMs = request.timeoutMs ?? DEFAULT_STANDALONE_TIMEOUT_MS;
 
-  // Build surface data from the request payload.
-  const surfaceType = request.surfaceType as SurfaceType;
-  const data = buildStandaloneSurfaceData(request);
+  // Build the correlated surface pair from the request payload.
+  const surfaceType: SurfaceType = request.surfaceType;
+  const pair = buildStandaloneSurfaceData(request);
   const actions = request.actions?.map((a) => ({
     id: a.id,
     label: a.label,
@@ -834,22 +1047,20 @@ export function showStandaloneSurface(
 
     // ── Store surface state ──
     ctx.surfaceState.set(surfaceId, {
-      surfaceType,
-      data,
       title: request.title,
       actions,
+      ...pair,
     });
 
     broadcastMessage({
       type: "ui_surface_show",
       conversationId: ctx.conversationId,
       surfaceId,
-      surfaceType,
       title: request.title,
-      data,
       actions,
       display: "inline",
-    } as unknown as UiSurfaceShow);
+      ...pair,
+    });
 
     log.info(
       {
@@ -864,15 +1075,15 @@ export function showStandaloneSurface(
 }
 
 /**
- * Build a SurfaceData object from an InteractiveUiRequest.
+ * Build a correlated surface pair from an InteractiveUiRequest.
  * Maps the generic `data` payload to the typed shape expected by the
  * surface type.
  */
 function buildStandaloneSurfaceData(
   request: InteractiveUiRequest,
-): SurfaceData {
+): SurfaceShowPair {
   if (request.surfaceType === "confirmation") {
-    return {
+    const data: ConfirmationSurfaceData = {
       message:
         typeof request.data.message === "string"
           ? request.data.message
@@ -893,28 +1104,21 @@ function buildStandaloneSurfaceData(
         typeof request.data.destructive === "boolean"
           ? request.data.destructive
           : undefined,
-    } satisfies ConfirmationSurfaceData;
+    };
+    return { surfaceType: "confirmation", data };
   }
 
-  if (request.surfaceType === "form") {
-    // Preserve the full form payload (pages, pageLabels, and any future
-    // additive keys) via spreading. Apply defensive normalization so that
-    // `fields` is always a valid array — callers that use `pages` instead
-    // of top-level `fields` may omit the latter entirely.
-    const raw = request.data as Record<string, unknown>;
-    const hasFields = Array.isArray(raw.fields) && raw.fields.length > 0;
-    const fields: FormSurfaceData["fields"] = hasFields
-      ? (raw.fields as FormSurfaceData["fields"])
-      : [];
+  // Preserve the full form payload (pages, pageLabels, and any future
+  // additive keys) via spreading. Apply defensive normalization so that
+  // `fields` is always a valid array — callers that use `pages` instead
+  // of top-level `fields` may omit the latter entirely.
+  const raw = request.data;
+  const hasFields = Array.isArray(raw.fields) && raw.fields.length > 0;
+  const fields: FormSurfaceData["fields"] = hasFields
+    ? (raw.fields as FormSurfaceData["fields"])
+    : [];
 
-    return {
-      ...raw,
-      fields,
-    } as FormSurfaceData;
-  }
-
-  // Fallback: pass through opaque data
-  return request.data as unknown as SurfaceData;
+  return { surfaceType: "form", data: { ...raw, fields } as FormSurfaceData };
 }
 
 /**
@@ -953,13 +1157,122 @@ export function cleanupStandaloneSurface(
     // Clear any existing tombstone timer for this surfaceId (idempotency).
     const existingTimer =
       ctx.recentlyCompletedStandaloneSurfaces.get(surfaceId);
-    if (existingTimer) clearTimeout(existingTimer);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
 
     const tombstoneTimer = setTimeout(() => {
       ctx.recentlyCompletedStandaloneSurfaces?.delete(surfaceId);
     }, STANDALONE_TOMBSTONE_TTL_MS);
     ctx.recentlyCompletedStandaloneSurfaces.set(surfaceId, tombstoneTimer);
   }
+}
+
+/**
+ * How long to wait for a client to acknowledge an `open_panel` command
+ * before reporting failure to the model. The ack round-trip is one SSE
+ * delivery plus one HTTP POST, so this is generous — it only elapses when
+ * no connected client rendered the panel (event dropped, no client
+ * listening, or a client build that predates panel acknowledgment).
+ */
+const OPEN_PANEL_ACK_TIMEOUT_MS = 10_000;
+
+/**
+ * Open the channel-setup drawer on a connected client and wait for the
+ * client's acknowledgment.
+ *
+ * `open_panel` is a side-effect-only command: it is never persisted to the
+ * transcript, so a dropped event is unrecoverable by reload. The ack is what
+ * makes the emitting tool result truthful — "displayed" must mean a client
+ * actually rendered the drawer, not merely that the event was emitted.
+ *
+ * Reuses the standalone-surface pending machinery: the client responds via
+ * the existing surface-action route (`actionId: "ack"` on success, `"nack"`
+ * with `data.reason` when it received the event but could not open the
+ * panel), which `handleSurfaceAction` intercepts and resolves without an
+ * LLM turn. The surface-state entry exists only so the surface-action route
+ * can resolve the owning conversation by `surfaceId`; `cleanupStandaloneSurface`
+ * removes it on every outcome.
+ */
+export function openChannelSetupPanel(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+  data: Record<string, unknown>,
+  options?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<InteractiveUiResult> {
+  if (!canShowInteractiveUi(ctx) || !ctx.pendingStandaloneSurfaces) {
+    log.warn(
+      {
+        conversationId: ctx.conversationId,
+        hasNoClient: ctx.hasNoClient,
+        channel: ctx.channelCapabilities?.channel,
+      },
+      "channel_setup panel: no interactive UI capability; failing closed",
+    );
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "no_interactive_surface" as const,
+    });
+  }
+  const pendingMap = ctx.pendingStandaloneSurfaces;
+  const signal = options?.signal;
+  const timeoutMs = options?.timeoutMs ?? OPEN_PANEL_ACK_TIMEOUT_MS;
+
+  if (signal?.aborted) {
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "resolver_unavailable" as const,
+    });
+  }
+
+  return new Promise<InteractiveUiResult>((resolve) => {
+    const settle = (result: InteractiveUiResult) => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      log.warn(
+        { conversationId: ctx.conversationId, surfaceId, timeoutMs },
+        "channel_setup panel: no client acknowledged open_panel",
+      );
+      settle({ status: "timed_out", surfaceId });
+    }, timeoutMs);
+
+    const onAbort = () => {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      settle({
+        status: "cancelled",
+        surfaceId,
+        cancellationReason: "resolver_unavailable",
+      });
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    pendingMap.set(surfaceId, {
+      resolve: settle,
+      timer,
+      surfaceType: "channel_setup",
+    });
+    // Registered so the surface-action route's by-surfaceId conversation
+    // lookup finds this conversation when the ack arrives without a
+    // conversationId. Cleared by cleanupStandaloneSurface on all outcomes.
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType: "channel_setup",
+      data: safeParseSurfaceData("channel_setup", data) ?? {},
+    });
+
+    ctx.sendToClient({
+      type: "open_panel",
+      panelType: "channel_setup",
+      data,
+      conversationId: ctx.conversationId,
+      surfaceId,
+    });
+  });
 }
 
 /**
@@ -994,8 +1307,7 @@ function handleDocumentContentChanged(
     return;
   }
 
-  const dynamicPageData = surfaceState.data as DynamicPageSurfaceData;
-  const appId = dynamicPageData.appId;
+  const appId = surfaceState.data.appId;
 
   if (!appId || !appId.startsWith("doc-")) {
     // Not a document app, ignore
@@ -1117,7 +1429,7 @@ export function handleSurfaceUndo(
     return;
   }
 
-  const data = stored.data as DynamicPageSurfaceData;
+  const data = stored.data;
 
   // If app-backed, also revert the persisted app and refresh all surfaces for this app
   if (data.appId) {
@@ -1129,9 +1441,13 @@ export function handleSurfaceUndo(
 
     // Update ALL surfaces that share this appId (not just the requesting one)
     for (const [sid, s] of ctx.surfaceState.entries()) {
-      if (s.surfaceType !== "dynamic_page") continue;
-      const sData = s.data as DynamicPageSurfaceData;
-      if (sData.appId !== data.appId) continue;
+      if (s.surfaceType !== "dynamic_page") {
+        continue;
+      }
+      const sData = s.data;
+      if (sData.appId !== data.appId) {
+        continue;
+      }
       const revertedData: DynamicPageSurfaceData = {
         ...sData,
         html: previousHtml,
@@ -1148,10 +1464,16 @@ export function handleSurfaceUndo(
     // Sync sibling undo stacks: pop the top entry if it matches the HTML we
     // just reverted to, preventing phantom no-op undo steps on siblings.
     for (const [sid, s] of ctx.surfaceState.entries()) {
-      if (sid === surfaceId) continue;
-      if (s.surfaceType !== "dynamic_page") continue;
-      const sData = s.data as DynamicPageSurfaceData;
-      if (sData.appId !== data.appId) continue;
+      if (sid === surfaceId) {
+        continue;
+      }
+      if (s.surfaceType !== "dynamic_page") {
+        continue;
+      }
+      const sData = s.data;
+      if (sData.appId !== data.appId) {
+        continue;
+      }
 
       const siblingStack = ctx.surfaceUndoStacks.get(sid);
       if (siblingStack && siblingStack.length > 0) {
@@ -1195,11 +1517,17 @@ export function describeTableRow(
   row: TableRow,
   columns: TableColumn[],
 ): string {
-  if (columns.length === 0) return row.id;
+  if (columns.length === 0) {
+    return row.id;
+  }
   const firstColId = columns[0].id;
   const cell = row.cells[firstColId];
-  if (cell == null) return row.id;
-  if (typeof cell === "string") return cell;
+  if (cell == null) {
+    return row.id;
+  }
+  if (typeof cell === "string") {
+    return cell;
+  }
   return cell.text;
 }
 
@@ -1207,7 +1535,9 @@ const MAX_DESELECTION_ITEMS = 20;
 
 /** Format a list of deselected item labels as a bullet list, capped at MAX_DESELECTION_ITEMS. */
 export function formatDeselectionList(labels: string[]): string {
-  if (labels.length === 0) return "";
+  if (labels.length === 0) {
+    return "";
+  }
   const shown = labels.slice(0, MAX_DESELECTION_ITEMS);
   const lines = shown.map((l) => `- ${l}`);
   if (labels.length > MAX_DESELECTION_ITEMS) {
@@ -1222,36 +1552,44 @@ export function formatDeselectionList(labels: string[]): string {
  */
 export function buildDeselectionDescription(
   surfaceType: SurfaceType,
-  surfaceState: { surfaceType: SurfaceType; data: SurfaceData } | undefined,
+  surfaceState: SurfaceShowPair | undefined,
   selectedIds: string[],
 ): string {
-  if (!surfaceState) return "";
+  if (!surfaceState) {
+    return "";
+  }
   const selectedSet = new Set(selectedIds);
 
   if (surfaceType === "table" && surfaceState.surfaceType === "table") {
-    const tableData = surfaceState.data as TableSurfaceData;
+    const tableData = surfaceState.data;
     const deselectedLabels: string[] = [];
     for (const row of tableData.rows) {
-      if (row.selectable === false) continue;
+      if (row.selectable === false) {
+        continue;
+      }
       if (!selectedSet.has(row.id)) {
         deselectedLabels.push(describeTableRow(row, tableData.columns));
       }
     }
-    if (deselectedLabels.length === 0) return "";
+    if (deselectedLabels.length === 0) {
+      return "";
+    }
     return `\n\nDeselected items (user chose NOT to include):\n${formatDeselectionList(
       deselectedLabels,
     )}`;
   }
 
   if (surfaceType === "list" && surfaceState.surfaceType === "list") {
-    const listData = surfaceState.data as ListSurfaceData;
+    const listData = surfaceState.data;
     const deselectedLabels: string[] = [];
     for (const item of listData.items) {
       if (!selectedSet.has(item.id)) {
         deselectedLabels.push(item.title);
       }
     }
-    if (deselectedLabels.length === 0) return "";
+    if (deselectedLabels.length === 0) {
+      return "";
+    }
     return `\n\nDeselected items (user chose NOT to include):\n${formatDeselectionList(
       deselectedLabels,
     )}`;
@@ -1271,7 +1609,9 @@ const SURFACE_COMPLETION_SUMMARY_FIELD = "_completionSummary";
 function getRequestedSurfaceCompletionSummary(
   data?: Record<string, unknown>,
 ): string | null {
-  if (data?.[SURFACE_COMPLETE_FLAG] !== true) return null;
+  if (data?.[SURFACE_COMPLETE_FLAG] !== true) {
+    return null;
+  }
   const summary =
     typeof data[SURFACE_COMPLETION_SUMMARY_FIELD] === "string"
       ? data[SURFACE_COMPLETION_SUMMARY_FIELD].trim()
@@ -1292,7 +1632,9 @@ function recordActivationMoment(
   moment: ActivationMomentParam,
 ): void {
   try {
-    if (!isActivationSession(ctx.conversationId)) return;
+    if (!isActivationSession(ctx.conversationId)) {
+      return;
+    }
     recordActivationEvent({
       stepName: activationStepNameForMomentParam(moment),
       sessionId: ctx.conversationId,
@@ -1326,7 +1668,9 @@ function maybeEmitActivationMoment(
 ): void {
   const stored = ctx.surfaceState.get(surfaceId);
   const moment = stored?.activationMoment;
-  if (!moment) return;
+  if (!moment) {
+    return;
+  }
   // Clear the tag first so this can fire at most once per surface even if the
   // commit path is re-entered.
   stored.activationMoment = undefined;
@@ -1347,11 +1691,26 @@ function completeSurfaceFromAction(
   markSurfaceCompleted(ctx, surfaceId, summary);
 }
 
+// One-shot interactive surfaces auto-complete once their action message is
+// accepted (they never accept further actions).
+const ONE_SHOT_SURFACE_TYPES = [
+  "choice",
+  "oauth_connect",
+  "form",
+  "confirmation",
+  "file_upload",
+  "task_preferences",
+];
+
 export async function handleSurfaceAction(
   ctx: SurfaceConversationContext,
   surfaceId: string,
   actionId: string,
   data?: Record<string, unknown>,
+  // JWT-verified committer principal; threaded so enqueued turns can
+  // reconstruct the same-user binding for host proxies (CU / app-control),
+  // mirroring the normal message path.
+  sourceActorPrincipalId?: string,
 ): Promise<SurfaceActionResult> {
   // ── Standalone surface interception ──────────────────────────────
   // Daemon-driven surfaces (from `requestInteractiveUi`) register a
@@ -1390,6 +1749,20 @@ export async function handleSurfaceAction(
         : {}),
       summary,
     };
+
+    // channel_setup pendings are protocol-level acknowledgments for the
+    // `open_panel` command, not user-facing surfaces: nothing was rendered
+    // in the transcript, so there is no completion to broadcast, persist,
+    // or count as an activation commit. Resolve and clean up only.
+    if (standalone.surfaceType === "channel_setup") {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      standalone.resolve(result);
+      log.info(
+        { conversationId: ctx.conversationId, surfaceId, actionId, status },
+        "open_panel acknowledgment resolved",
+      );
+      return { accepted: true, conversationId: ctx.conversationId };
+    }
 
     broadcastMessage({
       type: "ui_surface_complete",
@@ -1623,19 +1996,13 @@ export async function handleSurfaceAction(
       "Surface action: preparing to send message to model",
     );
 
-    const requestId = uuid();
+    const requestId = uuidv7();
     ctx.surfaceActionRequestIds.add(requestId);
     // Pass conversationId so events without an inline conversationId (e.g.
     // text_delta) are published with the correct conversation scope and
     // reach the SSE subscriber filtered to this conversation.
-    const onEvent = (msg: ServerMessage) =>
+    const onEvent = (msg: AssistantEvent) =>
       broadcastMessage(msg, ctx.conversationId);
-
-    ctx.traceEmitter.emit("request_received", "Surface action received", {
-      requestId,
-      status: "info",
-      attributes: { source: "surface_action", surfaceId, actionId },
-    });
 
     const result = ctx.enqueueMessage({
       content,
@@ -1644,6 +2011,7 @@ export async function handleSurfaceAction(
       requestId,
       activeSurfaceId: surfaceId,
       displayContent,
+      sourceActorPrincipalId,
     });
 
     if (result.rejected) {
@@ -1700,6 +2068,7 @@ export async function handleSurfaceAction(
         requestId,
         activeSurfaceId: surfaceId,
         displayContent,
+        sourceActorPrincipalId,
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -1854,19 +2223,13 @@ export async function handleSurfaceAction(
         surfaceData,
       );
 
-  const requestId = uuid();
+  const requestId = uuidv7();
   ctx.surfaceActionRequestIds.add(requestId);
   // Pass conversationId so events without an inline conversationId (e.g.
   // text_delta) are published with the correct conversation scope and
   // reach the SSE subscriber filtered to this conversation.
-  const onEvent = (msg: ServerMessage) =>
+  const onEvent = (msg: AssistantEvent) =>
     broadcastMessage(msg, ctx.conversationId);
-
-  ctx.traceEmitter.emit("request_received", "Surface action received", {
-    requestId,
-    status: "info",
-    attributes: { source: "surface_action", surfaceId, actionId },
-  });
 
   log.info(
     {
@@ -1890,6 +2253,7 @@ export async function handleSurfaceAction(
     requestId,
     activeSurfaceId: surfaceId,
     displayContent,
+    sourceActorPrincipalId,
   });
   if (result.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);
@@ -1908,14 +2272,6 @@ export async function handleSurfaceAction(
   // One-shot interactive surfaces — auto-complete now that the message has
   // been accepted. Deferred until after rejection check so the surface stays
   // active and retryable if the queue was full.
-  const ONE_SHOT_SURFACE_TYPES = [
-    "choice",
-    "oauth_connect",
-    "form",
-    "confirmation",
-    "file_upload",
-    "task_preferences",
-  ];
   if (
     requestedCompletionSummary ||
     ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)
@@ -1947,29 +2303,15 @@ export async function handleSurfaceAction(
     });
   }
   if (result.queued) {
-    const position = ctx.getQueueDepth();
     if (!retainPending) {
       ctx.pendingSurfaceActions.delete(surfaceId);
     }
+    // `enqueueMessage` already acked the queued row on `onEvent` with its
+    // `message_queued` event; nothing more to broadcast here.
     log.info(
       { surfaceId, actionId, requestId },
       "Surface action queued (conversation busy)",
     );
-    ctx.traceEmitter.emit(
-      "request_queued",
-      `Surface action queued at position ${position}`,
-      {
-        requestId,
-        status: "info",
-        attributes: { position },
-      },
-    );
-    onEvent({
-      type: "message_queued",
-      conversationId: ctx.conversationId,
-      requestId,
-      position,
-    });
     return;
   }
 
@@ -1993,6 +2335,7 @@ export async function handleSurfaceAction(
       requestId,
       activeSurfaceId: surfaceId,
       displayContent,
+      sourceActorPrincipalId,
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -2017,13 +2360,19 @@ export function refreshSurfacesForApp(
   opts?: { fileChange?: boolean; status?: string },
 ): boolean {
   const app = getApp(appId);
-  if (!app) return false;
+  if (!app) {
+    return false;
+  }
 
   let refreshed = false;
   for (const [surfaceId, stored] of ctx.surfaceState.entries()) {
-    if (stored.surfaceType !== "dynamic_page") continue;
-    const data = stored.data as DynamicPageSurfaceData;
-    if (data.appId !== appId) continue;
+    if (stored.surfaceType !== "dynamic_page") {
+      continue;
+    }
+    const data = stored.data;
+    if (data.appId !== appId) {
+      continue;
+    }
 
     // Push current HTML onto the undo stack before overwriting
     pushUndoState(ctx.surfaceUndoStacks, surfaceId, data.html);
@@ -2122,9 +2471,12 @@ export function buildCompletionSummary(
   if (surfaceType === "choice" && data) {
     const choiceTitle =
       typeof data.choiceTitle === "string" ? data.choiceTitle : undefined;
-    if (choiceTitle) return `User chose: "${choiceTitle}"`;
-    if (selectedTitles.length === 1)
+    if (choiceTitle) {
+      return `User chose: "${choiceTitle}"`;
+    }
+    if (selectedTitles.length === 1) {
       return `User chose: "${selectedTitles[0]}"`;
+    }
     if (selectedTitles.length > 1) {
       return `User chose ${selectedTitles.length} options: ${selectedTitles
         .map((title) => `"${title}"`)
@@ -2163,17 +2515,22 @@ export function buildCompletionSummary(
   if (surfaceType === "list" && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
     const actionSuffix = actionId ? ` (action: ${actionId})` : "";
-    if (selectedIds?.length === 1)
+    if (selectedIds?.length === 1) {
       return `Selected: ${selectedIds[0]}${actionSuffix}`;
-    if (selectedIds?.length)
+    }
+    if (selectedIds?.length) {
       return `Selected ${selectedIds.length} items${actionSuffix}`;
+    }
   }
   if (surfaceType === "table" && data) {
     const selectedIds = data.selectedIds as string[] | undefined;
     const actionSuffix = actionId ? ` (action: ${actionId})` : "";
-    if (selectedIds?.length === 1) return `Selected 1 row${actionSuffix}`;
-    if (selectedIds?.length)
+    if (selectedIds?.length === 1) {
+      return `Selected 1 row${actionSuffix}`;
+    }
+    if (selectedIds?.length) {
       return `Selected ${selectedIds.length} rows${actionSuffix}`;
+    }
   }
   return actionId.charAt(0).toUpperCase() + actionId.slice(1);
 }
@@ -2220,14 +2577,21 @@ function buildUserFacingLabel(
     }
     return `Selected: ${actionId}`;
   }
-  if (surfaceType === "form") return "Submitted";
+  if (surfaceType === "form") {
+    return "Submitted";
+  }
   if (surfaceType === "choice") {
     const choiceTitle =
       typeof data?.choiceTitle === "string" ? data.choiceTitle : undefined;
-    if (choiceTitle) return choiceTitle;
-    if (selectedTitles.length === 1) return selectedTitles[0];
-    if (selectedTitles.length > 1)
+    if (choiceTitle) {
+      return choiceTitle;
+    }
+    if (selectedTitles.length === 1) {
+      return selectedTitles[0];
+    }
+    if (selectedTitles.length > 1) {
       return `Selected ${selectedTitles.length} options`;
+    }
     return "Selected";
   }
   if (surfaceType === "oauth_connect") {
@@ -2269,6 +2633,32 @@ function buildUserFacingLabel(
 
   // Generic fallback — humanize the action ID
   return actionId.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Layer a caller-supplied (already schema-parsed) app preview over the
+ * app-metadata default for `app_open`.
+ *
+ * `DynamicPagePreviewSchema.title` is `z.string().catch("")`, so a parsed
+ * preview that omitted its title carries `title: ""`, which would clobber the
+ * app-name default in the spread — reassert the default whenever the parsed
+ * preview has no non-empty title. A generated `previewImage` always wins.
+ * Preserves the pre-parse behavior for a caller that omits a field: `parsed`
+ * drops missing optional fields, so the default's `subtitle` survives; a
+ * missing title falls back to the app name exactly as the old raw-object
+ * spread did (which simply had no `title` key to override the default).
+ */
+export function buildAppOpenPreview(
+  defaultPreview: { title: string; subtitle?: string },
+  preview: DynamicPagePreview | undefined,
+  storedPreviewImage: string | null | undefined,
+): DynamicPagePreview {
+  return {
+    ...defaultPreview,
+    ...preview,
+    ...(preview && !preview.title ? { title: defaultPreview.title } : {}),
+    ...(storedPreviewImage ? { previewImage: storedPreviewImage } : {}),
+  };
 }
 
 /**
@@ -2345,7 +2735,9 @@ export async function surfaceProxyResolver(
         targetClientId,
         op: "host_cu",
       });
-      if (rejection) return rejection;
+      if (rejection) {
+        return rejection;
+      }
     }
 
     // Untargeted CU must resolve to exactly one same-user capable client
@@ -2454,7 +2846,9 @@ export async function surfaceProxyResolver(
         targetClientId,
         op: "host_app_control",
       });
-      if (rejection) return rejection;
+      if (rejection) {
+        return rejection;
+      }
     }
 
     if (targetClientId == null) {
@@ -2522,35 +2916,138 @@ export async function surfaceProxyResolver(
 
   if (toolName === "ui_show") {
     const surfaceId = uuid();
-    const surfaceType = input.surface_type as SurfaceType;
+    // Parse, don't cast: an unrecognized surface_type used to be asserted
+    // into the union and fall through to an opaque passthrough the client
+    // silently dropped. Reject it with the valid values instead. Daemon-
+    // internal types (skill_card, call_summary) are members of SurfaceType
+    // for persistence but are not model-invokable — reject them here too so
+    // the model can never report an unrenderable surface as shown. Both
+    // messages enumerate only the model-facing set, never the internal types.
+    const parsedSurfaceType = SurfaceTypeSchema.safeParse(input.surface_type);
+    if (
+      !parsedSurfaceType.success ||
+      isDaemonInternalSurfaceType(parsedSurfaceType.data)
+    ) {
+      const got =
+        typeof input.surface_type === "string" &&
+        input.surface_type.trim().length > 0
+          ? `"${input.surface_type}" is not a valid surface_type`
+          : "`surface_type` is missing";
+      return {
+        content: `Error: ui_show was not displayed — ${got}. Valid surface_type values: ${MODEL_INVOKABLE_SURFACE_TYPES.join(", ")}. Resend ui_show with one of these values.`,
+        isError: true,
+      };
+    }
+    const surfaceType = parsedSurfaceType.data;
     const title = typeof input.title === "string" ? input.title : undefined;
-    const rawData = isPlainObject(input.data) ? input.data : {};
-    const data = (
+    const rawData = coerceSurfaceDataRecord(input.data);
+
+    // channel_setup is a side-effect-only command: it opens the channel setup
+    // drawer on the client. Emitted as `open_panel` (not `ui_surface_show`)
+    // so the rolling-snapshot reducer never folds it into the transcript.
+    // Because the event is never persisted, success is gated on a client
+    // acknowledgment — "displayed" must mean a client actually rendered the
+    // drawer, otherwise the model announces a panel the user cannot see.
+    if (surfaceType === "channel_setup") {
+      const ack = await openChannelSetupPanel(
+        ctx,
+        surfaceId,
+        rawData as Record<string, unknown>,
+        { signal },
+      );
+
+      if (ack.status === "submitted" && ack.actionId === "ack") {
+        return {
+          content: JSON.stringify({ surfaceId, status: "displayed" }),
+          isError: false,
+        };
+      }
+
+      if (ack.status === "submitted") {
+        // Client received the event but could not open the panel (nack).
+        const reason =
+          typeof ack.submittedData?.reason === "string"
+            ? ack.submittedData.reason
+            : "unknown";
+        return {
+          content: `The channel setup panel could not be opened by the connected client (reason: ${reason}). Do NOT tell the user the panel is open. Troubleshoot with the user (e.g. ask them to reopen or refresh the Vellum app), then retry ui_show.`,
+          isError: true,
+        };
+      }
+
+      if (ack.status === "timed_out") {
+        return {
+          content:
+            "No connected client confirmed opening the channel setup panel. Do NOT tell the user the panel is open. The user's app may be closed, viewing a different conversation, or running a version that cannot show this panel. Ask the user to open this conversation in the Vellum app (web or desktop), then retry ui_show.",
+          isError: true,
+        };
+      }
+
+      // cancelled — no interactive client, or the turn was aborted.
+      return {
+        content:
+          "The channel setup panel could not be opened — no connected client can render interactive UI. Do NOT tell the user the panel is open. Ask the user to open the Vellum app (web or desktop), then retry ui_show.",
+        isError: true,
+      };
+    }
+
+    // Every surface type parses through its canonical schema. Card,
+    // copy_block, and dynamic_page first run bespoke normalizers that
+    // recover fields the model placed at the top level of the tool input;
+    // the rest go straight through `safeParseSurfaceData`. Choice and
+    // oauth_connect parse into named bindings so their content guards below
+    // read typed data instead of re-narrowing the union.
+    const cardData =
       surfaceType === "card"
         ? normalizeCardShowData(input, rawData)
-        : surfaceType === "choice"
-          ? normalizeChoiceShowData(rawData)
-          : surfaceType === "copy_block"
-            ? normalizeCopyBlockShowData(rawData)
-            : surfaceType === "oauth_connect"
-              ? normalizeOAuthConnectShowData(rawData)
-              : surfaceType === "dynamic_page"
-                ? normalizeDynamicPageShowData(input, rawData)
-                : rawData
-    ) as SurfaceData;
-    const inputActions = input.actions as
-      | Array<{
-          id: string;
-          label: string;
-          style?: string;
-          data?: Record<string, unknown>;
-        }>
-      | undefined;
-    const actions =
+        : undefined;
+    const choiceData =
       surfaceType === "choice"
-        ? buildChoiceActions(data as ChoiceSurfaceData)
-        : inputActions;
-    // Interactive surfaces default to awaiting user action.
+        ? ChoiceSurfaceDataSchema.parse(rawData)
+        : undefined;
+    const oauthData =
+      surfaceType === "oauth_connect"
+        ? OAuthConnectSurfaceDataSchema.parse(rawData)
+        : undefined;
+    const showPair: SurfaceShowPair =
+      cardData !== undefined
+        ? { surfaceType: "card", data: cardData }
+        : choiceData !== undefined
+          ? { surfaceType: "choice", data: choiceData }
+          : oauthData !== undefined
+            ? { surfaceType: "oauth_connect", data: oauthData }
+            : surfaceType === "copy_block"
+              ? {
+                  surfaceType,
+                  data: normalizeCopyBlockShowData(input, rawData),
+                }
+              : surfaceType === "dynamic_page"
+                ? {
+                    surfaceType,
+                    data: normalizeDynamicPageShowData(input, rawData),
+                  }
+                : parseShowPairOrThrow(surfaceType, rawData);
+    // Parse actions through the schema instead of typecasting raw model output.
+    // The model may place actions inside `data` instead of the top-level
+    // `actions` param — recover them so they aren't silently dropped.
+    const rawActions = Array.isArray(input.actions)
+      ? input.actions
+      : Array.isArray(rawData.actions)
+        ? rawData.actions
+        : undefined;
+    let inputActions: z.infer<typeof ModelActionSchema>[] | undefined;
+    if (rawActions) {
+      const valid: z.infer<typeof ModelActionSchema>[] = [];
+      for (const raw of rawActions) {
+        const result = ModelActionSchema.safeParse(raw);
+        if (result.success) {
+          valid.push(result.data);
+        }
+      }
+      inputActions = valid.length > 0 ? valid : undefined;
+    }
+    const actions =
+      choiceData !== undefined ? buildChoiceActions(choiceData) : inputActions;
     const hasActions = Array.isArray(actions) && actions.length > 0;
     if (surfaceType === "choice" && !hasActions) {
       return {
@@ -2559,20 +3056,41 @@ export async function surfaceProxyResolver(
         isError: true,
       };
     }
-    const oauthProviderKey =
-      surfaceType === "oauth_connect"
-        ? (data as unknown as Record<string, unknown>).providerKey
-        : undefined;
-    if (
-      surfaceType === "oauth_connect" &&
-      (typeof oauthProviderKey !== "string" ||
-        oauthProviderKey.trim().length === 0)
-    ) {
+    if (cardData !== undefined) {
+      const hasTitle =
+        (typeof title === "string" && title.trim().length > 0) ||
+        (typeof cardData.title === "string" &&
+          cardData.title.trim().length > 0);
+      const hasBody =
+        typeof cardData.body === "string" && cardData.body.trim().length > 0;
+      const hasSubtitle =
+        typeof cardData.subtitle === "string" &&
+        cardData.subtitle.trim().length > 0;
+      const hasMetadata =
+        Array.isArray(cardData.metadata) && cardData.metadata.length > 0;
+      const hasTemplate = typeof cardData.template === "string";
+      if (
+        !hasTitle &&
+        !hasBody &&
+        !hasSubtitle &&
+        !hasMetadata &&
+        !hasTemplate &&
+        !hasActions
+      ) {
+        return {
+          content:
+            "Error: ui_show card requires content — provide `data.body`, a `template` (e.g. task_progress with steps), `data.metadata`, `data.subtitle`, a `title`, or `actions`. The surface was not displayed because it carried no renderable content. Resend ui_show with populated card content.",
+          isError: true,
+        };
+      }
+    }
+    if (oauthData !== undefined && oauthData.providerKey.length === 0) {
       return {
         content: "oauth_connect surfaces require data.providerKey.",
         isError: true,
       };
     }
+
     const isInteractive =
       surfaceType === "card"
         ? hasActions
@@ -2609,10 +3127,7 @@ export async function surfaceProxyResolver(
     const mappedActions = actions?.map((a) => ({
       id: a.id,
       label: a.label,
-      style: (a.style ?? "secondary") as
-        | "primary"
-        | "secondary"
-        | "destructive",
+      style: a.style ?? "secondary",
       ...(a.data ? { data: a.data } : {}),
     }));
 
@@ -2637,11 +3152,10 @@ export async function surfaceProxyResolver(
     // Track surface state for ui_update merging (includes actions so we can
     // look up per-action data payloads when the client sends an action back).
     ctx.surfaceState.set(surfaceId, {
-      surfaceType,
-      data,
       title,
       actions: mappedActions,
       ...(storeTagForCommit ? { activationMoment } : {}),
+      ...showPair,
     });
 
     if (activationMoment !== undefined && !storeTagForCommit) {
@@ -2653,7 +3167,7 @@ export async function surfaceProxyResolver(
         surfaceId,
         surfaceType,
         title,
-        dataKeys: Object.keys(data),
+        dataKeys: Object.keys(showPair.data),
         actionCount: mappedActions?.length ?? 0,
         display,
         persistent: persistent ?? false,
@@ -2666,28 +3180,26 @@ export async function surfaceProxyResolver(
       type: "ui_surface_show",
       conversationId: ctx.conversationId,
       surfaceId,
-      surfaceType,
       title,
-      data,
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
       ...(toolUseId ? { toolCallId: toolUseId } : {}),
-    } as unknown as UiSurfaceShow);
+      ...showPair,
+    });
 
     // Track surface for persistence with the message. The commit-timing
     // activation tag rides along (daemon-only) so it survives history restore;
     // show-timing moments aren't stored here (already recorded at render).
     ctx.currentTurnSurfaces.push({
       surfaceId,
-      surfaceType,
       title,
-      data,
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
       ...(toolUseId ? { toolCallId: toolUseId } : {}),
       ...(storeTagForCommit ? { activationMoment } : {}),
+      ...showPair,
     });
 
     if (awaitAction) {
@@ -2707,31 +3219,71 @@ export async function surfaceProxyResolver(
   }
 
   if (toolName === "ui_update") {
-    const surfaceId = input.surface_id as string;
-    let patch = (isPlainObject(input.data) ? input.data : {}) as Record<
-      string,
-      unknown
-    >;
+    const surfaceId =
+      typeof input.surface_id === "string" ? input.surface_id : "";
+    let patch = coerceSurfaceDataRecord(input.data);
 
     // Merge the partial patch into the stored full surface data
     const stored = ctx.surfaceState.get(surfaceId);
-    let mergedData: SurfaceData;
+    let mergedData: AnySurfaceData;
+    let mergedPair: SurfaceShowPair | undefined;
     if (stored) {
       if (stored.surfaceType === "card") {
-        patch = normalizeTaskProgressCardPatch(
-          stored.data as CardSurfaceData,
-          patch,
-        );
+        patch = normalizeTaskProgressCardPatch(stored.data, patch);
       }
       // Push current HTML to undo stack for dynamic pages
       if (stored.surfaceType === "dynamic_page") {
-        const currentHtml = (stored.data as DynamicPageSurfaceData).html;
-        pushUndoState(ctx.surfaceUndoStacks, surfaceId, currentHtml);
+        pushUndoState(ctx.surfaceUndoStacks, surfaceId, stored.data.html);
       }
-      mergedData = { ...stored.data, ...patch } as SurfaceData;
-      stored.data = mergedData;
+      const rawMerged = { ...stored.data, ...patch };
+      if (!isKnownSurfaceType(stored.surfaceType)) {
+        // Restore preserves an unknown-but-non-empty persisted `surfaceType`
+        // verbatim (a newer/custom client-rendered surface). There is no
+        // canonical schema to validate or normalize against — and indexing
+        // `SURFACE_DATA_SCHEMAS` with it would read `undefined` and throw — so
+        // forward the merge opaquely rather than dropping the update, mirroring
+        // restore's verbatim handling of the same types.
+        mergedData = rawMerged as AnySurfaceData;
+        ctx.surfaceState.set(surfaceId, {
+          ...stored,
+          data: rawMerged,
+        } as SurfaceStateEntry);
+      } else {
+        // Validate the merged data through the surface type's canonical schema
+        // so malformed patches (e.g. metadata as a string) are caught here
+        // instead of crashing the client's safeParse. Keep unmodeled
+        // client-owned keys from the raw merge, but take the schema-NORMALIZED
+        // value for every modeled field: a tolerant field (e.g. dynamic_page
+        // `html` is `z.string().catch("")`, file_upload `acceptedTypes` coerces
+        // to `string[]`) can accept a malformed input and coerce it, and later
+        // daemon code (active-workspace injection's `truncateHtml`, undo-stack
+        // pushes) assumes the canonical shape — so storing the raw value would
+        // poison `surfaceState`. `mergedPair.data` holds only modeled keys, so
+        // spreading it over `rawMerged` normalizes those while preserving the
+        // client-owned ones. Only a failed parse reverts to the stored data.
+        mergedPair = buildSurfaceShowPair(stored.surfaceType, rawMerged);
+        if (mergedPair !== undefined) {
+          const normalized = { ...rawMerged, ...mergedPair.data };
+          mergedData = normalized as AnySurfaceData;
+          ctx.surfaceState.set(surfaceId, {
+            ...stored,
+            data: normalized,
+          } as SurfaceStateEntry);
+        } else {
+          log.warn(
+            { surfaceId, surfaceType: stored.surfaceType },
+            "ui_update patch produced invalid merged data; reverting to stored data",
+          );
+          mergedData =
+            safeParseSurfaceData(stored.surfaceType, stored.data) ??
+            stored.data;
+        }
+      }
     } else {
-      mergedData = patch as unknown as SurfaceData;
+      // No stored state for this surfaceId, so its surface type — and
+      // therefore its canonical schema — is unknown; forward the patch
+      // opaquely rather than dropping the update.
+      mergedData = patch;
     }
 
     ctx.sendToClient({
@@ -2741,12 +3293,22 @@ export async function surfaceProxyResolver(
       data: mergedData,
     });
 
-    // Keep the persisted snapshot in sync so updates survive conversation restart.
+    // Keep the persisted snapshot in sync so updates survive conversation
+    // restart. This must track EVERY branch that changed `mergedData` — not
+    // just the schema-parsed one — because the turn-end persist loop writes
+    // `currentTurnSurfaces[idx].data` to the same `ui_surface` block that the
+    // debounced `scheduleSurfaceDataPersist` below writes. If an unknown-type
+    // (opaquely forwarded) update updated `surfaceState` but not this array,
+    // the two writers would persist divergent data and race on which lands
+    // last. Gating on `idx !== -1` alone keeps all three in lockstep.
     const idx = ctx.currentTurnSurfaces.findIndex(
       (s) => s.surfaceId === surfaceId,
     );
     if (idx !== -1) {
-      ctx.currentTurnSurfaces[idx].data = mergedData;
+      ctx.currentTurnSurfaces[idx] = {
+        ...ctx.currentTurnSurfaces[idx],
+        data: mergedData,
+      } as CurrentTurnSurface;
     }
 
     // Persist the merged data back to the assistant message's
@@ -2759,7 +3321,8 @@ export async function surfaceProxyResolver(
   }
 
   if (toolName === "ui_dismiss") {
-    const surfaceId = input.surface_id as string;
+    const surfaceId =
+      typeof input.surface_id === "string" ? input.surface_id : "";
     const lastAction = ctx.lastSurfaceAction.get(surfaceId);
     const stored = ctx.surfaceState.get(surfaceId);
     if (lastAction) {
@@ -2767,7 +3330,7 @@ export async function surfaceProxyResolver(
         stored?.surfaceType,
         lastAction.actionId,
         lastAction.data,
-        stored?.data as Record<string, unknown> | undefined,
+        stored?.data,
       );
       ctx.sendToClient({
         type: "ui_surface_complete",
@@ -2783,6 +3346,17 @@ export async function surfaceProxyResolver(
         conversationId: ctx.conversationId,
         surfaceId,
       });
+      // The live client drops a dismissed surface entirely. Mirror that in
+      // persisted state: pull it from the pending turn snapshot (appended to
+      // the message at turn completion) and strip any already-persisted block,
+      // so a reload does not resurrect a half-finished progress card.
+      const turnIdx = ctx.currentTurnSurfaces.findIndex(
+        (s) => s.surfaceId === surfaceId,
+      );
+      if (turnIdx !== -1) {
+        ctx.currentTurnSurfaces.splice(turnIdx, 1);
+      }
+      removeSurfaceBlock(ctx, surfaceId);
     }
     ctx.pendingSurfaceActions.delete(surfaceId);
     ctx.surfaceState.delete(surfaceId);
@@ -2796,15 +3370,37 @@ export async function surfaceProxyResolver(
   }
 
   if (toolName === "app_open") {
-    const appId = input.app_id as string;
-    const preview = input.preview as DynamicPageSurfaceData["preview"];
-    const openMode = input.open_mode as string | undefined;
-    const app = getApp(appId);
-    if (!app) return { content: `App not found: ${appId}`, isError: true };
+    // An app surface only renders on a connected client that supports dynamic
+    // UI. On clientless, background, or non-dynamic-UI channels (e.g. Slack)
+    // the ui_surface_show below reaches no renderer, so fail closed with an
+    // actionable error rather than reporting a surface the user cannot see.
+    if (!canShowInteractiveUi(ctx)) {
+      return {
+        content:
+          "app_open needs a connected client that can display app surfaces (the Vellum macOS or web app), and none is available for this conversation. The app is saved — the user can open it from a connected client.",
+        isError: true,
+      };
+    }
+
+    const appId = resolveAppId(input, ctx.conversationId) ?? "";
+    const preview = isPlainObject(input.preview)
+      ? DynamicPagePreviewSchema.parse(input.preview)
+      : undefined;
+    const openMode =
+      typeof input.open_mode === "string" ? input.open_mode : undefined;
+    const app = appId ? getApp(appId) : null;
+    if (!app) {
+      return {
+        content: appId
+          ? `App not found: ${appId}`
+          : "app_id is required and no active app exists in this conversation. Call app_create first, or pass app_id explicitly.",
+        isError: true,
+      };
+    }
 
     // Track conversation association (best-effort — failures must not break open flow).
     try {
-      addAppConversationId(appId, ctx.conversationId);
+      linkAppToConversationLineage(appId, ctx.conversationId);
     } catch (err) {
       log.warn({ err, appId }, "Failed to track conversation ID on app_open");
     }
@@ -2817,22 +3413,20 @@ export async function surfaceProxyResolver(
     const storedPreview = getAppPreview(app.id);
     const { dirName } = resolveAppDir(app.id);
 
-    // For multifile TSX apps, auto-compile if dist is missing, then
-    // resolve HTML from compiled dist/index.html with inlined assets.
-    if (isMultifileApp(app)) {
-      const { existsSync } = await import("node:fs");
-      const { join } = await import("node:path");
-      const appDir = getAppDirPath(app.id);
-      const distIndex = join(appDir, "dist", "index.html");
-      if (!existsSync(distIndex)) {
-        const { compileApp } = await import("../bundler/app-compiler.js");
-        const result = await compileApp(appDir);
-        if (!result.ok) {
-          log.warn(
-            { appId, errors: result.errors },
-            "Auto-compile failed on app_open",
-          );
-        }
+    // Auto-compile if dist is missing, then resolve HTML from compiled
+    // dist/index.html with inlined assets.
+    const { existsSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const appDir = getAppDirPath(app.id);
+    const distIndex = join(appDir, "dist", "index.html");
+    if (!existsSync(distIndex)) {
+      const { compileApp } = await import("../bundler/app-compiler.js");
+      const result = await compileApp(appDir);
+      if (!result.ok) {
+        log.warn(
+          { appId, errors: result.errors },
+          "Auto-compile failed on app_open",
+        );
       }
     }
     const html = resolveEffectiveAppHtml(app);
@@ -2841,11 +3435,7 @@ export async function surfaceProxyResolver(
       html,
       appId: app.id,
       dirName,
-      preview: {
-        ...defaultPreview,
-        ...preview,
-        ...(storedPreview ? { previewImage: storedPreview } : {}),
-      },
+      preview: buildAppOpenPreview(defaultPreview, preview, storedPreview),
     };
     const surfaceId = uuid();
 

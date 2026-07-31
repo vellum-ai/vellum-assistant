@@ -11,7 +11,9 @@ function readPackageVersion(): string | undefined {
       "package.json",
     );
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    if (pkg.version && typeof pkg.version === "string") return pkg.version;
+    if (pkg.version && typeof pkg.version === "string") {
+      return pkg.version;
+    }
   } catch {
     // package.json missing or unreadable
   }
@@ -21,7 +23,9 @@ function readPackageVersion(): string | undefined {
 function resolveVersion(): string {
   const envVersion = process.env.APP_VERSION;
 
-  if (envVersion && envVersion !== DEV_VERSION_SENTINEL) return envVersion;
+  if (envVersion && envVersion !== DEV_VERSION_SENTINEL) {
+    return envVersion;
+  }
 
   return readPackageVersion() ?? DEV_VERSION_SENTINEL;
 }
@@ -32,7 +36,9 @@ export const APP_VERSION: string = resolveVersion();
 // Falls back to "unknown" for local development.
 function resolveCommitSha(): string {
   const sha = process.env.COMMIT_SHA;
-  if (!sha || sha === "unknown") return "unknown";
+  if (!sha || sha === "unknown") {
+    return "unknown";
+  }
   return sha;
 }
 

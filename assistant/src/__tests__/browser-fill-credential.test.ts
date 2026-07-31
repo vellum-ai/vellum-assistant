@@ -2,13 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 /**
  * Fake CDP session driven by the real `LocalCdpClient` via the mocked
  * `browserManager.getOrCreateSessionPage` below. `sendCalls` records
@@ -38,7 +31,9 @@ const fakeCdpSession = {
   send: async (method: string, params?: Record<string, unknown>) => {
     sendCalls.push({ method, params });
     const value = sendHandler(method, params);
-    if (value instanceof Error) throw value;
+    if (value instanceof Error) {
+      throw value;
+    }
     return value;
   },
   detach: async () => {
@@ -82,7 +77,9 @@ mock.module("../tools/browser/browser-manager.js", () => {
         elementId: string,
       ) => {
         const map = snapshotBackendNodeMaps.get(conversationId);
-        if (!map) return null;
+        if (!map) {
+          return null;
+        }
         return map.get(elementId) ?? null;
       },
       clearSnapshotBackendNodeMap: (conversationId: string) => {
@@ -319,7 +316,7 @@ describe("executeBrowserFillCredential", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No credential stored for slack/api_key");
-    expect(result.content).toContain("credential_store");
+    expect(result.content).toContain("assistant credentials prompt");
     // The broker short-circuits before DOM.focus is dispatched.
     const methods = sendCalls.map((c) => c.method);
     expect(methods).not.toContain("DOM.focus");
@@ -335,7 +332,7 @@ describe("executeBrowserFillCredential", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("No credential stored for slack/api_key");
-    expect(result.content).toContain("credential_store");
+    expect(result.content).toContain("assistant credentials prompt");
     const methods = sendCalls.map((c) => c.method);
     expect(methods).not.toContain("Input.insertText");
   });
@@ -465,7 +462,7 @@ describe("executeBrowserFillCredential", () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Policy denied");
       expect(result.content).toContain("not allowed to use credential");
-      expect(result.content).toContain("credential_store");
+      expect(result.content).toContain("assistant credentials prompt");
       // The broker short-circuits before Input.insertText fires.
       const methods = sendCalls.map((c) => c.method);
       expect(methods).not.toContain("Input.insertText");

@@ -47,9 +47,15 @@ export const WebSearchProviderIdSchema = z.enum([
   "brave",
   "perplexity",
   "tavily",
+  "keenable",
+  "firecrawl",
 ]);
 
 export type WebSearchProviderId = z.infer<typeof WebSearchProviderIdSchema>;
+
+export const WebFetchProviderIdSchema = z.enum(["default", "firecrawl"]);
+
+export type WebFetchProviderId = z.infer<typeof WebFetchProviderIdSchema>;
 
 export const WebSearchResultItemSchema = z.object({
   rank: z.number(),
@@ -78,6 +84,7 @@ export type WebSearchMetadata = z.infer<typeof WebSearchMetadataSchema>;
 export const WebFetchMetadataSchema = z.object({
   url: z.string(),
   finalUrl: z.string(),
+  provider: WebFetchProviderIdSchema.optional(),
   status: z.number(),
   contentType: z.string().optional(),
   byteCount: z.number(),
@@ -124,6 +131,14 @@ export const ToolResultEventSchema = z.object({
   approvalReason: z.string().optional(),
   riskThreshold: z.string().optional(),
   activityMetadata: ToolActivityMetadataSchema.optional(),
+  /**
+   * Stable, machine-readable classification for an error result (only set when
+   * `isError`). Lets a client branch on a known failure — e.g.
+   * `acp_claude_oauth_missing`, which renders an inline "Connect Claude Code"
+   * affordance — instead of pattern-matching the human `result` string. Absent
+   * on streams from older daemons and for results with no structured code.
+   */
+  errorCode: z.string().optional(),
   /**
    * Unix ms when the daemon finished executing the tool. Pairs with
    * `ToolUseStartEvent.startedAt` so clients can render a final duration that

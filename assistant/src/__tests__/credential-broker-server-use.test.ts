@@ -15,18 +15,9 @@ import {
 // ---------------------------------------------------------------------------
 // Mock logger
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
-
 import { _resetBackend } from "../security/secure-keys.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
@@ -305,7 +296,7 @@ describe("CredentialBroker.serverUse", () => {
 
       expect(result.success).toBe(false);
       expect(result.reason).toContain("No tools are currently allowed");
-      expect(result.reason).toContain("credential_store");
+      expect(result.reason).toContain("assistant credentials prompt");
     });
 
     test("denies when credential has domain restrictions even if tool matches", async () => {
@@ -497,7 +488,9 @@ describe("CredentialBroker.serverUseById", () => {
     });
 
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error("expected success");
+    if (!result.success) {
+      throw new Error("expected success");
+    }
     expect(result.credentialId).toBe(meta.credentialId);
     expect(result.service).toBe("fal");
     expect(result.field).toBe("api_key");
@@ -522,7 +515,9 @@ describe("CredentialBroker.serverUseById", () => {
     });
 
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("expected denial");
+    if (result.success) {
+      throw new Error("expected denial");
+    }
     expect(result.reason).toContain("not allowed");
     expect(result.reason).toContain("unauthorized_tool");
     expect(result.reason).toContain("media_proxy");
@@ -535,7 +530,9 @@ describe("CredentialBroker.serverUseById", () => {
     });
 
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("expected denial");
+    if (result.success) {
+      throw new Error("expected denial");
+    }
     expect(result.reason).toContain("No credential found");
     expect(result.reason).toContain("nonexistent-id");
   });
@@ -553,7 +550,9 @@ describe("CredentialBroker.serverUseById", () => {
     });
 
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("expected denial");
+    if (result.success) {
+      throw new Error("expected denial");
+    }
     expect(result.reason).toContain("domain restrictions");
     expect(result.reason).toContain("cannot be used server-side");
   });
@@ -573,7 +572,9 @@ describe("CredentialBroker.serverUseById", () => {
     });
 
     expect(result.success).toBe(true);
-    if (!result.success) throw new Error("expected success");
+    if (!result.success) {
+      throw new Error("expected success");
+    }
     expect(result.injectionTemplates).toEqual([]);
   });
 
@@ -592,9 +593,11 @@ describe("CredentialBroker.serverUseById", () => {
     });
 
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("expected denial");
+    if (result.success) {
+      throw new Error("expected denial");
+    }
     expect(result.reason).toContain("No tools are currently allowed");
-    expect(result.reason).toContain("credential_store");
+    expect(result.reason).toContain("assistant credentials prompt");
   });
 
   test("denies when metadata exists but no stored secret value", async () => {
@@ -617,7 +620,9 @@ describe("CredentialBroker.serverUseById", () => {
     });
 
     expect(result.success).toBe(false);
-    if (result.success) throw new Error("expected denial");
+    if (result.success) {
+      throw new Error("expected denial");
+    }
     expect(result.reason).toContain("no stored value");
   });
 });

@@ -16,13 +16,6 @@ const isReadyFn = mock((): boolean => true);
 // Mock modules — before importing module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Import after mocking
 import type { CesClient } from "../credential-execution/client.js";
 import { CesRpcCredentialBackend } from "../security/ces-rpc-credential-backend.js";

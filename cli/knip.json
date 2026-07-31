@@ -11,6 +11,7 @@
   "ignoreDependencies": [
     "@vellumai/environments",
     "@vellumai/local-mode",
+    "@vellumai/service-contracts",
     "@vellumai/web"
   ]
 }

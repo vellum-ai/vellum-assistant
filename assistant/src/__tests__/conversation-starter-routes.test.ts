@@ -2,20 +2,13 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { v4 as uuid } from "uuid";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../prompts/user-reference.js", () => ({
   DEFAULT_USER_REFERENCE: "my human",
   resolveUserReference: () => "Alice",
 }));
 
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getMemorySqlite, getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   CONVERSATION_STARTERS_STALE_TTL_MS,
   orderStrongestFirst,
@@ -23,7 +16,7 @@ import {
 } from "../runtime/routes/conversation-starter-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
 
-initializeDb();
+await initializeDb();
 
 /**
  * Dispatch a request to the ROUTES array by matching endpoint + method.
@@ -34,12 +27,16 @@ function dispatch(path: string, method = "GET"): unknown | Promise<unknown> {
   const urlPath = url.pathname.replace("/v1/", "");
 
   const route = ROUTES.find((r) => {
-    if (r.method !== method) return false;
+    if (r.method !== method) {
+      return false;
+    }
     // Simple matching: "conversation-starters" or "conversation-starters/:id"
     const pattern = r.endpoint.replace(/:(\w+)/g, "([^/]+)");
     return new RegExp(`^${pattern}$`).test(urlPath);
   });
-  if (!route) throw new Error(`No route found for ${method} ${urlPath}`);
+  if (!route) {
+    throw new Error(`No route found for ${method} ${urlPath}`);
+  }
 
   // Extract path params from the endpoint pattern
   const pathParams: Record<string, string> = {};
@@ -65,8 +62,8 @@ function dispatch(path: string, method = "GET"): unknown | Promise<unknown> {
 
 function clearTables() {
   getSqlite().run("DELETE FROM conversation_starters");
-  getSqlite().run("DELETE FROM memory_graph_nodes");
-  getSqlite().run("DELETE FROM memory_jobs");
+  getMemorySqlite()!.run("DELETE FROM memory_graph_nodes");
+  getMemorySqlite()!.run("DELETE FROM memory_jobs");
   getSqlite().run("DELETE FROM memory_checkpoints");
 }
 
@@ -99,7 +96,7 @@ function insertStarter(overrides: {
 
 function insertMemoryItem(scopeId = "default") {
   const now = Date.now();
-  getSqlite().run(
+  getMemorySqlite()!.run(
     `INSERT INTO memory_graph_nodes (
       id, content, type, created, last_accessed, last_consolidated,
       emotional_charge, fidelity, confidence, significance,
@@ -129,7 +126,7 @@ function setCheckpoint(key: string, value: string, updatedAt = Date.now()) {
 
 function insertStarterJob(scopeId = "default", status = "pending") {
   const now = Date.now();
-  getSqlite().run(
+  getMemorySqlite()!.run(
     `INSERT INTO memory_jobs (
       id, type, payload, status, attempts, deferrals, run_after, last_error,
       started_at, created_at, updated_at
@@ -140,7 +137,7 @@ function insertStarterJob(scopeId = "default", status = "pending") {
 
 function countStarterJobs() {
   return (
-    getSqlite()
+    getMemorySqlite()!
       .prepare(
         `SELECT COUNT(*) AS c FROM memory_jobs WHERE type = 'generate_conversation_starters'`,
       )

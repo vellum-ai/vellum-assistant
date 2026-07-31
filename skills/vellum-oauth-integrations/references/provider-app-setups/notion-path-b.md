@@ -51,27 +51,18 @@ Tell the user:
 >
 > Click **Show** to reveal it, then copy the secret. It starts with `ntn_`.
 >
-> Send it as a standalone message with no other text.
+> Don't paste it in chat — I'll open a secure prompt for you to enter it.
 
-After the user sends the secret:
+Then open the secure prompt:
 
-```
-credential_store prompt:
-  service: "notion"
-  field: "internal_secret"
-  label: "Notion Internal Integration Secret"
-  description: "Paste the Internal Integration Secret."
-  placeholder: "ntn_..."
+```bash
+assistant credentials prompt --service notion --field internal_secret \
+  --label "Notion Internal Integration Secret" \
+  --placeholder "ntn_..." \
+  --description "Paste the Internal Integration Secret."
 ```
 
-If using `credential_store store` instead (when the user sent it as plaintext):
-
-```
-credential_store store:
-  service: "notion"
-  field: "internal_secret"
-  value: "<the secret the user sent>"
-```
+Never solicit the secret in chat or store a chat-pasted value with `assistant credentials set` — always collect it through the secure `assistant credentials prompt` flow above so it never transits the conversation.
 
 ## Path B Step 4: Grant Page Access
 

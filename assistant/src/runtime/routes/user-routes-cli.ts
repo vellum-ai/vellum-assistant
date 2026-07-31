@@ -13,10 +13,19 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
-import { getWorkspaceRoutesDir } from "../../util/platform.js";
+import { getWorkspaceDir, getWorkspaceRoutesDir } from "../../util/platform.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import {
+  HANDLER_EXTENSIONS,
+  isReservedWorkspaceRoutePath,
+  isRouteTestPath,
+  listPluginRouteRoots,
+  resolveHandlerFile,
+  resolveRouteLocation,
+} from "./user-route-resolution.js";
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -31,8 +40,6 @@ const HTTP_METHODS = [
 ] as const;
 
 type HttpMethod = (typeof HTTP_METHODS)[number];
-
-const HANDLER_EXTENSIONS = [".ts", ".js"] as const;
 
 type HandlerExtension = (typeof HANDLER_EXTENSIONS)[number];
 
@@ -88,13 +95,21 @@ async function discoverRoutes(routesDir: string): Promise<DiscoveredRoute[]> {
     const entries = readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
+      // Test dirs/files are not servable handlers and must never be imported
+      // into the daemon (a test file's top-level mock.module calls are
+      // process-global) — mirrors resolveHandlerFile's dispatch-side gate.
+      if (isRouteTestPath(relative(routesDir, fullPath))) {
+        continue;
+      }
       if (entry.isDirectory()) {
         scanDir(fullPath);
       } else if (entry.isFile()) {
         const ext = HANDLER_EXTENSIONS.find((e) => entry.name.endsWith(e)) as
           | HandlerExtension
           | undefined;
-        if (!ext) continue;
+        if (!ext) {
+          continue;
+        }
 
         const relativePath = relative(routesDir, fullPath);
         const withoutExt = relativePath.slice(0, -ext.length);
@@ -146,51 +161,67 @@ function tryGetPublicBaseUrl(): string | null {
   }
 }
 
-function resolveHandlerFile(
-  routesDir: string,
-  routePath: string,
-): string | null {
-  const basePath = join(routesDir, routePath);
-
-  for (const ext of HANDLER_EXTENSIONS) {
-    const candidate = `${basePath}${ext}`;
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  for (const ext of HANDLER_EXTENSIONS) {
-    const candidate = join(basePath, `index${ext}`);
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return null;
+/**
+ * Strip a leading `/x/` (or `x/`) and surrounding slashes from a route path so
+ * `routes inspect` accepts both the bare sub-path (`ping`) and the `/x/`-prefixed
+ * form that `routes list` prints (`/x/plugins/demo/status`).
+ */
+function normalizeInspectPath(input: string): string {
+  const trimmed = input.replace(/^\/+/, "");
+  return trimmed.startsWith("x/") ? trimmed.slice(2) : trimmed;
 }
 
 // ── Handlers ────────────────────────────────────────────────────────
 
 async function handleUserRoutesList() {
-  const routesDir = getWorkspaceRoutesDir();
-  const discovered = await discoverRoutes(routesDir);
   const publicBase = tryGetPublicBaseUrl();
+  const workspaceDir = getWorkspaceDir();
 
-  const routes = discovered.map((r) => ({
-    routePath: `/x/${r.routePath}`,
+  const toEntry = (xPath: string, r: DiscoveredRoute) => ({
+    routePath: `/x/${xPath}`,
     methods: r.methods,
     description: r.description ?? null,
-    filePath: relative(routesDir, r.filePath),
-    publicUrl: publicBase ? `${publicBase}/x/${r.routePath}` : null,
-  }));
+    filePath: relative(workspaceDir, r.filePath),
+    publicUrl: publicBase ? `${publicBase}/x/${xPath}` : null,
+  });
 
+  const routes: ReturnType<typeof toEntry>[] = [];
+
+  // Workspace routes at `/x/<path>`. Paths shadowed by the reserved plugin
+  // namespace are skipped: `resolveRouteLocation` routes those to a plugin
+  // directory, so a `<workspace>/routes/plugins/…` file is never served and
+  // must not be advertised here.
+  for (const r of await discoverRoutes(getWorkspaceRoutesDir())) {
+    if (isReservedWorkspaceRoutePath(r.routePath)) {
+      continue;
+    }
+    routes.push(toEntry(r.routePath, r));
+  }
+
+  // Plugin routes at `/x/plugins/<name>/<sub>`, from each enabled plugin's
+  // `routes/` directory (same enumeration the dispatcher resolves against).
+  for (const { pluginName, routesDir } of listPluginRouteRoots()) {
+    for (const r of await discoverRoutes(routesDir)) {
+      const xPath = r.routePath
+        ? `plugins/${pluginName}/${r.routePath}`
+        : `plugins/${pluginName}`;
+      routes.push(toEntry(xPath, r));
+    }
+  }
+
+  routes.sort((a, b) => a.routePath.localeCompare(b.routePath));
   return { ok: true, routes };
 }
 
 async function handleUserRoutesInspect({ body = {} }: RouteHandlerArgs) {
-  const { path: routePath } = InspectParams.parse(body);
-  const routesDir = getWorkspaceRoutesDir();
-  const filePath = resolveHandlerFile(routesDir, routePath);
+  const routePath = normalizeInspectPath(parseBody(InspectParams, body).path);
+
+  const location = routePath.includes("..")
+    ? null
+    : resolveRouteLocation(routePath);
+  const filePath = location
+    ? resolveHandlerFile(location.routesDir, location.subPath)
+    : null;
 
   if (!filePath) {
     throw new NotFoundError(
@@ -209,7 +240,7 @@ async function handleUserRoutesInspect({ body = {} }: RouteHandlerArgs) {
       routePath: `/x/${routePath}`,
       methods,
       description: description ?? null,
-      filePath,
+      filePath: relative(getWorkspaceDir(), filePath),
       publicUrl,
       fileSize: stat.size,
       modifiedAt: stat.mtime.toISOString(),

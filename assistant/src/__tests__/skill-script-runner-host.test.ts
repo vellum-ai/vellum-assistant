@@ -177,6 +177,59 @@ describe("runSkillToolScript — errors", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Host execution is a bundled-only capability
+// ---------------------------------------------------------------------------
+
+describe("runSkillToolScript — host execution requires a bundled skill", () => {
+  test("refuses host execution for a non-bundled skill", async () => {
+    // A managed/workspace/plugin skill declaring execution_target: host must be
+    // denied before its executor is dynamically imported into the host process.
+    const result = await runSkillToolScript(
+      tempDir,
+      "success.ts",
+      { name: "world" },
+      makeContext(),
+      { target: "host" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("only permitted for first-party bundled");
+    expect(result.content).toContain('execution_target: "sandbox"');
+    // The script must not have run — its success output never appears.
+    expect(result.content).not.toContain("hello from world");
+  });
+
+  test("refuses host execution even when bundled is explicitly false", async () => {
+    const result = await runSkillToolScript(
+      tempDir,
+      "echo.ts",
+      { foo: "bar" },
+      makeContext(),
+      { target: "host", bundled: false },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("only permitted for first-party bundled");
+  });
+
+  test("allows host execution for a bundled skill", async () => {
+    // Bundled (first-party) skills ship trusted in-repo executors and may run
+    // on the host. With no registry entry for this temp script, the runner
+    // falls back to a dynamic import and the script executes.
+    const result = await runSkillToolScript(
+      tempDir,
+      "success.ts",
+      { name: "world" },
+      makeContext(),
+      { target: "host", bundled: true },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe("hello from world");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Host skill runner hash guard
 // ---------------------------------------------------------------------------
 

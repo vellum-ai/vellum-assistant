@@ -28,6 +28,9 @@ import { log as _log } from "./shared.js";
 
 // -- Result type --
 
+export const SlackThreadMode = z.enum(["mention_only", "mention_then_thread"]);
+export type SlackThreadMode = z.infer<typeof SlackThreadMode>;
+
 export const SlackChannelConfigResultSchema = z.object({
   success: z.boolean(),
   hasBotToken: z.boolean(),
@@ -39,6 +42,7 @@ export const SlackChannelConfigResultSchema = z.object({
   teamUrl: z.string().optional(),
   botUserId: z.string().optional(),
   botUsername: z.string().optional(),
+  threadMode: SlackThreadMode,
   error: z.string().optional(),
   warning: z.string().optional(),
 });
@@ -129,6 +133,8 @@ export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult>
     ensureUserTokenInjectionTemplates();
   }
 
+  const { threadMode } = getConfig().slack;
+
   return {
     success: true,
     hasBotToken,
@@ -140,6 +146,7 @@ export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult>
     ...(teamUrl ? { teamUrl } : {}),
     ...(botUserId ? { botUserId } : {}),
     ...(botUsername ? { botUsername } : {}),
+    threadMode,
   };
 }
 
@@ -166,6 +173,7 @@ async function currentErrorSnapshot(
       !!(errConn && errConn.status === "active") &&
       errHasBotToken &&
       errHasAppToken,
+    threadMode: getConfig().slack.threadMode,
     error,
   };
 }
@@ -429,6 +437,7 @@ export async function setSlackChannelConfig(
     hasUserToken,
     connected: hasBotToken && hasAppToken,
     ...metadata,
+    threadMode: getConfig().slack.threadMode,
     ...(warning ? { warning } : {}),
   };
 }
@@ -440,9 +449,8 @@ export async function setSlackChannelConfig(
  * the bot_token, app_token, oauth_connection row, and Slack config metadata
  * untouched so the Socket Mode connection stays up. Returns a
  * `SlackChannelConfigResult` reflecting the remaining state. A `not-found`
- * delete outcome is reported as a failure to match the credential_store
- * delete semantics (callers and automation rely on missing-credential
- * detection).
+ * delete outcome is reported as a failure to match the credential delete
+ * semantics (callers and automation rely on missing-credential detection).
  */
 export async function clearSlackUserToken(): Promise<SlackChannelConfigResult> {
   const result = await deleteSecureKeyAsync(
@@ -467,6 +475,7 @@ export async function clearSlackUserToken(): Promise<SlackChannelConfigResult> {
       hasUserToken,
       connected:
         !!(conn && conn.status === "active") && hasBotToken && hasAppToken,
+      threadMode: getConfig().slack.threadMode,
       error:
         result === "not-found"
           ? "Slack user token not found in secure storage"
@@ -498,6 +507,7 @@ export async function clearSlackUserToken(): Promise<SlackChannelConfigResult> {
     ...(teamUrl ? { teamUrl } : {}),
     ...(botUserId ? { botUserId } : {}),
     ...(botUsername ? { botUsername } : {}),
+    threadMode: getConfig().slack.threadMode,
   };
 }
 
@@ -531,6 +541,7 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
       hasUserToken,
       connected:
         !!(conn && conn.status === "active") && hasBotToken && hasAppToken,
+      threadMode: getConfig().slack.threadMode,
       error: "Failed to delete Slack channel credentials from secure storage",
     };
   }
@@ -557,5 +568,13 @@ export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResul
     hasAppToken: false,
     hasUserToken: false,
     connected: false,
+    threadMode: "mention_only",
   };
+}
+
+export function patchSlackChannelConfig(threadMode: SlackThreadMode): void {
+  const raw = loadRawConfig();
+  setNestedValue(raw, "slack.threadMode", threadMode);
+  saveRawConfig(raw);
+  invalidateConfigCache();
 }

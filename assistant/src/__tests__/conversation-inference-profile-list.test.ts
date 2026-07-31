@@ -9,12 +9,6 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
@@ -27,27 +21,16 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
-
 import {
   createConversation,
   setConversationInferenceProfile,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 type ConversationSummary = {
   id: string;
@@ -123,7 +106,9 @@ describe("conversation HTTP responses include inferenceProfile", () => {
   }
 
   function url(pathname: string): string {
-    if (!server) throw new Error("server not started");
+    if (!server) {
+      throw new Error("server not started");
+    }
     return `http://127.0.0.1:${server.actualPort}/v1${pathname}`;
   }
 });

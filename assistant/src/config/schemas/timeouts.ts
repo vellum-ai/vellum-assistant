@@ -28,6 +28,14 @@ export const TimeoutConfigSchema = z
       .describe(
         "How long to wait for user permission approval before timing out (seconds)",
       ),
+    questionResponseTimeoutSec: z
+      .number({ error: "timeouts.questionResponseTimeoutSec must be a number" })
+      .finite("timeouts.questionResponseTimeoutSec must be finite")
+      .positive("timeouts.questionResponseTimeoutSec must be a positive number")
+      .default(1800)
+      .describe(
+        "Backstop timeout for an unanswered ask_question prompt (seconds). The primary way an interactive user dismisses a prompt is by moving on — enqueuing another message supersedes it — so this only bounds a prompt left open with no response and no follow-up message.",
+      ),
     toolExecutionTimeoutSec: z
       .number({ error: "timeouts.toolExecutionTimeoutSec must be a number" })
       .finite("timeouts.toolExecutionTimeoutSec must be finite")
@@ -41,6 +49,30 @@ export const TimeoutConfigSchema = z
       .default(1800)
       .describe(
         "Timeout for waiting on the LLM provider's streaming response (seconds)",
+      ),
+    backgroundTurnTimeoutSec: z
+      .number({ error: "timeouts.backgroundTurnTimeoutSec must be a number" })
+      .int("timeouts.backgroundTurnTimeoutSec must be an integer")
+      .positive("timeouts.backgroundTurnTimeoutSec must be a positive integer")
+      .max(
+        2147483,
+        "timeouts.backgroundTurnTimeoutSec must be at most 2147483 (setTimeout-safe limit)",
+      )
+      .default(1800)
+      .describe(
+        "Hard timeout for heartbeat and generic background agent turns (seconds)",
+      ),
+    scheduleTurnTimeoutSec: z
+      .number({ error: "timeouts.scheduleTurnTimeoutSec must be a number" })
+      .int("timeouts.scheduleTurnTimeoutSec must be an integer")
+      .positive("timeouts.scheduleTurnTimeoutSec must be a positive integer")
+      .max(
+        2147483,
+        "timeouts.scheduleTurnTimeoutSec must be at most 2147483 (setTimeout-safe limit)",
+      )
+      .default(1800)
+      .describe(
+        "Hard timeout for deliberately-launched scheduled (talk-mode) agent turns (seconds)",
       ),
   })
   .describe("Timeout configuration for various operations");

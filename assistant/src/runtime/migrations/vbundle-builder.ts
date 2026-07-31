@@ -11,7 +11,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
-  createReadStream,
   createWriteStream,
   existsSync,
   lstatSync,
@@ -21,7 +20,7 @@ import {
   readSync,
   realpathSync,
 } from "node:fs";
-import { stat, unlink } from "node:fs/promises";
+import { type FileHandle, open, stat, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -164,7 +163,9 @@ const BLOCK_SIZE = 512;
 
 function padToBlock(data: Uint8Array): Uint8Array {
   const remainder = data.length % BLOCK_SIZE;
-  if (remainder === 0) return data;
+  if (remainder === 0) {
+    return data;
+  }
   const padded = new Uint8Array(data.length + (BLOCK_SIZE - remainder));
   padded.set(data);
   return padded;
@@ -611,7 +612,9 @@ export function walkDirectory(
         walk(fullPath);
       } else if (stat.isFile()) {
         // Skip files by basename (e.g. backup key)
-        if (skipFiles.includes(entry.name)) continue;
+        if (skipFiles.includes(entry.name)) {
+          continue;
+        }
 
         // Skip SQLite auxiliary files — these are ephemeral and race-prone
         // with the live DB connection. The WAL is checkpointed before the
@@ -636,7 +639,9 @@ export function walkDirectory(
               break;
             }
           }
-          if (isBinary) continue;
+          if (isBinary) {
+            continue;
+          }
         }
 
         const relativePath = relative(dir, fullPath);
@@ -679,8 +684,9 @@ export interface BuildExportVBundleOptions {
    * Optional callback to checkpoint the WAL before reading the database file.
    * In WAL mode, committed rows may live in the -wal file and not yet be
    * flushed to the main .db file. Callers should pass a function that runs
-   * PRAGMA wal_checkpoint(FULL) on the live database connection. (Not
-   * TRUNCATE — see assistant/AGENTS.md "SQLite WAL checkpointing".)
+   * PRAGMA wal_checkpoint(FULL) on the live database connection — FULL
+   * flushes committed frames to the .db file without the extra WAL restart
+   * and truncation that TRUNCATE performs.
    * Called before the workspace walk so the DB file is up to date.
    *
    * May return a Promise — `streamExportVBundle` awaits the result so an
@@ -836,7 +842,9 @@ export function walkDirectoryForMetadata(
         walk(fullPath);
       } else if (fileStat.isFile()) {
         // Skip files by basename (e.g. backup key)
-        if (skipFiles.includes(entry.name)) continue;
+        if (skipFiles.includes(entry.name)) {
+          continue;
+        }
 
         // Skip SQLite auxiliary files — these are ephemeral and race-prone
         if (
@@ -866,7 +874,9 @@ export function walkDirectoryForMetadata(
                 break;
               }
             }
-            if (isBinary) continue;
+            if (isBinary) {
+              continue;
+            }
           }
         }
 
@@ -885,21 +895,45 @@ export function walkDirectoryForMetadata(
 }
 
 /**
- * Compute SHA-256 hex digest of a file by streaming — never buffers the
- * entire file in memory. When `size` is provided, only hashes the first
- * `size` bytes to match what will be archived in the tar entry.
+ * Compute SHA-256 hex digest of a file by reading it in bounded chunks —
+ * never buffers the entire file in memory. When `size` is provided, only
+ * hashes the first `size` bytes to match what will be archived in the tar
+ * entry.
  */
 async function computeFileSha256(
   filePath: string,
   size?: number,
 ): Promise<string> {
   const hash = createHash("sha256");
-  if (size === 0) return hash.digest("hex");
-  const streamOpts =
-    size !== undefined ? { start: 0, end: size - 1 } : undefined;
-  const stream = createReadStream(filePath, streamOpts);
-  for await (const chunk of stream) {
-    hash.update(chunk);
+  if (size === 0) {
+    return hash.digest("hex");
+  }
+
+  // Read through an explicitly-managed FileHandle so the descriptor is
+  // always released in `finally`. This pass opens every file in the
+  // workspace, so any per-file descriptor leak here would exhaust the
+  // daemon's file-descriptor limit (EMFILE). A bounded read loop keeps peak
+  // memory flat regardless of file size.
+  const readChunkBytes = 64 * 1024;
+  const handle = await open(filePath, "r");
+  try {
+    const chunk = Buffer.allocUnsafe(readChunkBytes);
+    let position = 0;
+    for (;;) {
+      const remaining = size !== undefined ? size - position : Infinity;
+      if (remaining <= 0) {
+        break;
+      }
+      const toRead = Math.min(chunk.length, remaining);
+      const { bytesRead } = await handle.read(chunk, 0, toRead, position);
+      if (bytesRead === 0) {
+        break;
+      }
+      hash.update(chunk.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+  } finally {
+    await handle.close();
   }
   return hash.digest("hex");
 }
@@ -1010,7 +1044,9 @@ function createPaxAndHeaderBlocks(
  */
 function tarPaddingBytes(dataSize: number): Uint8Array {
   const remainder = dataSize % BLOCK_SIZE;
-  if (remainder === 0) return new Uint8Array(0);
+  if (remainder === 0) {
+    return new Uint8Array(0);
+  }
   return new Uint8Array(BLOCK_SIZE - remainder);
 }
 
@@ -1055,21 +1091,37 @@ async function* generateTarStream(
       // alignment. The WAL checkpoint before export is the primary
       // consistency mechanism for the database.
       let bytesWritten = 0;
-      if (file.size > 0) {
+      if (entrySize > 0) {
+        // Read through an explicitly-managed FileHandle so the descriptor is
+        // released in `finally` even when the consumer abandons the generator
+        // mid-file. Each read uses a fresh buffer so a yielded chunk is never
+        // overwritten by the next read before the consumer drains it.
+        let handle: FileHandle | undefined;
         try {
-          const stream = createReadStream(file.diskPath, {
-            start: 0,
-            end: file.size - 1,
-          });
-          for await (const chunk of stream) {
-            const data =
-              chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
-            bytesWritten += data.length;
-            yield data;
+          handle = await open(file.diskPath, "r");
+          const readChunkBytes = 64 * 1024;
+          while (bytesWritten < entrySize) {
+            const toRead = Math.min(readChunkBytes, entrySize - bytesWritten);
+            const buf = Buffer.allocUnsafe(toRead);
+            const { bytesRead } = await handle.read(
+              buf,
+              0,
+              toRead,
+              bytesWritten,
+            );
+            if (bytesRead === 0) {
+              break;
+            }
+            bytesWritten += bytesRead;
+            yield bytesRead === buf.length ? buf : buf.subarray(0, bytesRead);
           }
         } catch {
           // File was deleted or rotated between passes — emit zeros for
           // the full declared size so the tar structure stays valid
+        } finally {
+          if (handle) {
+            await handle.close();
+          }
         }
       }
 

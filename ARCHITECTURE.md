@@ -8,13 +8,13 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Assistant runtime                           | [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)                                           |
 | Gateway ingress/webhooks                    | [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)                                               |
-| Clients (macOS, browser extension)          | [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md)                                               |
-| Apps (end-user surfaces, scaffold)          | [`apps/README.md`](apps/README.md)                                                                 |
+| Browser extension                            | [`clients/chrome-extension/README.md`](clients/chrome-extension/README.md)                                               |
+| Clients (web, iOS, Android, macOS, Windows)  | [`clients/README.md`](clients/README.md)                                                           |
+| Public docs site (`clients/docs`)            | [`clients/docs/README.md`](clients/docs/README.md)                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
 | Assistant scheduling deep dive              | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md)           |
 | Assistant security deep dive                | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md)               |
-| macOS keychain broker (removed, historical) | [`assistant/docs/architecture/keychain-broker.md`](assistant/docs/architecture/keychain-broker.md) |
 | Trusted contact access design               | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md)             |
 | Trusted contacts operator runbook           | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md)         |
 | Credential Execution Service (CES)          | [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md) |
@@ -22,6 +22,9 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Multi-local instance isolation              | [Multi-Local Instance Isolation](#multi-local-instance-isolation) (this file)                      |
 | Docker volume architecture                  | [Docker Volume Architecture](#docker-volume-architecture) (this file)                              |
 | Web search failure normalization            | [Web Search Failure Normalization](#web-search-failure-normalization) (this file)                  |
+| Workflow orchestration engine               | [Workflow Orchestration Engine](#workflow-orchestration-engine) (this file)                        |
+| Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
+| Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
 | Service communication matrix                | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md)                     |
 
 ## Cross-Cutting Invariants
@@ -43,11 +46,13 @@ This file is the cross-system architecture index. Detailed designs live in domai
   Secure commands are manifest-driven: each bundle declares an auth adapter (`env_var`, `temp_file`, or `credential_process`), an egress mode (`proxy_required` or `no_network`), and allowed argv patterns; generic HTTP clients, interpreters, and shell trampolines are structurally denied as entrypoints. CES-owned durable state (grants and audit logs) is never read or written by the assistant directly. Credential key files (`keys.enc`, `store.key`) are stored on the CES security volume (`/ces-security`) in Docker mode — no other container has access to this volume. `host_bash` is outside the strong CES secrecy guarantee. Response/output filtering (header stripping, body clamping, secret scrubbing) is defense-in-depth, not the primary protection. Managed rollout requires a third runtime image alongside the assistant and gateway images, with corresponding `vembda` pod-template changes; rollout is gated by five feature flags (`ces-tools`, `ces-shell-lockdown`, `ces-secure-install`, `ces-grant-audit`, `ces-managed-sidecar`; keys are simple kebab-case, e.g. `ces-tools`), all defaulting to off. See [`assistant/docs/credential-execution-service.md`](assistant/docs/credential-execution-service.md).
 
 - Trusted contact ingress ACL is channel-agnostic; identity binding adapts per channel (chat ID, E.164 phone, external user ID) without channel-specific branching.
-- macOS managed sign-in connects the desktop app to a platform-hosted assistant via Django assistant-scoped proxy endpoints (`/v1/assistants/{id}/...`). The `HTTPDaemonClient` operates in `platformAssistantProxy` route mode with `X-Session-Token` auth. Managed lockfile entries have `cloud: "vellum"`. Startup guardrails skip local daemon hatching and actor credential bootstrap. See [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md) for the full flow.
+- macOS managed sign-in connects the desktop app to a platform-hosted assistant via Django assistant-scoped proxy endpoints (`/v1/assistants/{id}/...`). The `HTTPDaemonClient` operates in `platformAssistantProxy` route mode with `X-Session-Token` auth. Managed lockfile entries have `cloud: "vellum"`. Startup guardrails skip local daemon hatching and actor credential bootstrap.
 - **Assistant feature flags** control skill availability at runtime. The canonical key format is simple kebab-case (e.g., `browser`, `ces-tools`); the legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported. All declared flags live in the unified registry at `meta/feature-flags/feature-flag-registry.json`, scoped by `scope` (`assistant` or `client`). Labels come from the registry. Bundled copies exist at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. The gateway owns the `/v1/feature-flags` REST API and the IPC `get_feature_flags` method (see [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)); the assistant resolves effective flag state via IPC to the gateway socket (`gateway.sock`) — see [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md). When a flag is OFF, the corresponding skill is excluded from all exposure surfaces: client skill lists, system prompt catalog, `skill_load`, runtime tool projection, and included child skills. Guard tests enforce that all flag keys in code use the canonical format and that all referenced flags are declared in the unified registry.
 - **Safe storage limits** protect the workspace volume. When workspace disk usage reaches the critical 95% threshold, the assistant enters storage cleanup mode: background work is skipped, remote ingress including trusted-contact messages is blocked, local guardian turns get cleanup-specific runtime instructions, and clients must show acknowledgement/status UI until enough space is freed or the guardian explicitly overrides the lock. See [Safe Storage Limits](#safe-storage-limits).
 - **Permission controls v2** removes deterministic tool-by-tool approval friction for assistant-owned actions. Under `permission-controls-v2`, the only built-in deterministic approval surface is conversation-scoped host computer access for `host_*` / host-target tools. All other assistant-owned tool usage relies on model-mediated consent, not temporary approvals, wildcard scopes, per-tool persistence, or network/side-effect approval cards. Cross-principal identity checks (for example unknown actors) still fail closed deterministically.
+- **Workflow orchestration**: the assistant authors JS/TS scripts that run in a QuickJS-WASM sandbox and fan out to parallel ephemeral leaf agents. Scripts get **hooks only** — no filesystem, network, process, or ambient capabilities — because a script may be authored after the assistant has read untrusted content. The per-run **capability declaration is the single consent point** (no per-call approval prompts inside a run), and the only runaway guard is the per-run **agent cap** (`maxAgentsPerRun`, default 500) — there is no dollar kill-switch by design. Scripts must be deterministic (no `Date.now`/`Math.random`/argless `new Date()`) so a journaled run can resume after a restart by replaying the unchanged call prefix. See [Workflow Orchestration Engine](#workflow-orchestration-engine) and [`assistant/docs/workflows.md`](assistant/docs/workflows.md).
 - **Context overflow resilience**: The session loop implements a deterministic overflow convergence pipeline that recovers from context-too-large failures without surfacing errors to users. A preflight budget check catches overflow before provider calls; a tiered reducer (forced compaction, tool-result truncation, media stubbing, injection downgrade) iteratively shrinks the payload; and when all tiers are exhausted the overflow policy resolver auto-compresses the latest turn with no user prompt — this applies equally to interactive and non-interactive sessions. Setting `contextWindow.overflowRecovery.interactiveLatestTurnCompression` to `"drop"` opts interactive sessions out, and `contextWindow.overflowRecovery.nonInteractiveLatestTurnCompression: "drop"` opts non-interactive/background sessions out independently — either short-circuits to a graceful failure for that session type; setting `contextWindow.overflowRecovery.enabled: false` also yields a graceful failure. Config lives under `contextWindow.overflowRecovery`. See [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md#context-overflow-recovery) for the full design and [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md#context-compaction-and-overflow-recovery-interaction) for compaction interaction details.
+- **Embedding-dimension reconciliation**: The embedding dimension is a committed property of the Qdrant collection, derived from the backend that built it. At daemon startup `reconcileEmbeddingIdentity` probes the configured backend and reconciles the committed dimension confirm-before-destroy: backend down → defer (recall degrades to empty results, surfaced via `memory_worker_status`'s `embedding.degraded`); no committed dimension → commit the probed dimension and create the collections; match → no-op; mismatch with an explicit provider → migrate (recreate, the only destructive path, gated on a successful probe); mismatch under `auto` → no-op (no thrash on transient backend availability). Platform intent is a fill-only deployment default (`IS_PLATFORM` → `provider: "gemini"`, in-memory, not persisted) — there is no on-disk provider/dimension migration. See [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md#embedding-dimension-reconciliation).
 
 ## Environment and Data Layout
 
@@ -82,7 +87,7 @@ The CLI routes all lockfile reads/writes through `cli/src/lib/environments/paths
 | `production`   | `$XDG_CONFIG_HOME/vellum/`       |
 | non-production | `$XDG_CONFIG_HOME/vellum-<env>/` |
 
-Platform tokens (`platform-token`), device IDs (`device-id`), and guardian tokens (`assistants/<id>/guardian-token.json`) live under the env-scoped config dir. The CLI (`cli/src/lib/platform-client.ts`, `cli/src/lib/guardian-token.ts`), the daemon (`assistant/src/util/platform.ts:getXdgPlatformTokenPath`, `getXdgVellumConfigDirName`), and the Swift client (`clients/shared/Utilities/VellumPaths.swift:configDir`) all agree on the same env-scoped path, so `vellum login`, guardian leasing, persisted device IDs, and desktop session state never bleed between environments.
+Platform tokens (`platform-token`), device IDs (`device-id`), and guardian tokens (`assistants/<id>/guardian-token.json`) live under the env-scoped config dir. The CLI (`cli/src/lib/platform-client.ts`, `cli/src/lib/guardian-token.ts`), the daemon (`assistant/src/util/platform.ts:getXdgPlatformTokenPath`, `getXdgVellumConfigDirName`), and the Electron app (`clients/macos/src/main/device-id.ts`) all agree on the same env-scoped path, so `vellum login`, guardian leasing, persisted device IDs, and desktop session state never bleed between environments.
 
 ### Backwards compatibility
 
@@ -292,11 +297,6 @@ subgraph "Text Q&A Session"
             CHAT_VIEW["ChatView<br/>bubbles + composer + stop"]
         end
 
-        subgraph "Debug Panel"
-            TRACE_STORE["TraceStore<br/>in-memory, per-session<br/>dedup + retention cap"]
-            DEBUG_PANEL["DebugPanel UI<br/>metrics strip + timeline"]
-        end
-
         subgraph "Dynamic Workspace"
             WORKSPACE["WorkspaceView<br/>toolbar + WKWebView + composer + optional docked chat"]
             DYN_PAGE["DynamicPageSurfaceView<br/>WKWebView + widget injection"]
@@ -311,6 +311,7 @@ subgraph "Text Q&A Session"
         HTTP_RT["RuntimeHttpServer<br/>HTTP + SSE"]
         HANDLERS["Route Handlers<br/>conversation routing"]
         SESSION_MGR["Conversation Manager<br/>in-memory pool<br/>stale eviction"]
+        CHANNEL_TX["Channel Transport<br/>messaging/providers<br/>direct Web API delivery"]
 
         subgraph "Onboarding Control Plane"
             PLAYBOOK_MGR["OnboardingPlaybookManager<br/>resolve + reconcile channel playbooks"]
@@ -336,11 +337,8 @@ subgraph "Text Q&A Session"
             DB_CONV["conversations"]
             DB_MSG["messages"]
             DB_TOOL["tool_invocations"]
-            DB_SEG["memory_segments"]
             DB_ITEMS["memory_items"]
             DB_SRC["memory_item_sources"]
-            DB_SUM["memory_summaries"]
-            DB_EMB["memory_embeddings"]
             DB_JOBS["memory_jobs"]
             DB_ATTACH["attachments"]
             DB_CHAN["channel_inbound_events"]
@@ -350,14 +348,13 @@ subgraph "Text Q&A Session"
             DB_SCHED_RUNS["cron_runs (schedule execution history)"]
             DB_TASKS["tasks"]
             DB_TASK_RUNS["task_runs"]
-            DB_WORK_ITEMS["work_items"]
             DB_CONTACTS["contacts<br/>(migrating to gateway)"]
         end
 
-        subgraph "Tracing"
-            TRACE_EMITTER["TraceEmitter<br/>per-session, monotonic seq"]
-            TOOL_TRACE["ToolTraceListener<br/>event bus subscriber"]
-            EVENT_BUS["EventBus<br/>domain events"]
+        subgraph "SQLite Database ($VELLUM_WORKSPACE_DIR/data/db/assistant-memory.db)"
+            DB_SEG["memory_segments"]
+            DB_SUM["memory_summaries"]
+            DB_EMB["memory_embeddings"]
         end
 
         subgraph "Skill Tool System"
@@ -400,22 +397,22 @@ subgraph "Text Q&A Session"
         GW_NORMALIZE["Normalize Message<br/>DM text only (v1)"]
         GW_ROUTE["Route Resolver<br/>conversation_id → actor_id → default"]
         GW_FORWARD["Runtime Client<br/>POST /channels/inbound"]
-        GW_REPLY["Send Reply<br/>Telegram sendMessage"]
-        GW_ATTACH["Send Attachments<br/>sendPhoto / sendDocument"]
-        GW_TG_DELIVER["Telegram Deliver<br/>/deliver/telegram<br/>(internal, from runtime)"]
         GW_TWILIO_VOICE["Twilio Voice Webhook<br/>/webhooks/twilio/voice"]
         GW_TWILIO_STATUS["Twilio Status Webhook<br/>/webhooks/twilio/status"]
-        GW_TWILIO_CONNECT["Twilio Connect-Action<br/>/webhooks/twilio/connect-action"]
-        GW_TWILIO_RELAY["Twilio Relay WS<br/>/webhooks/twilio/relay<br/>(bidirectional proxy)"]
+        GW_TWILIO_MEDIA["Twilio Media Stream WS<br/>/webhooks/twilio/media-stream/:callSessionId/:token<br/>(bidirectional proxy)"]
         GW_WA_WEBHOOK["WhatsApp Webhook<br/>/webhooks/whatsapp<br/>(HMAC-SHA256 validated)"]
-        GW_WA_DELIVER["WhatsApp Deliver<br/>/deliver/whatsapp<br/>(internal, from runtime)"]
         GW_SLACK_SOCKET["Slack Socket Mode<br/>WebSocket via<br/>apps.connections.open"]
         GW_SLACK_NORMALIZE["Slack Normalize<br/>app_mention events<br/>+ bot-mention stripping"]
-        GW_SLACK_DELIVER["Slack Deliver<br/>/deliver/slack<br/>(internal, from runtime)"]
         GW_OAUTH["OAuth Callback<br/>/webhooks/oauth/callback"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
         GW_FEATURE_FLAGS["Feature Flags API<br/>GET /v1/feature-flags<br/>PATCH /v1/feature-flags/:key"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
+    end
+
+    subgraph "External Channel APIs"
+        EXT_TELEGRAM["Telegram Bot API"]
+        EXT_WHATSAPP["WhatsApp Cloud API<br/>(Meta)"]
+        EXT_SLACK["Slack Web API"]
     end
 
     subgraph "Web Server (Next.js + React)"
@@ -468,7 +465,7 @@ subgraph "Text Q&A Session"
 
     %% Main Window Chat flow
     CHAT_VM -->|"conversation_create +<br/>user_message +<br/>cancel<br/>(HTTP POST)"| HTTP_RT
-    HTTP_RT -->|"conversation_info +<br/>conversation_title_updated +<br/>text deltas +<br/>message_complete +<br/>conversation_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff<br/>(SSE)"| CHAT_VM
+    HTTP_RT -->|"conversation_title_updated +<br/>text deltas +<br/>message_complete +<br/>conversation_error +<br/>message_queued +<br/>message_dequeued +<br/>generation_handoff<br/>(SSE)"| CHAT_VM
     CHAT_VIEW --> CHAT_VM
     MW_STATE -->|"app_open_request<br/>(dashboard-first bootstrap)"| HTTP_RT
 
@@ -512,31 +509,27 @@ subgraph "Text Q&A Session"
     GW_ROUTE --> GW_FORWARD
     GW_FORWARD -->|"HTTP + replyCallbackUrl"| HTTP_RT
     HTTP_RT -->|"channels/inbound transport<br/>channelId + hints + uxBrief"| PLAYBOOK_MGR
-    GW_REPLY -->|"Telegram API"| GW_WEBHOOK
-    GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
-    %% Gateway flow — Telegram deliver (runtime → gateway → Telegram)
-    %% replyCallbackUrl is built from gatewayInternalBaseUrl (derived from GATEWAY_PORT)
-    HTTP_RT -->|"POST /deliver/telegram<br/>(via gatewayInternalBaseUrl)"| GW_TG_DELIVER
-    GW_TG_DELIVER --> GW_REPLY
-    GW_TG_DELIVER --> GW_ATTACH
+    %% Channel outbound — direct Web API delivery (per-assistant lane)
+    %% The gateway builds replyCallbackUrl as <gatewayInternalBaseUrl>/deliver/<channel>,
+    %% but isDirectDelivery() short-circuits it: the daemon calls each provider's Web API
+    %% itself via messaging/providers and never POSTs the reply back to the gateway.
+    HTTP_RT --> CHANNEL_TX
+    CHANNEL_TX -->|"sendMessage / sendRichMessage<br/>+ attachments"| EXT_TELEGRAM
 
     %% Gateway flow — Twilio voice webhooks
     GW_TWILIO_VOICE -->|"HTTP"| HTTP_RT
     GW_TWILIO_STATUS -->|"HTTP"| HTTP_RT
-    GW_TWILIO_CONNECT -->|"HTTP"| HTTP_RT
-    GW_TWILIO_RELAY -->|"WebSocket proxy"| HTTP_RT
+    GW_TWILIO_MEDIA -->|"WebSocket proxy"| HTTP_RT
 
     %% Gateway flow — WhatsApp channel (Meta Cloud API)
     GW_WA_WEBHOOK -->|"HMAC-SHA256 verify<br/>+ normalize + dedup<br/>+ route resolver"| GW_FORWARD
-    HTTP_RT -->|"POST /deliver/whatsapp<br/>(via gatewayInternalBaseUrl)"| GW_WA_DELIVER
-    GW_WA_DELIVER -->|"Meta Cloud API<br/>/{phoneNumberId}/messages"| GW_WA_WEBHOOK
+    CHANNEL_TX -->|"Meta Cloud API<br/>/{phoneNumberId}/messages"| EXT_WHATSAPP
 
     %% Gateway flow — Slack channel (Socket Mode WebSocket)
     GW_SLACK_SOCKET -->|"app_mention events<br/>ACK + dedup"| GW_SLACK_NORMALIZE
     GW_SLACK_NORMALIZE -->|"normalize + route resolver"| GW_FORWARD
-    HTTP_RT -->|"POST /deliver/slack<br/>(via gatewayInternalBaseUrl)"| GW_SLACK_DELIVER
-    GW_SLACK_DELIVER -->|"Slack API<br/>chat.postMessage"| GW_SLACK_SOCKET
+    CHANNEL_TX -->|"startStream / appendStream / stopStream<br/>postMessage / update"| EXT_SLACK
 
     %% Gateway flow — OAuth callback
     GW_OAUTH -->|"forward code + state"| HTTP_RT
@@ -547,13 +540,6 @@ subgraph "Text Q&A Session"
     %% Web server
     WEB_API -->|"HTTP"| RUNTIME_CLIENT
     RUNTIME_CLIENT -->|"HTTP"| HTTP_RT
-
-    %% Tracing data flow
-    SESSION_MGR --> TRACE_EMITTER
-    EVENT_BUS --> TOOL_TRACE
-    TOOL_TRACE --> TRACE_EMITTER
-    TRACE_EMITTER -->|"trace_event<br/>(SSE)"| TRACE_STORE
-    TRACE_STORE --> DEBUG_PANEL
 
     %% Integration data flow
     HANDLERS -->|"integration_connect"| INT_REGISTRY
@@ -607,7 +593,7 @@ All feature flags (assistant-scoped and client-scoped) are declared in the unifi
 
 **Unified registry:** The canonical source is `meta/feature-flags/feature-flag-registry.json`. Bundled copies are maintained at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. Labels come from the registry. Declared flags use their `defaultEnabled` value when no override is present. Flags not declared in the registry default to disabled (fail closed).
 
-**Canonical key format:** Simple kebab-case (e.g., `browser`, `ces-tools`). The legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported.
+**Canonical key format:** Simple kebab-case (e.g., `browser`, `contacts`). The legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported.
 
 **Resolution priority:** When determining whether an assistant flag is enabled, the resolver checks (highest priority first):
 
@@ -629,9 +615,9 @@ Safe storage limits protect the workspace volume from running out of disk. This 
 
 Clients use `GET /v1/disk-pressure/status`, `POST /v1/disk-pressure/acknowledge`, and `POST /v1/disk-pressure/override` to render and transition the lock. Acknowledgement lets the guardian proceed with local cleanup while protections remain active. Override requires the exact confirmation phrase `I understand the risks` and resumes normal assistant behavior while disk usage is still critical. The assistant emits `disk_pressure_status_changed` SSE events whenever the status changes so open clients can update without polling.
 
-Runtime enforcement is layered. `disk-pressure-policy.ts` classifies turns before the agent loop runs: local guardian/owner turns enter cleanup mode; background turns, direct wakes, non-main call sites, unknown remote actors, non-guardian actors, and trusted contacts are blocked while effectively locked. Heartbeats, scheduled tasks, filing, retry sweeps, and background tool completions call the shared background gate and skip work under the same lock. Cleanup-mode turns receive a first-class `<disk_pressure_warning>` runtime injection that tells the assistant to warn first, focus only on storage cleanup, inspect safely, ask before deletion, and note that background processes and trusted-contact messages are blocked.
+Runtime enforcement is layered. `disk-pressure-policy.ts` classifies turns before the agent loop runs: local guardian/owner turns enter cleanup mode; background turns, direct wakes, non-main call sites, unknown remote actors, non-guardian actors, and trusted contacts are blocked while effectively locked. Heartbeats, scheduled tasks, filing, retry sweeps, and background tool completions call the shared background gate and skip work under the same lock. Cleanup-mode turns receive a concise `<disk_pressure_warning>` runtime injection that warns first, directs the assistant to load the `system-storage-cleanup` skill with normal `skill_load` behavior, and notes that background processes and trusted-contact messages are blocked. The bundled skill carries the detailed cleanup procedure and deletion safety rules.
 
-Tool access is also narrowed during cleanup mode. The runtime marks cleanup turns in the tool context, `tool-approval-handler.ts` rejects non-cleanup-safe tools, and terminal background modes for `bash` and `host_bash` are rejected. When a new lock is created, already registered background terminal tools are cancelled with the disk-pressure reason.
+Tool access is also narrowed during cleanup mode. The runtime marks cleanup turns in the tool context, `tool-approval-handler.ts` rejects non-cleanup-safe tools, and terminal background modes for `bash` and `host_bash` are rejected. `skill_load` stays available so the assistant can load the `system-storage-cleanup` skill, but under the lock it performs no side effects (no catalog auto-install, no inline-command execution), so loading cannot write to the workspace or run shell; `skill_execute` and skill-origin tools remain unavailable. When a new lock is created, already registered background terminal tools are cancelled with the disk-pressure reason.
 
 The macOS app owns the local client contract through `DiskPressureStatusStore`. On app activation and SSE changes, it fetches or applies the latest status. If acknowledgement is required, the main window and pop-out thread windows show a blocking safe-storage banner; the guardian must acknowledge or dismiss before continuing. After acknowledgement, chat surfaces keep a persistent cleanup status banner explaining that background processes and trusted-contact messages remain blocked until storage is freed. Acknowledgement request failures are shown in the banner so the modal does not fail silently.
 
@@ -648,6 +634,64 @@ Every `web_search` failure path funnels through a single classification layer so
 - **No conflation with `web_fetch`.** The normalization layer keys exclusively on `web_search` (native server-tool web_search and the app-side search tool). It never inspects `WebFetchMetadata`, so a `web_fetch` DNS failure (e.g. an unresolved host) keeps its own `webFetch.errorMessage` and is never rewritten to the search backend copy.
 
 End-to-end coverage lives in `assistant/src/__tests__/web-search-backend-failure.test.ts`.
+
+## Workflow Orchestration Engine
+
+The workflow engine lets the assistant author a short JS/TS script that runs in a sandbox and fans work out across many parallel, ephemeral **leaf agents** — for example: score every option in a list in parallel, then synthesize the winner. It lives under `assistant/src/workflows/`. The launching tools (`run_workflow`, `manage_workflows`) are not always-on: they are served by the `workflows` bundled skill at `assistant/src/config/bundled-skills/workflows/`, loaded with `skill_load` and invoked via `skill_execute`. The authoring guide and a manual e2e runbook are at [`assistant/docs/workflows.md`](assistant/docs/workflows.md) and [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md).
+
+### Modules
+
+- **`run-manager.ts`** (`WorkflowRunManager`) — the lifecycle surface the tool, scheduler, and routes drive. Gates on the feature flag and the concurrent-run cap, resolves the capability manifest, creates the journal run row, launches `executeWorkflow` **without awaiting it** (returns the `runId` immediately), and republishes engine progress/completion as `workflow_progress` / `workflow_completed` events. On completion it wakes the originating conversation with a human-readable summary via the same `wakeAgentForOpportunity` path scheduled tasks and background shell jobs use.
+- **`engine.ts`** (`executeWorkflow`) — runs the script in the sandbox and owns the host API (`agent`, `leaf`, `parallel`, `map`, `pipeline`, `phase`, `log`, `usage`, `workflow`, `args`), the deterministic `seq` assignment, the agent cap, and journaled resume. `map`/`pipeline` are JS-prelude helpers over the `parallel` host function (the single-threaded VM cannot re-enter itself mid-call); `pipeline` has a per-stage barrier.
+- **`sandbox.ts`** (`createWorkflowSandbox`) — a fresh QuickJS-WASM VM per run with **no** `fetch`/`process`/`Bun`/`require`/network/filesystem and a banned `Date.now`/`Math.random`/argless `new Date()`. Host functions are *asyncified*: a host call suspends the whole VM until its promise settles, so from the script's view host calls are **synchronous** (authors write `const r = agent(...)`, never `await`). An interrupt handler enforces a CPU deadline and cooperative abort.
+- **`capabilities.ts`** (`resolveCapabilities`) — resolves the per-run manifest into the concrete allow-set: a read-only baseline (`file_read`, `file_list`, `recall`, `web_search`) unioned with declared `tools`, with a forbidden set always denied. `web_fetch` is **not** in the baseline (its URL can exfiltrate read data), so a run that fetches must declare it. This is the single consent point; the leaf runner hard-denies anything outside it. Declaring any side-effecting tool/host function arms the **threshold-aware launch approval** (`isFullAccessThreshold` in `permissions/threshold.ts`): full-access posture bypasses the prompt, normal posture prompts once. The same gate guards resume of a side-effecting run (re-prompt conversationally, 403 over the HTTP route in normal posture).
+- **`leaf-runner.ts`** (`runLeaf`) — the single-leaf primitive. A *schema* leaf makes one forced-`tool_choice` provider call returning structured output (no tools); a *tool* leaf runs a restricted agent loop. Leaves are anonymous by default (minimal task prompt, no identity, no memory); `persona: true` injects the assistant identity + memory pipeline. No leaf ever creates a conversation row, jsonl mirror, title job, or turn broadcast. Every leaf call resolves through the `workflowLeaf` call site (cost-optimized profile by default).
+- **`journal-store.ts`** — typed persistence over the `workflow_runs` and `workflow_journal` tables (migration 284). The journal is an append-only `(run_id, seq)` log; on resume the engine replays cached results for the unchanged call prefix instead of re-spawning agents.
+- **`library.ts`** — saved workflows at `<workspace>/workflows/*.workflow.ts`, resolvable by name (by `meta.name`, then filename base) for `run_workflow({ name })`, `workflow(name)`, and the scheduler's `workflow` mode.
+
+A `workflow`-mode schedule carries a **persisted capability manifest** (`capabilities_json` on `cron_jobs`, migration 290), consented to once at `schedule_create` (which validates it and arms the threshold-aware approval at creation if it grants side effects). Both firing paths — the scheduler's auto-fire and the run-now `POST /v1/schedules/:id/run` route — execute under the stored manifest; a legacy/null manifest falls back to the read-only baseline.
+
+### Data flow
+
+```mermaid
+graph TB
+    TOOL["run_workflow / manage_workflows<br/>(workflows skill · skill_execute)"]
+    SCHED["Scheduler<br/>(workflow mode · stored manifest)"]
+    GATE["Threshold-aware consent<br/>side-effecting manifest:<br/>full-access bypass / else prompt"]
+    RM["WorkflowRunManager<br/>flag + run-cap gate<br/>async launch"]
+    CAPS["resolveCapabilities<br/>baseline ∪ declared − forbidden"]
+    ENGINE["executeWorkflow<br/>host API + seq + agent cap"]
+    SANDBOX["QuickJS-WASM sandbox<br/>synchronous host calls<br/>no fs/net/process"]
+    LEAVES["Leaf agents (parallel)<br/>schema | tool · anon | persona"]
+    JOURNAL["workflow_runs +<br/>workflow_journal<br/>(journaled resume)"]
+    USAGE["llm_usage_events<br/>call_site = workflowLeaf"]
+    HUB["assistant event hub<br/>workflow_progress / _completed"]
+    WAKE["Conversation wake<br/>completion summary"]
+    ROUTES["GET /v1/workflows*<br/>+ vellum workflows CLI"]
+
+    TOOL --> GATE
+    SCHED --> RM
+    GATE --> RM
+    RM --> CAPS
+    CAPS --> ENGINE
+    RM --> ENGINE
+    ENGINE --> SANDBOX
+    SANDBOX -->|"agent / parallel / map / pipeline"| LEAVES
+    LEAVES -->|"results back into the VM"| SANDBOX
+    ENGINE --> JOURNAL
+    LEAVES --> USAGE
+    ENGINE -->|"phase / log"| HUB
+    RM --> HUB
+    RM --> WAKE
+    JOURNAL --> ROUTES
+```
+
+### Tables, routes, and CLI
+
+- **Tables** (migration 284): `workflow_runs` (one row per run — status, agent/token counts, script source/hash, capabilities, originating conversation) and `workflow_journal` (append-only `(run_id, seq)` leaf-call log). Scheduled workflows persist their manifest in `cron_jobs.capabilities_json` (migration 290). Leaf cost is attributed in `llm_usage_events` under `call_site = 'workflowLeaf'`.
+- **Routes** (read/abort/resume surfaces): `GET /v1/workflows`, `GET /v1/workflows/runs`, `GET /v1/workflows/runs/:id`, `POST /v1/workflows/runs/:id/abort`, `POST /v1/workflows/runs/:id/resume` (the resume route refuses a side-effecting run in normal posture and proceeds at full access).
+- **CLI**: `vellum workflows list | runs | show <id> | abort <id> | resume <id>`.
+- **Config** (`workflows.*`): `maxAgentsPerRun` (500), `maxConcurrentLeaves` (6), `maxConcurrentRuns` (3), `journalRetentionDays` (30).
 
 ## Maintenance Rule
 

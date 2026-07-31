@@ -7,31 +7,28 @@
  */
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getAssistantDomain: () => "vellum.me",
 }));
 
-import { initializeDb } from "../memory/db-init.js";
-import { ROUTES } from "../runtime/routes/attachment-routes.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  attachmentMetadataSchema,
+  ROUTES,
+} from "../runtime/routes/attachment-routes.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
 const SMALL_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+
+// Non-image bytes: storage normalization sniffs image magic bytes and
+// overrides a disagreeing declared MIME, so a declared-MIME assertion needs a
+// payload that doesn't sniff as an image.
+const FAKE_VIDEO_BASE64 = Buffer.from("fake matroska payload").toString(
+  "base64",
+);
 
 const uploadRoute = ROUTES.find((r) => r.operationId === "attachment_upload")!;
 
@@ -52,9 +49,11 @@ function makeUploadArgs(
 }
 
 describe("attachment upload — trustedSource flag", () => {
-  beforeAll(() => {
-    initializeDb();
-  });
+  // initializeDb runs the full migration chain (hundreds of steps); under
+  // parallel CI load it can exceed bun's default 5s hook timeout, so allow more.
+  beforeAll(async () => {
+    await initializeDb();
+  }, 30_000);
 
   beforeEach(() => {
     // Each test uploads a fresh attachment with unique filename; no per-test
@@ -62,24 +61,25 @@ describe("attachment upload — trustedSource flag", () => {
   });
 
   test("svc_gateway + trustedSource:true accepts a non-allowlisted MIME type", async () => {
-    const result = (await uploadRoute.handler(
+    const raw = await uploadRoute.handler(
       makeUploadArgs(
         {
           filename: "clip.mkv",
           mimeType: "video/x-matroska",
-          data: SMALL_PNG_BASE64,
+          data: FAKE_VIDEO_BASE64,
           trustedSource: true,
         },
         "svc_gateway",
       ),
-    )) as { id: string; mime_type: string };
+    );
+    const result = attachmentMetadataSchema.parse(raw);
 
     expect(result.id).toBeDefined();
-    expect(result.mime_type).toBe("video/x-matroska");
+    expect(result.mimeType).toBe("video/x-matroska");
   });
 
   test("svc_gateway + trustedSource:true accepts a dangerous extension", async () => {
-    const result = (await uploadRoute.handler(
+    const raw = await uploadRoute.handler(
       makeUploadArgs(
         {
           filename: "installer.dmg",
@@ -89,7 +89,8 @@ describe("attachment upload — trustedSource flag", () => {
         },
         "svc_gateway",
       ),
-    )) as { id: string };
+    );
+    const result = attachmentMetadataSchema.parse(raw);
 
     expect(result.id).toBeDefined();
   });

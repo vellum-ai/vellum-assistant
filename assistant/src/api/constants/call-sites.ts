@@ -25,3 +25,15 @@
  */
 export const CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE =
   "syntheticAgentErrorMessage";
+
+/**
+ * Marks the summarizer LLM call the agent loop makes to compact a
+ * conversation's history when it approaches the context limit. The row
+ * lands in the inspector rail like any other call, so the frontend
+ * branches on this value to tag it as a compaction rather than a
+ * main-agent call.
+ *
+ * Mirrors the `compactionAgent` member of the backend's `LLMCallSite`
+ * enum (the value stamped on the row at write time).
+ */
+export const CALL_SITE_COMPACTION_AGENT = "compactionAgent";

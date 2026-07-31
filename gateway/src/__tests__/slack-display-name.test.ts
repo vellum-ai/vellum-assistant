@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import type {
   RuntimeInboundPayload,
@@ -40,8 +40,9 @@ mock.module("../runtime/client.js", () => ({
     forwardToRuntimeMock(...args),
 }));
 
+const { normalizeSlackAppMention } =
+  await import("../slack/message-normalizer.js");
 const {
-  normalizeSlackAppMention,
   resolveSlackChannel,
   resolveSlackUser,
   resolveSlackUserSync,
@@ -50,14 +51,16 @@ const {
   clearUserInfoCache,
   getChannelInfoCacheSize,
   getUserInfoCacheSize,
-} = await import("../slack/normalize.js");
+} = await import("../slack/user-directory.js");
 const { handleInbound } = await import("../handlers/handle-inbound.js");
-import type { SlackAppMentionEvent } from "../slack/normalize.js";
+const { initGatewayDb, resetGatewayDb } = await import("../db/connection.js");
+const { initAdmissionPolicyCache, resetAdmissionPolicyCache } =
+  await import("../risk/admission-policy-cache.js");
+import type { SlackAppMentionEvent } from "../slack/message-schemas.js";
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: "default-assistant",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
@@ -75,7 +78,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "default",
     trustProxy: false,
     ...overrides,
   } as GatewayConfig;
@@ -94,12 +96,21 @@ function makeEvent(
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  resetGatewayDb();
+  resetAdmissionPolicyCache();
+  await initGatewayDb();
+  initAdmissionPolicyCache();
   clearUserInfoCache();
   clearChannelInfoCache();
   clearInFlightFetches();
   runtimePayloads = [];
   forwardToRuntimeMock.mockClear();
+});
+
+afterEach(() => {
+  resetAdmissionPolicyCache();
+  resetGatewayDb();
 });
 
 describe("resolveSlackUser", () => {
@@ -128,6 +139,33 @@ describe("resolveSlackUser", () => {
     expect(info!.timezone).toBe("America/New_York");
     expect(info!.timezoneLabel).toBe("Eastern Daylight Time");
     expect(info!.timezoneOffsetSeconds).toBe(-14400);
+    // A successful users.info is a positive resolution: explicit false, not
+    // absent, so downstream trust policy can distinguish "member" from
+    // "unknown".
+    expect(info!.isBot).toBe(false);
+    expect(info!.isStranger).toBe(false);
+    expect(info!.isRestricted).toBe(false);
+  });
+
+  test("resolves the is_bot signal for bot users", async () => {
+    fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          user: {
+            name: "shard-bot",
+            real_name: "Shard",
+            is_bot: true,
+            profile: { display_name: "Shard" },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+
+    const info = await resolveSlackUser("U-BOT", "xoxb-token");
+    expect(info).not.toBeUndefined();
+    expect(info!.isBot).toBe(true);
   });
 
   test("falls back to real_name when display_name is empty", async () => {

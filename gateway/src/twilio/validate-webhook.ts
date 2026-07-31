@@ -1,6 +1,5 @@
 import {
   normalizePublicBaseUrl,
-  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
@@ -14,7 +13,7 @@ import { verifyTwilioSignature } from "./verify.js";
 
 const log = getLogger("twilio-validate");
 
-type TwilioWebhookKind = "voice" | "status" | "connect-action" | "unknown";
+type TwilioWebhookKind = "voice" | "status" | "unknown";
 
 type SignatureUrlCandidateSource =
   | "platform_proxy"
@@ -42,10 +41,6 @@ function inferWebhookKind(reqUrl: string): TwilioWebhookKind {
 
   if (pathname === TWILIO_STATUS_WEBHOOK_PATH) {
     return "status";
-  }
-
-  if (pathname === TWILIO_CONNECT_ACTION_WEBHOOK_PATH) {
-    return "connect-action";
   }
 
   return "unknown";

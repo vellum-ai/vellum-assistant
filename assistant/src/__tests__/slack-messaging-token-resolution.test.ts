@@ -38,10 +38,10 @@ mock.module("../oauth/connection-resolver.js", () => ({
 mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => "http://localhost:3000",
 }));
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: async () => "conv-1",
 }));
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   getExternalConversation: () => undefined,
   setExternalConversation: () => {},
 }));
@@ -50,8 +50,11 @@ mock.module("../runtime/auth/token-service.js", () => ({}));
 // Slack client stubs (not exercised in these tests, but required on import)
 mock.module("../messaging/providers/slack/client.js", () => ({}));
 
-// Gmail client stubs
-mock.module("../messaging/providers/gmail/client.js", () => ({}));
+// Gmail client stubs. Re-export GMAIL_REQUIRED_SCOPES so the adapter's
+// `requiredScopes` is populated (and the forwarding assertion below is real).
+mock.module("../messaging/providers/gmail/client.js", () => ({
+  GMAIL_REQUIRED_SCOPES: ["https://www.googleapis.com/auth/gmail.readonly"],
+}));
 mock.module("../messaging/providers/gmail/people-client.js", () => ({}));
 
 // Telegram client stubs
@@ -164,6 +167,9 @@ describe("Slack messaging token resolution", () => {
         accessToken: "xoxp-oauth-token",
       } as unknown as OAuthConnection;
       resolveOAuthConnectionMock.mockImplementation(async () => oauthConn);
+      getConnectionByProviderMock.mockImplementation(() => ({
+        status: "active",
+      }));
 
       const result = await slackProvider.resolveConnection!();
       expect(result).toBe(oauthConn);
@@ -202,6 +208,9 @@ describe("Slack messaging token resolution", () => {
         accessToken: "xoxp-oauth-token",
       } as unknown as OAuthConnection;
       resolveOAuthConnectionMock.mockImplementation(async () => oauthConn);
+      getConnectionByProviderMock.mockImplementation(() => ({
+        status: "active",
+      }));
 
       const result = await getProviderConnection(slackProvider);
       expect(result).toBe(oauthConn);
@@ -222,8 +231,12 @@ describe("Slack messaging token resolution", () => {
       // Telegram has isConnected but no resolveConnection.
       // When isConnected returns true, getProviderConnection returns undefined
       getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
-        if (key === "credential/telegram/bot_token") return "bot-token";
-        if (key === "credential/telegram/webhook_secret") return "secret";
+        if (key === "credential/telegram/bot_token") {
+          return "bot-token";
+        }
+        if (key === "credential/telegram/webhook_secret") {
+          return "secret";
+        }
         return null;
       });
       getConnectionByProviderMock.mockImplementation((provider: string) =>
@@ -244,8 +257,16 @@ describe("Slack messaging token resolution", () => {
 
       const result = await getProviderConnection(gmailMessagingProvider);
       expect(result).toBe(oauthConn);
+      // Gmail forwards its requiredScopes so a narrowly-scoped (e.g.
+      // Calendar-only) Google connection is rejected at resolution time
+      // instead of 403-ing on the first Gmail API call. Asserted as a concrete
+      // value (not the provider property) so removing the forwarding fails.
+      expect(gmailMessagingProvider.requiredScopes).toEqual([
+        "https://www.googleapis.com/auth/gmail.readonly",
+      ]);
       expect(resolveOAuthConnectionMock).toHaveBeenCalledWith("google", {
         account: undefined,
+        requiredScopes: ["https://www.googleapis.com/auth/gmail.readonly"],
       });
     });
   });

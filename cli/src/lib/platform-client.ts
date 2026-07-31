@@ -96,6 +96,20 @@ function tokenAuthHeader(token: string): Record<string, string> {
   return { "X-Session-Token": token };
 }
 
+export function authHeadersForKnownOrganization(
+  token: string,
+  organizationId: string,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...tokenAuthHeader(token),
+  };
+  if (!token.startsWith(VAK_PREFIX)) {
+    headers["Vellum-Organization-Id"] = organizationId;
+  }
+  return headers;
+}
+
 /** Module-level cache for org IDs to avoid redundant fetches in polling loops. */
 const orgIdCache = new Map<string, { orgId: string; expiresAt: number }>();
 const ORG_ID_CACHE_TTL_MS = 60_000; // 60 seconds
@@ -1013,6 +1027,12 @@ export async function platformRequestSignedUrl(
     maxRuntimeVersion?: string | null;
     // Target-side, download only: runtime version that will import.
     targetRuntimeVersion?: string;
+    // Upload only: who will PUT to the URL. "runtime" signs against the
+    // runtime-reachable storage endpoint so a managed assistant pod can
+    // upload its export bundle (platform→local teleport); defaults to
+    // "client" server-side. No effect in production, where both endpoints
+    // are the same.
+    consumer?: "client" | "runtime";
   },
   token: string,
   platformUrl?: string,
@@ -1039,6 +1059,9 @@ export async function platformRequestSignedUrl(
   }
   if (params.targetRuntimeVersion !== undefined) {
     body.target_runtime_version = params.targetRuntimeVersion;
+  }
+  if (params.consumer !== undefined) {
+    body.consumer = params.consumer;
   }
 
   const doRequest = async (): Promise<Response> =>

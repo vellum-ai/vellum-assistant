@@ -4,10 +4,10 @@ import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateScheduleDescription } from "../memory/migrations/270-schedule-description.js";
-import { migrateScheduleSourceConversation } from "../memory/migrations/270-schedule-source-conversation.js";
-import * as schema from "../memory/schema.js";
-import { scheduleJobs } from "../memory/schema.js";
+import { migrateScheduleDescription } from "../persistence/migrations/270-schedule-description.js";
+import { migrateScheduleSourceConversation } from "../persistence/migrations/270-schedule-source-conversation.js";
+import * as schema from "../persistence/schema/index.js";
+import { scheduleJobs } from "../persistence/schema/index.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -50,7 +50,12 @@ describe("schedule_syntax column migration", () => {
         reuse_conversation INTEGER NOT NULL DEFAULT 0,
         script TEXT,
         wake_conversation_id TEXT,
+        workflow_name TEXT,
+        workflow_args_json TEXT,
         timeout_ms INTEGER,
+        inference_profile TEXT,
+        group_id TEXT,
+        capabilities_json TEXT,
         description TEXT NOT NULL DEFAULT '',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
@@ -138,6 +143,16 @@ describe("schedule_syntax column migration", () => {
     } catch {
       /* already exists */
     }
+    try {
+      raw.exec(`ALTER TABLE cron_jobs ADD COLUMN workflow_name TEXT`);
+    } catch {
+      /* already exists */
+    }
+    try {
+      raw.exec(`ALTER TABLE cron_jobs ADD COLUMN workflow_args_json TEXT`);
+    } catch {
+      /* already exists */
+    }
     migrateScheduleSourceConversation(db);
     migrateScheduleDescription(db);
 
@@ -200,6 +215,16 @@ describe("schedule_syntax column migration", () => {
     }
     try {
       raw.exec(`ALTER TABLE cron_jobs ADD COLUMN timeout_ms INTEGER`);
+    } catch {
+      /* ok */
+    }
+    try {
+      raw.exec(`ALTER TABLE cron_jobs ADD COLUMN workflow_name TEXT`);
+    } catch {
+      /* ok */
+    }
+    try {
+      raw.exec(`ALTER TABLE cron_jobs ADD COLUMN workflow_args_json TEXT`);
     } catch {
       /* ok */
     }
@@ -282,16 +307,5 @@ describe("schedule_syntax column migration", () => {
       { id: "legacy-defer", description: "" },
       { id: "legacy-schedule", description: "Legacy report" },
     ]);
-
-    raw
-      .query("UPDATE cron_jobs SET description = ? WHERE id = ?")
-      .run("", "legacy-schedule");
-
-    migrateScheduleDescription(db);
-
-    const description = raw
-      .query("SELECT description FROM cron_jobs WHERE id = ?")
-      .get("legacy-schedule") as { description: string };
-    expect(description.description).toBe("");
   });
 });

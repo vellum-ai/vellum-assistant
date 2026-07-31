@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   getConversationDirName,
   parseConversationDirName,
-} from "../memory/conversation-directories.js";
+} from "../persistence/conversation-directories.js";
 
 describe("parseConversationDirName", () => {
   describe("round-trip with getConversationDirName", () => {

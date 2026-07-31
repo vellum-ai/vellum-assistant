@@ -29,6 +29,7 @@ import type {
   HotkeyEvent,
   Lockfile,
   LockfileWriteResult,
+  LocalAssistantStatusResult,
   NotificationActionEvent,
   PowerEvent,
   ResolvedHotkey,
@@ -40,6 +41,22 @@ import type {
   UpdateState,
   VellumCommand,
 } from "./types";
+
+/**
+ * Options for `localMode.wake`. `repairGuardian` re-provisions a
+ * missing/expired guardian token via the CLI's `--repair-guardian` — it
+ * revokes the assistant's other device-bound tokens, so callers must gate it
+ * behind explicit user confirmation, never silent auto-repair.
+ */
+export interface LocalWakeOptions {
+  repairGuardian?: boolean;
+}
+
+export interface LocalUpgradeOptions {
+  version?: string;
+  latest?: boolean;
+  force?: boolean;
+}
 
 export interface VellumBridge {
   platform: "electron";
@@ -53,7 +70,6 @@ export interface VellumBridge {
   };
   auth: {
     startOAuth(options: {
-      providerHint?: string;
       loginHint?: string;
       intent?: string;
     }): Promise<{ sessionToken: string }>;
@@ -72,6 +88,9 @@ export interface VellumBridge {
   };
   featureFlags: {
     set(flags: Record<string, boolean>): void;
+  };
+  diagnostics: {
+    setShareDiagnostics(enabled: boolean): void;
   };
   helper: {
     ping(): Promise<"pong">;
@@ -126,12 +145,17 @@ export interface VellumBridge {
   status: {
     setConnection(status: AssistantStatus): void;
   };
+  identity: {
+    setName(name: string): void;
+  };
   icon: {
     setAvatar(png: Uint8Array | null): void;
   };
   dock: {
     setBadge(count: number): void;
-    setSignedIn(signedIn: boolean): void;
+  };
+  share: {
+    shareFile(bytes: Uint8Array, filename: string): Promise<void>;
   };
   localMode: {
     hatch(
@@ -148,7 +172,16 @@ export interface VellumBridge {
       organizationId?: string,
     ): Promise<LockfileWriteResult>;
     retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
-    wake(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+    sleep(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+    wake(
+      assistantId: string,
+      options?: LocalWakeOptions,
+    ): Promise<{ ok: boolean; error?: string }>;
+    upgrade(
+      assistantId: string,
+      options?: LocalUpgradeOptions,
+    ): Promise<{ ok: boolean; version?: string; error?: string }>;
+    status(assistantId: string): Promise<LocalAssistantStatusResult>;
     guardianToken(
       assistantId: string,
     ): Promise<
@@ -174,14 +207,29 @@ export interface VellumBridge {
     drain(): Promise<string[]>;
     onFile(callback: (filePath: string) => void): () => void;
   };
+  paths: {
+    /**
+     * Resolve a renderer `File` object to its native filesystem path. Backed
+     * by Electron's `webUtils.getPathForFile`, which returns the absolute path
+     * for files (and folders) sourced from a real drag-drop or file-picker
+     * event. Returns `null` when no path is available (e.g. an in-memory
+     * `File` constructed from a Blob).
+     */
+    getPathForFile(file: File): string | null;
+  };
   feedback: {
     diagnostics(): Promise<Record<string, unknown>>;
     logs(): Promise<string>;
   };
   connectivity: {
     onState(callback: (state: ConnectivityState) => void): () => void;
+    /** Pull the current state — lets the renderer re-sync after a missed
+     * `onState` broadcast (e.g. on window focus). */
+    get(): Promise<ConnectivityState>;
     setDevice(online: boolean): void;
-    retry(): void;
+    /** Probe immediately and resolve with the post-probe state, so a manual
+     * retry recovers even when the broadcast channel failed. */
+    retry(): Promise<ConnectivityState>;
   };
   notifications: {
     show(
@@ -206,6 +254,9 @@ export interface VellumBridge {
     setState(state: DictationOverlayMessage): void;
     onState(callback: (state: DictationOverlayState) => void): () => void;
     getState(): Promise<DictationOverlayState | null>;
+    requestStop(): void;
+    onStopRequested(callback: () => void): () => void;
+    setInteractive(interactive: boolean): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

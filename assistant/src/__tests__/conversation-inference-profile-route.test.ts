@@ -1,43 +1,22 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
 } from "../daemon/message-types/sync.js";
-import { makeMockLogger } from "./helpers/mock-logger.js";
-import { waitFor } from "./helpers/wait-for.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
-const config = {
-  llm: {
-    profiles: {
-      "quality-optimized": {},
-      balanced: {},
-      "cost-optimized": {},
-    },
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => config,
-  getConfig: () => config,
-}));
-
 import {
   createConversation,
   getConversation,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
+import { waitFor } from "./helpers/wait-for.js";
 
-initializeDb();
+await initializeDb();
 
 const profileRoute = ROUTES.find(
   (r) => r.operationId === "setConversationInferenceProfile",
@@ -59,7 +38,6 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
 
   afterAll(() => {
     resetDbForTesting();
-    mock.restore();
   });
 
   test("sets the override and emits a hub event for a known profile", async () => {

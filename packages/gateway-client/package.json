@@ -15,7 +15,8 @@
     "test": "bun test src/"
   },
   "dependencies": {
-    "@vellumai/service-contracts": "file:../service-contracts",
+    "@slack/types": "2.22.0",
+    "@vellumai/service-contracts": "workspace:*",
     "zod": "4.3.6"
   },
   "devDependencies": {

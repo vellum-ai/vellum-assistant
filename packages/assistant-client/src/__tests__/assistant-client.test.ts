@@ -356,7 +356,7 @@ describe("buildWsUpstreamUrl", () => {
   test("produces log-safe URL with redacted token", () => {
     const result = buildWsUpstreamUrl({
       baseUrl: "http://localhost:7821",
-      path: "/v1/calls/relay",
+      path: "/v1/calls/media-stream",
       serviceToken: "secret-jwt-value",
       extraParams: { callSessionId: "sess-1" },
     });

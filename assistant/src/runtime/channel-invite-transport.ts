@@ -8,8 +8,8 @@
  * channel.
  *
  * All methods are optional — the adapter layer is intentionally thin.
- * Redemption logic lives in `invite-redemption-service.ts` and invite
- * instruction generation lives in `invite-instruction-generator.ts`.
+ * Redemption is gateway-native (gateway/src/verification/invite-redemption.ts)
+ * and invite instruction generation lives in `invite-instruction-generator.ts`.
  */
 
 import type { ChannelId } from "../channels/types.js";

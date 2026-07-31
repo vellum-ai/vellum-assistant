@@ -6,32 +6,18 @@
  *   GET    /v1/inference/provider-connections/:name    — single, 404
  *   POST   /v1/inference/provider-connections          — create happy paths + 409 + 400 cases
  *   PATCH  /v1/inference/provider-connections/:name    — update auth, 404
- *   DELETE /v1/inference/provider-connections/:name    — happy path, 409 with profile ref, 409 with call-site ref
+ *   DELETE /v1/inference/provider-connections/:name    — happy path, 409 with profile ref, llm.defaultProvider guard
  *   Auth   — 401 (missing key) and 403 (insufficient scope) via route-policy assertions
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-// ── Module mocks (must come before imports) ──────────────────────────────────
-
-// Config is read by the DELETE handler to find referencing profiles/call-sites.
-let fakeConfig: Record<string, unknown> = {};
-mock.module("../../../config/loader.js", () => ({
-  getConfigReadOnly: () => fakeConfig,
-  getConfig: () => fakeConfig,
-  invalidateConfigCache: () => {},
-}));
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-// ── Real imports (after mocks) ────────────────────────────────────────────────
-
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { providerConnections } from "../../../memory/schema/inference.js";
+// ── Real imports ──────────────────────────────────────────────────────────────
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import { LLMSchema } from "../../../config/schemas/llm.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { providerConnections } from "../../../persistence/schema/inference.js";
 // Route policies are read directly off `route.policy` now (ATL-315
 // followup) — no registry lookup.
 import { BadRequestError, ConflictError, NotFoundError } from "../errors.js";
@@ -40,19 +26,23 @@ import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 // ── DB bootstrap ──────────────────────────────────────────────────────────────
 
-initializeDb();
+await initializeDb();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
 function findRoute(operationId: string): RouteDefinition {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route;
 }
 
@@ -89,7 +79,7 @@ function seedConnection(opts: {
 
 beforeEach(() => {
   clearConnections();
-  fakeConfig = {};
+  setConfig("llm", {});
 });
 
 // ── GET list ─────────────────────────────────────────────────────────────────
@@ -157,7 +147,6 @@ describe("GET inference/provider-connections (list)", () => {
     )) as { connections: unknown[] };
     expect(result.connections).toEqual([]);
   });
-
 });
 
 // ── GET single ────────────────────────────────────────────────────────────────
@@ -186,7 +175,6 @@ describe("GET inference/provider-connections/:name (single)", () => {
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
-
 });
 
 // ── POST create ───────────────────────────────────────────────────────────────
@@ -239,6 +227,269 @@ describe("POST inference/provider-connections (create)", () => {
       },
     )) as { auth: object };
     expect(result.auth).toEqual({ type: "none" });
+  });
+
+  test("derives api_key auth from provider + credential when auth is omitted", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "derived-anthropic",
+          provider: "anthropic",
+          credential: "vault/anthropic/key",
+        },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({
+      type: "api_key",
+      credential: "vault/anthropic/key",
+    });
+  });
+
+  test("derives none auth for keyless providers when auth is omitted", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: { name: "derived-ollama", provider: "ollama" },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({ type: "none" });
+  });
+
+  test("derives platform auth for the vellum provider when auth is omitted", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: { name: "derived-vellum", provider: "vellum" },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({ type: "platform" });
+  });
+
+  test("rejects a whitespace-only label", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "blank-label",
+          provider: "openai-compatible",
+          label: "   ",
+          base_url: "http://localhost:1234/v1",
+          models: [{ id: "my-model" }],
+        },
+      }),
+    ).rejects.toThrow(/non-blank string or null/);
+  });
+
+  test("rejects a custom-provider label matching a built-in provider", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "sneaky",
+          provider: "openai-compatible",
+          label: "Anthropic",
+          base_url: "http://localhost:1234/v1",
+          models: [{ id: "my-model" }],
+        },
+      }),
+    ).rejects.toThrow(/belongs to a built-in provider/);
+  });
+
+  test("rejects a custom-provider label duplicating another custom provider", async () => {
+    await call(findHandler("inference_provider_connections_create"), {
+      body: {
+        name: "first-endpoint",
+        provider: "openai-compatible",
+        label: "xAI",
+        base_url: "http://localhost:1234/v1",
+        models: [{ id: "my-model" }],
+      },
+    });
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "second-endpoint",
+          provider: "openai-compatible",
+          label: "xai",
+          base_url: "http://localhost:5678/v1",
+          models: [{ id: "other" }],
+        },
+      }),
+    ).rejects.toThrow(/already exists/);
+    // Updating a different row onto the taken label is rejected too; keeping
+    // its own label is fine.
+    await call(findHandler("inference_provider_connections_create"), {
+      body: {
+        name: "third-endpoint",
+        provider: "openai-compatible",
+        label: "Local Box",
+        base_url: "http://localhost:9999/v1",
+        models: [{ id: "m" }],
+      },
+    });
+    await expect(
+      call(findHandler("inference_provider_connections_update"), {
+        pathParams: { name: "third-endpoint" },
+        body: { label: "xAI" },
+      }),
+    ).rejects.toThrow(/already exists/);
+    await call(findHandler("inference_provider_connections_update"), {
+      pathParams: { name: "first-endpoint" },
+      body: { label: "xAI" },
+    });
+  });
+
+  test("catalog providers may reuse their own display name as a label", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "anthropic-personal",
+          provider: "anthropic",
+          label: "Anthropic",
+          credential: "credential/anthropic/api_key",
+        },
+      },
+    )) as { label: string | null };
+    expect(result.label).toBe("Anthropic");
+  });
+
+  test("a label-less custom provider's name is validated as its identity", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "openai",
+          provider: "openai-compatible",
+          base_url: "http://localhost:1234/v1",
+          models: [{ id: "my-model" }],
+        },
+      }),
+    ).rejects.toThrow(/belongs to a built-in provider/);
+
+    await call(findHandler("inference_provider_connections_create"), {
+      body: {
+        name: "endpoint-a",
+        provider: "openai-compatible",
+        label: "My Box",
+        base_url: "http://localhost:1234/v1",
+        models: [{ id: "my-model" }],
+      },
+    });
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "my box",
+          provider: "openai-compatible",
+          base_url: "http://localhost:5678/v1",
+          models: [{ id: "other" }],
+        },
+      }),
+    ).rejects.toThrow(/already exists/);
+  });
+
+  test("an unchanged label is not re-validated, so pre-validation rows stay editable", async () => {
+    const now = Date.now();
+    getDb()
+      .insert(providerConnections)
+      .values({
+        name: "legacy-endpoint",
+        provider: "openai-compatible",
+        label: " Anthropic ",
+        auth: JSON.stringify({ type: "none" }),
+        baseUrl: "http://localhost:1234/v1",
+        models: JSON.stringify([{ id: "my-model" }]),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "legacy-endpoint" },
+        body: { models: [{ id: "another-model" }] },
+      },
+    )) as { label: string | null };
+    expect(result.label).toBe(" Anthropic ");
+
+    // Labels compare trimmed: resending the stored label without its
+    // padding is not an identity change.
+    await call(findHandler("inference_provider_connections_update"), {
+      pathParams: { name: "legacy-endpoint" },
+      body: { label: "Anthropic", models: [{ id: "third-model" }] },
+    });
+
+    await expect(
+      call(findHandler("inference_provider_connections_update"), {
+        pathParams: { name: "legacy-endpoint" },
+        body: { label: "OpenAI" },
+      }),
+    ).rejects.toThrow(/belongs to a built-in provider/);
+  });
+
+  test("derives none auth for openai-compatible without a credential", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "derived-local-llm",
+          provider: "openai-compatible",
+          base_url: "http://localhost:1234/v1",
+          models: [{ id: "my-model" }],
+        },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({ type: "none" });
+  });
+
+  test("derives api_key auth for openai-compatible with a credential", async () => {
+    const result = (await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "derived-hosted-llm",
+          provider: "openai-compatible",
+          credential: "credential/hosted/key",
+          base_url: "https://api.example.com/v1",
+          models: [{ id: "my-model" }],
+        },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({
+      type: "api_key",
+      credential: "credential/hosted/key",
+    });
+  });
+
+  test("throws 400 on the reserved managed connection name", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "vellum",
+          provider: "openai",
+          credential: "credential/openai/api_key",
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("throws 400 when auth is omitted and a keyed provider has no credential", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: { name: "derived-no-cred", provider: "anthropic" },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("throws 400 when the derived credential is not a non-empty string", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "derived-bad-cred",
+          provider: "anthropic",
+          credential: "",
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
   });
 
   test("throws 409 when connection name already exists", async () => {
@@ -348,6 +599,59 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
       }),
     ).rejects.toBeInstanceOf(BadRequestError);
   });
+
+  test("keeps stored auth when both auth and credential are omitted", async () => {
+    seedConnection({
+      name: "label-only",
+      provider: "openai",
+      auth: { type: "oauth_subscription", credential: "vault/chatgpt/token" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "label-only" },
+        body: { label: "Renamed" },
+      },
+    )) as { auth: object; label: string | null };
+    expect(result.auth).toEqual({
+      type: "oauth_subscription",
+      credential: "vault/chatgpt/token",
+    });
+    expect(result.label).toBe("Renamed");
+  });
+
+  test("throws 400 on credential-only PATCH of an oauth_subscription connection", async () => {
+    seedConnection({
+      name: "chatgpt-subscription",
+      provider: "openai",
+      auth: { type: "oauth_subscription", credential: "vault/chatgpt/token" },
+    });
+
+    await expect(
+      call(findHandler("inference_provider_connections_update"), {
+        pathParams: { name: "chatgpt-subscription" },
+        body: { credential: "vault/other" },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("rotates to derived api_key auth when only credential is passed", async () => {
+    seedConnection({
+      name: "rotate-cred",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "vault/old" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "rotate-cred" },
+        body: { credential: "vault/new" },
+      },
+    )) as { auth: object };
+    expect(result.auth).toEqual({ type: "api_key", credential: "vault/new" });
+  });
 });
 
 // ── DELETE ────────────────────────────────────────────────────────────────────
@@ -388,16 +692,14 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
       provider: "anthropic",
       auth: { type: "platform" },
     });
-    fakeConfig = {
-      llm: {
-        profiles: {
-          "my-profile": {
-            provider_connection: "ref-conn",
-            model: "claude-opus-4-7",
-          },
+    setConfig("llm", {
+      profiles: {
+        "my-profile": {
+          provider_connection: "ref-conn",
+          model: "claude-opus-4-7",
         },
       },
-    };
+    });
 
     const err = await call(
       findHandler("inference_provider_connections_delete"),
@@ -408,36 +710,13 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     expect((err as ConflictError).message).toContain("my-profile");
   });
 
-  test("throws 409 when llm.default references the connection", async () => {
-    seedConnection({
-      name: "default-conn",
-      provider: "anthropic",
-      auth: { type: "platform" },
-    });
-    fakeConfig = {
-      llm: {
-        default: { provider_connection: "default-conn" },
-      },
-    };
-
-    const err = await call(
-      findHandler("inference_provider_connections_delete"),
-      { pathParams: { name: "default-conn" } },
-    ).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(ConflictError);
-    expect((err as ConflictError).message).toContain("default-conn");
-    expect((err as ConflictError).message).toContain("llm.default");
-  });
-
-  test("throws 404 (not 409) when llm.default references a missing connection", async () => {
-    // Stale ref in config: llm.default points at a connection that was
+  test("throws 404 (not 409) when a profile references a missing connection", async () => {
+    // Stale ref in config: a profile points at a connection that was
     // already deleted. Delete on the dangling name must return 404 so
     // callers can distinguish stale config from active conflicts.
-    fakeConfig = {
-      llm: {
-        default: { provider_connection: "ghost-conn" },
-      },
-    };
+    setConfig("llm", {
+      profiles: { "ghost-prof": { provider_connection: "ghost-conn" } },
+    });
 
     await expect(
       call(findHandler("inference_provider_connections_delete"), {
@@ -446,26 +725,239 @@ describe("DELETE inference/provider-connections/:name (delete)", () => {
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  test("throws 409 when both llm.default and a profile reference the connection", async () => {
+  test("throws 409 naming every referencing profile", async () => {
     seedConnection({
       name: "shared-conn",
       provider: "anthropic",
       auth: { type: "none" },
     });
-    fakeConfig = {
-      llm: {
-        default: { provider_connection: "shared-conn" },
-        profiles: { "prof-a": { provider_connection: "shared-conn" } },
+    setConfig("llm", {
+      profiles: {
+        "prof-a": { provider_connection: "shared-conn" },
+        "prof-b": { provider_connection: "shared-conn" },
       },
-    };
+    });
 
-    // llm.default check fires first (before profiles check).
     const err = await call(
       findHandler("inference_provider_connections_delete"),
       { pathParams: { name: "shared-conn" } },
     ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictError);
-    expect((err as ConflictError).message).toContain("llm.default");
+    expect((err as ConflictError).message).toContain("prof-a");
+    expect((err as ConflictError).message).toContain("prof-b");
+  });
+});
+
+// ── llm.defaultProvider guard ─────────────────────────────────────────────────
+
+describe("DELETE guards the llm.defaultProvider reference", () => {
+  test("throws 409 deleting the default's resolved connection (convention name)", async () => {
+    seedConnection({
+      name: "anthropic-personal",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
+
+    const err = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-personal" } },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).message).toContain("llm.defaultProvider");
+    expect((err as ConflictError).details).toEqual({
+      referencedBy: ["llm.defaultProvider"],
+    });
+  });
+
+  test("throws 409 deleting the default's explicit connectionName", async () => {
+    seedConnection({
+      name: "my-conn",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    setConfig("llm", {
+      defaultProvider: { provider: "openai", connectionName: "my-conn" },
+    });
+
+    await expect(
+      call(findHandler("inference_provider_connections_delete"), {
+        pathParams: { name: "my-conn" },
+      }),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  test("throws 409 deleting the last connection for the default provider when the convention name is dangling", async () => {
+    // dp resolves to "anthropic-personal", which has no matching row — but
+    // "anthropic-work" is the only connection for that provider, so deleting
+    // it would strand the default with zero usable connections.
+    seedConnection({
+      name: "anthropic-work",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
+
+    const err = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-work" } },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).details).toEqual({
+      referencedBy: ["llm.defaultProvider"],
+    });
+  });
+
+  test("succeeds deleting an unrelated last same-provider connection when the default pins an explicit connectionName", async () => {
+    // The explicit pin is what the default references; "anthropic-work" is
+    // unrelated even though it is the only anthropic row.
+    seedConnection({
+      name: "anthropic-work",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    setConfig("llm", {
+      defaultProvider: {
+        provider: "anthropic",
+        connectionName: "anthropic-personal",
+      },
+    });
+
+    const result = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-work" } },
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  test("throws 409 deleting the last visible connection when a hidden legacy row shares the provider", async () => {
+    // "anthropic-managed" is filtered from the list route and must not count
+    // as a remaining connection for the default provider.
+    seedConnection({
+      name: "anthropic-work",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    seedConnection({
+      name: "anthropic-managed",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
+
+    const err = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-work" } },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).details).toEqual({
+      referencedBy: ["llm.defaultProvider"],
+    });
+  });
+
+  test("succeeds deleting a non-last connection for the default provider", async () => {
+    seedConnection({
+      name: "anthropic-personal",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    seedConnection({
+      name: "anthropic-other",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-other" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
+
+  test("succeeds deleting a connection for a non-default provider", async () => {
+    seedConnection({
+      name: "openai-conn",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "openai-conn" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
+
+  test("succeeds deleting another provider's connection when the default provider has zero connections", async () => {
+    seedConnection({
+      name: "openai-conn",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    // No "anthropic" rows exist at all — an already-dangling default is a
+    // legal state; the guard must no-op rather than crash on an empty list.
+    setConfig("llm", { defaultProvider: { provider: "anthropic" } });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "openai-conn" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
+
+  test("succeeds when defaultProvider is absent", async () => {
+    seedConnection({
+      name: "some-conn",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    setConfig("llm", {});
+
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "some-conn" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
+
+  test("succeeds when defaultProvider is malformed (dropped by the schema catch)", async () => {
+    seedConnection({
+      name: "some-conn",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    const parsed = LLMSchema.parse({
+      defaultProvider: { provider: "not-a-provider" },
+    });
+    expect(parsed.defaultProvider).toBeUndefined();
+    setConfig("llm", parsed);
+
+    const result = (await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "some-conn" } },
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
+
+  test("managed-connection rejection still takes precedence over the defaultProvider guard", async () => {
+    seedConnection({
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
+    setConfig("llm", { defaultProvider: { provider: "vellum" } });
+
+    const err = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "vellum" } },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
   });
 });
 
@@ -562,11 +1054,7 @@ describe("PATCH with label", () => {
 // ── Managed-connection write protection ──────────────────────────────────────
 
 describe("Managed connection write protection", () => {
-  const MANAGED_NAMES = [
-    "anthropic-managed",
-    "openai-managed",
-    "gemini-managed",
-  ] as const;
+  const MANAGED_NAMES = ["vellum"] as const;
 
   describe("DELETE", () => {
     for (const name of MANAGED_NAMES) {
@@ -592,25 +1080,46 @@ describe("Managed connection write protection", () => {
       // Even though a profile references the managed connection, the error
       // should be the managed-protection 400, not the references-409.
       seedConnection({
-        name: "anthropic-managed",
-        provider: "anthropic",
+        name: "vellum",
+        provider: "vellum",
         auth: { type: "platform" },
       });
-      fakeConfig = {
-        llm: {
-          profiles: {
-            balanced: { provider_connection: "anthropic-managed" },
-          },
+      setConfig("llm", {
+        profiles: {
+          balanced: { provider_connection: "vellum" },
         },
-      };
+      });
 
       const err = await call(
         findHandler("inference_provider_connections_delete"),
-        { pathParams: { name: "anthropic-managed" } },
+        { pathParams: { name: "vellum" } },
       ).catch((e: unknown) => e);
 
       expect(err).toBeInstanceOf(BadRequestError);
       expect((err as BadRequestError).message).toContain("managed");
+    });
+
+    test("a user-owned row claiming the managed name stays deletable", async () => {
+      // Boot seeding refuses to overwrite it and managed routing ignores it,
+      // so deleting is the only way to restore the canonical row. The vellum
+      // default resolves to this same name, and that guard must not block the
+      // delete either: the next boot re-seeds the row it points at.
+      seedConnection({
+        name: "vellum",
+        provider: "openai",
+        auth: { type: "api_key", credential: "credential/openai/api_key" },
+      });
+      setConfig("llm", { defaultProvider: { provider: "vellum" } });
+
+      await call(findHandler("inference_provider_connections_delete"), {
+        pathParams: { name: "vellum" },
+      });
+
+      const remaining = (await call(
+        findHandler("inference_provider_connections_list"),
+        {},
+      )) as { connections: unknown[] };
+      expect(remaining.connections).toHaveLength(0);
     });
   });
 
@@ -658,7 +1167,7 @@ describe("Managed connection write protection", () => {
 
     test("allows PATCH with auth still set to platform (no-op auth change)", async () => {
       seedConnection({
-        name: "anthropic-managed",
+        name: "vellum",
         provider: "anthropic",
         auth: { type: "platform" },
       });
@@ -666,7 +1175,7 @@ describe("Managed connection write protection", () => {
       const result = (await call(
         findHandler("inference_provider_connections_update"),
         {
-          pathParams: { name: "anthropic-managed" },
+          pathParams: { name: "vellum" },
           body: {
             auth: { type: "platform" },
             label: "Vellum-managed Anthropic",
@@ -680,7 +1189,7 @@ describe("Managed connection write protection", () => {
   describe("PATCH label (allowed)", () => {
     test("allows relabeling a managed connection", async () => {
       seedConnection({
-        name: "openai-managed",
+        name: "vellum",
         provider: "openai",
         auth: { type: "platform" },
       });
@@ -688,7 +1197,7 @@ describe("Managed connection write protection", () => {
       const result = (await call(
         findHandler("inference_provider_connections_update"),
         {
-          pathParams: { name: "openai-managed" },
+          pathParams: { name: "vellum" },
           body: { auth: { type: "platform" }, label: "Custom Label" },
         },
       )) as { label: string | null };
@@ -700,11 +1209,7 @@ describe("Managed connection write protection", () => {
 // ── isManaged response flag ───────────────────────────────────────────────────
 
 describe("isManaged flag on connection responses", () => {
-  const MANAGED_NAMES = [
-    "anthropic-managed",
-    "openai-managed",
-    "gemini-managed",
-  ] as const;
+  const MANAGED_NAMES = ["vellum"] as const;
 
   describe("GET list", () => {
     test("returns isManaged: true for canonical names and false for user-created rows", async () => {
@@ -729,27 +1234,90 @@ describe("isManaged flag on connection responses", () => {
       const byName = Object.fromEntries(
         result.connections.map((c) => [c.name, c.isManaged]),
       );
-      expect(byName["anthropic-managed"]).toBe(true);
-      expect(byName["openai-managed"]).toBe(true);
-      expect(byName["gemini-managed"]).toBe(true);
+      expect(byName["vellum"]).toBe(true);
       expect(byName["my-custom-anthropic"]).toBe(false);
+    });
+
+    test("hides orphaned legacy *-managed rows from the list", async () => {
+      // Existing installs (and fresh installs via migration 243) may still
+      // carry the pre-consolidation rows until a follow-up migration deletes
+      // them; they must not surface in the UI alongside `vellum`.
+      for (const name of [
+        "anthropic-managed",
+        "openai-managed",
+        "gemini-managed",
+        "fireworks-managed",
+        "together-managed",
+      ]) {
+        seedConnection({
+          name,
+          provider: name.replace("-managed", ""),
+          auth: { type: "platform" },
+        });
+      }
+      seedConnection({
+        name: "vellum",
+        provider: "vellum",
+        auth: { type: "platform" },
+      });
+      seedConnection({
+        name: "my-openai",
+        provider: "openai",
+        auth: { type: "api_key", credential: "ref/k" },
+      });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_list"),
+        {},
+      )) as { connections: Array<{ name: string }> };
+      const names = result.connections.map((c) => c.name);
+
+      expect(names).toContain("vellum");
+      expect(names).toContain("my-openai");
+      for (const legacy of [
+        "anthropic-managed",
+        "openai-managed",
+        "gemini-managed",
+        "fireworks-managed",
+        "together-managed",
+      ]) {
+        expect(names).not.toContain(legacy);
+      }
     });
   });
 
   describe("GET single", () => {
     test("returns isManaged: true for a managed name", async () => {
       seedConnection({
-        name: "anthropic-managed",
-        provider: "anthropic",
+        name: "vellum",
+        provider: "vellum",
         auth: { type: "platform" },
       });
 
       const result = (await call(
         findHandler("inference_provider_connections_get"),
-        { pathParams: { name: "anthropic-managed" } },
+        { pathParams: { name: "vellum" } },
       )) as { name: string; isManaged: boolean };
 
       expect(result.isManaged).toBe(true);
+    });
+
+    test("returns isManaged: false for a user-owned row claiming a managed name", async () => {
+      // Clients gate edit and delete on this flag, so a claiming row must
+      // report as the ordinary connection it is or the collision cannot be
+      // cleared from the UI.
+      seedConnection({
+        name: "vellum",
+        provider: "openai",
+        auth: { type: "api_key", credential: "credential/openai/api_key" },
+      });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_get"),
+        { pathParams: { name: "vellum" } },
+      )) as { name: string; isManaged: boolean };
+
+      expect(result.isManaged).toBe(false);
     });
 
     test("returns isManaged: false for a user-created name", async () => {
@@ -788,15 +1356,15 @@ describe("isManaged flag on connection responses", () => {
   describe("PATCH update", () => {
     test("returns isManaged: true after relabeling a managed connection", async () => {
       seedConnection({
-        name: "anthropic-managed",
-        provider: "anthropic",
+        name: "vellum",
+        provider: "vellum",
         auth: { type: "platform" },
       });
 
       const result = (await call(
         findHandler("inference_provider_connections_update"),
         {
-          pathParams: { name: "anthropic-managed" },
+          pathParams: { name: "vellum" },
           body: { auth: { type: "platform" }, label: "Vellum Anthropic" },
         },
       )) as { name: string; isManaged: boolean };

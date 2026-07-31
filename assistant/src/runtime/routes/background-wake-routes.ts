@@ -4,12 +4,24 @@ import {
   type BackgroundWakeIntent,
   computeNextBackgroundWakeIntent,
 } from "../../background-wake/next-wake.js";
-import type { BackgroundWakeRuntime } from "../../background-wake/runtime-registry.js";
-import { getBackgroundWakeRuntime } from "../../background-wake/runtime-registry.js";
+import {
+  getHeartbeatService,
+  type HeartbeatService,
+} from "../../heartbeat/heartbeat-service.js";
+import {
+  getScheduler,
+  type SchedulerHandle,
+} from "../../schedule/scheduler.js";
 import { getLogger } from "../../util/logger.js";
 import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+/** The scheduler and heartbeat surface the drain-due lease needs. */
+type BackgroundWakeRuntime = {
+  scheduler: Pick<SchedulerHandle, "runOnce" | "runDueWorkOnce">;
+  heartbeat: Pick<HeartbeatService, "nextRunAt" | "runManagedWakeIfDue">;
+};
 
 const PREPARE_SLEEP_DEFER_WINDOW_MS = 60_000;
 const HEARTBEAT_DUE_TOLERANCE_MS = 1_000;
@@ -86,10 +98,16 @@ function normalizeDrainDueBody(body: Record<string, unknown>) {
 }
 
 function normalizeTimestamp(value: unknown): unknown {
-  if (typeof value === "number") return value;
-  if (typeof value !== "string") return value;
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return value;
+  }
   const numeric = Number(value);
-  if (Number.isFinite(numeric)) return numeric;
+  if (Number.isFinite(numeric)) {
+    return numeric;
+  }
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : value;
 }
@@ -138,12 +156,14 @@ function handlePrepareSleep() {
 
 async function handleDrainDue(body: Record<string, unknown>) {
   const request = parseDrainDueBody(body);
-  const runtime = getBackgroundWakeRuntime();
-  if (!runtime) {
+  const scheduler = getScheduler();
+  const heartbeat = getHeartbeatService();
+  if (!scheduler || !heartbeat) {
     throw new ServiceUnavailableError(
-      "Background wake runtime is not registered",
+      "Background wake runtime is not available",
     );
   }
+  const runtime: BackgroundWakeRuntime = { scheduler, heartbeat };
 
   if (!activeDrainLeases.has(request.leaseId)) {
     activeDrainLeases.add(request.leaseId);
@@ -188,7 +208,9 @@ async function runDrainDueLease(
       nextIntent: computeWakeIntent(),
     });
   } finally {
-    if (renewTimer) clearInterval(renewTimer);
+    if (renewTimer) {
+      clearInterval(renewTimer);
+    }
     activeDrainLeases.delete(request.leaseId);
   }
 }
@@ -232,7 +254,6 @@ async function performDrainDue(
     await runtime.scheduler.runDueWorkOnce({
       deadlineAt: request.deadlineAt,
       minStartBudgetMs: MIN_DRAIN_START_BUDGET_MS,
-      includeStillPending: true,
     });
   }
 

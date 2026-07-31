@@ -5,74 +5,161 @@
  * post-generation enforcement to ensure required directives always appear.
  */
 
-// ── Local string utilities ──────────────────────────────────────────────────
-//
-// Tiny helpers duplicated from copy-composer to keep this module
-// dependency-free (avoiding a circular import with copy-composer, which
-// imports access-request helpers for its templates).
+import { z } from "zod";
 
-function str(value: unknown, fallback: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
-  return fallback;
-}
+import { buildSlackPermalink } from "../messaging/providers/slack/deep-link.js";
+import { isSlackDmConversation } from "../messaging/providers/slack/message-metadata.js";
+import {
+  buildIntroductionActions,
+  coerceSignalBoolean,
+  type IntroductionActionOption,
+  introductionMode,
+  isHandshakeOffered,
+} from "../runtime/introduction-policy.js";
+import {
+  nonEmpty,
+  sanitizeIdentityField,
+  sanitizeMessagePreview,
+} from "./notification-utils.js";
 
-function nonEmpty(value: string | undefined): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
+// ── Zod schema for access-request payloads ──────────────────────────────────
 
-// ── Identity sanitization ───────────────────────────────────────────────────
-
-const IDENTITY_FIELD_MAX_LENGTH = 120;
+/** Accepts string, null, or any other type — coerces non-strings to undefined. */
+const optStr = z
+  .unknown()
+  .transform((v) => (typeof v === "string" ? v : undefined));
 
 /**
- * Sanitize an untrusted identity field for inclusion in notification copy.
- *
- * - Strips control characters (U+0000–U+001F, U+007F–U+009F) and newlines.
- * - Clamps to IDENTITY_FIELD_MAX_LENGTH characters.
- * - Wraps in quotes to neutralize instruction-like payload text.
+ * Tri-state identity-signal boolean (see `coerceSignalBoolean`): explicit
+ * `false` is preserved as a positive platform resolution, everything
+ * non-boolean is unknown.
  */
-export function sanitizeIdentityField(value: string): string {
-  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, " ").trim();
-  const clamped =
-    stripped.length > IDENTITY_FIELD_MAX_LENGTH
-      ? stripped.slice(0, IDENTITY_FIELD_MAX_LENGTH) + "…"
-      : stripped;
-  return clamped;
+const optBool = z.unknown().transform(coerceSignalBoolean);
+
+export const AccessRequestPayloadSchema = z.object({
+  requestId: optStr,
+  requestCode: optStr,
+  sourceChannel: optStr,
+  conversationExternalId: optStr,
+  actorExternalId: optStr,
+  actorDisplayName: optStr,
+  actorUsername: optStr,
+  senderIdentifier: optStr,
+  guardianBindingChannel: optStr,
+  guardianResolutionSource: optStr,
+  previousMemberStatus: optStr,
+  messagePreview: optStr,
+  isBot: optBool,
+  isStranger: optBool,
+  isRestricted: optBool,
+  messageTs: optStr,
+  /**
+   * `"admitted"` marks an introduction nudge for a sender who cleared the
+   * admission floor (see access-request-helper `AccessRequestTrigger`);
+   * absent/other means the deny-path access request.
+   */
+  trigger: optStr,
+});
+
+export type ParsedAccessRequestPayload = z.infer<
+  typeof AccessRequestPayloadSchema
+>;
+
+export function parseAccessRequestPayload(
+  payload: Record<string, unknown>,
+): ParsedAccessRequestPayload {
+  return AccessRequestPayloadSchema.parse(payload);
 }
 
-export function buildAccessRequestIdentityLine(
-  payload: Record<string, unknown>,
-): string {
-  const requester = sanitizeIdentityField(
-    str(payload.senderIdentifier, "Someone"),
-  );
-  const sourceChannel =
-    typeof payload.sourceChannel === "string"
-      ? payload.sourceChannel
-      : undefined;
-  const callerName = nonEmpty(
-    typeof payload.actorDisplayName === "string"
-      ? payload.actorDisplayName
-      : undefined,
-  );
-  const actorUsername = nonEmpty(
-    typeof payload.actorUsername === "string"
-      ? payload.actorUsername
-      : undefined,
-  );
-  const actorExternalId = nonEmpty(
-    typeof payload.actorExternalId === "string"
-      ? payload.actorExternalId
-      : undefined,
-  );
+/**
+ * Whether the payload is an admitted-mode introduction nudge. Accepts both
+ * parsed payloads and the raw `contextPayload` record so every render surface
+ * shares one predicate.
+ */
+export function isAdmittedIntroduction(p: { trigger?: unknown }): boolean {
+  return p.trigger === "admitted";
+}
 
-  if (sourceChannel === "phone" && callerName) {
-    const safeName = sanitizeIdentityField(callerName);
-    const safeId = sanitizeIdentityField(
-      str(payload.actorExternalId, requester),
+/** Card/notification title, shared by every render surface. */
+export function accessRequestCardTitle(admitted: boolean): string {
+  return introductionMode(admitted ? "admitted" : "denied").cardTitle;
+}
+
+/**
+ * Card subtitle (also the Slack card's no-preview body label), shared by
+ * every render surface.
+ */
+export function accessRequestCardSubtitle(admitted: boolean): string {
+  return introductionMode(admitted ? "admitted" : "denied").cardSubtitle;
+}
+
+// ── Warnings ────────────────────────────────────────────────────────────────
+
+/**
+ * Build a list of human-readable warning strings for an access request.
+ * Used by both the Slack Block Kit card and the plain-text contract.
+ */
+export function buildAccessRequestWarnings(
+  p: ParsedAccessRequestPayload,
+): string[] {
+  const warnings: string[] = [];
+  if (p.previousMemberStatus === "revoked") {
+    warnings.push("This user was previously revoked.");
+  }
+  if (p.isBot) {
+    warnings.push(
+      "Bot / integration account — code verification isn't possible.",
     );
+  }
+  if (p.isStranger) {
+    warnings.push("External Slack user (not in this workspace).");
+  }
+  if (p.isRestricted) {
+    warnings.push("Guest / restricted account.");
+  }
+  return warnings;
+}
+
+// ── Introduction actions ─────────────────────────────────────────────────────
+
+/**
+ * Signal-driven introduction-card action list for a parsed access-request
+ * payload. Shared by every card renderer (Slack Card block, Telegram inline
+ * keyboard, Vellum Surface card) so the offered actions never drift between
+ * surfaces.
+ */
+export function buildIntroductionActionsForPayload(
+  p: ParsedAccessRequestPayload,
+): IntroductionActionOption[] {
+  return buildIntroductionActions(p.sourceChannel, {
+    isBot: p.isBot,
+    isStranger: p.isStranger,
+    isRestricted: p.isRestricted,
+  });
+}
+
+/** Whether the verification handshake is offered for this requester. */
+export function isHandshakeOfferedForPayload(
+  p: ParsedAccessRequestPayload,
+): boolean {
+  return isHandshakeOffered(p.sourceChannel, {
+    isBot: p.isBot,
+    isStranger: p.isStranger,
+    isRestricted: p.isRestricted,
+  });
+}
+
+/** Internal typed implementation — avoids re-parsing when called from
+ *  buildAccessRequestContractText which has already parsed the payload. */
+function buildIdentityLineFromParsed(p: ParsedAccessRequestPayload): string {
+  const requester = sanitizeIdentityField(p.senderIdentifier || "Someone");
+  const callerName = nonEmpty(p.actorDisplayName);
+  const actorUsername = nonEmpty(p.actorUsername);
+  const actorExternalId = nonEmpty(p.actorExternalId);
+
+  if (p.sourceChannel === "phone" && callerName) {
+    const safeName = sanitizeIdentityField(callerName);
+    const safeId = sanitizeIdentityField(p.actorExternalId || requester);
     return `${safeName} (${safeId}) is calling and requesting access to the assistant.`;
   }
 
@@ -84,11 +171,10 @@ export function buildAccessRequestIdentityLine(
   const sanitizedExternalId = actorExternalId
     ? sanitizeIdentityField(actorExternalId)
     : undefined;
-  // When the requester is a raw Slack user ID (e.g. the fallback path in
-  // access-request-helper sets senderIdentifier to the raw actorExternalId),
-  // format it as a Slack mention so it renders as a clickable display name.
+  // When the requester is a raw Slack user ID, format it as a Slack mention
+  // so Slack auto-renders it as a clickable display name.
   const formattedRequester =
-    sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(requester)
+    p.sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(requester)
       ? `<@${requester}>`
       : requester;
   const parts = [formattedRequester];
@@ -100,39 +186,23 @@ export function buildAccessRequestIdentityLine(
     sanitizedExternalId !== requester &&
     sanitizedExternalId !== sanitizedUsername
   ) {
-    // For Slack, use the <@U...> mention format so Slack auto-renders
-    // the user ID as a clickable display name.
     const formattedId =
-      sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(sanitizedExternalId)
+      p.sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(sanitizedExternalId)
         ? `<@${sanitizedExternalId}>`
         : `[${sanitizedExternalId}]`;
     parts.push(formattedId);
   }
-  if (sourceChannel) {
-    parts.push(`via ${sourceChannel}`);
+  if (p.sourceChannel) {
+    parts.push(`via ${p.sourceChannel}`);
   }
 
-  return `${parts.join(" ")} is requesting access to the assistant.`;
+  return introductionMode(p.trigger).identityLine(parts.join(" "));
 }
 
-// ── Message preview ─────────────────────────────────────────────────────────
-
-export const MESSAGE_PREVIEW_MAX_LENGTH = 200;
-
-/**
- * Sanitize an untrusted message preview for inclusion in notification copy.
- *
- * Like {@link sanitizeIdentityField} but uses the higher
- * MESSAGE_PREVIEW_MAX_LENGTH limit (200 chars) instead of the identity
- * field limit (120 chars).
- */
-export function sanitizeMessagePreview(value: string): string {
-  const stripped = value.replace(/[\x00-\x1f\x7f-\x9f\r\n]+/g, " ").trim();
-  const clamped =
-    stripped.length > MESSAGE_PREVIEW_MAX_LENGTH
-      ? stripped.slice(0, MESSAGE_PREVIEW_MAX_LENGTH) + "…"
-      : stripped;
-  return clamped;
+export function buildAccessRequestIdentityLine(
+  payload: Record<string, unknown>,
+): string {
+  return buildIdentityLineFromParsed(parseAccessRequestPayload(payload));
 }
 
 /**
@@ -142,17 +212,18 @@ export function sanitizeMessagePreview(value: string): string {
  *
  * Returns `undefined` when no usable preview is available.
  */
-function buildAccessRequestMessagePreview(
-  payload: Record<string, unknown>,
+function buildMessagePreviewFromParsed(
+  p: ParsedAccessRequestPayload,
 ): string | undefined {
-  const raw =
-    typeof payload.messagePreview === "string"
-      ? payload.messagePreview
-      : undefined;
-  if (!raw) return undefined;
+  const raw = p.messagePreview;
+  if (!raw) {
+    return undefined;
+  }
 
   const sanitized = sanitizeMessagePreview(raw);
-  if (sanitized.length === 0) return undefined;
+  if (sanitized.length === 0) {
+    return undefined;
+  }
 
   return `> Their message: "${sanitized}"`;
 }
@@ -179,16 +250,28 @@ export function normalizeForDirectiveMatching(text: string): string {
     .trim();
 }
 
+/** Build a negated-lookbehind directive regex for `reply ... "CODE <verb>"`. */
+function buildCodeDirectiveRegex(escapedCode: string, verb: string): RegExp {
+  return new RegExp(
+    `(?<!not\\s)(?<!n't\\s)(?<!never\\s)reply\\b[^.!?\\n]*?"${escapedCode}\\s+${verb}"`,
+    "i",
+  );
+}
+
 /**
- * Check whether a text contains the required access-request instruction elements:
- * 1. Approve directive: Reply "CODE approve"
- * 2. Reject directive: Reply "CODE reject"
- * 3. Invite directive: Reply "open invite flow"
+ * Check whether a text contains the required access-request instruction
+ * elements for the introduction card:
+ * 1. Trust directive: Reply "CODE trust"
+ * 2. Verify directive: Reply "CODE verify" — only when the handshake is
+ *    offered for this requester (never for bots / workspace-vouched members)
+ * 3. Leave-unverified directive: Reply "CODE reject"
+ * 4. Block directive: Reply "CODE block"
+ * 5. Invite directive: Reply "open invite flow"
  *
  * Each directive is matched independently using negative lookbehind to reject
  * matches preceded by negation words ("not", "n't", "never"). This prevents
  * contradictory copy like `Do not reply "CODE reject"` from satisfying the
- * check even when a positive approve directive exists nearby.
+ * check even when a positive directive exists nearby.
  *
  * The text is normalized before matching to handle smart apostrophes and
  * multiple whitespace characters that would otherwise bypass negation detection.
@@ -196,26 +279,28 @@ export function normalizeForDirectiveMatching(text: string): string {
 export function hasAccessRequestInstructions(
   text: string | undefined,
   requestCode: string,
+  options?: { handshakeOffered?: boolean },
 ): boolean {
-  if (typeof text !== "string") return false;
+  if (typeof text !== "string") {
+    return false;
+  }
+  const handshakeOffered = options?.handshakeOffered ?? true;
   const normalized = normalizeForDirectiveMatching(text);
   const escapedCode = requestCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Each directive must follow "reply" without a preceding negation word.
   // Negative lookbehinds reject "do not reply", "don't reply", "never reply".
-  const approveRe = new RegExp(
-    `(?<!not\\s)(?<!n't\\s)(?<!never\\s)reply\\b[^.!?\\n]*?"${escapedCode}\\s+approve"`,
-    "i",
-  );
-  const rejectRe = new RegExp(
-    `(?<!not\\s)(?<!n't\\s)(?<!never\\s)reply\\b[^.!?\\n]*?"${escapedCode}\\s+reject"`,
-    "i",
-  );
+  const trustRe = buildCodeDirectiveRegex(escapedCode, "trust");
+  const verifyRe = buildCodeDirectiveRegex(escapedCode, "verify");
+  const rejectRe = buildCodeDirectiveRegex(escapedCode, "reject");
+  const blockRe = buildCodeDirectiveRegex(escapedCode, "block");
   const inviteRe =
     /(?<!not\s)(?<!n't\s)(?<!never\s)reply\b[^.!?\n]*?"open invite flow"/i;
 
   return (
-    approveRe.test(normalized) &&
+    trustRe.test(normalized) &&
+    (!handshakeOffered || verifyRe.test(normalized)) &&
     rejectRe.test(normalized) &&
+    blockRe.test(normalized) &&
     inviteRe.test(normalized)
   );
 }
@@ -227,7 +312,9 @@ export function hasAccessRequestInstructions(
  * directive should still be present.
  */
 export function hasInviteFlowDirective(text: string | undefined): boolean {
-  if (typeof text !== "string") return false;
+  if (typeof text !== "string") {
+    return false;
+  }
   const normalized = normalizeForDirectiveMatching(text);
   const inviteRe =
     /(?<!not\s)(?<!n't\s)(?<!never\s)reply\b[^.!?\n]*?"open invite flow"/i;
@@ -252,47 +339,152 @@ export function hasInviteFlowDirective(text: string | undefined): boolean {
 export function buildAccessRequestContractText(
   payload: Record<string, unknown>,
 ): string {
-  const requestCode = nonEmpty(
-    typeof payload.requestCode === "string" ? payload.requestCode : undefined,
-  );
-  const previousMemberStatus =
-    typeof payload.previousMemberStatus === "string"
-      ? payload.previousMemberStatus
-      : undefined;
-
-  const guardianResolutionSource =
-    typeof payload.guardianResolutionSource === "string"
-      ? payload.guardianResolutionSource
-      : undefined;
-  const sourceChannel =
-    typeof payload.sourceChannel === "string"
-      ? payload.sourceChannel
-      : undefined;
+  const p = parseAccessRequestPayload(payload);
+  const requestCode = nonEmpty(p.requestCode);
 
   const lines: string[] = [];
-  lines.push(buildAccessRequestIdentityLine(payload));
-  const preview = buildAccessRequestMessagePreview(payload);
+  lines.push(buildIdentityLineFromParsed(p));
+
+  const preview = buildMessagePreviewFromParsed(p);
   if (preview) {
     lines.push(preview);
   }
-  if (previousMemberStatus === "revoked") {
-    lines.push("Note: this user was previously revoked.");
+
+  // Unified warnings: revoked status + trust signals.
+  for (const warning of buildAccessRequestWarnings(p)) {
+    lines.push(`Note: ${warning.charAt(0).toLowerCase()}${warning.slice(1)}`);
   }
+
+  // Conversation context: source channel + permalink when available.
+  if (p.sourceChannel === "slack" && p.conversationExternalId) {
+    const permalink = p.messageTs
+      ? buildSlackPermalink({
+          channelId: p.conversationExternalId,
+          messageTs: p.messageTs,
+        })
+      : undefined;
+    const isDm = isSlackDmConversation(p.conversationExternalId);
+    const channelLabel = isDm ? "Direct message" : p.conversationExternalId;
+    const source = permalink
+      ? `Source: Slack — ${channelLabel} (${permalink})`
+      : `Source: Slack — ${channelLabel}`;
+    lines.push(source);
+  }
+
   if (requestCode) {
     const code = requestCode.toUpperCase();
-    lines.push(
-      `Reply "${code} approve" to grant access or "${code} reject" to deny.`,
-    );
+    if (isHandshakeOfferedForPayload(p)) {
+      lines.push(
+        `Reply "${code} verify" to send them a verification code, "${code} trust" to trust them without one, "${code} reject" to leave them unverified, or "${code} block" to block them.`,
+      );
+    } else {
+      lines.push(
+        `Reply "${code} trust" to trust them, "${code} reject" to leave them unverified, or "${code} block" to block them.`,
+      );
+    }
   }
   lines.push(buildAccessRequestInviteDirective());
+
   if (
-    (guardianResolutionSource === "vellum-anchor" ||
-      guardianResolutionSource === "none") &&
-    sourceChannel
+    (p.guardianResolutionSource === "vellum-anchor" ||
+      p.guardianResolutionSource === "none") &&
+    p.sourceChannel
   ) {
     lines.push(
-      `Note: You haven't verified your identity on ${sourceChannel} yet. If this was you trying to message your assistant, say "help me verify as guardian on ${sourceChannel}" to set up direct access.`,
+      `Note: You haven't verified your identity on ${p.sourceChannel} yet. If this was you trying to message your assistant, say "help me verify as guardian on ${p.sourceChannel}" to set up direct access.`,
     );
   }
   return lines.join("\n");
+}
+
+// ── Card view model ─────────────────────────────────────────────────────────
+
+/**
+ * Display-ready projection of an access request, shared by every renderer
+ * (the Vellum Surface card and the Slack Card block). It carries the
+ * sanitized, pre-computed facts each renderer needs — identity sanitizing,
+ * warnings, permalink, DM detection, preview sanitizing — so that projection
+ * lives in exactly one place. Renderers lay these facts out in their
+ * channel-native shape without re-deriving them.
+ */
+export interface AccessRequestCardView {
+  /** Sanitized display name (actorDisplayName ?? senderIdentifier, else "Someone"). */
+  displayName: string;
+  /** Sanitized username, without the leading `@`. */
+  username: string | undefined;
+  /** Sanitized external ID. */
+  externalId: string | undefined;
+  sourceChannel: string | undefined;
+  conversationExternalId: string | undefined;
+  /** Whether the source Slack conversation is a DM. */
+  isSlackDm: boolean;
+  /** Slack permalink — present only for a slack source with conversation + ts. */
+  messagePermalink: string | undefined;
+  /** Sanitized message preview, or undefined when blank after sanitizing. */
+  messagePreview: string | undefined;
+  /** Human-readable trust/security warnings. */
+  warnings: string[];
+  guardianResolutionSource: string | undefined;
+  requestId: string | undefined;
+  /** Admitted-mode introduction nudge (sender cleared the admission floor). */
+  admitted: boolean;
+}
+
+/**
+ * Project a parsed access-request payload into display-ready card facts.
+ *
+ * The payload is parsed once upstream — the broadcaster resolves
+ * `accessRequestContext`, and the Surface seed path parses the raw payload —
+ * so this takes the parsed payload rather than re-parsing it.
+ */
+export function buildAccessRequestCardView(
+  p: ParsedAccessRequestPayload,
+): AccessRequestCardView {
+  const rawName = nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
+  const displayName = rawName ? sanitizeIdentityField(rawName) : "Someone";
+
+  const rawUsername = nonEmpty(p.actorUsername);
+  const username = rawUsername ? sanitizeIdentityField(rawUsername) : undefined;
+
+  const rawExternalId = nonEmpty(p.actorExternalId);
+  const externalId = rawExternalId
+    ? sanitizeIdentityField(rawExternalId)
+    : undefined;
+
+  const sourceChannel = nonEmpty(p.sourceChannel);
+  const conversationExternalId = nonEmpty(p.conversationExternalId);
+  const messageTs = nonEmpty(p.messageTs);
+
+  const isSlackDm =
+    sourceChannel === "slack" && conversationExternalId != null
+      ? isSlackDmConversation(conversationExternalId)
+      : false;
+
+  const messagePermalink =
+    sourceChannel === "slack" && conversationExternalId && messageTs
+      ? buildSlackPermalink({
+          channelId: conversationExternalId,
+          messageTs,
+        })
+      : undefined;
+
+  const rawPreview = nonEmpty(p.messagePreview);
+  const messagePreview = rawPreview
+    ? sanitizeMessagePreview(rawPreview) || undefined
+    : undefined;
+
+  return {
+    displayName,
+    username,
+    externalId,
+    sourceChannel,
+    conversationExternalId,
+    isSlackDm,
+    messagePermalink,
+    messagePreview,
+    warnings: buildAccessRequestWarnings(p),
+    guardianResolutionSource: nonEmpty(p.guardianResolutionSource),
+    requestId: nonEmpty(p.requestId),
+    admitted: isAdmittedIntroduction(p),
+  };
 }

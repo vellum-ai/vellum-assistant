@@ -31,6 +31,12 @@ function makeWhatsAppPayload(
   };
 }
 
+// Reserved-range fictional sender (AGENTS.md § Generic Examples, 555-01xx) and
+// a fixture unix-seconds timestamp, shared by the validation tests below.
+const WA_FROM = "12025550142";
+// generic-examples:ignore-next-line — reason: unix-seconds fixture timestamp, not a phone number
+const WA_TS = "1700000000";
+
 describe("normalizeWhatsAppWebhook", () => {
   describe("image messages", () => {
     test("image with caption preserves both content and attachment", () => {
@@ -306,6 +312,192 @@ describe("normalizeWhatsAppWebhook", () => {
       expect(attachment).not.toHaveProperty("fileName");
       expect(attachment).not.toHaveProperty("mimeType");
       expect(attachment).not.toHaveProperty("fileSize");
+    });
+  });
+
+  describe("interactive messages", () => {
+    test("button_reply becomes callbackData with the title as content", () => {
+      const payload = makeWhatsAppPayload({
+        id: "wamid.int1",
+        from: WA_FROM,
+        timestamp: WA_TS,
+        type: "interactive",
+        interactive: {
+          type: "button_reply",
+          button_reply: { id: "apr:run1:approve", title: "Approve" },
+        },
+      });
+
+      const results = normalizeWhatsAppWebhook(payload);
+      expect(results).toHaveLength(1);
+      expect(results[0].event.message.callbackData).toBe("apr:run1:approve");
+      expect(results[0].event.message.content).toBe("Approve");
+    });
+
+    test("a non-button_reply interactive message is skipped", () => {
+      const payload = makeWhatsAppPayload({
+        id: "wamid.int2",
+        from: WA_FROM,
+        timestamp: WA_TS,
+        type: "interactive",
+        interactive: { type: "list_reply", list_reply: { id: "x" } },
+      });
+      expect(normalizeWhatsAppWebhook(payload)).toHaveLength(0);
+    });
+  });
+
+  describe("provider timestamp is not consumed (receivedAt is the gateway's clock)", () => {
+    // `receivedAt` is the gateway's wall-clock receipt time, like every other
+    // channel — the sender-supplied `timestamp` never reaches a `Date`. So no
+    // timestamp value (missing, non-numeric, or out of Date's range) can throw
+    // or otherwise affect normalization; the message is processed normally.
+    test.each([
+      ["missing", undefined],
+      ["non-numeric", "not-a-number"],
+      ["out-of-range digits", "9999999999999"],
+    ])("a %s timestamp is processed normally, never throwing", (_label, ts) => {
+      const payload = makeWhatsAppPayload({
+        id: "wamid.ts",
+        from: WA_FROM,
+        ...(ts === undefined ? {} : { timestamp: ts }),
+        type: "text",
+        text: { body: "hi" },
+      });
+      let results!: ReturnType<typeof normalizeWhatsAppWebhook>;
+      expect(() => {
+        results = normalizeWhatsAppWebhook(payload);
+      }).not.toThrow();
+      expect(results).toHaveLength(1);
+      expect(results[0].event.message.content).toBe("hi");
+    });
+
+    test("receivedAt is a recent wall-clock time, not derived from the provider timestamp", () => {
+      const before = Date.now();
+      const payload = makeWhatsAppPayload({
+        id: "wamid.recv",
+        from: WA_FROM,
+        // A historical send-time; receivedAt must NOT reflect it.
+        timestamp: WA_TS,
+        type: "text",
+        text: { body: "hi" },
+      });
+      const results = normalizeWhatsAppWebhook(payload);
+      const after = Date.now();
+      expect(results).toHaveLength(1);
+      const receivedMs = new Date(results[0].event.receivedAt).getTime();
+      expect(receivedMs).toBeGreaterThanOrEqual(before);
+      expect(receivedMs).toBeLessThanOrEqual(after);
+    });
+  });
+
+  describe("malformed input is dropped, not trusted", () => {
+    test("a message with a missing id is dropped", () => {
+      const payload = makeWhatsAppPayload({
+        from: WA_FROM,
+        timestamp: WA_TS,
+        type: "text",
+        text: { body: "hi" },
+      });
+      expect(normalizeWhatsAppWebhook(payload)).toHaveLength(0);
+    });
+
+    test("a message with a missing sender is dropped", () => {
+      const payload = makeWhatsAppPayload({
+        id: "wamid.no-from",
+        timestamp: WA_TS,
+        type: "text",
+        text: { body: "hi" },
+      });
+      expect(normalizeWhatsAppWebhook(payload)).toHaveLength(0);
+    });
+
+    test("valid messages in a batch survive when one message is malformed", () => {
+      // The malformed message is first: a valid message after it in the same
+      // batch must still be normalized (one bad message does not discard the
+      // whole batch).
+      const payload = {
+        object: "whatsapp_business_account",
+        entry: [
+          {
+            id: "BIZ",
+            changes: [
+              {
+                field: "messages",
+                value: {
+                  messaging_product: "whatsapp",
+                  contacts: [{ wa_id: WA_FROM, profile: { name: "A" } }],
+                  messages: [
+                    // malformed: no sender identity
+                    {
+                      id: "wamid.bad",
+                      timestamp: WA_TS,
+                      type: "text",
+                      text: { body: "bad" },
+                    },
+                    {
+                      id: "wamid.good",
+                      from: WA_FROM,
+                      timestamp: WA_TS,
+                      type: "text",
+                      text: { body: "survivor" },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+      const results = normalizeWhatsAppWebhook(payload);
+      expect(results).toHaveLength(1);
+      expect(results[0].whatsappMessageId).toBe("wamid.good");
+      expect(results[0].event.message.content).toBe("survivor");
+    });
+
+    test("a valid but unsupported message type (e.g. location) is skipped without throwing", () => {
+      const payload = makeWhatsAppPayload({
+        id: "wamid.loc",
+        from: WA_FROM,
+        timestamp: WA_TS,
+        type: "location",
+        location: { latitude: 1, longitude: 2 },
+      });
+      expect(() => normalizeWhatsAppWebhook(payload)).not.toThrow();
+      expect(normalizeWhatsAppWebhook(payload)).toHaveLength(0);
+    });
+
+    test("a non-WhatsApp object returns []", () => {
+      expect(normalizeWhatsAppWebhook({ object: "page", entry: [] })).toEqual(
+        [],
+      );
+    });
+
+    test("a structurally invalid payload returns [] rather than throwing", () => {
+      expect(() =>
+        normalizeWhatsAppWebhook({ entry: "not-an-array" }),
+      ).not.toThrow();
+      expect(normalizeWhatsAppWebhook({ entry: "not-an-array" })).toEqual([]);
+    });
+  });
+
+  describe("serve boundary", () => {
+    test("preserves the original payload verbatim as raw, unknown keys included", () => {
+      const payload = makeWhatsAppPayload({
+        id: "wamid.raw",
+        from: WA_FROM,
+        timestamp: WA_TS,
+        type: "text",
+        text: { body: "hi" },
+      });
+      // A field the schema strips from its working copy; raw must keep it.
+      (payload as Record<string, unknown>).unknown_future_field = { any: 1 };
+
+      const results = normalizeWhatsAppWebhook(payload);
+      expect(results).toHaveLength(1);
+      expect(results[0].event.raw).toEqual(payload);
+      expect(
+        (results[0].event.raw as Record<string, unknown>).unknown_future_field,
+      ).toEqual({ any: 1 });
     });
   });
 });

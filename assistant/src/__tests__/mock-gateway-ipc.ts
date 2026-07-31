@@ -3,7 +3,7 @@
  * `@vellumai/gateway-client/ipc-client`.
  *
  * Usage:
- *   import { mockGatewayIpc, resetMockGatewayIpc } from "../__tests__/mock-gateway-ipc.js";
+ *   import { mockGatewayIpc, resetMockGatewayIpc } from "./mock-gateway-ipc.js";
  *
  *   beforeEach(() => resetMockGatewayIpc());
  *   afterEach(() => resetMockGatewayIpc());
@@ -44,6 +44,15 @@ let ipcResults: Record<string, unknown> = {};
 /** Whether the fake ipcCall should simulate a connection error. */
 let simulateError = false;
 
+/** Throw a transient (retryable) error for the first N persistent calls, then succeed. */
+let failFirstN = 0;
+
+/** When set, the simulated persistent-call failure is a non-retryable IpcCallError. */
+let failWithIpcCallError = false;
+
+/** Per-method persistent-client `.call` counter, so retry tests can assert attempts. */
+const persistentCallCounts: Record<string, number> = {};
+
 // ---------------------------------------------------------------------------
 // FakePersistentIpcClient — mirrors PersistentIpcClient API
 // ---------------------------------------------------------------------------
@@ -52,12 +61,25 @@ class FakePersistentIpcClient extends EventEmitter {
   async call(
     method: string,
     _params?: Record<string, unknown>,
+    _timeoutMs?: number,
   ): Promise<unknown> {
+    persistentCallCounts[method] = (persistentCallCounts[method] ?? 0) + 1;
+    if (failFirstN > 0) {
+      failFirstN--;
+      if (failWithIpcCallError) {
+        throw new FakeIpcCallError("Mock deterministic gateway error");
+      }
+      throw new Error("Mock IPC socket error");
+    }
     if (simulateError) {
       throw new Error("Mock IPC socket error");
     }
-    if (method in ipcResults) return ipcResults[method];
-    if (method === "get_feature_flags") return GET_FEATURE_FLAGS_DEFAULT;
+    if (method in ipcResults) {
+      return ipcResults[method];
+    }
+    if (method === "get_feature_flags") {
+      return GET_FEATURE_FLAGS_DEFAULT;
+    }
     return undefined;
   }
 
@@ -82,6 +104,33 @@ const GET_FEATURE_FLAGS_DEFAULT: Record<string, boolean> = {
   __test_default__: false,
 };
 
+class FakeIpcCallError extends Error {
+  readonly statusCode?: number;
+  readonly errorCode?: string;
+  readonly errorDetails?: unknown;
+
+  constructor(
+    message: string,
+    fields: {
+      statusCode?: number;
+      errorCode?: string;
+      errorDetails?: unknown;
+    } = {},
+  ) {
+    super(message);
+    this.name = "IpcCallError";
+    if (fields.statusCode !== undefined) {
+      this.statusCode = fields.statusCode;
+    }
+    if (fields.errorCode !== undefined) {
+      this.errorCode = fields.errorCode;
+    }
+    if (fields.errorDetails !== undefined) {
+      this.errorDetails = fields.errorDetails;
+    }
+  }
+}
+
 export function installGatewayIpcMock(): void {
   mock.module("@vellumai/gateway-client/ipc-client", () => ({
     ipcCall: async (
@@ -93,10 +142,15 @@ export function installGatewayIpcMock(): void {
         // Real ipcCall returns undefined on failure — mirror that behavior.
         return undefined;
       }
-      if (method in ipcResults) return ipcResults[method];
-      if (method === "get_feature_flags") return GET_FEATURE_FLAGS_DEFAULT;
+      if (method in ipcResults) {
+        return ipcResults[method];
+      }
+      if (method === "get_feature_flags") {
+        return GET_FEATURE_FLAGS_DEFAULT;
+      }
       return undefined;
     },
+    IpcCallError: FakeIpcCallError,
     PersistentIpcClient: FakePersistentIpcClient,
   }));
 }
@@ -116,7 +170,15 @@ export function installGatewayIpcMock(): void {
  */
 export function mockGatewayIpc(
   flags?: Record<string, boolean> | null,
-  opts?: { error?: boolean; code?: string; results?: Record<string, unknown> },
+  opts?: {
+    error?: boolean;
+    code?: string;
+    results?: Record<string, unknown>;
+    /** Throw a transient (retryable) error for the first N persistent calls. */
+    failFirstN?: number;
+    /** Make the simulated persistent-call failure a non-retryable IpcCallError. */
+    ipcCallError?: boolean;
+  },
 ): void {
   if (flags != null) {
     ipcResults["get_feature_flags"] = flags;
@@ -127,6 +189,20 @@ export function mockGatewayIpc(
   if (opts?.error) {
     simulateError = true;
   }
+  if (opts?.failFirstN !== undefined) {
+    failFirstN = opts.failFirstN;
+  }
+  if (opts?.ipcCallError) {
+    failWithIpcCallError = true;
+  }
+}
+
+/**
+ * Number of persistent-client `.call(method)` invocations since the last reset.
+ * Lets retry tests assert the exact attempt count.
+ */
+export function getMockPersistentCallCount(method: string): number {
+  return persistentCallCounts[method] ?? 0;
 }
 
 /**
@@ -135,4 +211,9 @@ export function mockGatewayIpc(
 export function resetMockGatewayIpc(): void {
   ipcResults = {};
   simulateError = false;
+  failFirstN = 0;
+  failWithIpcCallError = false;
+  for (const key of Object.keys(persistentCallCounts)) {
+    delete persistentCallCounts[key];
+  }
 }

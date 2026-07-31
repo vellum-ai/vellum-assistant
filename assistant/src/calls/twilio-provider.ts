@@ -14,12 +14,13 @@ import type { InitiateCallOptions, VoiceProvider } from "./voice-provider.js";
 const log = getLogger("twilio-provider");
 
 /**
- * Twilio ConversationRelay voice provider.
+ * Twilio voice provider: outbound REST dialing, call status/teardown,
+ * caller-ID eligibility checks, and webhook signature validation.
  *
  * Uses the Twilio REST API directly via fetch() — no twilio npm package.
  * Credentials are resolved lazily from config on each call.
  */
-export class TwilioConversationRelayProvider implements VoiceProvider {
+export class TwilioVoiceProvider implements VoiceProvider {
   readonly name = "twilio";
 
   // ── Credential helpers ──────────────────────────────────────────────
@@ -319,7 +320,9 @@ export class TwilioConversationRelayProvider implements VoiceProvider {
     // Constant-time comparison to prevent timing attacks
     const a = Buffer.from(computed);
     const b = Buffer.from(signature);
-    if (a.length !== b.length) return false;
+    if (a.length !== b.length) {
+      return false;
+    }
     return timingSafeEqual(a, b);
   }
 }

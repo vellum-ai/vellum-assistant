@@ -5,10 +5,8 @@
  * relationship with the user: which tier they're at, what facts the
  * assistant has learned about them, and which capabilities are unlocked.
  *
- * The TypeScript types here are the source of truth. A structurally
- * identical Swift definition lives at
- * `clients/shared/Models/RelationshipState.swift` — any change here must
- * be mirrored there (and the contract test guards the default list).
+ * The TypeScript types here are the source of truth; the contract test
+ * guards the default list.
  */
 
 export const RELATIONSHIP_STATE_VERSION = 1 as const;

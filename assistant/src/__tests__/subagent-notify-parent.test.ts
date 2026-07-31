@@ -3,7 +3,9 @@ import { describe, expect, mock, test } from "bun:test";
 // ── Module mocks (must come before any imports that transitively load these) ──
 
 // Mock conversation-crud before importing tool executors that depend on it.
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -36,25 +38,55 @@ mock.module("../memory/conversation-crud.js", () => ({
  */
 const capturedMessages: string[] = [];
 
+/** Parent conversation ids that a notification was routed to (findConversation). */
+const capturedParentIds: string[] = [];
+
+// Live subagent conversations, keyed by conversationId. notifyParentFromChild
+// routes to the parent recorded here (the non-writable in-process source), so
+// tests register a child before expecting a notification to route.
+const liveSubagents = new Map<
+  string,
+  {
+    parentConversationId: string;
+    subagentSuppressParentNotifications?: boolean;
+  }
+>();
+
 mock.module("../daemon/conversation-registry.js", () => ({
-  findConversation: (_id: string) => ({
-    enqueueMessage: (options: { content: string }) => {
-      capturedMessages.push(options.content);
-      return { queued: true };
-    },
-    persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),
-    runAgentLoop: async () => {},
-  }),
+  findConversation: (id: string) => {
+    capturedParentIds.push(id);
+    return {
+      enqueueMessage: (options: { content: string }) => {
+        capturedMessages.push(options.content);
+        return { queued: true };
+      },
+      persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),
+      runAgentLoop: async () => {},
+    };
+  },
+  findConversationOrSubagent: (id: string) => {
+    const live = liveSubagents.get(id);
+    return live ? { ...live } : undefined;
+  },
+}));
+
+// notifyParentFromChild reads cosmetic label/fork/objective from the durable
+// record. Routing does NOT come from here (see liveSubagents above), so a
+// tampered record can only mislabel, never redirect.
+const records = new Map<string, SubagentRecord>();
+mock.module("../persistence/subagent-store.js", () => ({
+  getSubagentRecordByConversationId: (conversationId: string) =>
+    records.get(conversationId),
 }));
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
+import type { Conversation } from "../daemon/conversation.js";
 import { isToolActiveForContext } from "../daemon/conversation-tool-setup.js";
-import { getSubagentManager } from "../subagent/index.js";
-import { SubagentManager } from "../subagent/manager.js";
-import type { SubagentState } from "../subagent/types.js";
+import type { SubagentRecord } from "../persistence/subagent-store.js";
+import { notifyParentFromChild } from "../subagent/notify.js";
 import {
   executeSubagentNotifyParent,
   notifyParentTool,
@@ -63,61 +95,43 @@ import {
 // ── Shared helpers ──────────────────────────────────────────────────
 
 /**
- * Inject a fake subagent into the singleton manager so tool executors
- * can find it. Uses the same private-internals trick as the other tests.
+ * Register a subagent so `notifyParentFromChild` (and the `notify_parent` tool)
+ * treat `conversationId` as a live subagent: a live child conversation (the
+ * routing source) plus a durable record (cosmetic label/fork/objective).
+ * Defaults to a running general subagent; pass overrides for status, label,
+ * fork, etc. By default the live parent matches the record's parent; pass
+ * `liveParentConversationId` to diverge them (models a tampered record).
  */
-function injectSubagent(
-  manager: SubagentManager,
-  subagentId: string,
-  parentConversationId: string,
-  status: SubagentState["status"] = "running",
-  overrides: Partial<SubagentState> = {},
-): SubagentState {
-  const internals = manager as unknown as {
-    subagents: Map<
-      string,
-      {
-        conversation: unknown;
-        state: SubagentState;
-        parentSendToClient: () => void;
-      }
-    >;
-    parentToChildren: Map<string, Set<string>>;
-  };
-  const state: SubagentState = {
-    config: {
-      id: subagentId,
-      parentConversationId,
-      label: "Test",
-      objective: "test",
-    },
-    status,
-    conversationId: `conv-${subagentId}`,
+function seedSubagent(
+  conversationId: string,
+  overrides: Partial<SubagentRecord> = {},
+  liveParentConversationId?: string,
+): void {
+  const record: SubagentRecord = {
+    id: `sub-${conversationId}`,
+    parentConversationId: `parent-${conversationId}`,
+    conversationId,
+    label: "Test",
+    objective: "test",
+    role: "general",
     isFork: false,
-    createdAt: Date.now(),
-    usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+    sendResultToUser: null,
+    parentToolUseId: null,
+    status: "running",
+    error: null,
+    createdAt: 0,
+    startedAt: null,
+    completedAt: null,
+    inputTokens: 0,
+    outputTokens: 0,
+    estimatedCost: 0,
     ...overrides,
   };
-  const fakeConversation = {
-    abort: () => {},
-    dispose: () => {},
-    messages: [],
-    sendToClient: () => {},
-    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    enqueueMessage: () => ({ queued: false }),
-    persistUserMessage: async () => ({ id: "msg-1", deduplicated: false }),
-    runAgentLoop: async () => {},
-  };
-  internals.subagents.set(subagentId, {
-    conversation: fakeConversation,
-    state,
-    parentSendToClient: () => {},
+  records.set(conversationId, record);
+  liveSubagents.set(conversationId, {
+    parentConversationId:
+      liveParentConversationId ?? record.parentConversationId,
   });
-  if (!internals.parentToChildren.has(parentConversationId)) {
-    internals.parentToChildren.set(parentConversationId, new Set());
-  }
-  internals.parentToChildren.get(parentConversationId)!.add(subagentId);
-  return state;
 }
 
 function makeContext(
@@ -162,9 +176,8 @@ describe("notify_parent tool definition", () => {
       preactivatedSkillIds: [],
       skillProjectionState: new Map(),
       skillProjectionCache: new Map(),
-      coreToolNames: new Set<string>(),
       toolsDisabledDepth: 0,
-    } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
+    } as unknown as Conversation;
     expect(isToolActiveForContext("notify_parent", ctx)).toBe(false);
   });
 
@@ -173,9 +186,8 @@ describe("notify_parent tool definition", () => {
       preactivatedSkillIds: [],
       skillProjectionState: new Map(),
       skillProjectionCache: new Map(),
-      coreToolNames: new Set<string>(),
       toolsDisabledDepth: 0,
-    } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
+    } as unknown as Conversation;
     expect(isToolActiveForContext("notify_parent", ctx)).toBe(false);
   });
 
@@ -185,9 +197,8 @@ describe("notify_parent tool definition", () => {
       preactivatedSkillIds: [],
       skillProjectionState: new Map(),
       skillProjectionCache: new Map(),
-      coreToolNames: new Set<string>(),
       toolsDisabledDepth: 0,
-    } as unknown as import("../daemon/conversation-tool-setup.js").SkillProjectionContext;
+    } as unknown as Conversation;
     expect(isToolActiveForContext("notify_parent", ctx)).toBe(true);
   });
 });
@@ -207,14 +218,12 @@ describe("executeSubagentNotifyParent", () => {
 
   test("succeeds when called from a subagent conversation", async () => {
     clearCaptured();
-    const manager = getSubagentManager();
-    const subagentId = "notify-sub-1";
-    const parentConversationId = "notify-parent-1";
-    injectSubagent(manager, subagentId, parentConversationId, "running");
+    const conversationId = "conv-notify-sub-1";
+    seedSubagent(conversationId);
 
     const result = await executeSubagentNotifyParent(
       { message: "Found key results", urgency: "important" },
-      makeContext(`conv-${subagentId}`),
+      makeContext(conversationId),
     );
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
@@ -225,21 +234,15 @@ describe("executeSubagentNotifyParent", () => {
 
   test("formats message with label and urgency", async () => {
     clearCaptured();
-    const manager = getSubagentManager();
-    const subagentId = "notify-format-1";
-    const parentConversationId = "notify-format-parent";
-    injectSubagent(manager, subagentId, parentConversationId, "running", {
-      config: {
-        id: subagentId,
-        parentConversationId,
-        label: "Research Task",
-        objective: "research",
-      },
+    const conversationId = "conv-notify-format-1";
+    seedSubagent(conversationId, {
+      label: "Research Task",
+      objective: "research",
     });
 
     await executeSubagentNotifyParent(
       { message: "Preliminary findings ready", urgency: "info" },
-      makeContext(`conv-${subagentId}`),
+      makeContext(conversationId),
     );
     expect(lastCapturedMessage()).toBe(
       '[Subagent "Research Task" — info] Preliminary findings ready',
@@ -265,14 +268,12 @@ describe("executeSubagentNotifyParent", () => {
   });
 
   test("defaults urgency to info when not provided", async () => {
-    const manager = getSubagentManager();
-    const subagentId = "notify-default-urg-1";
-    const parentConversationId = "notify-default-urg-parent";
-    injectSubagent(manager, subagentId, parentConversationId, "running");
+    const conversationId = "conv-notify-default-urg-1";
+    seedSubagent(conversationId);
 
     const result = await executeSubagentNotifyParent(
       { message: "Progress update" },
-      makeContext(`conv-${subagentId}`),
+      makeContext(conversationId),
     );
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
@@ -281,14 +282,12 @@ describe("executeSubagentNotifyParent", () => {
 
   test("appends guidance hint for blocked urgency", async () => {
     clearCaptured();
-    const manager = getSubagentManager();
-    const subagentId = "notify-blocked-1";
-    const parentConversationId = "notify-blocked-parent";
-    injectSubagent(manager, subagentId, parentConversationId, "running");
+    const conversationId = "conv-notify-blocked-1";
+    seedSubagent(conversationId);
 
     await executeSubagentNotifyParent(
       { message: "Need API key to proceed", urgency: "blocked" },
-      makeContext(`conv-${subagentId}`),
+      makeContext(conversationId),
     );
     expect(lastCapturedMessage()).toContain("Need API key to proceed");
     expect(lastCapturedMessage()).toContain(
@@ -297,68 +296,101 @@ describe("executeSubagentNotifyParent", () => {
   });
 });
 
-// ── Manager-level tests ────────────────────────────────────────────
+// ── notifyParentFromChild ──────────────────────────────────────────
 
-describe("SubagentManager.notifyParent", () => {
+describe("notifyParentFromChild", () => {
+  test("returns false when the conversation is not a subagent", () => {
+    expect(notifyParentFromChild("unknown-conversation", "hi", "info")).toBe(
+      false,
+    );
+  });
+
   test("returns false for terminal subagents", () => {
-    const manager = getSubagentManager();
-
-    for (const terminalStatus of ["completed", "failed", "aborted"] as const) {
-      const subagentId = `notify-terminal-${terminalStatus}`;
-      const parentConversationId = `notify-terminal-parent-${terminalStatus}`;
-      injectSubagent(manager, subagentId, parentConversationId, terminalStatus);
-
-      const result = manager.notifyParent(
-        `conv-${subagentId}`,
-        "Should not arrive",
-        "info",
-      );
-      expect(result).toBe(false);
+    for (const status of ["completed", "failed", "aborted"] as const) {
+      const conversationId = `conv-terminal-${status}`;
+      seedSubagent(conversationId, { status });
+      expect(
+        notifyParentFromChild(conversationId, "Should not arrive", "info"),
+      ).toBe(false);
     }
   });
 
-  test("returns true for running subagent (injects into parent via findConversation)", () => {
+  test("returns true for a running subagent and injects into the parent", () => {
     clearCaptured();
-    const manager = getSubagentManager();
-    const subagentId = "notify-running-1";
-    const parentConversationId = "notify-running-parent";
-    injectSubagent(manager, subagentId, parentConversationId, "running");
+    const conversationId = "conv-running-1";
+    seedSubagent(conversationId);
 
-    const result = manager.notifyParent(
-      `conv-${subagentId}`,
-      "Test message",
-      "info",
+    expect(notifyParentFromChild(conversationId, "Test message", "info")).toBe(
+      true,
     );
-    expect(result).toBe(true);
     expect(lastCapturedMessage()).toContain("Test message");
+  });
+
+  test("returns false for a synchronous child that suppresses parent notifications", () => {
+    clearCaptured();
+    const conversationId = "conv-suppressed-1";
+    seedSubagent(conversationId);
+    // spawnAndAwait children carry this flag: the awaiting caller is their
+    // only parent channel, so a mid-run injection must not reach the parent.
+    const live = liveSubagents.get(conversationId);
+    if (live) {
+      live.subagentSuppressParentNotifications = true;
+    }
+
+    expect(
+      notifyParentFromChild(conversationId, "Should not arrive", "info"),
+    ).toBe(false);
+    expect(capturedMessages).toHaveLength(0);
+  });
+
+  test("labels forks as Fork", () => {
+    clearCaptured();
+    const conversationId = "conv-fork-1";
+    seedSubagent(conversationId, { isFork: true, label: "Explore" });
+
+    notifyParentFromChild(conversationId, "branch result", "info");
+    expect(lastCapturedMessage()).toBe('[Fork "Explore" — info] branch result');
+  });
+
+  test("routes to the live parent, ignoring a tampered record parent", () => {
+    clearCaptured();
+    capturedParentIds.length = 0;
+    const conversationId = "conv-tamper-1";
+    // The durable record claims a victim conversation as parent; the live
+    // child's real parent differs. Routing must follow the live child.
+    seedSubagent(
+      conversationId,
+      { parentConversationId: "victim-conversation" },
+      "real-parent-conversation",
+    );
+
+    expect(notifyParentFromChild(conversationId, "injected", "info")).toBe(
+      true,
+    );
+    expect(capturedParentIds).toContain("real-parent-conversation");
+    expect(capturedParentIds).not.toContain("victim-conversation");
   });
 });
 
-describe("SubagentManager.getParentInfo", () => {
-  test("returns undefined for unknown conversationIds", () => {
-    const manager = getSubagentManager();
-    const result = manager.getParentInfo("nonexistent-conversation-id");
-    expect(result).toBeUndefined();
+describe("notify_parent — model-input schema validation (LUM-2857)", () => {
+  test("rejects a non-string message", async () => {
+    const result = await executeSubagentNotifyParent(
+      { message: 42 },
+      makeContext("conv-notify-schema-1"),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "notify_parent"');
   });
 
-  test("returns parent info for known subagent conversationId", () => {
-    const manager = getSubagentManager();
-    const subagentId = "parent-info-sub-1";
-    const parentConversationId = "parent-info-parent-1";
-    injectSubagent(manager, subagentId, parentConversationId, "running", {
-      config: {
-        id: subagentId,
-        parentConversationId,
-        label: "Info Lookup",
-        objective: "look things up",
-      },
-    });
-
-    const info = manager.getParentInfo(`conv-${subagentId}`);
-    expect(info).toBeDefined();
-    expect(info!.parentConversationId).toBe(parentConversationId);
-    expect(info!.subagentId).toBe(subagentId);
-    expect(info!.label).toBe("Info Lookup");
-    expect(typeof info!.parentSendToClient).toBe("function");
+  test("degrades a malformed urgency to info instead of forwarding it", async () => {
+    const conversationId = "conv-notify-schema-2";
+    seedSubagent(conversationId);
+    const result = await executeSubagentNotifyParent(
+      { message: "found something", urgency: 42 },
+      makeContext(conversationId),
+    );
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content) as { urgency: string };
+    expect(parsed.urgency).toBe("info");
   });
 });

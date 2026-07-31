@@ -26,10 +26,10 @@ Automatically checks for plain text keys and secrets before allowing a commit.
 1. **Secret scanning** — Detects plain text keys, tokens, passwords, and other sensitive information
 2. **Generic-examples rule** — Runs `scripts/check-generic-examples.ts` against staged changes. Enforces the AGENTS.md "Generic Examples" rule: test fixtures and illustrative content must use generic placeholders, not real personal data. See `scripts/generic-examples/README.md` for patterns and optional per-developer private config.
 3. **Prettier formatting** — Runs `prettier --check` on staged files in `assistant/`, `cli/`, and `gateway/`
-4. **ESLint** — Runs `eslint` on staged source files in `assistant/`, `cli/`, `gateway/`, and `apps/web/`
-5. **TypeScript type-check** — Runs `tsc --noEmit` on `assistant/` and `apps/web/` when `.ts`/`.tsx` files are staged (skipped in worktrees for performance)
+4. **ESLint** — Runs `eslint` on staged source files in `assistant/`, `cli/`, `gateway/`, and `clients/web/`
+5. **TypeScript type-check** — Runs `tsc --noEmit` on `assistant/` and `clients/web/` when `.ts`/`.tsx` files are staged (skipped in worktrees for performance)
 6. **Message contract verification** — When message contract files are staged, verifies generated Swift models, inventory snapshot, and decoder sync are up to date
-7. **Tool registration guard** — Blocks new tool registrations in `assistant/src/tools/` (requires Team Jarvis approval, see `assistant/src/tools/AGENTS.md`)
+7. **Tool registration guard** — Blocks new tool registrations in `assistant/src/tools/` (requires core team approval, see `assistant/src/tools/AGENTS.md`)
 
 **Behavior:**
 - Blocks commits containing potential secrets
@@ -38,7 +38,7 @@ Automatically checks for plain text keys and secrets before allowing a commit.
 - Allows clean commits to proceed without interruption
 - Avoids known false positives for architecture/db identifier strings like `assistant_auth_tokens` and migration checkpoint keys
 - Ignores checksum/hash fixture fields (for example `nonceSha256`) while still scanning adjacent lines
-- Runs prettier and eslint on staged files in assistant, cli, and gateway directories; runs eslint (without prettier) on apps/web
+- Runs prettier and eslint on staged files in assistant, cli, and gateway directories; runs eslint (without prettier) on clients/web
 - **Merge-aware:** During merge commits, Prettier and ESLint only run on files the author changed on their branch — not files brought in from the other side of the merge. This prevents pre-existing formatting drift on main from blocking merge commits. Secret scanning still checks all staged files regardless.
 - When message contract files are staged, verifies the generated Swift models and inventory snapshot are up to date
 - Catches unstaged generated output files (e.g., regenerated but not `git add`-ed)
@@ -79,10 +79,8 @@ Runs fast static checks before pushing. **Tests are not run here — CI is the s
 
 **What it checks:**
 
-1. **Swift build** (`clients/`) — `swift build --product vellum-assistant` when `.swift` files changed. Skip with `SKIP_SWIFT_BUILD=1`.
-2. **Design token guard** (`clients/`) — strict-mode `check-design-tokens.sh` when `.swift` files changed.
-3. **TypeScript type check** — `tsc --noEmit` on `assistant/` and `clients/chrome-extension/` when their `.ts`/`.tsx` files changed. Backstops the pre-commit type check which is skipped in worktrees for performance.
-4. **Lint** — `eslint` on changed `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs` files in `assistant/`, `cli/`, `gateway/`, and `clients/chrome-extension/`.
+1. **TypeScript type check** — `tsc --noEmit` on `assistant/` and `clients/chrome-extension/` when their `.ts`/`.tsx` files changed. Backstops the pre-commit type check which is skipped in worktrees for performance.
+2. **Lint** — `eslint` on changed `.ts`/`.tsx`/`.js`/`.jsx`/`.mjs` files in `assistant/`, `cli/`, `gateway/`, and `clients/chrome-extension/`.
 
 Tests used to run here via a dependency-graph + filename-heuristic discovery pass, but were removed: small changes routinely pulled 900+ tests into the push path, blocking agents and pushing humans to `--no-verify` by default. CI runs the suite; that's enough.
 

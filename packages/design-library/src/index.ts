@@ -24,6 +24,11 @@ export {
   type ResizablePanelProps,
 } from "./components/resizable-panel";
 export {
+  ScrollShadow,
+  type ScrollShadowProps,
+  type ScrollShadowOrientation,
+} from "./components/scroll-shadow";
+export {
   Tag,
   tagVariants,
   type TagProps,
@@ -88,6 +93,13 @@ export {
   type SegmentControlProps,
 } from "./components/segment-control";
 export {
+  Stepper,
+  stepVariants,
+  type StepperStep,
+  type StepperProps,
+  type StepStatus,
+} from "./components/stepper";
+export {
   Slider,
   isRangeValue,
   toValueArray,
@@ -145,6 +157,14 @@ export {
   type ContextMenuTriggerProps,
 } from "./components/context-menu";
 export {
+  Select,
+  type SelectOption,
+  type SelectProps,
+  type SelectMenuAlign,
+  type SelectSize,
+} from "./components/select";
+/** @deprecated Use `Select`. */
+export {
   Dropdown,
   resolveDropdownMenuPosition,
   type DropdownOption,
@@ -164,8 +184,13 @@ export {
   type MarqueeTextProps,
 } from "./components/panel-item/marquee-text";
 export {
+  MARKDOWN_INLINE_CODE_CLASS,
   MarkdownMessage,
+  quoteBlockquoteAccentClassName,
+  quoteBlockquoteClassName,
+  quoteBlockquoteContentClassName,
   type MarkdownMessageProps,
+  type MarkdownImageComponent,
   type MarkdownLinkComponent,
 } from "./components/markdown-message";
 export {
@@ -187,6 +212,21 @@ export {
   type SideMenuItemProps,
 } from "./components/side-menu/side-menu";
 export {
+  VirtualList,
+  type VirtualListProps,
+  type VirtualListHandle,
+} from "./components/virtual-list/virtual-list";
+export {
+  VirtualGroupedList,
+  type VirtualGroupedListProps,
+  type VirtualGroupedListHandle,
+  type VirtualListGroup,
+} from "./components/virtual-list/virtual-grouped-list";
+export {
+  GoToNewest,
+  type GoToNewestProps,
+} from "./components/virtual-list/go-to-newest";
+export {
   Collapsible,
   type CollapsibleRootProps,
   type CollapsibleItemProps,
@@ -199,9 +239,9 @@ export {
   type StatSquareTone,
 } from "./components/stat-square";
 export {
-  SkillRow,
-  type SkillRowProps,
-} from "./components/skill-row";
+  ListRow,
+  type ListRowProps,
+} from "./components/list-row";
 export {
   ShortcutKeys,
   parseAccelerator,

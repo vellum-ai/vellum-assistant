@@ -1,3 +1,5 @@
+/** Gateway-sourced: carried on trust verdicts and stamped at the serve layer,
+ *  never persisted on the local {@link Contact}. */
 export type ContactRole = "guardian" | "contact";
 
 export type ContactType = "human" | "assistant";
@@ -30,20 +32,9 @@ export interface Contact {
   displayName: string;
   /** Free-text notes about this contact (e.g. relationship, communication preferences). */
   notes: string | null;
-  lastInteraction: number | null;
-  interactionCount: number;
   createdAt: number;
   updatedAt: number;
-  role: ContactRole;
   contactType: ContactType;
-  /**
-   * Internal auth identity (e.g. "vellum-principal-<uuid>"). Only meaningful
-   * for guardian contacts — it ties the contact record to the auth layer so
-   * the system can verify "this API caller IS this guardian" via JWT
-   * actorPrincipalId. Always null for non-guardian contacts, which are
-   * identified by channel address instead.
-   */
-  principalId: string | null;
   /** Workspace-relative path to a per-user persona file for this contact. */
   userFile: string | null;
 }
@@ -54,7 +45,7 @@ export type ChannelStatus =
   | "revoked"
   | "blocked"
   | "unverified";
-export type ChannelPolicy = "allow" | "deny" | "escalate";
+export type ChannelPolicy = "allow" | "deny";
 
 export interface ContactChannel {
   id: string;
@@ -62,18 +53,7 @@ export interface ContactChannel {
   type: string; // 'email' | 'slack' | 'whatsapp' | 'phone' | etc.
   address: string;
   isPrimary: boolean;
-  externalUserId: string | null;
   externalChatId: string | null;
-  status: ChannelStatus;
-  policy: ChannelPolicy;
-  verifiedAt: number | null;
-  verifiedVia: string | null;
-  inviteId: string | null;
-  revokedReason: string | null;
-  blockedReason: string | null;
-  lastSeenAt: number | null;
-  interactionCount: number;
-  lastInteraction: number | null;
   updatedAt: number | null;
   createdAt: number;
 }

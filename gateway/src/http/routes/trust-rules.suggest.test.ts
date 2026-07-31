@@ -21,7 +21,12 @@ const ipcSuggestTrustRuleMock = mock((_params: unknown) =>
   }),
 );
 
+// Spread the actual module so untouched exports (ipcCallAssistant,
+// IpcHandlerError, IpcTransportError) stay importable by later-loaded files
+// when suites share a bun process.
+const actualAssistantClient = await import("../../ipc/assistant-client.js");
 mock.module("../../ipc/assistant-client.js", () => ({
+  ...actualAssistantClient,
   ipcSuggestTrustRule: ipcSuggestTrustRuleMock,
 }));
 

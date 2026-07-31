@@ -1,8 +1,6 @@
 import packageJson from "../package.json" with { type: "json" };
 import {
-  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
-  TWILIO_RELAY_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
@@ -37,7 +35,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Readiness probe",
           description:
-            "Returns 200 when the gateway is ready to accept traffic. Returns 503 during graceful shutdown drain.",
+            "Forwards the upstream assistant's readiness. Returns 200 with ready: true when the full stack can serve traffic; 200 with ready: false while assistant DB migrations run (the pod stays in service — orchestrators read the status code, programmatic callers read the body); 503 while gateway startup work is incomplete, during graceful shutdown drain, or when the upstream assistant is unavailable or its migrations failed.",
           operationId: "readyz",
           responses: {
             "200": {
@@ -49,11 +47,12 @@ export function buildSchema(): Record<string, unknown> {
               },
             },
             "503": {
-              description:
-                "Gateway is draining (graceful shutdown in progress)",
+              description: "Gateway is not ready to accept traffic",
               content: {
                 "application/json": {
-                  schema: { $ref: "#/components/schemas/DrainingResponse" },
+                  schema: {
+                    $ref: "#/components/schemas/ReadyUnavailableResponse",
+                  },
                 },
               },
             },
@@ -422,68 +421,11 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      [TWILIO_CONNECT_ACTION_WEBHOOK_PATH]: {
-        post: {
-          summary: "Twilio connect-action webhook",
-          description:
-            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
-          operationId: "twilioConnectActionWebhook",
-          security: [{ TwilioSignature: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/x-www-form-urlencoded": {
-                schema: {
-                  type: "object",
-                  additionalProperties: { type: "string" },
-                },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Connect-action callback processed",
-            },
-            "403": {
-              description: "Twilio signature validation failed",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "405": {
-              description: "Method not allowed",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "413": {
-              description: "Webhook payload too large",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "502": {
-              description: "Failed to forward to runtime",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
       "/webhooks/twilio/voice-verify": {
         post: {
           summary: "Twilio voice verification callback",
           description:
-            "Receives DTMF digits from Twilio <Gather> during gateway-owned voice verification. Validates the verification code, creates the guardian binding on success, and returns TwiML to either re-prompt or forward to the assistant for ConversationRelay setup.",
+            "Receives DTMF digits from Twilio <Gather> during gateway-owned voice verification. Validates the verification code, creates the guardian binding on success, and returns TwiML to either re-prompt or forward to the assistant for media-stream setup.",
           operationId: "twilioVoiceVerifyCallback",
           security: [{ TwilioSignature: [] }],
           parameters: [
@@ -509,7 +451,7 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": {
               description:
-                "TwiML response — either a re-prompt <Gather>, a failure <Say>, or forwarded ConversationRelay setup.",
+                "TwiML response — either a re-prompt <Gather>, a failure <Say>, or forwarded media-stream setup.",
               content: {
                 "text/xml": {
                   schema: { type: "string" },
@@ -963,46 +905,6 @@ export function buildSchema(): Record<string, unknown> {
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
-      [TWILIO_RELAY_WEBHOOK_PATH]: {
-        get: {
-          summary: "Twilio ConversationRelay WebSocket",
-          description:
-            "Accepts a WebSocket upgrade from Twilio ConversationRelay and bidirectionally proxies frames to the assistant runtime's /v1/calls/relay endpoint. Requires a callSessionId query parameter.",
-          operationId: "twilioRelayWebsocket",
-          parameters: [
-            {
-              name: "callSessionId",
-              in: "query",
-              required: true,
-              schema: { type: "string" },
-              description:
-                "Call session identifier used to correlate the WebSocket connection with the runtime relay session.",
-            },
-          ],
-          responses: {
-            "101": {
-              description:
-                "WebSocket upgrade successful — bidirectional frame proxying begins.",
-            },
-            "400": {
-              description: "Missing callSessionId query parameter",
-              content: {
-                "text/plain": {
-                  schema: { type: "string" },
-                },
-              },
-            },
-            "500": {
-              description: "WebSocket upgrade failed",
-              content: {
-                "text/plain": {
-                  schema: { type: "string" },
                 },
               },
             },
@@ -1691,7 +1593,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Redeem contacts invite",
           description:
-            "Authenticated gateway endpoint that redeems a contacts invite via the assistant runtime.",
+            "Authenticated gateway endpoint that redeems a contacts invite through the gateway-native redemption engine.",
           operationId: "contactsInvitesRedeemPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -2571,6 +2473,80 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/assistant/credentials/enter": {
+        get: {
+          summary: "One-time credential entry page",
+          description:
+            "Self-contained static HTML page for redeeming a one-time credential link. The single-use token rides the URL fragment (never sent over HTTP); the page calls the credential-requests peek/submit routes with the token in POST bodies.",
+          operationId: "credentialEntryPage",
+          responses: {
+            "200": { description: "HTML entry page" },
+            "405": { description: "Method not allowed" },
+          },
+        },
+      },
+      "/v1/credential-requests/peek": {
+        post: {
+          summary: "Validate a credential-request token without consuming it",
+          description:
+            "Unauthenticated: the single-use token in the request body is the credential to act. Returns the service/field/label the link collects. Invalid tokens count as auth failures for the per-IP limiter.",
+          operationId: "credentialRequestsPeek",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["token"],
+                  properties: { token: { type: "string" } },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Credential request details returned" },
+            "400": { description: "Malformed body" },
+            "404": {
+              description: "Invalid, expired, or already-used token",
+            },
+            "413": { description: "Request body too large" },
+          },
+        },
+      },
+      "/v1/credential-requests/submit": {
+        post: {
+          summary: "Consume a credential-request token and store the value",
+          description:
+            "Unauthenticated single-use submission: atomically claims the link, forwards the value to the assistant's credential vault, and marks the link redeemed. The value transits memory only.",
+          operationId: "credentialRequestsSubmit",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["token", "value"],
+                  properties: {
+                    token: { type: "string" },
+                    value: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Credential stored" },
+            "400": { description: "Malformed body" },
+            "404": {
+              description: "Invalid, expired, or already-used token",
+            },
+            "413": { description: "Request body too large" },
+            "502": {
+              description: "The assistant could not store the credential",
+            },
+          },
+        },
+      },
       "/v1/feature-flags": {
         get: {
           summary: "List feature flags",
@@ -2618,115 +2594,6 @@ export function buildSchema(): Record<string, unknown> {
               description: "Unauthorized — missing or invalid bearer token",
             },
             "403": { description: "Insufficient scope" },
-          },
-        },
-      },
-      "/v1/config/privacy": {
-        get: {
-          summary: "Get privacy config",
-          description:
-            "Scope-protected gateway endpoint that returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
-          operationId: "privacyConfigGet",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": {
-              description: "Privacy config returned",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      collectUsageData: { type: "boolean" },
-                      sendDiagnostics: { type: "boolean" },
-                      llmRequestLogRetentionMs: {
-                        type: ["integer", "null"],
-                        minimum: 0,
-                        maximum: 31536000000,
-                        description:
-                          "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
-                      },
-                    },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
-                  },
-                },
-              },
-            },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "403": { description: "Insufficient scope" },
-            "500": { description: "Config file is malformed" },
-          },
-        },
-        patch: {
-          summary: "Update privacy config",
-          description:
-            "Scope-protected gateway endpoint that updates privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Requires a bearer token with `settings.write` scope.",
-          operationId: "privacyConfigPatch",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    collectUsageData: { type: "boolean" },
-                    sendDiagnostics: { type: "boolean" },
-                    llmRequestLogRetentionMs: {
-                      type: ["integer", "null"],
-                      minimum: 0,
-                      maximum: 31536000000,
-                      description:
-                        "Retention window for LLM request logs, in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
-                    },
-                  },
-                  anyOf: [
-                    { required: ["collectUsageData"] },
-                    { required: ["sendDiagnostics"] },
-                    { required: ["llmRequestLogRetentionMs"] },
-                  ],
-                },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Privacy config updated",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      collectUsageData: { type: "boolean" },
-                      sendDiagnostics: { type: "boolean" },
-                      llmRequestLogRetentionMs: {
-                        type: ["integer", "null"],
-                        minimum: 0,
-                        maximum: 31536000000,
-                        description:
-                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
-                      },
-                    },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
-                  },
-                },
-              },
-            },
-            "400": { description: "Invalid request body" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "403": { description: "Insufficient scope" },
-            "500": { description: "Internal server error" },
           },
         },
       },
@@ -2793,133 +2660,6 @@ export function buildSchema(): Record<string, unknown> {
               description: "Unauthorized — missing or invalid bearer token",
             },
             "403": { description: "Insufficient scope" },
-          },
-        },
-      },
-      "/v1/assistants/{assistantId}/config/privacy/": {
-        get: {
-          summary: "Get privacy config (assistant-scoped)",
-          description:
-            "Assistant-scoped variant of the privacy config read endpoint. Returns the current privacy configuration (collectUsageData, sendDiagnostics, llmRequestLogRetentionMs). Missing or malformed values fall back to the daemon schema defaults. Requires a bearer token with `settings.read` scope.",
-          operationId: "assistantPrivacyConfigGet",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "assistantId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-              description: "The assistant identifier.",
-            },
-          ],
-          responses: {
-            "200": {
-              description: "Privacy config returned",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      collectUsageData: { type: "boolean" },
-                      sendDiagnostics: { type: "boolean" },
-                      llmRequestLogRetentionMs: {
-                        type: ["integer", "null"],
-                        minimum: 0,
-                        maximum: 31536000000,
-                        description:
-                          "Retention period for LLM request/response logs in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms); server-side clamping enforces this cap on reads.",
-                      },
-                    },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
-                  },
-                },
-              },
-            },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "403": { description: "Insufficient scope" },
-            "500": { description: "Config file is malformed" },
-          },
-        },
-        patch: {
-          summary: "Update privacy config (assistant-scoped)",
-          description:
-            "Assistant-scoped variant of the privacy config endpoint. Requires a bearer token with `settings.write` scope.",
-          operationId: "assistantPrivacyConfigPatch",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "assistantId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-              description: "The assistant identifier.",
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    collectUsageData: { type: "boolean" },
-                    sendDiagnostics: { type: "boolean" },
-                    llmRequestLogRetentionMs: {
-                      type: ["integer", "null"],
-                      minimum: 0,
-                      maximum: 31536000000,
-                      description:
-                        "Retention window for LLM request logs, in milliseconds. null keeps forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
-                    },
-                  },
-                  anyOf: [
-                    { required: ["collectUsageData"] },
-                    { required: ["sendDiagnostics"] },
-                    { required: ["llmRequestLogRetentionMs"] },
-                  ],
-                },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Privacy config updated",
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      collectUsageData: { type: "boolean" },
-                      sendDiagnostics: { type: "boolean" },
-                      llmRequestLogRetentionMs: {
-                        type: ["integer", "null"],
-                        minimum: 0,
-                        maximum: 31536000000,
-                        description:
-                          "Retention window for LLM request logs, in milliseconds. null keeps logs forever, 0 prunes immediately. Maximum is 365 days (31536000000 ms).",
-                      },
-                    },
-                    required: [
-                      "collectUsageData",
-                      "sendDiagnostics",
-                      "llmRequestLogRetentionMs",
-                    ],
-                  },
-                },
-              },
-            },
-            "400": { description: "Invalid request body" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "403": { description: "Insufficient scope" },
-            "500": { description: "Internal server error" },
           },
         },
       },
@@ -3572,6 +3312,269 @@ export function buildSchema(): Record<string, unknown> {
             },
             "403": { description: "Feature not enabled" },
             "404": { description: "Trust rule not found" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-admission-policy": {
+        get: {
+          summary: "List channel admission policies",
+          description:
+            "Authenticated gateway endpoint that lists the admission policy for every channel from the SQLite-backed store. Channels without a persisted row are returned with the default policy.",
+          operationId: "channelAdmissionPolicyGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Channel admission policies returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-admission-policy/{channelType}": {
+        put: {
+          summary: "Set a channel admission policy",
+          description:
+            "Authenticated gateway endpoint that upserts the admission policy for a single channel in the SQLite-backed store and invalidates the in-memory admission-policy cache.",
+          operationId: "channelAdmissionPolicyPut",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel admission policy upserted" },
+            "400": { description: "Invalid request payload or channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        post: {
+          summary: "Set a channel admission policy",
+          description:
+            "Alias for the PUT upsert. Accepts the same payload so clients that issue POST upserts match the same handler.",
+          operationId: "channelAdmissionPolicyPost",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel admission policy upserted" },
+            "400": { description: "Invalid request payload or channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        delete: {
+          summary: "Delete a channel admission policy",
+          description:
+            "Authenticated gateway endpoint that removes the admission policy for a single channel from the SQLite-backed store and invalidates the in-memory admission-policy cache. Internal channels (vellum/platform, vellum/a2a) are exempt from deletion per §8.1.",
+          operationId: "channelAdmissionPolicyDelete",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelType",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Channel admission policy deleted" },
+            "400": { description: "Invalid channelType" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": {
+              description:
+                "Internal channel — exempt from admission policy (§8.1)",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-permission-overrides": {
+        get: {
+          summary: "List channel-permission matrix cells",
+          description:
+            "Authenticated gateway endpoint that lists every persisted channel-permission cell (cascade selector × contact-type → RiskThreshold) from the SQLite-backed store. Unset cells fall through the cascade, so the list contains only explicit overrides.",
+          operationId: "channelPermissionOverridesGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Channel permission cells returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        put: {
+          summary: "Upsert a channel-permission matrix cell",
+          description:
+            "Authenticated gateway endpoint that upserts one channel-permission cell, identified by the selector × contact-type in the body. The selector's adapter must be a known channel id.",
+          operationId: "channelPermissionOverridePut",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel permission cell upserted" },
+            "400": { description: "Invalid request payload or adapter" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-permission-overrides/resolve": {
+        post: {
+          summary: "Resolve the effective channel-permission threshold",
+          description:
+            "Authenticated gateway endpoint that resolves the cascade for one coordinate (adapter, optional channelType/channelExternalId, contact-type) and returns the winning cell's threshold and scope, or null when no cell matches so the caller falls through to the global thresholds. Read-only; a POST verb path because the composite query travels in the body, same rationale as /delete.",
+          operationId: "channelPermissionResolve",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Resolution returned (resolved or null)" },
+            "400": { description: "Invalid request payload or adapter" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-permission-overrides/delete": {
+        post: {
+          summary: "Delete a channel-permission matrix cell",
+          description:
+            "Authenticated gateway endpoint that removes one channel-permission cell by its composite key (selector × contact-type), letting the next cascade tier up win. A POST verb path because cells have no row id and DELETE request bodies are unreliable through proxies.",
+          operationId: "channelPermissionOverrideDelete",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel permission cell removal reported" },
+            "400": { description: "Invalid request payload or adapter" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-ingress/{source}/approve": {
+        post: {
+          summary: "Approve an ingress declaration",
+          description:
+            "Guardian-only gateway endpoint that records approval of the declaration identified by the body's digest, after which the gateway serves its routes. The digest must match what the source currently declares, so an approval is always a decision about routes the guardian has seen; a stale digest returns 409 naming the current one. A POST verb path because a grant has no id of its own until a guardian creates one.",
+          operationId: "channelIngressApprove",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "source",
+              in: "path",
+              required: true,
+              description:
+                "The declaring ingress source (today, a plugin name).",
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Ingress declaration approved" },
+            "400": { description: "Invalid request payload or digest" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Forbidden — caller is not the guardian" },
+            "404": { description: "Source declares no ingress routes" },
+            "409": {
+              description: "Digest is not what the source currently declares",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-ingress/{source}/revoke": {
+        post: {
+          summary: "Revoke an ingress approval",
+          description:
+            "Guardian-only gateway endpoint that withdraws a source's grant, after which its routes stop being served, and reports whether there was a grant to withdraw. Does not consult the declaration, so a grant stays withdrawable even when the manifest that justified it has become unreadable.",
+          operationId: "channelIngressRevoke",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "source",
+              in: "path",
+              required: true,
+              description:
+                "The declaring ingress source (today, a plugin name).",
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Ingress approval removal reported" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Forbidden — caller is not the guardian" },
             "500": { description: "Internal server error" },
           },
         },
@@ -4356,14 +4359,40 @@ export function buildSchema(): Record<string, unknown> {
           type: "object",
           required: ["status"],
           properties: {
-            status: { type: "string", enum: ["ok"] },
+            status: {
+              type: "string",
+              enum: ["ok", "migrating", "starting"],
+            },
+            ready: { type: "boolean" },
+            reason: { type: "string" },
+            dbMigrations: {
+              type: "object",
+              properties: {
+                ready: { type: "boolean" },
+                state: {
+                  type: "string",
+                  enum: ["not_started", "running", "failed", "ready"],
+                },
+                reason: { type: "string" },
+                error: { type: "string" },
+              },
+            },
           },
         },
-        DrainingResponse: {
+        ReadyUnavailableResponse: {
           type: "object",
           required: ["status"],
           properties: {
-            status: { type: "string", enum: ["draining"] },
+            status: {
+              type: "string",
+              enum: [
+                "starting",
+                "draining",
+                "upstream_unhealthy",
+                "upstream_unreachable",
+              ],
+            },
+            upstream: { type: "integer" },
           },
         },
         ErrorResponse: {

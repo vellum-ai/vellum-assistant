@@ -14,6 +14,11 @@ export type WakeResult =
   | { ok: true }
   | { ok: false; status: number; error: string };
 
+export interface WakeOptions {
+  /** Pass --repair-guardian to re-provision a missing/expired guardian token. Revokes the assistant's other device-bound tokens, so callers must gate this behind explicit user confirmation. */
+  repairGuardian?: boolean;
+}
+
 /**
  * Start (or restart) a local assistant's daemon and gateway via the CLI's
  * `wake`, which also re-seeds the guardian token from a sibling environment.
@@ -27,11 +32,17 @@ export type WakeResult =
 export function runWake(
   invocation: CliInvocation,
   assistantId: string,
+  options?: WakeOptions,
 ): Promise<WakeResult> {
   return new Promise((resolve) => {
     const child = spawn(
       invocation.command,
-      [...invocation.baseArgs, "wake", assistantId],
+      [
+        ...invocation.baseArgs,
+        "wake",
+        assistantId,
+        ...(options?.repairGuardian ? ["--repair-guardian"] : []),
+      ],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
 

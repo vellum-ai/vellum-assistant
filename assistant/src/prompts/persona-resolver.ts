@@ -1,13 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+import type { GuardianDelivery } from "@vellumai/gateway-client";
+
+import { findContactByAddress } from "../contacts/contact-store.js";
 import {
-  findContactByChannelExternalId,
-  findGuardianForChannel,
-  listGuardianChannels,
-} from "../contacts/contact-store.js";
+  anyGuardian,
+  guardianForChannel,
+  peekCachedGuardianDelivery,
+} from "../contacts/guardian-delivery-reader.js";
 import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
@@ -53,11 +56,15 @@ export interface PersonaContext {
  * after stripping.
  */
 function readPersonaFile(filePath: string): string | null {
-  if (!existsSync(filePath)) return null;
+  if (!existsSync(filePath)) {
+    return null;
+  }
 
   try {
     const content = stripCommentLines(readFileSync(filePath, "utf-8")).trim();
-    if (content.length === 0) return null;
+    if (content.length === 0) {
+      return null;
+    }
     log.debug({ path: filePath }, "Loaded persona file");
     return content;
   } catch (err) {
@@ -67,6 +74,58 @@ function readPersonaFile(filePath: string): string | null {
 }
 
 // ── User filename resolution ──────────────────────────────────────
+
+/**
+ * Resolve the guardian's persona `userFile` (INFO) for a guardian-trust turn.
+ *
+ * The guardian identity comes from the verdict-derived trust context
+ * (`guardianExternalUserId`): the info read is keyed on that address so it
+ * matches the gateway's guardian binding. When the context carries no guardian
+ * address (desktop / native turns), fall back to the channel's guardian
+ * contact. Returns `"guardian.md"` when the resolved guardian has no userFile.
+ */
+function resolveGuardianUserFile(trustContext: TrustContext): string | null {
+  if (trustContext.guardianExternalUserId) {
+    const guardianContact = findContactByAddress(
+      trustContext.sourceChannel,
+      trustContext.guardianExternalUserId,
+    );
+    if (guardianContact) {
+      return guardianContact.userFile ?? "guardian.md";
+    }
+  }
+  const guardian = peekGuardianForChannel(trustContext.sourceChannel);
+  return guardian
+    ? (guardianDeliveryUserFile(guardian) ?? "guardian.md")
+    : null;
+}
+
+/**
+ * Resolve the local INFO `userFile` for a gateway guardian delivery. The
+ * gateway carries identity (channel + address) but not local INFO, so we join
+ * the local contact by the guardian's channel address. Returns `undefined` when
+ * no local contact matches.
+ */
+function guardianDeliveryUserFile(
+  guardian: GuardianDelivery,
+): string | undefined {
+  const contact = findContactByAddress(guardian.channelType, guardian.address);
+  return contact?.userFile ?? undefined;
+}
+
+/** Active guardian for a channel from the IO-free delivery cache. */
+function peekGuardianForChannel(
+  channelType: string,
+): GuardianDelivery | undefined {
+  const cached = peekCachedGuardianDelivery({ channelTypes: [channelType] });
+  return cached ? guardianForChannel(cached, channelType) : undefined;
+}
+
+/** First guardian across all channels from the IO-free delivery cache. */
+function peekAnyGuardian(): GuardianDelivery | undefined {
+  const cached = peekCachedGuardianDelivery();
+  return cached ? anyGuardian(cached) : undefined;
+}
 
 /**
  * Resolve the raw userFile filename for the current actor's contact.
@@ -79,30 +138,39 @@ function resolveUserFilename(
 
   try {
     if (trustContext === undefined) {
-      // Desktop / native (no gateway) — resolve via guardian contact,
-      // preferring the vellum-channel guardian when multiple exist.
-      const vellumGuardian = findGuardianForChannel("vellum");
-      const guardian = vellumGuardian ?? listGuardianChannels();
+      // Desktop / native — resolve via the gateway guardian delivery cache,
+      // preferring the vellum-channel guardian, then any guardian.
+      const guardian = peekGuardianForChannel("vellum") ?? peekAnyGuardian();
       if (guardian) {
-        filename = guardian.contact.userFile ?? "guardian.md";
+        filename = guardianDeliveryUserFile(guardian) ?? "guardian.md";
       }
     } else if (trustContext.requesterExternalUserId) {
       // Channel-routed request — look up contact by channel identity
-      const contactWithChannels = findContactByChannelExternalId(
+      const contactWithChannels = findContactByAddress(
         trustContext.sourceChannel,
         trustContext.requesterExternalUserId,
       );
-      if (contactWithChannels) {
-        filename = contactWithChannels.userFile ?? null;
+      if (contactWithChannels?.userFile) {
+        filename = contactWithChannels.userFile;
       } else if (trustContext.trustClass === "guardian") {
         // Managed desktop: the JWT principal ID used as requesterExternalUserId
-        // may differ from the contact channel's external_user_id (they are
-        // separate identity concepts). Fall back to the channel-type guardian.
-        const guardian = findGuardianForChannel(trustContext.sourceChannel);
-        if (guardian) {
-          filename = guardian.contact.userFile ?? "guardian.md";
-        }
+        // may differ from the contact channel's address (they are separate
+        // identity concepts) — OR the guardian's contact row exists but carries
+        // no explicit userFile yet (the normal post-hatch state, since the
+        // guardian contact is created with a null userFile and onboarding
+        // writes the file on disk, not the column). Either way, read the
+        // guardian's user file keyed by the verdict-bound guardian identity so
+        // the onboarding profile (written to guardian.md) loads instead of
+        // falling through to users/default.md.
+        filename = resolveGuardianUserFile(trustContext);
       }
+    } else if (trustContext.trustClass === "guardian") {
+      // Guardian-trust turn carrying no requester identity — background and
+      // scheduled turns (heartbeat, scheduled pulses) run under the guardian
+      // trust class but have no per-actor address to look up. Resolve the
+      // guardian's user file so they load the same persona as a foreground
+      // guardian turn instead of falling back to users/default.md.
+      filename = resolveGuardianUserFile(trustContext);
     }
   } catch (err) {
     // Contacts table may be absent — happens during early bootstrap
@@ -150,7 +218,9 @@ function resolveUserFilename(
  */
 export function resolveGuardianPersonaPath(): string | null {
   const filename = resolveUserFilename(undefined);
-  if (!filename) return null;
+  if (!filename) {
+    return null;
+  }
   return join(getWorkspaceDir(), "users", filename);
 }
 
@@ -163,7 +233,9 @@ export function resolveUserSlug(
   trustContext: TrustContext | undefined,
 ): string | null {
   const filename = resolveUserFilename(trustContext);
-  if (!filename) return null;
+  if (!filename) {
+    return null;
+  }
   return filename.endsWith(".md") ? filename.slice(0, -3) : filename;
 }
 
@@ -264,9 +336,13 @@ export function resolveGuardianPersona(): string | null {
  */
 export function resolveGuardianPersonaStrict(): string | null {
   const filename = resolveUserFilename(undefined);
-  if (!filename) return null;
+  if (!filename) {
+    return null;
+  }
   const filePath = join(getWorkspaceDir(), "users", filename);
-  if (!existsSync(filePath)) return null;
+  if (!existsSync(filePath)) {
+    return null;
+  }
   return readPersonaFile(filePath);
 }
 
@@ -296,7 +372,9 @@ export function ensureGuardianPersonaFile(userFile: string): void {
   }
 
   const filePath = join(getWorkspaceDir(), "users", userFile);
-  if (existsSync(filePath)) return;
+  if (existsSync(filePath)) {
+    return;
+  }
 
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, GUARDIAN_PERSONA_TEMPLATE, "utf-8");
@@ -314,7 +392,9 @@ export function ensureGuardianPersonaFile(userFile: string): void {
  * `prompts/USER.md` entry may safely overwrite `users/<slug>.md`.
  */
 export function isGuardianPersonaCustomized(filePath: string): boolean {
-  if (!existsSync(filePath)) return false;
+  if (!existsSync(filePath)) {
+    return false;
+  }
 
   let content: string;
   try {
@@ -328,7 +408,9 @@ export function isGuardianPersonaCustomized(filePath: string): boolean {
   }
 
   const stripped = stripCommentLines(content);
-  if (stripped.length === 0) return false;
+  if (stripped.length === 0) {
+    return false;
+  }
 
   const templateStripped = stripCommentLines(GUARDIAN_PERSONA_TEMPLATE);
   return stripped !== templateStripped;
@@ -348,11 +430,22 @@ function buildOnboardingSection(normalized: NormalizedOnboarding): string {
   if (normalized.preferredName) {
     lines.push(`- **Preferred name:** ${normalized.preferredName}`);
   }
+  if (normalized.occupation) {
+    lines.push(`- **Role:** ${normalized.occupation}`);
+  }
   if (normalized.commonWork.length > 0) {
     lines.push(`- **Common work:** ${normalized.commonWork.join("; ")}`);
   }
   if (normalized.dailyTools.length > 0) {
     lines.push(`- **Daily tools:** ${normalized.dailyTools.join(", ")}`);
+  }
+  if (normalized.researchFindings?.length) {
+    lines.push(
+      "- **Research findings** (surfaced during onboarding, confirmed by the user):",
+    );
+    for (const finding of normalized.researchFindings) {
+      lines.push(`  - ${finding}`);
+    }
   }
 
   lines.push("");
@@ -365,10 +458,14 @@ function buildOnboardingSection(normalized: NormalizedOnboarding): string {
  */
 function resolveOnboardingWriteTarget(): string {
   const guardianPath = resolveGuardianPersonaPath();
-  if (guardianPath) return guardianPath;
+  if (guardianPath) {
+    return guardianPath;
+  }
 
   const defaultUserPath = join(getWorkspaceDir(), "users", "default.md");
-  if (existsSync(defaultUserPath)) return defaultUserPath;
+  if (existsSync(defaultUserPath)) {
+    return defaultUserPath;
+  }
 
   return getWorkspacePromptPath("USER.md");
 }

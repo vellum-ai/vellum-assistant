@@ -116,6 +116,149 @@ describe("SegmentControl text-mode (non-icon-only) geometry is unchanged", () =>
   });
 });
 
+describe("SegmentControl size", () => {
+  test("defaults to the 28px segment height", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={textItems}
+        value="light"
+        onChange={() => {}}
+        ariaLabel="Theme"
+      />,
+    );
+    for (const cls of radioClassNames(html)) {
+      expect(cls).toContain("h-7");
+      expect(cls).not.toContain("h-6");
+    }
+  });
+
+  test("sm shrinks the segments to 24px, and grows them back for touch", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={textItems}
+        value="light"
+        onChange={() => {}}
+        ariaLabel="Theme"
+        size="sm"
+      />,
+    );
+    for (const cls of radioClassNames(html)) {
+      expect(cls).toContain("h-6");
+      expect(cls).not.toContain("h-7");
+      // 24px is under a comfortable touch target, so it grows below `md`.
+      expect(cls).toContain("max-md:h-9");
+    }
+  });
+
+  // Sublabels need height to follow content, so they win over the size map
+  // rather than being clipped by a fixed height.
+  test("sublabels override the size in either mode", () => {
+    const items: SegmentControlItem<ThemeValue>[] = [
+      { value: "light", label: "Light", sublabel: "Always" },
+      { value: "dark", label: "Dark", sublabel: "Always" },
+    ];
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={items}
+        value="light"
+        onChange={() => {}}
+        ariaLabel="Theme"
+        size="sm"
+      />,
+    );
+    for (const cls of radioClassNames(html)) {
+      expect(cls).toContain("h-auto");
+      expect(cls).not.toContain("h-6");
+    }
+  });
+});
+
+describe("SegmentControl sublabels", () => {
+  const sublabelItems: SegmentControlItem<ThemeValue>[] = [
+    { value: "light", label: "Light", sublabel: "bright and clear" },
+    { value: "dark", label: "Dark" },
+    { value: "system", label: "System" },
+  ];
+
+  test("renders the sublabel under the label when provided", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={sublabelItems}
+        value="light"
+        onChange={() => {}}
+        ariaLabel="Theme"
+      />,
+    );
+    expect(html).toContain("bright and clear");
+    expect(html).toContain("flex-col");
+  });
+
+  test("items without a sublabel keep the single-line rendering", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={textItems}
+        value="light"
+        onChange={() => {}}
+        ariaLabel="Theme"
+      />,
+    );
+    expect(html).not.toContain("flex-col");
+  });
+
+  test("iconOnly mode ignores sublabels", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={sublabelItems.map((item, i) => ({
+          ...item,
+          icon: iconItems[i]!.icon,
+        }))}
+        value="light"
+        onChange={() => {}}
+        iconOnly
+        ariaLabel="Theme"
+      />,
+    );
+    expect(html).not.toContain("bright and clear");
+  });
+});
+
+describe("SegmentControl unset value", () => {
+  test("null value renders no active segment", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={textItems}
+        value={null}
+        onChange={() => {}}
+        ariaLabel="Theme"
+      />,
+    );
+    expect(html).not.toContain('aria-checked="true"');
+  });
+
+  test("null value keeps a roving tab stop on the first enabled segment", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={[
+          { value: "light" as const, label: "Light", disabled: true },
+          { value: "dark" as const, label: "Dark" },
+          { value: "system" as const, label: "System" },
+        ]}
+        value={null}
+        onChange={() => {}}
+        ariaLabel="Theme"
+      />,
+    );
+    const tabIndexes = [...html.matchAll(/tabindex="(-?\d)"/g)].map(
+      (match) => match[1],
+    );
+    expect(tabIndexes).toEqual(["-1", "0", "-1"]);
+  });
+
+  test("clicking any segment from the unset state selects it", () => {
+    expect(resolveSegmentSelection(textItems, null, "dark")).toBe("dark");
+  });
+});
+
 describe("SegmentControl selection behavior", () => {
   test("clicking a non-active segment resolves to the new value", () => {
     expect(resolveSegmentSelection(iconItems, "light", "dark")).toBe("dark");

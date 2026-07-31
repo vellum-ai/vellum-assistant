@@ -1,54 +1,16 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  THRESHOLD_CHARS,
+  TRUNCATION_MARKER,
+} from "../context/post-turn-tool-result-truncation.js";
+import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
 import type { Message } from "../providers/types.js";
-
-// Stub out heavy dependencies before importing Conversation
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
 
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../prompts/system-prompt.js", () => ({
@@ -67,13 +29,15 @@ mock.module("../security/secret-allowlist.js", () => ({
 let mockDbMessages: Array<{
   id: string;
   role: string;
-  content: string;
+  content: unknown;
   metadata?: string | null;
 }> = [];
 let mockConversation: Record<string, unknown> | null = null;
 let nextMockMessageId = 1;
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
   updateConversationTitle: () => {},
@@ -84,13 +48,20 @@ mock.module("../memory/conversation-crud.js", () => ({
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  getMessages: () => mockDbMessages,
+  getMessages: () =>
+    mockDbMessages.map((m) => ({
+      ...m,
+      content:
+        typeof m.content === "string"
+          ? resolveMessageContentBlocks(m.content)
+          : m.content,
+    })),
   getConversation: () => mockConversation,
   createConversation: () => ({ id: "conv-1" }),
   addMessage: async (
     _conversationId: string,
     role: string,
-    content: string,
+    content: unknown,
     options?: { metadata?: Record<string, unknown> },
   ) => {
     const metadata = options?.metadata;
@@ -108,7 +79,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
@@ -156,20 +127,20 @@ describe("loadFromDb history repair", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+        content: [{ type: "text", text: "Hello" }],
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([
+        content: [
           { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
-        ]),
+        ],
       },
       // Missing user message with tool_result for tu_1
       {
         id: "m3",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Done" }]),
+        content: [{ type: "text", text: "Done" }],
       },
     ];
 
@@ -240,7 +211,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        content: [{ type: "text", text: "Hi" }],
       },
     ];
 
@@ -273,7 +244,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m4",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Done" }]),
+        content: [{ type: "text", text: "Done" }],
       },
     ];
 
@@ -282,8 +253,8 @@ describe("loadFromDb history repair", () => {
     const messages = conversation.getMessages();
 
     expect(messages).toHaveLength(4);
-    // String JSON should be wrapped
-    expect(messages[0].content).toEqual([{ type: "text", text: '"hello"' }]);
+    // String JSON unwraps to its parsed value (uniform resolver semantics)
+    expect(messages[0].content).toEqual([{ type: "text", text: "hello" }]);
     // Number JSON should be wrapped
     expect(messages[1].content).toEqual([{ type: "text", text: "42" }]);
     // Object JSON should be wrapped
@@ -305,15 +276,15 @@ describe("loadFromDb history repair", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+        content: [{ type: "text", text: "Hello" }],
       },
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([
+        content: [
           { type: "text", text: "Sure" },
           { type: "tool_result", tool_use_id: "tu_x", content: "stale" },
-        ]),
+        ],
       },
     ];
 
@@ -338,9 +309,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([
-          { type: "text", text: "Guardian secret question" },
-        ]),
+        content: [{ type: "text", text: "Guardian secret question" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "guardian",
           provenanceSourceChannel: "telegram",
@@ -349,9 +318,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([
-          { type: "text", text: "Guardian-only answer" },
-        ]),
+        content: [{ type: "text", text: "Guardian-only answer" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "guardian",
           provenanceSourceChannel: "telegram",
@@ -360,9 +327,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([
-          { type: "text", text: "Untrusted follow-up" },
-        ]),
+        content: [{ type: "text", text: "Untrusted follow-up" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "unknown",
           provenanceSourceChannel: "telegram",
@@ -371,9 +336,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m4",
         role: "assistant",
-        content: JSON.stringify([
-          { type: "text", text: "Untrusted-safe reply" },
-        ]),
+        content: [{ type: "text", text: "Untrusted-safe reply" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "unknown",
           provenanceSourceChannel: "telegram",
@@ -413,7 +376,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Guardian question" }]),
+        content: [{ type: "text", text: "Guardian question" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "guardian",
           provenanceSourceChannel: "telegram",
@@ -422,7 +385,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Guardian answer" }]),
+        content: [{ type: "text", text: "Guardian answer" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "guardian",
           provenanceSourceChannel: "telegram",
@@ -431,7 +394,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Unverified ping" }]),
+        content: [{ type: "text", text: "Unverified ping" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "unknown",
           provenanceSourceChannel: "telegram",
@@ -440,7 +403,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m4",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Unverified reply" }]),
+        content: [{ type: "text", text: "Unverified reply" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "unknown",
           provenanceSourceChannel: "telegram",
@@ -485,9 +448,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m1",
         role: "user",
-        content: JSON.stringify([
-          { type: "text", text: "Guardian-only question" },
-        ]),
+        content: [{ type: "text", text: "Guardian-only question" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "guardian",
           provenanceSourceChannel: "telegram",
@@ -496,9 +457,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m2",
         role: "assistant",
-        content: JSON.stringify([
-          { type: "text", text: "Guardian-only answer" },
-        ]),
+        content: [{ type: "text", text: "Guardian-only answer" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "guardian",
           provenanceSourceChannel: "telegram",
@@ -507,7 +466,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m3",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "Unverified ping" }]),
+        content: [{ type: "text", text: "Unverified ping" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "unknown",
           provenanceSourceChannel: "telegram",
@@ -516,7 +475,7 @@ describe("loadFromDb history repair", () => {
       {
         id: "m4",
         role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Unverified reply" }]),
+        content: [{ type: "text", text: "Unverified reply" }],
         metadata: JSON.stringify({
           provenanceTrustClass: "unknown",
           provenanceSourceChannel: "telegram",
@@ -550,5 +509,207 @@ describe("loadFromDb history repair", () => {
     expect(messagesAfterPersist[4].content).toEqual([
       { type: "text", text: "Guardian follow-up" },
     ]);
+  });
+});
+
+describe("loadFromDb turn-count rehydration", () => {
+  beforeEach(() => {
+    nextMockMessageId = 1;
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+  });
+
+  const userText = (text: string) => ({
+    role: "user",
+    content: [{ type: "text", text }],
+  });
+  const assistantText = (text: string) => ({
+    role: "assistant",
+    content: [{ type: "text", text }],
+  });
+  const assistantToolUse = (id: string) => ({
+    role: "assistant",
+    content: [{ type: "tool_use", id, name: "bash", input: { cmd: "ls" } }],
+  });
+  const toolResult = (id: string) => ({
+    role: "user",
+    content: [{ type: "tool_result", tool_use_id: id, content: "ok" }],
+  });
+  const withIds = (msgs: Array<{ role: string; content: unknown }>) =>
+    msgs.map((m, i) => ({ id: `m${i}`, ...m }));
+
+  test("restores turnCount from persisted history rather than resetting to 0", async () => {
+    // Three completed human turns persisted before this conversation object
+    // was (re)created — e.g. after an idle eviction or daemon restart.
+    mockDbMessages = withIds([
+      userText("Hello"),
+      assistantText("Hi"),
+      userText("How are you?"),
+      assistantText("Good"),
+      userText("Bye"),
+      assistantText("Later"),
+    ]);
+
+    const conversation = makeConversation();
+    // Fresh object starts at 0 (the bug: it would stay 0 after reload).
+    expect(conversation.turnCount).toBe(0);
+
+    await conversation.loadFromDb();
+
+    expect(conversation.turnCount).toBe(3);
+  });
+
+  test("counts a multi-iteration tool-use turn as a single turn", async () => {
+    // One real user message; the tool_result user messages are continuations
+    // within the same turn, not new turns.
+    mockDbMessages = withIds([
+      userText("convert the voice memo"),
+      assistantToolUse("tu_1"),
+      toolResult("tu_1"),
+      assistantToolUse("tu_2"),
+      toolResult("tu_2"),
+      assistantText("done"),
+    ]);
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.turnCount).toBe(1);
+  });
+
+  test("counts only real user turns when tool iterations are interleaved", async () => {
+    mockDbMessages = withIds([
+      userText("q1"),
+      assistantToolUse("tu_1"),
+      toolResult("tu_1"),
+      assistantText("a1"),
+      userText("q2"),
+      assistantText("a2"),
+    ]);
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.turnCount).toBe(2);
+  });
+
+  test("empty history yields turnCount 0", async () => {
+    mockDbMessages = [];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    expect(conversation.turnCount).toBe(0);
+  });
+});
+
+describe("loadFromDb tool-result truncation", () => {
+  beforeEach(() => {
+    nextMockMessageId = 1;
+    mockConversation = {
+      id: "conv-1",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+      createdAt: 1700000000000,
+    };
+  });
+
+  test("oversized persisted tool_result is stubbed at load; full content lands on disk", async () => {
+    // Result-time-exempt tools (web_fetch, file_read) persist full content;
+    // the reload must restore the post-turn stubbed view the provider last saw.
+    const fullContent = "F".repeat(THRESHOLD_CHARS + 2_000);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: [{ type: "text", text: "fetch it" }],
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_wf",
+            name: "web_fetch",
+            input: { url: "https://example.com/a" },
+          },
+        ],
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_wf", content: fullContent },
+        ],
+      },
+      {
+        id: "m4",
+        role: "assistant",
+        content: [{ type: "text", text: "read it" }],
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    const block = messages[2].content[0];
+    if (block.type !== "tool_result" || typeof block.content !== "string") {
+      throw new Error("expected a string tool_result block");
+    }
+    expect(block.content).toContain(TRUNCATION_MARKER);
+    expect(block.content.length).toBeLessThan(fullContent.length);
+
+    // The stub names the on-disk file holding the full content.
+    const pathMatch = block.content.match(
+      /full result: (\S+) — use file_read to view/,
+    );
+    expect(pathMatch).not.toBeNull();
+    expect(readFileSync(pathMatch![1], "utf-8")).toBe(fullContent);
+  });
+
+  test("already-stubbed persisted tool_result is left unchanged at load (idempotency)", async () => {
+    const preStubbed =
+      `head\n\n...(500 tokens omitted ${TRUNCATION_MARKER} /some/old/path.txt)\n\ntail`.padEnd(
+        THRESHOLD_CHARS + 100,
+        "z",
+      );
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tu_old", name: "web_fetch", input: {} },
+        ],
+      },
+      {
+        id: "m2",
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tu_old", content: preStubbed },
+        ],
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    const block = messages[1].content[0];
+    expect(
+      block.type === "tool_result" && typeof block.content === "string"
+        ? block.content
+        : null,
+    ).toBe(preStubbed);
   });
 });

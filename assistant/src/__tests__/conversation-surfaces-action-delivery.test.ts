@@ -1,23 +1,19 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 
-let broadcastedMessages: ServerMessage[] = [];
+let broadcastedMessages: AssistantEvent[] = [];
 const realEventHub = await import("../runtime/assistant-event-hub.js");
 mock.module("../runtime/assistant-event-hub.js", () => ({
   ...realEventHub,
-  broadcastMessage: (msg: ServerMessage) => broadcastedMessages.push(msg),
+  broadcastMessage: (msg: AssistantEvent) => broadcastedMessages.push(msg),
 }));
 
 const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
   await import("../daemon/conversation-surfaces.js");
 
 import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
-import type {
-  SurfaceData,
-  SurfaceType,
-  UiSurfaceShow,
-} from "../daemon/message-protocol.js";
+import type { SurfaceType, UiSurfaceShow } from "../daemon/message-protocol.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 
 interface ProcessMessageCall {
@@ -26,35 +22,24 @@ interface ProcessMessageCall {
   requestId?: string;
   activeSurfaceId?: string;
   displayContent?: string;
+  sourceActorPrincipalId?: string;
 }
 
-function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext & {
+function makeContext(
+  sent: AssistantEvent[] = [],
+): SurfaceConversationContext & {
   processMessageCalls: ProcessMessageCall[];
 } {
   const processMessageCalls: ProcessMessageCall[] = [];
   return {
     conversationId: "conv-1",
-    traceEmitter: { emit: () => {} },
-    sendToClient: (msg: ServerMessage) => sent.push(msg),
+    sendToClient: (msg: AssistantEvent) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<
       string,
       { actionId: string; data?: Record<string, unknown> }
     >(),
-    surfaceState: new Map<
-      string,
-      {
-        surfaceType: SurfaceType;
-        data: SurfaceData;
-        title?: string;
-        actions?: Array<{
-          id: string;
-          label: string;
-          style?: string;
-          data?: Record<string, unknown>;
-        }>;
-      }
-    >(),
+    surfaceState: new Map(),
     surfaceUndoStacks: new Map<string, string[]>(),
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
@@ -69,6 +54,7 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext & {
         requestId: options.requestId,
         activeSurfaceId: options.activeSurfaceId,
         displayContent: options.displayContent,
+        sourceActorPrincipalId: options.sourceActorPrincipalId,
       });
       return "msg-1";
     },
@@ -83,7 +69,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("table action button click triggers processMessage with action content", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     // Step 1: Show a table surface with actions
@@ -143,8 +129,71 @@ describe("surface action delivery to assistant", () => {
     expect(ctx.surfaceActionRequestIds.size).toBe(1);
   });
 
+  test("idle pending follow-up path threads submitter principal into processMessage", async () => {
+    const sent: AssistantEvent[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "table",
+      title: "Items",
+      data: {
+        columns: [{ id: "name", label: "Name" }],
+        rows: [{ id: "r1", cells: { name: "Item 1" } }],
+      },
+      actions: [{ id: "archive", label: "Archive" }],
+    });
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    const surfaceId = showMessage.surfaceId;
+
+    await handleSurfaceAction(
+      ctx,
+      surfaceId,
+      "archive",
+      { selectedIds: ["r1"] },
+      "principal-committer",
+    );
+
+    expect(ctx.processMessageCalls.length).toBe(1);
+    expect(ctx.processMessageCalls[0].sourceActorPrincipalId).toBe(
+      "principal-committer",
+    );
+  });
+
+  test("idle history-restored path threads submitter principal into processMessage", async () => {
+    const sent: AssistantEvent[] = [];
+    const ctx = makeContext(sent);
+
+    // History-restored surface: surfaceState exists, pendingSurfaceActions
+    // does not — exercises the immediate (idle) fallthrough.
+    ctx.surfaceState.set("hist-surface-p", {
+      surfaceType: "table",
+      data: {
+        columns: [{ id: "col", label: "Col" }],
+        rows: [],
+      },
+      title: "History Table",
+      actions: [{ id: "delete", label: "Delete" }],
+    });
+
+    await handleSurfaceAction(
+      ctx,
+      "hist-surface-p",
+      "delete",
+      { selectedIds: ["row-1"] },
+      "principal-committer",
+    );
+
+    expect(ctx.processMessageCalls.length).toBe(1);
+    expect(ctx.processMessageCalls[0].sourceActorPrincipalId).toBe(
+      "principal-committer",
+    );
+  });
+
   test("table action without selection data still triggers processMessage", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     // Show table surface
@@ -220,7 +269,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("action on history-restored surface (no pending) still processes", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     // Simulate a history-restored surface: surfaceState exists, but
@@ -230,7 +279,7 @@ describe("surface action delivery to assistant", () => {
       data: {
         columns: [{ id: "col", label: "Col" }],
         rows: [],
-      } as unknown as SurfaceData,
+      },
       title: "History Table",
       actions: [{ id: "delete", label: "Delete" }],
     });
@@ -248,7 +297,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("confirmation surface broadcasts ui_surface_complete on action", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const showResult = await surfaceProxyResolver(ctx, "ui_show", {
@@ -284,7 +333,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("file_upload surface broadcasts ui_surface_complete on action", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const showResult = await surfaceProxyResolver(ctx, "ui_show", {
@@ -323,7 +372,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("file_upload completion event does not include base64 file blobs", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {
@@ -367,7 +416,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("choice surface broadcasts ui_surface_complete on action", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const showResult = await surfaceProxyResolver(ctx, "ui_show", {
@@ -410,7 +459,7 @@ describe("surface action delivery to assistant", () => {
   });
 
   test("oauth_connect surface broadcasts ui_surface_complete on action", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     const showResult = await surfaceProxyResolver(ctx, "ui_show", {
@@ -448,10 +497,11 @@ describe("surface action delivery to assistant", () => {
     expect(completeMsg?.conversationId).toBe("conv-1");
     expect(completeMsg?.summary).toBe("Connected Google: user@example.com");
     expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+    expect(ctx.processMessageCalls).toHaveLength(1);
   });
 
   test("table surface does NOT broadcast ui_surface_complete (not one-shot)", async () => {
-    const sent: ServerMessage[] = [];
+    const sent: AssistantEvent[] = [];
     const ctx = makeContext(sent);
 
     await surfaceProxyResolver(ctx, "ui_show", {

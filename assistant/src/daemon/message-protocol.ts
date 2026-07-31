@@ -1,219 +1,37 @@
 /**
  * Message Protocol -- message types and serialization.
  *
- * All message types are defined in domain files under ./message-types/.
- * Each domain file exports `_<Domain>ClientMessages` and/or
- * `_<Domain>ServerMessages` type aliases. This file composes those
- * into the aggregate ClientMessage and ServerMessage unions.
- *
- * To add a new message type:
- *   1. Define its interface in the appropriate domain file.
- *   2. Add it to that file's _<Domain>ClientMessages or _<Domain>ServerMessages.
- * No changes needed here unless you're adding an entirely new domain file.
+ * Client message types are defined in domain files under ./message-types/;
+ * each exports a `_<Domain>ClientMessages` alias that this file composes into
+ * the aggregate `ClientMessage` union.
  */
 
 // Re-export domain modules (all individual types remain importable)
-export * from "./message-types/acp.js";
-export * from "./message-types/apps.js";
-export * from "./message-types/bookmarks.js";
 export * from "./message-types/computer-use.js";
-export * from "./message-types/contacts.js";
 export * from "./message-types/conversations.js";
 export * from "./message-types/diagnostics.js";
-export * from "./message-types/document-comments.js";
-export * from "./message-types/documents.js";
-export * from "./message-types/guardian-actions.js";
-export * from "./message-types/home.js";
 export * from "./message-types/host-app-control.js";
-export * from "./message-types/host-bash.js";
 export * from "./message-types/host-browser.js";
-export * from "./message-types/host-cu.js";
-export * from "./message-types/host-file.js";
-export * from "./message-types/host-transfer.js";
-export * from "./message-types/inbox.js";
-export * from "./message-types/integrations.js";
-export * from "./message-types/meet.js";
-export * from "./message-types/memory.js";
 export * from "./message-types/messages.js";
 export * from "./message-types/notifications.js";
-export * from "./message-types/schedules.js";
-export * from "./message-types/settings.js";
 export * from "./message-types/shared.js";
 export * from "./message-types/skills.js";
-export * from "./message-types/subagents.js";
 export * from "./message-types/surfaces.js";
 export * from "./message-types/sync.js";
-export * from "./message-types/upgrades.js";
 export * from "./message-types/web-activity.js";
-export * from "./message-types/work-items.js";
-export * from "./message-types/workspace.js";
 
-// Import domain-level union aliases for composition
-import type { DiskPressureStatusChangedEvent } from "../api/events/disk-pressure-status-changed.js";
-import type { _AcpServerMessages } from "./message-types/acp.js";
-import type {
-  _AppsClientMessages,
-  _AppsServerMessages,
-} from "./message-types/apps.js";
-import type { _BookmarksServerMessages } from "./message-types/bookmarks.js";
-import type {
-  _ComputerUseClientMessages,
-  _ComputerUseServerMessages,
-} from "./message-types/computer-use.js";
-import type {
-  _ContactsClientMessages,
-  _ContactsServerMessages,
-} from "./message-types/contacts.js";
-import type {
-  _ConversationsClientMessages,
-  _ConversationsServerMessages,
-} from "./message-types/conversations.js";
-import type {
-  _DiagnosticsClientMessages,
-  _DiagnosticsServerMessages,
-} from "./message-types/diagnostics.js";
-import type { _DocumentCommentsServerMessages } from "./message-types/document-comments.js";
-import type {
-  _DocumentsClientMessages,
-  _DocumentsServerMessages,
-} from "./message-types/documents.js";
-import type {
-  _GuardianActionsClientMessages,
-  _GuardianActionsServerMessages,
-} from "./message-types/guardian-actions.js";
-import type { _HomeServerMessages } from "./message-types/home.js";
-import type { _HostAppControlServerMessages } from "./message-types/host-app-control.js";
-import type { _HostBashServerMessages } from "./message-types/host-bash.js";
-import type {
-  _HostBrowserClientMessages,
-  _HostBrowserServerMessages,
-} from "./message-types/host-browser.js";
-import type { _HostCuServerMessages } from "./message-types/host-cu.js";
-import type { _HostFileServerMessages } from "./message-types/host-file.js";
-import type { _HostTransferServerMessages } from "./message-types/host-transfer.js";
-import type {
-  _InboxClientMessages,
-  _InboxServerMessages,
-} from "./message-types/inbox.js";
-import type {
-  _IntegrationsClientMessages,
-  _IntegrationsServerMessages,
-} from "./message-types/integrations.js";
-import type { _MeetServerMessages } from "./message-types/meet.js";
-import type { _MemoryServerMessages } from "./message-types/memory.js";
-import type {
-  _MessagesClientMessages,
-  _MessagesServerMessages,
-} from "./message-types/messages.js";
-import type {
-  _NotificationsClientMessages,
-  _NotificationsServerMessages,
-} from "./message-types/notifications.js";
-import type {
-  _SchedulesClientMessages,
-  _SchedulesServerMessages,
-} from "./message-types/schedules.js";
-import type {
-  _SettingsClientMessages,
-  _SettingsServerMessages,
-} from "./message-types/settings.js";
-import type {
-  _SkillsClientMessages,
-  _SkillsServerMessages,
-} from "./message-types/skills.js";
-import type {
-  _SubagentsClientMessages,
-  _SubagentsServerMessages,
-} from "./message-types/subagents.js";
-import type {
-  _SurfacesClientMessages,
-  _SurfacesServerMessages,
-} from "./message-types/surfaces.js";
-import type { _SyncInvalidationServerMessages } from "./message-types/sync.js";
-import type { _UpgradesServerMessages } from "./message-types/upgrades.js";
-import type {
-  _WorkItemsClientMessages,
-  _WorkItemsServerMessages,
-} from "./message-types/work-items.js";
-import type {
-  _WorkspaceClientMessages,
-  _WorkspaceServerMessages,
-} from "./message-types/workspace.js";
-
-// === SubagentEvent -- defined here because it references ServerMessage ===
-
-/** Wraps any ServerMessage emitted by a subagent conversation for routing to the client. */
-export interface SubagentEvent {
-  type: "subagent_event";
-  subagentId: string;
-  conversationId: string;
-  event: ServerMessage;
-}
+// Client-message domain aliases for the ClientMessage union.
+import type { _ComputerUseClientMessages } from "./message-types/computer-use.js";
+import type { _DiagnosticsClientMessages } from "./message-types/diagnostics.js";
+import type { _HostBrowserClientMessages } from "./message-types/host-browser.js";
+import type { _MessagesClientMessages } from "./message-types/messages.js";
+import type { _NotificationsClientMessages } from "./message-types/notifications.js";
 
 // === Client -> Server aggregate union ===
 
 export type ClientMessage =
-  | _ConversationsClientMessages
   | _MessagesClientMessages
-  | _SurfacesClientMessages
-  | _SkillsClientMessages
-  | _AppsClientMessages
-  | _IntegrationsClientMessages
   | _ComputerUseClientMessages
-  | _ContactsClientMessages
-  | _WorkItemsClientMessages
   | _HostBrowserClientMessages
-  | _SubagentsClientMessages
-  | _DocumentsClientMessages
-  | _GuardianActionsClientMessages
-  | _WorkspaceClientMessages
-  | _SchedulesClientMessages
   | _DiagnosticsClientMessages
-  | _InboxClientMessages
-  | _NotificationsClientMessages
-  | _SettingsClientMessages;
-
-// === Server -> Client aggregate union ===
-
-export type ServerMessage =
-  | _ConversationsServerMessages
-  | _MessagesServerMessages
-  | _SurfacesServerMessages
-  | _SkillsServerMessages
-  | _AppsServerMessages
-  | _IntegrationsServerMessages
-  | _ComputerUseServerMessages
-  | _ContactsServerMessages
-  | _WorkItemsServerMessages
-  | _SubagentsServerMessages
-  | _DocumentsServerMessages
-  | _DocumentCommentsServerMessages
-  | _GuardianActionsServerMessages
-  | _SyncInvalidationServerMessages
-  | _HomeServerMessages
-  | _HostAppControlServerMessages
-  | _HostBashServerMessages
-  | _HostBrowserServerMessages
-  | _HostCuServerMessages
-  | _HostFileServerMessages
-  | _HostTransferServerMessages
-  | _MeetServerMessages
-  | _MemoryServerMessages
-  | _WorkspaceServerMessages
-  | _SchedulesServerMessages
-  | _SettingsServerMessages
-  | _DiagnosticsServerMessages
-  | _InboxServerMessages
-  | _NotificationsServerMessages
-  | _UpgradesServerMessages
-  | _AcpServerMessages
-  | _BookmarksServerMessages
-  | DiskPressureStatusChangedEvent
-  | SubagentEvent;
-
-// === Contract schema ===
-
-export interface ContractSchema {
-  client: ClientMessage;
-  server: ServerMessage;
-}
+  | _NotificationsClientMessages;

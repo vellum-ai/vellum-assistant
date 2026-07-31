@@ -1,23 +1,35 @@
-import { v4 as uuid } from "uuid";
-
-import { clearAll, getConversation } from "../../memory/conversation-crud.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
+import { peekAcpSessionManager } from "../../acp/index.js";
+import { decideGuardianRequest } from "../../channels/gateway-guardian-requests.js";
+import {
+  clearAll,
+  getConversation,
+  isHiddenMessageMetadata,
+} from "../../persistence/conversation-crud.js";
+import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
+import { resolveCapabilities } from "../../runtime/capabilities.js";
+import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
-import { truncate } from "../../util/truncate.js";
-import { regenerate } from "../conversation-history.js";
+import { UserError } from "../../util/errors.js";
+import { touchConversation } from "../conversation-evictor.js";
+import {
+  buildSlashContext,
+  formatCleanResult,
+} from "../conversation-process.js";
+import type { QueuedMessage } from "../conversation-queue-manager.js";
 import {
   conversationEntries,
   findConversation,
 } from "../conversation-registry.js";
+import { resolveSlash } from "../conversation-slash.js";
 import {
   clearAllActiveConversations,
   getOrCreateConversation,
-  touchConversation,
 } from "../conversation-store.js";
 import type { ConfirmationResponse } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
+import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../trust-context.js";
 import { log } from "./shared.js";
 
 export function handleConfirmationResponse(msg: ConfirmationResponse): void {
@@ -93,11 +105,25 @@ export function cancelGeneration(conversationId: string): boolean {
   conversation.abort(
     createAbortReason("user_cancel", "cancelGeneration", conversationId),
   );
-  // Also abort any child subagents spawned by this conversation.
+  // Also abort any in-flight child subagents spawned by this conversation.
   // Omit sendToClient to suppress parent notifications — the parent is
   // being cancelled, so enqueuing synthetic messages would trigger
-  // unwanted model activity after the user pressed stop.
+  // unwanted model activity after the user pressed stop. Terminal children
+  // stay readable: the conversation survives the stop, and its next turn may
+  // still `subagent_read` a completed child's result.
   getSubagentManager().abortAllForParent(conversationId);
+  // Cancel any in-flight ACP agent sessions this conversation spawned, for the
+  // same reason: a backgrounded ACP prompt would otherwise keep running (and
+  // holding a child process) past the stop and, on completion, enqueue a
+  // follow-up message back into the conversation the user just cancelled. Peek
+  // the singleton so a conversation that never used ACP doesn't spin one up.
+  peekAcpSessionManager()?.cancelForParent(conversationId);
+  // The processing flag is cleared by the in-flight turn's `finally`, not here.
+  // Abort propagates into the provider call and tool execution (and is backed
+  // by the agent loop's abort watchdog), so the turn reaches its `finally`
+  // within a bounded time and tears down its own state there — which publishes
+  // the metadata sync invalidation that drives clients to the authoritative
+  // idle state.
   return true;
 }
 
@@ -118,68 +144,157 @@ export async function undoLastMessage(
   const removedCount = conversation.undo();
   return { removedCount };
 }
+
+export interface MetaSlashCommandResult {
+  kind: "clean" | "info";
+  /** User-facing text to render (clean stats card or info listing). */
+  text: string;
+  /** Present for `/clean`: the post-strip context-window usage. */
+  contextUsage?: {
+    tokens: number;
+    maxTokens: number | null;
+    fillRatio: number | null;
+  };
+}
+
 /**
- * Regenerate the last assistant response for a conversation. The caller provides
- * a `sendEvent` callback for delivering streaming events via HTTP/SSE.
- * Returns null if the conversation does not exist. Restores evicted conversations
- * from the database when needed. Throws on regeneration errors.
+ * Resolve a local meta slash command (`/clean`, `/status`, `/commands`,
+ * `/models`) for a conversation without running a turn: no user/assistant
+ * messages are persisted and no streaming/turn events are emitted. `/clean`
+ * additionally strips runtime injections via `forceClean`.
+ *
+ * Returns null if the conversation cannot be resolved. Throws `UserError` for
+ * commands that are not local meta commands (`/compact`, passthrough) — those
+ * must be sent as a normal message so they run a real turn.
  */
-export async function regenerateResponse(
+export async function resolveMetaSlashCommand(
   conversationId: string,
-): Promise<{ requestId: string } | null> {
-  // The caller may pass a conversation key (e.g. the macOS client's local
-  // conversation ID) instead of the daemon's internal conversation ID. Resolve
-  // to the internal ID so all downstream lookups succeed.
+  command: string,
+): Promise<MetaSlashCommandResult | null> {
   const resolvedId = resolveConversationId(conversationId);
   if (!resolvedId) {
     return null;
   }
-  conversationId = resolvedId;
-  const conversation = await getOrCreateConversation(conversationId);
-  touchConversation(conversationId);
-  conversation.updateClient(broadcastMessage, false);
-  getSubagentManager().updateParentSender(conversationId, broadcastMessage);
-  const requestId = uuid();
-  conversation.traceEmitter.emit("request_received", "Regenerate requested", {
-    requestId,
-    status: "info",
-    attributes: { source: "regenerate" },
-  });
-  try {
-    await regenerate(conversation, requestId);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, conversationId }, "Error regenerating message");
-    conversation.traceEmitter.emit(
-      "request_error",
-      truncate(message, 200, ""),
-      {
-        requestId,
-        status: "error",
-        attributes: {
-          errorClass: err instanceof Error ? err.constructor.name : "Error",
-          message: truncate(message, 500, ""),
-        },
-      },
+  const conversation = await getOrCreateConversation(resolvedId);
+  touchConversation(resolvedId);
+
+  // Meta commands reload (and, for `/clean`, strip) the in-memory history
+  // array. Running that against an in-flight turn would corrupt the messages
+  // the active agent loop is iterating over, and mutating trustContext would
+  // elevate that turn's actor trust to guardian for subsequent tool calls.
+  if (conversation.isProcessing()) {
+    throw new UserError(
+      `\`${command.trim()}\` cannot run while the assistant is responding.`,
     );
-    throw err;
   }
-  return { requestId };
+
+  // Owner self-maintenance operates on the full (guardian) history. Without a
+  // trusted context, `loadFromDb` filters to non-guardian provenance — so a
+  // guardian-authored conversation would report 0 preserved / 0 messages.
+  // Temporarily apply the guardian context for hydration and restore it
+  // afterward so the elevated class never leaks into a later turn's snapshot.
+  const priorTrustContext = conversation.trustContext;
+  if (!resolveCapabilities(priorTrustContext?.trustClass).canAccessMemory) {
+    conversation.setTrustContext(INTERNAL_GUARDIAN_TRUST_CONTEXT);
+  }
+  try {
+    await conversation.ensureActorScopedHistory();
+
+    const slashResult = await resolveSlash(
+      command,
+      buildSlashContext(command, conversation),
+    );
+
+    if (slashResult.kind === "clean") {
+      const result = await conversation.forceClean();
+      return {
+        kind: "clean",
+        text: formatCleanResult(result),
+        contextUsage: {
+          tokens: result.estimatedInputTokens,
+          maxTokens: result.maxInputTokens,
+          fillRatio:
+            result.maxInputTokens > 0
+              ? result.estimatedInputTokens / result.maxInputTokens
+              : null,
+        },
+      };
+    }
+
+    if (slashResult.kind === "unknown") {
+      return { kind: "info", text: slashResult.message };
+    }
+
+    // `compact` / `passthrough` are real turns, not local meta commands.
+    throw new UserError(`\`${command.trim()}\` is not a local meta command.`);
+  } finally {
+    // Only undo the temporary guardian context this handler installed. If a
+    // new turn started at an `await` boundary and legitimately updated
+    // trustContext, the reference will differ and we leave it alone.
+    if (conversation.trustContext === INTERNAL_GUARDIAN_TRUST_CONTEXT) {
+      conversation.setTrustContext(priorTrustContext ?? null);
+    }
+  }
 }
+
 // ---------------------------------------------------------------------------
 // Shared business logic (transport-agnostic)
 // ---------------------------------------------------------------------------
 
 /**
+ * Whether the caller behind a delete request may cancel this queued message.
+ *
+ * A queued message records the verified requester that enqueued it
+ * (`sourceActorPrincipalId`); the delete route receives the caller's verified
+ * identity in the `x-vellum-actor-principal-id` header, which both adapters
+ * derive from the auth context rather than from anything the caller sent. When
+ * both are present they must match: `message_queued` is broadcast to every
+ * subscriber of the assistant, so every requestId in a conversation is visible
+ * to every connected client, and without this check one actor principal could
+ * cancel another's pending message just by echoing the id back.
+ *
+ * Two cases stay open, both deliberately:
+ *
+ * - **The caller has no actor principal.** Local/IPC and service principals
+ *   carry no `actorPrincipalId`; by the convention this routes layer already
+ *   follows (see `vellum-actor-trust.ts`) a caller with no principal is the
+ *   guardian by construction, so the CLI keeps working.
+ * - **The message has no recorded requester.** Daemon-internal enqueues (agent
+ *   wake, subagent notifications, surface actions) have no enqueuing actor to
+ *   compare against, and cancelling one from the queue UI is intended.
+ */
+function mayCancelQueuedMessage(
+  queued: QueuedMessage,
+  callerActorPrincipalId: string | undefined,
+): boolean {
+  if (!queued.sourceActorPrincipalId || !callerActorPrincipalId) {
+    return true;
+  }
+  return queued.sourceActorPrincipalId === callerActorPrincipalId;
+}
+
+/**
  * Delete a queued message from a conversation.
  * Returns `{ removed: true }` on success, `{ removed: false, reason }` on failure.
+ *
+ * On success the sender's event sink receives the terminal
+ * `message_queued_deleted`. It is the counterpart to the `message_queued` ack
+ * and the only signal that closes out a queued row that never runs: without it
+ * a client that didn't originate the delete leaves the pending indicator up
+ * forever, since no `message_dequeued` is ever coming. Hidden sends are
+ * suppressed for the same reason they get no ack: they have no client row to
+ * close.
  */
 export function deleteQueuedMessage(
   conversationId: string,
   requestId: string,
+  options: { actorPrincipalId?: string } = {},
 ):
   | { removed: true }
-  | { removed: false; reason: "conversation_not_found" | "message_not_found" } {
+  | {
+      removed: false;
+      reason: "conversation_not_found" | "message_not_found" | "forbidden";
+    } {
   const conversation = findConversation(conversationId);
   if (!conversation) {
     log.warn(
@@ -188,15 +303,37 @@ export function deleteQueuedMessage(
     );
     return { removed: false, reason: "conversation_not_found" };
   }
-  const removed = conversation.removeQueuedMessage(requestId);
-  if (removed) {
-    return { removed: true };
+  const queued = conversation.queue.findByRequestId(requestId);
+  if (!queued) {
+    log.warn(
+      { conversationId, requestId },
+      "Queued message not found for deletion",
+    );
+    return { removed: false, reason: "message_not_found" };
   }
-  log.warn(
-    { conversationId, requestId },
-    "Queued message not found for deletion",
-  );
-  return { removed: false, reason: "message_not_found" };
+  if (!mayCancelQueuedMessage(queued, options.actorPrincipalId)) {
+    log.warn(
+      {
+        conversationId,
+        requestId,
+        callerActorPrincipalId: options.actorPrincipalId,
+      },
+      "Refusing to delete a queued message enqueued by a different actor principal",
+    );
+    return { removed: false, reason: "forbidden" };
+  }
+  conversation.removeQueuedMessage(requestId);
+  if (!isHiddenMessageMetadata(queued.metadata)) {
+    queued.onEvent({
+      type: "message_queued_deleted",
+      conversationId,
+      requestId,
+      ...(queued.clientMessageId
+        ? { clientMessageId: queued.clientMessageId }
+        : {}),
+    });
+  }
+  return { removed: true };
 }
 
 /**
@@ -273,6 +410,95 @@ export function steerToMessage(
   conversation.denyAllPendingConfirmations();
 
   return { steered: true };
+}
+
+/**
+ * Supersede an open `ask_question` prompt when a new chat message is enqueued
+ * for the same conversation.
+ *
+ * A queued message while a clarification question is open means the user chose
+ * to move on rather than answer it. Steering to that message aborts the parked
+ * turn — which settles the open question via its turn-abort signal — repairs
+ * the dangling `tool_use`, and drains the message, instead of stranding it
+ * behind a prompt no one is going to answer. Only `ask_question` prompts
+ * (`kind: "question"`) trigger this; pending confirmations are handled
+ * separately by the enqueue path's auto-deny.
+ *
+ * Returns `true` when a parked question was found and a steer was issued.
+ */
+export function steerOnEnqueuedMessageIfQuestionParked(
+  conversationId: string,
+  enqueuedRequestId: string,
+): boolean {
+  const hasParkedQuestion = pendingInteractions
+    .getByConversation(conversationId)
+    .some((interaction) => interaction.kind === "question");
+  if (!hasParkedQuestion) {
+    return false;
+  }
+  steerToMessage(conversationId, enqueuedRequestId);
+  return true;
+}
+
+/**
+ * Supersede interactions left pending by an in-flight turn when a new message
+ * is enqueued for a busy conversation. Centralized so every ingress path (the
+ * HTTP send handler and the CLI signal path) gets identical handling:
+ *
+ *  1. Auto-deny pending confirmations — notify the client and issue the
+ *     gateway request-status sync *before* clearing the prompter-owned
+ *     confirmations, so a later guardian reply can't match a stale "pending"
+ *     record and fail with `pending_interaction_not_found`.
+ *  2. Supersede a parked ask_question by steering to the enqueued message.
+ *
+ * Order matters: the steer aborts the turn, which denies the prompter's
+ * confirmations as a side effect, so the status/notification sync must be
+ * issued first. `removeByConversation` preserves `question` entries, so the
+ * parked question is still registered for the steer even after the
+ * confirmation sweep.
+ */
+export function supersedePendingInteractionsOnEnqueue(
+  conversationId: string,
+  enqueuedRequestId: string,
+): void {
+  const conversation = findConversation(conversationId);
+  if (!conversation) {
+    return;
+  }
+
+  if (conversation.hasAnyPendingConfirmation()) {
+    for (const interaction of pendingInteractions.getByConversation(
+      conversationId,
+    )) {
+      if (interaction.kind === "confirmation") {
+        // sendToClient (wired to the SSE hub) delivers the denial to clients.
+        conversation.emitConfirmationStateChanged({
+          conversationId,
+          requestId: interaction.requestId,
+          state: "denied" as const,
+          source: "auto_deny" as const,
+        });
+        // Sync the gateway request so stale "pending" rows aren't matched
+        // by later guardian reply routing. Fire-and-forget from this sync
+        // path: the in-memory denial is authoritative, and a CAS miss
+        // (already decided elsewhere) is expected and harmless.
+        void decideGuardianRequest({
+          id: interaction.requestId,
+          expectedStatus: "pending",
+          status: "denied",
+        }).catch((err) => {
+          log.warn(
+            { err, requestId: interaction.requestId },
+            "Auto-deny guardian request status sync failed",
+          );
+        });
+      }
+    }
+    conversation.denyAllPendingConfirmations();
+    pendingInteractions.removeByConversation(conversationId);
+  }
+
+  steerOnEnqueuedMessageIfQuestionParked(conversationId, enqueuedRequestId);
 }
 
 // ---------------------------------------------------------------------------

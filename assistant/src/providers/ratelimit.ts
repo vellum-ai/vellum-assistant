@@ -23,7 +23,23 @@ export class RateLimitProvider implements Provider {
     return this.inner.tokenEstimationProvider;
   }
 
+  get supportsNativeWebSearch(): boolean | undefined {
+    return this.inner.supportsNativeWebSearch;
+  }
+
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
+  }
+
   private requestTimestamps: number[];
+
+  // Forward the optional token-counting endpoint so the capability survives
+  // the wrapper chain. Bound straight to the inner provider — count_tokens is
+  // a cheap separate endpoint outside the message rate budget, and its caller
+  // falls back on error.
+  public readonly countInputTokens?: NonNullable<Provider["countInputTokens"]>;
 
   constructor(
     private readonly inner: Provider,
@@ -31,6 +47,9 @@ export class RateLimitProvider implements Provider {
     sharedRequestTimestamps?: number[],
   ) {
     this.requestTimestamps = sharedRequestTimestamps ?? [];
+    if (inner.countInputTokens) {
+      this.countInputTokens = inner.countInputTokens.bind(inner);
+    }
   }
 
   async sendMessage(
@@ -50,7 +69,9 @@ export class RateLimitProvider implements Provider {
 
   private enforceRequestRate(): void {
     const limit = this.config.maxRequestsPerMinute;
-    if (limit <= 0) return;
+    if (limit <= 0) {
+      return;
+    }
 
     const now = Date.now();
     const windowStart = now - 60_000;
@@ -87,7 +108,9 @@ export class RateLimitProvider implements Provider {
   }
 
   private recordRequest(): void {
-    if (this.config.maxRequestsPerMinute <= 0) return;
+    if (this.config.maxRequestsPerMinute <= 0) {
+      return;
+    }
     this.requestTimestamps.push(Date.now());
   }
 }

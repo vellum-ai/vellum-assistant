@@ -1,47 +1,16 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import {
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { homedir } from "node:os";
+import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { GATEWAY_PORT } from "./constants";
+import { GATEWAY_PORT } from "./constants.js";
+import {
+  clearIngressUrl,
+  getDefaultWorkspaceDir,
+  loadRawConfig,
+  saveIngressUrl,
+} from "./ingress-config.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
-
-function getDefaultWorkspaceDir(): string {
-  return (
-    process.env.VELLUM_WORKSPACE_DIR?.trim() ||
-    join(homedir(), ".vellum", "workspace")
-  );
-}
-
-function getConfigPath(workspaceDir: string): string {
-  return join(workspaceDir, "config.json");
-}
-
-function loadRawConfig(workspaceDir: string): Record<string, unknown> {
-  const configPath = getConfigPath(workspaceDir);
-  if (!existsSync(configPath)) return {};
-  return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-    string,
-    unknown
-  >;
-}
-
-function saveRawConfig(
-  workspaceDir: string,
-  config: Record<string, unknown>,
-): void {
-  const configPath = getConfigPath(workspaceDir);
-  const dir = dirname(configPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-}
+import { resolveTunnelTargetPort } from "./nginx-ingress.js";
 
 const NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels";
 const NGROK_POLL_INTERVAL_MS = 500;
@@ -190,29 +159,6 @@ export async function waitForNgrokUrl(
 }
 
 /**
- * Persist a public ingress URL to the workspace config and enable ingress.
- */
-function saveIngressUrl(workspaceDir: string, publicUrl: string): void {
-  const config = loadRawConfig(workspaceDir);
-  const ingress = (config.ingress ?? {}) as Record<string, unknown>;
-  ingress.publicBaseUrl = publicUrl;
-  ingress.enabled = true;
-  config.ingress = ingress;
-  saveRawConfig(workspaceDir, config);
-}
-
-/**
- * Clear the ingress public base URL from the workspace config.
- */
-function clearIngressUrl(workspaceDir: string): void {
-  const config = loadRawConfig(workspaceDir);
-  const ingress = (config.ingress ?? {}) as Record<string, unknown>;
-  delete ingress.publicBaseUrl;
-  config.ingress = ingress;
-  saveRawConfig(workspaceDir, config);
-}
-
-/**
  * Check whether any webhook-based integrations (e.g. Telegram, Twilio) are
  * configured that require a public ingress URL.
  */
@@ -304,11 +250,24 @@ export async function maybeStartNgrokTunnel(
   }
 }
 
+export interface RunNgrokTunnelOptions {
+  /** Gateway port to forward. Defaults to the global GATEWAY_PORT. */
+  port?: number;
+  /** Workspace directory for config read/write. Defaults to ~/.vellum/workspace. */
+  workspaceDir?: string;
+  /** Prefer nginx ingress over the gateway port when it is running. */
+  preferNginxIngress?: boolean;
+  /** Lockfile entry to mirror the ingress URL onto (`ingressUrl`). */
+  assistantId?: string;
+}
+
 /**
  * Run the ngrok tunnel workflow: check installation, find or start a tunnel,
  * save the public URL to config, and block until exit or signal.
  */
-export async function runNgrokTunnel(): Promise<void> {
+export async function runNgrokTunnel(
+  opts: RunNgrokTunnelOptions = {},
+): Promise<void> {
   const version = getNgrokVersion();
   if (!version) {
     console.error("Error: ngrok is not installed.");
@@ -326,14 +285,24 @@ export async function runNgrokTunnel(): Promise<void> {
 
   console.log(`Using ${version}`);
 
-  const port = GATEWAY_PORT;
-  const workspaceDir = getDefaultWorkspaceDir();
+  const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
+  const gatewayPort = opts.port ?? GATEWAY_PORT;
+  const { port, viaIngress } = resolveTunnelTargetPort(
+    workspaceDir,
+    gatewayPort,
+    { preferNginxIngress: opts.preferNginxIngress === true },
+  );
+  if (viaIngress) {
+    console.log(
+      `nginx ingress detected — tunneling to it on 127.0.0.1:${port}.`,
+    );
+  }
 
   // Check for an existing ngrok tunnel pointing at the gateway
   const existingUrl = await findExistingTunnel(port);
   if (existingUrl) {
     console.log(`Found existing ngrok tunnel: ${existingUrl}`);
-    saveIngressUrl(workspaceDir, existingUrl);
+    saveIngressUrl(workspaceDir, existingUrl, opts.assistantId);
     console.log("Ingress URL saved to config.");
     console.log("");
     console.log(
@@ -360,7 +329,7 @@ export async function runNgrokTunnel(): Promise<void> {
     }
     if (publicUrl) {
       console.log("\nClearing ingress URL from config...");
-      clearIngressUrl(workspaceDir);
+      clearIngressUrl(workspaceDir, opts.assistantId);
     }
   };
 
@@ -409,7 +378,7 @@ export async function runNgrokTunnel(): Promise<void> {
   console.log(`Tunnel established: ${publicUrl}`);
   console.log(`Forwarding to:     localhost:${port}`);
 
-  saveIngressUrl(workspaceDir, publicUrl);
+  saveIngressUrl(workspaceDir, publicUrl, opts.assistantId);
   console.log("Ingress URL saved to config.");
   console.log("");
   console.log("Press Ctrl+C to stop the tunnel and clear the ingress URL.");

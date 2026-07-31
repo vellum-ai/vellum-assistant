@@ -3,19 +3,13 @@
  * Generate `llm-provider-catalog.json` from the canonical
  * `PROVIDER_CATALOG` in `assistant/src/providers/model-catalog.ts`.
  *
- * The JSON file is the client-facing catalog bundled into native clients
- * (macOS, web). Keeping it generated — rather than hand-mirrored — eliminates
- * the recurring "I edited model-catalog.ts and forgot the JSON" failure mode
- * that the parity test only catches after push.
+ * The JSON file is the client-facing catalog. Keeping it generated — rather
+ * than hand-mirrored — eliminates the recurring "I edited model-catalog.ts and
+ * forgot the JSON" failure mode that the parity test only catches after push.
  *
- * Two byte-identical copies are written:
+ * Output:
  *   - `meta/llm-provider-catalog.json` — primary checked-in artifact, read
- *      by web codegen (§D) and any non-Swift consumer.
- *   - `clients/shared/Resources/llm-provider-catalog.json` — SwiftPM resource
- *      bundled into `VellumAssistantShared`. SwiftPM cannot reach files
- *      outside a target's source directory, so this mirror is necessary;
- *      both files are produced by the same generator and asserted equal by
- *      the parity test, making drift impossible.
+ *      by web codegen (§D) and any downstream consumer.
  *
  * The projection drops daemon-only fields (today: `apiKeyUrl`, which clients
  * read from `credentialsGuide.url` instead) and pins field order so the
@@ -37,10 +31,7 @@ import {
 } from "../src/providers/model-catalog.js";
 
 const ROOT = resolve(import.meta.dir, "../..");
-const OUTPUT_PATHS = [
-  join(ROOT, "meta/llm-provider-catalog.json"),
-  join(ROOT, "clients/shared/Resources/llm-provider-catalog.json"),
-] as const;
+const OUTPUT_PATHS = [join(ROOT, "meta/llm-provider-catalog.json")] as const;
 
 /**
  * Bumped when the *shape* of the client catalog JSON changes in a way native
@@ -61,28 +52,40 @@ function projectModel(model: CatalogModel): Record<string, unknown> {
     id: model.id,
     displayName: model.displayName,
   };
-  if (model.contextWindowTokens !== undefined)
+  if (model.contextWindowTokens !== undefined) {
     projected.contextWindowTokens = model.contextWindowTokens;
-  if (model.maxOutputTokens !== undefined)
+  }
+  if (model.maxOutputTokens !== undefined) {
     projected.maxOutputTokens = model.maxOutputTokens;
-  if (model.defaultContextWindowTokens !== undefined)
+  }
+  if (model.defaultContextWindowTokens !== undefined) {
     projected.defaultContextWindowTokens = model.defaultContextWindowTokens;
-  if (model.longContextPricingThresholdTokens !== undefined)
+  }
+  if (model.longContextPricingThresholdTokens !== undefined) {
     projected.longContextPricingThresholdTokens =
       model.longContextPricingThresholdTokens;
-  if (model.longContextMode !== undefined)
+  }
+  if (model.longContextMode !== undefined) {
     projected.longContextMode = model.longContextMode;
-  if (model.supportsThinking !== undefined)
+  }
+  if (model.supportsThinking !== undefined) {
     projected.supportsThinking = model.supportsThinking;
-  if (model.adaptiveThinkingOnly !== undefined)
+  }
+  if (model.adaptiveThinkingOnly !== undefined) {
     projected.adaptiveThinkingOnly = model.adaptiveThinkingOnly;
-  if (model.supportsCaching !== undefined)
+  }
+  if (model.supportsCaching !== undefined) {
     projected.supportsCaching = model.supportsCaching;
-  if (model.supportsVision !== undefined)
+  }
+  if (model.supportsVision !== undefined) {
     projected.supportsVision = model.supportsVision;
-  if (model.supportsToolUse !== undefined)
+  }
+  if (model.supportsToolUse !== undefined) {
     projected.supportsToolUse = model.supportsToolUse;
-  if (model.pricing !== undefined) projected.pricing = model.pricing;
+  }
+  if (model.pricing !== undefined) {
+    projected.pricing = model.pricing;
+  }
   return projected;
 }
 
@@ -91,16 +94,27 @@ function projectProvider(entry: ProviderCatalogEntry): Record<string, unknown> {
     id: entry.id,
     displayName: entry.displayName,
   };
-  if (entry.subtitle !== undefined) projected.subtitle = entry.subtitle;
-  if (entry.setupMode !== undefined) projected.setupMode = entry.setupMode;
-  if (entry.setupHint !== undefined) projected.setupHint = entry.setupHint;
-  if (entry.envVar !== undefined) projected.envVar = entry.envVar;
-  if (entry.apiKeyPlaceholder !== undefined)
+  if (entry.subtitle !== undefined) {
+    projected.subtitle = entry.subtitle;
+  }
+  if (entry.setupMode !== undefined) {
+    projected.setupMode = entry.setupMode;
+  }
+  if (entry.setupHint !== undefined) {
+    projected.setupHint = entry.setupHint;
+  }
+  if (entry.envVar !== undefined) {
+    projected.envVar = entry.envVar;
+  }
+  if (entry.apiKeyPlaceholder !== undefined) {
     projected.apiKeyPlaceholder = entry.apiKeyPlaceholder;
-  if (entry.credentialsGuide !== undefined)
+  }
+  if (entry.credentialsGuide !== undefined) {
     projected.credentialsGuide = entry.credentialsGuide;
-  if (entry.supportsPlatformAuth !== undefined)
+  }
+  if (entry.supportsPlatformAuth !== undefined) {
     projected.supportsPlatformAuth = entry.supportsPlatformAuth;
+  }
   projected.defaultModel = entry.defaultModel;
   projected.models = entry.models.map(projectModel);
   // NOTE: `apiKeyUrl` intentionally omitted — clients use
@@ -143,7 +157,9 @@ async function main() {
       }
       console.log(`${rel} is up to date.`);
     }
-    if (anyStale) process.exit(1);
+    if (anyStale) {
+      process.exit(1);
+    }
     return;
   }
 

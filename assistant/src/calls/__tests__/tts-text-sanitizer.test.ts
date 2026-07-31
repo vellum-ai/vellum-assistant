@@ -32,9 +32,9 @@ describe("sanitizeForTts", () => {
     });
 
     test("handles URLs with multiple balanced parentheses groups", () => {
-      expect(
-        sanitizeForTts("[link](http://example.com/a_(b)_c_(d))"),
-      ).toBe("link");
+      expect(sanitizeForTts("[link](http://example.com/a_(b)_c_(d))")).toBe(
+        "link",
+      );
     });
   });
 
@@ -67,10 +67,30 @@ describe("sanitizeForTts", () => {
       expect(sanitizeForTts("5 * 3 = 15")).toBe("5 * 3 = 15");
     });
 
-    test("preserves identifiers with underscores", () => {
-      expect(sanitizeForTts("The my_var variable")).toBe(
-        "The my_var variable",
+    test("preserves multiple arithmetic asterisks in one sentence", () => {
+      expect(sanitizeForTts("5 * 3 is 15 and 4 * 2 is 8")).toBe(
+        "5 * 3 is 15 and 4 * 2 is 8",
       );
+    });
+
+    test("strips italic whose content contains internal spaces", () => {
+      expect(sanitizeForTts("Hello *wide world* there")).toBe(
+        "Hello wide world there",
+      );
+    });
+
+    test("does not treat whitespace-padded asterisks as italic", () => {
+      expect(sanitizeForTts("Some * italic. still* done.")).toBe(
+        "Some * italic. still* done.",
+      );
+    });
+
+    test("does not treat whitespace-padded underscores as italic", () => {
+      expect(sanitizeForTts("a _ b and c_ d")).toBe("a _ b and c_ d");
+    });
+
+    test("preserves identifiers with underscores", () => {
+      expect(sanitizeForTts("The my_var variable")).toBe("The my_var variable");
     });
 
     test("preserves snake_case identifiers", () => {
@@ -116,7 +136,8 @@ describe("sanitizeForTts", () => {
     });
 
     test("preserves # comments inside code fences", () => {
-      const input = "Example:\n```python\n# This is a comment\nprint('hi')\n```\nDone.";
+      const input =
+        "Example:\n```python\n# This is a comment\nprint('hi')\n```\nDone.";
       expect(sanitizeForTts(input)).toBe(
         "Example:\n# This is a comment\nprint('hi')\nDone.",
       );
@@ -195,9 +216,9 @@ describe("sanitizeForTts", () => {
     });
 
     test("acceptance: markdown link", () => {
-      expect(
-        sanitizeForTts("Check [this link](https://example.com)"),
-      ).toBe("Check this link");
+      expect(sanitizeForTts("Check [this link](https://example.com)")).toBe(
+        "Check this link",
+      );
     });
 
     test("acceptance: arithmetic preserved", () => {
@@ -238,7 +259,8 @@ describe("sanitizeForTts", () => {
     });
 
     test("idempotency: applying twice gives same result", () => {
-      const input = "# Hello **world** 👋\n\n- Item *one*\n- [link](http://x.com)";
+      const input =
+        "# Hello **world** 👋\n\n- Item *one*\n- [link](http://x.com)";
       const once = sanitizeForTts(input);
       const twice = sanitizeForTts(once);
       expect(twice).toBe(once);

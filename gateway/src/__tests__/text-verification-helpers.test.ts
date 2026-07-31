@@ -6,8 +6,8 @@ import {
   hashVerificationSecret,
 } from "../verification/code-parsing.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
+import type { IdentityMatchSession } from "../verification/identity-match.js";
 import { checkIdentityMatch } from "../verification/identity-match.js";
-import type { VerificationSession } from "../verification/session-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Code parsing
@@ -158,18 +158,11 @@ describe("canonicalizeInboundIdentity", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkIdentityMatch", () => {
-  const baseSession: VerificationSession = {
-    id: "sess-1",
-    challengeHash: "abc",
-    expiresAt: Date.now() + 60_000,
-    status: "pending",
-    verificationPurpose: "guardian",
+  const baseSession: IdentityMatchSession = {
     expectedExternalUserId: null,
     expectedChatId: null,
     expectedPhoneE164: null,
     identityBindingStatus: "bound",
-    codeDigits: 6,
-    maxAttempts: 3,
   };
 
   test("matches when session has no expected identity (inbound)", () => {
@@ -177,7 +170,7 @@ describe("checkIdentityMatch", () => {
   });
 
   test("matches when binding status is not bound", () => {
-    const session = {
+    const session: IdentityMatchSession = {
       ...baseSession,
       expectedExternalUserId: "user-1",
       identityBindingStatus: "pending_bootstrap",

@@ -26,7 +26,7 @@ describe("model intents", () => {
       "claude-opus-4-6",
     );
     expect(resolveModelIntent("openai", "latency-optimized")).toBe(
-      "gpt-5.4-nano",
+      "gpt-5.6-luna",
     );
     expect(resolveModelIntent("gemini", "latency-optimized")).toBe(
       "gemini-3.1-flash-lite",
@@ -36,6 +36,24 @@ describe("model intents", () => {
     );
     expect(resolveModelIntent("gemini", "vision-optimized")).toBe(
       "gemini-3-flash-preview",
+    );
+  });
+
+  test("resolves intents for vercel-ai-gateway", () => {
+    expect(resolveModelIntent("vercel-ai-gateway", "balanced")).toBe(
+      "anthropic/claude-sonnet-4.6",
+    );
+    expect(resolveModelIntent("vercel-ai-gateway", "latency-optimized")).toBe(
+      "anthropic/claude-haiku-4.5",
+    );
+    expect(resolveModelIntent("vercel-ai-gateway", "quality-optimized")).toBe(
+      "anthropic/claude-fable-5",
+    );
+    expect(resolveModelIntent("vercel-ai-gateway", "vision-optimized")).toBe(
+      "anthropic/claude-opus-4.6",
+    );
+    expect(getProviderDefaultModel("vercel-ai-gateway")).toBe(
+      "anthropic/claude-sonnet-4.6",
     );
   });
 

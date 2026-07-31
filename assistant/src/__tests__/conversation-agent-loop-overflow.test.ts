@@ -15,15 +15,15 @@ import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { LoopToolExecutor } from "../agent/loop.js";
-import type { LLMConfig } from "../config/schemas/llm.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
   ) as Record<string, unknown>),
 };
 const tokenEstimatorRealSnapshot = {
@@ -54,60 +54,12 @@ mock.module("../plugins/defaults/compaction/manager-store.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-const defaultLlmConfig: LLMConfig = {
-  default: {
-    provider: "anthropic",
-    model: "mock-model",
-    maxTokens: 4096,
-    effort: "max" as const,
-    speed: "standard" as const,
-    verbosity: "medium" as const,
-    temperature: null,
-    thinking: { enabled: false, streamThinking: true },
-    contextWindow: {
-      enabled: true,
-      maxInputTokens: 200_000,
-      targetBudgetRatio: 0.3,
-      compactThreshold: 0.8,
-      summaryBudgetRatio: 0.05,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts: 3,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "truncate",
-      },
-    },
-    openrouter: { only: [] },
-  },
-  profiles: {},
-  profileOrder: [],
-  callSites: {},
-  profileSession: { defaultTtlSeconds: 1800, maxTtlSeconds: 43200 },
-  pricingOverrides: [],
-};
-
-let mockLlmConfig: LLMConfig = structuredClone(defaultLlmConfig);
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    rateLimit: { maxRequestsPerMinute: 0 },
-    workspaceGit: { turnCommitMaxWaitMs: 10 },
-    memory: { retrieval: { scratchpadInjection: { enabled: true } } },
-    ui: {},
-    compaction: { enabled: true, autoThreshold: 0.7 },
-    conversations: { skipAutoRetitling: true },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+// Seed the workspace config for real: a short turn-boundary commit wait and
+// no second-pass retitling keep the loop teardown fast and deterministic.
+// The llm section runs on schema defaults (200k context window); the first
+// test seeds a narrowed profile on top.
+setConfig("workspaceGit", { turnCommitMaxWaitMs: 10 });
+setConfig("conversations", { skipAutoRetitling: true });
 
 // ── Overflow recovery mocks ──────────────────────────────────────────
 
@@ -162,7 +114,9 @@ const runMockReducer = async (
   cfg: unknown,
   state: unknown,
 ) => {
-  if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
+  if (mockReducerStepFn) {
+    return mockReducerStepFn(msgs, cfg, state);
+  }
   return {
     messages: msgs,
     tier: "forced_compaction",
@@ -209,7 +163,9 @@ function makeOverflowLadderStub(): {
 } {
   let state: unknown;
   const reduceOverflowOneRung = async (msgs: Message[], opts: unknown) => {
-    if (!state) state = makeInitialReducerState();
+    if (!state) {
+      state = makeInitialReducerState();
+    }
     const step = (await runMockReducer(msgs, opts, state)) as {
       state: unknown;
     };
@@ -255,7 +211,9 @@ mock.module("../plugins/defaults/compaction/overflow-policy.js", () => ({
   resolveOverflowAction: () => mockOverflowAction,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationHistoryStrippedAt: () => {},
   updateConversationUsage: () => {},
@@ -286,11 +244,13 @@ mock.module("../memory/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   resolveOverrideProfile: () => undefined,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
+  getConversationPersistedSeq: () => null,
 }));
 
 afterAll(() => {
   mock.module(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
   mock.module(
@@ -316,14 +276,10 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
-}));
-
-mock.module("../memory/app-git-service.js", () => ({
-  commitAppTurnChanges: () => Promise.resolve(),
 }));
 
 mock.module("../daemon/conversation-memory.js", () => ({
@@ -369,7 +325,7 @@ mock.module("../daemon/date-context.js", () => ({
   formatTurnTimestamp: () => "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
 }));
 
-mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
+mock.module("../agent/history-repair/history-repair.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -454,9 +410,15 @@ mock.module("../daemon/conversation-error.js", () => ({
     };
   },
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
-    if (!ctx.aborted) return false;
-    if (err instanceof DOMException && err.name === "AbortError") return true;
-    if (err instanceof Error && err.name === "AbortError") return true;
+    if (!ctx.aborted) {
+      return false;
+    }
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return true;
+    }
+    if (err instanceof Error && err.name === "AbortError") {
+      return true;
+    }
     return false;
   },
   buildConversationErrorMessage: (
@@ -491,7 +453,7 @@ mock.module("../agent/message-types.js", () => ({
   }),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
   setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,
@@ -592,8 +554,6 @@ function makeCtx(
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,
 
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
-
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
     surfaceState: new Map(),
@@ -606,20 +566,12 @@ function makeCtx(
     commandIntent: undefined,
     trustContext: undefined,
 
-    coreToolNames: new Set(),
     allowedToolNames: undefined,
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    traceEmitter: {
-      emit: () => {},
-    } as unknown as Conversation["traceEmitter"],
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -643,12 +595,25 @@ function makeCtx(
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: () => {},
+    drainQueue: (_reason?: string) => {},
+    // Forwards to drainQueue so tests that spy the drain observe the agent
+    // loop's post-turn kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => ({
       userMessageChannel: "vellum" as const,
       assistantMessageChannel: "vellum" as const,
     }),
+
+    buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
+    modelOverride: undefined,
 
     graphMemory: {
       onCompacted: async () => {},
@@ -739,7 +704,7 @@ function buildLongConversation(messageCount: number): Message[] {
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  mockLlmConfig = structuredClone(defaultLlmConfig);
+  setConfig("llm", {});
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -756,16 +721,18 @@ beforeEach(() => {
 describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   test("usage update context max follows active main-agent profile budget", async () => {
     // GIVEN an active main-agent profile that narrows the context budget
-    mockLlmConfig = {
-      ...structuredClone(defaultLlmConfig),
+    // (complete — provider + model — so it is a usable selection winner)
+    setConfig("llm", {
       activeProfile: "short-context",
       profiles: {
         "short-context": {
           source: "user",
+          provider: "anthropic",
+          model: "claude-opus-4-7",
           contextWindow: { maxInputTokens: 150_000 },
         },
       },
-    };
+    });
 
     // AND a provider turn that reports 12k input tokens of usage
     const ctx = makeCtx({
@@ -805,7 +772,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   test.todo(
     "context too large after progress triggers compaction retry instead of immediate failure",
     async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       let reducerCalled = false;
 
       mockReducerStepFn = (msgs: Message[]) => {
@@ -890,7 +857,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   // loop calibrates the estimator from the rejection and drives the reduction
   // ladder on the next gate pass, recovering before the rerun.
   test("overflow recovery compacts below limit even when estimation underestimates", async () => {
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     let reducerCalled = false;
 
     // GIVEN the estimator reports 185k and the context manager's compaction
@@ -971,7 +938,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   test.todo(
     "forced compaction targets a lower budget when estimation has been inaccurate",
     async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       let capturedTargetTokens: number | undefined;
 
       // Estimator says 185k (below 190k budget = 200k * 0.95)
@@ -1059,7 +1026,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   test.todo(
     "overflow recovery succeeds for 75+ message conversation with many tool calls",
     async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const longHistory = buildLongConversation(75);
       let reducerCalled = false;
 
@@ -1141,7 +1108,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   test.todo(
     "exhausted reducer tiers with progress still attempts emergency compaction",
     async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       let emergencyCompactCalled = false;
 
       // Start with reducer already exhausted
@@ -1248,7 +1215,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   test.todo(
     "onCheckpoint yields when token estimate exceeds mid-loop budget threshold",
     async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       let compactionCalled = false;
 
       // estimatePromptTokens is called:
@@ -1260,7 +1227,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       mockEstimateTokens = () => {
         estimateCallCount++;
         // First call: preflight check — below budget
-        if (estimateCallCount === 1) return 100_000;
+        if (estimateCallCount === 1) {
+          return 100_000;
+        }
         // Subsequent calls: mid-loop check — above 85% threshold
         return 170_000;
       };
@@ -1347,7 +1316,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   test.todo(
     "mid-loop budget check prevents context_too_large when tools produce large results",
     async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       let compactionCalled = false;
 
       // Budget = 200_000 * 0.95 = 190_000
@@ -1358,10 +1327,16 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       mockEstimateTokens = () => {
         estimateCallCount++;
         // First call: preflight — well below budget
-        if (estimateCallCount === 1) return 50_000;
+        if (estimateCallCount === 1) {
+          return 50_000;
+        }
         // Checkpoint calls grow with each tool round
-        if (estimateCallCount === 2) return 100_000; // tool 1
-        if (estimateCallCount === 3) return 140_000; // tool 2
+        if (estimateCallCount === 2) {
+          return 100_000;
+        } // tool 1
+        if (estimateCallCount === 3) {
+          return 140_000;
+        } // tool 2
         // Tool 3: exceeds 161_500 threshold
         return 175_000;
       };
@@ -1464,7 +1439,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   test("ladder escalation ends the turn with context_too_large when exhausted", async () => {
     // GIVEN an estimate below the mid-loop threshold, so only the provider's
     // rejection — not the proactive gate — drives recovery
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     mockEstimateTokens = 100_000;
 
     // AND a ladder that reduces on the first rung and reports exhaustion on
@@ -1531,7 +1506,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
    */
   test("single-rung recovery succeeds and the turn continues in place", async () => {
     // GIVEN an estimate below the mid-loop threshold
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     mockEstimateTokens = 100_000;
 
     // AND a ladder rung that reduces without reporting exhaustion
@@ -1588,7 +1563,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
    */
   test("multi-rung escalation recovers when a later rung fits", async () => {
     // GIVEN an estimate below the mid-loop threshold
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     mockEstimateTokens = 100_000;
 
     // AND a ladder that reduces further on each successive rung
@@ -1653,7 +1628,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
    */
   test("budget_yield_unrecovered: classified error emitted, persisted, and stamped", async () => {
     // GIVEN an estimate below the mid-loop threshold
-    const events: ServerMessage[] = [];
+    const events: AssistantEvent[] = [];
     mockEstimateTokens = 100_000;
 
     // AND a ladder whose terminal rung applies `auto_compress_latest_turn` and

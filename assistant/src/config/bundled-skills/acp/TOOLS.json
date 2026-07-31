@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "acp_spawn",
-      "description": "Spawn an external coding agent (e.g. Claude Code, Codex, Gemini) via ACP to work on a task. Default profiles ship for `claude` (`claude-agent-acp`), `codex` (`codex-acp`), and `gemini` (`gemini --acp`); the assistant resolves the agent id to the right binary. The agent runs as a subprocess and streams results back. Use this when you want to delegate a coding task to an external agent that has its own tools, file editing, and terminal access. If a default agent's binary is missing, the assistant installs it once via a sandboxed bun global install and proceeds in the same call; if that fails (e.g. bun unavailable), an actionable install hint is returned - do NOT alter `agents.<id>.command` to swap binaries.",
+      "description": "Spawn an external coding agent (e.g. Claude Code, Codex) via ACP to work on a task. Default profiles ship for `claude` (`claude-agent-acp`) and `codex` (`codex-acp`); the assistant resolves the agent id to the right binary. The agent runs as a subprocess and streams results back. Use this when you want to delegate a coding task to an external agent that has its own tools, file editing, and terminal access. If a default agent's binary is missing, the assistant installs it once via a sandboxed bun global install and proceeds in the same call; if that fails (e.g. bun unavailable), an actionable install hint is returned - do NOT alter `agents.<id>.command` to swap binaries.",
       "category": "orchestration",
       "risk": "high",
       "input_schema": {
@@ -11,7 +11,7 @@
         "properties": {
           "agent": {
             "type": "string",
-            "description": "Which agent to spawn (e.g. 'claude', 'codex', 'gemini'). Natural names like 'claude code' or 'gemini cli' also resolve. Defaults to 'claude'."
+            "description": "Which agent to spawn (e.g. 'claude', 'codex'). Natural names like 'claude code' or 'openai codex' also resolve. Defaults to 'claude'."
           },
           "task": {
             "type": "string",
@@ -87,7 +87,7 @@
     },
     {
       "name": "acp_list_agents",
-      "description": "Lists ACP coding agents available to spawn. Each entry includes whether the agent's binary is on PATH (missing binaries are installed automatically on first spawn), and an install command if not. Use this to decide between 'claude', 'codex', and 'gemini' or to surface setup steps to the user.",
+      "description": "Lists ACP coding agents available to spawn. Each entry includes whether the agent's binary is on PATH (missing binaries are installed automatically on first spawn), and an install command if not. Use this to decide between 'claude' and 'codex' or to surface setup steps to the user.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {

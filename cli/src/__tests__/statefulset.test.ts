@@ -56,7 +56,9 @@ describe("getBuilderManagedEnvKeys", () => {
 
   test("gateway hostForwarded equals the three spec host entries", () => {
     const { hostForwarded } = getBuilderManagedEnvKeys("gateway");
-    const sorted = [...hostForwarded].sort((a, b) => a.name.localeCompare(b.name));
+    const sorted = [...hostForwarded].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
     expect(sorted).toEqual([
       { name: "VELAY_BASE_URL", hostVar: "VELAY_BASE_URL" },
       { name: "VELLUM_ENVIRONMENT", hostVar: "VELLUM_ENVIRONMENT" },
@@ -111,6 +113,7 @@ describe("getBuilderManagedEnvKeys", () => {
 describe("buildServiceRunArgs extra env routing", () => {
   const opts: BuildServiceRunArgsOpts = {
     gatewayPort: 18080,
+    assistantPort: 18081,
     imageTags: {
       assistant: "assistant:test",
       gateway: "gateway:test",

@@ -3,14 +3,7 @@
  * file changes and triggers debounced recompile + surface refresh.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -19,8 +12,18 @@ import {
 const TEST_APPS_DIR = "/tmp/test-apps";
 const testDirNameMap = new Map<string, string>([["my-app", "app-id-1"]]);
 
-let capturedWatchCallback: ((eventType: string, filename: string | null) => void) | null = null;
-const mockWatcher = { close: mock(() => {}) };
+let capturedWatchCallback:
+  | ((eventType: string, filename: string | null) => void)
+  | null = null;
+let capturedErrorHandler: ((err: unknown) => void) | null = null;
+const mockWatcher = {
+  close: mock(() => {}),
+  on: mock((event: string, handler: (err: unknown) => void) => {
+    if (event === "error") {
+      capturedErrorHandler = handler;
+    }
+  }),
+};
 const mockExistsSync = mock((p: string): boolean => p === TEST_APPS_DIR);
 const mockWatch = mock(
   (
@@ -43,7 +46,7 @@ mock.module("node:fs", () => {
   };
 });
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getAppsDir: mock(() => TEST_APPS_DIR),
   resolveAppIdByDirName: mock(
     (dirName: string) => testDirNameMap.get(dirName) ?? null,
@@ -68,7 +71,9 @@ describe("AppSourceWatcher", () => {
     watcher = new AppSourceWatcher();
     onChangeSpy = mock(() => {});
     capturedWatchCallback = null;
+    capturedErrorHandler = null;
     mockWatcher.close.mockClear();
+    mockWatcher.on.mockClear();
     // Reset existsSync to default behavior for each test
     mockExistsSync.mockImplementation((p: string) => p === TEST_APPS_DIR);
   });
@@ -112,6 +117,17 @@ describe("AppSourceWatcher", () => {
   test("records/ files are filtered out", async () => {
     watcher.start(onChangeSpy);
     capturedWatchCallback!("change", "my-app/records/rec-1.json");
+
+    await new Promise((r) => setTimeout(r, 600));
+    expect(onChangeSpy).not.toHaveBeenCalled();
+  });
+
+  test(".git/ files are filtered out (apps-directory git repo churn)", async () => {
+    watcher.start(onChangeSpy);
+    capturedWatchCallback!("change", ".git/objects/ab/cdef");
+    capturedWatchCallback!("change", ".git/index");
+    capturedWatchCallback!("change", ".git/refs/heads/main");
+    capturedWatchCallback!("change", ".git/logs/HEAD");
 
     await new Promise((r) => setTimeout(r, 600));
     expect(onChangeSpy).not.toHaveBeenCalled();
@@ -181,5 +197,22 @@ describe("AppSourceWatcher", () => {
 
     watcher.ensureStarted();
     expect(mockWatch.mock.calls.length).toBe(callCountAfterStart); // no extra watch call
+  });
+
+  /**
+   * REGRESSION: a recursive watch over a large app tree (node_modules) can
+   * exhaust the inotify watch limit and emit ENOSPC asynchronously as an
+   * 'error' event. Without an 'error' listener that rethrows as an
+   * uncaughtException and crashes the daemon. The watcher must swallow it.
+   */
+  test("attaches an 'error' handler that does not rethrow on async ENOSPC", () => {
+    watcher.start(onChangeSpy);
+
+    expect(capturedErrorHandler).not.toBeNull();
+    const enospc = Object.assign(
+      new Error("ENOSPC: no space left on device, watch"),
+      { code: "ENOSPC", errno: -28, syscall: "watch" },
+    );
+    expect(() => capturedErrorHandler!(enospc)).not.toThrow();
   });
 });

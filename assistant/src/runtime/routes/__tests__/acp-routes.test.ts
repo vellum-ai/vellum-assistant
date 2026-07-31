@@ -20,13 +20,6 @@ import { installAcpConfigStub } from "../../../acp/__tests__/helpers/acp-config-
 import { installExecFileStub } from "../../../acp/__tests__/helpers/exec-file-stub.js";
 import { installWhichStub } from "../../../acp/__tests__/helpers/which-stub.js";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 const {
   execScripts,
   execFileMock,
@@ -50,6 +43,14 @@ interface FakeSessionState {
   completedAt?: number;
   error?: string;
   stopReason?: string;
+  latestUsage?: {
+    usedTokens: number;
+    contextSize: number;
+    costAmount?: number;
+    costCurrency?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+  };
 }
 
 let fakeInMemorySessions: FakeSessionState[] = [];
@@ -76,6 +77,7 @@ mock.module("../../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     getStatus: () => fakeInMemorySessions,
     getActiveAndPendingIds: () => fakeInMemorySessions.map((s) => s.id),
+    getBufferedUpdates: () => [],
     spawn: spawnMock,
     steerOrResume: steerOrResumeMock,
   }),
@@ -93,16 +95,18 @@ mock.module("../../../acp/prepare-agent-env.js", () => ({
 // registered confirmation the same way `POST /v1/confirm` would (resolve +
 // directResolve). `approvalBehavior` flips allow/deny; `confirmationRequests`
 // captures the prompts. Other event types are ignored.
-import * as pendingInteractions from "../../../runtime/pending-interactions.js";
+import * as pendingInteractions from "../../pending-interactions.js";
 
 let approvalBehavior: "allow" | "deny" = "allow";
 const confirmationRequests: Array<Record<string, unknown>> = [];
 const broadcasts: Array<Record<string, unknown>> = [];
 
-mock.module("../../../runtime/assistant-event-hub.js", () => ({
+mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: (msg: { type?: string; requestId?: string }) => {
     broadcasts.push(msg as Record<string, unknown>);
-    if (msg?.type !== "confirmation_request") return;
+    if (msg?.type !== "confirmation_request") {
+      return;
+    }
     confirmationRequests.push(msg as Record<string, unknown>);
     const interaction = pendingInteractions.resolve(
       msg.requestId as string,
@@ -126,14 +130,14 @@ import {
   AcpResumeError,
   AcpSessionNotFoundError,
 } from "../../../acp/session-manager.js";
-import { initializeDb } from "../../../memory/db-init.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import { FailedDependencyError, NotFoundError } from "../errors.js";
 
 const { ROUTES } = await import("../acp-routes.js");
 const { _resetAdapterInstallCacheForTests } =
   await import("../../../acp/auto-install.js");
 
-initializeDb();
+await initializeDb();
 
 afterAll(() => {
   which.restore();
@@ -143,7 +147,9 @@ function getSessionsHandler() {
   const route = ROUTES.find(
     (r) => r.endpoint === "acp/sessions" && r.method === "GET",
   );
-  if (!route) throw new Error("acp/sessions GET route not found");
+  if (!route) {
+    throw new Error("acp/sessions GET route not found");
+  }
   return route.handler;
 }
 
@@ -158,6 +164,10 @@ interface ResponseShape {
     completedAt?: number | null;
     stopReason?: string | null;
     error?: string | null;
+    usedTokens?: number;
+    contextSize?: number;
+    inputTokens?: number;
+    outputTokens?: number;
     eventLog?: unknown[];
   }>;
 }
@@ -207,8 +217,8 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
       status: "running",
       startedAt: 1000,
     });
-    // No eventLog on in-memory sessions.
-    expect(body.sessions[0].eventLog).toBeUndefined();
+    // In-memory sessions carry eventLog from the live ring buffer (empty here).
+    expect(body.sessions[0].eventLog).toEqual([]);
   });
 
   test("returns only history rows when no in-memory sessions exist", async () => {
@@ -251,9 +261,62 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     ]);
   });
 
+  test("returns input/output tokens for live and history sessions", async () => {
+    fakeInMemorySessions = [
+      {
+        id: "live-tokens",
+        agentId: "agent-live",
+        acpSessionId: "proto-live",
+        parentConversationId: "conv-live",
+        status: "running",
+        startedAt: 9000,
+        latestUsage: {
+          usedTokens: 1200,
+          contextSize: 200_000,
+          inputTokens: 5000,
+          outputTokens: 800,
+        },
+      },
+    ];
+    insertHistoryRow({
+      id: "hist-tokens",
+      agentId: "agent-hist",
+      acpSessionId: "proto-hist",
+      parentConversationId: "conv-hist",
+      startedAt: 1000,
+      status: "completed",
+      usedTokens: 4200,
+      contextSize: 200_000,
+      inputTokens: 3300,
+      outputTokens: 450,
+    });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({})) as ResponseShape;
+    const live = body.sessions.find((s) => s.id === "live-tokens");
+    const hist = body.sessions.find((s) => s.id === "hist-tokens");
+    expect(live).toMatchObject({ inputTokens: 5000, outputTokens: 800 });
+    expect(hist).toMatchObject({ inputTokens: 3300, outputTokens: 450 });
+  });
+
+  test("omits input/output tokens for history rows without them", async () => {
+    insertHistoryRow({
+      id: "hist-no-tokens",
+      status: "completed",
+      startedAt: 1000,
+    });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({})) as ResponseShape;
+    const s = body.sessions.find((row) => row.id === "hist-no-tokens");
+    expect(s).toBeDefined();
+    expect(s!.inputTokens).toBeUndefined();
+    expect(s!.outputTokens).toBeUndefined();
+  });
+
   test("dedupes by id with in-memory winning on collision", async () => {
-    // Same id in both layers — in-memory entry should win and eventLog
-    // (which only history carries) must be absent on the merged record.
+    // Same id in both layers — in-memory entry should win and its eventLog
+    // comes from the live ring buffer (empty here), not the stale history row.
     fakeInMemorySessions = [
       {
         id: "shared-1",
@@ -282,7 +345,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     expect(body.sessions[0].agentId).toBe("agent-live");
     expect(body.sessions[0].status).toBe("running");
     expect(body.sessions[0].startedAt).toBe(5000);
-    expect(body.sessions[0].eventLog).toBeUndefined();
+    expect(body.sessions[0].eventLog).toEqual([]);
   });
 
   test("merges in-memory and disjoint history rows", async () => {
@@ -456,7 +519,9 @@ function getSpawnHandler() {
   const route = ROUTES.find(
     (r) => r.endpoint === "acp/spawn" && r.method === "POST",
   );
-  if (!route) throw new Error("acp/spawn POST route not found");
+  if (!route) {
+    throw new Error("acp/spawn POST route not found");
+  }
   return route.handler;
 }
 
@@ -475,8 +540,12 @@ describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () 
     // successful global install that links the adapter bin onto PATH.
     let binaryOnPath = false;
     which.setWhich((cmd) => {
-      if (cmd === "bun") return BUN_BIN;
-      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (binaryOnPath) {
+        return `/usr/local/bin/${cmd}`;
+      }
       return null;
     });
     execScripts.set(BUN_ADD_KEY, {
@@ -517,8 +586,12 @@ describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () 
   test("install runs in a temp dir (not the task cwd) with secrets stripped", async () => {
     let binaryOnPath = false;
     which.setWhich((cmd) => {
-      if (cmd === "bun") return BUN_BIN;
-      if (binaryOnPath) return `/usr/local/bin/${cmd}`;
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (binaryOnPath) {
+        return `/usr/local/bin/${cmd}`;
+      }
       return null;
     });
     execScripts.set(BUN_ADD_KEY, {
@@ -601,7 +674,9 @@ function getSteerHandler() {
   const route = ROUTES.find(
     (r) => r.endpoint === "acp/:id/steer" && r.method === "POST",
   );
-  if (!route) throw new Error("acp/:id/steer POST route not found");
+  if (!route) {
+    throw new Error("acp/:id/steer POST route not found");
+  }
   return route.handler;
 }
 

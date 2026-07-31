@@ -11,9 +11,14 @@ import { z } from "zod";
 
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { resolveCapabilities } from "../capabilities.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
-import { resolveSurfaceConversation } from "./surface-conversation-resolver.js";
+import {
+  findPersistedSurfaceState,
+  resolveSurfaceConversation,
+} from "./surface-conversation-resolver.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { resolveVellumActorTrustContext } from "./vellum-actor-trust.js";
 
 const log = getLogger("surface-content-routes");
 
@@ -24,6 +29,7 @@ const log = getLogger("surface-content-routes");
 async function handleGetSurfaceContent({
   pathParams = {},
   queryParams = {},
+  headers = {},
 }: RouteHandlerArgs) {
   const conversationId = queryParams.conversationId;
   if (!conversationId) {
@@ -80,6 +86,58 @@ async function handleGetSurfaceContent({
       surfaceType: turnSurface.surfaceType,
       title: turnSurface.title ?? null,
       data: turnSurface.data,
+    };
+  }
+
+  // Fall back to persisted history. A surface appended out-of-band
+  // (`addMessage` against an already-loaded conversation — the memory
+  // retrospective's skill card) lands in the messages table without
+  // touching the live object's `surfaceState`, which is only rebuilt on
+  // construction. Without this rung the lookup 404s exactly while the
+  // conversation is loaded and works again after eviction. Memoize the hit
+  // so later fetches, action routing, and `findConversationBySurfaceId`
+  // resolve in-memory — the same O(1) registration that helper already
+  // performs; no DB state is written on this GET.
+  // Provenance is scoped to the REQUESTER, not to whatever trust class the
+  // cached conversation happens to be loaded under — a guardian-loaded view
+  // must not leak a guardian-provenance row to a non-guardian actor who
+  // names its surface id. The verified principal type gates the guardian
+  // default: only local/IPC callers are the guardian by construction;
+  // service principals without a forwarded actor id fail closed to the
+  // untrusted filter. Trust is resolved read-only (no reset-drift repair):
+  // safe methods stay side-effect-free, and an unhealed drift just
+  // fail-closes the same way until a mutating route heals it.
+  const actorPrincipalId = headers["x-vellum-actor-principal-id"];
+  const principalType = headers["x-vellum-principal-type"];
+  let requesterCanAccessMemory = false;
+  if (actorPrincipalId || principalType === "local") {
+    const requesterTrust =
+      await resolveVellumActorTrustContext(actorPrincipalId);
+    requesterCanAccessMemory = resolveCapabilities(
+      requesterTrust.trustClass,
+    ).canAccessMemory;
+  }
+  // Serve WITHOUT memoizing. Writing the hit into the shared
+  // `conversation.surfaceState` would let a later request skip this rung's
+  // requester filter via the unscoped fast path above — the exposure the
+  // filter exists to prevent. Re-scanning per fetch keeps the GET fully
+  // side-effect-free; the scan is LIKE-bounded and per-conversation.
+  const persisted = findPersistedSurfaceState(conversationId, surfaceId, {
+    // Share the live window's compaction boundary so the scan can never
+    // resurrect a surface the compacted-away prefix owned.
+    liveHistoryStartRow: conversation.contextCompactedMessageCount,
+    requesterCanAccessMemory,
+  });
+  if (persisted) {
+    log.info(
+      { conversationId, surfaceId },
+      "Surface content served from persisted history",
+    );
+    return {
+      surfaceId,
+      surfaceType: persisted.surfaceType,
+      title: persisted.title ?? null,
+      data: persisted.data,
     };
   }
 

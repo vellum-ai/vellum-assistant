@@ -9,13 +9,12 @@ import { join } from "node:path";
 import {
   getApp,
   getAppDirPath,
-  isMultifileApp,
   resolveEffectiveAppHtml,
-} from "../memory/app-store.js";
+} from "../apps/app-store.js";
 import {
   getActivePublishedPageByAppId,
   updatePublishedPage,
-} from "../memory/published-pages-store.js";
+} from "../apps/published-pages-store.js";
 import { credentialBroker } from "../tools/credentials/broker.js";
 import { getLogger } from "../util/logger.js";
 import { deployHtmlToVercel } from "./vercel-deploy.js";
@@ -28,35 +27,37 @@ export async function updatePublishedAppDeployment(
   try {
     // 1. Check if this app has an active published deployment
     const publishedPage = getActivePublishedPageByAppId(appId);
-    if (!publishedPage) return;
+    if (!publishedPage) {
+      return;
+    }
 
-    // 2. Load the app and resolve its deployable HTML. For multifile apps the
-    // real content lives in dist/index.html (compiled from src/), not in
-    // htmlDefinition (which is "" for them) — using htmlDefinition directly
-    // would deploy a blank page.
+    // 2. Load the app and resolve its deployable HTML: the real content
+    // lives in dist/index.html (compiled from src/), inlined into a
+    // self-contained page.
     const app = getApp(appId);
     if (!app) {
       log.warn({ appId }, "Published app not found");
       return;
     }
 
-    // Skip rather than deploy the compile-failure fallback when a multifile
-    // app has no compiled output (e.g. a concurrent compile failed); a later
+    // Skip rather than deploy the compile-failure fallback when the app has
+    // no compiled output (e.g. a concurrent compile failed); a later
     // successful compile re-triggers this path.
-    if (
-      isMultifileApp(app) &&
-      !existsSync(join(getAppDirPath(app.id), "dist", "index.html"))
-    ) {
+    if (!existsSync(join(getAppDirPath(app.id), "dist", "index.html"))) {
       log.warn({ appId }, "Skipping auto-redeploy: compiled output missing");
       return;
     }
 
     const html = resolveEffectiveAppHtml(app);
-    if (!html) return;
+    if (!html) {
+      return;
+    }
 
     // 3. Hash the current HTML and check if it changed
     const newHash = createHash("sha256").update(html).digest("hex");
-    if (newHash === publishedPage.htmlHash) return; // No change
+    if (newHash === publishedPage.htmlHash) {
+      return;
+    } // No change
 
     // 4. Get Vercel token — don't prompt, just skip if unavailable
     const slug = publishedPage.projectSlug ?? `vellum-app-${appId}`;

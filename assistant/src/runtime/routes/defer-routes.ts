@@ -7,15 +7,20 @@
 
 import { z } from "zod";
 
-import { getConversation } from "../../memory/conversation-crud.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
+import {
+  DEFER_CREATED_BY_VALUES,
+  isDeferSchedule,
+} from "../../schedule/defer-provenance.js";
 import {
   cancelSchedule,
-  createSchedule,
+  createOwnerDeferredWake,
   getSchedule,
   listSchedules,
 } from "../../schedule/schedule-store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Constants ─────────────────────────────────────────────────────────
@@ -29,7 +34,7 @@ const MAX_DEFER_HORIZON_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 function countActiveDefers(conversationId?: string): number {
   const jobs = listSchedules({
     mode: "wake",
-    createdBy: "defer",
+    createdBy: DEFER_CREATED_BY_VALUES,
     conversationId,
   });
   return jobs.filter((j) => j.status === "active" || j.status === "firing")
@@ -63,8 +68,10 @@ const DeferCancelParams = z.object({
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async function handleDeferCreate({ body = {} }: RouteHandlerArgs) {
-  const { conversationId, hint, delaySeconds, fireAt, name } =
-    DeferCreateParams.parse(body);
+  const { conversationId, hint, delaySeconds, fireAt, name } = parseBody(
+    DeferCreateParams,
+    body,
+  );
 
   const conversation = getConversation(conversationId);
   if (!conversation) {
@@ -94,14 +101,11 @@ async function handleDeferCreate({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const job = createSchedule({
-    name: name ?? "Deferred wake",
-    message: hint,
-    mode: "wake",
-    wakeConversationId: conversationId,
-    nextRunAt: resolvedFireAt,
-    quiet: true,
-    createdBy: "defer",
+  const job = await createOwnerDeferredWake({
+    conversationId,
+    hint,
+    fireAt: resolvedFireAt,
+    ...(name !== undefined ? { name } : {}),
   });
 
   return {
@@ -113,11 +117,11 @@ async function handleDeferCreate({ body = {} }: RouteHandlerArgs) {
 }
 
 async function handleDeferList({ body = {} }: RouteHandlerArgs) {
-  const { conversationId } = DeferListParams.parse(body);
+  const { conversationId } = parseBody(DeferListParams, body);
 
   const jobs = listSchedules({
     mode: "wake",
-    createdBy: "defer",
+    createdBy: DEFER_CREATED_BY_VALUES,
     conversationId,
   });
 
@@ -138,28 +142,30 @@ async function handleDeferList({ body = {} }: RouteHandlerArgs) {
 }
 
 async function handleDeferCancel({ body = {} }: RouteHandlerArgs) {
-  const { id, all, conversationId } = DeferCancelParams.parse(body);
+  const { id, all, conversationId } = parseBody(DeferCancelParams, body);
 
   if (id) {
     const job = getSchedule(id);
-    if (!job || job.mode !== "wake" || job.createdBy !== "defer") {
+    if (!job || job.mode !== "wake" || !isDeferSchedule(job.createdBy)) {
       return { cancelled: 0, error: "Not a deferred wake" };
     }
-    const ok = cancelSchedule(id);
+    const ok = await cancelSchedule(id);
     return { cancelled: ok ? 1 : 0 };
   }
 
   if (all) {
     const jobs = listSchedules({
       mode: "wake",
-      createdBy: "defer",
+      createdBy: DEFER_CREATED_BY_VALUES,
       conversationId,
     });
 
     let count = 0;
     for (const j of jobs) {
       if (j.status === "active" || j.status === "firing") {
-        if (cancelSchedule(j.id)) count++;
+        if (await cancelSchedule(j.id)) {
+          count++;
+        }
       }
     }
     return { cancelled: count };

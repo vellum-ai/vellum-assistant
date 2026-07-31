@@ -1,0 +1,77 @@
+import { useAuthStore } from "@/stores/auth-store";
+import { isSessionSettled, isAuthenticated } from "@/stores/session-status";
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
+import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
+import {
+  isLocalClient,
+  isPlatformDisabled,
+  isRemoteGatewayMode,
+} from "@/lib/local-mode";
+import {
+  readTosAccepted,
+  readPrivacyConsent,
+  readAnalyticsConsentCurrent,
+  readDiagnosticsConsentCurrent,
+  readConsentHydrated,
+} from "@/domains/onboarding/prefs";
+import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
+import {
+  assistantsValidForOrg,
+  useResolvedAssistantsStore,
+  type ResolvedAssistant,
+} from "@/stores/resolved-assistants-store";
+import type { NavigationState } from "./navigation-resolver";
+
+/**
+ * Whether the active organization has a platform-hosted assistant — the only
+ * kind a managed plan can apply to.
+ *
+ * The org narrows the list only once it resolves. Before that every resolved
+ * assistant counts: narrowing against an unresolved org would read an
+ * established user's own managed assistant as absent (lockfile entries carry
+ * an `organizationId`, and `assistantsValidForOrg` drops those that name a
+ * different one).
+ */
+function hasPlatformHostedAssistant(assistants: ResolvedAssistant[]): boolean {
+  const activeOrganizationId = getActiveOrganizationIdForRequests();
+  const scoped =
+    activeOrganizationId == null
+      ? assistants
+      : assistantsValidForOrg(assistants, activeOrganizationId);
+  return scoped.some((assistant) => assistant.isPlatformHosted);
+}
+
+export function buildNavigationState(
+  overrides?: Partial<NavigationState>,
+): NavigationState {
+  const { sessionStatus, platformSession } = useAuthStore.getState();
+  const { assistants, assistantsHydrated } =
+    useResolvedAssistantsStore.getState();
+  const isRemoteGateway = isRemoteGatewayMode();
+  return {
+    isLocalClient: isLocalClient(),
+    isPlatformDisabled: isPlatformDisabled(),
+    isRemoteGateway,
+    remoteGatewayPublicPathPrefix: isRemoteGateway
+      ? remoteGatewayPublicPathPrefix()
+      : "",
+    isGatewayAuth: isGatewayAuthMode(),
+    hasAssistants: assistants.length > 0,
+    hasPlatformHostedAssistant: hasPlatformHostedAssistant(assistants),
+    sessionSettled: isSessionSettled(sessionStatus),
+    // `isAuthenticated` mirrors `sessionStatus`. The local gateway is the sole
+    // session authority (#35152), so a reachable local user is already
+    // `"authenticated"` — a platform `getSession()` 401 drops only
+    // `platformSession`, never `sessionStatus` (see `probePlatformSession`).
+    // Reading the one source keeps this from drifting from `useIsAuthenticated()`.
+    isAuthenticated: isAuthenticated(sessionStatus),
+    platformSession,
+    tosAccepted: readTosAccepted(),
+    privacyConsent: readPrivacyConsent(),
+    analyticsConsentCurrent: readAnalyticsConsentCurrent(),
+    diagnosticsConsentCurrent: readDiagnosticsConsentCurrent(),
+    consentHydrated: readConsentHydrated(),
+    assistantsHydrated,
+    ...overrides,
+  };
+}

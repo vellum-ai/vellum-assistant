@@ -16,10 +16,12 @@
  *    at least one prior assistant turn this run, and no earlier turn this run
  *    already delivered visible text. The hook re-queries the model with
  *    `NUDGE_TEXT` (a tool trail exists to summarize, so a retry can recover a
- *    real answer). The retry is bounded to one pass per run by a one-shot
- *    per-conversation mark this hook sets; the sibling `stop` hook (see
- *    `./stop.ts`) clears it when the turn terminates, so the next run nudges
- *    afresh.
+ *    real answer). Main-agent turns only: background, subagent, and compaction
+ *    calls have no user awaiting a summary, so per the post-model-call contract
+ *    the nudge self-gates on {@link PostModelCallContext.callSite}. The retry is
+ *    bounded to one pass per run by a one-shot per-conversation mark this hook
+ *    sets; the sibling `stop` hook (see `./stop.ts`) clears it when the turn
+ *    terminates, so the next run nudges afresh.
  *
  * Every other case leaves the decision at `"stop"` (the model said its piece,
  * or there is nothing to act on).
@@ -44,13 +46,26 @@
  * ignores the decision — so the hook returns early for both.
  */
 
-import type { PluginHookFn, PostModelCallContext } from "@vellumai/plugin-api";
+import {
+  type ContentBlock,
+  type HookFunction,
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
+  isToolResultMessage,
+  type Message,
+  type PostModelCallContext,
+  REFUSAL_FALLBACK_TEXT,
+} from "@vellumai/plugin-api";
 
-import type { ContentBlock, Message } from "../../../../providers/types.js";
 import {
   isEmptyResponseNudged,
   markEmptyResponseNudged,
 } from "../nudge-state-store.js";
+
+// Re-exported so existing importers (tests, sibling hooks) keep resolving
+// REFUSAL_FALLBACK_TEXT from this module; the definition lives in the host's
+// `context/refusal-quarantine.ts` alongside its detector (single source of
+// truth).
+export { REFUSAL_FALLBACK_TEXT };
 
 /**
  * Canonical nudge text for an empty turn after tool use. Must stay verbatim so
@@ -60,16 +75,9 @@ import {
  * model behavior but not end-user UX directly.
  */
 export const NUDGE_TEXT =
-  "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>";
-
-/**
- * User-facing text a refusal turn is rewritten into. Used when the provider
- * stops with `"refusal"` and no visible text — i.e. the safety classifier
- * zeroed the response. Unlike `NUDGE_TEXT` (shown only to the model), this is
- * the message the user actually reads in place of an empty assistant bubble.
- */
-export const REFUSAL_FALLBACK_TEXT =
-  "Sorry — I wasn't able to generate a response to that. Please try rephrasing or asking in a different way.";
+  "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text." +
+  INTERNAL_NUDGE_OUTPUT_SUPPRESSION +
+  "</system_notice>";
 
 function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
@@ -83,15 +91,6 @@ function hasToolUse(content: ReadonlyArray<ContentBlock>): boolean {
 
 function isAssistantTurn(message: Message): boolean {
   return message.role === "assistant";
-}
-
-/** A user-role message carrying only tool results, not a fresh prompt. */
-function isToolResultMessage(message: Message): boolean {
-  return (
-    message.role === "user" &&
-    message.content.length > 0 &&
-    message.content.every((block) => block.type === "tool_result")
-  );
 }
 
 /**
@@ -110,14 +109,18 @@ function currentCycleMessages(
   return messages;
 }
 
-const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
+const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   // A provider rejection carries no turn content to assess (a recovery hook
   // owns the rejection); the sibling `stop` hook clears the mark when the turn
   // terminates.
-  if (ctx.error) return;
+  if (ctx.error) {
+    return;
+  }
   // A tool-bearing turn continues mid-run — the loop runs the tools — so leave
   // the mark intact to keep the one-nudge-per-run bound across tool iterations.
-  if (hasToolUse(ctx.content)) return;
+  if (hasToolUse(ctx.content)) {
+    return;
+  }
 
   const turnHasVisibleText = hasVisibleText(ctx.content);
 
@@ -146,6 +149,15 @@ const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
     !priorAssistantHadVisibleText;
 
   if (isEmptyTurnAfterTools) {
+    // Only the user-facing reply gets the re-query nudge. Background, subagent,
+    // and compaction calls have no user awaiting a summary, and the
+    // post-model-call contract requires self-gating on call site to avoid
+    // re-querying them. The refusal-rewrite above is a user-facing terminal
+    // fallback, not a re-query, so it stays ungated.
+    if (ctx.callSite !== "mainAgent") {
+      return;
+    }
+
     // Re-query once to recover a real answer. The one-shot per-conversation
     // mark makes the hook self-limiting: a second empty turn this run finds the
     // mark already set and lets the turn end rather than nudging again.

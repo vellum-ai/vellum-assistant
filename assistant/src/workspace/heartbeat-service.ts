@@ -97,7 +97,9 @@ export class WorkspaceHeartbeatService {
    * Idempotent -- calling start() when already running is a no-op.
    */
   start(): void {
-    if (this.timer) return;
+    if (this.timer) {
+      return;
+    }
     log.info(
       {
         intervalMs: this.intervalMs,
@@ -372,6 +374,35 @@ export class WorkspaceHeartbeatService {
 
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Singleton
+// ---------------------------------------------------------------------------
+
+let instance: WorkspaceHeartbeatService | null = null;
+
+/** Construct and start the workspace heartbeat service singleton. */
+export function startWorkspaceHeartbeatService(): void {
+  instance = new WorkspaceHeartbeatService();
+  instance.start();
+}
+
+/**
+ * Stop the workspace heartbeat service singleton if one is running. The instance
+ * is retained so a final commitAllPendingWorkspaceChanges() during shutdown can
+ * still flush after the periodic loop has stopped.
+ */
+export async function stopWorkspaceHeartbeatService(): Promise<void> {
+  await instance?.stop();
+}
+
+/**
+ * Commit any uncommitted workspace changes via the singleton; no-op when the
+ * service was never started.
+ */
+export async function commitAllPendingWorkspaceChanges(): Promise<void> {
+  await instance?.commitAllPending();
 }
 
 /**

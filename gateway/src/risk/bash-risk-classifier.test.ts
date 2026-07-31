@@ -963,6 +963,14 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("low");
   });
 
+  test("assistant memory ingest → medium", async () => {
+    const result = await classifier.classify({
+      command: "assistant memory ingest --dir staging/",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
   test("assistant conversations clear → medium", async () => {
     const result = await classifier.classify({
       command: "assistant conversations clear --confirm",
@@ -1019,6 +1027,22 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("low");
   });
 
+  test("assistant platform invoices list → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant platform invoices list",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("assistant platform invoices get <id> → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant platform invoices get inv_123",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
   test("assistant schedules list → low", async () => {
     const result = await classifier.classify({
       command: "assistant schedules list",
@@ -1030,6 +1054,14 @@ describe("assistant subcommand classification", () => {
   test("assistant schedules runs → low", async () => {
     const result = await classifier.classify({
       command: "assistant schedules runs schedule-1",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("assistant schedules inspect → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant schedules inspect schedule-1",
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("low");
@@ -1062,6 +1094,15 @@ describe("assistant subcommand classification", () => {
   test("assistant schedules execute → high (script-mode schedules shell out via sh -c)", async () => {
     const result = await classifier.classify({
       command: "assistant schedules execute schedule-1",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("assistant schedules create --mode script → high (persists a shell payload)", async () => {
+    const result = await classifier.classify({
+      command:
+        "assistant schedules create Watcher --mode script --script 'bun poll.ts' --expression '*/15 * * * *' --description watch",
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("high");

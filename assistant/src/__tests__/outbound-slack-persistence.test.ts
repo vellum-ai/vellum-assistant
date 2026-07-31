@@ -15,43 +15,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Shared mock plumbing (must precede module-under-test imports) ──────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-type TestConfig = {
-  ui: { userTimezone?: string; detectedTimezone?: string };
-  skills: Record<string, unknown>;
-};
-
-const baseConfig: TestConfig = {
-  ui: {},
-  skills: {
-    entries: {},
-    load: { extraDirs: [], watch: true, watchDebounceMs: 250 },
-    install: { nodeManager: "npm" },
-    allowBundled: null,
-    remoteProviders: {
-      skillssh: { enabled: true },
-      clawhub: { enabled: true },
-    },
-    remotePolicy: {
-      blockSuspicious: true,
-      blockMalware: true,
-      maxSkillsShRisk: "medium",
-    },
-  },
-};
-let currentConfig: TestConfig = structuredClone(baseConfig);
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => currentConfig,
-  loadConfig: () => ({}),
-}));
-
 // `addMessage` is the only DB-touching call we need to inspect. We capture
 // its arguments per test invocation so each case can assert on the metadata
 // that was actually persisted.
@@ -71,7 +34,9 @@ const persistedRows: Array<{
   createdAt: number;
   metadata: string | null;
 }> = [];
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -101,7 +66,9 @@ mock.module("../memory/conversation-crud.js", () => ({
     updates: Record<string, unknown>,
   ) => {
     const row = persistedRows.find((candidate) => candidate.id === messageId);
-    if (!row) return;
+    if (!row) {
+      return;
+    }
     const existing =
       row.metadata && typeof row.metadata === "string"
         ? (JSON.parse(row.metadata) as Record<string, unknown>)
@@ -113,9 +80,26 @@ mock.module("../memory/conversation-crud.js", () => ({
     // `lastAssistantPersisted()` assertions continue to find the row that
     // was reserved at `llm_call_started` time.
     const row = persistedRows.find((candidate) => candidate.id === messageId);
-    if (row) row.content = content;
+    if (row) {
+      row.content = content;
+    }
     const call = addMessageCalls.find((c) => c.id === messageId);
-    if (call) call.content = content;
+    if (call) {
+      call.content = content;
+    }
+  },
+  markMessageContentInflight: () => {},
+  finalizeMessageContent: (messageId: string, content: string) => {
+    // The finalize seam writes through `finalizeMessageContent`; mirror it
+    // into the same captures as `updateMessageContent`.
+    const row = persistedRows.find((candidate) => candidate.id === messageId);
+    if (row) {
+      row.content = content;
+    }
+    const call = addMessageCalls.find((c) => c.id === messageId);
+    if (call) {
+      call.content = content;
+    }
   },
   // The handler treats provenance as a flat spread; returning {} keeps the
   // metadata snapshot focused on the fields under test.
@@ -151,16 +135,16 @@ mock.module("../memory/conversation-crud.js", () => ({
   ),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
 
-mock.module("../memory/memory-recall-log-store.js", () => ({
+mock.module("../plugins/defaults/memory/memory-recall-log-store.js", () => ({
   backfillMemoryRecallLogMessageId: () => {},
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 
@@ -172,13 +156,14 @@ mock.module("../runtime/gateway-client.js", () => ({
   }),
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: () => [],
 }));
 
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 import type { AgentEvent } from "../agent/loop.js";
+import type { AssistantEvent } from "../api/index.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -188,10 +173,9 @@ import {
   handleLlmCallStarted,
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import { clearThreadTs, setThreadTs } from "../memory/slack-thread-store.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { deliverReplyViaCallback } from "../runtime/channel-reply-delivery.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -202,6 +186,7 @@ function makeDeps(
     requesterChatId?: string;
     requesterTimezoneLabel?: string;
     clientTimezone?: string;
+    sourceThreadId?: string;
   } = {},
 ): EventHandlerDeps {
   const assistantMessageChannel = overrides.assistantMessageChannel ?? "slack";
@@ -209,17 +194,17 @@ function makeDeps(
     ctx: {
       conversationId,
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       currentTurnSurfaces: [],
       trustContext: {
         sourceChannel: assistantMessageChannel,
         trustClass: "guardian",
         requesterChatId: overrides.requesterChatId,
         requesterTimezoneLabel: overrides.requesterTimezoneLabel,
+        sourceThreadId: overrides.sourceThreadId,
       },
       clientTimezone: overrides.clientTimezone,
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (_msg: ServerMessage) => {},
+    onEvent: (_msg: AssistantEvent) => {},
     reqId: "test-req-id",
     isFirstMessage: false,
     shouldGenerateTitle: false,
@@ -258,7 +243,9 @@ function makeMessageCompleteEvent(
 /** Find the most recently persisted assistant-role message in the capture log. */
 function lastAssistantPersisted(): AddMessageCall {
   for (let i = addMessageCalls.length - 1; i >= 0; i--) {
-    if (addMessageCalls[i].role === "assistant") return addMessageCalls[i];
+    if (addMessageCalls[i].role === "assistant") {
+      return addMessageCalls[i];
+    }
   }
   throw new Error("No assistant message was persisted via addMessage");
 }
@@ -271,7 +258,7 @@ describe("outbound assistant Slack metadata persistence", () => {
   beforeEach(() => {
     addMessageCalls.length = 0;
     persistedRows.length = 0;
-    currentConfig = structuredClone(baseConfig);
+    setConfig("ui", {});
     nextDeliveryTs = null;
     state = createEventHandlerState();
     state.turnStartedAt = 1_700_000_000_000;
@@ -283,16 +270,17 @@ describe("outbound assistant Slack metadata persistence", () => {
     nextDeliveryTs = null;
   });
 
-  test("stamps slackMeta with threadTs when the conversation has a Slack thread mapping", async () => {
+  test("stamps slackMeta with threadTs from the turn's inbound thread id", async () => {
     const conversationId = "conv-slack-threaded";
     const channelId = "C123CHANNEL";
-    // Seed an in-memory Slack thread mapping (mirrors the inbound path that
-    // calls setThreadTs when a thread_ts arrives).
-    setThreadTs(conversationId, channelId, "1234.5678");
 
+    // The turn arrived in a thread — its inbound thread ts is captured on the
+    // trust context (`sourceThreadId`) at ingress, and the reply is stamped
+    // from that turn-local value.
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
       requesterChatId: channelId,
+      sourceThreadId: "1234.5678",
     });
     await handleLlmCallStarted(state, deps);
     await handleMessageComplete(state, deps, makeMessageCompleteEvent("hi"));
@@ -322,10 +310,7 @@ describe("outbound assistant Slack metadata persistence", () => {
   });
 
   test("stamps assistant Slack rows with effective timestamp timezone and no speaker suffix", async () => {
-    currentConfig = {
-      ...structuredClone(baseConfig),
-      ui: { userTimezone: "America/Denver" },
-    };
+    setConfig("ui", { userTimezone: "America/Denver" });
     state.turnStartedAt = Date.parse("2026-03-05T03:38:00Z");
     const conversationId = "conv-slack-timezone";
     const channelId = "C999TIMEZONE";
@@ -381,10 +366,7 @@ describe("outbound assistant Slack metadata persistence", () => {
   });
 
   test("post-send reconciliation preserves assistant Slack timezone metadata", async () => {
-    currentConfig = {
-      ...structuredClone(baseConfig),
-      ui: { userTimezone: "America/Denver" },
-    };
+    setConfig("ui", { userTimezone: "America/Denver" });
     const conversationId = "conv-slack-reconcile-timezone";
     const channelId = "C999RECONCILE";
 
@@ -430,8 +412,8 @@ describe("outbound assistant Slack metadata persistence", () => {
   test("stamps slackMeta WITHOUT threadTs for top-level Slack replies", async () => {
     const conversationId = "conv-slack-toplevel";
     const channelId = "C456NOTHREAD";
-    // No setThreadTs() call — the conversation has no thread mapping, so
-    // the assistant's reply targets the channel root, not a thread.
+    // The turn arrived at the channel root — no `sourceThreadId` on the trust
+    // context, so the reply targets the channel root, not a thread.
 
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
@@ -457,17 +439,14 @@ describe("outbound assistant Slack metadata persistence", () => {
     expect(slackMeta.channelTs).toBeUndefined();
   });
 
-  test("does NOT stamp a stale threadTs after the mapping is cleared", async () => {
-    const conversationId = "conv-slack-cleared";
-    const channelId = "C789CLEARED";
-    // Simulate an earlier threaded turn that seeded the mapping, followed
-    // by a channel-root turn whose inbound path cleared it.
-    setThreadTs(conversationId, channelId, "1111.2222");
-    clearThreadTs(conversationId);
-
+  test("ignores a non-ts sourceThreadId", async () => {
+    const conversationId = "conv-slack-bad-thread";
+    const channelId = "C789BAD";
+    // A malformed thread id must not be stamped as a threadTs (isSlackTs guard).
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "slack",
       requesterChatId: channelId,
+      sourceThreadId: "not-a-ts",
     });
     await handleLlmCallStarted(state, deps);
     await handleMessageComplete(

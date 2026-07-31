@@ -35,14 +35,132 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("text-body-medium-default");
   });
 
-  test("tables render with the body-small typography token", () => {
+  test("blockquotes render as universal inset quote blocks", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "> This is quoted.\n\nReply text.",
+      }),
+    );
+
+    expect(html).toContain("rounded-md");
+    expect(html).toContain("bg-[var(--surface-sunken)]");
+    expect(html).toContain("mx-0");
+    expect(html).toContain("flex");
+    expect(html).toContain("gap-3");
+    // The accent bar stretches with the quote so multi-line quotes get a
+    // full-height rule, not a fixed-height pill floating mid-quote.
+    expect(html).toContain("self-stretch");
+    expect(html).not.toContain("h-5");
+    expect(html).toContain("w-0.5");
+    expect(html).toContain("rounded-full");
+    expect(html).toContain("min-w-0");
+    expect(html).toContain("flex-1");
+    expect(html).toContain("text-[var(--content-secondary)]");
+    expect(html).not.toContain("text-stone-600");
+    expect(html).not.toContain("italic");
+  });
+
+  test("ordered list beginning at a non-1 number preserves its start", () => {
+    // A terse "3." answer is parsed as a one-item ordered list starting at 3.
+    // Without forwarding `start`, the <ol> defaults to 1 and renders "1.".
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "3." }),
+    );
+
+    expect(html).toContain('<ol start="3"');
+  });
+
+  test("ordered list starting at 1 omits a redundant start attribute", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "1. first\n2. second" }),
+    );
+
+    expect(html).toContain("<ol");
+    expect(html).not.toContain("start=");
+    // A contiguous list matches the auto-increment, so no item is pinned.
+    expect(html).not.toContain("value=");
+  });
+
+  test("ordered list with a skipped number renders the typed ordinals", () => {
+    // Replying to points 1, 2, 4, 5 (deliberately skipping 3) must not silently
+    // renumber to 1, 2, 3, 4. CommonMark drops the markers, so item 4 is pinned
+    // with <li value="4">; item 5 then follows naturally and needs no pin.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "1. a\n2. b\n4. c\n5. d",
+      }),
+    );
+
+    expect(html).toContain('<li value="4"');
+    expect(html).not.toContain('value="3"');
+  });
+
+  test("ordered list that restarts mid-stream pins the lower number", () => {
+    // 1, 2, then a fresh 1 — the restart drops below the running count, so the
+    // third item is pinned back to <li value="1">.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "1. a\n2. b\n1. c",
+      }),
+    );
+
+    expect(html).toContain('<li value="1"');
+  });
+
+  test("tables render with the small prose typography token", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
         content: "| a | b |\n| - | - |\n| 1 | 2 |",
       }),
     );
 
-    expect(html).toContain("text-body-small-default");
+    // The prose token (real leading), not the single-line label token —
+    // cell content wraps, and the label token's line-height:1 collapses
+    // wrapped lines onto each other.
+    expect(html).toContain("text-body-small-lighter");
+    expect(html).not.toContain("text-body-small-default");
+  });
+
+  test("inline code in table cells wraps with preserved spacing and breathing room", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content:
+          "| Function | Usage |\n| --- | --- |\n| `useState` | `const [s, setS] = useState(v)` |",
+      }),
+    );
+
+    // Both <td> and <th> let inline code wrap while preserving its spacing.
+    const tdMatches = html.match(/<td\b[^>]*class="([^"]*)"/g) ?? [];
+    const thMatches = html.match(/<th\b[^>]*class="([^"]*)"/g) ?? [];
+    for (const match of [...tdMatches, ...thMatches]) {
+      expect(match).toContain("whitespace-pre-wrap");
+    }
+    // Code elements inside cells are still inline code (not block), and carry
+    // the small prose token so the padded chip background stays inside its
+    // own line box once it wraps in a cell.
+    const cellCodeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+    expect(cellCodeTag).toContain("text-body-small-lighter");
+  });
+
+  test("inline code and blockquotes use the small prose token so chips never overlap prose", () => {
+    // The body-small *label* token bakes line-height:1 into its utility. A
+    // quote's wrapped prose would get 12px line boxes while a padded
+    // inline-code chip paints ~18px tall — chips from one line would cover
+    // the lines above and below. Both the quote block and the chip must use
+    // the small *prose* token (real leading) instead.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "> Set `backup.enabled` to `false` in the config file.",
+      }),
+    );
+
+    const blockquoteTag = html.match(/<blockquote[^>]*>/)?.[0] ?? "";
+    expect(blockquoteTag).toContain("text-body-small-lighter");
+    expect(blockquoteTag).not.toContain("text-body-small-default");
+
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+    expect(codeTag).toContain("text-body-small-lighter");
+    expect(codeTag).not.toContain("text-body-small-default");
   });
 
   test("forwards a supplied className onto the wrapper", () => {
@@ -107,6 +225,34 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("const a = 1\nconst b = 2");
     expect(html).not.toContain("const a = 1  \n");
     expect(html.match(/<code[\s\S]*?<\/code>/)?.[0]).not.toContain("<br");
+  });
+
+  test("fenced code renders a single scroll container — pre scrolls, code does not", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "```sql\nSELECT 1;\n```",
+      }),
+    );
+
+    const preTag = html.match(/<pre[^>]*>/)?.[0] ?? "";
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+
+    expect(preTag).toContain("overflow-auto");
+    expect(preTag).toContain("max-height:400px");
+    expect(codeTag).toContain("w-max");
+    expect(codeTag).toContain("min-w-full");
+    expect(codeTag).not.toContain("overflow-");
+  });
+
+  test("inline code renders a chip with no scroll container", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "an `x` value" }),
+    );
+
+    const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
+
+    expect(codeTag).toContain("rounded bg-stone-100 px-1 py-0.5");
+    expect(codeTag).not.toContain("overflow-");
   });
 
   test("hardLineBreaks does not break table parsing", () => {
@@ -195,6 +341,34 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("$500K+");
   });
 
+  test("bare amounts with a trailing + are not mangled into math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content:
+          'the $50+ "always-present" tier funds the *launch* year — the tier at $10-15 is the *destination*.',
+      }),
+    );
+
+    // "$50+" must not open a math span that closes on the escaped "$10-15",
+    // which would leak the escape backslash and swallow the emphasis.
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$50+");
+    expect(html).toContain("$10-15");
+    expect(html).toMatch(/<em[^>]*>launch<\/em>/);
+    expect(html).toMatch(/<em[^>]*>destination<\/em>/);
+    expect(html).not.toContain("\\$");
+  });
+
+  test("bare arithmetic with a + still renders as math", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "The sum $1+1$ is math.",
+      }),
+    );
+
+    expect(html).toContain("katex");
+  });
+
   test("legitimate inline math still renders via KaTeX", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
@@ -267,8 +441,18 @@ describe("MarkdownMessage", () => {
   });
 
   test("custom linkComponent replaces the default link renderer", () => {
-    function CustomLink({ href, children }: { href?: string; children?: React.ReactNode }) {
-      return <a href={href} data-custom="true">{children}</a>;
+    function CustomLink({
+      href,
+      children,
+    }: {
+      href?: string;
+      children?: React.ReactNode;
+    }) {
+      return (
+        <a href={href} data-custom="true">
+          {children}
+        </a>
+      );
     }
 
     const html = renderToStaticMarkup(
@@ -280,5 +464,49 @@ describe("MarkdownMessage", () => {
 
     expect(html).toContain('data-custom="true"');
     expect(html).not.toContain('rel="noopener noreferrer"');
+  });
+
+  test("emoji inside markdown italic renders upright, not skewed", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*🥺*" }),
+    );
+
+    // The emoji is wrapped in a font-style:normal span inside the <em>, so the
+    // browser's synthetic italic skew never reaches the emoji glyph.
+    const em = html.match(/<em>[\s\S]*?<\/em>/)?.[0] ?? "";
+    expect(em).toContain("🥺");
+    expect(em).toContain("font-style:normal");
+  });
+
+  test("plain text emphasis is left byte-identical (no upright span)", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*please*" }),
+    );
+
+    expect(html).toContain("<em>please</em>");
+    expect(html).not.toContain("font-style:normal");
+  });
+
+  test("mixed emphasis keeps words italic and only the emoji upright", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*so cute 🥺 really*" }),
+    );
+
+    const em = html.match(/<em>[\s\S]*?<\/em>/)?.[0] ?? "";
+    // Words stay as plain italic text; only the emoji grapheme gets wrapped.
+    expect(em).toContain("so cute ");
+    expect(em).toContain(" really");
+    expect(em).toContain('<span style="font-style:normal">🥺</span>');
+  });
+
+  test("VS15 text-presentation sequence stays italic", () => {
+    // U+231A WATCH + U+FE0E (VS15) explicitly requests text presentation, so it
+    // must keep italic obliqueness — mirrors the macOS rendersAsEmoji rule.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*⌚︎*" }),
+    );
+
+    expect(html).toContain("<em>");
+    expect(html).not.toContain("font-style:normal");
   });
 });

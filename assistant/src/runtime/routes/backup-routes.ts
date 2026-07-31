@@ -43,7 +43,7 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import type { BackupConfig, BackupDestination } from "../../config/schema.js";
-import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
+import { getMemoryCheckpoint } from "../../persistence/checkpoints.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -69,7 +69,9 @@ async function safeRealpath(path: string): Promise<string | null> {
 }
 
 function isInside(candidate: string, root: string): boolean {
-  if (candidate === root) return true;
+  if (candidate === root) {
+    return true;
+  }
   return candidate.startsWith(root + sep);
 }
 
@@ -104,7 +106,9 @@ async function validateSnapshotPath(rawPath: unknown): Promise<string> {
   const allowedRoots = computeAllowedRoots();
   for (const root of allowedRoots) {
     const realRoot = await safeRealpath(root);
-    if (realRoot == null) continue;
+    if (realRoot == null) {
+      continue;
+    }
     if (isInside(realCandidate, realRoot)) {
       return realCandidate;
     }

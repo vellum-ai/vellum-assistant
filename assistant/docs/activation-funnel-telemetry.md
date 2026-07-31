@@ -1,6 +1,6 @@
 # Activation Funnel Telemetry — Runbook + Analytics Handoff
 
-> **Linear:** JARVIS-1102 (event emission) — gates JARVIS-1092 (10% rollout) and JARVIS-1093 (dashboard).
+> **Linear:** event emission ticket — gates rollout and dashboard tickets.
 > **Funnel version:** `activation_v1_2026_06`
 > **LD flag:** `experiment-activation-flow-2026-06-03`
 > **Cohort arm tag:** `ab_variant = "variant-a"` (treatment); `control` = the no-rail arm.
@@ -29,12 +29,18 @@ and a custom daemon turn-counting hook are not needed.
 
 Flow, end to end:
 
-1. **Daemon records** an activation event into the SQLite `onboarding_events`
-   table via `recordActivationEvent()` in
-   `assistant/src/memory/onboarding-events-store.ts`:
+1. **Daemon records** an activation event into the SQLite `telemetry_events`
+   outbox — the row stores the record-time wire payload, including the
+   deterministic activation `daemon_event_id` (§3) — via
+   `recordActivationEvent()` in
+   `assistant/src/onboarding/onboarding-events-store.ts`:
    - emission is **deterministic, tied to a `ui_show` surface** — there is no
      model-facing tool. The model tags the surface it is already rendering for a
-     rail move with an optional `activation_moment` parameter on `ui_show`; the
+     rail move with an optional `activation_moment` parameter on `ui_show` (the
+     param is present in ui_show's schema only for activation-rail
+     conversations — `injectActivationMomentParam` in
+     `tools/ui-surface/channel-variants.ts`, applied at tool resolution when
+     `isActivationSession` is true); the
      daemon captures that tag on the surface's server-side state and records the
      milestone (gated on `isActivationSession`). **Timing is per-moment**
      (`ACTIVATION_MOMENT_EMIT_AT` in `activation-funnel.ts`): most moments record
@@ -50,13 +56,15 @@ Flow, end to end:
      `assistant/src/telemetry/activation-funnel.ts`;
    - emission is best-effort (wrapped in try/catch) and never blocks or alters
      the surface-action flow;
-   - `recordActivationEvent` respects the `getConfig().collectUsageData` opt-out
-     gate (returns `null` / no row when disabled).
+   - `recordActivationEvent` respects the platform `share_analytics` consent gate
+     via `getRawShareAnalytics()`: only a confirmed opt-out (`false`) drops the
+     event; an `"unknown"` state (cold cache, no platform session) records and
+     lets the flush/ingest gates enforce consent before anything ships.
 2. **Reporter flushes** every ~5 min: `usage-telemetry-reporter.ts`
    (`REPORT_INTERVAL_MS = 5 * 60 * 1000`, with a one-time
-   `INITIAL_FLUSH_DELAY_MS = 30_000` after startup) POSTs unreported onboarding
-   rows to `/v1/telemetry/ingest/` as `type: "onboarding"` events, mapping the
-   funnel columns onto the wire shape.
+   `INITIAL_FLUSH_DELAY_MS = 30_000` after startup) POSTs queued onboarding
+   rows to `/v1/telemetry/ingest/` as `type: "onboarding"` events — the stored
+   record-time payloads as-is — and deletes the rows after a successful upload.
 3. **Platform ingests** the onboarding events and writes GCS NDJSON.
 4. **BigQuery** exposes them via the external table
    `vellum-ai-prod.telemetry.onboarding_raw`, which already carries the
@@ -92,9 +100,9 @@ All five steps are recorded deterministically on surface commit. The north star
 (≥5 user messages) is derived downstream from the existing `turn` telemetry, not
 a materialized activation event (see §1).
 
-On the wire, each onboarding event also sets `screen = step_name` (to satisfy the
-SQLite `screen TEXT NOT NULL` column and the platform's legacy-path validation),
-and `completed_at` is the ISO-8601 record time.
+On the wire, each onboarding event also sets `screen = step_name` (to satisfy
+the platform's legacy-path validation), and `completed_at` is the ISO-8601
+record time.
 
 ---
 
@@ -107,21 +115,21 @@ daemon_event_id = `${funnel_version}:${session_id}:${step_name}`
 ```
 
 Built by `buildActivationDaemonEventId()` in
-`assistant/src/telemetry/activation-funnel.ts`. The reporter overrides
-`daemon_event_id` for activation rows (where `session_id && step_name &&
-funnel_version` are all present) and keys it on the **row's stored
-`funnel_version`**, NOT the running binary's current constant. This keeps the id
-stable across a version bump so rows queued offline / flushed after an upgrade
-still collapse with already-ingested rows from the same session.
+`assistant/src/telemetry/activation-funnel.ts`. The store freezes the id into
+the outbox payload **at record time**, keyed on the **funnel version the row was
+recorded under**, NOT whatever constant the binary that later flushes it carries.
+This keeps the id stable across a version bump so rows queued offline / flushed
+after an upgrade still collapse with already-ingested rows from the same session.
 
 A moment that fires more than once (e.g. a model double-emit) therefore lands
 with the same `daemon_event_id` and is collapsed downstream by the existing dbt
 earliest-wins dedup on `daemon_event_id`. For boolean "moment complete"
 semantics, earliest-wins is correct.
 
-**Checkpoint safety:** the SQLite watermark cursor in the reporter advances on the
-row `id` / `createdAt`, NOT on `daemon_event_id`. The deterministic id is a
-wire-only override, so overriding it never affects flush checkpointing.
+**Flush safety:** each outbox row keeps its own random row `id`, and the reporter
+acknowledges (deletes) shipped rows by that row id, NOT by `daemon_event_id`. The
+deterministic id lives only in the wire payload, so it never affects flush
+bookkeeping.
 
 ---
 
@@ -172,22 +180,28 @@ When the flag is ON, the web prechat context selects
 `BOOTSTRAP-ACTIVATION-RAIL.md` as the bootstrap template, and the daemon marks
 the conversation in `activation_sessions` on first build of the system prompt.
 
-### 5.2 Confirm usage-data collection is enabled — and do NOT run in dev mode
+### 5.2 Confirm share_analytics consent is on — and pick the right daemon mode
 
-Two gates must both be satisfied or no rows reach BigQuery:
+Two distinct concerns: whether record-time rows reach SQLite (consent gate), and
+whether those rows reach BigQuery (flush gate, dev-disabled).
 
-1. `recordActivationEvent` no-ops when `config.collectUsageData` is false, so the
-   dev build/config must have usage-data collection enabled, or no rows are
-   written to SQLite.
-2. **Dev mode disables the flush entirely.** `assistant/src/daemon/lifecycle.ts`
-   computes the effective setting as `collectUsageData = !isDevMode &&
-config.collectUsageData`, so when the daemon runs in dev mode (`VELLUM_DEV=1`)
-   the `UsageTelemetryReporter` is never started — rows accumulate in SQLite but
-   are never POSTed, and the "wait/restart for flush" steps below will never
-   reach BigQuery. For an end-to-end smoke test, run the daemon **outside dev
-   mode** (so the reporter starts), or explicitly invoke the reporter's
-   `flush()` via a dev hook. The SQLite rows can still be inspected directly in
-   dev mode, but the BigQuery verification (§6) requires a real flush.
+1. `recordActivationEvent` no-ops only on a confirmed `share_analytics` opt-out
+   (it reads `getRawShareAnalytics()`); an `"unknown"` state records, but the
+   flush defers until consent resolves. So for rows to actually SHIP, the dev
+   session must be signed in to
+   the platform with `share_analytics` consent enabled, or no rows reach
+   SQLite. The consent cache is refreshed by `startConsentRefresh()` in
+   `assistant/src/daemon/lifecycle.ts`, which runs **regardless of dev mode** — so
+   a dev session signed in with `share_analytics` consent enabled writes
+   record-time rows to SQLite, where they can be inspected directly.
+2. **Dev mode disables the flush entirely.** When the daemon runs in dev mode
+   (`VELLUM_DEV=1`), `assistant/src/daemon/lifecycle.ts` never starts the
+   `UsageTelemetryReporter` — rows accumulate in SQLite (consent permitting) but
+   are never POSTed, and the "wait/restart for flush" steps below will never reach
+   BigQuery. For an end-to-end smoke test, run the daemon **outside dev mode** (so
+   the reporter starts), or explicitly invoke the reporter's `flush()` via a dev
+   hook. The SQLite rows can be inspected directly in dev mode, but the BigQuery
+   verification (§6) requires a real flush.
 
 ### 5.3 Start a fresh activation conversation and capture its id
 
@@ -261,9 +275,9 @@ collapses it earliest-wins).
 
 ---
 
-## 7. Canonical handoff blurb (paste-ready for the final JARVIS-1102 PR description)
+## 7. Canonical handoff blurb (paste-ready for the final PR description)
 
-> **Activation funnel telemetry — handoff for JARVIS-1093.** The activation rail
+> **Activation funnel telemetry — handoff for dashboard ticket.** The activation rail
 > now emits five milestone funnel events into the existing onboarding telemetry
 > substrate (`type: "onboarding"` → `/v1/telemetry/ingest/` → GCS NDJSON →
 > `vellum-ai-prod.telemetry.onboarding_raw`), so no new event type, ingest
@@ -290,7 +304,7 @@ collapses it earliest-wins).
 
 ## 8. Notes
 
-- **JARVIS-1102 "naming check" (resolved).** Events fire **deterministically on
+- **"naming check" (resolved).** Events fire **deterministically on
   the real user commit of a `ui_show` surface, not every text turn**. The model
   passively tags the surface for a rail move with `activation_moment`; the daemon
   records the milestone in `handleSurfaceAction` when the user commits that

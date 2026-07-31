@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 
-import { getDb } from "../../memory/db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
 import {
   getGuardrailConfig,
   setGuardrailConfig,
@@ -22,6 +22,7 @@ import {
 } from "../../sequence/store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Schemas ─────────────────────────────────────────────────────────
@@ -54,8 +55,8 @@ const GuardrailSetParams = z
 // ── Handlers ────────────────────────────────────────────────────────
 
 function handleSequenceList({ body = {} }: RouteHandlerArgs) {
+  const { status } = parseBody(SequenceListParams, body);
   getDb();
-  const { status } = SequenceListParams.parse(body);
   const filter = status ? { status } : undefined;
   const seqs = listSequences(filter);
 
@@ -68,10 +69,12 @@ function handleSequenceList({ body = {} }: RouteHandlerArgs) {
 }
 
 function handleSequenceGet({ body = {} }: RouteHandlerArgs) {
+  const { id } = parseBody(SequenceIdParams, body);
   getDb();
-  const { id } = SequenceIdParams.parse(body);
   const seq = getSequence(id);
-  if (!seq) throw new NotFoundError(`Sequence not found: ${id}`);
+  if (!seq) {
+    throw new NotFoundError(`Sequence not found: ${id}`);
+  }
 
   const enrollments = listEnrollments({ sequenceId: id });
   const statusCounts = enrollments.reduce(
@@ -90,10 +93,12 @@ function handleSequenceGet({ body = {} }: RouteHandlerArgs) {
 }
 
 function handleSequencePause({ body = {} }: RouteHandlerArgs) {
+  const { id } = parseBody(SequenceIdParams, body);
   getDb();
-  const { id } = SequenceIdParams.parse(body);
   const seq = getSequence(id);
-  if (!seq) throw new NotFoundError(`Sequence not found: ${id}`);
+  if (!seq) {
+    throw new NotFoundError(`Sequence not found: ${id}`);
+  }
   if (seq.status === "paused") {
     return { ok: true, message: "Sequence is already paused." };
   }
@@ -102,10 +107,12 @@ function handleSequencePause({ body = {} }: RouteHandlerArgs) {
 }
 
 function handleSequenceResume({ body = {} }: RouteHandlerArgs) {
+  const { id } = parseBody(SequenceIdParams, body);
   getDb();
-  const { id } = SequenceIdParams.parse(body);
   const seq = getSequence(id);
-  if (!seq) throw new NotFoundError(`Sequence not found: ${id}`);
+  if (!seq) {
+    throw new NotFoundError(`Sequence not found: ${id}`);
+  }
   if (seq.status === "active") {
     return { ok: true, message: "Sequence is already active." };
   }
@@ -114,8 +121,8 @@ function handleSequenceResume({ body = {} }: RouteHandlerArgs) {
 }
 
 function handleCancelEnrollment({ body = {} }: RouteHandlerArgs) {
+  const { enrollmentId } = parseBody(CancelEnrollmentParams, body);
   getDb();
-  const { enrollmentId } = CancelEnrollmentParams.parse(body);
   exitEnrollment(enrollmentId, "cancelled");
   return { ok: true, message: `Enrollment ${enrollmentId} cancelled.` };
 }
@@ -144,7 +151,7 @@ function handleGuardrailsShow() {
 }
 
 function handleGuardrailsSet({ body = {} }: RouteHandlerArgs) {
-  const { key, value } = GuardrailSetParams.parse(body);
+  const { key, value } = parseBody(GuardrailSetParams, body);
   const numVal = Number(value);
   const boolVal =
     value === "true" ? true : value === "false" ? false : undefined;
@@ -153,42 +160,49 @@ function handleGuardrailsSet({ body = {} }: RouteHandlerArgs) {
   switch (key) {
     case "dailySendCap":
     case "daily_send_cap":
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.dailySendCap = numVal;
       break;
     case "perSequenceHourlyRate":
     case "hourly_rate":
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.perSequenceHourlyRate = numVal;
       break;
     case "minimumStepDelaySec":
     case "min_delay":
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.minimumStepDelaySec = numVal;
       break;
     case "maxActiveEnrollments":
     case "max_enrollments":
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.maxActiveEnrollments = numVal;
       break;
     case "duplicateEnrollmentCheck":
     case "duplicate_check":
-      if (boolVal === undefined)
+      if (boolVal === undefined) {
         throw new BadRequestError("Value must be true or false");
+      }
       patch.duplicateEnrollmentCheck = boolVal;
       break;
     case "cooldownPeriodMs":
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.cooldownPeriodMs = numVal;
       break;
     case "cooldown_days": {
-      if (!Number.isFinite(numVal))
+      if (!Number.isFinite(numVal)) {
         throw new BadRequestError(`Invalid numeric value for ${key}: ${value}`);
+      }
       patch.cooldownPeriodMs = numVal * 24 * 60 * 60 * 1000;
       break;
     }

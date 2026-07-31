@@ -1,39 +1,15 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — silence logger output during tests
 // ---------------------------------------------------------------------------
-
-function makeLoggerStub(): Record<string, unknown> {
-  const stub: Record<string, unknown> = {};
-  for (const m of [
-    "info",
-    "warn",
-    "error",
-    "debug",
-    "trace",
-    "fatal",
-    "silent",
-    "child",
-  ]) {
-    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
-  }
-  return stub;
-}
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeLoggerStub(),
-}));
-
 import { setIngressPublicBaseUrl } from "../config/env.js";
 import { IngressConfigSchema } from "../config/schemas/ingress.js";
 import {
   getOAuthCallbackUrl,
   getPublicBaseUrl,
   getTelegramWebhookUrl,
-  getTwilioConnectActionUrl,
   getTwilioMediaStreamUrl,
-  getTwilioRelayUrl,
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
 } from "../inbound/public-ingress-urls.js";
@@ -66,7 +42,6 @@ describe("IngressConfigSchema", () => {
       }),
     ).toThrow(/ingress\.publicBaseUrl must be an absolute URL/);
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -214,12 +189,6 @@ describe("Twilio URL builders use publicBaseUrl", () => {
     expect(getTwilioStatusCallbackUrl(config)).toBe(
       "https://example.com/webhooks/twilio/status",
     );
-    expect(getTwilioConnectActionUrl(config)).toBe(
-      "https://example.com/webhooks/twilio/connect-action",
-    );
-    expect(getTwilioRelayUrl(config)).toBe(
-      "wss://example.com/webhooks/twilio/relay",
-    );
     expect(getTwilioMediaStreamUrl(config)).toBe(
       "wss://example.com/webhooks/twilio/media-stream",
     );
@@ -288,46 +257,6 @@ describe("getTwilioStatusCallbackUrl", () => {
       ingress: { publicBaseUrl: "https://example.com" },
     });
     expect(url).toBe("https://example.com/webhooks/twilio/status");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// getTwilioConnectActionUrl
-// ---------------------------------------------------------------------------
-
-describe("getTwilioConnectActionUrl", () => {
-  test("builds correct URL", () => {
-    const url = getTwilioConnectActionUrl({
-      ingress: { publicBaseUrl: "https://example.com" },
-    });
-    expect(url).toBe("https://example.com/webhooks/twilio/connect-action");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// getTwilioRelayUrl — scheme conversion
-// ---------------------------------------------------------------------------
-
-describe("getTwilioRelayUrl", () => {
-  test("converts https to wss", () => {
-    const url = getTwilioRelayUrl({
-      ingress: { publicBaseUrl: "https://example.com" },
-    });
-    expect(url).toBe("wss://example.com/webhooks/twilio/relay");
-  });
-
-  test("converts http to ws", () => {
-    const url = getTwilioRelayUrl({
-      ingress: { publicBaseUrl: "http://localhost:7821" },
-    });
-    expect(url).toBe("ws://localhost:7821/webhooks/twilio/relay");
-  });
-
-  test("normalizes trailing slash before conversion", () => {
-    const url = getTwilioRelayUrl({
-      ingress: { publicBaseUrl: "https://example.com/" },
-    });
-    expect(url).toBe("wss://example.com/webhooks/twilio/relay");
   });
 });
 

@@ -11,11 +11,14 @@
  * proxy-signed request before the handler runs.
  */
 
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { createGuardianBinding } from "../../auth/guardian-bootstrap.js";
-import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
+import { getGatewayDb } from "../../db/connection.js";
+import { contacts as gwContacts } from "../../db/schema.js";
 import { getLogger } from "../../logger.js";
+import { canonicalizeInboundIdentity } from "../../verification/identity.js";
 
 const log = getLogger("guardian-channel-create");
 
@@ -25,8 +28,8 @@ const log = getLogger("guardian-channel-create");
 
 const GuardianChannelRequestSchema = z.object({
   type: z.string().trim().toLowerCase(),
-  address: z.string().trim().toLowerCase(),
-  externalUserId: z.string().trim().toLowerCase(),
+  address: z.string().trim(),
+  externalUserId: z.string().trim(),
   status: z.literal("active"),
 });
 
@@ -40,17 +43,28 @@ interface GuardianRow {
 }
 
 /**
- * Find the existing guardian contact (any channel). Returns null if no
- * guardian has been verified yet or if the guardian has no principal_id.
+ * Find the existing guardian contact (any channel) in the gateway DB. Returns
+ * null if no guardian has been verified yet or if the guardian has no
+ * principal_id.
  */
-async function findGuardian(): Promise<(GuardianRow & { principal_id: string }) | null> {
-  const rows = await assistantDbQuery<GuardianRow>(
-    `SELECT id, principal_id FROM contacts WHERE role = 'guardian' LIMIT 1`,
-  );
+export async function findGuardian(): Promise<
+  (GuardianRow & { principal_id: string }) | null
+> {
+  const row =
+    getGatewayDb()
+      .select({ id: gwContacts.id, principalId: gwContacts.principalId })
+      .from(gwContacts)
+      // Skip principal-less guardian stubs (e.g. created by the gateway-first
+      // contact-prompt path before bootstrap); pick the oldest real guardian.
+      .where(
+        and(eq(gwContacts.role, "guardian"), isNotNull(gwContacts.principalId)),
+      )
+      .orderBy(asc(gwContacts.createdAt))
+      .limit(1)
+      .get() ?? null;
 
-  const row = rows[0] ?? null;
-  if (!row?.principal_id) return null;
-  return row as GuardianRow & { principal_id: string };
+  if (!row?.principalId) return null;
+  return { id: row.id, principal_id: row.principalId };
 }
 
 // ---------------------------------------------------------------------------
@@ -78,15 +92,21 @@ export function createGuardianChannelHandler() {
       );
     }
 
-    const body = parsed.data;
+    const raw = parsed.data;
+    const body = {
+      ...raw,
+      address:
+        canonicalizeInboundIdentity(raw.type, raw.address) ?? raw.address,
+      externalUserId:
+        canonicalizeInboundIdentity(raw.type, raw.externalUserId) ??
+        raw.externalUserId,
+    };
 
     // ── Find existing guardian ─────────────────────────────────────
 
     const guardian = await findGuardian();
     if (!guardian) {
-      log.warn(
-        "No guardian contact exists — cannot create guardian channel",
-      );
+      log.warn("No guardian contact exists — cannot create guardian channel");
       return Response.json(
         {
           error:
@@ -97,12 +117,6 @@ export function createGuardianChannelHandler() {
     }
 
     // ── Create guardian channel binding ────────────────────────────
-    // CRITICAL: deliveryChatId MUST be set to body.externalUserId (not
-    // body.address) — the ACL lookup in findContactChannel
-    // (contact-store.ts:780) queries on external_user_id and
-    // external_chat_id, NOT address. For email, all three values are
-    // typically the same email string, but the param mapping must be
-    // explicit.
 
     try {
       await createGuardianBinding({
@@ -112,12 +126,10 @@ export function createGuardianChannelHandler() {
         guardianPrincipalId: guardian.principal_id,
         displayName: body.address,
         verifiedVia: "platform_auto_register",
+        reactivateRevoked: true,
       });
     } catch (err) {
-      log.error(
-        { err },
-        "Failed to create guardian channel binding",
-      );
+      log.error({ err }, "Failed to create guardian channel binding");
       return Response.json(
         { error: "Failed to create guardian channel" },
         { status: 500 },

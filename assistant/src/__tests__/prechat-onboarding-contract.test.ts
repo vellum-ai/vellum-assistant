@@ -26,33 +26,6 @@ mock.module("../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-const mockLoadedConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadConfig: () => mockLoadedConfig,
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-}));
-
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realUserReference = require("../prompts/user-reference.js");
 mock.module("../prompts/user-reference.js", () => ({
@@ -89,7 +62,9 @@ const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
  */
 function bootstrapBlock(result: string): string {
   const ritualIdx = result.indexOf("# First-Run Ritual");
-  if (ritualIdx < 0) return "";
+  if (ritualIdx < 0) {
+    return "";
+  }
   return result.slice(ritualIdx);
 }
 
@@ -111,7 +86,9 @@ describe("pre-chat onboarding contract", () => {
       "channels",
     ]) {
       const p = join(TEST_DIR, name);
-      if (existsSync(p)) rmSync(p, { recursive: true, force: true });
+      if (existsSync(p)) {
+        rmSync(p, { recursive: true, force: true });
+      }
     }
   });
 

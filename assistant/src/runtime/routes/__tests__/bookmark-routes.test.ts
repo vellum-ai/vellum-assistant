@@ -22,16 +22,18 @@ mock.module("../../assistant-event-hub.js", () => ({
     },
     subscribe: () => () => {},
   },
-  broadcastMessage: async () => {},
+  broadcastMessage: (message: unknown, conversationId?: string) => {
+    publishCalls.push({ message, conversationId });
+  },
 }));
 
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import {
   conversations,
   messageBookmarks,
   messages,
-} from "../../../memory/schema.js";
+} from "../../../persistence/schema/index.js";
 import { ROUTES as BOOKMARK_ROUTES } from "../bookmark-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -39,7 +41,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 // DB bootstrap
 // ---------------------------------------------------------------------------
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -47,7 +49,9 @@ initializeDb();
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = BOOKMARK_ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -80,7 +84,6 @@ function seedConversationAndMessage(opts: {
       updatedAt: now,
       source: "test",
       conversationType: "standard",
-      memoryScopeId: "default",
     })
     .run();
   db.insert(messages)

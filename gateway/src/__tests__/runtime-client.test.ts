@@ -26,17 +26,21 @@ const {
   downloadAttachment,
   forwardTwilioVoiceWebhook,
   forwardTwilioStatusWebhook,
-  forwardTwilioConnectActionWebhook,
+  resolvePublicHttpBaseUrl,
   CircuitBreakerOpenError,
   resetCircuitBreaker,
 } = await import("../runtime/client.js");
+
+const fakeConfigFile = (publicBaseUrl?: string) =>
+  ({
+    getString: (_section: string, field: string) =>
+      field === "publicBaseUrl" ? publicBaseUrl : undefined,
+  }) as unknown as import("../config-file-cache.js").ConfigFileCache;
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
-    defaultAssistantId: undefined,
-    unmappedPolicy: "reject",
     port: 7830,
     runtimeProxyRequireAuth: true,
     shutdownDrainMs: 5000,
@@ -408,6 +412,62 @@ describe("forwardTwilioVoiceWebhook", () => {
   });
 });
 
+describe("resolvePublicHttpBaseUrl", () => {
+  const getId = (id?: string) => mock(async () => id);
+
+  test("prefers the config publicBaseUrl and strips its trailing slash", async () => {
+    const result = await resolvePublicHttpBaseUrl(
+      makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai" }),
+      fakeConfigFile("https://assistant.example.com/"),
+      getId("assistant-123"),
+    );
+    expect(result).toBe("https://assistant.example.com");
+  });
+
+  test("does not read the platform assistant id when the config URL resolves", async () => {
+    const platformIdGetter = getId("assistant-123");
+    await resolvePublicHttpBaseUrl(
+      makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai" }),
+      fakeConfigFile("https://assistant.example.com"),
+      platformIdGetter,
+    );
+    // The credential store must not be touched on the config-resolved path.
+    expect(platformIdGetter).not.toHaveBeenCalled();
+  });
+
+  test("falls back to velayBaseUrl + platform assistant id when config is empty", async () => {
+    const result = await resolvePublicHttpBaseUrl(
+      makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai" }),
+      fakeConfigFile(undefined),
+      getId("assistant-123"),
+    );
+    expect(result).toBe("https://velay-dev.vellum.ai/assistant-123");
+  });
+
+  test("strips a trailing slash on velayBaseUrl before joining the assistant id", async () => {
+    const result = await resolvePublicHttpBaseUrl(
+      makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai/" }),
+      fakeConfigFile(undefined),
+      getId("assistant-123"),
+    );
+    expect(result).toBe("https://velay-dev.vellum.ai/assistant-123");
+  });
+
+  test("returns undefined when neither the config URL nor the velay fallback resolve", async () => {
+    expect(
+      await resolvePublicHttpBaseUrl(makeConfig(), fakeConfigFile(undefined)),
+    ).toBeUndefined();
+    // velayBaseUrl present but no platform assistant id → no fallback.
+    expect(
+      await resolvePublicHttpBaseUrl(
+        makeConfig({ velayBaseUrl: "https://velay-dev.vellum.ai" }),
+        fakeConfigFile(undefined),
+        getId(undefined),
+      ),
+    ).toBeUndefined();
+  });
+});
+
 describe("forwardTwilioStatusWebhook", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
@@ -429,48 +489,5 @@ describe("forwardTwilioStatusWebhook", () => {
     const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
     const sentBody = JSON.parse(calledInit.body as string);
     expect(sentBody.params).toEqual(params);
-  });
-});
-
-describe("forwardTwilioConnectActionWebhook", () => {
-  afterEach(() => {
-    fetchMock = mock(async () => new Response());
-    resetCircuitBreaker();
-  });
-
-  test("sends params to runtime internal connect-action endpoint", async () => {
-    const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    fetchMock = mock(
-      async () =>
-        new Response(twiml, {
-          status: 200,
-          headers: { "Content-Type": "text/xml" },
-        }),
-    );
-
-    const config = makeConfig({});
-    const params = { CallSid: "CA123" };
-
-    const result = await forwardTwilioConnectActionWebhook(config, params);
-    expect(result.status).toBe(200);
-    expect(result.body).toBe(twiml);
-
-    const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(calledUrl).toBe(
-      "http://localhost:7821/v1/internal/twilio/connect-action",
-    );
-  });
-
-  test("returns runtime error status and body", async () => {
-    fetchMock = mock(
-      async () => new Response('{"error":"Not found"}', { status: 404 }),
-    );
-
-    const config = makeConfig();
-    const result = await forwardTwilioConnectActionWebhook(config, {
-      CallSid: "CA999",
-    });
-    expect(result.status).toBe(404);
-    expect(result.body).toContain("Not found");
   });
 });

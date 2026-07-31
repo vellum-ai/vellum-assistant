@@ -11,13 +11,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks — declared before imports that depend on them ─────────────
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 let mockConversationId = "conv-001";
 let mockMessageId = "msg-001";
 let createConversationShouldThrow = false;
@@ -30,7 +23,9 @@ let mockExistingConversations: Record<
 > = {};
 
 const createConversationMock = mock((_opts?: unknown) => {
-  if (createConversationShouldThrow) throw new Error("DB write failed");
+  if (createConversationShouldThrow) {
+    throw new Error("DB write failed");
+  }
   return { id: mockConversationId };
 });
 
@@ -41,7 +36,9 @@ const addMessageMock = mock(
     _content: string,
     _options?: unknown,
   ) => {
-    if (addMessageShouldThrow) throw new Error("DB write failed");
+    if (addMessageShouldThrow) {
+      throw new Error("DB write failed");
+    }
     return { id: mockMessageId };
   },
 );
@@ -50,7 +47,9 @@ const getConversationMock = mock((id: string) => {
   return mockExistingConversations[id] ?? null;
 });
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -90,7 +89,7 @@ const upsertOutboundBindingMock = mock(
   }) => {},
 );
 
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   getBindingByChannelChat: getBindingByChannelChatMock,
   upsertOutboundBinding: upsertOutboundBindingMock,
 }));

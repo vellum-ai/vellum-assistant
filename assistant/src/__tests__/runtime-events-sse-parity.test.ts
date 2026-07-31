@@ -1,7 +1,7 @@
 /**
  * HTTP parity tests for the SSE assistant-events endpoint.
  *
- * Asserts that every streaming/delta ServerMessage type is preserved
+ * Asserts that every streaming/delta AssistantEvent type is preserved
  * exactly — field-for-field — when delivered through the SSE route.
  *
  * Message types covered:
@@ -15,36 +15,16 @@
  *   - generation_handoff (terminal)
  *   - generation_cancelled (terminal)
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
-
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import type { AssistantEvent } from "../runtime/assistant-event.js";
+import type { AssistantEvent, AssistantEventEnvelope } from "../api/index.js";
+import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,15 +32,15 @@ initializeDb();
 
 /**
  * Subscribe to the SSE endpoint for a given conversationKey, publish one
- * event, read the first SSE frame, and return the parsed AssistantEvent.
+ * event, read the first SSE frame, and return the parsed AssistantEventEnvelope.
  *
  * Uses handleSubscribeAssistantEvents directly (bypassing HTTP) to avoid
  * chunked-transfer buffering in Bun's loopback implementation.
  */
 async function publishAndReadFrame(
   conversationKey: string,
-  message: ServerMessage,
-): Promise<AssistantEvent> {
+  message: AssistantEvent,
+): Promise<AssistantEventEnvelope> {
   const { conversationId } = getOrCreateConversation(conversationKey);
 
   const ac = new AbortController();
@@ -87,8 +67,10 @@ async function publishAndReadFrame(
   const frame = new TextDecoder().decode(value);
   // SSE frame: "event: assistant_event\nid: <id>\ndata: <json>\n\n"
   const dataLine = frame.split("\n").find((l) => l.startsWith("data: "));
-  if (!dataLine) throw new Error(`No data line in SSE frame:\n${frame}`);
-  return JSON.parse(dataLine.slice("data: ".length)) as AssistantEvent;
+  if (!dataLine) {
+    throw new Error(`No data line in SSE frame:\n${frame}`);
+  }
+  return JSON.parse(dataLine.slice("data: ".length)) as AssistantEventEnvelope;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +120,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
       type: "assistant_thinking_delta" as const,
       thinking: "Let me reason through this...",
       conversationId: "conv-thinking-test",
+      timestampMs: 1_700_000_000_000,
     };
     const event = await publishAndReadFrame("parity-thinking-delta", msg);
 
@@ -145,6 +128,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const m = event.message as typeof msg;
     expect(m.thinking).toBe("Let me reason through this...");
     expect(m.conversationId).toBe("conv-thinking-test");
+    expect(m.timestampMs).toBe(1_700_000_000_000);
   });
 
   // ── tool_input_delta ─────────────────────────────────────────────────────
@@ -334,7 +318,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
       abortSignal: ac.signal,
     });
 
-    const msg: ServerMessage = {
+    const msg: AssistantEvent = {
       type: "assistant_text_delta" as const,
       text: "envelope test",
     };
@@ -354,7 +338,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const dataLine = frame.split("\n").find((l) => l.startsWith("data: "))!;
     const received = JSON.parse(
       dataLine.slice("data: ".length),
-    ) as AssistantEvent;
+    ) as AssistantEventEnvelope;
 
     // Envelope fields
     expect(received.id).toBe(published.id);

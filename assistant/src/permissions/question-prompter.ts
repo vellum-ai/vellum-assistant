@@ -9,6 +9,10 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import {
+  createGuardianRequestForQuestion,
+  settlePromotedQuestionRequest,
+} from "./question-guardian-request.js";
 
 const log = getLogger("question-prompter");
 
@@ -118,7 +122,9 @@ export function buildBatchEntries(
   }
 
   const byId = new Map<string, QuestionBatchSubmission>();
-  for (const s of submissions) byId.set(s.questionId, s);
+  for (const s of submissions) {
+    byId.set(s.questionId, s);
+  }
 
   return orderedIds.map((id) => {
     const s = byId.get(id)!;
@@ -156,9 +162,12 @@ export interface QuestionBatchMetadata {
  * the whole batch to `/v1/question-response` when the user is done — no
  * per-question accumulator, no partial state machine.
  *
- * Timeout reuses `getConfig().timeouts.permissionTimeoutSec` (default 5 min) —
- * questions are user-prompts in the same UX family as permission prompts and
- * secret prompts, so they share the same idle-timeout knob.
+ * The idle timeout is a backstop (`getConfig().timeouts.questionResponseTimeoutSec`,
+ * default 30 min), not the primary way a prompt is dismissed. An interactive
+ * user who moves on instead of answering enqueues another message, which
+ * supersedes the open prompt at the enqueue handler (see conversation-routes.ts);
+ * a non-interactive turn resolves immediately at the tool. The backstop only
+ * fires when a prompt is left open with no response and no follow-up message.
  */
 export class QuestionPrompter {
   async prompt(params: QuestionPromptParams): Promise<QuestionPromptResult> {
@@ -199,7 +208,7 @@ export class QuestionPrompter {
     const requestId = uuid();
 
     return new Promise<QuestionPromptResult>((resolve, reject) => {
-      const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
+      const timeoutMs = getConfig().timeouts.questionResponseTimeoutSec * 1000;
 
       // Closure-scoped idempotency guard. Every resolution path (timeout,
       // abort, route resolution via `rpcResolve`/`rpcReject`) routes through
@@ -212,7 +221,9 @@ export class QuestionPrompter {
       let settled = false;
       let onAbort: (() => void) | undefined;
       const finish = (fn: () => void): void => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(timer);
         if (signal && onAbort) {
@@ -224,6 +235,13 @@ export class QuestionPrompter {
         // so this fallback only fires for timeout / abort / removeByConversation —
         // all cancellation-shaped outcomes.
         pendingInteractions.resolve(requestId, "cancelled");
+        // A promoted guardian-request row must not outlive the interaction:
+        // left pending (e.g. the app card answered, or the prompt timed out),
+        // it would still look decidable to the channel reply router and could
+        // swallow the guardian's next unrelated message. No-op for questions
+        // that never promoted, and a CAS-miss no-op when the pipeline itself
+        // decided the row.
+        settlePromotedQuestionRequest(requestId);
         fn();
       };
 
@@ -269,6 +287,10 @@ export class QuestionPrompter {
         timer,
         toolUseId,
         metadata: { orderedIds, optionsById } satisfies QuestionBatchMetadata,
+        // Persist the full entries (not just the id maps in `metadata`) so a
+        // history-load render can stamp this outstanding prompt back onto its
+        // tool call and rehydrate the question card after a reconnect.
+        questionDetails: { entries },
       });
 
       // Populate both shapes on the wire: `questions[]` is the canonical
@@ -288,6 +310,13 @@ export class QuestionPrompter {
       };
 
       broadcastMessage(msg);
+
+      // Promote the question to a guardian request so channel answers (option
+      // taps, request-code replies, bare text) can resolve it through the
+      // guardian-request pipeline. Mirrors the confirmation prompter's
+      // promotion; the gating (guardian turn, card-capable channel,
+      // single-question batch) lives in the promotion module.
+      void createGuardianRequestForQuestion(msg, conversationId);
     });
   }
 }

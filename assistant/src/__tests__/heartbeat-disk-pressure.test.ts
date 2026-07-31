@@ -1,44 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setConfig } from "./helpers/set-config.js";
+
 // Default the warm-pool gate to OPEN — these tests probe disk-pressure
 // behavior, not the pre-first-message guard.
 mock.module("../runtime/pre-first-message-gate.js", () => ({
   hasReceivedUserMessage: () => true,
   _resetPreFirstMessageGateCacheForTests: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    debug: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    heartbeat: {
-      enabled: true,
-      intervalMs: 60_000,
-      cronExpression: null,
-      timezone: null,
-      activeHoursStart: undefined,
-      activeHoursEnd: undefined,
-    },
-  }),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getConfigReadOnly: () => ({}),
-  applyNestedDefaults: (config: unknown) => config,
-  deepMergeOverwrite: (base: unknown) => base,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 const mockInsertPendingHeartbeatRun = mock(() => "run-1");
@@ -58,6 +26,7 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   countCompletedHeartbeatRuns: mock(() => 10),
   countCompletedRunsToday: mock(() => 0),
   countRecentConsecutiveRuns: mock(() => 0),
+  getLastHeartbeatRunAt: mock(() => null),
 }));
 
 mock.module("../schedule/recurrence-engine.js", () => ({
@@ -65,7 +34,9 @@ mock.module("../schedule/recurrence-engine.js", () => ({
 }));
 
 const createdConversations: Array<{ conversationType: string }> = [];
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversation: () => null,
   getMessages: () => [],
   createConversation: (opts: { conversationType: string }) => {
@@ -100,7 +71,7 @@ mock.module("../prompts/persona-resolver.js", () => ({
   resolveUserSlug: () => null,
 }));
 
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
   AUTO_TITLE_DETERMINISTIC: 2,
   deriveDeterministicTitle: (context: { systemHint?: string }) =>
@@ -144,6 +115,13 @@ const { HeartbeatService } = await import("../heartbeat/heartbeat-service.js");
 
 describe("HeartbeatService disk pressure gate", () => {
   beforeEach(() => {
+    // Null active hours disable the time-of-day guard so runs are gated by
+    // disk pressure alone, independent of the wall clock.
+    setConfig("heartbeat", {
+      intervalMs: 60_000,
+      activeHoursStart: null,
+      activeHoursEnd: null,
+    });
     createdConversations.length = 0;
     mockInsertPendingHeartbeatRun.mockClear();
     mockStartHeartbeatRun.mockClear();
@@ -158,9 +136,7 @@ describe("HeartbeatService disk pressure gate", () => {
   });
 
   test("skips without creating heartbeat rows, conversations, or notifications", async () => {
-    const service = new HeartbeatService({
-      alerter: () => {},
-    });
+    const service = new HeartbeatService();
 
     const ran = await service.runOnce();
 
@@ -175,9 +151,7 @@ describe("HeartbeatService disk pressure gate", () => {
   });
 
   test("allows forced user-initiated heartbeat runs while locked", async () => {
-    const service = new HeartbeatService({
-      alerter: () => {},
-    });
+    const service = new HeartbeatService();
 
     const ran = await service.runOnce({ force: true });
 
@@ -193,9 +167,7 @@ describe("HeartbeatService disk pressure gate", () => {
 
   test("start recovery skips missed-run notifications while locked", async () => {
     mockMarkStaleRunsAsMissed.mockImplementationOnce(() => 1);
-    const service = new HeartbeatService({
-      alerter: () => {},
-    });
+    const service = new HeartbeatService();
 
     service.start();
     await service.stop();

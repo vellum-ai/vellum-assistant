@@ -12,14 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 const {
   resolveSigningKey,
@@ -41,8 +34,9 @@ beforeEach(() => {
   savedEnv.IS_CONTAINERIZED = process.env.IS_CONTAINERIZED;
   // Clean up key files from previous tests so they don't leak between cases.
   const deprecatedDir = getDeprecatedDir();
-  if (existsSync(deprecatedDir))
+  if (existsSync(deprecatedDir)) {
     rmSync(deprecatedDir, { recursive: true, force: true });
+  }
 });
 
 afterEach(() => {

@@ -2,12 +2,12 @@
  * Regression test for the subagent provider routing fix.
  *
  * Before the fix, `SubagentManager.spawn()` constructed the Conversation with
- * `getProvider(appConfig.llm.default.provider)` directly, which meant per-call
- * `llm.callSites.subagentSpawn.provider` overrides only changed the request
- * *metadata* the downstream client saw — the actual HTTP transport still
- * belonged to `llm.default.provider`. After the fix, the provider is wrapped
- * in `CallSiteRoutingProvider`, which consults the resolver per call and
- * routes to the resolved provider's transport when it differs from the
+ * a `getProvider()` lookup of the default provider directly, which meant
+ * per-call `llm.callSites.subagentSpawn.provider` overrides only changed the
+ * request *metadata* the downstream client saw — the actual HTTP transport
+ * still belonged to the default provider. After the fix, the provider is
+ * wrapped in `CallSiteRoutingProvider`, which consults the resolver per call
+ * and routes to the resolved provider's transport when it differs from the
  * default.
  *
  * This test stubs the `Conversation` constructor and the provider registry
@@ -15,9 +15,11 @@
  * `Conversation`, then verify it's a `CallSiteRoutingProvider` that selects
  * the right transport for the `subagentSpawn` callSite.
  */
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
+import { getProvider as getProviderImport } from "../providers/registry.js";
+import { setConfig } from "./helpers/set-config.js";
 
 // Capture the provider passed to Conversation.
 let capturedProvider: unknown = undefined;
@@ -25,6 +27,7 @@ interface CapturedConversationState {
   trustContext: unknown;
   authContext: unknown;
   assistantId: string | undefined;
+  enabledPlugins: string[] | null | undefined;
 }
 
 const capturedConversations: CapturedConversationState[] = [];
@@ -39,18 +42,19 @@ class FakeConversation {
     provider: unknown,
     _systemPrompt: string,
     _maxTokens: number,
-    _sendToClient: (msg: ServerMessage) => void,
+    _sendToClient: (msg: AssistantEvent) => void,
   ) {
     capturedProvider = provider;
     this.capturedState = {
       trustContext: undefined,
       authContext: undefined,
       assistantId: undefined,
+      enabledPlugins: undefined,
     };
     capturedConversations.push(this.capturedState);
   }
   updateClient() {}
-  setIsSubagent() {}
+
   setTrustContext(ctx: unknown) {
     this.capturedState.trustContext = ctx ?? undefined;
   }
@@ -62,6 +66,9 @@ class FakeConversation {
   }
   setAssistantId(assistantId: string | null) {
     this.capturedState.assistantId = assistantId ?? undefined;
+  }
+  setEnabledPlugins(plugins: string[] | null) {
+    this.capturedState.enabledPlugins = plugins;
   }
   hasSystemPromptOverride = false;
   setSubagentAllowedTools() {}
@@ -101,7 +108,7 @@ mock.module("../daemon/conversation.js", () => ({
   Conversation: FakeConversation,
 }));
 
-mock.module("../memory/conversation-bootstrap.js", () => ({
+mock.module("../persistence/conversation-bootstrap.js", () => ({
   bootstrapConversation: () => ({ id: "conv-id" }),
 }));
 
@@ -111,19 +118,35 @@ mock.module("../prompts/system-prompt.js", () => ({
 }));
 
 // Provider registry + connection resolver — routing goes through
-// `provider_connection` exclusively. `getProvider` is kept here purely
-// because the registry module still exports it; the production code under
-// test does not call it.
+// `provider_connection` exclusively. `getProvider` throws while this file's
+// tests run (the production code under test must not call it), and delegates
+// to the real registry afterwards: `mock.module` patches persist for the rest
+// of the `bun test` process, and later test files (e.g. the platform-proxy
+// integration suite) call the real `getProvider`. The real function is
+// snapshotted before `mock.module` rebinds the import.
 const anthropicStub = { name: "anthropic" };
 const openaiStub = { name: "openai" };
 
+const realGetProvider = getProviderImport;
+let legacyGetProviderGuardArmed = true;
+afterAll(() => {
+  legacyGetProviderGuardArmed = false;
+});
+
 mock.module("../providers/registry.js", () => ({
   getProvider: (name: string) => {
-    throw new Error(`legacy getProvider should not be called: ${name}`);
+    if (legacyGetProviderGuardArmed) {
+      throw new Error(`legacy getProvider should not be called: ${name}`);
+    }
+    return realGetProvider(name);
   },
   resolveProviderFromConnection: async (connection: { name: string }) => {
-    if (connection.name === "anthropic-conn") return anthropicStub;
-    if (connection.name === "openai-conn") return openaiStub;
+    if (connection.name === "anthropic-conn") {
+      return anthropicStub;
+    }
+    if (connection.name === "openai-conn") {
+      return openaiStub;
+    }
     return null;
   },
   clearConnectionProviderCache: () => {},
@@ -133,44 +156,30 @@ mock.module("../providers/registry.js", () => ({
 // is stubbed; tests don't touch SQLite.
 mock.module("../providers/inference/connections.js", () => ({
   getConnection: (_db: unknown, name: string) => {
-    if (name === "anthropic-conn")
+    if (name === "anthropic-conn") {
       return {
         name: "anthropic-conn",
         provider: "anthropic",
         auth: { type: "platform" },
       };
-    if (name === "openai-conn")
+    }
+    if (name === "openai-conn") {
       return {
         name: "openai-conn",
         provider: "openai",
         auth: { type: "platform" },
       };
+    }
     return null;
   },
 }));
 
-mock.module("../memory/db-connection.js", () => ({
+mock.module("../persistence/db-connection.js", () => ({
   getDb: () => ({}),
-}));
-
-// Mutable LLM config — tests rewrite this per-case.
-let mockLlmConfig: Record<string, unknown> = {};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: mockLlmConfig,
-    rateLimit: { maxRequestsPerMinute: 0 },
-  }),
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
-import { LLMSchema } from "../config/schemas/llm.js";
 import {
   clearConversations,
   setConversation,
@@ -178,19 +187,42 @@ import {
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { SubagentManager } from "../subagent/manager.js";
 
+// Seed the workspace `llm` config per-case. The real loader schema-merges the
+// raw fragment over defaults exactly as the code path reads it.
 function setLlmConfig(raw: unknown): void {
-  mockLlmConfig = LLMSchema.parse(raw) as Record<string, unknown>;
+  setConfig("llm", raw);
 }
 
-describe("SubagentManager — provider call-site routing", () => {
-  test("wraps the default provider in CallSiteRoutingProvider", async () => {
-    setLlmConfig({
-      default: {
+/**
+ * Base LLM fixture: the workspace's default identity is a complete
+ * (provider + model) active profile carrying the `provider_connection` —
+ * `activeProfile` wins mainAgent resolution, and connections can only be
+ * declared on profiles (see the note on the second test below).
+ */
+function makeLlmFixture(
+  extras: {
+    profiles?: Record<string, unknown>;
+    callSites?: Record<string, unknown>;
+  } = {},
+): Record<string, unknown> {
+  return {
+    profiles: {
+      primary: {
+        source: "user",
         provider: "anthropic",
         provider_connection: "anthropic-conn",
         model: "claude-opus-4-7",
       },
-    });
+      ...extras.profiles,
+    },
+    activeProfile: "primary",
+    ...(extras.callSites ? { callSites: extras.callSites } : {}),
+  };
+}
+
+describe("SubagentManager — provider call-site routing", () => {
+  test("wraps the default provider in CallSiteRoutingProvider", async () => {
+    setLlmConfig(makeLlmFixture());
 
     capturedProvider = undefined;
     const manager = new SubagentManager();
@@ -213,23 +245,20 @@ describe("SubagentManager — provider call-site routing", () => {
     // entry would be silently stripped by Zod. The correct shape for an
     // alternate-provider call-site override is a profile reference, defined
     // here as `altOpenai`.
-    setLlmConfig({
-      default: {
-        provider: "anthropic",
-        provider_connection: "anthropic-conn",
-        model: "claude-opus-4-7",
-      },
-      profiles: {
-        altOpenai: {
-          provider: "openai",
-          provider_connection: "openai-conn",
-          model: "gpt-5.4",
+    setLlmConfig(
+      makeLlmFixture({
+        profiles: {
+          altOpenai: {
+            provider: "openai",
+            provider_connection: "openai-conn",
+            model: "gpt-5.4",
+          },
         },
-      },
-      callSites: {
-        subagentSpawn: { profile: "altOpenai" },
-      },
-    });
+        callSites: {
+          subagentSpawn: { profile: "altOpenai" },
+        },
+      }),
+    );
 
     capturedProvider = undefined;
     const manager = new SubagentManager();
@@ -253,14 +282,8 @@ describe("SubagentManager — provider call-site routing", () => {
   });
 
   test("falls back to default provider when subagentSpawn callSite is absent", async () => {
-    setLlmConfig({
-      default: {
-        provider: "anthropic",
-        provider_connection: "anthropic-conn",
-        model: "claude-opus-4-7",
-      },
-      // No subagentSpawn override.
-    });
+    // No subagentSpawn override.
+    setLlmConfig(makeLlmFixture());
 
     capturedProvider = undefined;
     const manager = new SubagentManager();
@@ -279,13 +302,7 @@ describe("SubagentManager — provider call-site routing", () => {
   });
 
   test("copies parent guardian and auth context into spawned conversation", async () => {
-    setLlmConfig({
-      default: {
-        provider: "anthropic",
-        provider_connection: "anthropic-conn",
-        model: "claude-opus-4-7",
-      },
-    });
+    setLlmConfig(makeLlmFixture());
 
     const parentTrustContext = {
       sourceChannel: "vellum",
@@ -328,6 +345,61 @@ describe("SubagentManager — provider call-site routing", () => {
     expect(createdConversation.trustContext).not.toBe(parentTrustContext);
     expect(createdConversation.authContext).not.toBe(parentAuthContext);
   });
+
+  test("copies the parent's plugin scope into the spawned conversation (by value)", async () => {
+    setLlmConfig(makeLlmFixture());
+
+    const parentScope = ["caveman", "data"];
+
+    capturedConversations.length = 0;
+    clearConversations();
+    const manager = new SubagentManager();
+    setConversation("parent-scoped", {
+      enabledPlugins: parentScope,
+      getAuthContext: () => undefined,
+      getCurrentSystemPrompt: () => "parent system",
+    } as any);
+
+    await manager.spawn(
+      {
+        parentConversationId: "parent-scoped",
+        label: "scoped",
+        objective: "use a plugin skill",
+      },
+      () => {},
+    );
+
+    const createdConversation = capturedConversations[0];
+    // The subagent inherits the parent chat's plugin scope so it can't reach
+    // plugins the user deselected in the parent.
+    expect(createdConversation?.enabledPlugins).toEqual(["caveman", "data"]);
+    // Copied by value so later parent/child edits don't alias one another.
+    expect(createdConversation?.enabledPlugins).not.toBe(parentScope);
+  });
+
+  test("propagates a null (unrestricted) parent scope unchanged", async () => {
+    setLlmConfig(makeLlmFixture());
+
+    capturedConversations.length = 0;
+    clearConversations();
+    const manager = new SubagentManager();
+    setConversation("parent-unscoped", {
+      enabledPlugins: null,
+      getAuthContext: () => undefined,
+      getCurrentSystemPrompt: () => "parent system",
+    } as any);
+
+    await manager.spawn(
+      {
+        parentConversationId: "parent-unscoped",
+        label: "unscoped",
+        objective: "use anything",
+      },
+      () => {},
+    );
+
+    expect(capturedConversations[0]?.enabledPlugins).toBeNull();
+  });
 });
 
 // ── Direct unit test for CallSiteRoutingProvider's selection logic ─────────
@@ -335,7 +407,6 @@ describe("SubagentManager — provider call-site routing", () => {
 describe("CallSiteRoutingProvider — selectProvider behavior", () => {
   test("routes to the resolved provider when callSite resolves to a profile with provider_connection", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
         altOpenai: {
           provider: "openai",
@@ -379,7 +450,9 @@ describe("CallSiteRoutingProvider — selectProvider behavior", () => {
     const wrapper = new CallSiteRoutingProvider(
       defaultProvider,
       async (connectionName) => {
-        if (connectionName === "openai-conn") return altProvider;
+        if (connectionName === "openai-conn") {
+          return altProvider;
+        }
         return null;
       },
     );
@@ -394,7 +467,6 @@ describe("CallSiteRoutingProvider — selectProvider behavior", () => {
 
   test("routes to default when no callSite provided", async () => {
     setLlmConfig({
-      default: { provider: "anthropic", model: "claude-opus-4-7" },
       callSites: {
         subagentSpawn: { provider: "openai", model: "gpt-5.4" },
       },

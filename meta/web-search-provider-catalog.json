@@ -2,6 +2,12 @@
   "version": 1,
   "providers": [
     {
+      "id": "vellum",
+      "displayName": "Vellum",
+      "displayNameLong": "Vellum Managed Search",
+      "kind": "managed"
+    },
+    {
       "id": "inference-provider-native",
       "displayName": "Provider Native",
       "kind": "managed"
@@ -36,6 +42,26 @@
       "secretKey": "tavily",
       "fallbackOrder": 3,
       "privacyPolicyUrl": "https://tavily.com/privacy"
+    },
+    {
+      "id": "firecrawl",
+      "displayName": "Firecrawl",
+      "kind": "byok",
+      "apiKeyPrefix": "fc-...",
+      "envVar": "FIRECRAWL_API_KEY",
+      "secretKey": "firecrawl",
+      "fallbackOrder": 4,
+      "privacyPolicyUrl": "https://www.firecrawl.dev/privacy-policy"
+    },
+    {
+      "id": "keenable",
+      "displayName": "Keenable",
+      "kind": "byok",
+      "apiKeyPrefix": "keen_... (optional)",
+      "envVar": "KEENABLE_API_KEY",
+      "secretKey": "keenable",
+      "fallbackOrder": 5,
+      "privacyPolicyUrl": "https://keenable.ai/privacy"
     }
   ]
 }

@@ -5,13 +5,13 @@ import {
   SYNC_TAGS,
 } from "../../daemon/message-types/sync.js";
 import {
-  getBindingByConversation,
-  updateExternalChatName,
-} from "../../memory/external-conversation-store.js";
-import {
   getSlackConversationInfo,
   SlackApiError,
 } from "../../messaging/providers/slack/api.js";
+import {
+  getBindingByConversation,
+  updateExternalChatName,
+} from "../../persistence/external-conversation-store.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishSyncInvalidation } from "../sync/sync-publisher.js";
 import { NotFoundError } from "./errors.js";
@@ -57,7 +57,9 @@ function friendlyCachedName(
   externalChatName?: string | null,
 ): string | undefined {
   const trimmed = externalChatName?.trim();
-  if (!trimmed || trimmed === externalChatId) return undefined;
+  if (!trimmed || trimmed === externalChatId) {
+    return undefined;
+  }
   return trimmed;
 }
 
@@ -68,7 +70,9 @@ function usableResolvedName(
 ): string | undefined {
   for (const candidate of [name, nameNormalized]) {
     const trimmed = candidate?.trim();
-    if (trimmed && trimmed !== externalChatId) return trimmed;
+    if (trimmed && trimmed !== externalChatId) {
+      return trimmed;
+    }
   }
   return undefined;
 }

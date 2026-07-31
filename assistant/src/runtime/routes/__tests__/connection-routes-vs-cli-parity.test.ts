@@ -9,39 +9,30 @@
  * Rule: cc-cutover-proof (see PR_B_TASK.md).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ── Module mocks (must come before imports) ──────────────────────────────────
-
-mock.module("../../../config/loader.js", () => ({
-  getConfigReadOnly: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-}));
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 // ── Real imports ──────────────────────────────────────────────────────────────
-
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { providerConnections } from "../../../memory/schema/inference.js";
-import { createConnection, getConnection } from "../../../providers/inference/connections.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { providerConnections } from "../../../persistence/schema/inference.js";
+import {
+  createConnection,
+  getConnection,
+} from "../../../providers/inference/connections.js";
 import { ROUTES } from "../inference-provider-connection-routes.js";
 import type { RouteDefinition } from "../types.js";
 
 // ── DB bootstrap ──────────────────────────────────────────────────────────────
 
-initializeDb();
+await initializeDb();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
   const route = ROUTES.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
@@ -49,8 +40,14 @@ function clearConnections(): void {
   getDb().delete(providerConnections).run();
 }
 
-function normalizeTimestamps<T extends object>(obj: T): Omit<T, "createdAt" | "updatedAt"> {
-  const { createdAt: _c, updatedAt: _u, ...rest } = obj as T & { createdAt?: unknown; updatedAt?: unknown };
+function normalizeTimestamps<T extends object>(
+  obj: T,
+): Omit<T, "createdAt" | "updatedAt"> {
+  const {
+    createdAt: _c,
+    updatedAt: _u,
+    ...rest
+  } = obj as T & { createdAt?: unknown; updatedAt?: unknown };
   return rest as Omit<T, "createdAt" | "updatedAt">;
 }
 
@@ -71,7 +68,9 @@ describe("CLI vs HTTP route parity", () => {
     // ── CLI path ──────────────────────────────────────────────────────────────
     const cliResult = createConnection(getDb(), payload);
     expect(cliResult.ok).toBe(true);
-    if (!cliResult.ok) throw new Error("CLI create failed");
+    if (!cliResult.ok) {
+      throw new Error("CLI create failed");
+    }
     const cliRow = getConnection(getDb(), payload.name);
     expect(cliRow).not.toBeNull();
 
@@ -79,7 +78,9 @@ describe("CLI vs HTTP route parity", () => {
     clearConnections();
 
     // ── HTTP route path ───────────────────────────────────────────────────────
-    const httpResult = (await findHandler("inference_provider_connections_create")({
+    const httpResult = (await findHandler(
+      "inference_provider_connections_create",
+    )({
       body: {
         name: payload.name,
         provider: payload.provider,
@@ -105,13 +106,19 @@ describe("CLI vs HTTP route parity", () => {
 
     const cliResult = createConnection(getDb(), payload);
     expect(cliResult.ok).toBe(true);
-    if (!cliResult.ok) throw new Error("CLI create failed");
+    if (!cliResult.ok) {
+      throw new Error("CLI create failed");
+    }
     const cliRow = getConnection(getDb(), payload.name);
 
     clearConnections();
 
     await findHandler("inference_provider_connections_create")({
-      body: { name: payload.name, provider: payload.provider, auth: payload.auth },
+      body: {
+        name: payload.name,
+        provider: payload.provider,
+        auth: payload.auth,
+      },
     });
     const httpRow = getConnection(getDb(), payload.name);
 
@@ -127,13 +134,19 @@ describe("CLI vs HTTP route parity", () => {
 
     const cliResult = createConnection(getDb(), payload);
     expect(cliResult.ok).toBe(true);
-    if (!cliResult.ok) throw new Error("CLI create failed");
+    if (!cliResult.ok) {
+      throw new Error("CLI create failed");
+    }
     const cliRow = getConnection(getDb(), payload.name);
 
     clearConnections();
 
     await findHandler("inference_provider_connections_create")({
-      body: { name: payload.name, provider: payload.provider, auth: payload.auth },
+      body: {
+        name: payload.name,
+        provider: payload.provider,
+        auth: payload.auth,
+      },
     });
     const httpRow = getConnection(getDb(), payload.name);
 

@@ -21,15 +21,16 @@ import { Tooltip } from "./tooltip";
  *
  * - Pass `variant` for chrome style and `size` for dimensions.
  * - Pass `leftIcon` / `rightIcon` for text+icon layouts.
- * - Pass `iconOnly` to render a square icon-only button (the icon is centered
- *   at the correct size for the chosen `size`). Without `asChild` the children
- *   are ignored; with `asChild` the caller's element (e.g. a `Link`) becomes
- *   the root and the icon is re-parented into it.
+ * - Pass the icon element as `iconOnly` (e.g. `iconOnly={<X />}`) to render a
+ *   square icon-only button (the icon is centered at the correct size for the
+ *   chosen `size`). Without `asChild` the children are ignored; with `asChild`
+ *   the caller's element (e.g. a `Link`) becomes the root and the icon is
+ *   re-parented into it.
  * - Use `asChild` to render as a child element (e.g. a `Link`) while keeping
  *   button styling and accessibility semantics. Uses Radix's `Slot`.
  * - Pass `expandOnMobile={false}` to opt an icon-only button out of the larger
- *   circular mobile tap target (keeps the desktop sizing/chrome on mobile) —
- *   useful for compact inline affordances like a chip's remove "×".
+ *   circular tap target on touch-mobile devices — useful for compact inline
+ *   affordances like a chip's remove "×".
  * - Callers may always override styles via `className` / `style`.
  */
 const buttonVariants = cva(
@@ -101,6 +102,13 @@ const buttonVariants = cva(
           "active:bg-[color-mix(in_srgb,var(--primary-second-hover)_20%,transparent)] active:scale-100",
           "disabled:[--vbtn-fg:var(--content-disabled)]",
         ].join(" "),
+        link: [
+          "[--vbtn-fg:var(--content-link)]",
+          "inline bg-transparent border-transparent",
+          "hover:underline",
+          "active:scale-100",
+          "disabled:[--vbtn-fg:var(--content-disabled)]",
+        ].join(" "),
       },
       size: {
         regular: "h-8 px-2.5 text-body-medium-default rounded-md",
@@ -138,13 +146,13 @@ const buttonVariants = cva(
         iconOnly: true,
         size: "regular",
         expandOnMobile: true,
-        class: "max-md:h-10 max-md:w-10",
+        class: "touch-mobile:h-10 touch-mobile:w-10",
       },
       {
         iconOnly: true,
         size: "compact",
         expandOnMobile: true,
-        class: "max-md:h-10 max-md:w-10",
+        class: "touch-mobile:h-10 touch-mobile:w-10",
       },
       {
         variant: "ghost",
@@ -193,12 +201,16 @@ const buttonVariants = cva(
         iconOnly: true,
         expandOnMobile: true,
         class: [
-          "max-md:bg-[var(--surface-lift)]",
-          "max-md:rounded-full",
-          "max-md:[--vbtn-fg:var(--content-default)]",
-          "max-md:hover:bg-[var(--surface-active)]",
-          "max-md:active:bg-[var(--surface-active)]",
+          "touch-mobile:bg-[var(--surface-lift)]",
+          "touch-mobile:rounded-full",
+          "touch-mobile:[--vbtn-fg:var(--content-default)]",
+          "touch-mobile:hover:bg-[var(--surface-active)]",
+          "touch-mobile:active:bg-[var(--surface-active)]",
         ].join(" "),
+      },
+      {
+        variant: "link",
+        class: "h-auto p-0 rounded-none text-[length:inherit] leading-[inherit]",
       },
     ],
     defaultVariants: {
@@ -224,16 +236,32 @@ export interface ButtonProps
   size?: ButtonSize;
   leftIcon?: ReactNode;
   rightIcon?: ReactNode;
-  iconOnly?: ReactNode;
+  /**
+   * The icon element itself, not a flag. `true` is excluded from the type
+   * because a bare `iconOnly` attribute would put the icon-only chrome on a
+   * button with no visible content (`leftIcon`/`rightIcon`/`children` are
+   * ignored in icon-only mode). `false` stays allowed for `cond && <Icon />`.
+   */
+  iconOnly?: Exclude<ReactNode, boolean> | false;
   fullWidth?: boolean;
   active?: boolean;
   /**
    * When `true` (default), icon-only buttons grow to a larger circular tap
-   * target on mobile (`max-md`). Set to `false` to keep the desktop sizing and
-   * chrome on mobile — useful for compact inline affordances (e.g. a chip's
-   * remove "×") where the enlarged circle is undesirable.
+   * target on touch-mobile devices (narrow viewport + coarse pointer). Set to
+   * `false` to keep the desktop sizing — useful for compact inline affordances
+   * (e.g. a chip's remove "×") where the enlarged circle is undesirable.
    */
   expandOnMobile?: boolean;
+  /**
+   * Extra classes merged onto the icon-only glyph wrapper span (the element
+   * that carries the `[&_svg]:size-3.5` sizing). This is the supported way to
+   * resize an icon-only glyph: a call-site `className` lands on the button box,
+   * where an `[&_svg]:size-*` utility only ties with the wrapper's own svg rule
+   * and loses on source order. Because this string is merged onto the wrapper
+   * itself (last in `cn`), an `[&_svg]:size-5` here reliably wins. Ignored
+   * unless `iconOnly` is set.
+   */
+  iconOnlyGlyphClassName?: string;
   tintColor?: string;
   tooltip?: string;
   /** Side the tooltip is placed on. Defaults to Radix's "top". */
@@ -258,6 +286,7 @@ export function Button({
   fullWidth = false,
   active = false,
   expandOnMobile = true,
+  iconOnlyGlyphClassName,
   tintColor,
   tooltip,
   tooltipSide,
@@ -291,7 +320,11 @@ export function Button({
   // A fixed size keeps the icon at the intended dimension regardless of nesting.
   const iconOnlyClass = cn(
     "inline-flex items-center justify-center shrink-0 size-3.5 [&_svg]:size-3.5",
-    expandOnMobile && "max-md:size-4 max-md:[&_svg]:size-4",
+    expandOnMobile && "touch-mobile:size-4 touch-mobile:[&_svg]:size-4",
+    // Merged last so a caller-supplied `[&_svg]:size-*` overrides the defaults
+    // above on the same element (source-order win), rather than fighting them
+    // from the button box via a lower-priority descendant selector.
+    iconOnlyGlyphClassName,
   );
 
   const Comp = asChild ? Slot : "button";

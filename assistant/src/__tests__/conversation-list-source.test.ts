@@ -13,13 +13,6 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
@@ -32,24 +25,13 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
-
-import { createConversation } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { createConversation } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 type ConversationSummary = {
   id: string;
@@ -90,7 +72,7 @@ describe("GET /v1/conversations includes source discriminator", () => {
     }
   });
 
-  test("defaults source to \"user\" for conversations created without an explicit source", async () => {
+  test('defaults source to "user" for conversations created without an explicit source', async () => {
     const created = createConversation("Default-source conversation");
     await startServer();
 
@@ -105,7 +87,7 @@ describe("GET /v1/conversations includes source discriminator", () => {
     expect(listed?.source).toBe("user");
   });
 
-  test("reflects a custom source (e.g. \"auto-analysis\") verbatim", async () => {
+  test('reflects a custom source (e.g. "auto-analysis") verbatim', async () => {
     const created = createConversation({
       title: "Auto-analysis conversation",
       source: "auto-analysis",
@@ -140,7 +122,9 @@ describe("GET /v1/conversations includes source discriminator", () => {
   }
 
   function url(pathname: string): string {
-    if (!server) throw new Error("server not started");
+    if (!server) {
+      throw new Error("server not started");
+    }
     return `http://127.0.0.1:${server.actualPort}/v1${pathname}`;
   }
 });

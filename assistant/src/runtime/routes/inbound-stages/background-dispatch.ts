@@ -7,33 +7,32 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
-import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { findGuardianForChannel } from "../../../contacts/contact-store.js";
-import type { ServerMessage } from "../../../daemon/message-protocol.js";
-import type { TrustContext } from "../../../daemon/trust-context.js";
+import type { AssistantEvent } from "../../../api/index.js";
 import {
-  addSlackDmLiveDeliveredTextResponseIndex,
-  getSlackDmLiveDeliveredTextResponseIndexes,
-  updateDeliveredSegmentCount,
-} from "../../../memory/delivery-channels.js";
-import {
-  linkMessage,
-  storeReplyMessageId,
-} from "../../../memory/delivery-crud.js";
-import {
-  markDeliveryDelivered,
-  markProcessed,
-  recordDeliveryFailure,
-  recordProcessingFailure,
-} from "../../../memory/delivery-status.js";
-import {
-  clearThreadTs,
-  extractChannelFromCallbackUrl,
   extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
-  peekThreadMapping,
-  setThreadTs,
-} from "../../../memory/slack-thread-store.js";
+  isSlackDeliveryCallbackUrl,
+} from "../../../channels/slack-callback-url.js";
+import type { ChannelId, InterfaceId } from "../../../channels/types.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../../contacts/guardian-delivery-reader.js";
+import { isConversationBusyError } from "../../../daemon/conversation-messaging.js";
+import type { TrustContext } from "../../../daemon/trust-context-types.js";
+import {
+  getSiblingStreamedReplyTs,
+  linkMessage,
+  storeInboundSlackMetadata,
+  storeReplyMessageId,
+  storeStreamedReplyTs,
+} from "../../../persistence/delivery-crud.js";
+import {
+  deferRetryUntilIdle,
+  isDeduplicatedDeliveryOwnedBySibling,
+  markProcessed,
+  recordProcessingFailure,
+} from "../../../persistence/delivery-status.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
@@ -48,13 +47,18 @@ import type {
   MessageProcessor,
   SlackInboundMessageMetadata,
 } from "../../http-types.js";
+import { hasDeliverableAssistantText } from "../../no-response.js";
+import { createSlackReplySession } from "../../slack-reply-session.js";
+import type { TaskProgressData } from "../../slack-task-progress.js";
 import {
-  createSlackDmTextDeliveryController,
-  isSlackDeliveryCallbackUrl,
-} from "../../slack-dm-text-delivery.js";
+  getTaskProgressDataFromSurfaceData,
+  mergeTaskProgressData,
+} from "../../slack-task-progress.js";
+import { isContactTrustClass } from "../../trust-class.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
-import { deliverReplyViaCallback } from "../channel-delivery-routes.js";
+import { finalizeEventDelivery } from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
+import { withChannelTurnAdmission } from "./channel-turn-admission.js";
 
 const log = getLogger("runtime-http");
 
@@ -140,7 +144,23 @@ export function processChannelMessageInBackground(
     slackInbound,
   } = params;
 
-  (async () => {
+  // Capture the Slack ingress metadata onto the stored payload up front — before
+  // the admission wait or any processing — so if the daemon dies mid-wait or
+  // mid-turn, the retry sweep replays with the SAME `slackInbound` this turn
+  // used. That keeps the derived idempotency key identical (the replay dedups
+  // against a turn this attempt already persisted) and carries full slackMeta.
+  if (slackInbound) {
+    storeInboundSlackMetadata(eventId, slackInbound);
+  }
+
+  // Defer the whole turn + delivery until the conversation's processing lock is
+  // free, serialized per conversation so same-conversation replies stay ordered.
+  // A channel message routed to a busy conversation (e.g. a Slack
+  // thread-participant reply arriving mid-session) is thereby processed when the
+  // in-flight turn completes instead of being dropped. See
+  // `channel-turn-admission.ts` for why channel turns defer rather than route
+  // through the SSE-oriented conversation queue.
+  void withChannelTurnAdmission(conversationId, async () => {
     const typingCallbackUrl = shouldEmitTelegramTyping(
       sourceChannel,
       replyCallbackUrl,
@@ -191,37 +211,6 @@ export function processChannelMessageInBackground(
         })
       : undefined;
 
-    // Align the Slack thread mapping with this turn's inbound state:
-    // set it when the inbound arrived in a thread, clear it when the
-    // inbound arrived at the channel root. `getThreadTs` is consulted
-    // at outbound-persistence time, so the mapping must reflect the
-    // current turn — a lingering mapping from a prior thread turn
-    // would otherwise be stamped onto a channel-root reply.
-    //
-    // The update must happen BEFORE `processMessage` runs because outbound
-    // persistence (inside the agent loop) reads the mapping. But if a prior
-    // threaded turn is still in flight, our `processMessage` call will be
-    // rejected as already-processing and our update would erase that
-    // in-flight turn's mapping. Snapshot the prior state here and restore
-    // it in the `already processing` rejection path below.
-    let priorSlackMapping: {
-      threadTs: string;
-      channelId: string;
-    } | null = null;
-    let slackMappingMutated = false;
-    if (sourceChannel === "slack" && replyCallbackUrl) {
-      priorSlackMapping = peekThreadMapping(conversationId);
-      const inboundThreadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
-      const inboundChannel = extractChannelFromCallbackUrl(replyCallbackUrl);
-      if (inboundThreadTs && inboundChannel) {
-        setThreadTs(conversationId, inboundChannel, inboundThreadTs);
-        slackMappingMutated = true;
-      } else {
-        clearThreadTs(conversationId);
-        slackMappingMutated = true;
-      }
-    }
-
     try {
       const cmdIntent =
         commandIntent && typeof commandIntent.type === "string"
@@ -236,22 +225,20 @@ export function processChannelMessageInBackground(
             }
           : undefined;
       let replyMessageId: string | undefined;
-      const slackDmTextDelivery = createSlackDmTextDeliveryController({
+      const slackReplySession = createSlackReplySession({
         sourceChannel,
         chatType,
         replyCallbackUrl,
         chatId: externalChatId,
         assistantId,
-        deliveredTextResponseIndexes:
-          getSlackDmLiveDeliveredTextResponseIndexes(eventId),
-        onTextResponseDelivered: (responseIndex, reason) => {
-          addSlackDmLiveDeliveredTextResponseIndex(eventId, responseIndex);
-          if (reason === "before_tool") {
-            slackThinkingStatus?.refreshAfterReply();
-          }
-        },
+        recipientUserId: slackInbound?.actorExternalUserId,
+        recipientTeamId: slackInbound?.actorTeamId,
+        // Durably record the streamed message `ts` the instant the stream
+        // opens, so a crash before `finalizeEventDelivery` leaves a breadcrumb
+        // the redelivery path can reuse to edit the reply in place.
+        onStreamOpen: (streamTs) => storeStreamedReplyTs(eventId, streamTs),
       });
-      const observeAgentEvent = (msg: ServerMessage): void => {
+      const observeAgentEvent = (msg: AssistantEvent): void => {
         if (
           msg.type === "message_complete" &&
           (msg.source === undefined || msg.source === "main") &&
@@ -259,11 +246,12 @@ export function processChannelMessageInBackground(
         ) {
           replyMessageId = msg.messageId;
         }
-        slackDmTextDelivery?.observeEvent(msg);
+        slackReplySession?.observeEvent(msg);
         slackThinkingStatus?.observeEvent(msg);
       };
 
       let userMessageId: string | undefined;
+      let deduplicatedIngress = false;
       try {
         const result = await processMessage(conversationId, content, {
           attachmentIds,
@@ -285,6 +273,7 @@ export function processChannelMessageInBackground(
           sourceInterface,
         });
         userMessageId = result.messageId;
+        deduplicatedIngress = result.deduplicated === true;
         linkMessage(eventId, userMessageId);
         markProcessed(eventId);
         replyMessageId ??= result.assistantMessageId;
@@ -292,66 +281,91 @@ export function processChannelMessageInBackground(
           storeReplyMessageId(eventId, replyMessageId);
         }
       } catch (err) {
-        // When another turn is already processing this conversation,
-        // `prepareConversationForMessage` throws before any of this turn's
-        // work runs. Our pre-await mapping update would otherwise stomp the
-        // in-flight turn's mapping, causing its outbound persistence to
-        // record `slackMeta` with the wrong (or missing) `threadTs`. Restore
-        // the snapshot so the in-flight turn sees the mapping it installed.
-        if (
-          slackMappingMutated &&
-          err instanceof Error &&
-          err.message.includes("already processing a message")
-        ) {
-          if (priorSlackMapping) {
-            setThreadTs(
-              conversationId,
-              priorSlackMapping.channelId,
-              priorSlackMapping.threadTs,
-            );
-          } else {
-            clearThreadTs(conversationId);
-          }
+        // Stop any live Slack stream cleanly. Its `ts` is already durably
+        // recorded via `onStreamOpen`, so the retry sweep can reconcile
+        // against that message rather than posting a duplicate.
+        await slackReplySession?.finish();
+        if (isConversationBusyError(err)) {
+          // Admission observed the conversation idle, but a non-channel turn
+          // (web / wake / voice) re-took the processing lock before this turn
+          // could. Re-schedule for the retry sweep without burning a retry
+          // attempt (`deferRetryUntilIdle`) so it reprocesses and delivers from
+          // the stored payload once the lock frees — a plain processing-failure
+          // record would classify the busy message as fatal and dead-letter it
+          // (a silent drop), and even a retryable one could exhaust the budget
+          // under sustained contention.
+          log.info(
+            { conversationId, eventId },
+            "Channel turn lost the processing lock after admission; deferring to the retry sweep",
+          );
+          deferRetryUntilIdle(eventId);
+          return;
         }
         log.error(
           { err, conversationId },
           "Background channel message processing failed",
         );
-        if (slackDmTextDelivery) {
-          await slackDmTextDelivery.waitForPendingDeliveries();
-        }
         recordProcessingFailure(eventId, err);
         return;
       }
 
-      if (replyCallbackUrl) {
-        try {
-          if (slackDmTextDelivery) {
-            await slackDmTextDelivery.waitForPendingDeliveries();
-          }
-          const liveDeliveryResumeOptions =
-            slackDmTextDelivery?.getFinalDeliveryResumeOptions(replyMessageId);
+      // An at-least-once redelivery that deduplicated against the original turn
+      // must not blindly re-deliver: `finalizeEventDelivery` would re-emit the
+      // reply via `sinceMessageId: userMessageId`. Consult the sibling events
+      // linked to the same user message (they share `messageId` because the
+      // deduped turn returns the original message id and this redelivery was
+      // `linkMessage`d to it). `deliveryStatus` goes `pending` → `delivered` |
+      // `failed` | `dead_letter`; only `pending` is non-terminal:
+      //   - `delivered`            → reply already emitted → skip (would duplicate).
+      //   - `failed`/`dead_letter` → a delivery attempt is recorded; the retry
+      //     sweep (which selects `deliveryStatus='failed'`) or dead-letter replay
+      //     owns recovery → skip to avoid racing it.
+      //   - all siblings `pending` → the first process persisted the turn but
+      //     died before recording a delivery outcome. The sweep never selects
+      //     `pending`, so this redelivery is the only path that can recover the
+      //     undelivered reply → fall through and deliver. If that first attempt
+      //     had already streamed its reply live into Slack, its message `ts` is
+      //     durably recorded on the sibling row (via `onStreamOpen`); reuse it so
+      //     recovery edits that visible message in place instead of posting the
+      //     persisted reply a second time.
+      let priorDeduplicatedDeliveryOwned = false;
+      let recoveredStreamMessageTs: string | undefined;
+      if (deduplicatedIngress && userMessageId !== undefined) {
+        if (isDeduplicatedDeliveryOwnedBySibling(userMessageId, eventId)) {
+          priorDeduplicatedDeliveryOwned = true;
+        } else {
+          recoveredStreamMessageTs = getSiblingStreamedReplyTs(
+            userMessageId,
+            eventId,
+          );
+        }
+      }
 
-          await deliverReplyViaCallback(
+      if (priorDeduplicatedDeliveryOwned) {
+        log.info(
+          { conversationId, eventId },
+          "Skipping channel reply delivery for deduplicated ingress event; a prior attempt owns delivery",
+        );
+      } else if (replyCallbackUrl) {
+        try {
+          await finalizeEventDelivery({
+            eventId,
             conversationId,
             externalChatId,
             replyCallbackUrl,
             assistantId,
-            {
-              messageId: replyMessageId,
-              sinceMessageId: userMessageId,
-              ...liveDeliveryResumeOptions,
-              onSegmentDelivered: (count) =>
-                updateDeliveredSegmentCount(eventId, count),
-            },
-          );
-          markDeliveryDelivered(eventId);
+            replyMessageId,
+            userMessageId,
+            slackReplySession,
+            ...(recoveredStreamMessageTs
+              ? { priorStreamMessageTs: recoveredStreamMessageTs }
+              : {}),
+          });
         } catch (err) {
           log.error(
             { err, conversationId },
             "Background channel reply delivery failed",
           );
-          recordDeliveryFailure(eventId, err);
         }
       }
     } finally {
@@ -360,7 +374,12 @@ export function processChannelMessageInBackground(
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
     }
-  })();
+  }).catch((err) => {
+    log.error(
+      { err, conversationId, eventId },
+      "Channel turn admission failed unexpectedly",
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +392,9 @@ function shouldEmitTelegramTyping(
   sourceChannel: ChannelId,
   replyCallbackUrl?: string,
 ): boolean {
-  if (sourceChannel !== "telegram" || !replyCallbackUrl) return false;
+  if (sourceChannel !== "telegram" || !replyCallbackUrl) {
+    return false;
+  }
   try {
     return new URL(replyCallbackUrl).pathname.endsWith("/deliver/telegram");
   } catch {
@@ -390,7 +411,9 @@ function startTelegramTypingHeartbeat(
   let inFlight = false;
 
   const emitTyping = (): void => {
-    if (!active || inFlight) return;
+    if (!active || inFlight) {
+      return;
+    }
     inFlight = true;
     void deliverChannelReply(callbackUrl, {
       chatId,
@@ -424,48 +447,17 @@ function startTelegramTypingHeartbeat(
 // ---------------------------------------------------------------------------
 
 type SlackThinkingStatusController = {
-  observeEvent: (msg: ServerMessage) => void;
-  refreshAfterReply: () => void;
+  observeEvent: (msg: AssistantEvent) => void;
   stop: () => void;
 };
 
 type SlackThinkingStatusHandle = {
   updateLoadingMessages: (loadingMessages?: string[]) => void;
-  refresh: (loadingMessages?: string[]) => void;
   clear: () => void;
 };
 
-type TaskProgressStep = {
-  label: string;
-  status: "pending" | "in_progress" | "completed" | "failed";
-};
-
-type TaskProgressData = {
-  steps: TaskProgressStep[];
-};
-
-const NO_RESPONSE_RE = /^\s*<no_response\s*\/?>\s*$/i;
-const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/gi;
-const NO_RESPONSE_SENTINEL_FORMS = [
-  "<no_response/>",
-  "<no_response />",
-  "<no_response>",
-] as const;
-
-function isPotentialNoResponsePrefix(text: string): boolean {
-  const lower = text.toLowerCase();
-  return NO_RESPONSE_SENTINEL_FORMS.some((sentinel) =>
-    sentinel.startsWith(lower),
-  );
-}
-
 export function shouldStartSlackThinkingStatusForText(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return false;
-  if (NO_RESPONSE_RE.test(trimmed)) return false;
-  if (isPotentialNoResponsePrefix(trimmed)) return false;
-
-  return trimmed.replace(NO_RESPONSE_INLINE_RE, "").trim().length > 0;
+  return hasDeliverableAssistantText(text);
 }
 
 function shouldEmitSlackThinkingStatus(
@@ -482,7 +474,9 @@ export function shouldStartSlackThinkingStatusImmediately(params: {
   chatType?: string;
   slackBotMentioned?: boolean;
 }): boolean {
-  if (params.sourceChannel !== "slack") return false;
+  if (params.sourceChannel !== "slack") {
+    return false;
+  }
   return params.chatType === "im" || params.slackBotMentioned === true;
 }
 
@@ -518,7 +512,9 @@ function createSlackThinkingStatusController(params: {
   const taskProgressBySurfaceId = new Map<string, TaskProgressData>();
 
   const start = (): void => {
-    if (stopped || slackThinkingStatus) return;
+    if (stopped || slackThinkingStatus) {
+      return;
+    }
     slackThinkingStatus = setSlackThinkingStatus(
       callbackUrl,
       chatId,
@@ -530,20 +526,26 @@ function createSlackThinkingStatusController(params: {
 
   const maybeUpdateLoadingMessages = (): void => {
     const nextLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
-    if (nextLoadingMessageKey === lastSentLoadingMessageKey) return;
+    if (nextLoadingMessageKey === lastSentLoadingMessageKey) {
+      return;
+    }
     lastSentLoadingMessageKey = nextLoadingMessageKey;
     slackThinkingStatus?.updateLoadingMessages(currentLoadingMessages);
   };
 
-  const observeTaskProgress = (msg: ServerMessage): void => {
+  const observeTaskProgress = (msg: AssistantEvent): void => {
     if (msg.type === "ui_surface_show") {
       const progress = getTaskProgressDataFromSurfaceData(msg.data);
-      if (!progress) return;
+      if (!progress) {
+        return;
+      }
       taskProgressBySurfaceId.set(msg.surfaceId, progress);
     } else if (msg.type === "ui_surface_update") {
       const existing = taskProgressBySurfaceId.get(msg.surfaceId);
       const progress = mergeTaskProgressData(existing, msg.data);
-      if (!progress) return;
+      if (!progress) {
+        return;
+      }
       taskProgressBySurfaceId.set(msg.surfaceId, progress);
     } else {
       return;
@@ -562,26 +564,23 @@ function createSlackThinkingStatusController(params: {
 
   return {
     observeEvent(msg) {
-      if (stopped) return;
+      if (stopped) {
+        return;
+      }
 
       if (msg.type === "ui_surface_show" || msg.type === "ui_surface_update") {
         observeTaskProgress(msg);
         return;
       }
 
-      if (slackThinkingStatus || msg.type !== "assistant_text_delta") return;
+      if (slackThinkingStatus || msg.type !== "assistant_text_delta") {
+        return;
+      }
 
       observedAssistantText += msg.text;
       if (shouldStartSlackThinkingStatusForText(observedAssistantText)) {
         start();
       }
-    },
-    refreshAfterReply() {
-      if (stopped || !slackThinkingStatus) return;
-      // Slack clears assistant thread status when the app sends a reply, so
-      // live pre-tool replies need to reassert it while work continues.
-      slackThinkingStatus.refresh(currentLoadingMessages);
-      lastSentLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
     },
     stop() {
       stopped = true;
@@ -591,7 +590,7 @@ function createSlackThinkingStatusController(params: {
 }
 
 const SLACK_THINKING_MAX_DURATION_MS = 120_000;
-const SLACK_GENERIC_LOADING_MESSAGES = ["Working on it..."] as const;
+const SLACK_GENERIC_LOADING_MESSAGES = ["Thinking…"] as const;
 const SLACK_THINKING_STATUSES = ["is on it", "is working hard"] as const;
 
 function getRandomSlackThinkingStatus(): string {
@@ -604,62 +603,19 @@ function getLoadingMessagesKey(loadingMessages?: string[]): string | undefined {
   return loadingMessages?.join("\n");
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getTaskProgressDataFromSurfaceData(
-  data: unknown,
-): TaskProgressData | undefined {
-  if (!isRecord(data)) return undefined;
-  if (data.template !== "task_progress") return undefined;
-  return parseTaskProgressData(data.templateData);
-}
-
-function parseTaskProgressData(value: unknown): TaskProgressData | undefined {
-  if (!isRecord(value) || !Array.isArray(value.steps)) return undefined;
-
-  const steps = value.steps.flatMap((step): TaskProgressStep[] => {
-    if (!isRecord(step)) return [];
-    if (typeof step.label !== "string") return [];
-    if (
-      step.status !== "pending" &&
-      step.status !== "in_progress" &&
-      step.status !== "completed" &&
-      step.status !== "failed"
-    ) {
-      return [];
-    }
-    return [{ label: step.label, status: step.status }];
-  });
-
-  return steps.length > 0 ? { steps } : undefined;
-}
-
-function mergeTaskProgressData(
-  existing: TaskProgressData | undefined,
-  data: unknown,
-): TaskProgressData | undefined {
-  if (!isRecord(data)) return existing;
-  const update = getTaskProgressDataFromSurfaceData(data);
-  if (update) return update;
-  if (!existing || !("templateData" in data)) return existing;
-
-  return parseTaskProgressData({
-    steps: existing.steps,
-    ...(isRecord(data.templateData) ? data.templateData : {}),
-  });
-}
-
 function getTaskProgressLoadingMessage(
   progress: TaskProgressData | undefined,
 ): string[] | undefined {
-  if (!progress) return undefined;
+  if (!progress) {
+    return undefined;
+  }
 
   const activeStepIndex = progress.steps.findIndex(
     (step) => step.status === "in_progress",
   );
-  if (activeStepIndex < 0) return undefined;
+  if (activeStepIndex < 0) {
+    return undefined;
+  }
 
   const activeStep = progress.steps[activeStepIndex]!;
   return [
@@ -694,7 +650,6 @@ function setSlackThinkingStatus(
     if (!messageTs) {
       return {
         updateLoadingMessages: () => {},
-        refresh: () => {},
         clear: () => {},
       };
     }
@@ -711,7 +666,9 @@ function setSlackThinkingStatus(
     });
 
     const clearReaction = (): void => {
-      if (cleared) return;
+      if (cleared) {
+        return;
+      }
       cleared = true;
       clearTimeout(safetyTimer);
       void addPromise.then(() =>
@@ -736,7 +693,6 @@ function setSlackThinkingStatus(
 
     return {
       updateLoadingMessages: () => {},
-      refresh: () => {},
       clear: clearReaction,
     };
   }
@@ -757,7 +713,9 @@ function setSlackThinkingStatus(
   });
 
   const updateLoadingMessages = (nextLoadingMessages?: string[]): void => {
-    if (cleared) return;
+    if (cleared) {
+      return;
+    }
     statusPromise = statusPromise.then(() =>
       deliverChannelReply(callbackUrl, {
         chatId,
@@ -779,12 +737,10 @@ function setSlackThinkingStatus(
     );
   };
 
-  const refresh = (nextLoadingMessages?: string[]): void => {
-    updateLoadingMessages(nextLoadingMessages);
-  };
-
   const clearStatus = (): void => {
-    if (cleared) return;
+    if (cleared) {
+      return;
+    }
     cleared = true;
     clearTimeout(safetyTimer);
     void statusPromise.then(() =>
@@ -810,7 +766,6 @@ function setSlackThinkingStatus(
 
   return {
     updateLoadingMessages,
-    refresh,
     clear: clearStatus,
   };
 }
@@ -918,10 +873,12 @@ const globalNotifiedApprovalRequestIds = new Map<string, string>();
 
 /**
  * Start a poller that sends a one-shot "waiting for guardian approval" message
- * to the trusted contact when a confirmation_request enters guardian approval
- * wait. Deduplicates by requestId so each request only produces one message.
+ * to the trusted/unverified contact when a confirmation_request enters guardian
+ * approval wait. Deduplicates by requestId so each request only produces one
+ * message.
  *
- * Only activates for trusted-contact actors with a resolvable guardian route.
+ * Only activates for trusted_contact and unverified_contact actors with a
+ * resolvable guardian route.
  */
 function startTrustedContactApprovalNotifier(params: {
   conversationId: string;
@@ -942,8 +899,9 @@ function startTrustedContactApprovalNotifier(params: {
     assistantId,
   } = params;
 
-  // Only notify trusted contacts who have a resolvable guardian route.
-  if (trustClass !== "trusted_contact" || !guardianExternalUserId) {
+  // Only notify identity-known non-guardian contacts (trusted_contact and
+  // unverified_contact) who have a resolvable guardian route.
+  if (!isContactTrustClass(trustClass) || !guardianExternalUserId) {
     return () => {};
   }
 
@@ -969,10 +927,15 @@ function startTrustedContactApprovalNotifier(params: {
 
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
           globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
-          const guardian = findGuardianForChannel(sourceChannel);
-          const guardianName = resolveGuardianName(
-            guardian?.contact.displayName,
-          );
+          // Gateway-resolved guardian display name (display-only).
+          const guardians = await getGuardianDelivery({
+            channelTypes: [sourceChannel],
+          });
+          const displayName = guardians
+            ? (guardianForChannel(guardians, sourceChannel)?.displayName ??
+              undefined)
+            : undefined;
+          const guardianName = resolveGuardianName(displayName);
           const waitingText = `Waiting for ${guardianName}'s approval...`;
           try {
             await deliverChannelReply(replyCallbackUrl, {

@@ -1,12 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
@@ -19,29 +12,18 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
-
 import {
   batchSetDisplayOrders,
   createConversation,
   updateConversationTitle,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { rawRun } from "../memory/raw-query.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { rawRun } from "../persistence/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-initializeDb();
+await initializeDb();
 
 type ConversationSummary = {
   id: string;
@@ -161,7 +143,11 @@ describe("conversation lineage in HTTP reads", () => {
 
   test("deleted parents are omitted from list and detail responses", async () => {
     const { child, parent } = seedForkedConversation();
-    rawRun("DELETE FROM conversations WHERE id = ?", parent.id);
+    rawRun(
+      "test:deleteParent",
+      "DELETE FROM conversations WHERE id = ?",
+      parent.id,
+    );
     await startServer();
 
     const listResponse = await fetch(url("/conversations"));
@@ -199,6 +185,7 @@ describe("conversation lineage in HTTP reads", () => {
     const child = createConversation("Forked conversation");
 
     rawRun(
+      "test:setForkParent",
       `
         UPDATE conversations
         SET fork_parent_conversation_id = ?, fork_parent_message_id = ?
@@ -220,7 +207,9 @@ describe("conversation lineage in HTTP reads", () => {
   }
 
   function url(pathname: string): string {
-    if (!server) throw new Error("server not started");
+    if (!server) {
+      throw new Error("server not started");
+    }
     return `http://127.0.0.1:${server.actualPort}/v1${pathname}`;
   }
 });

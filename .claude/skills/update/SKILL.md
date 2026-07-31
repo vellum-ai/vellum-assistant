@@ -1,12 +1,12 @@
 ---
 name: update
 description: >
-  Restart Vellum services and rebuild the macOS app. Smart branch handling: pulls from main by default, restarts in-place on feature branches, or switches to a specified branch. Pass --pull to force-pull on the current branch.
+  Restart the Vellum assistant and gateway services. Smart branch handling: pulls from main by default, restarts in-place on feature branches, or switches to a specified branch. Pass --pull to force-pull on the current branch.
 ---
 
 # Update - Restart Vellum (with Smart Branch Handling)
 
-Restart Vellum services and rebuild the macOS app with branch-aware git behavior.
+Restart the Vellum assistant and gateway services with branch-aware git behavior.
 
 ## Arguments
 
@@ -31,18 +31,12 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    vellum ps
    ```
 
-2. Kill the macOS app and any stale file-watcher processes first (old `build.sh run` watchers will detect git-pulled Swift changes and bounce the app repeatedly). Use `-f` to match against the full command line, catching all environment variants (`Vellum`, `Vellum Local`, `Vellum Dev`, etc.):
-   ```bash
-   pkill -f "Vellum.*\.app/Contents/MacOS/" || true
-   pkill -f "build\.sh run" || true
-   ```
-
-3. Quiesce with `vellum sleep` - stop assistant and gateway processes. This is directory-agnostic and stops processes globally regardless of CWD:
+2. Quiesce with `vellum sleep` - stop assistant and gateway processes. This is directory-agnostic and stops processes globally regardless of CWD:
    ```bash
    vellum sleep || true
    ```
 
-4. Verify stopped - run `vellum ps` and confirm no running processes. If `vellum ps` shows processes still running, run fallback cleanup to force-kill them:
+3. Verify stopped - run `vellum ps` and confirm no running processes. If `vellum ps` shows processes still running, run fallback cleanup to force-kill them:
    ```bash
    vellum ps
    ```
@@ -56,7 +50,7 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    ```
    After fallback cleanup, run `vellum ps` again to confirm all processes are stopped.
 
-5. Smart branch handling - determine what git operations (if any) to perform:
+4. Smart branch handling - determine what git operations (if any) to perform:
 
    ```bash
    CURRENT=$(git branch --show-current)
@@ -99,7 +93,7 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    fi
    ```
 
-6. Install dependencies - only if git operations ran (dependencies are unlikely to have changed for a local-only restart):
+5. Install dependencies - only if git operations ran (dependencies are unlikely to have changed for a local-only restart):
    ```bash
    if [[ "$GIT_OPS_RAN" == "true" ]]; then
      cd assistant && bun install && cd ..
@@ -107,24 +101,12 @@ The user may pass `$ARGUMENTS` to control branch behavior:
    fi
    ```
 
-7. Restart with `vellum wake` - start assistant and gateway from the current checkout. `vellum wake` must be run from the checkout directory that should supply the new assistant code:
+6. Restart with `vellum wake` - start assistant and gateway from the current checkout. `vellum wake` must be run from the checkout directory that should supply the new assistant code:
    ```bash
    vellum wake
    ```
 
-8. Build the macOS app (foreground, so compilation errors are caught immediately):
-   ```bash
-   cd clients/macos && ./build.sh
-   ```
-
-   If the build fails, stop and report the error. Do not proceed to launch.
-
-   Then launch with file-watching in the background (the build is cached, so this just launches + watches):
-   ```bash
-   cd clients/macos && ./build.sh run &
-   ```
-
-9. Verify fresh state - run `vellum ps` to confirm processes are running:
+7. Verify fresh state - run `vellum ps` to confirm processes are running:
    ```bash
    sleep 5
    echo ""
@@ -139,5 +121,4 @@ Tailor the report to what actually happened:
 
 - **If git pulled (Cases A, B, C):** Report what was pulled (new commits), the branch, and whether dependencies were updated.
 - **If restarted in-place (Case D):** Report that services were restarted on the current branch with no git changes.
-- **Always include:** The startup summary block output (assistant health, gateway health), whether the macOS app build succeeded or failed (and the error if it failed).
-- Note: the macOS app manages its own assistant and gateway. On first launch, the app will hatch and start them automatically.
+- **Always include:** The startup summary block output (assistant health, gateway health).

@@ -8,11 +8,11 @@
  * The hook mutates `toolResponse.content` in place.
  */
 
-import type { PluginHookFn, PostToolUseContext } from "@vellumai/plugin-api";
+import type { HookFunction, PostToolUseContext } from "@vellumai/plugin-api";
 
 import { truncateToolResult } from "../terminal.js";
 
-const postToolUse: PluginHookFn<PostToolUseContext> = async (ctx) => {
+const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
   const { content, truncated } = truncateToolResult(
     ctx.toolResponse.content,
     ctx.maxInputTokens,

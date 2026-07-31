@@ -11,10 +11,6 @@
  *   - Exit code behavior on IPC errors
  */
 
-import {
-  existsSync as actualExistsSync,
-  readFileSync as actualReadFileSync,
-} from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
@@ -83,17 +79,17 @@ mock.module("../../../util/logger.js", () => ({
   }),
 }));
 
-mock.module("node:fs", () => ({
-  readFileSync: (path: string, encoding?: BufferEncoding) => {
-    if (path === "/dev/stdin") {
-      if (mockStdinContent === null) {
-        throw new Error("EAGAIN: resource temporarily unavailable");
-      }
-      return mockStdinContent;
+// Stdin is read via fd 0 through the shared helper, never by reopening
+// "/dev/stdin" (which fails ENXIO for pipe read-ends). A null content
+// simulates stdin with no readable data.
+mock.module("../../../util/read-stdin.js", () => ({
+  STDIN_FD: 0,
+  readStdinSync: () => {
+    if (mockStdinContent === null) {
+      throw new Error("EAGAIN: resource temporarily unavailable");
     }
-    return actualReadFileSync(path, encoding);
+    return mockStdinContent;
   },
-  existsSync: actualExistsSync,
 }));
 
 // ---------------------------------------------------------------------------
@@ -142,7 +138,9 @@ async function runCommand(
     registerUiCommand(program);
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
@@ -204,13 +202,13 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("subcommand registration", () => {
-  test("registers request and confirm subcommands under ui", () => {
+  test("registers request, confirm, and snapshot subcommands under ui", () => {
     const program = new Command();
     registerUiCommand(program);
     const ui = program.commands.find((c) => c.name() === "ui");
     expect(ui).toBeDefined();
     const subcommandNames = ui!.commands.map((c) => c.name()).sort();
-    expect(subcommandNames).toEqual(["confirm", "request"]);
+    expect(subcommandNames).toEqual(["confirm", "request", "snapshot"]);
   });
 });
 
@@ -743,7 +741,9 @@ describe("ui request — --actions parsing", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params.body.actions).toEqual([{ id: "ok", label: "OK" }]);
+    expect(lastIpcCall!.params.body.actions).toEqual([
+      { id: "ok", label: "OK" },
+    ]);
   });
 
   test("actions are omitted from IPC params when --actions is not provided", async () => {

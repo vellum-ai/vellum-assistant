@@ -1,0 +1,614 @@
+/**
+ * Tests for `ConversationActionsMenu`.
+ *
+ * The component swaps surfaces based on `useIsMobile()`:
+ *   - Desktop → Radix dropdown menu (`Menu.Root`)
+ *   - Mobile  → `BottomSheet` (Radix Dialog) with `PanelItem` rows
+ *
+ * The web workspace lacks `@testing-library/react` (no jsdom/happy-dom), so
+ * we exercise behavior through `renderToStaticMarkup` for HTML surface checks
+ * and mock `useIsMobile` per-test to drive each branch.
+ *
+ * We also test the pure `renderConversationMenuItems` helper directly since
+ * it is the shared source of truth for both dropdown and context-menu
+ * surfaces.
+ */
+
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { createElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+let mockIsMobile = false;
+mock.module("@/hooks/use-is-mobile", () => ({
+  useIsMobile: () => mockIsMobile,
+  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+}));
+
+let mockIsNativePlatform = false;
+mock.module("@/runtime/native-auth", () => ({
+  useIsNativePlatform: () => mockIsNativePlatform,
+  isNativePlatform: () => mockIsNativePlatform,
+}));
+
+// Mock design library compound components that require browser APIs (portals,
+// Radix floating-ui) so renderToStaticMarkup can produce testable HTML.
+const passthrough = ({ children, ...props }: Record<string, unknown>) =>
+  createElement("div", props, children as ReactNode);
+const mockItem = ({
+  children,
+  onSelect: _onSelect,
+  leftIcon,
+  disabled,
+  ...rest
+}: Record<string, unknown>) =>
+  createElement(
+    "div",
+    {
+      "data-testid": "menu-item",
+      "data-disabled": disabled || undefined,
+      ...rest,
+    },
+    leftIcon as ReactNode,
+    children as ReactNode,
+  );
+const mockSeparator = () => createElement("hr", { "data-testid": "separator" });
+const mockSubTrigger = ({
+  children,
+  leftIcon,
+  ...rest
+}: Record<string, unknown>) =>
+  createElement(
+    "div",
+    { "data-testid": "sub-trigger", ...rest },
+    leftIcon as ReactNode,
+    children as ReactNode,
+  );
+const mockTrigger = ({ children }: Record<string, unknown>) =>
+  createElement("div", { "data-testid": "trigger" }, children as ReactNode);
+
+mock.module("@vellumai/design-library", () => {
+  const MenuMock = {
+    Root: passthrough,
+    Trigger: mockTrigger,
+    Content: passthrough,
+    Item: mockItem,
+    Separator: mockSeparator,
+    Sub: passthrough,
+    SubTrigger: mockSubTrigger,
+    SubContent: passthrough,
+  };
+
+  const BottomSheetMock = {
+    Root: passthrough,
+    Trigger: mockTrigger,
+    Content: passthrough,
+    Header: passthrough,
+    Title: passthrough,
+    Body: passthrough,
+  };
+
+  const PanelItemMock = ({
+    label,
+    icon: _icon,
+    ...rest
+  }: Record<string, unknown>) =>
+    createElement(
+      "div",
+      { "data-testid": "panel-item", ...rest },
+      label as string,
+    );
+
+  const ContextMenuMock = {
+    Item: mockItem,
+    Separator: mockSeparator,
+    Sub: passthrough,
+    SubTrigger: mockSubTrigger,
+    SubContent: passthrough,
+  };
+
+  return {
+    Menu: MenuMock,
+    ContextMenu: ContextMenuMock,
+    BottomSheet: BottomSheetMock,
+    PanelItem: PanelItemMock,
+  };
+});
+
+import {
+  ConversationActionsMenu,
+  ConversationActionsSheet,
+  renderConversationMenuItems,
+  renderConversationMenuItemsAsPanelItems,
+  type ConversationMenuPrimitive,
+} from "@/domains/chat/components/conversation-actions-menu";
+import { Menu } from "@vellumai/design-library";
+
+beforeEach(() => {
+  mockIsMobile = false;
+  mockIsNativePlatform = false;
+});
+
+// ---------------------------------------------------------------------------
+// renderConversationMenuItems (pure helper)
+// ---------------------------------------------------------------------------
+
+describe("renderConversationMenuItems", () => {
+  test("renders Pin and Rename when handlers are provided", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          onPinToggle: () => {},
+          onRename: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+
+  test("renders Unpin when isPinned is true", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          isPinned: true,
+          onPinToggle: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Unpin");
+    expect(html).not.toContain(">Pin<");
+  });
+
+  test("renders Archive when onArchive is provided", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          onArchive: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Archive");
+  });
+
+  test("renders Unarchive when isArchived and onUnarchive are provided", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          isArchived: true,
+          onUnarchive: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Unarchive");
+  });
+
+  test("hides Mark as unread when isReadonly", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          isReadonly: true,
+          onArchive: () => {},
+          onMarkUnread: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Archive");
+    expect(html).not.toContain("Mark as unread");
+  });
+
+  test("renders the channel source link item when provided", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          variant: "header",
+          channelSourceLink: {
+            href: "https://slack.com/archives/C01ABC/p1700000000000100",
+            label: "Open in Slack",
+          },
+          onPinToggle: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Open in Slack");
+  });
+
+  test("omits the channel source link item when absent", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          variant: "header",
+          onPinToggle: () => {},
+        })}
+      </>,
+    );
+    expect(html).not.toContain("Open in Slack");
+  });
+
+  test("renders header variant with correct item order", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          variant: "header",
+          onCopyConversation: () => {},
+          onForkConversation: () => {},
+          onPinToggle: () => {},
+          onRename: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Copy full conversation");
+    expect(html).toContain("Fork conversation");
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+
+  test("renders Copy conversation ID in both variants when wired", () => {
+    for (const variant of ["sidebar", "header"] as const) {
+      const html = renderToStaticMarkup(
+        <>{renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          variant,
+          onCopyConversationId: () => {},
+        })}</>,
+      );
+      expect(html).toContain("Copy conversation ID");
+    }
+  });
+
+  test("omits Copy conversation ID when not wired", () => {
+    const html = renderToStaticMarkup(
+      <>{renderConversationMenuItems({
+        Primitive: Menu as unknown as ConversationMenuPrimitive,
+        onRename: () => {},
+      })}</>,
+    );
+    expect(html).not.toContain("Copy conversation ID");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "Move to group" submenu
+// ---------------------------------------------------------------------------
+
+describe("renderConversationMenuItems — Move to group submenu", () => {
+  test("omitted entirely when move/create handlers are not wired", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          onPinToggle: () => {},
+        })}
+      </>,
+    );
+    expect(html).not.toContain("Move to group");
+  });
+
+  test("shows the submenu with New group… even when there are no groups", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          moveToGroups: [],
+          onMoveToGroup: () => {},
+          onCreateGroupInto: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Move to group");
+    expect(html).toContain("New group…");
+  });
+
+  test("lists existing custom groups as targets", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          moveToGroups: [
+            { id: "g_research", name: "Research" },
+            { id: "g_ideas", name: "Ideas" },
+          ],
+          onMoveToGroup: () => {},
+          onCreateGroupInto: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Research");
+    expect(html).toContain("Ideas");
+    expect(html).toContain("New group…");
+  });
+
+  test("appends Remove from group only when onRemoveFromGroup is provided", () => {
+    const withRemove = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          moveToGroups: [{ id: "g_research", name: "Research" }],
+          onMoveToGroup: () => {},
+          onCreateGroupInto: () => {},
+          onRemoveFromGroup: () => {},
+        })}
+      </>,
+    );
+    expect(withRemove).toContain("Remove from group");
+
+    const withoutRemove = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          moveToGroups: [{ id: "g_research", name: "Research" }],
+          onMoveToGroup: () => {},
+          onCreateGroupInto: () => {},
+        })}
+      </>,
+    );
+    expect(withoutRemove).not.toContain("Remove from group");
+  });
+
+  test("mobile bottom sheet renders the flattened Move to group block", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItemsAsPanelItems({
+          moveToGroups: [{ id: "g_research", name: "Research" }],
+          onMoveToGroup: () => {},
+          onCreateGroupInto: () => {},
+          onClose: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Move to group");
+    expect(html).toContain("Research");
+    expect(html).toContain("New group…");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ConversationActionsMenu component
+// ---------------------------------------------------------------------------
+
+describe("ConversationActionsMenu — desktop branch", () => {
+  test("renders the default ellipsis trigger with aria-label", () => {
+    mockIsMobile = false;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu onPinToggle={() => {}} onRename={() => {}} />,
+    );
+    expect(html).toContain('aria-label="Conversation actions"');
+    expect(html).toContain("<button");
+  });
+
+  test("renders Pin and Rename items in the menu content", () => {
+    mockIsMobile = false;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu onPinToggle={() => {}} onRename={() => {}} />,
+    );
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+});
+
+describe("ConversationActionsMenu — mobile branch", () => {
+  test("renders BottomSheet surface on mobile", () => {
+    mockIsMobile = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu onPinToggle={() => {}} onRename={() => {}} />,
+    );
+    expect(html).toContain("Conversation actions");
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+
+  test("renders Archive on mobile when provided", () => {
+    mockIsMobile = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu onArchive={() => {}} />,
+    );
+    expect(html).toContain("Archive");
+  });
+});
+
+describe("renderConversationMenuItems — mark read/unread exclusivity", () => {
+  test("onMarkRead takes precedence when both onMarkRead and onMarkUnread are provided", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItems({
+          Primitive: Menu as unknown as ConversationMenuPrimitive,
+          onMarkRead: () => {},
+          onMarkUnread: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Mark as read");
+    expect(html).not.toContain("Mark as unread");
+  });
+});
+
+describe("ConversationActionsMenu — mobile panel details", () => {
+  test("isMarkUnreadDisabled renders disabled panel item on mobile", () => {
+    mockIsMobile = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu onMarkUnread={() => {}} isMarkUnreadDisabled />,
+    );
+    expect(html).toContain("Mark as unread");
+    // Disabled is expressed through PanelItem's own `disabled` prop, which
+    // keeps the row's button semantics, plus the dim styling the design
+    // library's menu surfaces use.
+    expect(html).toContain('disabled=""');
+    expect(html).toContain("cursor-not-allowed");
+    expect(html).toContain("text-[var(--content-disabled)]");
+  });
+
+  test("hides Open in New Window on native iOS bottom sheet", () => {
+    mockIsMobile = true;
+    mockIsNativePlatform = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        variant="header"
+        onOpenInNewWindow={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).not.toContain("Open in new window");
+    expect(html).not.toContain("Open in New Window");
+    // Other actions remain.
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+
+  test("shows Open in New Window on web bottom sheet", () => {
+    mockIsMobile = true;
+    mockIsNativePlatform = false;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        variant="header"
+        onOpenInNewWindow={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).toContain("Open in new window");
+  });
+
+  test("variant header renders header-order items on mobile", () => {
+    mockIsMobile = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        variant="header"
+        onCopyConversation={() => {}}
+        onForkConversation={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).toContain("Copy full conversation");
+    expect(html).toContain("Fork conversation");
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ConversationActionsSheet — shared controlled sheet (row long-press + ellipsis)
+// ---------------------------------------------------------------------------
+
+describe("ConversationActionsSheet", () => {
+  test("renders the actions title and the provided items", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).toContain("Conversation actions");
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+
+  test("renders a trigger when one is provided (ellipsis path)", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open={false}
+        onOpenChange={() => {}}
+        onArchive={() => {}}
+        trigger={<button aria-label="Conversation actions" />}
+      />,
+    );
+    expect(html).toContain('aria-label="Conversation actions"');
+    expect(html).toContain("Archive");
+  });
+
+  test("omits a trigger when none is provided (row long-press path)", () => {
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        onArchive={() => {}}
+      />,
+    );
+    // No trigger button, but the sheet body still renders the item set.
+    expect(html).not.toContain("<button");
+    expect(html).toContain("Archive");
+  });
+
+  test("hides Open in New Window on native iOS", () => {
+    mockIsNativePlatform = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsSheet
+        open
+        onOpenChange={() => {}}
+        variant="header"
+        onOpenInNewWindow={() => {}}
+        onPinToggle={() => {}}
+      />,
+    );
+    expect(html).not.toContain("Open in new window");
+    expect(html).toContain("Pin");
+  });
+});
+
+describe("renderConversationMenuItemsAsPanelItems", () => {
+  test("flattens the item set into panel rows with a close handler", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItemsAsPanelItems({
+          onPinToggle: () => {},
+          onRename: () => {},
+          onArchive: () => {},
+          onClose: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+    expect(html).toContain("Archive");
+  });
+
+  test("renders the channel source link row when provided", () => {
+    const html = renderToStaticMarkup(
+      <>
+        {renderConversationMenuItemsAsPanelItems({
+          variant: "header",
+          channelSourceLink: {
+            href: "https://slack.com/archives/C01ABC/p1700000000000100",
+            label: "Open in Slack",
+          },
+          onPinToggle: () => {},
+          onClose: () => {},
+        })}
+      </>,
+    );
+    expect(html).toContain("Open in Slack");
+  });
+});
+
+describe("ConversationActionsMenu — read-only conversations", () => {
+  test("Archive renders when read-only (organizational action)", () => {
+    mockIsMobile = false;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        isReadonly
+        onArchive={() => {}}
+        onMarkUnread={() => {}}
+      />,
+    );
+    expect(html).toContain("Archive");
+    expect(html).not.toContain("Mark as unread");
+  });
+
+  test("Unarchive renders when archived and read-only", () => {
+    mockIsMobile = false;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu isReadonly isArchived onUnarchive={() => {}} />,
+    );
+    expect(html).toContain("Unarchive");
+  });
+});

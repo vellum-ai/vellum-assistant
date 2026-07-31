@@ -1,4 +1,6 @@
+import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import {
   afterAll,
   beforeEach,
@@ -10,22 +12,71 @@ import {
 } from "bun:test";
 
 import type { LoopToolExecutor } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AssistantEvent } from "../api/index.js";
+import {
+  queueConversationNotice,
+  resetConversationNoticesForTests,
+} from "../daemon/conversation-notices.js";
+import { getConversationDirName } from "../persistence/conversation-directories.js";
+import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { registerPlugin } from "../plugins/registry.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
+import { getWorkspaceDir } from "../util/platform.js";
+import { setConfig } from "./helpers/set-config.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
   ) as Record<string, unknown>),
 };
 const conversationDiskViewRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
-let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
+// Disable the catalog default so resolution lands on llm.default.
+const disabledCatalogDefaultProfiles: Record<string, unknown> = {
+  balanced: { source: "managed", status: "disabled" },
+};
+
+/**
+ * Seed the workspace `llm` config for real. `setConfig` replaces the top-level
+ * key wholesale, so every call carries the mainAgent call-site tweak — it
+ * applies over the winning profile, so the small context window that the
+ * overflow/compaction tests depend on holds regardless of which profile wins
+ * selection.
+ */
+function seedLlmConfig(options?: {
+  profiles?: Record<string, unknown>;
+  activeProfile?: string;
+}): void {
+  setConfig("llm", {
+    callSites: {
+      mainAgent: {
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 100000,
+          targetBudgetRatio: 0.3,
+          compactThreshold: 0.8,
+          summaryBudgetRatio: 0.05,
+          overflowRecovery: {
+            enabled: true,
+            safetyMarginRatio: 0.05,
+            maxAttempts: 3,
+            interactiveLatestTurnCompression: "summarize",
+            nonInteractiveLatestTurnCompression: "truncate",
+          },
+        },
+      },
+    },
+    profiles: options?.profiles ?? { ...disabledCatalogDefaultProfiles },
+    ...(options?.activeProfile !== undefined
+      ? { activeProfile: options.activeProfile }
+      : {}),
+  });
+}
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -43,52 +94,10 @@ mock.module("../plugins/defaults/compaction/manager-store.js", () => ({
   },
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    workspaceGit: { turnCommitMaxWaitMs: 10 },
-    memory: { retrieval: { scratchpadInjection: { enabled: true } } },
-    ui: mockUiConfig,
-    compaction: { enabled: true, autoThreshold: 0.7 },
-    conversations: { skipAutoRetitling: true },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
+// Keep the turn-boundary commit wait short and skip second-pass retitling so
+// loop teardown stays fast and deterministic across these orchestrator tests.
+setConfig("workspaceGit", { turnCommitMaxWaitMs: 10 });
+setConfig("conversations", { skipAutoRetitling: true });
 
 // ── Overflow recovery mocks ──────────────────────────────────────────
 
@@ -125,7 +134,9 @@ const runMockReducer = async (
   cfg: unknown,
   state: unknown,
 ) => {
-  if (mockReducerStepFn) return mockReducerStepFn(msgs, cfg, state);
+  if (mockReducerStepFn) {
+    return mockReducerStepFn(msgs, cfg, state);
+  }
   return {
     messages: msgs,
     tier: "forced_compaction",
@@ -172,7 +183,9 @@ function makeOverflowLadderStub(): {
 } {
   let state: unknown;
   const reduceOverflowOneRung = async (msgs: Message[], opts: unknown) => {
-    if (!state) state = makeInitialReducerState();
+    if (!state) {
+      state = makeInitialReducerState();
+    }
     const step = (await runMockReducer(msgs, opts, state)) as {
       state: unknown;
     };
@@ -257,6 +270,7 @@ const updateConversationSlackContextWatermarkMock = mock(
 );
 let mockConversationRow: Record<string, unknown> = {
   id: "conv-1",
+  createdAt: 1_700_000_000_000,
   contextSummary: null,
   contextCompactedMessageCount: 0,
   slackContextCompactionWatermarkTs: null,
@@ -266,13 +280,50 @@ let mockConversationRow: Record<string, unknown> = {
   title: null,
 };
 let mockMessageById: Record<string, unknown> | null = null;
+
+// The in-flight delta files the writers create for the (unmocked-path)
+// test conversation. Files are uuid-named at reserve time, so tests locate
+// them by listing the directory. Partial flushes land here instead of
+// `updateMessageContent`; the finalize seam folds the file inline and
+// deletes it, so mid-turn assertions read it during the provider's hold.
+function inflightDir(): string {
+  return join(
+    getWorkspaceDir(),
+    "conversations",
+    getConversationDirName("test-conv", 1_700_000_000_000),
+    "inflight",
+  );
+}
+
+function inflightDeltaFiles(): string[] {
+  try {
+    return readdirSync(inflightDir())
+      .filter((f) => f.endsWith(".jsonl"))
+      .map((f) => join(inflightDir(), f));
+  } catch {
+    return [];
+  }
+}
+
+/** The single in-flight delta file expected during a mid-hold read. */
+function soleInflightDeltaPath(): string {
+  const files = inflightDeltaFiles();
+  if (files.length !== 1) {
+    throw new Error(`expected exactly one in-flight file, saw ${files.length}`);
+  }
+  return files[0];
+}
 const deleteMessageByIdMock = mock(() => ({
   segmentIds: [],
   deletedSummaryIds: [],
 }));
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
 const updateMessageContentMock = mock(() => {});
-mock.module("../memory/conversation-crud.js", () => ({
+const finalizeMessageContentMock = mock(() => {});
+const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
   updateMessageMetadata: updateMessageMetadataMock,
@@ -284,7 +335,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
-  addMessage: () => ({ id: "mock-msg-id" }),
+  addMessage: addMessageMock,
   deleteMessageById: deleteMessageByIdMock,
   updateConversationContextWindow: () => {},
   updateConversationSlackContextWatermark:
@@ -295,6 +346,9 @@ mock.module("../memory/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   reserveMessage: reserveMessageMock,
   updateMessageContent: updateMessageContentMock,
+  finalizeMessageContent: finalizeMessageContentMock,
+  recordConversationPersistedSeq: () => {},
+  getConversationPersistedSeq: () => null,
   // The real schema is a Zod object; tests don't exercise validation,
   // so a passthrough is sufficient — the production code at
   // `handleMessageComplete` only branches on `success` and reads two
@@ -307,7 +361,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 // The B3 indexing-restoration path imports `indexMessageNow` from
 // `../memory/indexer.js` and `projectAssistantMessage` from
-// `../memory/conversation-attention-store.js`; without these stubs the
+// `../persistence/conversation-attention-store.js`; without these stubs the
 // real modules would try to open a SQLite DB and read a real config.
 const indexMessageNowMock = mock(async () => ({
   indexedSegments: 0,
@@ -315,10 +369,10 @@ const indexMessageNowMock = mock(async () => ({
 }));
 const projectAssistantMessageMock = mock(() => false);
 const publishSyncInvalidationMock = mock(async () => {});
-mock.module("../memory/indexer.js", () => ({
+mock.module("../plugins/defaults/memory/indexer.js", () => ({
   indexMessageNow: indexMessageNowMock,
 }));
-mock.module("../memory/conversation-attention-store.js", () => ({
+mock.module("../persistence/conversation-attention-store.js", () => ({
   projectAssistantMessage: projectAssistantMessageMock,
 }));
 mock.module("../runtime/sync/sync-publisher.js", () => ({
@@ -327,18 +381,18 @@ mock.module("../runtime/sync/sync-publisher.js", () => ({
 
 afterAll(() => {
   mock.module(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
   mock.module(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
     () => conversationDiskViewRealSnapshot,
   );
 });
 
 const syncMessageToDiskMock = mock(() => {});
 const rebuildConversationDiskViewFromDbStateMock = mock(() => {});
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: syncMessageToDiskMock,
   rebuildConversationDiskViewFromDbState:
     rebuildConversationDiskViewFromDbStateMock,
@@ -357,14 +411,10 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
-}));
-
-mock.module("../memory/app-git-service.js", () => ({
-  commitAppTurnChanges: () => Promise.resolve(),
 }));
 
 mock.module("../daemon/conversation-memory.js", () => ({
@@ -423,7 +473,9 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
     context: typeof mockSlackChronologicalContext,
     compactedRenderedMessages: number,
   ) => {
-    if (!context || compactedRenderedMessages <= 0) return null;
+    if (!context || compactedRenderedMessages <= 0) {
+      return null;
+    }
     const start = context.compactableStartIndex;
     const end = Math.min(
       context.renderedMessages.length,
@@ -485,7 +537,7 @@ mock.module("../daemon/date-context.js", () => ({
   resolveTurnTimezoneContext: resolveTurnTimezoneContextMock,
 }));
 
-mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
+mock.module("../agent/history-repair/history-repair.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -550,17 +602,26 @@ mock.module("../workspace/git-service.js", () => ({
   }),
 }));
 
+let mockConversationErrorClassification = {
+  code: "CONVERSATION_PROCESSING_FAILED",
+  userMessage: "Something went wrong processing your message.",
+  retryable: false,
+  errorCategory: "processing_failed",
+};
+
 mock.module("../daemon/conversation-error.js", () => ({
-  classifyConversationError: (_err: unknown, _ctx: unknown) => ({
-    code: "CONVERSATION_PROCESSING_FAILED",
-    userMessage: "Something went wrong processing your message.",
-    retryable: false,
-    errorCategory: "processing_failed",
-  }),
+  classifyConversationError: (_err: unknown, _ctx: unknown) =>
+    mockConversationErrorClassification,
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
-    if (!ctx.aborted) return false;
-    if (err instanceof DOMException && err.name === "AbortError") return true;
-    if (err instanceof Error && err.name === "AbortError") return true;
+    if (!ctx.aborted) {
+      return false;
+    }
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return true;
+    }
+    if (err instanceof Error && err.name === "AbortError") {
+      return true;
+    }
     return false;
   },
   buildConversationErrorMessage: (
@@ -592,7 +653,7 @@ mock.module("../memory/archive-store.js", () => ({
   }),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: recordRequestLogMock,
   backfillMessageIdOnLogs: backfillMessageIdOnLogsMock,
   setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,
@@ -700,8 +761,7 @@ function makeCtx(
       mockConversationRow?.slackContextCompactionWatermarkTs ?? null,
     lastNotifiedInferenceProfile:
       mockConversationRow?.lastNotifiedInferenceProfile ?? null,
-
-    memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
+    processingStartedAt: mockConversationRow?.processingStartedAt ?? null,
 
     currentActiveSurfaceId: undefined,
     currentPage: undefined,
@@ -715,20 +775,12 @@ function makeCtx(
     commandIntent: undefined,
     trustContext: undefined,
 
-    coreToolNames: new Set(),
     allowedToolNames: undefined,
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    traceEmitter: {
-      emit: () => {},
-    } as unknown as Conversation["traceEmitter"],
-    profiler: {
-      startRequest: () => {},
-      emitSummary: () => {},
-    } as unknown as Conversation["profiler"],
     usageStats: {
       totalInputTokens: 0,
       totalOutputTokens: 0,
@@ -752,12 +804,25 @@ function makeCtx(
     getQueueDepth: () => 0,
     hasQueuedMessages: () => false,
     canHandoffAtCheckpoint: () => false,
-    drainQueue: () => {},
+    drainQueue: (_reason?: string) => {},
+    // Forwards to drainQueue so tests that spy the drain observe the agent
+    // loop's post-turn kick through the guarded entry point.
+    kickDrainQueue(
+      this: { drainQueue: (reason?: string) => unknown },
+      reason: string = "loop_complete",
+      _origin?: string,
+    ) {
+      return this.drainQueue(reason);
+    },
     getTurnInterfaceContext: () => null,
     getTurnChannelContext: () => ({
       userMessageChannel: "vellum" as const,
       assistantMessageChannel: "vellum" as const,
     }),
+
+    buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
+    modelOverride: undefined,
 
     graphMemory: {
       onCompacted: async () => {},
@@ -816,7 +881,8 @@ function makeCompactionResult(
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  mockUiConfig = {};
+  setConfig("ui", {});
+  seedLlmConfig();
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -835,6 +901,7 @@ beforeEach(() => {
   updateConversationSlackContextWatermarkMock.mockImplementation(() => {});
   mockConversationRow = {
     id: "conv-1",
+    createdAt: 1_700_000_000_000,
     contextSummary: null,
     contextCompactedMessageCount: 0,
     slackContextCompactionWatermarkTs: null,
@@ -858,10 +925,26 @@ beforeEach(() => {
   deleteMessageByIdMock.mockClear();
   reserveMessageMock.mockClear();
   updateMessageContentMock.mockClear();
+  finalizeMessageContentMock.mockClear();
+  rmSync(inflightDir(), { recursive: true, force: true });
+  addMessageMock.mockClear();
+  mockConversationErrorClassification = {
+    code: "CONVERSATION_PROCESSING_FAILED",
+    userMessage: "Something went wrong processing your message.",
+    retryable: false,
+    errorCategory: "processing_failed",
+  };
   indexMessageNowMock.mockClear();
   projectAssistantMessageMock.mockClear();
   publishSyncInvalidationMock.mockClear();
+  resolveAssistantAttachmentsMock.mockClear();
+  resolveAssistantAttachmentsMock.mockImplementation(async () => ({
+    assistantAttachments: [],
+    emittedAttachments: [],
+    directiveWarnings: [],
+  }));
   mockMessageById = null;
+  resetConversationNoticesForTests();
   // The compaction pipeline runs through the plugin registry; reset and
   // re-register every default so it dispatches to middleware backed by the
   // mocked collaborators these tests install (`syncMessageToDisk`, etc.)
@@ -870,12 +953,169 @@ beforeEach(() => {
 });
 
 describe("session-agent-loop", () => {
+  describe("user-prompt-submit hook failures", () => {
+    test("passes the effective profile to hooks even when it was already announced", async () => {
+      // Both profiles are complete (provider + model) so each is a usable
+      // winner: the conversation's pinned "balanced" must win selection over
+      // the workspace-active "quality".
+      seedLlmConfig({
+        profiles: {
+          balanced: {
+            label: "Balanced",
+            provider: "fireworks",
+            model: "accounts/fireworks/models/glm-5p2",
+          },
+          quality: {
+            label: "Quality",
+            provider: "anthropic",
+            model: "claude-opus-4-8",
+          },
+        },
+        activeProfile: "quality",
+      });
+      const observedProfileKeys: string[] = [];
+      registerPlugin({
+        manifest: {
+          name: "test-observe-model-profile",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async (ctx: UserPromptSubmitContext) => {
+            observedProfileKeys.push(ctx.modelProfileKey);
+          },
+        },
+      });
+
+      const ctx = makeCtx({
+        inferenceProfile: "balanced",
+        lastNotifiedInferenceProfile: "balanced",
+        providerResponses: [textResponse("ok")],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(observedProfileKeys).toEqual(["balanced"]);
+    });
+
+    test("logs and continues with prior hook mutations", async () => {
+      registerPlugin({
+        manifest: {
+          name: "test-user-prompt-rewrite",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async (_ctx: UserPromptSubmitContext) => ({
+            latestMessages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text" as const, text: "rewritten prompt" }],
+              },
+            ],
+          }),
+        },
+      });
+      registerPlugin({
+        manifest: {
+          name: "test-user-prompt-throw",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async () => {
+            throw new Error("simulated hook failure");
+          },
+        },
+      });
+
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+      const runSpy = spyOn(ctx.agentLoop, "run");
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(runSpy).toHaveBeenCalledTimes(1);
+      const call = runSpy.mock.calls[0]?.[0] as
+        | { messages: Message[] }
+        | undefined;
+      expect(call?.messages[0]?.content).toEqual([
+        { type: "text", text: "rewritten prompt" },
+      ]);
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "message_complete"),
+      ).toBeDefined();
+    });
+  });
+
+  describe("conversation notices", () => {
+    test("emits queued billing notices after a successful turn", async () => {
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+      queueConversationNotice(ctx.conversationId, "memory-v3-test", {
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeUndefined();
+      const messageCompleteIndex = events.findIndex(
+        (event) => event.type === "message_complete",
+      );
+      const conversationNoticeIndex = events.findIndex(
+        (event) => event.type === "conversation_notice",
+      );
+
+      expect(messageCompleteIndex).toBeGreaterThanOrEqual(0);
+      expect(conversationNoticeIndex).toBeGreaterThan(messageCompleteIndex);
+      expect(events[conversationNoticeIndex]).toEqual({
+        type: "conversation_notice",
+        conversationId: "test-conv",
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      });
+    });
+
+    test("clears queued notices when post-loop success work fails", async () => {
+      resolveAssistantAttachmentsMock.mockImplementation(async () => {
+        throw new Error("attachment resolution failed");
+      });
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+      queueConversationNotice(ctx.conversationId, "memory-v3-test", {
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.find((event) => event.type === "conversation_notice"),
+      ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "message_complete"),
+      ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeDefined();
+    });
+  });
+
   describe("timezone turn context", () => {
     test("passes ctx.clientTimezone and ui.detectedTimezone into timezone resolution", async () => {
-      mockUiConfig = {
+      setConfig("ui", {
         userTimezone: "America/New_York",
         detectedTimezone: "America/Chicago",
-      };
+      });
       const ctx = makeCtx({ clientTimezone: "America/Los_Angeles" });
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -890,10 +1130,10 @@ describe("session-agent-loop", () => {
     });
 
     test("freezes the client timezone snapshot on the conversation, not the options bag", async () => {
-      mockUiConfig = {
+      setConfig("ui", {
         userTimezone: "US/Eastern",
         detectedTimezone: "US/Central",
-      };
+      });
       resolveTurnTimezoneContextMock.mockImplementationOnce(() => ({
         configuredUserTimezone: "America/New_York",
         clientTimezone: "America/Los_Angeles",
@@ -1058,18 +1298,12 @@ describe("session-agent-loop", () => {
         action: "block",
         reason: "trusted-contact",
       };
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const activityStates: unknown[][] = [];
-      const traceEvents: unknown[][] = [];
       const ctx = makeCtx({
         emitActivityState: (...args: unknown[]) => {
           activityStates.push(args);
         },
-        traceEmitter: {
-          emit: (...args: unknown[]) => {
-            traceEvents.push(args);
-          },
-        } as unknown as Conversation["traceEmitter"],
       });
       const runSpy = spyOn(ctx.agentLoop, "run");
 
@@ -1081,19 +1315,6 @@ describe("session-agent-loop", () => {
         "idle",
         "error_terminal",
         { anchor: "global", requestId: "test-req" },
-      ]);
-      expect(traceEvents[0]).toEqual([
-        "request_error",
-        expect.stringContaining("Storage is critically low"),
-        expect.objectContaining({
-          requestId: "test-req",
-          status: "error",
-          attributes: expect.objectContaining({
-            errorCategory: "disk_pressure",
-            errorCode: "DISK_SPACE_CRITICAL",
-            diskPressureReason: "trusted-contact",
-          }),
-        }),
       ]);
       expect(events.find((event) => event.type === "error")).toMatchObject({
         type: "error",
@@ -1149,7 +1370,7 @@ describe("session-agent-loop", () => {
 
   describe("tool execution errors via agent loop", () => {
     test("error events from agent loop are classified and emitted", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // The model calls a tool whose executor throws, surfacing an `error`
       // event from the loop's catch handler.
@@ -1168,7 +1389,7 @@ describe("session-agent-loop", () => {
     });
 
     test("non-error agent loop completion does not emit conversation_error", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx({
         providerResponses: [textResponse("All good")],
@@ -1186,7 +1407,7 @@ describe("session-agent-loop", () => {
 
   describe("LLM request log persistence", () => {
     test("record request log captures the actual provider name", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const rawRequest = {
         model: "gpt-4.1",
         messages: [{ role: "user", content: "Hello" }],
@@ -1296,7 +1517,7 @@ describe("session-agent-loop", () => {
     });
 
     test("record request log handles Responses API shaped payloads", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const rawRequest = {
         model: "gpt-5.4",
         instructions: "Be helpful.",
@@ -1357,135 +1578,9 @@ describe("session-agent-loop", () => {
     });
   });
 
-  describe("llm_call_started / llm_call_finished trace coherence", () => {
-    // Regression: the started event was emitted by emitLlmCallStartedIfNeeded
-    // using deps.ctx.provider.name (the default), while the finished event used
-    // event.actualProvider. For routed calls (e.g. gpt-5.5 via openai from an
-    // anthropic-default conversation) this caused started="anthropic" /
-    // finished="openai". The fix passes providerName explicitly from handleUsage
-    // so both events always agree, even when text_delta never fires (tool-only).
-
-    test("started and finished use the same provider name for a streaming response", async () => {
-      // In the real routing scenario, text_delta fires while
-      // CallSiteRoutingProvider's AsyncLocalStorage context holds the active
-      // transport name (covered by call-site-routing-provider.test.ts). Here we
-      // verify the loop wiring: when text_delta fires before usage, the started
-      // event reflects the provider that will also appear on finished.
-      const traceEvents: Array<{
-        label: string;
-        attrs: Record<string, unknown>;
-      }> = [];
-
-      const ctx = makeCtx({
-        // The loop replays the text block as a `text_delta` before `usage`.
-        providerResponses: [
-          {
-            content: [{ type: "text", text: "Hi." }],
-            model: "gpt-5.5-2026-04-23",
-            usage: { inputTokens: 10, outputTokens: 2 },
-            stopReason: "end_turn",
-            actualProvider: "openai",
-          },
-        ],
-        // Provider name matches actualProvider so both paths agree.
-        provider: {
-          name: "openai",
-          sendMessage: async () => ({
-            content: [{ type: "text", text: "title" }],
-            model: "mock",
-            usage: { inputTokens: 0, outputTokens: 0 },
-            stopReason: "end_turn",
-          }),
-        } as unknown as Conversation["provider"],
-        traceEmitter: {
-          emit: (
-            event: string,
-            label: string,
-            payload: { attributes?: Record<string, unknown> },
-          ) => {
-            if (event === "llm_call_started" || event === "llm_call_finished") {
-              traceEvents.push({ label, attrs: payload.attributes ?? {} });
-            }
-          },
-        } as unknown as Conversation["traceEmitter"],
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
-
-      const started = traceEvents.find(
-        (e) =>
-          e.label.startsWith("LLM call to") && !e.label.endsWith("finished"),
-      );
-      const finished = traceEvents.find((e) => e.label.endsWith("finished"));
-
-      expect(started).toBeDefined();
-      expect(finished).toBeDefined();
-      expect(started!.attrs["provider"]).toBe("openai");
-      expect(finished!.attrs["provider"]).toBe("openai");
-    });
-
-    test("started and finished use the same provider name for a tool-call-only response (no text_delta)", async () => {
-      // This is the harder case: no text_delta fires, so emitLlmCallStartedIfNeeded
-      // fires as a fallback inside handleUsage *after* the AsyncLocalStorage
-      // context in CallSiteRoutingProvider has already exited. Without passing
-      // providerName explicitly it would say "anthropic".
-      const traceEvents: Array<{
-        label: string;
-        attrs: Record<string, unknown>;
-      }> = [];
-
-      const ctx = makeCtx({
-        // An empty-content response: no text block fires `text_delta`, so the
-        // started event falls back to the resolved usage provider name.
-        providerResponses: [
-          {
-            content: [],
-            model: "gpt-5.5-2026-04-23",
-            usage: { inputTokens: 10, outputTokens: 2 },
-            stopReason: "end_turn",
-            actualProvider: "openai",
-          },
-        ],
-        provider: {
-          name: "anthropic",
-          sendMessage: async () => ({
-            content: [{ type: "text", text: "title" }],
-            model: "mock",
-            usage: { inputTokens: 0, outputTokens: 0 },
-            stopReason: "end_turn",
-          }),
-        } as unknown as Conversation["provider"],
-        traceEmitter: {
-          emit: (
-            event: string,
-            label: string,
-            payload: { attributes?: Record<string, unknown> },
-          ) => {
-            if (event === "llm_call_started" || event === "llm_call_finished") {
-              traceEvents.push({ label, attrs: payload.attributes ?? {} });
-            }
-          },
-        } as unknown as Conversation["traceEmitter"],
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
-
-      const started = traceEvents.find(
-        (e) =>
-          e.label.startsWith("LLM call to") && !e.label.endsWith("finished"),
-      );
-      const finished = traceEvents.find((e) => e.label.endsWith("finished"));
-
-      expect(started).toBeDefined();
-      expect(finished).toBeDefined();
-      expect(started!.attrs["provider"]).toBe("openai");
-      expect(finished!.attrs["provider"]).toBe("openai");
-    });
-  });
-
   describe("usage accounting", () => {
     test("records the actual provider for usage accounting", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx({
         providerResponses: [
@@ -1539,11 +1634,36 @@ describe("session-agent-loop", () => {
       expect(mainAgentCall?.[2]).toBe(3);
       expect(mainAgentCall?.[3]).toBe("gpt-4.1-2026-03-01");
     });
+
+    test("persists the served model onto the assistant row's metadata at finalize", async () => {
+      const events: AssistantEvent[] = [];
+
+      const ctx = makeCtx({
+        providerResponses: [
+          {
+            content: [{ type: "text", text: "Hi there." }],
+            model: "gpt-4.1-2026-03-01",
+            usage: { inputTokens: 12, outputTokens: 3 },
+            stopReason: "end_turn",
+          },
+        ],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      // The finalize write carries the `message_complete` event's model
+      // (`response.model`) as metadata alongside the content, in one write.
+      const finalizeCall = finalizeMessageContentMock.mock.calls.find(
+        (call) => (call as unknown[])[2] !== undefined,
+      ) as unknown[] | undefined;
+      expect(finalizeCall).toBeDefined();
+      expect(finalizeCall?.[2]).toEqual({ model: "gpt-4.1-2026-03-01" });
+    });
   });
 
   describe("checkpoint handoff (infinite loop prevention)", () => {
     test("yields at checkpoint when canHandoffAtCheckpoint returns true", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // A tool turn drives the loop to its first mid-loop checkpoint, where the
       // orchestrator yields for a queued handoff.
@@ -1571,7 +1691,7 @@ describe("session-agent-loop", () => {
     });
 
     test("continues when canHandoffAtCheckpoint returns false", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // The tool turn reaches a checkpoint, but with handoff disabled the loop
       // continues to the next turn and completes normally.
@@ -1606,7 +1726,7 @@ describe("session-agent-loop", () => {
 
   describe("user cancellation", () => {
     test("emits generation_cancelled when abort signal fires", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const abortController = new AbortController();
 
       // The provider completes its response but the user cancels mid-turn, so
@@ -1628,7 +1748,7 @@ describe("session-agent-loop", () => {
     });
 
     test("handles AbortError thrown from agent loop as user cancellation", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const abortController = new AbortController();
 
       // The provider rejects with an AbortError after the user cancels.
@@ -1653,7 +1773,7 @@ describe("session-agent-loop", () => {
     });
 
     test("skips resolveAssistantAttachments when cancelled", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const abortController = new AbortController();
       resolveAssistantAttachmentsMock.mockClear();
 
@@ -1702,11 +1822,15 @@ describe("session-agent-loop", () => {
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
       expect(ctx.commandIntent).toBeUndefined();
+      // Turn-scoped interactivity is stamped during the run and must be cleared
+      // so paths that bypass this loop (e.g. opportunity wakes) don't inherit a
+      // stale value instead of falling back to live client state.
+      expect(ctx.currentTurnIsNonInteractive).toBeUndefined();
     });
 
     test("clears state and surfaces a processing error when the provider call fails", async () => {
       // GIVEN a real loop whose provider rejects with an unexpected error
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
@@ -1748,11 +1872,69 @@ describe("session-agent-loop", () => {
       // THEN the queue is drained with the loop-complete reason
       expect(drainReason).toBe("loop_complete");
     });
+
+    test("abort watchdog drives a wedged turn to its finally", async () => {
+      // GIVEN a provider whose call wedges: it acknowledges the user cancel
+      // (aborts the signal) but its promise never settles and never observes
+      // the signal — the exact condition that latched `processing` true.
+      const events: AssistantEvent[] = [];
+      const abortController = new AbortController();
+      let drainReason: string | undefined;
+      // The provider's call wedges on this promise. It settles only on test
+      // teardown so the abandoned `run()` can unwind cleanly instead of leaking
+      // background work (e.g. partial-persist debounce timers) into later tests.
+      let releaseHang: (reason: unknown) => void = () => {};
+      const hang = new Promise<never>((_, reject) => {
+        releaseHang = reject;
+      });
+      const provider: Provider = {
+        name: "mock-provider",
+        sendMessage(_messages, _options) {
+          abortController.abort();
+          // Never observes the signal — the exact condition that latched
+          // `processing` true before the watchdog existed.
+          return hang;
+        },
+      };
+      const ctx = makeCtx({
+        loopProvider: provider,
+        abortController,
+        // Fire the watchdog quickly instead of the ~45s production default.
+        abortWatchdogMs: 30,
+        drainQueue: (reason: string) => {
+          drainReason = reason;
+        },
+      } as unknown as Partial<Conversation>);
+
+      try {
+        // WHEN the orchestrator runs the turn
+        await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+        // THEN the watchdog forces the turn to its finally: processing clears,
+        // the abort controller is torn down, the queue drains, and the user
+        // sees a cancellation (not an error).
+        expect(ctx.isProcessing()).toBe(false);
+        expect(ctx.abortController).toBeNull();
+        expect(drainReason).toBe("loop_complete");
+        expect(
+          events.find((e) => e.type === "generation_cancelled"),
+        ).toBeDefined();
+        expect(
+          events.find((e) => e.type === "conversation_error"),
+        ).toBeUndefined();
+      } finally {
+        // Let the abandoned run() reject and unwind, then flush microtasks.
+        releaseHang(
+          new DOMException("The operation was aborted", "AbortError"),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    });
   });
 
   describe("stale pending surface cleanup", () => {
     test("auto-completes non-dynamic_page pending surfaces on regular user message", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       // Pre-populate a stale pending table surface
@@ -1783,7 +1965,7 @@ describe("session-agent-loop", () => {
     });
 
     test("does not auto-complete surfaces when request is a surface action", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       ctx.pendingSurfaceActions.set("active-table-1", { surfaceType: "table" });
@@ -1809,7 +1991,7 @@ describe("session-agent-loop", () => {
     });
 
     test("no-op when no pending surfaces exist", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       // No pending surfaces
@@ -1825,7 +2007,7 @@ describe("session-agent-loop", () => {
     });
 
     test("does not auto-complete surfaces for internal/subagent turns (no isUserMessage)", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       const ctx = makeCtx();
       ctx.pendingSurfaceActions.set("active-table-1", { surfaceType: "table" });
@@ -1851,7 +2033,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx();
       ctx.pendingSurfaceActions.set("stale-table-1", { surfaceType: "table" });
 
-      const throwingOnEvent = (msg: ServerMessage) => {
+      const throwingOnEvent = (msg: AssistantEvent) => {
         _eventCount++;
         if (msg.type === "ui_surface_complete") {
           throw new Error("onEvent sink failed");
@@ -1957,7 +2139,7 @@ describe("session-agent-loop", () => {
         throw new Error("simulated DB failure");
       });
 
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
       const ctx = makeCtx();
 
       // Should not throw; agent loop continues and emits message_complete.
@@ -1972,7 +2154,7 @@ describe("session-agent-loop", () => {
 
   describe("error-only response with no assistant text", () => {
     test("synthesizes error assistant message when provider returns no response", async () => {
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // GIVEN a real loop whose provider rejects with a generic error
       // (non-ordering, non-context-too-large) so the loop emits `error` and
@@ -2006,7 +2188,7 @@ describe("session-agent-loop", () => {
       // its `llm_request_logs` row orphaned. Without the backfill call in
       // the synthetic-message branch, a later turn's `handleMessageComplete`
       // sweep would wrong-attach this row to the wrong assistant message.
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       // GIVEN a real loop whose provider rejects: the loop emits
       // `provider_error` (writing an `llm_request_logs` row with
@@ -2043,6 +2225,49 @@ describe("session-agent-loop", () => {
         .calls[0] as unknown as [string, string];
       expect(backfillCall[0]).toBe("test-conv");
       expect(backfillCall[1]).toBe("mock-msg-id");
+    });
+
+    test("does not persist managed credential refresh failures as assistant text", async () => {
+      mockConversationErrorClassification = {
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        retryable: false,
+        errorCategory: "managed_key_invalid",
+      };
+      const events: AssistantEvent[] = [];
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("API key has expired.");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.filter((event) => event.type === "assistant_text_delta"),
+      ).toHaveLength(0);
+
+      const conversationError = events.find(
+        (event) => event.type === "conversation_error",
+      );
+      expect(conversationError).toBeDefined();
+      expect(conversationError).toMatchObject({
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        errorCategory: "managed_key_invalid",
+      });
+
+      expect(addMessageMock).not.toHaveBeenCalled();
+      expect(recordRequestLogMock).not.toHaveBeenCalled();
+      expect(backfillMessageIdOnLogsMock).not.toHaveBeenCalled();
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-reserve");
     });
   });
 
@@ -2082,7 +2307,6 @@ describe("session-agent-loop", () => {
           role: string;
           content: string;
           createdAt: number;
-          scopeId: string;
         },
         unknown,
       ];
@@ -2092,7 +2316,6 @@ describe("session-agent-loop", () => {
         conversationId: "test-conv",
         role: "assistant",
         createdAt: 1234567,
-        scopeId: "default",
       });
       expect(indexCall.content).toContain("indexed reply");
 
@@ -2117,6 +2340,44 @@ describe("session-agent-loop", () => {
         publishSyncInvalidationMock.mock.calls as unknown as Array<[string[]]>
       ).filter((args) => args[0]?.includes("conversation:test-conv:metadata"));
       expect(metadataPublishes).toHaveLength(1);
+    });
+
+    test("terminal message_complete is emitted before the deferred indexer runs (LUM-2654)", async () => {
+      // Regression guard for LUM-2654 ("long delay between last streaming token
+      // and send-button becoming available"). The terminal `message_complete`
+      // SSE — which the client uses to flip stop→send — is emitted before the
+      // non-critical finalize side-effects (memory segment indexing, lexical
+      // indexing, attention projection), which the orchestrator drains from its
+      // end-of-turn tail. The tail runs within the turn, so the indexer still
+      // fires exactly once; this test pins the ordering by asserting
+      // `message_complete` is already in the client stream when it does.
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const events: AssistantEvent[] = [];
+      let messageCompleteSeenWhenIndexed: boolean | undefined;
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        messageCompleteSeenWhenIndexed = events.some(
+          (event) => event.type === "message_complete",
+        );
+        return { indexedSegments: 0, enqueuedJobs: 0 };
+      });
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("indexed reply")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+      // The deferred indexer runs exactly once, within the turn…
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+      // …and only after the terminal SSE that re-enables the composer.
+      expect(messageCompleteSeenWhenIndexed).toBe(true);
     });
 
     test("handleMessageComplete skips sync invalidation when attention state unchanged", async () => {
@@ -2255,6 +2516,41 @@ describe("session-agent-loop", () => {
       expect(lastSync?.[1]).toBe("mock-msg-id");
       expect(lastSync?.[1]).not.toBe("msg-orphaned-reservation");
     });
+
+    test("managed-key provider-error cleanup publishes message invalidation after deleting the reservation", async () => {
+      reserveMessageMock.mockImplementationOnce(async () => ({
+        id: "msg-managed-key-reservation",
+      }));
+      mockConversationErrorClassification = {
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        retryable: false,
+        errorCategory: "managed_key_invalid",
+      };
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("API key has expired.");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-managed-key-reservation");
+      expect(addMessageMock).not.toHaveBeenCalled();
+      expect(syncMessageToDiskMock).not.toHaveBeenCalled();
+
+      const messagePublishes = (
+        publishSyncInvalidationMock.mock.calls as unknown as Array<[string[]]>
+      ).filter((args) => args[0]?.includes("conversation:test-conv:messages"));
+      expect(messagePublishes).toHaveLength(1);
+    });
   });
 
   describe("partial persistence", () => {
@@ -2292,13 +2588,21 @@ describe("session-agent-loop", () => {
       // the 1024-char size gate) then holds the turn open past the 250ms
       // debounce window before completing, so a single debounced partial
       // flush lands before `message_complete`.
+      let midTurnDeltaLines: string[] | undefined;
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
           async sendMessage(_messages, options) {
             options?.onEvent?.({ type: "text_delta", text: "Hello, " });
             options?.onEvent?.({ type: "text_delta", text: "world." });
-            await new Promise((resolve) => setTimeout(resolve, 1100));
+            // The debounced flush lands at PARTIAL_PERSIST_DEBOUNCE_MS
+            // (1000ms); read the delta file mid-hold (finalize deletes it
+            // at turn end).
+            await new Promise((resolve) => setTimeout(resolve, 1050));
+            midTurnDeltaLines = readFileSync(soleInflightDeltaPath(), "utf8")
+              .trim()
+              .split("\n");
+            await new Promise((resolve) => setTimeout(resolve, 100));
             return textResponse("Hello, world.");
           },
         },
@@ -2307,22 +2611,34 @@ describe("session-agent-loop", () => {
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      // Exactly two `updateContent` calls land:
-      //   1. the debounced partial flush after both deltas accumulated, and
-      //   2. the final authoritative flush in `handleMessageComplete`.
-      // Without the debounce gate this would be one-per-delta + one final
-      // (3). Without the partial flush at all it would be just 1.
-      expect(updateMessageContentMock).toHaveBeenCalledTimes(2);
-      const calls = updateMessageContentMock.mock.calls as unknown as Array<
-        [string, string]
-      >;
-      const partialFlush = calls[0];
-      expect(partialFlush?.[0]).toBe("msg-reserve");
-      const partialBlocks = JSON.parse(partialFlush?.[1] ?? "[]") as Array<{
-        type: string;
-        text?: string;
-      }>;
-      expect(partialBlocks).toEqual([{ type: "text", text: "Hello, world." }]);
+      // Exactly one debounced partial flush landed, in the delta file:
+      // one flush of both accumulated deltas writes block 0 once — one
+      // JSONL line. Without the debounce gate each delta would flush
+      // separately (2 lines). The row itself sees no mid-stream write at
+      // all — it was born holding the `{ ref }` at reserve time.
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
+      expect(midTurnDeltaLines).toHaveLength(1);
+      const delta = JSON.parse(midTurnDeltaLines![0]) as {
+        block: { type: string; text?: string; _redactionVersion?: number };
+      };
+      expect(delta.block).toEqual({
+        type: "text",
+        text: "Hello, world.",
+        // Stamped by the persist path's sentinel forgery guard (LUM-2768):
+        // marks the block as neutralization-aware for the history read seam.
+        _redactionVersion: 2,
+      });
+      // The finalize seam folds the authoritative content inline and
+      // removes the delta file.
+      const finalize = finalizeMessageContentMock.mock.calls[0] as unknown as [
+        string,
+        string,
+      ];
+      expect(finalize[0]).toBe("msg-reserve");
+      expect(JSON.parse(finalize[1])).toEqual([
+        { type: "text", text: "Hello, world.", _redactionVersion: 2 },
+      ]);
+      expect(inflightDeltaFiles()).toHaveLength(0);
     });
 
     test("handleToolUse does NOT trigger a partial flush of its own", async () => {
@@ -2364,14 +2680,16 @@ describe("session-agent-loop", () => {
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      // Four authoritative writes land and no stray partial flush:
-      //   - one final flush per `message_complete` (the tool turn and the final
+      // Three finalize writes land and no stray partial flush:
+      //   - one finalize per `message_complete` (the tool turn and the final
       //     text turn), plus
-      //   - two grouped tool-result user-row writes (persist-on-arrival and the
-      //     turn-boundary finalize).
-      // `handleToolUse` contributes no partial flush of its own; one would make
-      // this 5. That stray flush is the regression this test guards against.
-      expect(updateMessageContentMock).toHaveBeenCalledTimes(4);
+      //   - the grouped tool-result user-row's turn-boundary finalize.
+      // `handleToolUse` fires after `message_complete` removed the assistant
+      // writer, so a stray flush from it would fall back to
+      // `updateMessageContent` — the zero count is the regression guard.
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
+      expect(finalizeMessageContentMock).toHaveBeenCalledTimes(3);
+      expect(inflightDeltaFiles()).toHaveLength(0);
     });
 
     test("handleMessageComplete clears any pending debounce timer before the final flush", async () => {
@@ -2424,13 +2742,16 @@ describe("session-agent-loop", () => {
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      // Four authoritative writes land: one final flush per `message_complete`
-      // (the tool turn and the final text turn) plus two grouped tool-result
-      // user-row writes (persist-on-arrival and the turn-boundary finalize).
-      // The debounced partial would have fired around T+250ms — during the tool
-      // executor's hold — but the timer-clear at the top of
-      // `handleMessageComplete` cancels it, so no stray fifth flush appears.
-      expect(updateMessageContentMock).toHaveBeenCalledTimes(4);
+      // Three finalize writes land: one per `message_complete` (the tool
+      // turn and the final text turn) plus the grouped tool-result row's
+      // turn-boundary finalize. The debounced partial would have fired
+      // during the tool executor's hold — after `message_complete` removed
+      // the assistant writer — so a stray late flush would fall back to
+      // `updateMessageContent`; the timer-clear at the top of
+      // `handleMessageComplete` is what keeps that count at zero.
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
+      expect(finalizeMessageContentMock).toHaveBeenCalledTimes(3);
+      expect(inflightDeltaFiles()).toHaveLength(0);
     });
 
     test("partial flushes never trigger the indexer or attention projector", async () => {
@@ -2496,12 +2817,15 @@ describe("session-agent-loop", () => {
       // GIVEN a real loop whose provider streams the PAT-bearing payload as a
       // delta then holds the turn open past the 250ms debounce window so the
       // partial flush lands before `message_complete`.
+      let midTurnDeltaFile: string | undefined;
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
           async sendMessage(_messages, options) {
             options?.onEvent?.({ type: "text_delta", text: payload });
-            await new Promise((resolve) => setTimeout(resolve, 1100));
+            await new Promise((resolve) => setTimeout(resolve, 1050));
+            midTurnDeltaFile = readFileSync(soleInflightDeltaPath(), "utf8");
+            await new Promise((resolve) => setTimeout(resolve, 100));
             return textResponse(payload);
           },
         },
@@ -2510,14 +2834,16 @@ describe("session-agent-loop", () => {
       // WHEN the orchestrator runs the turn to completion
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      expect(updateMessageContentMock).toHaveBeenCalledTimes(2);
-      const partialPayload = (
-        updateMessageContentMock.mock.calls[0] as unknown as [string, string]
-      )[1];
-      // The raw PAT must never appear in the persisted snapshot. The
-      // redaction substitute is implementation-defined; the contract here
-      // is "the literal token string is gone".
-      expect(partialPayload).not.toContain(ghToken);
+      // The raw PAT must never appear in the persisted snapshot — neither
+      // in the in-flight delta file the partial flush wrote, nor in the
+      // finalized inline content. The redaction substitute is
+      // implementation-defined; the contract here is "the literal token
+      // string is gone".
+      expect(midTurnDeltaFile).toBeDefined();
+      expect(midTurnDeltaFile).not.toContain(ghToken);
+      const finalizeArgs = finalizeMessageContentMock.mock
+        .calls[0] as unknown as [string, string];
+      expect(finalizeArgs[1]).not.toContain(ghToken);
     });
 
     test("provider-error cleanup deletes a row that has accumulated partial content", async () => {
@@ -2548,16 +2874,19 @@ describe("session-agent-loop", () => {
       // WHEN the orchestrator runs the turn
       await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
 
-      // Partial flush fired exactly once (before the provider error).
+      // The partial flush landed in the orphan row's in-flight delta file
+      // exactly once (before the provider error) — the stranded fold skips
+      // the deleted row, so the file's single delta line is the evidence.
       // The orphan row was then deleted; the synthetic error message is
       // inserted separately via `addMessage` (`mock-msg-id`) and never
-      // touched by `updateContent`.
-      const partialFlushes = (
-        updateMessageContentMock.mock.calls as unknown as Array<
-          [string, string]
-        >
-      ).filter(([id]) => id === "msg-orphan-with-partial");
-      expect(partialFlushes).toHaveLength(1);
+      // touched by a content write.
+      const orphanFiles = inflightDeltaFiles();
+      expect(orphanFiles).toHaveLength(1);
+      const orphanLines = readFileSync(orphanFiles[0], "utf8")
+        .trim()
+        .split("\n");
+      expect(orphanLines).toHaveLength(1);
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
       expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
       const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
         string,
@@ -3050,7 +3379,7 @@ describe("session-agent-loop", () => {
 
     test("applyCompactionResult records Slack timestamp watermark when provided", async () => {
       const ctx = makeCtx();
-      const events: ServerMessage[] = [];
+      const events: AssistantEvent[] = [];
 
       await applyCompactionResult(
         ctx,

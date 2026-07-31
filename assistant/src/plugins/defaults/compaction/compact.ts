@@ -10,7 +10,8 @@
  * This module is side-effect free: importing it does not register any plugin.
  */
 
-import type { Message } from "../../../providers/types.js";
+import type { Message } from "@vellumai/plugin-api";
+
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { PluginExecutionError } from "../../types.js";
 import { getContextWindowManager } from "./manager-store.js";
@@ -50,6 +51,19 @@ export interface CompactionContext {
   /** Trust class of the actor whose turn triggered compaction. */
   actorTrustClass?: TrustClass;
   /**
+   * Summarize everything before this in-memory history index ("summarize up
+   * to here"). Single-attempt; bypasses the auto-threshold gate and the
+   * token-budget forward-cut. Mutually exclusive with `overflowSignal` —
+   * overflow recovery never targets a user-chosen boundary.
+   */
+  fixedTailStartIndex?: number;
+  /**
+   * Row-space twin of `fixedTailStartIndex` — bounds the compactor's image
+   * manifest to rows before the user-chosen boundary so kept-tail images
+   * are never offered for retention.
+   */
+  fixedBoundaryRowIndex?: number;
+  /**
    * Set when this compaction is recovering from a provider context-overflow
    * rejection rather than the ordinary auto-threshold trip. Its presence
    * routes the request through the manager's reduction ladder (which escalates
@@ -74,6 +88,12 @@ export async function defaultCompact(
 ): Promise<ContextWindowResult> {
   const { conversationId, messages, signal, overflowSignal, ...options } =
     context;
+  if (overflowSignal && options.fixedTailStartIndex != null) {
+    throw new PluginExecutionError(
+      `default-compaction: overflowSignal and fixedTailStartIndex are mutually exclusive — overflow recovery never targets a user-chosen boundary (conversation ${conversationId})`,
+      DEFAULT_COMPACTION_PLUGIN_NAME,
+    );
+  }
   const manager = getContextWindowManager(conversationId);
   if (manager == null) {
     throw new PluginExecutionError(

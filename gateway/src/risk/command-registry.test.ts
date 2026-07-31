@@ -551,7 +551,6 @@ describe("command-registry", () => {
         "config",
         "contacts",
         "conversations",
-        "credential-execution",
         "credentials",
         "domain",
         "email",
@@ -570,7 +569,6 @@ describe("command-registry", () => {
         "sequence",
         "skills",
         "stt",
-        "task",
         "trust",
         "tts",
         "ui",
@@ -592,24 +590,71 @@ describe("command-registry", () => {
       expect(getAssistantPath("email send").baseRisk).toBe("high");
       expect(getAssistantPath("domain register").baseRisk).toBe("medium");
       expect(getAssistantPath("conversations clear").baseRisk).toBe("medium");
-      expect(getAssistantPath("conversations wipe").baseRisk).toBe("high");
       expect(getAssistantPath("backup restore").baseRisk).toBe("high");
       expect(getAssistantPath("inference session open").baseRisk).toBe("low");
       expect(getAssistantPath("inference session close").baseRisk).toBe("low");
       expect(getAssistantPath("inference session list").baseRisk).toBe("low");
       expect(getAssistantPath("schedules list").baseRisk).toBe("low");
+      expect(getAssistantPath("schedules get").baseRisk).toBe("low");
+      expect(getAssistantPath("schedules inspect").baseRisk).toBe("low");
       expect(getAssistantPath("schedules runs").baseRisk).toBe("low");
       expect(getAssistantPath("schedules create").baseRisk).toBe("medium");
+      expect(getAssistantPath("schedules update").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules enable").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules disable").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules cancel").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules delete").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules execute").baseRisk).toBe("high");
+      expect(getAssistantPath("memory items list").baseRisk).toBe("low");
+      expect(getAssistantPath("memory items get").baseRisk).toBe("low");
+      expect(getAssistantPath("memory items create").baseRisk).toBe("medium");
+      expect(getAssistantPath("memory items update").baseRisk).toBe("medium");
+      expect(getAssistantPath("memory items delete").baseRisk).toBe("medium");
+      expect(getAssistantPath("memory ingest").baseRisk).toBe("medium");
       expect(getAssistantPath("plugins list").baseRisk).toBe("low");
       expect(getAssistantPath("plugins inspect").baseRisk).toBe("low");
+      expect(getAssistantPath("plugins diff").baseRisk).toBe("low");
       expect(getAssistantPath("plugins install").baseRisk).toBe("high");
       expect(getAssistantPath("plugins upgrade").baseRisk).toBe("high");
       expect(getAssistantPath("plugins uninstall").baseRisk).toBe("medium");
+      expect(getAssistantPath("plugins enable").baseRisk).toBe("medium");
+      expect(getAssistantPath("plugins disable").baseRisk).toBe("medium");
+      expect(getAssistantPath("platform invoices list").baseRisk).toBe("low");
+      expect(getAssistantPath("platform invoices get").baseRisk).toBe("low");
+    });
+
+    test("assistant schedules update escalates to high for script payloads", () => {
+      const updateSpec = getAssistantPath("schedules update");
+      expect(updateSpec.argRules).toBeDefined();
+
+      const scriptRule = updateSpec.argRules!.find((r) =>
+        r.flags?.includes("--script"),
+      );
+      expect(scriptRule).toBeDefined();
+      expect(scriptRule!.risk).toBe("high");
+
+      const modeRule = updateSpec.argRules!.find(
+        (r) => r.flags?.includes("--mode") && r.valuePattern === "^script$",
+      );
+      expect(modeRule).toBeDefined();
+      expect(modeRule!.risk).toBe("high");
+    });
+
+    test("assistant schedules create escalates to high for script payloads", () => {
+      const createSpec = getAssistantPath("schedules create");
+      expect(createSpec.argRules).toBeDefined();
+
+      const scriptRule = createSpec.argRules!.find((r) =>
+        r.flags?.includes("--script"),
+      );
+      expect(scriptRule).toBeDefined();
+      expect(scriptRule!.risk).toBe("high");
+
+      const modeRule = createSpec.argRules!.find(
+        (r) => r.flags?.includes("--mode") && r.valuePattern === "^script$",
+      );
+      expect(modeRule).toBeDefined();
+      expect(modeRule!.risk).toBe("high");
     });
   });
 

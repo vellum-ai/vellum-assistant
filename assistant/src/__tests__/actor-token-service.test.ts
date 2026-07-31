@@ -13,13 +13,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => false,
   getInternalGatewayTarget: () => "http://localhost:7822",
@@ -29,14 +22,21 @@ mock.module("../config/env.js", () => ({
   checkUnrecognizedEnvVars: () => {},
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+// No gateway in tests: force the reader to miss so resolution exercises the
+// local-store bootstrap fallback deterministically.
+let fakeGuardianDelivery: { principalId?: string | null } | null = null;
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () =>
+    fakeGuardianDelivery ? [fakeGuardianDelivery] : null,
+  guardianForChannel: (list: { principalId?: string | null }[]) => list[0],
+  invalidateGuardianDeliveryCache: () => {},
+}));
+
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { resetExternalAssistantIdCache } from "../runtime/auth/external-assistant-id.js";
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
-import {
-  resolveLocalAuthContext,
-  resolveLocalTrustContext,
-} from "../runtime/local-actor-identity.js";
+import { resolveLocalAuthContext } from "../runtime/local-actor-identity.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -46,24 +46,14 @@ import { resetDbForTesting } from "./db-test-helpers.js";
 const TEST_KEY = Buffer.from("test-signing-key-32-bytes-long!!");
 
 // ---------------------------------------------------------------------------
-initializeDb();
+await initializeDb();
 
-beforeEach(() => {
+beforeEach(async () => {
   initAuthSigningKey(TEST_KEY);
   resetExternalAssistantIdCache();
+  fakeGuardianDelivery = null;
   resetDbForTesting();
-  initializeDb();
-});
-
-// ---------------------------------------------------------------------------
-// Local identity resolution
-// ---------------------------------------------------------------------------
-
-describe("resolveLocalTrustContext", () => {
-  test("falls back to minimal trust context when no vellum binding exists", () => {
-    const ctx = resolveLocalTrustContext();
-    expect(ctx.sourceChannel).toBe("vellum");
-  });
+  await initializeDb();
 });
 
 // ---------------------------------------------------------------------------
@@ -71,38 +61,48 @@ describe("resolveLocalTrustContext", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveLocalAuthContext", () => {
-  test("returns AuthContext with local principal type", () => {
-    const ctx = resolveLocalAuthContext("session-123");
+  test("returns AuthContext with local principal type", async () => {
+    const ctx = await resolveLocalAuthContext("session-123");
     expect(ctx.principalType).toBe("local");
   });
 
-  test("subject follows local:self:<conversationId> pattern", () => {
-    const ctx = resolveLocalAuthContext("session-abc");
+  test("subject follows local:self:<conversationId> pattern", async () => {
+    const ctx = await resolveLocalAuthContext("session-abc");
     expect(ctx.subject).toBe("local:self:session-abc");
   });
 
-  test("assistantId is always self", () => {
-    const ctx = resolveLocalAuthContext("session-123");
+  test("assistantId is always self", async () => {
+    const ctx = await resolveLocalAuthContext("session-123");
     expect(ctx.assistantId).toBe("self");
   });
 
-  test("uses local_v1 scope profile with local.all scope", () => {
-    const ctx = resolveLocalAuthContext("session-123");
+  test("uses local_v1 scope profile with local.all scope", async () => {
+    const ctx = await resolveLocalAuthContext("session-123");
     expect(ctx.scopeProfile).toBe("local_v1");
     expect(ctx.scopes.has("local.all")).toBe(true);
   });
 
-  test("actorPrincipalId is undefined when no vellum binding exists", () => {
+  test("actorPrincipalId is undefined when no vellum binding exists", async () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
 
-    const ctx = resolveLocalAuthContext("session-123");
+    const ctx = await resolveLocalAuthContext("session-123");
     expect(ctx.actorPrincipalId).toBeUndefined();
   });
 
-  test("conversationId matches the provided argument", () => {
-    const ctx = resolveLocalAuthContext("my-session");
+  test("resolves the guardian principal from the gateway when available", async () => {
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+    fakeGuardianDelivery = { principalId: "gateway-guardian-id" };
+
+    const ctx = await resolveLocalAuthContext("session-123");
+    expect(ctx.actorPrincipalId).toBe("gateway-guardian-id");
+  });
+
+  test("conversationId matches the provided argument", async () => {
+    const ctx = await resolveLocalAuthContext("my-session");
     expect(ctx.conversationId).toBe("my-session");
   });
 });

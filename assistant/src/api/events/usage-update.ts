@@ -23,6 +23,13 @@ export const UsageUpdateEventSchema = z.object({
   conversationId: z.string(),
   inputTokens: z.number(),
   outputTokens: z.number(),
+  /**
+   * Per-call prompt-cache token counts, as reported by the provider.
+   * Optional: older daemons omit them, and providers without prompt
+   * caching never supply them. `inputTokens` already includes these.
+   */
+  cacheCreationInputTokens: z.number().optional(),
+  cacheReadInputTokens: z.number().optional(),
   totalInputTokens: z.number(),
   totalOutputTokens: z.number(),
   estimatedCost: z.number(),

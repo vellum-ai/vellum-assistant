@@ -18,6 +18,8 @@ import {
 
 import { z } from "zod";
 
+import { getDefaultPluginSkillRoots } from "../plugins/defaults/main.js";
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import type { InlineCommandExpansion } from "../skills/inline-command-expansions.js";
 import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
@@ -47,6 +49,7 @@ const VellumMetadataSchema = z
     "activation-hints": z.array(z.string()).optional(),
     "avoid-when": z.array(z.string()).optional(),
     category: z.string().optional(),
+    "always-candidate": z.boolean().optional(),
   })
   .passthrough();
 
@@ -66,9 +69,10 @@ const SkillMetadataSchema = z
  * - `workspace`: user-authored skill living in a conversation's working dir.
  * - `extra`: third-party directory roots passed via `loadSkillCatalog`'s
  *   `extraDirs` argument (primarily for tests).
- * - `plugin`: shipped on disk inside an installed plugin at
- *   `<workspaceDir>/plugins/<name>/skills/<id>/SKILL.md`, attributed back to
- *   the owning plugin via its `owner` descriptor.
+ * - `plugin`: shipped on disk inside a plugin: an installed one at
+ *   `<workspaceDir>/plugins/<name>/skills/<id>/SKILL.md`, or an in-process
+ *   default at `plugins/defaults/<dir>/skills/<id>/SKILL.md`, attributed back
+ *   to the owning plugin via its `owner` descriptor.
  */
 export type SkillSource =
   | "bundled"
@@ -94,7 +98,8 @@ export interface SkillSummary {
    * Ownership descriptor identifying the extension that ships this skill,
    * reusing the same {@link OwnerInfo} model the tool registry uses. Set only
    * for `source: "plugin"` skills — `{ kind: "plugin", id: <plugin dir name> }`
-   * — attributing them to the installed plugin under `<workspaceDir>/plugins/`.
+   * for an installed plugin under `<workspaceDir>/plugins/`, `{ kind:
+   * "plugin", id: "default-<dir>" }` for an in-process default plugin.
    */
   owner?: OwnerInfo;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
@@ -109,6 +114,13 @@ export interface SkillSummary {
   avoidWhen?: string[];
   /** Category slug declared in frontmatter, used as a fallback when the skill is not in the Vellum catalog. */
   category?: string;
+  /**
+   * When true, this skill is pinned into the memory-v3 selector's stable-prefix
+   * candidate pool every turn (so the selector can choose it even when no
+   * retrieval lane surfaces it). For cross-cutting capabilities whose relevance
+   * the model must judge, not embedding similarity.
+   */
+  alwaysCandidate?: boolean;
   /** Parsed inline command expansion descriptors (`!\`command\``) found in the skill body. */
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
@@ -204,10 +216,14 @@ export function getBundledSkillsDir(): string {
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary is in Contents/MacOS/, resources in Contents/Resources/
     const resourcesPath = join(execDir, "..", "Resources", "bundled-skills");
-    if (existsSync(resourcesPath)) return resourcesPath;
+    if (existsSync(resourcesPath)) {
+      return resourcesPath;
+    }
     // Next to the binary itself (non-app-bundle deployments)
     const execDirPath = join(execDir, "bundled-skills");
-    if (existsSync(execDirPath)) return execDirPath;
+    if (existsSync(execDirPath)) {
+      return execDirPath;
+    }
   }
 
   return join(dir, "bundled-skills");
@@ -227,11 +243,14 @@ interface ParsedFrontmatter {
   activationHints?: string[];
   avoidWhen?: string[];
   category?: string;
+  alwaysCandidate?: boolean;
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
 
 function normalizeStringArray(raw: unknown): string[] | undefined {
-  if (!Array.isArray(raw)) return undefined;
+  if (!Array.isArray(raw)) {
+    return undefined;
+  }
   const result = raw
     .filter((item): item is string => typeof item === "string")
     .map((s) => s.trim())
@@ -342,6 +361,11 @@ function parseFrontmatter(
       ? vellum.category.trim()
       : undefined;
 
+  const alwaysCandidate =
+    typeof vellum?.["always-candidate"] === "boolean"
+      ? vellum["always-candidate"]
+      : undefined;
+
   const strippedBody = stripCommentLines(body);
 
   // Parse inline command expansions from the body (after frontmatter/comment stripping)
@@ -366,6 +390,7 @@ function parseFrontmatter(
     activationHints,
     avoidWhen,
     category,
+    alwaysCandidate,
     inlineCommandExpansions,
   };
 }
@@ -503,7 +528,9 @@ function readSkillFromDirectory(
 
     const content = readFileSync(skillFilePath, "utf-8");
     const parsed = parseFrontmatter(content, skillFilePath);
-    if (!parsed) return null;
+    if (!parsed) {
+      return null;
+    }
 
     return {
       id: basename(directoryPath),
@@ -523,6 +550,7 @@ function readSkillFromDirectory(
       activationHints: parsed.activationHints,
       avoidWhen: parsed.avoidWhen,
       category: parsed.category,
+      alwaysCandidate: parsed.alwaysCandidate,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -555,7 +583,9 @@ function readBundledSkillFromDirectory(
 
     const content = readFileSync(skillFilePath, "utf-8");
     const parsed = parseFrontmatter(content, skillFilePath);
-    if (!parsed) return null;
+    if (!parsed) {
+      return null;
+    }
 
     return {
       id: basename(directoryPath),
@@ -576,6 +606,7 @@ function readBundledSkillFromDirectory(
       activationHints: parsed.activationHints,
       avoidWhen: parsed.avoidWhen,
       category: parsed.category,
+      alwaysCandidate: parsed.alwaysCandidate,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -588,13 +619,17 @@ function readBundledSkillFromDirectory(
 
 function discoverBundledSkillDirectories(): string[] {
   const bundledDir = getBundledSkillsDir();
-  if (!existsSync(bundledDir)) return [];
+  if (!existsSync(bundledDir)) {
+    return [];
+  }
 
   const dirs: string[] = [];
   try {
     const entries = readdirSync(bundledDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+      if (!entry.isDirectory()) {
+        continue;
+      }
       const directoryPath = join(bundledDir, entry.name);
       if (existsSync(join(directoryPath, "SKILL.md"))) {
         dirs.push(directoryPath);
@@ -617,7 +652,9 @@ function loadBundledSkills(): SkillSummary[] {
 
   for (const directory of directories) {
     const skill = readBundledSkillFromDirectory(directory);
-    if (!skill) continue;
+    if (!skill) {
+      continue;
+    }
 
     skills.push({
       id: skill.id,
@@ -637,6 +674,7 @@ function loadBundledSkills(): SkillSummary[] {
       activationHints: skill.activationHints,
       avoidWhen: skill.avoidWhen,
       category: skill.category,
+      alwaysCandidate: skill.alwaysCandidate,
       inlineCommandExpansions: skill.inlineCommandExpansions,
     });
   }
@@ -645,13 +683,17 @@ function loadBundledSkills(): SkillSummary[] {
 }
 
 function discoverSkillDirectories(skillsDir: string): string[] {
-  if (!existsSync(skillsDir)) return [];
+  if (!existsSync(skillsDir)) {
+    return [];
+  }
 
   const dirs: string[] = [];
   try {
     const entries = readdirSync(skillsDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) {
+        continue;
+      }
       const directoryPath = join(skillsDir, entry.name);
       if (existsSync(join(directoryPath, "SKILL.md"))) {
         dirs.push(directoryPath);
@@ -666,22 +708,28 @@ function discoverSkillDirectories(skillsDir: string): string[] {
 }
 
 /**
- * Whether `pluginDir` is a recognized installed plugin: it must carry a
- * parseable `package.json` whose `name` equals the directory name. This
- * mirrors the external plugin loader's recognition gate, which skips any
- * directory whose `manifest.name` does not match its directory name.
+ * Whether `pluginDir` carries a plugin manifest the runtime can load: a
+ * parseable `package.json` with a non-empty string `name`. This mirrors the
+ * external plugin loader (`buildPluginFromDir`), which builds a plugin from
+ * any such directory and derives the plugin's identity from `package.json`
+ * `name` — it imposes no match between that `name` and the directory name.
+ *
+ * The directory name is the install slug (a marketplace slug or a GitHub path
+ * leaf), which routinely differs from the plugin's own `package.json` `name`;
+ * requiring the two to match would silently drop the resident skills of every
+ * such plugin even though the runtime loads its hooks and tools fine.
+ *
+ * The caller is responsible for the missing-`package.json` case (it emits a
+ * diagnostic warning); this function only judges a manifest that is present.
  */
-function isRecognizedPluginDir(pluginDir: string, dirName: string): boolean {
+function hasLoadablePluginManifest(pluginDir: string): boolean {
   const manifestPath = join(pluginDir, "package.json");
-  if (!existsSync(manifestPath)) return false;
+  if (!existsSync(manifestPath)) {
+    return false;
+  }
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf-8"));
-    return (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "name" in parsed &&
-      (parsed as { name: unknown }).name === dirName
-    );
+    parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
   } catch (err) {
     log.warn(
       { err, manifestPath },
@@ -689,18 +737,109 @@ function isRecognizedPluginDir(pluginDir: string, dirName: string): boolean {
     );
     return false;
   }
+  return (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    "name" in parsed &&
+    typeof (parsed as { name: unknown }).name === "string" &&
+    (parsed as { name: string }).name.length > 0
+  );
 }
 
 /**
- * Discover skills shipped on disk inside installed plugins. Each installed
- * plugin — a directory under `<workspaceDir>/plugins/` recognized by
- * {@link isRecognizedPluginDir} — may ship skills at `skills/<id>/SKILL.md`.
- * Returned summaries are attributed to the owning plugin via their `owner`
- * descriptor (`{ kind: "plugin", id: <plugin dir name> }`).
+ * Discover skills shipped on disk by the in-process default plugins. A default
+ * plugin lives in the assistant's own source tree rather than under
+ * `<workspaceDir>/plugins/`, so its skills are enumerated from the roots
+ * {@link getDefaultPluginSkillRoots} reports (`defaults/<dir>/skills/`) instead
+ * of a workspace scan; there is no `package.json` gate because a default
+ * plugin's manifest is the one the daemon compiles in.
+ *
+ * `roots` is injectable so tests can exercise the walk against a temp tree; in
+ * production it is always the shipped defaults tree.
+ *
+ * A default plugin's disabled sentinel lives in the workspace and is keyed by
+ * its `default-<dir>` name, so the gate is {@link isPluginDisabled} at read
+ * time, the same read-time check the hook, tool, and route surfaces use, so a
+ * CLI toggle applies on the next turn without a daemon restart.
  */
-function discoverPluginResidentSkills(): SkillSummary[] {
+export function discoverDefaultPluginResidentSkills(
+  roots: readonly { pluginName: string; skillsDir: string }[],
+): SkillSummary[] {
+  const summaries: SkillSummary[] = [];
+  for (const { pluginName, skillsDir } of roots) {
+    if (isPluginDisabled(pluginName)) {
+      continue;
+    }
+    for (const directory of discoverSkillDirectories(skillsDir)) {
+      const skill = readSkillFromDirectory(directory, skillsDir, "plugin");
+      if (!skill) {
+        continue;
+      }
+      summaries.push({
+        ...skillSummaryFromDefinition(skill, "plugin"),
+        owner: { kind: "plugin", id: pluginName },
+      });
+    }
+  }
+  return summaries;
+}
+
+/**
+ * Discover skills shipped on disk inside plugins: the in-process defaults in
+ * the assistant's source tree and the installed plugins under
+ * `<workspaceDir>/plugins/` (a directory recognized by
+ * {@link hasLoadablePluginManifest}), each of which may ship skills at
+ * `skills/<id>/SKILL.md`. Returned summaries are attributed to the owning
+ * plugin via their `owner` descriptor: `{ kind: "plugin", id: <plugin dir
+ * name> }` for an installed plugin, `{ kind: "plugin", id: "default-<dir>" }`
+ * for a default one.
+ *
+ * Default-plugin skills sit BELOW installed-plugin skills: an installed plugin
+ * shipping a skill of the same id shadows the default one, so a user can
+ * replace a first-party skill by installing a plugin that redefines it, the
+ * same direction as the catalog's overall extra → bundled → plugin → managed →
+ * workspace ordering. Shadowed defaults are dropped here rather than left for
+ * the catalog's first-wins `seenIds` pass, which would otherwise let whichever
+ * group is emitted first win.
+ *
+ */
+export function discoverPluginResidentSkills(): SkillSummary[] {
+  return mergePluginResidentSkills(
+    discoverDefaultPluginResidentSkills(getDefaultPluginSkillRoots()),
+    discoverInstalledPluginResidentSkills(),
+  );
+}
+
+/**
+ * Merge the two plugin skill groups, dropping any default-plugin skill whose
+ * id an installed plugin also ships. Kept separate from the discovery walks so
+ * the shadowing rule is testable with synthetic summaries.
+ */
+export function mergePluginResidentSkills(
+  defaultSkills: readonly SkillSummary[],
+  installedSkills: readonly SkillSummary[],
+): SkillSummary[] {
+  const installedIds = new Set(installedSkills.map((skill) => skill.id));
+
+  const survivingDefaults = defaultSkills.filter((skill) => {
+    if (!installedIds.has(skill.id)) {
+      return true;
+    }
+    log.info(
+      { id: skill.id, pluginName: skill.owner?.id },
+      "Installed plugin skill overrides default plugin skill",
+    );
+    return false;
+  });
+
+  return [...survivingDefaults, ...installedSkills];
+}
+
+function discoverInstalledPluginResidentSkills(): SkillSummary[] {
   const pluginsDir = getWorkspacePluginsDir();
-  if (!existsSync(pluginsDir)) return [];
+  if (!existsSync(pluginsDir)) {
+    return [];
+  }
 
   let entries: Dirent[];
   try {
@@ -715,22 +854,53 @@ function discoverPluginResidentSkills(): SkillSummary[] {
 
   const summaries: SkillSummary[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) {
+      continue;
+    }
     const pluginDir = join(pluginsDir, entry.name);
-    // Mirror the plugin loader's recognition gate: a directory is a real
-    // installed plugin only if it carries a parseable `package.json` whose
-    // `name` matches the directory. This rejects staging dirs, stray files,
-    // and malformed/mismatched clones (e.g. an un-adapted `caveman-installer`)
-    // that the loader itself would skip, so the catalog never surfaces skills
-    // from a directory the runtime would refuse to load.
-    if (!isRecognizedPluginDir(pluginDir, entry.name)) continue;
+
+    // A directory under `plugins/` with no `package.json` is not a plugin the
+    // runtime can load, so its skills are never surfaced. This is an easy
+    // footgun — a plugin dropped in without its manifest looks installed but
+    // silently contributes nothing — so warn loudly with the path rather than
+    // skipping in silence, to make the misconfiguration diagnosable.
+    if (!existsSync(join(pluginDir, "package.json"))) {
+      log.warn(
+        { pluginDir },
+        "Plugin directory is missing package.json — skipping; its skills will not be available. Add a package.json with a `name`.",
+      );
+      continue;
+    }
+
+    // Honor the `.disabled` sentinel the runtime plugin scan checks
+    // (`plugins/mtime-cache.ts`): a disabled plugin contributes no hooks or
+    // tools, so its resident skills must not be loadable either.
+    if (existsSync(join(pluginDir, ".disabled"))) {
+      continue;
+    }
+
+    // Mirror the plugin loader: a directory contributes its resident skills
+    // when it carries a loadable manifest (parseable `package.json` with a
+    // non-empty `name`). The manifest `name` need not equal the directory name
+    // — the loader imposes no such match — so a plugin installed under a
+    // marketplace slug or GitHub path leaf that differs from its `package.json`
+    // `name` still surfaces its skills, matching the hooks and tools the
+    // runtime already loads from it. A parseable manifest still rejects staging
+    // dirs and malformed clones the loader would itself refuse.
+    if (!hasLoadablePluginManifest(pluginDir)) {
+      continue;
+    }
 
     const skillsDir = join(pluginDir, "skills");
-    if (!existsSync(skillsDir)) continue;
+    if (!existsSync(skillsDir)) {
+      continue;
+    }
 
     for (const directory of discoverSkillDirectories(skillsDir)) {
       const skill = readSkillFromDirectory(directory, skillsDir, "plugin");
-      if (!skill) continue;
+      if (!skill) {
+        continue;
+      }
       summaries.push({
         ...skillSummaryFromDefinition(skill, "plugin"),
         owner: { kind: "plugin", id: entry.name },
@@ -742,6 +912,36 @@ function discoverPluginResidentSkills(): SkillSummary[] {
 }
 
 // ─── Catalog loading ─────────────────────────────────────────────────────────
+
+/**
+ * Scope a list of skills to a conversation's per-chat plugin selection.
+ *
+ * `effectiveEnabledPluginSet` is the conversation's effective set as produced
+ * by `getEffectiveEnabledPluginSet`: `null` means there is no per-chat
+ * restriction, so the input is returned unchanged (all globally-enabled
+ * plugins apply). When a set is given, a plugin-contributed skill
+ * (`owner.kind === "plugin"`) survives only if its owning plugin id is in the
+ * set; non-plugin skills (bundled/managed/workspace/extra) are always retained.
+ *
+ * Pure: returns the same array reference when there is no restriction, and a
+ * filtered copy otherwise, so callers can pass a cached catalog without
+ * mutating the cache.
+ */
+export function filterSkillsByEnabledPlugins(
+  skills: SkillSummary[],
+  effectiveEnabledPluginSet: Set<string> | null,
+): SkillSummary[] {
+  if (effectiveEnabledPluginSet === null) {
+    return skills;
+  }
+  return skills.filter((skill) => {
+    const owner = skill.owner;
+    if (owner?.kind !== "plugin") {
+      return true;
+    }
+    return effectiveEnabledPluginSet.has(owner.id);
+  });
+}
 
 function skillSummaryFromDefinition(
   skill: SkillDefinition,
@@ -764,6 +964,7 @@ function skillSummaryFromDefinition(
     activationHints: skill.activationHints,
     avoidWhen: skill.avoidWhen,
     category: skill.category,
+    alwaysCandidate: skill.alwaysCandidate,
     inlineCommandExpansions: skill.inlineCommandExpansions,
   };
 }
@@ -778,19 +979,27 @@ export function loadSkillCatalog(
   // Load extra directories first (lowest precedence, before bundled)
   if (extraDirs) {
     for (const dir of extraDirs) {
-      if (!existsSync(dir)) continue;
+      if (!existsSync(dir)) {
+        continue;
+      }
       const dirs = discoverSkillDirectories(dir);
       for (const directory of dirs) {
         const skillFilePath = join(directory, "SKILL.md");
-        if (!existsSync(skillFilePath)) continue;
+        if (!existsSync(skillFilePath)) {
+          continue;
+        }
 
         try {
           const stat = statSync(skillFilePath);
-          if (!stat.isFile()) continue;
+          if (!stat.isFile()) {
+            continue;
+          }
 
           const content = readFileSync(skillFilePath, "utf-8");
           const parsed = parseFrontmatter(content, skillFilePath);
-          if (!parsed) continue;
+          if (!parsed) {
+            continue;
+          }
 
           const id = basename(directory);
           if (seenIds.has(id)) {
@@ -818,6 +1027,7 @@ export function loadSkillCatalog(
             activationHints: parsed.activationHints,
             avoidWhen: parsed.avoidWhen,
             category: parsed.category,
+            alwaysCandidate: parsed.alwaysCandidate,
             inlineCommandExpansions: parsed.inlineCommandExpansions,
           });
         } catch (err) {
@@ -851,10 +1061,12 @@ export function loadSkillCatalog(
     catalog.push(skill);
   }
 
-  // Discover skills shipped on disk inside installed plugins. They sit above
-  // bundled/extra but below managed and workspace so a user-authored
-  // filesystem skill can override a plugin-provided skill by declaring the
-  // same id under `$VELLUM_WORKSPACE_DIR/skills/`.
+  // Discover skills shipped on disk inside plugins, in-process defaults and
+  // installed plugins alike. They sit above bundled/extra but below managed and
+  // workspace so a user-authored filesystem skill can override a
+  // plugin-provided skill by declaring the same id under
+  // `$VELLUM_WORKSPACE_DIR/skills/`. Precedence *within* the plugin source
+  // (installed over default) is resolved by the discovery pass.
   const pluginSkills = discoverPluginResidentSkills();
   for (const skill of pluginSkills) {
     if (seenIds.has(skill.id)) {
@@ -887,7 +1099,9 @@ export function loadSkillCatalog(
 
   for (const directory of directories) {
     const skill = readSkillFromDirectory(directory, skillsDir, "managed");
-    if (!skill) continue;
+    if (!skill) {
+      continue;
+    }
 
     if (seenIds.has(skill.id)) {
       // If the existing entry is bundled, extra, or plugin-contributed, the
@@ -926,15 +1140,21 @@ export function loadSkillCatalog(
 
     for (const directory of workspaceDirs) {
       const skillFilePath = join(directory, "SKILL.md");
-      if (!existsSync(skillFilePath)) continue;
+      if (!existsSync(skillFilePath)) {
+        continue;
+      }
 
       try {
         const stat = statSync(skillFilePath);
-        if (!stat.isFile()) continue;
+        if (!stat.isFile()) {
+          continue;
+        }
 
         const content = readFileSync(skillFilePath, "utf-8");
         const parsed = parseFrontmatter(content, skillFilePath);
-        if (!parsed) continue;
+        if (!parsed) {
+          continue;
+        }
 
         const id = basename(directory);
         const workspaceSkill: SkillSummary = {
@@ -954,6 +1174,7 @@ export function loadSkillCatalog(
           activationHints: parsed.activationHints,
           avoidWhen: parsed.avoidWhen,
           category: parsed.category,
+          alwaysCandidate: parsed.alwaysCandidate,
           inlineCommandExpansions: parsed.inlineCommandExpansions,
         };
 
@@ -1019,7 +1240,9 @@ function applyFeatureGatedSections(body: string): string {
  */
 function isEscapingSymlink(filePath: string, rootDir: string): boolean {
   try {
-    if (!lstatSync(filePath).isSymbolicLink()) return false;
+    if (!lstatSync(filePath).isSymbolicLink()) {
+      return false;
+    }
     const real = realpathSync(filePath);
     const normalizedRoot = getCanonicalPath(rootDir);
     return (
@@ -1057,19 +1280,25 @@ export function listReferenceFiles(directoryPath: string): string | null {
       .filter((f) => f.toLowerCase().endsWith(".md"))
       .filter((f) => {
         // Check the file itself
-        if (isEscapingSymlink(join(refsDir, f), directoryPath)) return false;
+        if (isEscapingSymlink(join(refsDir, f), directoryPath)) {
+          return false;
+        }
         // Check all intermediate directory components (e.g. for "sub/dir/file.md"
         // check "sub" and "sub/dir") to prevent traversal through symlinked dirs.
         const parts = f.split("/");
         for (let i = 1; i < parts.length; i++) {
           const ancestor = join(refsDir, ...parts.slice(0, i));
-          if (isEscapingSymlink(ancestor, directoryPath)) return false;
+          if (isEscapingSymlink(ancestor, directoryPath)) {
+            return false;
+          }
         }
         return true;
       })
       .sort((a, b) => a.localeCompare(b));
 
-    if (mdFiles.length === 0) return null;
+    if (mdFiles.length === 0) {
+      return null;
+    }
 
     const lines = [
       "## Reference Files",

@@ -69,8 +69,11 @@ function parseArgs(argv: string[]): Args {
   let buildDir = join(ASSISTANT_DIR, ".plugin-api-build");
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--version") version = argv[++i] ?? "";
-    else if (arg === "--out") buildDir = resolve(argv[++i] ?? "");
+    if (arg === "--version") {
+      version = argv[++i] ?? "";
+    } else if (arg === "--out") {
+      buildDir = resolve(argv[++i] ?? "");
+    }
   }
   if (!version) {
     throw new Error(
@@ -184,8 +187,12 @@ function main(): void {
   const bundled: string[] = [];
   for (const name of readdirSync(vellumDir)) {
     const dir = join(vellumDir, name);
-    if (!existsSync(join(dir, "tsconfig.json"))) continue;
-    if (!existsSync(join(dir, "src"))) continue;
+    if (!existsSync(join(dir, "tsconfig.json"))) {
+      continue;
+    }
+    if (!existsSync(join(dir, "src"))) {
+      continue;
+    }
     const dest = join(vellumOverlay, name);
     if (emitContract(dir, dest)) {
       writeContractManifest(join(dir, "package.json"), dest);
@@ -255,7 +262,21 @@ function main(): void {
 
   // 5. Assemble the publishable package directory.
   mkdirSync(pkgDir, { recursive: true });
-  cpSync(rollup, join(pkgDir, "index.d.ts"));
+
+  // Ship the app-side ambient global (`window.vellum`) as `app.d.ts`, exposed
+  // via the `@vellumai/plugin-api/app` subpath. Plugin *apps* reference it
+  // (`/// <reference types="@vellumai/plugin-api/app" />` or a tsconfig
+  // `types` entry) instead of hand-declaring `window.vellum`. The main rollup
+  // triple-slash-references it too, so importing anything from the package
+  // also pulls the global in.
+  cpSync(
+    join(ASSISTANT_DIR, "src", "plugin-api", "app-globals.d.ts"),
+    join(pkgDir, "app.d.ts"),
+  );
+  writeFileSync(
+    join(pkgDir, "index.d.ts"),
+    `/// <reference path="./app.d.ts" />\n${readFileSync(rollup, "utf8")}`,
+  );
   writeFileSync(join(pkgDir, "index.js"), buildRuntimeShim());
   writeFileSync(
     join(pkgDir, "package.json"),
@@ -275,8 +296,14 @@ function main(): void {
             import: "./index.js",
             default: "./index.js",
           },
+          // App-side ambient globals (`window.vellum`). Types-only — the
+          // runtime is injected by the host into the app's sandboxed iframe,
+          // so there is nothing to import at runtime.
+          "./app": {
+            types: "./app.d.ts",
+          },
         },
-        files: ["index.js", "index.d.ts"],
+        files: ["index.js", "index.d.ts", "app.d.ts"],
         dependencies: { zod: ZOD_VERSION },
         publishConfig: { access: "public" },
         repository: {

@@ -107,7 +107,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "http",
     auth: "JWT Bearer (service token)",
     description:
-      "Gateway forwards validated Twilio voice/status/connect-action webhooks to the assistant's internal Twilio endpoints.",
+      "Gateway forwards validated Twilio voice/status webhooks to the assistant's internal Twilio endpoints.",
     callerGlobs: ["gateway/src/runtime/client.ts"],
     calleeGlobs: ["assistant/src/calls/*.ts"],
   },
@@ -218,7 +218,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "http",
     auth: "JWT Bearer (service token)",
     description:
-      "Gateway proxies contacts and invites CRUD (/v1/contacts, /v1/contact-channels, /v1/contacts/invites) to the assistant's ingress contacts control-plane.",
+      "Gateway proxies contacts CRUD (/v1/contacts, /v1/contact-channels) to the assistant's ingress contacts control-plane. Invite endpoints (/v1/contacts/invites*) are gateway-native against the gateway DB's ingress_invites table; only the outbound invite-call relay reaches the assistant.",
     callerGlobs: ["gateway/src/http/routes/contacts-control-plane-proxy.ts"],
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
@@ -313,17 +313,6 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
   // =========================================================================
   // Gateway -> Assistant (WebSocket)
   // =========================================================================
-  {
-    label: "Twilio ConversationRelay WebSocket proxy",
-    caller: "gateway",
-    callee: "assistant",
-    protocol: "websocket",
-    auth: "JWT Bearer (service token, query param)",
-    description:
-      "Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.",
-    callerGlobs: ["gateway/src/http/routes/twilio-relay-websocket.ts"],
-    calleeGlobs: ["assistant/src/calls/relay-server.ts"],
-  },
   {
     label: "Browser relay WebSocket proxy",
     caller: "gateway",
@@ -470,7 +459,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
       "Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET) for RPC in managed/Docker mode.",
     callerGlobs: ["assistant/src/credential-execution/process-manager.ts"],
     calleeGlobs: [
-      "credential-executor/src/managed-main.ts",
+      "credential-executor/src/main.ts",
       "credential-executor/src/server.ts",
     ],
   },

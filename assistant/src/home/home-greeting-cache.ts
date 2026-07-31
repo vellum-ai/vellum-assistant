@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../memory/checkpoints.js";
+} from "../persistence/checkpoints.js";
 import { resolveGuardianPersona } from "../prompts/persona-resolver.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
@@ -35,7 +35,9 @@ const IDENTITY_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 function readWorkspaceFile(name: string): string {
   try {
     const path = getWorkspacePromptPath(name);
-    if (!existsSync(path)) return "";
+    if (!existsSync(path)) {
+      return "";
+    }
     return readFileSync(path, "utf-8");
   } catch {
     return "";

@@ -8,6 +8,7 @@ import { getIsPlatform } from "../config/env-registry.js";
 import type { McpTransport } from "../config/schemas/mcp.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { getMcpHeaders } from "./mcp-header-store.js";
 import { McpOAuthProvider } from "./mcp-oauth-provider.js";
 
 const log = getLogger("mcp-client");
@@ -83,7 +84,9 @@ export class McpClient {
   }
 
   async connect(transportConfig: McpTransport): Promise<void> {
-    if (this.connected) return;
+    if (this.connected) {
+      return;
+    }
 
     const isHttpTransport =
       transportConfig.type === "sse" ||
@@ -108,8 +111,21 @@ export class McpClient {
       }
     }
 
+    // Resolve static auth headers from credential store, falling back to
+    // any legacy headers in the transport config for backward compatibility.
+    let effectiveConfig = transportConfig;
+    if (isHttpTransport) {
+      const storedHeaders = await getMcpHeaders(this.serverId);
+      if (storedHeaders) {
+        effectiveConfig = {
+          ...transportConfig,
+          headers: { ...transportConfig.headers, ...storedHeaders },
+        } as McpTransport;
+      }
+    }
+
     log.info({ serverId: this.serverId }, "Connecting to MCP server");
-    this.transport = this.createTransport(transportConfig);
+    this.transport = this.createTransport(effectiveConfig);
 
     try {
       await Promise.race([
@@ -243,7 +259,9 @@ export class McpClient {
   }
 
   async disconnect(): Promise<void> {
-    if (!this.connected) return;
+    if (!this.connected) {
+      return;
+    }
 
     try {
       await this.client.close();
@@ -287,7 +305,9 @@ export class McpClient {
  * from genuine transport failures so we can log guidance instead of crashing.
  */
 function isAuthRelatedError(err: unknown): boolean {
-  if (err instanceof UnauthorizedError) return true;
+  if (err instanceof UnauthorizedError) {
+    return true;
+  }
 
   if (
     err instanceof Error &&

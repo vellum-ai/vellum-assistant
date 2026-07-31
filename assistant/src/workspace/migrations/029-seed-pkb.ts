@@ -44,7 +44,9 @@ export const seedPkbMigration: WorkspaceMigration = {
   down(workspaceDir: string): void {
     // Best-effort: only remove empty directories. Never delete user content.
     const pkbDir = join(workspaceDir, "pkb");
-    if (!existsSync(pkbDir)) return;
+    if (!existsSync(pkbDir)) {
+      return;
+    }
 
     try {
       // Try removing subdirectories first, then the root. rmdirSync fails

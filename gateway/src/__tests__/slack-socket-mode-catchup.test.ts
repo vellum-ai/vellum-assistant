@@ -1,10 +1,11 @@
 import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { LOCAL_ASSISTANT_ID } from "../assistant-id.js";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import * as schema from "../db/schema.js";
-import type { NormalizedSlackEvent } from "../slack/normalize.js";
+import type { NormalizedSlackEvent } from "../slack/message-schemas.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -23,7 +24,7 @@ mock.module("../fetch.js", () => ({
 }));
 
 const { SlackSocketModeClient } = await import("../slack/socket-mode.js");
-const { clearUserInfoCache } = await import("../slack/normalize.js");
+const { clearUserInfoCache } = await import("../slack/user-directory.js");
 import type { SlackSocketModeConfig } from "../slack/socket-mode.js";
 
 type CatchupHarness = {
@@ -38,7 +39,6 @@ type CatchupHarness = {
 function makeConfig(): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
-    defaultAssistantId: "ast-default",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
@@ -62,7 +62,6 @@ function makeConfig(): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    unmappedPolicy: "reject",
     trustProxy: false,
   };
 }
@@ -130,6 +129,7 @@ function createHarness(
     botUsername: "assistant",
     teamName: "Example Team",
     gatewayConfig: makeConfig(),
+    threadMode: "mention_then_thread",
   };
   harness.onEvent = onEvent;
   harness.store = store;
@@ -703,7 +703,7 @@ describe("replayMissedEvents", () => {
     }
   });
 
-  test("replays a DM @-mention as type='message' so default-assistant fallback applies", async () => {
+  test("replays a DM @-mention as type='message' so the DM normalizer path applies", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
     const client = createHarness(store, (event) => emitted.push(event));
@@ -739,7 +739,7 @@ describe("replayMissedEvents", () => {
       await client.replayMissedEvents(ws);
       await flushAsyncEventEmission();
       expect(emitted).toHaveLength(1);
-      expect(emitted[0].routing.assistantId).toBe("ast-default");
+      expect(emitted[0].routing.assistantId).toBe(LOCAL_ASSISTANT_ID);
       expect(emitted[0].routing.routeSource).toBe("default");
       // Synthetic event must use type:"message" so it routes through the
       // DM normalize path (which has the default-assistant fallback) rather

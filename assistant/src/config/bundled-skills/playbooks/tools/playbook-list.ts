@@ -1,7 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
 
-import { getDb } from "../../../../memory/db-connection.js";
-import { memoryGraphNodes } from "../../../../memory/schema.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
+import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
 import type {
   ToolContext,
@@ -12,14 +12,16 @@ export async function executePlaybookList(
   input: Record<string, unknown>,
   _context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const scopeId = "default";
   const channelFilter =
     typeof input.channel === "string" ? input.channel : null;
   const categoryFilter =
     typeof input.category === "string" ? input.category : null;
 
   try {
-    const db = getDb();
+    const db = getMemoryDb();
+    if (!db) {
+      return { content: "No playbooks found.", isError: false };
+    }
 
     const rows = db
       .select({
@@ -31,7 +33,6 @@ export async function executePlaybookList(
       .from(memoryGraphNodes)
       .where(
         and(
-          eq(memoryGraphNodes.scopeId, scopeId),
           sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'`,
           sql`${memoryGraphNodes.fidelity} != 'gone'`,
         ),
@@ -50,19 +51,26 @@ export async function executePlaybookList(
     for (const row of rows) {
       // Content format: "Playbook: <trigger>\n<json statement>"
       const newlineIdx = row.content.indexOf("\n");
-      if (newlineIdx === -1) continue;
+      if (newlineIdx === -1) {
+        continue;
+      }
       const statement = row.content.slice(newlineIdx + 1);
       const playbook = parsePlaybookStatement(statement);
-      if (!playbook) continue;
+      if (!playbook) {
+        continue;
+      }
 
       // Apply filters
       if (
         channelFilter &&
         playbook.channel !== channelFilter &&
         playbook.channel !== "*"
-      )
+      ) {
         continue;
-      if (categoryFilter && playbook.category !== categoryFilter) continue;
+      }
+      if (categoryFilter && playbook.category !== categoryFilter) {
+        continue;
+      }
 
       entries.push({
         id: row.id,

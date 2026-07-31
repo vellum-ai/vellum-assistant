@@ -23,6 +23,7 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (v: string) => v,
   initLogger: () => {},
   pruneOldLogFiles: () => 0,
+  getCurrentLogFilePath: () => "/tmp/test-assistant.log",
 }));
 
 let writeRelationshipStateCalled = false;
@@ -89,7 +90,9 @@ describe("persistOnboardingArtifacts", () => {
 
   afterEach(() => {
     const p = workspacePath("IDENTITY.md");
-    if (existsSync(p)) rmSync(p, { force: true });
+    if (existsSync(p)) {
+      rmSync(p, { force: true });
+    }
   });
 
   test("seeds IDENTITY.md with assistant name when file does not exist", () => {

@@ -25,7 +25,6 @@ import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
-import { registerTool } from "../registry.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -38,6 +37,17 @@ const INLINE_COMMAND_ELIGIBLE_SOURCES = new Set([
   "managed",
   "workspace",
 ]);
+
+/** Matches raw `` !`...` `` inline command tokens in a skill body. */
+const INLINE_COMMAND_TOKEN_PATTERN = /!`[^`]*`/g;
+
+/**
+ * Replacement for inline command tokens when they are not rendered during
+ * disk-pressure cleanup mode — keeps the raw tokens out of the prompt without
+ * executing any shell.
+ */
+const INLINE_COMMAND_CLEANUP_STUB =
+  "[inline command skipped: storage cleanup mode]";
 
 const log = getLogger("skill-load");
 
@@ -159,11 +169,18 @@ export const skillLoadTool = {
       };
     }
 
+    // During disk-pressure cleanup mode, skill_load must not produce side
+    // effects: no auto-install (workspace writes / `bun install`) and no inline
+    // command execution. Instructions are still returned so the assistant can
+    // load the system-storage-cleanup skill (and any already-installed skill).
+    const cleanupMode = context.diskPressureCleanupModeActive === true;
+
     let loaded = loadSkillBySelector(selector);
 
     // Auto-install from catalog if the skill isn't found locally
     if (
       !loaded.skill &&
+      !cleanupMode &&
       (loaded.errorCode === "not_found" || loaded.errorCode === "empty_catalog")
     ) {
       try {
@@ -194,6 +211,35 @@ export const skillLoadTool = {
 
     const skill = loaded.skill;
 
+    // Per-chat plugin scope gate: a plugin-owned skill whose owning plugin is
+    // outside the conversation's effective set must not have its instructions
+    // loaded. Mirrors the projection/tools filter's owner-id lookup
+    // (`filterSkillsByEnabledPlugins`). `null` = no restriction; first-party
+    // defaults are always in the set, so bundled/workspace skills pass.
+    const enabledPluginSet = context.enabledPluginSet ?? null;
+    if (
+      enabledPluginSet !== null &&
+      skill.owner?.kind === "plugin" &&
+      !enabledPluginSet.has(skill.owner.id)
+    ) {
+      return {
+        content: `Error: skill "${skill.id}" is not available in this conversation — its plugin is not enabled here.`,
+        isError: true,
+      };
+    }
+
+    // Per-chat plugin scope gate for INCLUDED child skills. Mirrors the
+    // top-level owner-id check above: a child owned by a plugin outside the
+    // effective set (and not a first-party default — those ids are unioned into
+    // the set) must be omitted from include resolution entirely, so an in-scope
+    // parent cannot inject an out-of-scope plugin child's body or loaded-skill
+    // marker. `null` set = no restriction; bundled/core children (no plugin
+    // owner) always pass.
+    const childOutOfPluginScope = (child: SkillSummary): boolean =>
+      enabledPluginSet !== null &&
+      child.owner?.kind === "plugin" &&
+      !enabledPluginSet.has(child.owner.id);
+
     // Assistant feature flag gate: reject loading if the skill's flag is OFF
     const config = getConfig();
     const flagKey = skillFlagKey(skill);
@@ -219,7 +265,15 @@ export const skillLoadTool = {
       const MAX_INSTALL_ROUNDS = 5;
       for (let round = 0; round < MAX_INSTALL_ROUNDS; round++) {
         const missing = collectAllMissing(skill.id, catalogIndex);
-        if (missing.size === 0) break;
+        if (missing.size === 0) {
+          break;
+        }
+
+        // Under the disk-pressure lock, never auto-install missing includes
+        // (that writes to the workspace). Leave them advisory ("not loaded").
+        if (cleanupMode) {
+          break;
+        }
 
         // Lazily resolve catalog on first round with missing includes
         if (!remoteCatalog) {
@@ -256,7 +310,9 @@ export const skillLoadTool = {
           }
         }
 
-        if (!installedAny) break; // Nothing could be installed, stop trying
+        if (!installedAny) {
+          break;
+        } // Nothing could be installed, stop trying
 
         // Reload catalog to pick up newly installed skills
         catalog = loadSkillCatalog();
@@ -289,7 +345,19 @@ export const skillLoadTool = {
     const hasInlineCommands =
       skill.inlineCommandExpansions && skill.inlineCommandExpansions.length > 0;
 
-    if (hasInlineCommands) {
+    if (hasInlineCommands && cleanupMode) {
+      // Under the disk-pressure lock, loading a skill must not execute shell.
+      // Strip inline command tokens instead of rendering them; the rest of the
+      // instructions are still returned.
+      body = body.replace(
+        INLINE_COMMAND_TOKEN_PATTERN,
+        INLINE_COMMAND_CLEANUP_STUB,
+      );
+      log.info(
+        { skillId: skill.id },
+        "Skipped inline command expansion during disk pressure cleanup mode",
+      );
+    } else if (hasInlineCommands) {
       if (skill.source === "extra" || skill.source === "plugin") {
         // Third-party skill roots — `extra` dirs and skills shipped inside
         // installed plugins — are out of scope for inline command expansion.
@@ -346,13 +414,21 @@ export const skillLoadTool = {
       const childLines: string[] = [];
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
-        if (!child) continue;
+        if (!child) {
+          continue;
+        }
+        // Skip a child whose owning plugin is outside this conversation's
+        // effective set — do not list it, load its body, or surface its tools.
+        if (childOutOfPluginScope(child)) {
+          continue;
+        }
         const childFlagKey = skillFlagKey(child);
         if (
           childFlagKey &&
           !isAssistantFeatureFlagEnabled(childFlagKey, config)
-        )
+        ) {
           continue;
+        }
 
         childLines.push(
           `  - ${child.id}: ${child.displayName} - ${child.description} (${child.skillFilePath})`,
@@ -368,7 +444,14 @@ export const skillLoadTool = {
             childLoaded.skill.inlineCommandExpansions &&
             childLoaded.skill.inlineCommandExpansions.length > 0;
 
-          if (childHasInlineCommands) {
+          if (childHasInlineCommands && cleanupMode) {
+            // No shell execution under the disk-pressure lock — strip the
+            // child's inline command tokens rather than rendering them.
+            childBody = childBody.replace(
+              INLINE_COMMAND_TOKEN_PATTERN,
+              INLINE_COMMAND_CLEANUP_STUB,
+            );
+          } else if (childHasInlineCommands) {
             if (
               childLoaded.skill.source === "extra" ||
               childLoaded.skill.source === "plugin"
@@ -478,13 +561,22 @@ export const skillLoadTool = {
     if (skill.includes && skill.includes.length > 0 && catalogIndex) {
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
-        if (!child) continue;
+        if (!child) {
+          continue;
+        }
+        // Same per-chat plugin scope gate as the body loop: never emit a
+        // loaded-skill marker (which projects the child's tools) for a child
+        // whose owning plugin is outside the effective set.
+        if (childOutOfPluginScope(child)) {
+          continue;
+        }
         const childFlagKey2 = skillFlagKey(child);
         if (
           childFlagKey2 &&
           !isAssistantFeatureFlagEnabled(childFlagKey2, config)
-        )
+        ) {
           continue;
+        }
         let childHash: string | undefined;
         try {
           childHash = computeSkillVersionHash(child.directoryPath);
@@ -531,4 +623,3 @@ export const skillLoadTool = {
     };
   },
 } satisfies ToolDefinition;
-registerTool(skillLoadTool);

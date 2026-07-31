@@ -2,15 +2,25 @@
 // Tracks request counts per key and returns 429 when the limit is exceeded.
 // Follows the same sliding-window pattern as gateway/src/auth-rate-limiter.ts.
 
+import { getConfigReadOnly } from "../../config/loader.js";
+import { DEFAULT_AUTHENTICATED_API_MAX_REQUESTS_PER_MINUTE } from "../../config/schemas/api-rate-limit.js";
 import { getLogger } from "../../util/logger.js";
 import type { HttpErrorResponse } from "../http-errors.js";
-import { isPrivateAddress } from "./auth.js";
+import { isLoopbackAddress, isPrivateAddress } from "./auth.js";
 
 const log = getLogger("rate-limiter");
 
-const DEFAULT_MAX_REQUESTS = 300;
+const DEFAULT_MAX_REQUESTS = DEFAULT_AUTHENTICATED_API_MAX_REQUESTS_PER_MINUTE;
 const DEFAULT_WINDOW_MS = 60_000; // 60 seconds
 const MAX_TRACKED_TOKENS = 10_000;
+
+// Higher budget for authenticated loopback clients. Loopback means the
+// request originated on the daemon's own host (desktop app, CLI, local
+// scripts) — proxied remote traffic resolves to its forwarded client IP
+// instead (see extractClientIp). Local clients legitimately burst far
+// beyond the remote budget: a cold sidebar load at thousands of
+// conversations pages through hundreds of GETs in a few seconds.
+const LOOPBACK_MAX_REQUESTS = 1200;
 
 // Lower limit for unauthenticated (IP-based) requests to reduce abuse surface.
 const DEFAULT_IP_MAX_REQUESTS = 20;
@@ -24,18 +34,30 @@ interface RequestEntry {
 
 class TokenRateLimiter {
   private requests = new Map<string, RequestEntry[]>();
-  private readonly maxRequests: number;
+  private maxRequests: number;
   private readonly windowMs: number;
   private readonly maxTrackedKeys: number;
 
+  /**
+   * The budget is resolved once and stored, not read per check — a config
+   * edit is pushed in via `setMaxRequests()` (see the config watcher) rather
+   * than doing config-loader work on the per-request hot path. When
+   * `maxRequests` is omitted, the authenticated-remote budget is read from
+   * workspace configuration.
+   */
   constructor(
-    maxRequests = DEFAULT_MAX_REQUESTS,
+    maxRequests?: number,
     windowMs = DEFAULT_WINDOW_MS,
     maxTrackedKeys = MAX_TRACKED_TOKENS,
   ) {
-    this.maxRequests = maxRequests;
+    this.maxRequests = maxRequests ?? resolveAuthenticatedApiMaxRequests();
     this.windowMs = windowMs;
     this.maxTrackedKeys = maxTrackedKeys;
+  }
+
+  /** Update the per-minute budget in place (e.g. after a config reload). */
+  setMaxRequests(maxRequests: number): void {
+    this.maxRequests = maxRequests;
   }
 
   /**
@@ -44,6 +66,7 @@ class TokenRateLimiter {
    */
   check(key: string, path?: string): RateLimitResult {
     const now = Date.now();
+    const maxRequests = this.maxRequests;
     let entries = this.requests.get(key);
 
     if (!entries) {
@@ -51,7 +74,9 @@ class TokenRateLimiter {
         this.evictStale(now);
         if (this.requests.size >= this.maxTrackedKeys) {
           const oldest = this.requests.keys().next().value;
-          if (oldest !== undefined) this.requests.delete(oldest);
+          if (oldest !== undefined) {
+            this.requests.delete(oldest);
+          }
         }
       }
       entries = [];
@@ -65,16 +90,16 @@ class TokenRateLimiter {
       entries.shift();
     }
 
-    const remaining = Math.max(0, this.maxRequests - entries.length);
+    const remaining = Math.max(0, maxRequests - entries.length);
     const resetAt =
       entries.length > 0
         ? Math.ceil((entries[0].timestamp + this.windowMs) / 1000)
         : Math.ceil((now + this.windowMs) / 1000);
 
-    if (entries.length >= this.maxRequests) {
+    if (entries.length >= maxRequests) {
       return {
         allowed: false,
-        limit: this.maxRequests,
+        limit: maxRequests,
         remaining: 0,
         resetAt,
       };
@@ -84,7 +109,7 @@ class TokenRateLimiter {
 
     return {
       allowed: true,
-      limit: this.maxRequests,
+      limit: maxRequests,
       remaining: remaining - 1,
       resetAt,
     };
@@ -97,7 +122,9 @@ class TokenRateLimiter {
    */
   getRecentPathCounts(key: string): Array<{ path: string; count: number }> {
     const entries = this.requests.get(key);
-    if (!entries || entries.length === 0) return [];
+    if (!entries || entries.length === 0) {
+      return [];
+    }
 
     const now = Date.now();
     const cutoff = now - this.windowMs;
@@ -183,8 +210,46 @@ export function rateLimitResponse(
   });
 }
 
-/** Singleton rate limiter for authenticated /v1/* requests (per-client-IP). */
+/**
+ * Resolve the per-minute budget for authenticated remote (non-loopback)
+ * clients from workspace configuration, falling back to the built-in default
+ * if the config is unavailable (e.g. read before the workspace is ready).
+ * Uses the read-only accessor so no config read ever writes to disk.
+ */
+function resolveAuthenticatedApiMaxRequests(): number {
+  try {
+    return getConfigReadOnly().apiRateLimit.authenticatedMaxRequestsPerMinute;
+  } catch {
+    return DEFAULT_MAX_REQUESTS;
+  }
+}
+
+/**
+ * Singleton rate limiter for authenticated /v1/* requests (per-client-IP).
+ * Its budget is seeded from `apiRateLimit.authenticatedMaxRequestsPerMinute`
+ * at construction and updated in place on config reload via
+ * `refreshAuthenticatedApiRateLimit()`, keeping config-loader work off the
+ * per-request path.
+ */
 export const apiRateLimiter = new TokenRateLimiter();
+
+/**
+ * Re-read the authenticated remote budget from workspace configuration and
+ * apply it to the live limiter. Invoked by the config watcher after a
+ * `config.json` change so the new budget takes effect without a restart.
+ */
+export function refreshAuthenticatedApiRateLimit(): void {
+  apiRateLimiter.setMaxRequests(resolveAuthenticatedApiMaxRequests());
+}
+
+/**
+ * Singleton rate limiter for authenticated requests from loopback clients.
+ * Separate instance (not just a higher cap) so local and remote traffic
+ * never share or evict each other's buckets.
+ */
+export const loopbackApiRateLimiter = new TokenRateLimiter(
+  LOOPBACK_MAX_REQUESTS,
+);
 
 /** Singleton rate limiter for unauthenticated requests (per-IP, lower limits). */
 export const ipRateLimiter = new TokenRateLimiter(
@@ -192,6 +257,46 @@ export const ipRateLimiter = new TokenRateLimiter(
   DEFAULT_IP_WINDOW_MS,
   MAX_TRACKED_IPS,
 );
+
+/**
+ * Pick the rate limiter for an authenticated request: loopback client IPs
+ * get the higher local budget, everything else gets the standard one.
+ */
+export function selectAuthenticatedRateLimiter(
+  clientIp: string,
+): TokenRateLimiter {
+  return isLoopbackAddress(clientIp) ? loopbackApiRateLimiter : apiRateLimiter;
+}
+
+/**
+ * `/v1/` endpoints that bypass the per-minute request rate limiter.
+ *
+ * - Liveness/readiness (`health`, `healthz`, `readyz`): cheap probes that
+ *   must always answer. The desktop app polls `/v1/health` every few seconds
+ *   and the reachability probe hits `/v1/healthz`; a 429 makes the client
+ *   treat the assistant as unreachable and reconnect harder.
+ * - SSE stream (`events`): a single long-lived streaming connection, not a
+ *   burst of discrete requests. Metering each (re)connect against the
+ *   per-minute budget is the wrong model — and 429-ing the stream drops it,
+ *   which drives a client reconnect + full re-bootstrap loop that generates
+ *   far more load than the limiter saves. The events route still enforces
+ *   auth downstream (an unauthenticated stream request is rejected there),
+ *   and daemon memory is bounded by SSE backpressure shedding and subscriber
+ *   caps rather than by this request-count limiter.
+ *
+ * The argument is the `/v1/`-stripped, trailing-slash-normalized endpoint
+ * segment (e.g. `events`, `health`) as computed by the HTTP server.
+ */
+const RATE_LIMIT_EXEMPT_ENDPOINTS = new Set([
+  "events",
+  "health",
+  "healthz",
+  "readyz",
+]);
+
+export function isRateLimitExemptEndpoint(endpoint: string): boolean {
+  return RATE_LIMIT_EXEMPT_ENDPOINTS.has(endpoint);
+}
 
 /**
  * Extract the client IP from a request. Only trusts proxy headers
@@ -209,11 +314,15 @@ export function extractClientIp(
     const forwarded = req.headers.get("x-forwarded-for");
     if (forwarded) {
       const first = forwarded.split(",")[0].trim();
-      if (first) return first;
+      if (first) {
+        return first;
+      }
     }
 
     const realIp = req.headers.get("x-real-ip");
-    if (realIp) return realIp.trim();
+    if (realIp) {
+      return realIp.trim();
+    }
   }
 
   return peerIp;

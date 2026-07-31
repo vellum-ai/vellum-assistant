@@ -10,25 +10,37 @@
 import { z } from "zod";
 
 import {
+  ACP_SERVICE,
+  AcpCredentialFormatError,
+  assertAcpCredentialFormat,
+} from "../../acp/acp-credentials.js";
+import {
   getPlatformAssistantId,
   setPlatformAssistantId,
   setPlatformBaseUrl,
   setPlatformOrganizationId,
   setPlatformUserId,
 } from "../../config/env.js";
-import {
-  API_KEY_PROVIDERS,
-  getConfig,
-  invalidateConfigCache,
-} from "../../config/loader.js";
+import { getConfig, invalidateConfigCache } from "../../config/loader.js";
+import { maybeDefaultSpeechToManaged } from "../../config/managed-speech-defaults.js";
+import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
-import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
-import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
+import { evictConversationsForReload } from "../../daemon/conversation-store.js";
+import {
+  isNonSecretPlatformField,
+  scrubStoredCredentialFromTranscripts,
+} from "../../daemon/credential-transcript-scrub.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
+import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
+import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/substrate/boot-maintenance.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
+import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
+import { validateBasetenApiKey } from "../../providers/baseten/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
 import { validateMinimaxApiKey } from "../../providers/minimax/client.js";
 import { validateOpenAIApiKey } from "../../providers/openai/client.js";
+import { validatePoolsideApiKey } from "../../providers/poolside/client.js";
+import { API_KEY_PROVIDERS } from "../../providers/provider-secret-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
@@ -47,7 +59,6 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
-import { getSecretsDeps } from "./secrets-deps.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
@@ -122,15 +133,16 @@ async function refreshProvidersAfterSecretChange(): Promise<void> {
   invalidateConfigCache();
   await initializeProviders(getConfig());
 
-  const deps = getSecretsDeps();
-  if (!deps?.onProviderCredentialsChanged) return;
-
+  // Provider instances are captured when conversations are created, so a key
+  // change must evict or mark them stale before the next turn. Best-effort:
+  // the credential write has already succeeded, so a disposal failure must not
+  // surface as a 500 that makes clients think the secret change failed.
   try {
-    await deps.onProviderCredentialsChanged();
+    evictConversationsForReload();
   } catch (err) {
     log.warn(
       { error: err instanceof Error ? err.message : String(err) },
-      "Error notifying provider credentials change (non-fatal)",
+      "Error evicting conversations after credential change (non-fatal)",
     );
   }
 }
@@ -206,6 +218,33 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           );
           return { success: false, error: validation.reason };
         }
+      } else if (name === "atlascloud") {
+        const validation = await validateAtlasCloudApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
+      } else if (name === "baseten") {
+        const validation = await validateBasetenApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
+      } else if (name === "poolside") {
+        const validation = await validatePoolsideApiKey(value);
+        if (!validation.valid) {
+          log.warn(
+            { provider: name, reason: validation.reason },
+            "API key validation failed",
+          );
+          return { success: false, error: validation.reason };
+        }
       }
 
       const stored = await setSecureKeyAsync(
@@ -217,6 +256,27 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           `Failed to store API key in secure storage (backend: ${getActiveBackendName()})`,
         );
       }
+
+      // The stored plaintext may already sit in recent transcripts (a pasted
+      // key echoed by a tool result or persisted tool_use input). The scrub
+      // runs immediately after the secure-store write, BEFORE the provider
+      // refresh: that side effect can throw, and a stored-but-unscrubbed key
+      // must not depend on it succeeding. The key IS stored at this point;
+      // the scrub is best-effort hygiene and must stay invisible to the
+      // caller. Counts only — never the value.
+      try {
+        const scrubbed = await scrubStoredCredentialFromTranscripts(value);
+        log.info(
+          { provider: name, ...scrubbed },
+          "API key stored; scrubbed value from recent transcripts",
+        );
+      } catch (err) {
+        log.warn(
+          { err, provider: name },
+          "API key stored, but transcript scrub failed",
+        );
+      }
+
       await refreshProvidersAfterSecretChange();
       log.info({ provider: name }, "API key updated via HTTP");
       return { success: true, type, name };
@@ -232,6 +292,20 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       assertMetadataWritable();
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
+
+      // Reject an Anthropic API key pasted into the ACP OAuth-token field (a 401
+      // footgun) as a 400 rather than letting it persist and fail at runtime.
+      if (service === ACP_SERVICE) {
+        try {
+          assertAcpCredentialFormat(field, value);
+        } catch (err) {
+          if (err instanceof AcpCredentialFormatError) {
+            throw new BadRequestError(err.message);
+          }
+          throw err;
+        }
+      }
+
       const key = credentialKey(service, field);
 
       const TRIMMED_IDENTITY_FIELDS = new Set([
@@ -254,10 +328,8 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           setPlatformAssistantId(undefined);
         } else if (field === "platform_organization_id") {
           setPlatformOrganizationId(undefined);
-          setSentryOrganizationId(undefined);
         } else if (field === "platform_user_id") {
           setPlatformUserId(undefined);
-          setSentryUserId(undefined);
         }
         deleteCredentialMetadata(service, field);
       } else {
@@ -266,6 +338,26 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           throw new InternalError(
             `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
           );
+        }
+        if (!isNonSecretPlatformField(service, field)) {
+          // Same seam as the api_key branch: the scrub runs immediately after
+          // the secure-store write, before side effects that can throw. The
+          // value IS stored at this point; the scrub is best-effort hygiene
+          // and must stay invisible to the caller. Counts only — never the
+          // value.
+          try {
+            const scrubbed =
+              await scrubStoredCredentialFromTranscripts(effectiveValue);
+            log.info(
+              { service, field, ...scrubbed },
+              "Credential stored; scrubbed value from recent transcripts",
+            );
+          } catch (err) {
+            log.warn(
+              { err, service, field },
+              "Credential stored, but transcript scrub failed",
+            );
+          }
         }
         upsertCredentialMetadata(service, field, {});
         await syncManualTokenConnection(service);
@@ -277,19 +369,20 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         }
         if (service === "vellum" && field === "platform_organization_id") {
           setPlatformOrganizationId(effectiveValue || undefined);
-          setSentryOrganizationId(effectiveValue || undefined);
         }
         if (service === "vellum" && field === "platform_user_id") {
           setPlatformUserId(effectiveValue || undefined);
-          setSentryUserId(effectiveValue || undefined);
         }
       }
       if (isManagedProxyCredential(service, field)) {
         await refreshProvidersAfterSecretChange();
+        // Close the first-boot race where the startup capability seed ran before
+        // the managed embedding credential was provisioned, leaving skill/CLI
+        // pages unseeded until restart. Detached — must not block the response.
+        void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
           const generation = ++apiKeyGeneration;
-          const deps = getSecretsDeps();
-          const cesClient = deps?.getCesClient?.();
+          const cesClient = getCesClient();
           if (cesClient) {
             if (cesClient.isReady()) {
               try {
@@ -311,6 +404,19 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
             }
           }
         }
+      }
+      if (
+        service === "vellum" &&
+        (field === "assistant_api_key" ||
+          field === "platform_assistant_id" ||
+          field === "platform_base_url")
+      ) {
+        // Managed-speech availability needs the API key, the assistant ID,
+        // and the base URL, and the CLI connect path stores all three
+        // concurrently — fire on each so the last write to land triggers the
+        // defaulting; the hook no-ops until the connection is complete.
+        // Detached — must not block the response.
+        void maybeDefaultSpeechToManaged();
       }
       log.info({ service, field }, "Credential added via HTTP");
       return { success: true, type, name };
@@ -509,11 +615,9 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
       }
       if (service === "vellum" && field === "platform_organization_id") {
         setPlatformOrganizationId(undefined);
-        setSentryOrganizationId(undefined);
       }
       if (service === "vellum" && field === "platform_user_id") {
         setPlatformUserId(undefined);
-        setSentryUserId(undefined);
       }
       if (isManagedProxyCredential(service, field)) {
         await refreshProvidersAfterSecretChange();
@@ -554,10 +658,14 @@ async function handleListSecrets() {
     // delete(provider) steps.
     const credentialNamespaceProviders = new Set<string>(
       accounts.flatMap((account) => {
-        if (!account.startsWith(CREDENTIAL_KEY_PREFIX)) return [];
+        if (!account.startsWith(CREDENTIAL_KEY_PREFIX)) {
+          return [];
+        }
         const rest = account.slice(CREDENTIAL_KEY_PREFIX.length);
         const slashIdx = rest.indexOf("/");
-        if (slashIdx < 1 || slashIdx >= rest.length - 1) return [];
+        if (slashIdx < 1 || slashIdx >= rest.length - 1) {
+          return [];
+        }
         const service = rest.slice(0, slashIdx);
         const field = rest.slice(slashIdx + 1);
         if (
@@ -576,8 +684,12 @@ async function handleListSecrets() {
       .filter((account) => {
         // Drop bare-key entries for providers already represented via the
         // credential/ namespace to prevent duplicates after a partial migration.
-        if (account.startsWith(CREDENTIAL_KEY_PREFIX)) return true;
-        if (credentialNamespaceProviders.has(account)) return false;
+        if (account.startsWith(CREDENTIAL_KEY_PREFIX)) {
+          return true;
+        }
+        if (credentialNamespaceProviders.has(account)) {
+          return false;
+        }
         return true;
       })
       .map((account) => {

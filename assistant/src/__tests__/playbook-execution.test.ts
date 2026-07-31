@@ -1,20 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    memory: {},
-  }),
-}));
-
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));
 
@@ -26,17 +12,17 @@ import { executePlaybookCreate } from "../config/bundled-skills/playbooks/tools/
 import { executePlaybookDelete } from "../config/bundled-skills/playbooks/tools/playbook-delete.js";
 import { executePlaybookList } from "../config/bundled-skills/playbooks/tools/playbook-list.js";
 import { executePlaybookUpdate } from "../config/bundled-skills/playbooks/tools/playbook-update.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { getNode } from "../memory/graph/store.js";
+import { getMemorySqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { compilePlaybooks } from "../playbooks/playbook-compiler.js";
 import { parsePlaybookStatement } from "../playbooks/types.js";
+import { getNode } from "../plugins/defaults/memory/graph/store.js";
 import type { ToolContext } from "../tools/types.js";
 
-initializeDb();
+await initializeDb();
 
 function getRawDb(): Database {
-  return (getDb() as unknown as { $client: Database }).$client;
+  return getMemorySqlite()!;
 }
 
 function clearPlaybooks(): void {
@@ -70,7 +56,6 @@ function insertPlaybookGraphNode(
     priority: number;
     fidelity: string;
     significance: number;
-    scopeId: string;
     statement: string;
   }> = {},
 ): string {
@@ -83,7 +68,6 @@ function insertPlaybookGraphNode(
   const priority = overrides.priority ?? 0;
   const fidelity = overrides.fidelity ?? "vivid";
   const significance = overrides.significance ?? 0.8;
-  const scopeId = overrides.scopeId ?? "default";
 
   const statement =
     overrides.statement ??
@@ -112,8 +96,8 @@ function insertPlaybookGraphNode(
       id, content, type, created, last_accessed, last_consolidated,
       emotional_charge, fidelity, confidence, significance,
       stability, reinforcement_count, last_reinforced,
-      source_conversations, source_type, scope_id
-    ) VALUES (?, ?, 'semantic', ?, ?, ?, ?, ?, 0.95, ?, 14, 0, ?, ?, 'direct', ?)`,
+      source_conversations, source_type
+    ) VALUES (?, ?, 'semantic', ?, ?, ?, ?, ?, 0.95, ?, 14, 0, ?, ?, 'direct')`,
     [
       id,
       content,
@@ -125,7 +109,6 @@ function insertPlaybookGraphNode(
       significance,
       now,
       sourceConversations,
-      scopeId,
     ],
   );
 
@@ -323,27 +306,6 @@ describe("compilePlaybooks", () => {
     expect(result.includedCount).toBe(1);
     expect(result.text).toContain("active");
     expect(result.text).not.toContain("deleted");
-  });
-
-  test("scopes playbooks by scopeId", () => {
-    insertPlaybookGraphNode({
-      trigger: "default scope",
-      action: "yes",
-      scopeId: "default",
-    });
-    insertPlaybookGraphNode({
-      trigger: "other scope",
-      action: "no",
-      scopeId: "workspace-2",
-    });
-
-    const defaultResult = compilePlaybooks();
-    expect(defaultResult.includedCount).toBe(1);
-    expect(defaultResult.text).toContain("default scope");
-
-    const otherResult = compilePlaybooks({ scopeId: "workspace-2" });
-    expect(otherResult.includedCount).toBe(1);
-    expect(otherResult.text).toContain("other scope");
   });
 
   test("skips rows with unparseable statements", () => {

@@ -17,13 +17,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -58,21 +51,47 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
+// Gateway IPC mock — session lifecycle goes through the gateway session
+// client; delegate verification_sessions_* methods to the local-service sim
+// so these tests keep reading/writing the local test DB.
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCallPersistent: async (
+    method: string,
+    params?: Record<string, unknown>,
+  ) => {
+    const { handleVerificationSessionsIpc, isVerificationSessionsIpcMethod } =
+      await import("./helpers/verification-sessions-ipc-sim.js");
+    if (isVerificationSessionsIpcMethod(method)) {
+      return handleVerificationSessionsIpc(method, params);
+    }
+    return { ok: true };
+  },
+  ipcCall: async () => null,
+}));
+
 // Mock the approval conversation / copy generators so they return canned text.
 mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessage: () => "mock approval message",
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
-import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { createApprovalRequest } from "../memory/guardian-approvals.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
-import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { createGuardianGatewaySim } from "./guardian-gateway-sim.js";
 
-initializeDb();
+const sim = createGuardianGatewaySim();
+mock.module("../channels/gateway-guardian-requests.js", () => sim.module);
+
+import { getResolver } from "../approvals/guardian-request-resolvers.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
+import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
+import { resetVerificationSessionsSim } from "./helpers/verification-sessions-ipc-sim.js";
+
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,15 +101,15 @@ const TEST_BEARER_TOKEN = "test-token";
 const GUARDIAN_APPROVAL_TTL_MS = 5 * 60 * 1000;
 
 function resetState(): void {
+  resetVerificationSessionsSim();
   const db = getDb();
-  db.run("DELETE FROM channel_guardian_approval_requests");
-  db.run("DELETE FROM channel_verification_sessions");
-  db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
+  sim.reset();
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
 }
@@ -139,7 +158,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -149,7 +168,7 @@ describe("trusted contact lifecycle notification signals", () => {
     });
 
     // Set up requester contact with a display name so payloads are enriched
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "requester-chat-456",
@@ -160,19 +179,19 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-deny-${Date.now()}`;
 
-    // Create a pending access request approval
-    const _approval = createApprovalRequest({
-      runId: `ingress-access-request-${Date.now()}`,
-      requestId: testRequestId,
-      conversationId: "access-req-telegram-requester-user-456",
-      channel: "telegram",
+    // Create a pending canonical access request
+    sim.seedRequest({
+      id: testRequestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      sourceConversationId: "access-req-telegram-requester-user-456",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
-      guardianChatId: "guardian-chat-789",
+      guardianPrincipalId: "guardian-user-789",
       toolName: "ingress_access_request",
-      riskLevel: "access_request",
-      reason: "Alice is requesting access",
+      questionText: "Alice is requesting access",
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
 
@@ -187,8 +206,9 @@ describe("trusted contact lifecycle notification signals", () => {
 
     await handleChannelInbound(guardianReq, undefined, TEST_BEARER_TOKEN);
 
-    // Should emit guardian_decision and denied signals
-
+    // A denial emits exactly one lifecycle signal — guardian_decision with
+    // decision: "denied". A second event for the same verdict would escape
+    // dedupe (distinct keys) and duplicate the guardian-facing notification.
     const guardianDecisionSignals = emitSignalCalls.filter(
       (c) => c.sourceEventName === "ingress.trusted_contact.guardian_decision",
     );
@@ -197,7 +217,7 @@ describe("trusted contact lifecycle notification signals", () => {
     );
 
     expect(guardianDecisionSignals.length).toBe(1);
-    expect(deniedSignals.length).toBe(1);
+    expect(deniedSignals.length).toBe(0);
 
     // Verify guardian_decision payload
     const gdPayload = guardianDecisionSignals[0].contextPayload as Record<
@@ -210,18 +230,9 @@ describe("trusted contact lifecycle notification signals", () => {
     expect(gdPayload.requesterDisplayName).toBe("Alice Requester");
     expect(gdPayload.decidedByDisplayName).toBe("Guardian Bob");
 
-    // Verify denied payload
-    const dPayload = deniedSignals[0].contextPayload as Record<string, unknown>;
-    expect(dPayload.decision).toBe("denied");
-    expect(dPayload.requesterExternalUserId).toBe("requester-user-456");
-    expect(dPayload.requesterDisplayName).toBe("Alice Requester");
-    expect(dPayload.decidedByDisplayName).toBe("Guardian Bob");
-
-    // Verify deduplication keys are distinct
     expect(guardianDecisionSignals[0].dedupeKey).toContain(
       "trusted-contact:guardian-decision:",
     );
-    expect(deniedSignals[0].dedupeKey).toContain("trusted-contact:denied:");
   });
 
   test("guardian approve emits guardian_decision and verification_sent signals with display names", async () => {
@@ -233,7 +244,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -243,7 +254,7 @@ describe("trusted contact lifecycle notification signals", () => {
     });
 
     // Set up requester contact with a display name
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "requester-chat-456",
@@ -254,19 +265,19 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-approve-${Date.now()}`;
 
-    // Create a pending access request approval
-    const _approval = createApprovalRequest({
-      runId: `ingress-access-request-${Date.now()}`,
-      requestId: testRequestId,
-      conversationId: "access-req-telegram-requester-user-456",
-      channel: "telegram",
+    // Create a pending canonical access request
+    sim.seedRequest({
+      id: testRequestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      sourceConversationId: "access-req-telegram-requester-user-456",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
-      guardianChatId: "guardian-chat-789",
+      guardianPrincipalId: "guardian-user-789",
       toolName: "ingress_access_request",
-      riskLevel: "access_request",
-      reason: "Alice is requesting access",
+      questionText: "Alice is requesting access",
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
 
@@ -321,7 +332,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -331,18 +342,18 @@ describe("trusted contact lifecycle notification signals", () => {
 
     const testRequestId = `req-dedup-${Date.now()}`;
 
-    const approval = createApprovalRequest({
-      runId: `ingress-access-request-${Date.now()}`,
-      requestId: testRequestId,
-      conversationId: "access-req-telegram-requester-user-456",
-      channel: "telegram",
+    const approval = sim.seedRequest({
+      id: testRequestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      sourceConversationId: "access-req-telegram-requester-user-456",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
       guardianExternalUserId: "guardian-user-789",
-      guardianChatId: "guardian-chat-789",
+      guardianPrincipalId: "guardian-user-789",
       toolName: "ingress_access_request",
-      riskLevel: "access_request",
-      reason: "Alice is requesting access",
+      questionText: "Alice is requesting access",
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
 
@@ -362,8 +373,11 @@ describe("trusted contact lifecycle notification signals", () => {
         typeof c.dedupeKey === "string" &&
         (c.dedupeKey as string).includes(approval.id),
     );
-    // guardian_decision and denied — both keyed on approval.id
-    expect(signals.length).toBe(2);
+    // Exactly one lifecycle signal per denial, keyed on the request id.
+    expect(signals.length).toBe(1);
+    expect(signals[0].sourceEventName).toBe(
+      "ingress.trusted_contact.guardian_decision",
+    );
   });
 
   test("display name fields fall back to null when contacts have no display name", async () => {
@@ -391,26 +405,30 @@ describe("trusted contact lifecycle notification signals", () => {
     // Clear the guardian contact's displayName to empty string so the
     // display name resolution returns a falsy value. createGuardianBinding
     // defaults displayName to the externalUserId, which would be a non-empty
-    // string and defeat the purpose of this test.
+    // string and defeat the purpose of this test. The role column is
+    // gateway-owned now, so target the guardian contact by its seeded
+    // (externalUserId-derived) display name instead.
     const db = getDb();
-    db.run("UPDATE contacts SET display_name = '' WHERE role = 'guardian'");
+    db.run(
+      "UPDATE contacts SET display_name = '' WHERE display_name = 'guardian-noname-111'",
+    );
 
     // Do NOT create a requester contact — display name should resolve to null
 
     const testRequestId = `req-noname-${Date.now()}`;
 
-    createApprovalRequest({
-      runId: `ingress-access-request-${Date.now()}`,
-      requestId: testRequestId,
-      conversationId: "access-req-telegram-requester-noname-222",
-      channel: "telegram",
+    sim.seedRequest({
+      id: testRequestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      sourceConversationId: "access-req-telegram-requester-noname-222",
       requesterExternalUserId: "requester-noname-222",
       requesterChatId: "requester-chat-222",
       guardianExternalUserId: "guardian-noname-111",
-      guardianChatId: "guardian-chat-111",
+      guardianPrincipalId: "guardian-noname-111",
       toolName: "ingress_access_request",
-      riskLevel: "access_request",
-      reason: "Unknown user requesting access",
+      questionText: "Unknown user requesting access",
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
     });
 
@@ -428,12 +446,8 @@ describe("trusted contact lifecycle notification signals", () => {
     const guardianDecisionSignals = emitSignalCalls.filter(
       (c) => c.sourceEventName === "ingress.trusted_contact.guardian_decision",
     );
-    const deniedSignals = emitSignalCalls.filter(
-      (c) => c.sourceEventName === "ingress.trusted_contact.denied",
-    );
 
     expect(guardianDecisionSignals.length).toBe(1);
-    expect(deniedSignals.length).toBe(1);
 
     // Verify display names fall back to null/empty when contacts have no
     // display name set.
@@ -446,10 +460,6 @@ describe("trusted contact lifecycle notification signals", () => {
     // The signal enrichment resolves displayName from the contact record,
     // so decidedByDisplayName will be "" (empty string) rather than null.
     expect(gdPayload.decidedByDisplayName).toBe("");
-
-    const dPayload = deniedSignals[0].contextPayload as Record<string, unknown>;
-    expect(dPayload.requesterDisplayName).toBeNull();
-    expect(dPayload.decidedByDisplayName).toBe("");
   });
 });
 
@@ -465,7 +475,7 @@ describe("trusted contact activated notification signal", () => {
   test("guardian verification does NOT emit activated signal", async () => {
     // Create an inbound challenge (guardian flow, not trusted contact)
     const { createInboundVerificationSession } =
-      await import("../runtime/channel-verification-service.js");
+      await import("./helpers/verification-sessions-ipc-sim.js");
     const { secret } = createInboundVerificationSession("telegram");
 
     // "Guardian" enters the verification code
@@ -493,5 +503,4 @@ describe("trusted contact activated notification signal", () => {
     expect(resolver).toBeDefined();
     expect(resolver!.kind).toBe("access_request");
   });
-
 });

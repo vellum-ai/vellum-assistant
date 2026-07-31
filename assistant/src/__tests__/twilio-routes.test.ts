@@ -23,7 +23,6 @@ import {
 } from "bun:test";
 
 let mockIngressPublicBaseUrl = "https://ingress.example.com";
-let mockRawConfigStore: Record<string, unknown> = {};
 let mockSecureKeyStore: Record<string, string | undefined> = {};
 let mockAvailableNumbers = [{ phoneNumber: "+15556667777" }];
 let mockProvisionedNumber = { phoneNumber: "+15556667777" };
@@ -41,7 +40,8 @@ let mockTwilioApiValidationBody = JSON.stringify({ sid: "AC_test" });
 const originalFetch = globalThis.fetch;
 
 function readMockTwilioAccountSid(): string | undefined {
-  const twilio = (mockRawConfigStore.twilio ?? {}) as Record<string, unknown>;
+  const raw = loadRawConfig() as Record<string, unknown>;
+  const twilio = (raw.twilio ?? {}) as Record<string, unknown>;
   return (
     (twilio.accountSid as string | undefined) ??
     mockSecureKeyStore[credentialKey("twilio", "account_sid")]
@@ -53,7 +53,8 @@ function readMockTwilioAuthToken(): string | undefined {
 }
 
 function readMockTwilioPhoneNumber(): string | undefined {
-  const twilio = (mockRawConfigStore.twilio ?? {}) as Record<string, unknown>;
+  const raw = loadRawConfig() as Record<string, unknown>;
+  const twilio = (raw.twilio ?? {}) as Record<string, unknown>;
   return twilio.phoneNumber as string | undefined;
 }
 
@@ -72,8 +73,10 @@ function resolveIngressBaseUrlFromConfig(ingressConfig: unknown): string {
   );
 }
 
-// Default routeSetup mock — returns normal_call. Tests that need different
-// outcomes override `mockRouteSetupResult` before calling the handler.
+// routeSetup mock — TwiML generation must never invoke it (setup routing
+// is owned by the media-stream server at stream start). Tests set
+// `mockRouteSetupResult` to interactive outcomes and assert the webhook
+// still returns Stream TwiML without consulting the router.
 let mockRouteSetupResult: {
   outcome: { action: string; [key: string]: unknown };
   resolved: {
@@ -92,8 +95,56 @@ let mockRouteSetupResult: {
   },
 };
 
-mock.module("../calls/relay-setup-router.js", () => ({
-  routeSetup: () => mockRouteSetupResult,
+// Captures the last context passed to routeSetup so preflight tests can
+// assert the resolved phone admission policy was threaded through.
+let lastRouteSetupCtx: Record<string, unknown> | null = null;
+mock.module("../calls/call-setup-router.js", () => ({
+  routeSetup: (ctx: Record<string, unknown>) => {
+    lastRouteSetupCtx = ctx;
+    return mockRouteSetupResult;
+  },
+}));
+
+// Mock the phone channel admission reader and inbound trust reader.
+// TwiML generation must not consult either — both are stream-start
+// concerns owned by the media-stream server.
+let mockAdmissionPolicy: unknown = null;
+let admissionPolicyReads = 0;
+mock.module("../calls/channel-admission-reader.js", () => ({
+  getChannelAdmissionPolicy: async () => {
+    admissionPolicyReads++;
+    return { ok: true as const, policy: mockAdmissionPolicy };
+  },
+}));
+
+let mockInboundVerdict: unknown = null;
+let lastInboundVerdictArgs: Record<string, unknown> | null = null;
+mock.module("../calls/inbound-trust-reader.js", () => ({
+  getPhoneCallerVerdict: async (otherPartyNumber: string | undefined) => {
+    lastInboundVerdictArgs = {
+      channelType: "phone",
+      actorExternalId: otherPartyNumber || undefined,
+    };
+    return mockInboundVerdict;
+  },
+  readPhoneCallerTrust: async (otherPartyNumber: string | undefined) => {
+    lastInboundVerdictArgs = {
+      channelType: "phone",
+      actorExternalId: otherPartyNumber || undefined,
+    };
+    return {
+      ok: true as const,
+      verdict: mockInboundVerdict,
+      admissionPolicy: mockAdmissionPolicy,
+    };
+  },
+}));
+
+// Mock the STT+TTS credential-readiness preflight consulted at TwiML time.
+// Tests override `mockCredentialReadiness` to exercise the not-ready gate.
+let mockCredentialReadiness: Record<string, unknown> = { status: "ready" };
+mock.module("../calls/telephony-credential-preflight.js", () => ({
+  resolveTelephonyCredentialReadiness: async () => mockCredentialReadiness,
 }));
 
 mock.module("../config/env.js", () => ({
@@ -122,59 +173,6 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-const mockConfigObj = {
-  model: "test",
-  provider: "test",
-  memory: { enabled: false },
-  rateLimit: { maxRequestsPerMinute: 0 },
-  secretDetection: { enabled: false },
-  elevenlabs: { voiceId: DEFAULT_ELEVENLABS_VOICE_ID },
-  calls: {
-    voice: {
-      language: "en-US",
-      transcriptionProvider: "Deepgram",
-      elevenlabs: {},
-    },
-  },
-  services: {
-    stt: {
-      mode: "your-own" as const,
-      provider: "deepgram" as const,
-      providers: {},
-    },
-    tts: {
-      mode: "your-own" as const,
-      provider: "elevenlabs" as const,
-      providers: {
-        elevenlabs: {
-          voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
-          voiceModelId: "",
-          speed: 1.0,
-          stability: 0.5,
-          similarityBoost: 0.75,
-          conversationTimeoutSeconds: 30,
-        },
-        "fish-audio": {
-          referenceId: "",
-          chunkLength: 200,
-          format: "mp3" as const,
-          latency: "normal" as const,
-          speed: 1.0,
-        },
-      },
-    },
-  },
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => mockConfigObj,
-  loadConfig: () => mockConfigObj,
-  loadRawConfig: () => ({ ...mockRawConfigStore }),
-  saveRawConfig: (cfg: Record<string, unknown>) => {
-    mockRawConfigStore = { ...cfg };
-  },
-}));
-
 mock.module("../security/secure-keys.js", () => ({
   setSecureKeyAsync: async (key: string, value: string) => {
     mockSecureKeyStore[key] = value;
@@ -187,7 +185,7 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 mock.module("../calls/twilio-provider.js", () => ({
-  TwilioConversationRelayProvider: class {
+  TwilioVoiceProvider: class {
     readonly name = "twilio";
     static getAuthToken(): string | null {
       return null;
@@ -208,7 +206,7 @@ mock.module("../calls/twilio-config.js", () => ({
   getTwilioConfig: () => ({
     accountSid: "AC_test",
     authToken: "test-auth-token-for-webhooks",
-    phoneNumber: "+15550001111",
+    phoneNumber: "+14155550111",
   }),
   resolveTwilioPhoneNumber: () => readMockTwilioPhoneNumber(),
 }));
@@ -287,11 +285,6 @@ mock.module("../inbound/platform-callback-registration.js", () => ({
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({
-  getTwilioRelayUrl: (ingressConfig: unknown) => {
-    const base = resolveIngressBaseUrlFromConfig(ingressConfig);
-    const wsBase = base.replace(/^http(s?)/, "ws$1");
-    return `${wsBase}/webhooks/twilio/relay`;
-  },
   getTwilioMediaStreamUrl: (ingressConfig: unknown) => {
     const base = resolveIngressBaseUrlFromConfig(ingressConfig);
     const wsBase = base.replace(/^http(s?)/, "ws$1");
@@ -332,14 +325,14 @@ import {
   updateCallSession,
 } from "../calls/call-store.js";
 import {
-  buildWelcomeGreeting,
+  handleInternalVoiceWebhook,
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
-import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { loadRawConfig } from "../config/loader.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 import {
   handleAssignTwilioNumber,
   handleClearTwilioCredentials,
@@ -348,15 +341,18 @@ import {
 } from "../runtime/routes/integrations/twilio.js";
 import { credentialKey } from "../security/credential-key.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
+import { setConfig } from "./helpers/set-config.js";
 
-initializeDb();
+await initializeDb();
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
 let ensuredConvIds = new Set<string>();
 
 function ensureConversation(id: string): void {
-  if (ensuredConvIds.has(id)) return;
+  if (ensuredConvIds.has(id)) {
+    return;
+  }
   const db = getDb();
   const now = Date.now();
   db.insert(conversations)
@@ -372,8 +368,6 @@ function ensureConversation(id: string): void {
 
 function resetTables() {
   const db = getDb();
-  db.run("DELETE FROM guardian_action_deliveries");
-  db.run("DELETE FROM guardian_action_requests");
   db.run("DELETE FROM processed_callbacks");
   db.run("DELETE FROM call_pending_questions");
   db.run("DELETE FROM call_events");
@@ -395,7 +389,7 @@ function createTestSession(
   const session = createCallSession({
     conversationId: convId,
     provider: "twilio",
-    fromNumber: "+15550001111",
+    fromNumber: "+14155550111",
     toNumber: "+15559998888",
     task,
   });
@@ -440,9 +434,10 @@ describe("twilio webhook routes", () => {
     resetTables();
     clearActiveCallLeases();
     mockIngressPublicBaseUrl = "https://ingress.example.com";
-    mockRawConfigStore = {
-      twilio: { accountSid: "AC_existing", phoneNumber: "+15550001111" },
-    };
+    setConfig("twilio", {
+      accountSid: "AC_existing",
+      phoneNumber: "+14155550111",
+    });
     mockSecureKeyStore = {
       [credentialKey("twilio", "account_sid")]: "AC_existing",
       [credentialKey("twilio", "auth_token")]: "test-auth-token",
@@ -452,8 +447,14 @@ describe("twilio webhook routes", () => {
     updatePhoneNumberWebhookCalls = [];
     mockTwilioApiValidationStatus = 200;
     mockTwilioApiValidationBody = JSON.stringify({ sid: "AC_validated" });
-    // Reset STT config to defaults between tests
-    mockConfigObj.services.stt.provider = "deepgram" as any;
+    // Reset admission policy + captured routeSetup context between tests
+    mockAdmissionPolicy = null;
+    admissionPolicyReads = 0;
+    lastRouteSetupCtx = null;
+    mockInboundVerdict = null;
+    lastInboundVerdictArgs = null;
+    // Reset credential readiness to ready
+    mockCredentialReadiness = { status: "ready" };
     // Reset routeSetup mock to default normal_call
     mockRouteSetupResult = {
       outcome: { action: "normal_call", isInbound: true },
@@ -793,26 +794,11 @@ describe("twilio webhook routes", () => {
     });
   });
 
-  describe("buildWelcomeGreeting", () => {
-    test("returns empty by default so orchestrator drives first opener", () => {
-      const greeting = buildWelcomeGreeting("check store hours for tomorrow");
-      expect(greeting).toBe("");
-    });
-
-    test("uses configured greeting override when provided", () => {
-      const greeting = buildWelcomeGreeting(
-        "check store hours",
-        "Custom hello",
-      );
-      expect(greeting).toBe("Custom hello");
-    });
-  });
-
-  // ── TwiML relay URL generation ──────────────────────────────────────
+  // ── TwiML stream URL generation ─────────────────────────────────────
   // Call handleVoiceWebhook directly since direct routes are blocked.
 
-  describe("voice webhook TwiML relay URL", () => {
-    test("TwiML relay URL uses placeholder for gateway resolution", async () => {
+  describe("voice webhook TwiML stream URL", () => {
+    test("TwiML stream URL uses placeholder for gateway resolution", async () => {
       const session = createTestSession("conv-twiml-1", "CA_twiml_1");
       const req = makeVoiceRequest(session.id, { CallSid: "CA_twiml_1" });
 
@@ -821,7 +807,7 @@ describe("twilio webhook routes", () => {
       expect(res.status).toBe(200);
       const twiml = await res.text();
       expect(twiml).toContain(
-        "wss://__VELLUM_PUBLIC_BASE_URL__/webhooks/twilio/relay",
+        `wss://__VELLUM_PUBLIC_BASE_URL__/webhooks/twilio/media-stream/${session.id}`,
       );
     });
 
@@ -986,30 +972,30 @@ describe("twilio webhook routes", () => {
     test("creates a new session from CallSid when callSessionId is absent", async () => {
       const req = makeInboundVoiceRequest({
         CallSid: "CA_inbound_new_1",
-        From: "+14155551234",
-        To: "+15550001111",
+        From: "+14155550134",
+        To: "+14155550111",
       });
 
       const res = await handleVoiceWebhook(req);
 
       expect(res.status).toBe(200);
       const twiml = await res.text();
-      expect(twiml).toContain("<ConversationRelay");
-      expect(twiml).toContain("callSessionId=");
+      expect(twiml).toContain("<Stream");
+      expect(twiml).toContain('<Parameter name="callSessionId"');
 
       // Verify session was created with the CallSid
       const session = getCallSessionByCallSid("CA_inbound_new_1");
       expect(session).not.toBeNull();
-      expect(session!.fromNumber).toBe("+14155551234");
-      expect(session!.toNumber).toBe("+15550001111");
+      expect(session!.fromNumber).toBe("+14155550134");
+      expect(session!.toNumber).toBe("+14155550111");
       expect(session!.providerCallSid).toBe("CA_inbound_new_1");
     });
 
     test("replayed inbound webhook for same CallSid does not create duplicate sessions", async () => {
       const params = {
         CallSid: "CA_inbound_replay_1",
-        From: "+14155551234",
-        To: "+15550001111",
+        From: "+14155550134",
+        To: "+14155550111",
       };
 
       // First call — creates the session
@@ -1030,8 +1016,8 @@ describe("twilio webhook routes", () => {
 
     test("inbound webhook without CallSid returns 400", async () => {
       const req = makeInboundVoiceRequest({
-        From: "+14155551234",
-        To: "+15550001111",
+        From: "+14155550134",
+        To: "+14155550111",
       });
 
       const res = await handleVoiceWebhook(req);
@@ -1041,8 +1027,8 @@ describe("twilio webhook routes", () => {
     test("inbound webhook creates session with internal scope assistantId", async () => {
       const req = makeInboundVoiceRequest({
         CallSid: "CA_inbound_assist_1",
-        From: "+14155551234",
-        To: "+15550001111",
+        From: "+14155550134",
+        To: "+14155550111",
       });
 
       const res = await handleVoiceWebhook(req);
@@ -1067,106 +1053,66 @@ describe("twilio webhook routes", () => {
 
       expect(res.status).toBe(200);
       const twiml = await res.text();
-      expect(twiml).toContain("<ConversationRelay");
-      expect(twiml).toContain(`callSessionId=${session.id}`);
+      expect(twiml).toContain("<Stream");
+      expect(twiml).toContain(`/webhooks/twilio/media-stream/${session.id}`);
     });
   });
 
-  // ── services.stt-driven TwiML routing ───────────────────────────────
-  // These tests assert that the voice webhook TwiML path is determined
-  // by services.stt.provider via resolveTelephonySttRouting — the
-  // canonical telephony STT routing resolver.
+  // ── Provider-independent Stream TwiML ───────────────────────────────
+  // Every call runs over the media-stream transport regardless of the
+  // configured STT provider — the webhook always emits <Connect><Stream>.
 
-  describe("services.stt-driven TwiML routing", () => {
-    test("outbound: deepgram -> ConversationRelay with transcriptionProvider=Deepgram", async () => {
-      mockConfigObj.services.stt.provider = "deepgram" as any;
-      const session = createTestSession("conv-stt-dg-1", "CA_stt_dg_1");
-      const req = makeVoiceRequest(session.id, { CallSid: "CA_stt_dg_1" });
+  describe("Stream TwiML for every STT provider", () => {
+    const providers = [
+      "deepgram",
+      "google-gemini",
+      "openai-whisper",
+      "xai",
+    ] as const;
 
-      const res = await handleVoiceWebhook(req);
-      expect(res.status).toBe(200);
+    for (const provider of providers) {
+      test(`outbound: ${provider} -> Stream TwiML`, async () => {
+        const session = createTestSession(
+          `conv-stt-${provider}-1`,
+          `CA_stt_${provider}_1`,
+        );
+        const req = makeVoiceRequest(session.id, {
+          CallSid: `CA_stt_${provider}_1`,
+        });
 
-      const twiml = await res.text();
-      expect(twiml).toContain("<ConversationRelay");
-      expect(twiml).not.toContain("<Stream");
-      expect(twiml).toContain('transcriptionProvider="Deepgram"');
-    });
+        const res = await handleVoiceWebhook(req);
+        expect(res.status).toBe(200);
 
-    test("inbound: deepgram -> ConversationRelay with transcriptionProvider=Deepgram", async () => {
-      mockConfigObj.services.stt.provider = "deepgram" as any;
-      const req = makeInboundVoiceRequest({
-        CallSid: "CA_stt_dg_inbound_1",
-        From: "+14155551234",
-        To: "+15550001111",
+        const twiml = await res.text();
+        expect(twiml).toContain("<Stream");
+        expect(twiml).not.toContain("transcriptionProvider=");
+        // callSessionId is in the URL path, not as a query param
+        expect(twiml).toContain(
+          `wss://__VELLUM_PUBLIC_BASE_URL__/webhooks/twilio/media-stream/${session.id}`,
+        );
+        expect(twiml).not.toContain("?callSessionId=");
       });
 
-      const res = await handleVoiceWebhook(req);
-      expect(res.status).toBe(200);
+      test(`inbound: ${provider} -> Stream TwiML`, async () => {
+        const req = makeInboundVoiceRequest({
+          CallSid: `CA_stt_${provider}_inbound_1`,
+          From: "+14155550134",
+          To: "+14155550111",
+        });
 
-      const twiml = await res.text();
-      expect(twiml).toContain("<ConversationRelay");
-      expect(twiml).toContain('transcriptionProvider="Deepgram"');
-      expect(twiml).not.toContain("<Stream");
-    });
+        const res = await handleVoiceWebhook(req);
+        expect(res.status).toBe(200);
 
-    test("outbound: google-gemini -> ConversationRelay with transcriptionProvider=Google", async () => {
-      mockConfigObj.services.stt.provider = "google-gemini" as any;
-      const session = createTestSession("conv-stt-gg-1", "CA_stt_gg_1");
-      const req = makeVoiceRequest(session.id, { CallSid: "CA_stt_gg_1" });
-
-      const res = await handleVoiceWebhook(req);
-      expect(res.status).toBe(200);
-
-      const twiml = await res.text();
-      expect(twiml).toContain("<ConversationRelay");
-      expect(twiml).not.toContain("<Stream");
-      expect(twiml).toContain('transcriptionProvider="Google"');
-    });
-
-    test("outbound: openai-whisper -> Stream TwiML with path-based metadata (no ConversationRelay)", async () => {
-      mockConfigObj.services.stt.provider = "openai-whisper" as any;
-      const session = createTestSession("conv-stt-ow-1", "CA_stt_ow_1");
-      const req = makeVoiceRequest(session.id, { CallSid: "CA_stt_ow_1" });
-
-      const res = await handleVoiceWebhook(req);
-      expect(res.status).toBe(200);
-
-      const twiml = await res.text();
-      expect(twiml).toContain("<Stream");
-      expect(twiml).not.toContain("<ConversationRelay");
-      expect(twiml).not.toContain("transcriptionProvider=");
-      // callSessionId is in the URL path, not as a query param
-      expect(twiml).toContain(
-        `wss://__VELLUM_PUBLIC_BASE_URL__/webhooks/twilio/media-stream/${session.id}`,
-      );
-      expect(twiml).not.toContain("?callSessionId=");
-    });
-
-    test("inbound: openai-whisper -> Stream TwiML (no ConversationRelay)", async () => {
-      mockConfigObj.services.stt.provider = "openai-whisper" as any;
-      const req = makeInboundVoiceRequest({
-        CallSid: "CA_stt_ow_inbound_1",
-        From: "+14155551234",
-        To: "+15550001111",
+        const twiml = await res.text();
+        expect(twiml).toContain("<Stream");
+        expect(twiml).not.toContain("transcriptionProvider=");
       });
-
-      const res = await handleVoiceWebhook(req);
-      expect(res.status).toBe(200);
-
-      const twiml = await res.text();
-      expect(twiml).toContain("<Stream");
-      expect(twiml).not.toContain("<ConversationRelay");
-      expect(twiml).not.toContain("transcriptionProvider=");
-    });
+    }
 
     test("Stream TwiML includes auth token as Parameter", async () => {
-      mockConfigObj.services.stt.provider = "openai-whisper" as any;
-      const session = createTestSession(
-        "conv-stt-ow-token-1",
-        "CA_stt_ow_token_1",
-      );
+      const session = createTestSession("conv-stt-token-1", "CA_stt_token_1");
       const req = makeVoiceRequest(session.id, {
-        CallSid: "CA_stt_ow_token_1",
+        CallSid: "CA_stt_token_1",
       });
 
       const res = await handleVoiceWebhook(req);
@@ -1176,212 +1122,269 @@ describe("twilio webhook routes", () => {
       expect(twiml).toContain('<Parameter name="token"');
       expect(twiml).toContain('<Parameter name="callSessionId"');
     });
+  });
 
-    test("routing is driven exclusively by services.stt.provider", async () => {
-      // Telephony STT routing reads services.stt.provider only.
-      // calls.voice.transcriptionProvider is a legacy config field that
-      // no longer participates in the call setup path.
-      mockConfigObj.services.stt.provider = "openai-whisper" as any;
-      const session = createTestSession(
-        "conv-stt-routing-1",
-        "CA_stt_routing_1",
-      );
-      const req = makeVoiceRequest(session.id, { CallSid: "CA_stt_routing_1" });
+  // ── Setup outcomes never affect TwiML ────────────────────────────────
+  // Setup routing is owned by the media-stream server: it re-runs
+  // routeSetup when Twilio's `start` frame arrives and drives every
+  // outcome (verification, invite redemption, name capture, deny, normal)
+  // over the stream. TwiML generation neither consults the router nor
+  // branches on its outcome.
+
+  describe("setup outcomes never affect TwiML", () => {
+    const outcomes: Array<Record<string, unknown>> = [
+      { action: "normal_call", isInbound: true },
+      {
+        action: "deny",
+        message: "This number is not authorized.",
+        logReason: "Inbound voice ACL: blocked caller",
+      },
+      {
+        action: "verification",
+        assistantId: "self",
+        fromNumber: "+14155550134",
+      },
+      {
+        action: "name_capture",
+        assistantId: "self",
+        fromNumber: "+14155550134",
+      },
+      {
+        action: "invite_redemption",
+        assistantId: "self",
+        fromNumber: "+14155550134",
+        inviteeName: "Alice",
+      },
+    ];
+
+    for (const outcome of outcomes) {
+      test(`${outcome.action as string} setup outcome still yields Stream TwiML`, async () => {
+        mockRouteSetupResult = {
+          outcome: outcome as { action: string },
+          resolved: {
+            assistantId: "self",
+            isInbound: true,
+            otherPartyNumber: "+14155550134",
+            actorTrust: { trustClass: "unknown", memberRecord: null },
+          },
+        };
+
+        const session = createTestSession(
+          `conv-outcome-${outcome.action as string}`,
+          `CA_outcome_${outcome.action as string}`,
+        );
+        const req = makeVoiceRequest(session.id, {
+          CallSid: `CA_outcome_${outcome.action as string}`,
+        });
+
+        const res = await handleVoiceWebhook(req);
+        expect(res.status).toBe(200);
+
+        const twiml = await res.text();
+        expect(twiml).toContain("<Stream");
+      });
+    }
+
+    test("TwiML generation does not invoke routeSetup or the admission/trust readers", async () => {
+      mockAdmissionPolicy = "guardian_only";
+      mockInboundVerdict = {
+        channelType: "phone",
+        actorExternalId: "+14155550134",
+        status: "verified",
+        policy: "allow",
+        resolutionFailed: false,
+      };
+
+      const req = makeInboundVoiceRequest({
+        CallSid: "CA_no_routing_at_twiml_1",
+        From: "+14155550134",
+        To: "+14155550111",
+      });
 
       const res = await handleVoiceWebhook(req);
       expect(res.status).toBe(200);
 
-      const twiml = await res.text();
-      // Must be Stream (from services.stt), NOT ConversationRelay
-      expect(twiml).toContain("<Stream");
-      expect(twiml).not.toContain("<ConversationRelay");
+      // Routing and its inputs are resolved at stream start, not TwiML time.
+      expect(lastRouteSetupCtx).toBeNull();
+      expect(admissionPolicyReads).toBe(0);
+      expect(lastInboundVerdictArgs).toBeNull();
     });
   });
 
-  // ── Media-stream preflight setup guardrails ──────────────────────────
-  // These tests assert that the TwiML preflight guard in
-  // buildVoiceWebhookTwiml rejects unsupported interactive setup actions
-  // for media-stream-custom calls before stream bootstrap, falling back
-  // to ConversationRelay for interactive flows.
+  // ── Credential-readiness gate ─────────────────────────────────────────
+  // The daemon performs STT and TTS for every call; when credentials are
+  // missing the webhook returns audible <Say> setup-required TwiML plus
+  // <Hangup/> instead of connecting a doomed stream, and records the gap
+  // on the session.
 
-  describe("media-stream preflight setup guardrails", () => {
-    test("media-stream: normal_call setup proceeds with Stream TwiML", async () => {
-      mockConfigObj.services.stt.provider = "openai-whisper" as any;
-      mockRouteSetupResult = {
-        outcome: { action: "normal_call", isInbound: true },
-        resolved: {
-          assistantId: "self",
-          isInbound: true,
-          otherPartyNumber: "+15559998888",
-          actorTrust: { trustClass: "guardian", memberRecord: null },
+  describe("credential-readiness TwiML gate", () => {
+    const notReady = {
+      status: "not-ready",
+      missing: [
+        {
+          kind: "stt",
+          providerId: "deepgram",
+          reason: 'No API key configured for credential provider "deepgram"',
         },
-      };
+      ],
+      userMessage:
+        'Phone calls are unavailable because they require an API key for the speech-to-text provider "deepgram".',
+    };
 
-      const session = createTestSession("conv-ms-normal-1", "CA_ms_normal_1");
-      const req = makeVoiceRequest(session.id, { CallSid: "CA_ms_normal_1" });
+    test("inbound not-ready returns <Say> + <Hangup/> and records the preflight event", async () => {
+      mockCredentialReadiness = notReady;
+
+      const req = makeInboundVoiceRequest({
+        CallSid: "CA_preflight_inbound_1",
+        From: "+14155550134",
+        To: "+14155550111",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<Say>");
+      expect(twiml).toContain("<Hangup/>");
+      expect(twiml).toContain("speech-to-text provider");
+      expect(twiml).not.toContain("<Stream");
+
+      const session = getCallSessionByCallSid("CA_preflight_inbound_1");
+      expect(session).not.toBeNull();
+      const events = getCallEvents(session!.id);
+      const preflightEvents = events.filter(
+        (e) => e.eventType === "telephony_credential_preflight_failed",
+      );
+      expect(preflightEvents.length).toBe(1);
+      const payload = JSON.parse(preflightEvents[0]!.payloadJson) as {
+        missing: Array<{ kind: string; providerId: string }>;
+      };
+      expect(payload.missing).toHaveLength(1);
+      expect(payload.missing[0]!.kind).toBe("stt");
+      expect(payload.missing[0]!.providerId).toBe("deepgram");
+    });
+
+    test("outbound webhook not-ready returns <Say> + <Hangup/> and records the preflight event", async () => {
+      mockCredentialReadiness = notReady;
+
+      const session = createTestSession(
+        "conv-preflight-out-1",
+        "CA_preflight_out_1",
+      );
+      const req = makeVoiceRequest(session.id, {
+        CallSid: "CA_preflight_out_1",
+      });
+
+      const res = await handleVoiceWebhook(req);
+      expect(res.status).toBe(200);
+
+      const twiml = await res.text();
+      expect(twiml).toContain("<Say>");
+      expect(twiml).toContain("<Hangup/>");
+      expect(twiml).not.toContain("<Stream");
+
+      const events = getCallEvents(session.id);
+      expect(
+        events.filter(
+          (e) => e.eventType === "telephony_credential_preflight_failed",
+        ).length,
+      ).toBe(1);
+    });
+
+    test("ready readiness produces Stream TwiML with no preflight event", async () => {
+      const session = createTestSession(
+        "conv-preflight-ready-1",
+        "CA_preflight_ready_1",
+      );
+      const req = makeVoiceRequest(session.id, {
+        CallSid: "CA_preflight_ready_1",
+      });
 
       const res = await handleVoiceWebhook(req);
       expect(res.status).toBe(200);
 
       const twiml = await res.text();
       expect(twiml).toContain("<Stream");
-      expect(twiml).not.toContain("<ConversationRelay");
+      expect(twiml).not.toContain("<Say>");
+
+      const events = getCallEvents(session.id);
+      expect(
+        events.filter(
+          (e) => e.eventType === "telephony_credential_preflight_failed",
+        ).length,
+      ).toBe(0);
     });
+  });
 
-    test("media-stream: deny setup proceeds with Stream TwiML (deny is handled at stream level)", async () => {
-      mockConfigObj.services.stt.provider = "openai-whisper" as any;
-      mockRouteSetupResult = {
-        outcome: {
-          action: "deny",
-          message: "This number is not authorized.",
-          logReason: "Inbound voice ACL: blocked caller",
+  // ── Internal voice webhook (gateway forward) ─────────────────────────
+  // The gateway's <Gather> voice-verify success path forwards through
+  // /v1/internal/twilio/voice-webhook, which shares processVoiceWebhook.
+
+  describe("internal voice webhook (gateway forward)", () => {
+    test("inbound forward yields Stream TwiML", async () => {
+      const result = await handleInternalVoiceWebhook({
+        body: {
+          params: {
+            CallSid: "CA_internal_fwd_1",
+            From: "+14155550134",
+            To: "+14155550111",
+          },
+          originalUrl: "https://ingress.example.com/webhooks/twilio/voice",
         },
-        resolved: {
-          assistantId: "self",
-          isInbound: true,
-          otherPartyNumber: "+15559998888",
-          actorTrust: { trustClass: "unknown", memberRecord: null },
-        },
-      };
+      });
 
-      const session = createTestSession("conv-ms-deny-1", "CA_ms_deny_1");
-      const req = makeVoiceRequest(session.id, { CallSid: "CA_ms_deny_1" });
-
-      const res = await handleVoiceWebhook(req);
-      expect(res.status).toBe(200);
-
-      const twiml = await res.text();
-      // Deny is supported on media-stream — should still produce Stream TwiML
+      const twiml = result.body as string;
       expect(twiml).toContain("<Stream");
-      expect(twiml).not.toContain("<ConversationRelay");
     });
 
-    test("media-stream: verification setup falls back to ConversationRelay", async () => {
-      mockConfigObj.services.stt.provider = "openai-whisper" as any;
-      mockRouteSetupResult = {
-        outcome: {
-          action: "verification",
-          assistantId: "self",
-          fromNumber: "+14155551234",
+    test("outbound forward (callSessionId in originalUrl) yields Stream TwiML", async () => {
+      const session = createTestSession(
+        "conv-internal-fwd-2",
+        "CA_internal_fwd_2",
+      );
+      const result = await handleInternalVoiceWebhook({
+        body: {
+          params: { CallSid: "CA_internal_fwd_2" },
+          originalUrl: `https://ingress.example.com/webhooks/twilio/voice?callSessionId=${session.id}`,
         },
-        resolved: {
-          assistantId: "self",
-          isInbound: true,
-          otherPartyNumber: "+14155551234",
-          actorTrust: { trustClass: "unknown", memberRecord: null },
-        },
-      };
-
-      const session = createTestSession("conv-ms-verify-1", "CA_ms_verify_1");
-      const req = makeVoiceRequest(session.id, { CallSid: "CA_ms_verify_1" });
-
-      const res = await handleVoiceWebhook(req);
-      expect(res.status).toBe(200);
-
-      const twiml = await res.text();
-      // Interactive verification cannot work on media-stream — must fall back
-      expect(twiml).toContain("<ConversationRelay");
-      expect(twiml).not.toContain("<Stream");
-      expect(twiml).toContain('transcriptionProvider="Deepgram"');
-    });
-
-    test("media-stream: name_capture setup falls back to ConversationRelay", async () => {
-      mockConfigObj.services.stt.provider = "openai-whisper" as any;
-      mockRouteSetupResult = {
-        outcome: {
-          action: "name_capture",
-          assistantId: "self",
-          fromNumber: "+14155551234",
-        },
-        resolved: {
-          assistantId: "self",
-          isInbound: true,
-          otherPartyNumber: "+14155551234",
-          actorTrust: { trustClass: "unknown", memberRecord: null },
-        },
-      };
-
-      const session = createTestSession("conv-ms-namecap-1", "CA_ms_namecap_1");
-      const req = makeVoiceRequest(session.id, {
-        CallSid: "CA_ms_namecap_1",
       });
 
-      const res = await handleVoiceWebhook(req);
-      expect(res.status).toBe(200);
-
-      const twiml = await res.text();
-      expect(twiml).toContain("<ConversationRelay");
-      expect(twiml).not.toContain("<Stream");
+      const twiml = result.body as string;
+      expect(twiml).toContain("<Stream");
+      expect(twiml).toContain(`/webhooks/twilio/media-stream/${session.id}`);
     });
 
-    test("media-stream: invite_redemption setup falls back to ConversationRelay", async () => {
-      mockConfigObj.services.stt.provider = "openai-whisper" as any;
-      mockRouteSetupResult = {
-        outcome: {
-          action: "invite_redemption",
-          assistantId: "self",
-          fromNumber: "+14155551234",
-          friendName: "Alice",
-          guardianName: "Bob",
-        },
-        resolved: {
-          assistantId: "self",
-          isInbound: true,
-          otherPartyNumber: "+14155551234",
-          actorTrust: { trustClass: "unknown", memberRecord: null },
-        },
+    test("inbound forward not-ready yields <Say> + <Hangup/>", async () => {
+      mockCredentialReadiness = {
+        status: "not-ready",
+        missing: [
+          { kind: "tts", providerId: "elevenlabs", reason: "missing key" },
+        ],
+        userMessage:
+          'Phone calls are unavailable because they require an API key for the text-to-speech provider "elevenlabs".',
       };
 
-      const session = createTestSession("conv-ms-invite-1", "CA_ms_invite_1");
-      const req = makeVoiceRequest(session.id, {
-        CallSid: "CA_ms_invite_1",
+      const result = await handleInternalVoiceWebhook({
+        body: {
+          params: {
+            CallSid: "CA_internal_fwd_3",
+            From: "+14155550134",
+            To: "+14155550111",
+          },
+          originalUrl: "https://ingress.example.com/webhooks/twilio/voice",
+        },
       });
 
-      const res = await handleVoiceWebhook(req);
-      expect(res.status).toBe(200);
-
-      const twiml = await res.text();
-      expect(twiml).toContain("<ConversationRelay");
-      expect(twiml).not.toContain("<Stream");
-    });
-
-    test("conversation-relay-native: unsupported setup does not trigger preflight (not media-stream)", async () => {
-      // When the STT provider is deepgram (conversation-relay-native),
-      // the preflight guard is not invoked — setup flows are handled
-      // natively by the relay server.
-      mockConfigObj.services.stt.provider = "deepgram" as any;
-      mockRouteSetupResult = {
-        outcome: {
-          action: "verification",
-          assistantId: "self",
-          fromNumber: "+14155551234",
-        },
-        resolved: {
-          assistantId: "self",
-          isInbound: true,
-          otherPartyNumber: "+14155551234",
-          actorTrust: { trustClass: "unknown", memberRecord: null },
-        },
-      };
-
-      const session = createTestSession("conv-cr-verify-1", "CA_cr_verify_1");
-      const req = makeVoiceRequest(session.id, {
-        CallSid: "CA_cr_verify_1",
-      });
-
-      const res = await handleVoiceWebhook(req);
-      expect(res.status).toBe(200);
-
-      const twiml = await res.text();
-      // ConversationRelay should be emitted regardless of setup outcome
-      expect(twiml).toContain("<ConversationRelay");
+      const twiml = result.body as string;
+      expect(twiml).toContain("<Say>");
+      expect(twiml).toContain("<Hangup/>");
       expect(twiml).not.toContain("<Stream");
     });
   });
 
   describe("Twilio control-plane credential and number operations", () => {
     test("setting credentials stores them and returns success", async () => {
-      mockRawConfigStore = {};
+      setConfig("twilio", {});
       mockSecureKeyStore = {};
 
       const result = await handleSetTwilioCredentials({
@@ -1393,7 +1396,7 @@ describe("twilio webhook routes", () => {
 
       expect(result.success).toBe(true);
       expect(result.hasCredentials).toBe(true);
-      expect(mockRawConfigStore.twilio).toEqual({
+      expect((loadRawConfig() as Record<string, unknown>).twilio).toEqual({
         accountSid: "AC_new_credentials",
         setupStarted: true,
       });
@@ -1409,9 +1412,7 @@ describe("twilio webhook routes", () => {
       mockIngressPublicBaseUrl = "https://numbers.example.com";
       mockAvailableNumbers = [{ phoneNumber: "+15557778888" }];
       mockProvisionedNumber = { phoneNumber: "+15557778888" };
-      mockRawConfigStore = {
-        twilio: { accountSid: "AC_existing" },
-      };
+      setConfig("twilio", { accountSid: "AC_existing" });
 
       const result = await handleProvisionTwilioNumber({
         body: { country: "US" },

@@ -31,7 +31,9 @@ function moveMemorySubdir(
   const src = join(memoryDir, fromRel);
   const dest = join(memoryDir, toRel);
   try {
-    if (!fs.existsSync(src)) return;
+    if (!fs.existsSync(src)) {
+      return;
+    }
     if (fs.existsSync(dest)) {
       log.warn(
         { src, dest },
@@ -43,7 +45,9 @@ function moveMemorySubdir(
     fs.renameSync(src, dest);
     log.info({ src, dest }, "Moved memory tree directory");
   } catch (err) {
-    if (isNotFoundError(err)) return;
+    if (isNotFoundError(err)) {
+      return;
+    }
     log.warn({ err, src, dest }, "Failed to move memory tree directory");
     throw err;
   }

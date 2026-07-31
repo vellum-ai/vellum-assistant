@@ -1,20 +1,14 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   countMessagesAfter,
   getMessagesAfter,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations, messages } from "../memory/schema.js";
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations, messages } from "../persistence/schema/index.js";
 
-initializeDb();
+await initializeDb();
 
 const CONV_ID = "conv-tiebreaker";
 
@@ -35,7 +29,6 @@ function seedConversation(): void {
       updatedAt: now,
       source: "test",
       conversationType: "default",
-      memoryScopeId: "default",
     })
     .run();
 }

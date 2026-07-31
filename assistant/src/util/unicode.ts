@@ -16,7 +16,7 @@ const LOW_SURROGATE_START = 0xdc00;
 const LOW_SURROGATE_END = 0xdfff;
 const REPLACEMENT_CHAR = "\ufffd";
 
-function isHighSurrogate(code: number): boolean {
+export function isHighSurrogate(code: number): boolean {
   return code >= HIGH_SURROGATE_START && code <= HIGH_SURROGATE_END;
 }
 
@@ -58,7 +58,9 @@ export function safeStringSlice(
     const firstCode = str.charCodeAt(safeStart);
     if (isLowSurrogate(firstCode)) {
       safeStart++;
-      if (safeStart > safeEnd) safeEnd = safeStart;
+      if (safeStart > safeEnd) {
+        safeEnd = safeStart;
+      }
     }
   }
 
@@ -88,7 +90,9 @@ export function stripOrphanedSurrogates(str: string): string {
       break;
     }
   }
-  if (!needsFix) return str;
+  if (!needsFix) {
+    return str;
+  }
 
   let out = "";
   for (let i = 0; i < str.length; i++) {
@@ -130,7 +134,9 @@ export interface DeepSanitizeResult<T> {
  * On the happy path (no orphans found anywhere in the tree) the original
  * reference is returned verbatim — no copies are made.
  */
-export function stripOrphanedSurrogatesDeep<T>(input: T): DeepSanitizeResult<T> {
+export function stripOrphanedSurrogatesDeep<T>(
+  input: T,
+): DeepSanitizeResult<T> {
   let fixedStringCount = 0;
 
   const walk = (value: unknown): { value: unknown; changed: boolean } => {

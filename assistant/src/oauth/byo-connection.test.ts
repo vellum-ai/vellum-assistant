@@ -16,18 +16,9 @@ import {
 // ---------------------------------------------------------------------------
 // Mock logger
 // ---------------------------------------------------------------------------
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ---------------------------------------------------------------------------
 // Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
-
 import { setStorePathForTesting } from "../__tests__/encrypted-store-test-helpers.js";
 import { _resetBackend } from "../security/secure-keys.js";
 
@@ -109,13 +100,32 @@ mock.module("./oauth-store.js", () => ({
     opts?: { clientId?: string; account?: string },
   ) => {
     const conn = mockConnections.get(service);
-    if (!conn) return undefined;
-    if (opts?.account && conn.accountInfo !== opts.account) return undefined;
+    if (!conn) {
+      return undefined;
+    }
+    if (opts?.account && conn.accountInfo !== opts.account) {
+      return undefined;
+    }
     return conn;
+  },
+  getActiveConnections: (
+    service: string,
+    opts?: { clientId?: string; account?: string },
+  ) => {
+    const conn = mockConnections.get(service);
+    if (!conn) {
+      return [];
+    }
+    if (opts?.account && conn.accountInfo !== opts.account) {
+      return [];
+    }
+    return [conn];
   },
   getConnection: (id: string) => {
     for (const conn of mockConnections.values()) {
-      if (conn.id === id) return conn;
+      if (conn.id === id) {
+        return conn;
+      }
     }
     return undefined;
   },
@@ -583,7 +593,7 @@ describe("resolveOAuthConnection", () => {
 
   test("throws when no credential metadata exists", async () => {
     await expect(resolveOAuthConnection("unknown")).rejects.toThrow(
-      /No active OAuth connection found for "unknown"/,
+      /No active OAuth connection found for provider "unknown"/,
     );
   });
 

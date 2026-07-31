@@ -30,8 +30,22 @@ export const ToolUseStartEventSchema = z.object({
    * live elapsed-time counter to the server clock instead of the moment the
    * event was received over SSE. Absent on streams from older daemons that
    * pre-date this field; clients fall back to their own receipt time.
+   *
+   * This is the tool's *execution* start, distinct from `previewStartedAt`
+   * (when the tool call was first recognized). The execution duration
+   * (`completedAt - startedAt`) is the tool's own latency, surfaced as a
+   * secondary on-expand field; the user-perceived latency anchors on
+   * `previewStartedAt`.
    */
   startedAt: z.number().optional(),
+  /**
+   * Unix ms when the tool call was first recognized in the model stream (the
+   * `tool_use_preview_start` timestamp), carried through here so a client that
+   * connected after the preview event — or rehydrates from a snapshot — can
+   * still anchor the user-perceived latency timer to first-byte rather than
+   * execution start. Absent when no preview was emitted or on older daemons.
+   */
+  previewStartedAt: z.number().optional(),
 });
 
 export type ToolUseStartEvent = z.infer<typeof ToolUseStartEventSchema>;

@@ -4,40 +4,22 @@
  * `LogRow.callSite`. Historical rows (pre-migration 264) stay NULL —
  * "we don't know" rather than guessing `mainAgent`.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
-
-import { getDb, getSqliteFrom } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getLogsDb, getSqliteFrom } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getRequestLogById,
   recordRequestLog,
-} from "../memory/llm-request-log-store.js";
-import { migrateLlmRequestLogCallSite } from "../memory/migrations/264-llm-request-log-call-site.js";
-import { llmRequestLogs } from "../memory/schema.js";
+} from "../persistence/llm-request-log-store.js";
+import { migrateLlmRequestLogCallSite } from "../persistence/migrations/264-llm-request-log-call-site.js";
+import { llmRequestLogs } from "../persistence/schema/index.js";
 
-initializeDb();
+await initializeDb();
 
+// llm_request_logs lives in the dedicated logs connection.
 function resetLogs(): void {
-  const db = getDb();
-  db.delete(llmRequestLogs).run();
+  getLogsDb()!.delete(llmRequestLogs).run();
 }
 
 describe("recordRequestLog call_site stamping", () => {
@@ -52,14 +34,14 @@ describe("recordRequestLog call_site stamping", () => {
       "anthropic",
       "mainAgent",
     );
-    const row = getRequestLogById(id);
+    const row = getRequestLogById(id!);
     expect(row).not.toBeNull();
     expect(row!.callSite).toBe("mainAgent");
   });
 
   test("leaves callSite NULL when omitted (backward compat)", () => {
     const id = recordRequestLog("conv-1", '{"req":1}', '{"res":1}');
-    const row = getRequestLogById(id);
+    const row = getRequestLogById(id!);
     expect(row).not.toBeNull();
     expect(row!.callSite).toBeNull();
   });
@@ -73,7 +55,7 @@ describe("recordRequestLog call_site stamping", () => {
       "anthropic",
       "compactionAgent",
     );
-    expect(getRequestLogById(id)?.callSite).toBe("compactionAgent");
+    expect(getRequestLogById(id!)?.callSite).toBe("compactionAgent");
   });
 
   test("two rows in the same conversation can carry different callSites", () => {
@@ -93,14 +75,14 @@ describe("recordRequestLog call_site stamping", () => {
       "anthropic",
       "compactionAgent",
     );
-    expect(getRequestLogById(mainId)?.callSite).toBe("mainAgent");
-    expect(getRequestLogById(compactId)?.callSite).toBe("compactionAgent");
+    expect(getRequestLogById(mainId!)?.callSite).toBe("mainAgent");
+    expect(getRequestLogById(compactId!)?.callSite).toBe("compactionAgent");
   });
 });
 
 describe("migrateLlmRequestLogCallSite", () => {
   test("adds the call_site column when missing", () => {
-    const db = getDb();
+    const db = getLogsDb()!;
     const raw = getSqliteFrom(db);
 
     // Drop the column if present (simulate pre-264 state). SQLite supports
@@ -126,7 +108,7 @@ describe("migrateLlmRequestLogCallSite", () => {
   });
 
   test("is idempotent — second run is a no-op", () => {
-    const db = getDb();
+    const db = getLogsDb()!;
     // First run (column may or may not exist depending on test order; either
     // path is fine for the idempotency contract).
     migrateLlmRequestLogCallSite(db);

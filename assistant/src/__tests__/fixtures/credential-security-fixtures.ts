@@ -30,25 +30,6 @@ export interface ContextInjectionCase {
 
 export const contextInjectionCases: ContextInjectionCase[] = [
   {
-    label: "credential_store store action output",
-    vector: "tool_output",
-    tool: "credential_store",
-    input: {
-      action: "store",
-      service: "github",
-      field: "token",
-      value: TEST_CREDENTIAL,
-    },
-    forbiddenValue: TEST_CREDENTIAL,
-  },
-  {
-    label: "credential_store list action output",
-    vector: "tool_output",
-    tool: "credential_store",
-    input: { action: "list" },
-    forbiddenValue: TEST_CREDENTIAL,
-  },
-  {
     label: "browser_fill_credential result",
     vector: "tool_output",
     tool: "browser_fill_credential",
@@ -56,18 +37,6 @@ export const contextInjectionCases: ContextInjectionCase[] = [
       service: "github",
       field: "token",
       selector: 'input[name="token"]',
-    },
-    forbiddenValue: TEST_CREDENTIAL,
-  },
-  {
-    label: "confirmation_request payload for credential_store",
-    vector: "confirmation_payload",
-    tool: "credential_store",
-    input: {
-      action: "store",
-      service: "github",
-      field: "token",
-      value: TEST_CREDENTIAL,
     },
     forbiddenValue: TEST_CREDENTIAL,
   },
@@ -87,8 +56,8 @@ export interface DirectReadCase {
 
 export const directReadCases: DirectReadCase[] = [
   {
-    label: "vault.ts getCredentialValue",
-    modulePath: "tools/credentials/vault",
+    label: "broker.ts getCredentialValue",
+    modulePath: "tools/credentials/broker",
     exportName: "getCredentialValue",
   },
 ];

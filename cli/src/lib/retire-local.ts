@@ -5,6 +5,7 @@ import { basename, dirname, join } from "path";
 
 import { getDaemonPidPath, loadAllAssistants } from "./assistant-config.js";
 import type { AssistantEntry } from "./assistant-config.js";
+import { stopIngressNginx } from "./nginx-ingress.js";
 import {
   stopOrphanedDaemonProcesses,
   stopProcessByPidFile,
@@ -65,6 +66,17 @@ export async function retireLocal(
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
 
+  // Stop the CES sibling — it is stopped by its PID file, a no-op when the
+  // PID file is absent (e.g. the sibling was never started or already exited).
+  const cesPidFile = join(vellumDir, "ces.pid");
+  const cesStopped = await stopProcessByPidFile(
+    cesPidFile,
+    "credential-executor",
+  );
+  if (cesStopped) {
+    reporter.log("credential-executor stopped.");
+  }
+
   // Stop Qdrant — the daemon's graceful shutdown tries to stop it via
   // qdrantManager.stop(), but if the daemon was SIGKILL'd (after 2s timeout)
   // Qdrant may still be running as an orphan. Check both the current PID file
@@ -79,6 +91,10 @@ export async function retireLocal(
   const qdrantLegacyPidFile = join(vellumDir, "qdrant.pid");
   await stopProcessByPidFile(qdrantPidFile, "qdrant", undefined, 5000);
   await stopProcessByPidFile(qdrantLegacyPidFile, "qdrant", undefined, 5000);
+
+  // Stop the nginx ingress if one is fronting this gateway — it would
+  // otherwise be orphaned when the instance directory is archived.
+  await stopIngressNginx(join(vellumDir, "workspace"));
 
   // If the PID file didn't track a running daemon, scan for orphaned
   // daemon processes that may have been started without writing a PID.

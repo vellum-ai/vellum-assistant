@@ -1,27 +1,22 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-import { makeMockLogger } from "./helpers/mock-logger.js";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () => makeMockLogger(),
-}));
-
-import { getDb, getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb, getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
   getUsageGroupedSeries,
   getUsageHourBuckets,
   getUsageTotals,
+  listRunConversationIds,
   listUsageEvents,
   queryUnreportedUsageEvents,
   recordUsageEvent,
-} from "../memory/llm-usage-store.js";
+} from "../persistence/llm-usage-store.js";
 import type { PricingResult, UsageEventInput } from "../usage/types.js";
 
 // Initialize db once before all tests
-initializeDb();
+await initializeDb();
 
 function makeInput(overrides?: Partial<UsageEventInput>): UsageEventInput {
   return {
@@ -256,6 +251,33 @@ describe("recordUsageEvent", () => {
     const [event] = listUsageEvents();
     expect(event.rawUsage).toBeNull();
   });
+
+  test("round-trips cronRunId through SQLite", () => {
+    const event = recordUsageEvent(
+      makeInput({ cronRunId: "cron-run-1" }),
+      pricedResult,
+    );
+    expect(event.cronRunId).toBe("cron-run-1");
+
+    const row = getSqlite()
+      .query("SELECT cron_run_id FROM llm_usage_events WHERE id = ?")
+      .get(event.id) as { cron_run_id: string | null } | null;
+    expect(row?.cron_run_id).toBe("cron-run-1");
+
+    // listUsageEvents routes through rowToUsageEvent; cronRunId must survive it.
+    const [typed] = listUsageEvents();
+    expect(typed?.cronRunId).toBe("cron-run-1");
+  });
+
+  test("cronRunId defaults to null when omitted", () => {
+    const event = recordUsageEvent(makeInput(), pricedResult);
+    expect(event.cronRunId ?? null).toBeNull();
+
+    const row = getSqlite()
+      .query("SELECT cron_run_id FROM llm_usage_events WHERE id = ?")
+      .get(event.id) as { cron_run_id: string | null } | null;
+    expect(row?.cron_run_id).toBeNull();
+  });
 });
 
 describe("listUsageEvents", () => {
@@ -344,6 +366,49 @@ describe("listUsageEvents", () => {
     expect(typeof event.cacheReadInputTokens).toBe("number");
     expect(typeof event.estimatedCostUsd).toBe("number");
     expect(typeof event.pricingStatus).toBe("string");
+  });
+});
+
+describe("listRunConversationIds", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  /** Record an event for a conversation, stamped with the given cron run id. */
+  function insertRunEvent(
+    cronRunId: string,
+    conversationId: string | null,
+  ): void {
+    const event = recordUsageEvent(makeInput({ conversationId }), pricedResult);
+    const db = getDb();
+    db.run(
+      `UPDATE llm_usage_events SET cron_run_id = '${cronRunId}' WHERE id = '${event.id}'`,
+    );
+  }
+
+  test("returns the distinct conversation ids a firing touched (deduped)", () => {
+    insertRunEvent("run-1", "conv-a");
+    insertRunEvent("run-1", "conv-a"); // same conversation, second LLM call
+    insertRunEvent("run-1", "conv-b");
+
+    expect(listRunConversationIds("run-1").sort()).toEqual([
+      "conv-a",
+      "conv-b",
+    ]);
+  });
+
+  test("returns an empty array for an unknown run", () => {
+    insertRunEvent("run-1", "conv-a");
+    expect(listRunConversationIds("run-unknown")).toEqual([]);
+  });
+
+  test("ignores rows with no conversation id and other runs", () => {
+    insertRunEvent("run-1", "conv-a");
+    insertRunEvent("run-1", null); // memory consolidation etc.
+    insertRunEvent("run-2", "conv-b");
+
+    expect(listRunConversationIds("run-1")).toEqual(["conv-a"]);
   });
 });
 
@@ -505,6 +570,19 @@ describe("usage aggregation schedule filters", () => {
         created_at
       ) VALUES (?, ?, 'ok', ?, ?, ?, ?)`,
       [id, scheduleId, startedAt, finishedAt, conversationId, startedAt],
+    );
+  }
+
+  function insertStampedEventAt(
+    timestamp: number,
+    cronRunId: string,
+    inputOverrides?: Partial<UsageEventInput>,
+    pricing: PricingResult = pricedResult,
+  ): void {
+    const event = recordUsageEvent(makeInput(inputOverrides), pricing);
+    getSqlite().run(
+      `UPDATE llm_usage_events SET created_at = ?, cron_run_id = ? WHERE id = ?`,
+      [timestamp, cronRunId, event.id],
     );
   }
 
@@ -676,6 +754,56 @@ describe("usage aggregation schedule filters", () => {
       eventCount: 3,
     });
   });
+
+  test("attributes a cron_run_id-stamped row to its firing's schedule and keeps legacy windowed rows", () => {
+    insertScheduleJob("schedule-a", "Morning summary");
+    insertScheduleJob("schedule-b", "Nightly sync");
+    insertScheduleRun({
+      id: "run-a-1",
+      scheduleId: "schedule-a",
+      conversationId: "conv-reused",
+      startedAt: 1_000,
+      finishedAt: 2_000,
+    });
+    insertScheduleRun({
+      id: "run-b-1",
+      scheduleId: "schedule-b",
+      conversationId: "conv-reused",
+      startedAt: 3_000,
+      finishedAt: 3_500,
+    });
+
+    // Legacy row: null cron_run_id, attributed to schedule-a via the conversation + window match.
+    insertEventAt(
+      1_500,
+      { conversationId: "conv-reused", inputTokens: 100 },
+      { estimatedCostUsd: 0.1, pricingStatus: "priced" },
+    );
+
+    // Stamped row: cron_run_id pins it to schedule-a's firing even though it is
+    // outside every run window and on a conversation no run references.
+    insertStampedEventAt(
+      9_999,
+      "run-a-1",
+      { conversationId: "conv-script", inputTokens: 50 },
+      { estimatedCostUsd: 0.05, pricingStatus: "priced" },
+    );
+
+    const range = { from: 0, to: 10_000 };
+    const breakdown = getUsageGroupBreakdown(range, "schedule");
+    const scheduleA = breakdown.find((row) => row.groupKey === "schedule-a");
+    const scheduleB = breakdown.find((row) => row.groupKey === "schedule-b");
+
+    expect(scheduleA).toMatchObject({
+      groupId: "schedule-a",
+      groupKey: "schedule-a",
+      totalInputTokens: 150,
+      eventCount: 2,
+    });
+    // The stamped row neither leaks into schedule-b's later window nor lands in "Other".
+    expect(scheduleB).toBeUndefined();
+    expect(breakdown.find((row) => row.groupKey === null)).toBeUndefined();
+  });
 });
 
 describe("getUsageDayBuckets", () => {
@@ -778,6 +906,31 @@ describe("getUsageDayBuckets", () => {
     expect(buckets).toHaveLength(1);
     expect(buckets[0].totalEstimatedCostUsd).toBeCloseTo(0.05);
     expect(buckets[0].eventCount).toBe(2);
+  });
+
+  test("collapses many events within a sub-bucket span without losing totals", () => {
+    // The read path pre-aggregates events into 15-minute UTC buckets in SQL
+    // before local-time bucketing. Many events inside one such window must
+    // still sum exactly, and events split across the 15-minute boundary but
+    // within the same local day must land in the same day bucket.
+    const windowStart = utcMs(2025, 3, 1, 10); // 10:00:00 UTC
+    for (let i = 0; i < 50; i++) {
+      // Spread across ~16 minutes so the events straddle a 15-minute boundary.
+      insertEventAt(windowStart + i * 20_000, {
+        inputTokens: 2,
+        outputTokens: 1,
+      });
+    }
+
+    const buckets = getUsageDayBuckets({
+      from: utcMs(2025, 3, 1),
+      to: utcMs(2025, 3, 2),
+    });
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0].date).toBe("2025-03-01");
+    expect(buckets[0].totalInputTokens).toBe(100);
+    expect(buckets[0].totalOutputTokens).toBe(50);
+    expect(buckets[0].eventCount).toBe(50);
   });
 });
 
@@ -1306,6 +1459,41 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups[0].totalOutputTokens).toBe(125);
     expect(groups[0].totalEstimatedCostUsd).toBeCloseTo(0.05);
     expect(groups[0].eventCount).toBe(2);
+    // No user messages were inserted, so the conversation has zero turns.
+    expect(groups[0].turnCount).toBe(0);
+  });
+
+  test("counts conversation turns from eligible user messages when grouping by conversation", () => {
+    const db = getDb();
+    const conversationId = "conv-turns-1";
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('${conversationId}', 'Turn counting', ${now}, ${now})`,
+    );
+    // Two user turns; the second turn has two LLM calls, but the count comes
+    // from the user messages (2), not the number of LLM calls (3).
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u1', '${conversationId}', 'user', 'first', 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u2', '${conversationId}', 'user', 'second', 2000)`,
+    );
+    // Tool-result user messages are not real turns and must be excluded.
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('tr1', '${conversationId}', 'user', '[{"type":"tool_result","tool_use_id":"x","content":""}]', 2100)`,
+    );
+    insertEventAt(1000, { conversationId, inputTokens: 100 });
+    insertEventAt(2500, { conversationId, inputTokens: 100 });
+    insertEventAt(2600, { conversationId, inputTokens: 100 });
+
+    const groups = getUsageGroupBreakdown(
+      { from: 0, to: 5000 },
+      "conversation",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].groupId).toBe(conversationId);
+    expect(groups[0].eventCount).toBe(3);
+    expect(groups[0].turnCount).toBe(2);
   });
 
   test("returns groupId null for the Other bucket when grouping by conversation and events have no conversation id", () => {
@@ -1329,6 +1517,8 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups[0].groupId).toBeNull();
     expect(groups[0].totalInputTokens).toBe(300);
     expect(groups[0].eventCount).toBe(2);
+    // The Other bucket has no parent conversation, so turns are undefined.
+    expect(groups[0].turnCount).toBeNull();
   });
 
   test("returns groupId null for every row when grouping by a non-conversation dimension", () => {
@@ -1348,6 +1538,8 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups.length).toBeGreaterThan(0);
     for (const row of groups) {
       expect(row.groupId).toBeNull();
+      // Turns are only computed for the conversation grouping.
+      expect(row.turnCount).toBeNull();
     }
   });
 });
@@ -1547,12 +1739,14 @@ describe("queryUnreportedUsageEvents", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Conversation-level metadata (conversationType + turnIndex). These are
-  // JOIN-computed at telemetry-query time so the reporter can emit them on
-  // the wire without persisting extra columns on `llm_usage_events`.
+  // Conversation-level metadata (conversationType + turnIndex).
+  // `conversationType` is stamped on the row at record time (so it survives
+  // deletion of the parent conversation before flush) with a JOIN fallback
+  // for pre-migration rows; `turnIndex` is JOIN-computed at telemetry-query
+  // time.
   // -------------------------------------------------------------------------
 
-  test("conversationType is JOINed from the conversations table", () => {
+  test("conversationType resolves from the conversations table", () => {
     const db = getDb();
     const now = Date.now();
     db.run(
@@ -1572,6 +1766,67 @@ describe("queryUnreportedUsageEvents", () => {
     expect(events[1].conversationType).toBe("background");
     // LLM calls without a parent conversation get null — LEFT JOIN, not INNER.
     expect(events[2].conversationType).toBeNull();
+  });
+
+  test("conversationType is stamped on the row at record time", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-stamp', 'background', ${now}, ${now})`,
+    );
+
+    const event = recordUsageEvent(
+      makeInput({ conversationId: "conv-stamp" }),
+      pricedResult,
+    );
+
+    const row = getSqlite()
+      .query("SELECT conversation_type FROM llm_usage_events WHERE id = ?")
+      .get(event.id) as { conversation_type: string | null } | null;
+    expect(row?.conversation_type).toBe("background");
+  });
+
+  test("conversationType survives deletion of the parent conversation before flush", () => {
+    // Reproduces the memory-retrospective NULL-label bug: the retrospective
+    // runs in a `background` fork conversation whose row is GC'd once a
+    // newer run supersedes it (or immediately on wake failure). Usage rows
+    // flushed after that deletion carried a conversation_id but a null
+    // conversation_type, because the type was derived only via a flush-time
+    // JOIN. Same mechanism covers users deleting a standard conversation
+    // within the flush window (the mainAgent NULL case).
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-gone', 'background', ${now}, ${now})`,
+    );
+    insertEventAt(1000, {
+      conversationId: "conv-gone",
+      callSite: "memoryRetrospective",
+    });
+
+    db.run(`DELETE FROM conversations WHERE id = 'conv-gone'`);
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].conversationId).toBe("conv-gone");
+    expect(events[0].conversationType).toBe("background");
+  });
+
+  test("conversationType falls back to the JOIN for pre-migration rows", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-legacy', 'scheduled', ${now}, ${now})`,
+    );
+    insertEventAt(1000, { conversationId: "conv-legacy" });
+    // Simulate a row persisted before migration 353 stamped the column.
+    db.run(
+      `UPDATE llm_usage_events SET conversation_type = NULL WHERE conversation_id = 'conv-legacy'`,
+    );
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].conversationType).toBe("scheduled");
   });
 
   test("turnIndex counts real user turns up to the LLM call's createdAt", () => {
@@ -1651,6 +1906,122 @@ describe("queryUnreportedUsageEvents", () => {
     // short-circuits only on null conversationId, so we get a real 0.
     // Analytics can treat 0 as "pre-first-turn" if needed.
     expect(events[0].turnIndex).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Parent linkage (parentConversationId + parentTurnIndex): subagent spawns
+  // stamp `parent_conversation_id` on their background conversation; the
+  // query resolves it (with a fork-parent fallback) so the reporter can
+  // attribute the child's usage to the parent turn in flight at spawn.
+  // -------------------------------------------------------------------------
+
+  test("parentConversationId links a subagent conversation and parentTurnIndex counts the parent turn in flight at spawn", () => {
+    const db = getDb();
+    // Parent user turns at t=1000 and t=3000; the child conversation is
+    // created at t=2000, i.e. while the parent's turn 1 is in flight.
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('parent-1', 'standard', 500, 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('p1', 'parent-1', 'user', 'first', 1000)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('p2', 'parent-1', 'user', 'second', 3000)`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, parent_conversation_id) VALUES ('child-1', 'background', 2000, 2000, 'parent-1')`,
+    );
+    // The usage event fires after the parent's turn 2, but attribution is
+    // anchored to the child's creation time, not the event time.
+    insertEventAt(5000, { conversationId: "child-1" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].parentConversationId).toBe("parent-1");
+    expect(events[0].parentTurnIndex).toBe(1);
+  });
+
+  test("parent linkage falls back to fork_parent_conversation_id (retrospective forks)", () => {
+    const db = getDb();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('source-1', 'standard', 500, 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('s1', 'source-1', 'user', 'hello', 1000)`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id) VALUES ('retro-1', 'background', 2000, 2000, 'source-1')`,
+    );
+    insertEventAt(3000, { conversationId: "retro-1" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].parentConversationId).toBe("source-1");
+    expect(events[0].parentTurnIndex).toBe(1);
+  });
+
+  test("fork parentTurnIndex anchors on the fork boundary message, not fork creation time", () => {
+    const db = getDb();
+    // Source conversation with turns at t=1000 and t=3000. The fork
+    // branches from the FIRST turn (boundary message s1) but is created
+    // at t=5000, after turn 2 exists — attribution must report turn 1.
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('source-2', 'standard', 500, 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('s2a', 'source-2', 'user', 'first', 1000)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('s2b', 'source-2', 'user', 'second', 3000)`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id, fork_parent_message_id) VALUES ('retro-2', 'background', 5000, 5000, 'source-2', 's2a')`,
+    );
+    insertEventAt(6000, { conversationId: "retro-2" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].parentConversationId).toBe("source-2");
+    expect(events[0].parentTurnIndex).toBe(1);
+  });
+
+  test("user-initiated forks (standard type) do not inherit fork parent attribution", () => {
+    const db = getDb();
+    // A user forks a conversation: the fork stamps
+    // fork_parent_conversation_id but is a first-class standard
+    // conversation — its usage must not fold into the source turn.
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('source-3', 'standard', 500, 500)`,
+    );
+    db.run(
+      `INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('s3', 'source-3', 'user', 'hello', 1000)`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, fork_parent_conversation_id, fork_parent_message_id) VALUES ('user-fork-1', 'standard', 2000, 2000, 'source-3', 's3')`,
+    );
+    insertEventAt(3000, { conversationId: "user-fork-1" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].parentConversationId).toBeNull();
+    expect(events[0].parentTurnIndex).toBeNull();
+  });
+
+  test("parent fields are null for parentless conversations and no-conversation events", () => {
+    const db = getDb();
+    const now = Date.now();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-solo', 'background', ${now}, ${now})`,
+    );
+    insertEventAt(1000, { conversationId: "conv-solo" });
+    insertEventAt(2000, { conversationId: null });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(2);
+    expect(events[0].parentConversationId).toBeNull();
+    expect(events[0].parentTurnIndex).toBeNull();
+    expect(events[1].parentConversationId).toBeNull();
+    expect(events[1].parentTurnIndex).toBeNull();
   });
 
   test("surfaces llmCallCount on unreported events", () => {

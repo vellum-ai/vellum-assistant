@@ -11,51 +11,6 @@ mock.module("../runtime/pre-first-message-gate.js", () => ({
 
 mock.module("../util/logger.js", () => createMockLoggerModule());
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    filing: {
-      enabled: true,
-      intervalMs: 60_000,
-      compactionEnabled: true,
-      compactionIntervalMs: 60_000,
-      activeHoursStart: null,
-      activeHoursEnd: null,
-    },
-    memory: {
-      enabled: true,
-      jobs: {
-        stalledJobTimeoutMs: 60_000,
-        slowLlmConcurrency: 1,
-        fastConcurrency: 1,
-        embedConcurrency: 1,
-      },
-      cleanup: {
-        enabled: true,
-        enqueueIntervalMs: 60_000,
-        conversationRetentionDays: 30,
-        llmRequestLogRetentionMs: 60_000,
-        traceEventRetentionDays: 30,
-      },
-      v2: {
-        enabled: false,
-        consolidation_interval_hours: 4,
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getConfigReadOnly: () => ({}),
-  applyNestedDefaults: (config: unknown) => config,
-  deepMergeOverwrite: (base: unknown) => base,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
-  invalidateConfigCache: () => {},
-}));
-
 mock.module("../daemon/disk-pressure-background-gate.js", () => ({
   checkDiskPressureBackgroundGate: () => ({
     action: "skip",
@@ -99,7 +54,11 @@ mock.module("../daemon/process-message.js", () => ({
 }));
 
 const createdConversations: Array<{ conversationType: string }> = [];
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
+  recordConversationPersistedSeq: () => {},
+  getConversationPersistedSeq: () => null,
   addMessage: mock(() => ({ id: "msg-1" })),
   archiveConversation: mock(() => true),
   batchSetDisplayOrders: mock(() => {}),
@@ -112,10 +71,13 @@ mock.module("../memory/conversation-crud.js", () => ({
   deleteMessageById: mock(() => {}),
   clearAll: mock(async () => ({ conversations: 0, messages: 0 })),
   deleteConversation: mock(() => ({ memoryIds: [] })),
+  deleteConversationGently: mock(async () => ({
+    segmentIds: [],
+    deletedSummaryIds: [],
+  })),
   deleteLastExchange: mock(() => 0),
-  findAnalysisConversationFor: mock(() => null),
-  findMostRecentRetrospectiveFor: mock(() => null),
   forkConversation: mock(() => ({ id: "conv-fork" })),
+  forkConversationForRetrospective: mock(async () => ({ id: "conv-fork" })),
   getConversationOverrideProfile: () => undefined,
   resolveOverrideProfile: () => undefined,
   getConversationMemoryScopeId: () => "default",
@@ -151,12 +113,11 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationUsage: mock(() => {}),
   setLastNotifiedInferenceProfile: mock(() => {}),
   setConversationHistoryStrippedAt: mock(() => {}),
-  wipeConversation: mock(() => ({ memoryIds: [] })),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
   extractImageSourcePaths: () => undefined,
 }));
 
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
   AUTO_TITLE_DETERMINISTIC: 2,
   deriveDeterministicTitle: (context: { systemHint?: string }) =>
@@ -168,7 +129,7 @@ mock.module("../memory/conversation-title-service.js", () => ({
 
 const mockFailStalledJobs = mock(() => 0);
 const mockClaimMemoryJobs = mock(() => []);
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   claimMemoryJobs: mockClaimMemoryJobs,
   completeMemoryJob: mock(() => {}),
   deferMemoryJob: mock(() => "deferred"),
@@ -176,35 +137,40 @@ mock.module("../memory/jobs-store.js", () => ({
   enqueueMemoryJob: mock(() => "job-1"),
   enqueuePruneOldConversationsJob: mock(() => "job-prune-conv"),
   enqueuePruneOldLlmRequestLogsJob: mock(() => "job-prune-llm"),
-  enqueuePruneOldTraceEventsJob: mock(() => "job-prune-trace"),
+  enqueuePruneOldToolInvocationsJob: mock(() => "job-prune-tool"),
   failMemoryJob: mock(() => {}),
   failStalledJobs: mockFailStalledJobs,
   getMemoryJobCounts: mock(() => ({})),
   hasActiveJobOfType: mock(() => false),
+  hasPendingJobOfType: mock(() => false),
   isMemoryEnabled: () => true,
   MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS: {
     automatic: "automatic",
     manual: "manual",
   },
+  MESSAGE_LEXICAL_JOB_TYPES: [],
+  rescheduleMemoryJob: mock(() => {}),
   resetRunningJobsToPending: mock(() => 0),
+  upsertEmbedGraphNodeJob: mock(() => "job-embed-node"),
   SLOW_LLM_JOB_TYPES: [],
-  upsertAutoAnalysisJob: mock(() => "job-auto-analysis"),
   upsertDebouncedJob: mock(() => "job-debounced"),
   upsertMemoryRetrospectiveJob: mock(() => "job-memory-retrospective"),
 }));
 
 const mockMaybeRunDbMaintenance = mock(() => {});
-mock.module("../memory/db-maintenance.js", () => ({
+const mockMaybeRunPassiveWalCheckpoint = mock(() => {});
+mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: mockMaybeRunDbMaintenance,
+  maybeRunPassiveWalCheckpoint: mockMaybeRunPassiveWalCheckpoint,
 }));
 
-mock.module("../memory/cleanup-schedule-state.js", () => ({
+mock.module("../persistence/cleanup-schedule-state.js", () => ({
   getLastScheduledCleanupEnqueueMs: () => 0,
   markScheduledCleanupEnqueued: mock(() => {}),
 }));
 
-const { runMemoryJobsOnce } = await import("../memory/jobs-worker.js");
-const { FilingService } = await import("../filing/filing-service.js");
+const { runMemoryJobsOnce } =
+  await import("../plugins/defaults/memory/jobs-worker.js");
 const { WorkspaceHeartbeatService } =
   await import("../workspace/heartbeat-service.js");
 
@@ -215,6 +181,7 @@ describe("background workers disk pressure gate", () => {
     mockFailStalledJobs.mockClear();
     mockClaimMemoryJobs.mockClear();
     mockMaybeRunDbMaintenance.mockClear();
+    mockMaybeRunPassiveWalCheckpoint.mockClear();
   });
 
   test("memory jobs worker skips before claiming or maintenance writes", async () => {
@@ -224,30 +191,7 @@ describe("background workers disk pressure gate", () => {
     expect(mockFailStalledJobs).not.toHaveBeenCalled();
     expect(mockClaimMemoryJobs).not.toHaveBeenCalled();
     expect(mockMaybeRunDbMaintenance).not.toHaveBeenCalled();
-  });
-
-  test("filing service skips background LLM work while locked", async () => {
-    const service = new FilingService();
-
-    const ran = await service.runOnce();
-    const compacted = await service.runCompactionOnce();
-
-    expect(ran).toBe(false);
-    expect(compacted).toBe(false);
-    expect(createdConversations).toHaveLength(0);
-    expect(mockProcessMessage).not.toHaveBeenCalled();
-  });
-
-  test("filing service allows forced user-initiated runs while locked", async () => {
-    const service = new FilingService();
-
-    const ran = await service.runOnce({ force: true });
-    const compacted = await service.runCompactionOnce({ force: true });
-
-    expect(ran).toBe(true);
-    expect(compacted).toBe(true);
-    expect(createdConversations).toHaveLength(2);
-    expect(mockProcessMessage).toHaveBeenCalledTimes(2);
+    expect(mockMaybeRunPassiveWalCheckpoint).not.toHaveBeenCalled();
   });
 
   test("workspace heartbeat skips auto-commit checks while locked", async () => {

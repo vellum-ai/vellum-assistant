@@ -40,13 +40,19 @@ export function detectUnknownCommand(
   argv: readonly string[],
 ): UnknownCommandHit | null {
   const firstPositional = argv.find((token) => !token.startsWith("-"));
-  if (!firstPositional) return null;
+  if (!firstPositional) {
+    return null;
+  }
 
   const known = knownCommandNames(program);
-  if (known.has(firstPositional)) return null;
+  if (known.has(firstPositional)) {
+    return null;
+  }
 
   const suggestion = findClosestCommand(firstPositional, [...known]);
-  return suggestion ? { token: firstPositional, suggestion } : { token: firstPositional };
+  return suggestion
+    ? { token: firstPositional, suggestion }
+    : { token: firstPositional };
 }
 
 /**
@@ -97,8 +103,12 @@ function levenshtein(a: string, b: string): number {
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
     Array(n + 1).fill(0),
   );
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 0; i <= m; i++) {
+    dp[i][0] = i;
+  }
+  for (let j = 0; j <= n; j++) {
+    dp[0][j] = j;
+  }
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       dp[i][j] =

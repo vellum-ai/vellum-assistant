@@ -19,6 +19,8 @@
  */
 
 import { AnthropicProvider } from "../anthropic/client.js";
+import { AtlasCloudProvider } from "../atlascloud/client.js";
+import { BasetenProvider } from "../baseten/client.js";
 import { FireworksProvider } from "../fireworks/client.js";
 import { GeminiProvider } from "../gemini/client.js";
 import { MinimaxProvider } from "../minimax/client.js";
@@ -27,9 +29,12 @@ import { OllamaProvider } from "../ollama/client.js";
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
 import { OpenRouterProvider } from "../openrouter/client.js";
+import { PoolsideProvider } from "../poolside/client.js";
 import { RetryProvider } from "../retry.js";
+import { TogetherProvider } from "../together/client.js";
 import type { Provider } from "../types.js";
 import { UsageTrackingProvider } from "../usage-tracking.js";
+import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
 import type { ResolvedAuth } from "./auth.js";
 import type { ProviderConnection } from "./auth.js";
 
@@ -105,8 +110,29 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       useNativeWebSearch,
       streamTimeoutMs,
     }),
-  "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+  "vercel-ai-gateway": ({
+    apiKey,
+    model,
+    streamTimeoutMs,
+    baseURL,
+    useNativeWebSearch,
+  }) =>
+    new VercelAIGatewayProvider(apiKey, model, {
+      useNativeWebSearch,
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  litellm: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new OpenAIChatCompletionsProvider(apiKey, model, {
+      providerName: "litellm",
+      providerLabel: "LiteLLM",
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  // Keyless openai-compatible endpoints (e.g. LM Studio) ignore the key; the
+  // placeholder satisfies the OpenAI SDK, which requires a non-empty key.
+  "openai-compatible": ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new OpenAIChatCompletionsProvider(apiKey || "not-needed", model, {
       providerName: "openai-compatible",
       providerLabel: "OpenAI-compatible",
       streamTimeoutMs,
@@ -114,6 +140,23 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     }),
   minimax: ({ apiKey, model, streamTimeoutMs }) =>
     new MinimaxProvider(apiKey, model, { streamTimeoutMs }),
+  atlascloud: ({ apiKey, model, streamTimeoutMs }) =>
+    new AtlasCloudProvider(apiKey, model, { streamTimeoutMs }),
+  together: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new TogetherProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  baseten: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new BasetenProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
+  poolside: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
+    new PoolsideProvider(apiKey, model, {
+      streamTimeoutMs,
+      ...(baseURL ? { baseURL } : {}),
+    }),
 };
 
 /**
@@ -154,7 +197,9 @@ export function buildProviderAdapter(
   opts: AdapterCreateOpts,
 ): Provider | null {
   const factory = ADAPTER_FACTORIES[providerId];
-  if (!factory) return null;
+  if (!factory) {
+    return null;
+  }
   return factory(opts);
 }
 
@@ -172,22 +217,38 @@ export function createAdapterFromConnection(
     model: string;
     streamTimeoutMs?: number;
     useNativeWebSearch?: boolean;
+    /**
+     * Effective upstream provider to build the adapter for. Defaults to
+     * `connection.provider`. The provider-agnostic Vellum-managed connection
+     * passes the resolved profile's provider here, since its own row carries
+     * only the `vellum` sentinel.
+     */
+    provider?: string;
   },
 ): Provider | null {
-  const { provider } = connection;
+  const provider = opts.provider ?? connection.provider;
   const entry = PROVIDER_CATALOG.find((e) => e.id === provider);
-  if (!entry) return null;
+  if (!entry) {
+    return null;
+  }
   const isKeyless = entry.setupMode === "keyless";
+  // openai-compatible is dual-mode: local endpoints (LM Studio, vLLM) are
+  // keyless, hosted ones keyed — none auth is valid for it.
+  const isOpenAICompatible = provider === "openai-compatible";
 
   // Keyed providers can't operate without a credential.
-  if (!isKeyless && resolvedAuth.kind === "none") return null;
+  if (!isKeyless && !isOpenAICompatible && resolvedAuth.kind === "none") {
+    return null;
+  }
 
   const apiKey =
     resolvedAuth.kind === "header"
       ? (resolvedAuth.headers["Authorization"] ?? "").replace(/^Bearer /, "")
       : "";
   const baseURL =
-    resolvedAuth.kind === "header" ? resolvedAuth.baseUrl : undefined;
+    resolvedAuth.kind === "header" || resolvedAuth.kind === "none"
+      ? resolvedAuth.baseUrl
+      : undefined;
 
   const codexSubscription =
     connection.auth.type === "oauth_subscription" && provider === "openai";
@@ -200,7 +261,9 @@ export function createAdapterFromConnection(
     useNativeWebSearch: opts.useNativeWebSearch ?? false,
     codexSubscription,
   });
-  if (!adapter) return null;
+  if (!adapter) {
+    return null;
+  }
 
   // Usage-attribution headers (`X-Vellum-*`) are only meaningful when the
   // request is routed through the Vellum-managed proxy — they carry billing

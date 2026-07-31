@@ -33,6 +33,7 @@ export type VellumCommand =
   | { kind: "shareFeedback" }
   | { kind: "find" }
   | { kind: "markAllRead" }
+  | { kind: "login" }
   | { kind: "logout" }
   | { kind: "rePair" }
   | { kind: "sidebarToggle" }
@@ -50,13 +51,12 @@ export type VellumCommand =
   | { kind: "zoomOut" }
   | { kind: "actualSize" }
   | { kind: "selectAssistant"; assistantId: string }
+  | { kind: "chooseAssistant" }
   | { kind: "createAssistant" }
   | { kind: "retireAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
-  | { kind: "cancelActiveAction" }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
-  | { kind: "previewPrechat" }
   | { kind: "replayHatchFailure" }
   | { kind: "openComponentGallery" };
 
@@ -114,8 +114,7 @@ export const SYSTEM_PERMISSION_KINDS = [
   "notifications",
 ] as const;
 
-export type SystemPermissionKind =
-  (typeof SYSTEM_PERMISSION_KINDS)[number];
+export type SystemPermissionKind = (typeof SYSTEM_PERMISSION_KINDS)[number];
 
 export const SYSTEM_PERMISSION_STATUSES = [
   "unknown",
@@ -198,6 +197,8 @@ export interface PowerEvent {
 export type DeepLink =
   | { kind: "send"; message: string }
   | { kind: "openThread"; threadId: string }
+  | { kind: "billingCheckoutComplete"; status: "success"; sessionId: string }
+  | { kind: "billingCheckoutComplete"; status: "cancel"; sessionId: null }
   | { kind: "unknown"; url: string };
 
 // ---------------------------------------------------------------------------
@@ -365,8 +366,11 @@ export interface AppVersionInfo {
  */
 
 export interface LocalAssistantResources {
+  instanceDir?: string;
   gatewayPort: number;
   daemonPort: number;
+  runtimeVersion?: string;
+  runtimeInstallDir?: string;
 }
 
 export interface LockfileAssistant {
@@ -377,6 +381,9 @@ export interface LockfileAssistant {
   species?: string;
   hatchedAt?: string;
   organizationId?: string;
+  platformAssistantId?: string;
+  platformBaseUrl?: string;
+  platformOrganizationId?: string;
   resources?: LocalAssistantResources;
 }
 
@@ -388,3 +395,22 @@ export interface Lockfile {
 export type LockfileWriteResult =
   | { ok: true; lockfile: Lockfile }
   | { ok: false; error: string };
+
+export type LocalAssistantRuntimeState =
+  | "healthy"
+  /** Alive and serving, but DB migrations failed — restart to recover. */
+  | "unhealthy"
+  | "upgrading"
+  | "sleeping"
+  | "starting"
+  | "crashed"
+  | "unknown";
+
+export type LocalAssistantStatusResult =
+  | {
+      ok: true;
+      state: LocalAssistantRuntimeState;
+      detail?: string;
+      pid?: number;
+    }
+  | { ok: false; status: number; error: string };

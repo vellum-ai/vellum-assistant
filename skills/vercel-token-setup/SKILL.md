@@ -66,26 +66,14 @@ Tell the user:
 >
 > Please paste the token value into the secure prompt below.
 
-Present the secure prompt:
+Present the secure prompt (via the bash tool) — it collects the token through a secure UI and stores it with the right tool policy in one step:
 
-```
-credential_store prompt:
-  service: "vercel"
-  field: "api_token"
-  label: "Vercel API Token"
-  description: "Paste the API token you just created on vercel.com"
-  placeholder: "Enter your Vercel API token"
-```
-
-Wait for the user to complete the prompt. Once received, store it:
-
-```
-credential_store store:
-  service: "vercel"
-  field: "api_token"
-  value: "<the token the user provided>"
-  allowedTools: ["publish_page", "unpublish_page"]
-  allowedDomains: []
+```bash
+assistant credentials prompt --service vercel --field api_token \
+  --label "Vercel API Token" \
+  --placeholder "Enter your Vercel API token" \
+  --description "Paste the API token you just created on vercel.com" \
+  --allowed-tools "publish_page,unpublish_page"
 ```
 
 ### Channel Step 4: Done!
@@ -129,7 +117,7 @@ If **two or more steps** require manual fallback, abandon the automated flow ent
 These actions are technically impossible in the browser automation environment:
 
 - **Downloading files.** Clicking a Download button via `assistant browser click` does not save files to disk.
-- **Reading the token value from a screenshot.** The token IS visible in the creation dialog, but you MUST NOT attempt to read it from a screenshot - it is too easy to misread characters, and the value must be exact. Always use the `credential_store prompt` approach to let the user copy-paste it accurately.
+- **Reading the token value from a screenshot.** The token IS visible in the creation dialog, but you MUST NOT attempt to read it from a screenshot - it is too easy to misread characters, and the value must be exact. Always use the `assistant credentials prompt` approach to let the user copy-paste it accurately.
 - **Clipboard operations.** You cannot copy/paste via browser automation.
 
 ## Step 1: Single Upfront Confirmation
@@ -199,7 +187,7 @@ assistant browser --session vercel screenshot --output /tmp/vercel-token-created
 After token creation, Vercel shows the token value **once**. You MUST follow this exact sequence - **no improvisation**:
 
 1. Tell the user: "Your token has been created! Please copy the token value shown on screen and paste it into the secure prompt below."
-2. **IMMEDIATELY** present a `credential_store prompt` for the token. This is your ONLY next action.
+2. **IMMEDIATELY** run `assistant credentials prompt` for the token. This is your ONLY next action.
 3. Wait for the user to paste the token.
 
 **Absolute prohibitions during this step:**
@@ -208,29 +196,17 @@ After token creation, Vercel shows the token value **once**. You MUST follow thi
 - Do NOT navigate away from the page until the user has pasted the token.
 - Do NOT click any download or copy buttons.
 
-Present the secure prompt:
+Present the secure prompt (via the bash tool) — it collects the token through a secure UI and stores it with the right tool policy in one step:
 
-```
-credential_store prompt:
-  service: "vercel"
-  field: "api_token"
-  label: "Vercel API Token"
-  description: "Copy the token value shown on the Vercel page and paste it here."
-  placeholder: "Enter your Vercel API token"
-```
-
-Wait for the user to complete the prompt. Once received, store it:
-
-```
-credential_store store:
-  service: "vercel"
-  field: "api_token"
-  value: "<the token the user provided>"
-  allowedTools: ["publish_page", "unpublish_page"]
-  allowedDomains: []
+```bash
+assistant credentials prompt --service vercel --field api_token \
+  --label "Vercel API Token" \
+  --placeholder "Enter your Vercel API token" \
+  --description "Copy the token value shown on the Vercel page and paste it here." \
+  --allowed-tools "publish_page,unpublish_page"
 ```
 
-**Verify:** `credential_store list` shows `api_token` for `vercel`.
+**Verify:** `assistant credentials list --search vercel` shows `api_token` for `vercel`.
 
 ## Step 5: Done!
 

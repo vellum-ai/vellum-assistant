@@ -10,10 +10,6 @@
  * request contract without opening an assistant socket.
  */
 
-import {
-  existsSync as actualExistsSync,
-  readFileSync as actualReadFileSync,
-} from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
@@ -64,16 +60,6 @@ mock.module("../../../providers/provider-send-message.js", () => ({
   }),
 }));
 
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({ llm: { profiles: {} } }),
-  getConfigReadOnly: () => ({ llm: { profiles: {} } }),
-  loadConfig: () => ({ llm: { profiles: {} } }),
-  loadRawConfig: () => ({}) as Record<string, unknown>,
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-  applyNestedDefaults: () => ({ llm: { profiles: {} } }),
-}));
-
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
@@ -89,17 +75,17 @@ mock.module("../../../util/logger.js", () => ({
   }),
 }));
 
-mock.module("node:fs", () => ({
-  readFileSync: (path: string, encoding?: BufferEncoding) => {
-    if (path === "/dev/stdin") {
-      if (mockStdinContent === null) {
-        throw new Error("EAGAIN: resource temporarily unavailable");
-      }
-      return mockStdinContent;
+// Stdin is read via fd 0 through the shared helper, never by reopening
+// "/dev/stdin" (which fails ENXIO for pipe read-ends). A null content
+// simulates stdin with no readable data.
+mock.module("../../../util/read-stdin.js", () => ({
+  STDIN_FD: 0,
+  readStdinSync: () => {
+    if (mockStdinContent === null) {
+      throw new Error("EAGAIN: resource temporarily unavailable");
     }
-    return actualReadFileSync(path, encoding);
+    return mockStdinContent;
   },
-  existsSync: actualExistsSync,
 }));
 
 const { registerInferenceCommand } = await import("../inference.js");
@@ -146,7 +132,9 @@ async function runCommand(
     registerInferenceCommand(program);
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
@@ -253,6 +241,56 @@ describe("no message provided", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("No message provided");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Runtime evidence passthrough
+// ---------------------------------------------------------------------------
+
+describe("evidence passthrough", () => {
+  test("forwards evidence.resolved_endpoint into --json output", async () => {
+    // GIVEN the daemon reports a runtime-resolved endpoint in the IPC result
+    mockIpcResult = {
+      ok: true,
+      result: {
+        response: "Hello from the model.",
+        model: "test-model",
+        usage: { inputTokens: 3, outputTokens: 4 },
+        evidence: { resolved_endpoint: "https://inference.example.test/v1" },
+      },
+    };
+
+    // WHEN the CLI runs `inference send --json`
+    const { exitCode, stdout } = await runCommand([
+      "inference",
+      "send",
+      "--json",
+      "Hello",
+    ]);
+
+    // THEN the JSON output carries the evidence verbatim for callers to read
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.evidence).toEqual({
+      resolved_endpoint: "https://inference.example.test/v1",
+    });
+  });
+
+  test("omits evidence from --json output when the daemon reports none", async () => {
+    // GIVEN an IPC result with no evidence field (default fixture)
+    // WHEN the CLI runs `inference send --json`
+    const { exitCode, stdout } = await runCommand([
+      "inference",
+      "send",
+      "--json",
+      "Hello",
+    ]);
+
+    // THEN no evidence key is emitted
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).not.toHaveProperty("evidence");
   });
 });
 

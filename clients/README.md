@@ -1,140 +1,62 @@
-# Clients Directory
+# clients/
 
-This directory contains native client applications for the Vellum Assistant.
-
-For client architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
-
----
+Home for end-user client surfaces of the Vellum assistant — browser, mobile,
+and desktop wrappers that users interact with directly.
 
 ## Structure
 
-<details>
-<summary><strong>Directory layout</strong></summary>
-
 ```
 clients/
-├── Package.swift              # macOS Swift Package Manager manifest
-├── shared/                    # VellumAssistantShared - shared library code
-│   ├── Network/                # Network communication (GatewayHTTPClient, EventStreamClient, MessageTypes)
-│   ├── Features/Chat/         # Shared chat UI (ChatViewModel, MessageBubbleView, InputBarView, etc.)
-│   ├── Features/Skills/       # SkillsStore — skills data operations
-│   ├── Features/Contacts/     # ContactsStore — contacts data operations
-│   ├── Features/Directory/    # DirectoryStore — apps and documents operations
-│   ├── Features/ChannelTrust/ # ChannelTrustStore — guardian state and channel trust management
-│   ├── Features/Memory/       # SimplifiedMemoryStore — memory observations and episodes
-│   ├── Features/Settings/     # Shared settings logic
-│   ├── Features/Surfaces/     # Shared surface rendering (confirmation, form)
-│   ├── Features/Usage/        # UsageDashboardStore — usage data operations
-│   ├── DesignSystem/          # Design tokens and components (VColor, VFont, VSpacing, etc.)
-│   ├── Utilities/             # Shared utilities (APIKeyManager, FeatureFlagRegistry, etc.)
-│   └── App/                   # Shared app utilities (SigningIdentityManager)
-├── macos/                     # macOS-specific code
-│   ├── vellum-assistant/      # VellumAssistantLib - macOS app logic
-│   ├── vellum-assistant-app/  # Executable entry point
-│   ├── build.sh               # Build script (wraps SPM → .app → codesign)
-│   └── AGENTS.md              # Agent development guidance (macOS-specific)
-└── chrome-extension/          # Chrome browser extension
+├── web/               # Web app (Vite)
+├── docs/              # Public docs site: SSR Next.js app serving www.vellum.ai/docs
+├── ios/               # iOS Capacitor shell
+├── android/           # Android Capacitor shell
+├── macos/             # macOS desktop wrapper (Electron / electron-vite)
+├── windows/           # Windows desktop wrapper (Electron / electron-vite)
+└── chrome-extension/  # MV3 Chrome browser extension
 ```
 
-The iOS app is a Capacitor shell that lives in
-[`vellum-assistant-platform/web/ios/`](https://github.com/vellum-ai/vellum-assistant-platform);
-it loads the web app over HTTPS and does not consume any Swift code from this
-repo.
+The iOS app is a Capacitor shell that lives in [`ios/`](./ios/); it loads the
+web app over HTTPS and does not consume any code from the other client
+surfaces.
 
-</details>
+The Android app is a Capacitor shell that lives in [`android/`](./android/);
+it follows the same remote web app loading model as iOS.
 
----
+## What belongs here
 
-## Targets
+- End-user client surfaces (web app, Capacitor wrappers, Electron desktop
+  wrappers, Chrome extension).
 
-### VellumAssistantShared (Library)
-**Platforms**: macOS 15+
-**Purpose**: Shared library code consumed by the macOS app
+## What does not belong here
 
-**Contains**:
-- **Network layer** (`GatewayHTTPClient`, `EventStreamClient`, `MessageTypes`, `Generated/GeneratedAPITypes`) — HTTP+SSE communication with the local daemon runtime server.
-  Wire types are auto-generated from the TS contract; `MessageTypes.swift` provides
-  typealiases, convenience inits, the `ServerMessage` routing enum, and a few hand-maintained
-  types that need Swift-specific logic (e.g. typed enums, polymorphic `AnyCodable` data).
-- **Shared chat features** (`ChatViewModel`, `ChatMessage`, `MessageBubbleView`, `InputBarView`, `AttachmentStripView`, `MarkdownRenderer`, `CurrentStepIndicator`, inline widgets)
-- **Design system** (`VColor`, `VFont`, `VSpacing`, `VRadius`, `VShadow`, `VAnimation`, and all `V`-prefixed components)
-- **Shared feature stores** (`SkillsStore`, `ContactsStore`, `DirectoryStore`, `ChannelTrustStore` — data operations for skills, contacts, apps, documents, and guardian trust)
-- **Shared utilities** (`APIKeyManager` for credential storage, `MacOSClientFeatureFlagManager`)
-- **Shared app utilities** (signing identity management)
+- Shared libraries — these live in `packages/`.
+- Backend services — `assistant/`, `gateway/`, `credential-executor/`, `cli/`
+  stay at the repo root.
 
-**Dependencies**: None (only system frameworks: AuthenticationServices, Network, Security)
+## Conventions
 
-### VellumAssistantLib (Library)
-**Platforms**: macOS 15+
-**Purpose**: macOS application logic
+- `web/`, `macos/`, `windows/`, and `docs/` are members of the root bun
+  workspace: the single root `bun.lock` covers them, and `bun install` anywhere in the tree
+  resolves to the workspace root. Each keeps its own `package.json`,
+  `tsconfig.json`, and lint config.
+- `chrome-extension/` is the one standalone package, with its own `bun.lock`
+  and per-package `bun install`. Native shells (`ios/`, `android/`) are
+  Capacitor shells built from `web/` and have no package manifests of their
+  own.
+- Exact version pinning applies repo-wide (see root [`AGENTS.md`](../AGENTS.md)).
+- When a new client is added under `clients/`, add corresponding `paths:` globs
+  to any relevant PR/CI workflows in `.github/workflows/`.
 
-**Contains**:
-- UI (AppKit views, panels, overlays)
-- Computer-use features (accessibility, screen capture, input injection)
-- macOS-specific integrations (menu bar, hotkeys, voice input)
+## Notes
 
-**Dependencies**: VellumAssistantShared, Apple Containerization, Sentry, Sparkle
-**Frameworks**: AppKit, ApplicationServices, AuthenticationServices, AVKit, CoreGraphics, Network, ScreenCaptureKit, Security, Speech, SpriteKit, Vision
+- **macOS workflow filenames** — `clients/macos/` is the canonical
+  platform-named directory, and its CI workflow files are `pr-macos.yaml` /
+  `ci-main-macos.yaml`.
+- **Windows workflow filenames** - `clients/windows/` uses `pr-windows.yaml` /
+  `ci-main-windows.yaml`.
 
-### vellum-assistant (Executable)
-**Platforms**: macOS 15+
-**Purpose**: Thin entry point for macOS app
+## Chrome Extension
 
-**Contains**: Just `@main` app delegate setup
-**Dependencies**: VellumAssistantLib
-
----
-
-## Building
-
-### macOS App
-```bash
-cd clients/macos
-./build.sh          # Build debug .app
-./build.sh run      # Build + launch
-./build.sh release  # Build release
-./build.sh test     # Run tests
-./build.sh clean    # Remove artifacts
-```
-
-The build script:
-1. Runs `swift build` from `clients/macos/` (SPM finds `../Package.swift` automatically)
-2. Downloads and caches the Kata 3.17.0 ARM64 kernel into `clients/macos/.container-cache/` on the first app build, then bundles it into `dist/Vellum.app/Contents/Resources/DeveloperVM/`
-3. Packages binary into `dist/Vellum.app` bundle
-4. Codesigns with ad-hoc signature (or release identity)
-
----
-
-## Development
-
-### Adding Shared Code
-1. Place library code in `clients/shared/`
-2. Mark all types as `public` (cross-module access)
-3. Add explicit `public init()` to all structs (memberwise inits are internal)
-
-### Adding macOS-Only Code
-1. Place in `clients/macos/vellum-assistant/`
-2. Import `VellumAssistantShared` for access to network types
-3. Can use AppKit, ScreenCaptureKit, etc. freely
-
----
-
-## Documentation
-
-- **macOS development**: See `clients/macos/AGENTS.md`
-
----
-
-## Testing
-
-```bash
-cd clients/macos
-./build.sh test     # macOS SPM tests (runs swift test --filter vellum_assistantTests)
-```
-
-Shared-package unit tests live alongside the library and run via:
-
-```bash
-cd clients
-swift test --filter VellumAssistantSharedTests
-```
+See [`chrome-extension/README.md`](chrome-extension/README.md) for build, load,
+environment, and publishing instructions.

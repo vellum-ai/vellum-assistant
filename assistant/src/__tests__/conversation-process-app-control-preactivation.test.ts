@@ -23,11 +23,6 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 // reach the preactivation block; they must not be allowed to touch a real DB.
 // ---------------------------------------------------------------------------
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
 /**
  * Per-test capability client roster. Set in individual tests to simulate
  * a connected macOS client for cross-client drain-path coverage. Reset in
@@ -45,7 +40,9 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   provenanceFromTrustContext: () => ({
@@ -54,15 +51,6 @@ mock.module("../memory/conversation-crud.js", () => ({
   }),
   addMessage: () => ({ id: "msg-mock" }),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
-}));
-
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  listPendingRequestsByConversationScope: () => [],
-}));
-
-mock.module("../memory/trace-event-store.js", () => ({
-  persistTraceEvent: () => {},
-  getMaxSequence: () => 0,
 }));
 
 mock.module("../notifications/preference-extractor.js", () => ({
@@ -98,7 +86,6 @@ import {
   MessageQueue,
   type QueuedMessage,
 } from "../daemon/conversation-queue-manager.js";
-import { TraceEmitter } from "../daemon/trace-emitter.js";
 
 // ---------------------------------------------------------------------------
 // Fake context — captures preactivation calls, satisfies the bare minimum
@@ -128,7 +115,6 @@ function makeFakeContext(opts: {
     },
     abortController: null,
     queue: opts.queue,
-    traceEmitter: new TraceEmitter("conv-app-control-preactivation", () => {}),
     surfaceActionRequestIds: new Set<string>(),
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     get preactivatedSkillIds(): string[] | undefined {

@@ -1,4 +1,8 @@
-import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
+import { ROUTING_IDENTITY_PROVIDERS } from "../providers/inference/auth.js";
+import {
+  getCatalogProviderForModel,
+  PROVIDER_CATALOG,
+} from "../providers/model-catalog.js";
 import { resolveCallSiteConfig } from "./llm-resolver.js";
 import {
   type ContextWindow,
@@ -27,11 +31,18 @@ export function resolveEffectiveContextWindow({
   llm,
   callSite,
   overrideProfile,
+  forceOverrideProfile,
   selectionSeed,
 }: {
   llm: LLMConfig;
   callSite: LLMCallSite;
   overrideProfile?: string;
+  /**
+   * Float `overrideProfile` above the call-site layers (see
+   * `ResolveCallSiteOpts.forceOverrideProfile`). Threaded so context-window
+   * sizing reflects the same profile the dispatch path resolves.
+   */
+  forceOverrideProfile?: boolean;
   /**
    * Per-conversation mix seed (the conversation id). Threaded so context-window
    * sizing for a mix profile reflects the same arm the dispatch path picks.
@@ -40,10 +51,16 @@ export function resolveEffectiveContextWindow({
 }): EffectiveContextWindow {
   const resolved = resolveCallSiteConfig(callSite, llm, {
     overrideProfile,
+    forceOverrideProfile,
     selectionSeed,
   });
+  // Routing identities are not catalog providers; the model's catalog owner
+  // carries its context-window limits.
+  const catalogProviderId = ROUTING_IDENTITY_PROVIDERS.has(resolved.provider)
+    ? getCatalogProviderForModel(resolved.model)
+    : resolved.provider;
   const catalogModel = PROVIDER_CATALOG.find(
-    (provider) => provider.id === resolved.provider,
+    (provider) => provider.id === catalogProviderId,
   )?.models.find((model) => model.id === resolved.model);
 
   const modelMaxInputTokens =

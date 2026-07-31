@@ -23,8 +23,7 @@ mock.module("../skills/catalog-install.js", () => ({
   resolveCatalog: (_skillId?: string) => Promise.resolve([]),
 }));
 
-await import("../tools/skills/load.js");
-const { getTool } = await import("../tools/registry.js");
+const { skillLoadTool } = await import("../tools/skills/load.js");
 
 function writeSkill(
   skillId: string,
@@ -89,13 +88,26 @@ function writeToolsJson(
 async function executeSkillLoad(
   input: Record<string, unknown>,
 ): Promise<{ content: string; isError: boolean }> {
-  const tool = getTool("skill_load");
-  if (!tool) throw new Error("skill_load tool was not registered");
+  const tool = skillLoadTool;
 
   const result = await tool.execute(input, {
     workingDir: "/tmp",
     conversationId: "conversation-1",
     trustClass: "guardian",
+  });
+  return { content: result.content, isError: result.isError };
+}
+
+async function executeSkillLoadCleanup(
+  input: Record<string, unknown>,
+): Promise<{ content: string; isError: boolean }> {
+  const tool = skillLoadTool;
+
+  const result = await tool.execute(input, {
+    workingDir: "/tmp",
+    conversationId: "conversation-1",
+    trustClass: "guardian",
+    diskPressureCleanupModeActive: true,
   });
   return { content: result.content, isError: result.isError };
 }
@@ -910,5 +922,62 @@ describe("skill_load tool", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Suggested Included Skills (not loaded):");
     expect(installCount).toBeLessThanOrEqual(5);
+  });
+
+  // During disk-pressure cleanup mode, skill_load is allowed but must not
+  // produce side effects: no catalog auto-install (workspace writes / bun
+  // install) and no inline command execution. Instructions are still returned.
+  test("does not auto-install a missing catalog skill during cleanup mode", async () => {
+    mockAutoInstall.mockImplementation((skillId: string) => {
+      writeSkill(skillId, "Should Not Install", "nope", "body");
+      return Promise.resolve(true);
+    });
+
+    const result = await executeSkillLoadCleanup({ skill: "absent-skill" });
+
+    expect(mockAutoInstall).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+  });
+
+  test("does not auto-install missing includes during cleanup mode", async () => {
+    writeSkillWithIncludes(
+      "cleanup-parent",
+      "Cleanup Parent",
+      "Has a missing include",
+      "Parent body",
+      ["cleanup-dep"],
+    );
+    mockAutoInstall.mockImplementation((skillId: string) => {
+      writeSkill(skillId, "Cleanup Dep", "should not install", "Dep body");
+      return Promise.resolve(true);
+    });
+
+    const result = await executeSkillLoadCleanup({ skill: "cleanup-parent" });
+
+    expect(mockAutoInstall).not.toHaveBeenCalled();
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Skill: Cleanup Parent");
+    expect(result.content).toContain("Suggested Included Skills (not loaded):");
+    expect(result.content).toContain("cleanup-dep");
+  });
+
+  test("strips inline command tokens instead of executing them during cleanup mode", async () => {
+    writeSkill(
+      "cleanup-inline",
+      "Cleanup Inline",
+      "Has an inline command",
+      "Before !`echo SENTINEL_OUTPUT` after",
+    );
+
+    const result = await executeSkillLoadCleanup({ skill: "cleanup-inline" });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain(
+      "[inline command skipped: storage cleanup mode]",
+    );
+    expect(result.content).not.toContain("SENTINEL_OUTPUT");
+    expect(result.content).not.toContain("!`echo SENTINEL_OUTPUT`");
+    expect(result.content).toContain("Before");
+    expect(result.content).toContain("after");
   });
 });

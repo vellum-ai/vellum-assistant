@@ -1,35 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    debug: () => {},
-    warn: () => {},
-    error: () => {},
-  }),
-  truncateForLog: (value: string) => value,
-}));
-
 mock.module("../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: mock(() =>
     Promise.resolve({ invoked: true, producedToolCalls: false }),
   ),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
-  loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  getConfigReadOnly: () => ({}),
-  applyNestedDefaults: (config: unknown) => config,
-  deepMergeOverwrite: (base: unknown) => base,
-  mergeDefaultWorkspaceConfig: () => {},
-  getNestedValue: () => undefined,
-  setNestedValue: () => {},
-  API_KEY_PROVIDERS: [],
-  _writeQuarantineNotice: () => {},
-  invalidateConfigCache: () => {},
 }));
 
 let locked = true;
@@ -89,12 +63,24 @@ mock.module("../daemon/disk-pressure-background-gate.js", () => ({
   shouldLogDiskPressureBackgroundSkip: () => true,
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+const mockProcessMessage = mock((..._args: unknown[]) => Promise.resolve());
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: mockProcessMessage,
+}));
+
+const mockEmitNotificationSignal = mock((..._args: unknown[]) =>
+  Promise.resolve(),
+);
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: mockEmitNotificationSignal,
+}));
+
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
 import { runScheduleOnce } from "../schedule/scheduler.js";
 
-initializeDb();
+await initializeDb();
 
 function rawDb(): import("bun:sqlite").Database {
   return (getDb() as unknown as { $client: import("bun:sqlite").Database })
@@ -104,6 +90,8 @@ function rawDb(): import("bun:sqlite").Database {
 describe("scheduler disk pressure gate", () => {
   beforeEach(() => {
     locked = true;
+    mockProcessMessage.mockClear();
+    mockEmitNotificationSignal.mockClear();
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -115,21 +103,18 @@ describe("scheduler disk pressure gate", () => {
 
   test("skips before claiming due schedules while disk pressure is locked", async () => {
     const dueAt = Date.now() - 10_000;
-    const schedule = createSchedule({
+    const schedule = await createSchedule({
       name: "Due reminder",
       message: "Do not fire while locked",
       mode: "notify",
       nextRunAt: dueAt,
     });
 
-    const processMessage = mock(() => Promise.resolve());
-    const notify = mock(() => Promise.resolve());
-
-    const processed = await runScheduleOnce(processMessage, notify);
+    const processed = await runScheduleOnce();
 
     expect(processed).toBe(0);
-    expect(processMessage).not.toHaveBeenCalled();
-    expect(notify).not.toHaveBeenCalled();
+    expect(mockProcessMessage).not.toHaveBeenCalled();
+    expect(mockEmitNotificationSignal).not.toHaveBeenCalled();
 
     const row = rawDb()
       .query("SELECT status, next_run_at FROM cron_jobs WHERE id = ?")

@@ -19,6 +19,7 @@ import {
   REFRESH_AFTER_FRACTION,
   REFRESH_INACTIVITY_TTL_MS,
 } from "./guardian-bootstrap.js";
+import { guardianIntegrityState } from "./guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
 
@@ -33,7 +34,8 @@ export type RefreshErrorCode =
   | "refresh_expired"
   | "refresh_reuse_detected"
   | "device_binding_mismatch"
-  | "revoked";
+  | "revoked"
+  | "guardian_repair_required";
 
 export interface RotateResult {
   guardianPrincipalId: string;
@@ -42,6 +44,7 @@ export interface RotateResult {
   refreshToken: string;
   refreshTokenExpiresAt: number;
   refreshAfter: number;
+  browserRefreshCookiePath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +58,8 @@ function findRefreshByHash(tokenHash: string) {
     .where(eq(actorRefreshTokenRecords.tokenHash, tokenHash))
     .get();
 }
+
+type RefreshTokenRecord = NonNullable<ReturnType<typeof findRefreshByHash>>;
 
 function markRotated(tokenHash: string): boolean {
   const now = Date.now();
@@ -166,6 +171,7 @@ function mintRefreshTokenInFamily(params: {
   platform: string;
   familyId: string;
   absoluteExpiresAt: number;
+  browserRefreshCookiePath?: string;
 }): {
   refreshToken: string;
   refreshTokenExpiresAt: number;
@@ -190,6 +196,7 @@ function mintRefreshTokenInFamily(params: {
       absoluteExpiresAt: params.absoluteExpiresAt,
       inactivityExpiresAt,
       lastUsedAt: null,
+      browserRefreshCookiePath: params.browserRefreshCookiePath,
       createdAt: now,
       updatedAt: now,
     })
@@ -206,44 +213,10 @@ function mintRefreshTokenInFamily(params: {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Public: rotate credentials
-// ---------------------------------------------------------------------------
-
-/**
- * Rotate credentials: validate refresh token, revoke old, mint new pair.
- *
- * All token operations run against the gateway's SQLite database.
- *
- * The refresh token is bound to the device it was issued to: the caller must
- * supply the hashed device id, and it must match the record's stored binding.
- * This ensures a leaked refresh token cannot be redeemed from a different
- * device. The binding is checked before any side effects (rotation, family
- * revocation) so a request from a non-matching device cannot disturb the
- * legitimate token family.
- */
-export function rotateCredentials(params: {
-  refreshToken: string;
-  hashedDeviceId: string;
-}):
-  | { ok: true; result: RotateResult }
-  | { ok: false; error: RefreshErrorCode } {
-  const refreshTokenHash = hashToken(params.refreshToken);
-
-  const record = findRefreshByHash(refreshTokenHash);
-
-  if (!record) {
-    return { ok: false, error: "refresh_invalid" };
-  }
-
-  if (record.hashedDeviceId !== params.hashedDeviceId) {
-    log.warn(
-      { familyId: record.familyId },
-      "Refresh rejected — device binding mismatch",
-    );
-    return { ok: false, error: "device_binding_mismatch" };
-  }
-
+function rotateRefreshTokenRecord(
+  refreshTokenHash: string,
+  record: RefreshTokenRecord,
+): { ok: true; result: RotateResult } | { ok: false; error: RefreshErrorCode } {
   if (record.status === "rotated") {
     log.warn(
       { familyId: record.familyId, hashedDeviceId: record.hashedDeviceId },
@@ -271,6 +244,26 @@ export function rotateCredentials(params: {
     return { ok: false, error: "refresh_expired" };
   }
 
+  // Rotation skips the guardian-binding bootstrap, so check integrity
+  // explicitly: a DB that lost its guardian rows would otherwise keep
+  // rotating credentials that every trust verdict denies. Refused before any
+  // side effects, so this refresh token still rotates after guardian repair.
+  // Best-effort: a thrown check must never block a healthy rotation.
+  try {
+    if (guardianIntegrityState() === "missing_guardian") {
+      log.error(
+        { familyId: record.familyId, platform: record.platform },
+        "Rotation refused: guardian rows missing over evidence of prior onboarding — repair via guardian init",
+      );
+      return { ok: false, error: "guardian_repair_required" };
+    }
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Guardian integrity check threw — proceeding with rotation",
+    );
+  }
+
   return getGatewayDb().transaction((tx) => {
     void tx; // transaction scoped via the underlying bun:sqlite connection
 
@@ -296,6 +289,7 @@ export function rotateCredentials(params: {
       platform: record.platform,
       familyId: record.familyId,
       absoluteExpiresAt: record.absoluteExpiresAt,
+      browserRefreshCookiePath: record.browserRefreshCookiePath ?? undefined,
     });
 
     log.info(
@@ -312,7 +306,75 @@ export function rotateCredentials(params: {
         refreshToken: refresh.refreshToken,
         refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
         refreshAfter: refresh.refreshAfter,
+        browserRefreshCookiePath: record.browserRefreshCookiePath ?? undefined,
       },
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Public: rotate credentials
+// ---------------------------------------------------------------------------
+
+/**
+ * Rotate credentials: validate refresh token, revoke old, mint new pair.
+ *
+ * All token operations run against the gateway's SQLite database.
+ *
+ * The refresh token is bound to the device it was issued to: the caller must
+ * supply the hashed device id, and it must match the record's stored binding.
+ * This ensures a leaked refresh token cannot be redeemed from a different
+ * device. The binding is checked before any side effects (rotation, family
+ * revocation) so a request from a non-matching device cannot disturb the
+ * legitimate token family.
+ */
+export function rotateCredentials(params: {
+  refreshToken: string;
+  hashedDeviceId: string;
+}):
+  | { ok: true; result: RotateResult }
+  | { ok: false; error: RefreshErrorCode } {
+  const refreshTokenHash = hashToken(params.refreshToken);
+  const record = findRefreshByHash(refreshTokenHash);
+
+  if (!record) {
+    return { ok: false, error: "refresh_invalid" };
+  }
+
+  if (record.hashedDeviceId !== params.hashedDeviceId) {
+    log.warn(
+      { familyId: record.familyId },
+      "Refresh rejected — device binding mismatch",
+    );
+    return { ok: false, error: "device_binding_mismatch" };
+  }
+
+  return rotateRefreshTokenRecord(refreshTokenHash, record);
+}
+
+/**
+ * Browser refresh rotates using only the refresh token. The refresh token is the
+ * bearer credential and the stored binding is recovered from its DB record.
+ *
+ * Only refresh-token records minted for the browser flow carry a browser cookie
+ * path. Legacy CLI/macOS records still require the explicit device-bound
+ * `rotateCredentials` path until that contract is migrated intentionally.
+ */
+export function rotateBrowserCredentialsByRefreshToken(params: {
+  refreshToken: string;
+}):
+  | { ok: true; result: RotateResult }
+  | { ok: false; error: RefreshErrorCode } {
+  const refreshTokenHash = hashToken(params.refreshToken);
+  const record = findRefreshByHash(refreshTokenHash);
+
+  if (!record) {
+    return { ok: false, error: "refresh_invalid" };
+  }
+
+  if (!record.browserRefreshCookiePath) {
+    return { ok: false, error: "refresh_invalid" };
+  }
+
+  return rotateRefreshTokenRecord(refreshTokenHash, record);
 }

@@ -37,9 +37,7 @@ mock.module("../../../util/logger.js", () => ({
 const {
   _resetRequestLoggingCountersForTests,
   withRequestLogging,
-}: typeof import("../request-logger.js") = await import(
-  "../request-logger.js"
-);
+}: typeof import("../request-logger.js") = await import("../request-logger.js");
 
 type RequestLogMetadata = import("../request-logger.js").RequestLogMetadata;
 

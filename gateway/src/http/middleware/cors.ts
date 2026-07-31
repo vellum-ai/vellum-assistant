@@ -1,3 +1,5 @@
+import { CLIENT_METADATA_HEADERS } from "@vellumai/service-contracts/client-metadata";
+
 import { KNOWN_EXTENSION_ORIGINS } from "../../chrome-extension-origins.js";
 import { getLogger } from "../../logger.js";
 
@@ -20,17 +22,29 @@ const ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS";
 
 /**
  * Headers the webview bridge sends (auth + content type + org id + client
- * identity for ATL-703 self-echo suppression).
+ * identity for ATL-703 self-echo suppression + analytics metadata).
  *
  * `X-Vellum-Client-Id` / `X-Vellum-Interface-Id` mirror the headers the
  * Chrome extension already sends (see `extensionCorsHeaders` below) and the
  * raw SSE streams attach via `getClientRegistrationHeaders()`. The web SPA's
- * central HeyAPI interceptor (`apps/web/src/lib/api-interceptors.ts`)
+ * central HeyAPI interceptor (`clients/web/src/lib/api-interceptors.ts`)
  * attaches them to every generated-client request so the daemon route
  * handlers can echo the id back on `sync_changed`.
+ *
+ * The client-metadata analytics headers (`CLIENT_METADATA_HEADERS`) carry the
+ * browser family/version, client OS, and interface version the daemon persists
+ * under `metadata.client`; the shared contract is the single source of truth.
  */
-const ALLOWED_HEADERS =
-  "Authorization, Content-Type, X-Session-Token, Vellum-Organization-Id, X-Trace-Id, X-Vellum-Client-Id, X-Vellum-Interface-Id";
+const ALLOWED_HEADERS = [
+  "Authorization",
+  "Content-Type",
+  "X-Session-Token",
+  "Vellum-Organization-Id",
+  "X-Trace-Id",
+  "X-Vellum-Client-Id",
+  "X-Vellum-Interface-Id",
+  ...Object.values(CLIENT_METADATA_HEADERS),
+].join(", ");
 
 /**
  * Check whether the request `Origin` header matches a known Vellum Chrome

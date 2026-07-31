@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  parseSentinelOutput,
-  stripAnsi,
-} from "../terminal-session.js";
+import { parseSentinelOutput, stripAnsi } from "../terminal-session.js";
 
 const START = "__VELLUM_EXEC_START_1234__";
 const END = "__VELLUM_EXEC_END_1234__";
@@ -132,7 +129,7 @@ describe("parseSentinelOutput", () => {
       START,
       "📤 Resend Email Setup [installed]",
       "  ID: resend-setup",
-      '  Set up and send emails via a user-provided Resend account (BYO email provider)',
+      "  Set up and send emails via a user-provided Resend account (BYO email provider)",
       "",
       "Community registry (1):",
       "",
@@ -151,18 +148,12 @@ describe("parseSentinelOutput", () => {
     const cleaned = "just some random output\nwith no sentinels\n";
     const result = parseSentinelOutput(cleaned, START, END);
     // Falls back to entire output (trimmed)
-    expect(result.output).toBe(
-      "just some random output\nwith no sentinels",
-    );
+    expect(result.output).toBe("just some random output\nwith no sentinels");
     expect(result.exitCode).toBe(0);
   });
 
   test("handles output with only start sentinel (no end)", () => {
-    const cleaned = [
-      START,
-      "partial output",
-      "more output",
-    ].join("\n");
+    const cleaned = [START, "partial output", "more output"].join("\n");
 
     const result = parseSentinelOutput(cleaned, START, END);
     expect(result.output).toBe("partial output\nmore output");
@@ -177,7 +168,7 @@ describe("parseSentinelOutput", () => {
         ` '${END}'; echo '__VELLUM_EXIT_'$__ec; exit $__ec`,
       START,
       "[13:06:38.851] INFO (761 on pod-0): [clawhub] Running clawhub command",
-      '    args: [',
+      "    args: [",
       '      "search",',
       '      "resend-setup",',
       '      "--limit",',

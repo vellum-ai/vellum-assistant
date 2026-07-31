@@ -94,8 +94,15 @@ export function isActiveAssistant(
 ): boolean {
   for (const candidate of lockfilePaths) {
     try {
-      const data = JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<string, unknown>;
-      return data.activeAssistant === assistantId;
+      const data = JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<
+        string,
+        unknown
+      >;
+      if (data.activeAssistant === assistantId) return true;
+      const assistants = data.assistants;
+      if (!Array.isArray(assistants) || assistants.length !== 1) return false;
+      const [onlyAssistant] = assistants as Array<Record<string, unknown>>;
+      return onlyAssistant?.assistantId === assistantId;
     } catch {
       continue;
     }

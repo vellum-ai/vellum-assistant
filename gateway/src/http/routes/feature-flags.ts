@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   loadFeatureFlagDefaults,
   isFlagDeclared,
@@ -9,21 +11,70 @@ import {
   writeFeatureFlag,
 } from "../../feature-flag-store.js";
 import { getLogger } from "../../logger.js";
+import type { GatewayRouteDefinition } from "./types.js";
 
 const log = getLogger("feature-flags");
 
 /**
- * Only allow simple kebab-case keys (e.g., "browser", "ces-tools").
+ * Only allow simple kebab-case keys (e.g., "browser", "contacts").
  */
 const ALLOWED_KEY_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-export type FeatureFlagEntry = {
-  key: string;
-  label: string;
-  enabled: boolean | string;
-  defaultEnabled: boolean | string;
-  description: string;
-};
+// ---------------------------------------------------------------------------
+// Zod schemas (source of truth for OpenAPI spec generation)
+// ---------------------------------------------------------------------------
+
+const FeatureFlagEntrySchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  enabled: z.union([z.boolean(), z.string()]),
+  defaultEnabled: z.union([z.boolean(), z.string()]),
+  description: z.string(),
+});
+
+const FeatureFlagsGetResponseSchema = z.object({
+  flags: z.array(FeatureFlagEntrySchema),
+});
+
+const FeatureFlagPatchRequestSchema = z.object({
+  enabled: z.union([z.boolean(), z.string()]),
+});
+
+const FeatureFlagPatchResponseSchema = z.object({
+  key: z.string(),
+  enabled: z.union([z.boolean(), z.string()]),
+});
+
+export type FeatureFlagEntry = z.infer<typeof FeatureFlagEntrySchema>;
+
+// ---------------------------------------------------------------------------
+// Route definitions (consumed by scripts/generate-openapi.ts)
+// ---------------------------------------------------------------------------
+
+export const ROUTES: GatewayRouteDefinition[] = [
+  {
+    path: "/v1/feature-flags",
+    method: "get",
+    operationId: "featureFlagsGet",
+    summary: "List all feature flags",
+    description: "Returns all feature flags with their current values.",
+    tags: ["feature-flags"],
+    responseBody: FeatureFlagsGetResponseSchema,
+  },
+  {
+    path: "/v1/feature-flags/{flag_key}",
+    method: "patch",
+    operationId: "featureFlagsPatch",
+    summary: "Update a feature flag",
+    description: "Set the enabled state of a single feature flag.",
+    tags: ["feature-flags"],
+    pathParameters: [
+      { name: "flag_key", description: "The kebab-case flag identifier" },
+    ],
+    requestBody: FeatureFlagPatchRequestSchema,
+    responseBody: FeatureFlagPatchResponseSchema,
+  },
+];
 
 export function createFeatureFlagsGetHandler() {
   return async (_req: Request): Promise<Response> => {
@@ -61,7 +112,7 @@ export function createFeatureFlagsGetHandler() {
   };
 }
 
-export function createFeatureFlagsPatchHandler() {
+export function createFeatureFlagsPatchHandler(onFlagChanged?: () => void) {
   return async (req: Request, flagKey: string): Promise<Response> => {
     // Validate flagKey is non-empty and matches allowed key charset
     if (!flagKey) {
@@ -75,7 +126,7 @@ export function createFeatureFlagsPatchHandler() {
       return Response.json(
         {
           error:
-            "Invalid flag key format. Must be a simple kebab-case string (e.g., 'browser', 'ces-tools')",
+            "Invalid flag key format. Must be a simple kebab-case string (e.g., 'browser', 'contacts')",
         },
         { status: 400 },
       );
@@ -118,11 +169,24 @@ export function createFeatureFlagsPatchHandler() {
 
     try {
       writeFeatureFlag(flagKey, enabled);
-      log.info({ flagKey, enabled }, "Feature flag updated");
-      return Response.json({ key: flagKey, enabled });
     } catch (err) {
       log.error({ err, flagKey }, "Failed to update feature flag");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
+
+    log.info({ flagKey, enabled }, "Feature flag updated");
+
+    // Notify connected clients synchronously with the write. The
+    // FeatureFlagWatcher also fires on the file change, but its fs.watch +
+    // debounce can lag or miss atomic-rename writes, so emitting here is the
+    // reliable path for API-driven flips. A notification failure must not fail
+    // an already-committed write, so it is logged and swallowed.
+    try {
+      onFlagChanged?.();
+    } catch (err) {
+      log.warn({ err, flagKey }, "Feature flag change notification failed");
+    }
+
+    return Response.json({ key: flagKey, enabled });
   };
 }

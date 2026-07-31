@@ -12,6 +12,5 @@ the `frontend-design` skill).
 | [Habit Tracker](./habit-tracker.md)     | Full CRUD addressed by `id` query param          | `GET`, `POST`, `PATCH`, `DELETE` |
 | [Expense Tracker](./expense-tracker.md) | Create / read / delete + client-side aggregation | `GET`, `POST`, `DELETE`          |
 
-All three persist through a `routes/*.ts` handler — never through `window.vellum.data`, which
-is a desktop-only bridge that silently no-ops on web. See
+All three persist through a `routes/*.ts` handler. See
 [CUSTOM_ROUTES.md](../CUSTOM_ROUTES.md) for the full route handler reference.

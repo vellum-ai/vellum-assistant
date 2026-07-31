@@ -3,25 +3,26 @@
  *
  * A plugin may contribute lifecycle hooks ({@link PluginHooks}) that the
  * runtime invokes at named events, and model-visible capabilities (`tools`,
- * `routes`, `skills`). The registry tracks every registered plugin in
- * registration order.
+ * `skills`). The registry tracks every registered plugin in registration
+ * order.
  *
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
 import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circuit-closed.js";
 import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
+import type { HookEventOwner } from "../api/events/hook-event.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { AssistantConfig } from "../config/types.js";
 import type {
   ChannelCapabilities,
   InboundActorContext,
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { TrustContext } from "../daemon/trust-context.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import type { PluginHookFn } from "../plugin-api/types.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
+import type { MemoryJob } from "../persistence/jobs-store.js";
+import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
-import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
@@ -47,21 +48,33 @@ export interface PluginManifest {
    * own version at load time.
    */
   version: string;
-  /** Credential keys the plugin needs resolved before `init()` runs. */
-  requiresCredential?: string[];
-  /**
-   * Assistant feature-flag keys that must all be enabled for this plugin to
-   * activate. Checked by `bootstrapPlugins` via `isAssistantFeatureFlagEnabled`
-   * — if any listed flag is disabled, the plugin is skipped entirely for the
-   * boot (no `init()`, no tool/route/skill contributions, no shutdown hook).
-   */
-  requiresFlag?: string[];
   /**
    * Zod-compatible validator (or any parser-like object) for the plugin's
    * config block under `plugins.<name>`. Typed as `unknown` here — concrete
    * validators land in M2/M3 PRs.
    */
   config?: unknown;
+  /**
+   * Declared API-key formats for the plugin's service, parsed from the
+   * plugin's `package.json` `credentialKeyPatterns` field. Each entry pairs
+   * a human-readable label with a regex source string matching the service's
+   * credential format. Security-validated and fed into secret ingress
+   * detection + redaction when the plugin activates; the loader only
+   * enforces shape (a malformed declaration degrades to `undefined` and
+   * never blocks plugin load).
+   */
+  credentialKeyPatterns?: PluginCredentialKeyPattern[];
+}
+
+/**
+ * One declared credential format for a plugin's service: a display `label`
+ * plus the regex source string (`pattern`) that matches keys of that format.
+ */
+export interface PluginCredentialKeyPattern {
+  /** Human-readable name for the key format (e.g. "Example API token"). */
+  label: string;
+  /** Regex source string matching the service's credential format. */
+  pattern: string;
 }
 
 // ─── Public plugin-API types ─────────────────────────────────────────────────
@@ -69,28 +82,17 @@ export interface PluginManifest {
 // existing internal call sites keep working. Plugin authors import these from
 // `@vellumai/plugin-api`.
 export type {
-  PluginHookFn,
-  PluginInitContext,
-  PluginShutdownContext,
+  HookFunction,
+  InitContext,
+  ShutdownContext,
+  ShutdownReason,
 } from "../plugin-api/types.js";
-
-// ─── Memory-graph result ─────────────────────────────────────────────────────
-
-/**
- * Full output of a single memory-graph retrieval — the object returned by
- * {@link ConversationGraphMemory.prepareMemory} (injected messages, query
- * vectors, metrics). The agent loop consumes these fields directly to drive
- * PKB hint search and runtime injection.
- */
-export type GraphMemoryResult = Awaited<
-  ReturnType<ConversationGraphMemory["prepareMemory"]>
->;
 
 /**
  * The complete set of compaction circuit-breaker transition events:
  * `compaction_circuit_open` when the breaker trips and `compaction_circuit_closed`
- * on the open→closed transition. Both are a subset of `ServerMessage`, so any
- * existing `ServerMessage` sink remains assignable to a
+ * on the open→closed transition. Both are a subset of `AssistantEvent`, so any
+ * existing `AssistantEvent` sink remains assignable to a
  * `(msg: CompactionCircuitEvent) => void` parameter.
  */
 export type CompactionCircuitEvent =
@@ -144,6 +146,13 @@ export interface TurnContext {
   readonly timestamp?: string;
   /** Human-readable interface label (e.g. "vellum", "telegram"). */
   readonly interfaceName?: string;
+  /**
+   * Client OS surface ("web" | "ios" | "macos"), reported independently of
+   * the transport interface. Rendered as the `client_os:` line so the model
+   * knows the platform even though the web/iOS/macOS apps share one `"web"`
+   * transport interface.
+   */
+  readonly clientOs?: string;
   /** Channel label gating response-discretion guidance in `<turn_context>`. */
   readonly channelName?: string;
   /**
@@ -317,23 +326,34 @@ export interface Injector {
 }
 
 // ─── Model-visible capability slots ──────────────────────────────────────────
-// Concrete shapes are defined by the tool/route registries. Tool
-// contributions use the canonical `Tool` interface; route contributions use
-// the `SkillRoute` shape from the skill-route registry. Skills ship on disk
-// inside an installed plugin (`plugins/<name>/skills/<id>/SKILL.md`) and are
-// discovered by the skill catalog loader, so they need no contribution slot.
+// Concrete shapes are defined by the tool registry. Tool contributions use the
+// canonical `Tool` interface. Skills ship on disk inside an installed plugin
+// (`plugins/<name>/skills/<id>/SKILL.md`) and are discovered by the skill
+// catalog loader, so they need no contribution slot. A plugin's other on-disk
+// surfaces (e.g. `routes/`) are served from their workspace location rather
+// than wired through the loader, so they carry no `Plugin` contribution slot.
 
 /**
- * HTTP route registration contributed by a plugin. Plugins express routes as
- * {@link SkillRoute} values — the same shape the skill-route registry
- * consumes — so `registerSkillRoute` can accept them directly. Bootstrap
- * wires the registrations after `init()` succeeds, retains the opaque
- * handle returned by each `registerSkillRoute` call, and uses those handles
- * (not the regex patterns themselves) to unregister the plugin's routes on
- * shutdown. Identity-keyed unregistration is what keeps sibling owners that
- * happen to register the same regex from evicting each other's routes.
+ * Processes one claimed background job: receives the claimed job row and the
+ * live assistant config. The return value is ignored — a handler signals
+ * failure by throwing, which the worker records against the job.
  */
-export type PluginRouteRegistration = SkillRoute;
+export type JobHandler = (job: MemoryJob, config: AssistantConfig) => unknown;
+
+/**
+ * A single background-job-handler entry: a job `type` string paired with the
+ * {@link JobHandler} that processes it. The memory plugin's handler list
+ * (`plugins/defaults/memory/job-handlers.ts`) is an array of these, registered
+ * directly into the worker's dispatch table from the plugin's `init` hook.
+ * `type` must be globally unique across every registered handler — dispatch is a
+ * keyed lookup.
+ */
+export interface JobHandlerEntry {
+  /** The job-queue type string this handler processes (globally unique). */
+  type: string;
+  /** Processes one claimed job of `type`. */
+  handler: JobHandler;
+}
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
@@ -345,14 +365,26 @@ export type PluginRouteRegistration = SkillRoute;
  * unknown keys are forward-compat scaffolding.
  *
  * See `assistant/src/daemon/external-plugins-bootstrap.ts` for the
- * full lifecycle, and {@link PluginHookFn} for the per-entry signature.
+ * full lifecycle, and {@link HookFunction} for the per-entry signature.
  */
 // The map stores hooks for arbitrary keys with arbitrary context shapes.
 // `any` (rather than `unknown`) is required so concrete plugin signatures
-// like `(ctx: PluginInitContext) => Promise<void>` and `() => Promise<void>`
+// like `(ctx: InitContext) => Promise<void>` and `() => Promise<void>`
 // both assign in/out of slot entries under strict-function-types contravariance.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type PluginHooks = Record<string, PluginHookFn<any>>;
+export type PluginHooks = Record<string, HookFunction<any>>;
+
+/**
+ * A resolved hook plus its owner attribution, as surfaced by the hook
+ * collection layer to the pipeline. `owner` distinguishes a plugin hook
+ * (default or user, `{ kind: "plugin", id: <plugin name> }`) from a
+ * standalone-workspace hook (`{ kind: "workspace", id }`). The pipeline uses
+ * it to attribute per-hook side effects (e.g. the `hook_event` broadcast).
+ */
+export interface HookEntry<TCtx = unknown> {
+  readonly fn: HookFunction<TCtx>;
+  readonly owner: HookEventOwner;
+}
 
 /**
  * A registered plugin. Every field besides `manifest` is optional — a plugin
@@ -374,8 +406,15 @@ export interface Plugin {
    * stamped by `registerPluginTools` at registration time.
    */
   tools?: Tool[];
-  /** HTTP route registrations served by the assistant. */
-  routes?: PluginRouteRegistration[];
+  /**
+   * Runtime injectors contributed to the per-turn injection chain. Bootstrap
+   * registers these into the global injector registry before `init()` runs,
+   * symmetric with `tools`. The registry unions every plugin's
+   * injectors and stable-sorts by ascending `order`, so contribution order
+   * does not affect the produced sequence except as the tiebreak among
+   * injectors sharing an `order`. See `plugins/injector-registry.ts`.
+   */
+  injectors?: readonly Injector[];
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────

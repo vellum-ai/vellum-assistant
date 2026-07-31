@@ -3,6 +3,11 @@ import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { initSigningKey } from "../auth/token-service.js";
+import {
+  initAdmissionPolicyCache,
+  resetAdmissionPolicyCache,
+} from "../risk/admission-policy-cache.js";
+import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -26,8 +31,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
-    defaultAssistantId: undefined,
-    unmappedPolicy: "reject",
     port: 7830,
     runtimeProxyRequireAuth: false,
     shutdownDrainMs: 5000,
@@ -103,12 +106,20 @@ let fetchCalls: {
   headers?: Record<string, string>;
 }[];
 
-beforeEach(() => {
+beforeEach(async () => {
+  // P3 admission policy cache is required by `handleInbound`; init fresh
+  // per test so the cache state mirrors the freshly-reset gateway DB.
+  resetGatewayDb();
+  resetAdmissionPolicyCache();
+  await initGatewayDb();
+  initAdmissionPolicyCache();
   fetchCalls = [];
 });
 
 afterEach(() => {
   fetchMock = mock(async () => new Response());
+  resetAdmissionPolicyCache();
+  resetGatewayDb();
 });
 
 /** Extract headers from a fetch call into a plain object. */
@@ -247,6 +258,32 @@ describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
       "http://127.0.0.1:7830/deliver/telegram",
     );
   });
+
+  test("topic messages append threadId to the replyCallbackUrl", async () => {
+    const config = makeConfig({
+      gatewayInternalBaseUrl: "http://gateway.internal:9000",
+      routingEntries: [
+        { type: "conversation_id", key: "12345", assistantId: "assistant-a" },
+      ],
+    });
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
+
+    const base = makeTelegramPayload("hello topic", 2002);
+    const payload = {
+      ...base,
+      message: { ...base.message, message_thread_id: 777 },
+    };
+    const res = await handler(makeWebhookRequest(payload));
+
+    expect(res.status).toBe(200);
+
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeDefined();
+    expect((runtimeCall!.body as any).replyCallbackUrl).toBe(
+      "http://gateway.internal:9000/deliver/telegram?threadId=777",
+    );
+  });
 });
 
 describe("telegram webhook handler: /new rejection", () => {
@@ -321,8 +358,10 @@ describe("telegram webhook handler: /new rejection", () => {
     expect((sendMessageCall!.body as any).text).toContain("Starting up");
   });
 
-  test("/start with routing rejection sends setup notice and does not forward", async () => {
-    const config = makeConfig({ unmappedPolicy: "reject" });
+  test("/start on an unrouted chat forwards instead of sending a setup notice", async () => {
+    // Regression: an unrouted chat used to hit the unmapped `reject` policy
+    // and get a "not fully set up" notice instead of reaching the assistant.
+    const config = makeConfig();
     installFetchMock();
     const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
@@ -336,18 +375,18 @@ describe("telegram webhook handler: /new rejection", () => {
     expect(body.ok).toBe(true);
 
     const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
-    expect(runtimeCall).toBeUndefined();
+    expect(runtimeCall).toBeDefined();
 
-    const sendMessageCall = fetchCalls.find((c) =>
-      c.url.includes("/sendMessage"),
+    const setupNotice = fetchCalls.find(
+      (c) =>
+        c.url.includes("/sendMessage") &&
+        String((c.body as any)?.text ?? "").includes("not fully set up"),
     );
-    expect(sendMessageCall).toBeDefined();
-    expect((sendMessageCall!.body as any).text).toContain("not fully set up");
+    expect(setupNotice).toBeUndefined();
   });
 
-  test("sends rejection notice when /new command routing is rejected", async () => {
-    // No routing entries and unmappedPolicy is "reject" — routing will fail
-    const config = makeConfig({ unmappedPolicy: "reject" });
+  test("/new on an unrouted chat resets instead of sending a rejection notice", async () => {
+    const config = makeConfig();
     installFetchMock();
     const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
@@ -359,15 +398,12 @@ describe("telegram webhook handler: /new rejection", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
 
-    // Verify a Telegram sendMessage call was made with the rejection notice
-    const telegramCalls = fetchCalls.filter((c) =>
-      c.url.includes("api.telegram.org"),
+    const rejectionNotice = fetchCalls.find(
+      (c) =>
+        c.url.includes("/sendMessage") &&
+        String((c.body as any)?.text ?? "").includes("could not be routed"),
     );
-    expect(telegramCalls.length).toBeGreaterThanOrEqual(1);
-
-    const sendCall = telegramCalls.find((c) => c.url.includes("/sendMessage"));
-    expect(sendCall).toBeDefined();
-    expect((sendCall!.body as any).text).toContain("could not be routed");
+    expect(rejectionNotice).toBeUndefined();
   });
 
   test("/new succeeds and sends confirmation when routing matches", async () => {
@@ -406,22 +442,6 @@ describe("telegram webhook handler: /new rejection", () => {
       );
     });
     expect(confirmCall).toBeDefined();
-  });
-
-  test("/new rejection does not call resetConversation", async () => {
-    const config = makeConfig({ unmappedPolicy: "reject" });
-    installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config, makeCaches());
-
-    const payload = makeTelegramPayload("/new", 5001);
-    const req = makeWebhookRequest(payload);
-    await handler(req);
-
-    // Verify no reset conversation call was made
-    const resetCall = fetchCalls.find((c) =>
-      c.url.includes("/channels/conversation"),
-    );
-    expect(resetCall).toBeUndefined();
   });
 });
 

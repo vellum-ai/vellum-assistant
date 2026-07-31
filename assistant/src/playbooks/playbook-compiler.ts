@@ -4,10 +4,10 @@
  * graph.
  */
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { memoryGraphNodes } from "../memory/schema.js";
+import { getMemoryDb } from "../persistence/db-connection.js";
+import { memoryGraphNodes } from "../persistence/schema/index.js";
 import type { Playbook } from "./types.js";
 import { parsePlaybookStatement } from "./types.js";
 
@@ -20,20 +20,16 @@ export interface CompiledPlaybooks {
   includedCount: number;
 }
 
-export interface CompilePlaybooksOptions {
-  scopeId?: string;
-}
-
 interface PlaybookRow {
   id: string;
   content: string;
 }
 
-export function compilePlaybooks(
-  options?: CompilePlaybooksOptions,
-): CompiledPlaybooks {
-  const scopeId = options?.scopeId ?? "default";
-  const db = getDb();
+export function compilePlaybooks(): CompiledPlaybooks {
+  const db = getMemoryDb();
+  if (!db) {
+    return { text: "", totalCount: 0, includedCount: 0 };
+  }
 
   const rows: PlaybookRow[] = db
     .select({
@@ -43,7 +39,6 @@ export function compilePlaybooks(
     .from(memoryGraphNodes)
     .where(
       and(
-        eq(memoryGraphNodes.scopeId, scopeId),
         sql`${memoryGraphNodes.sourceConversations} LIKE '%playbook:%'`,
         sql`${memoryGraphNodes.fidelity} != 'gone'`,
       ),
@@ -59,7 +54,9 @@ export function compilePlaybooks(
   for (const row of rows) {
     // Content format: "Playbook: <trigger>\n<json statement>"
     const newlineIdx = row.content.indexOf("\n");
-    if (newlineIdx === -1) continue;
+    if (newlineIdx === -1) {
+      continue;
+    }
     const statement = row.content.slice(newlineIdx + 1);
     const playbook = parsePlaybookStatement(statement);
     if (playbook) {

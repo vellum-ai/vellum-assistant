@@ -7,9 +7,12 @@ import {
 } from "../../config/schemas/llm.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
-import { ProviderError } from "../../util/errors.js";
+import { ProviderError, type ProviderErrorReason } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { DAILY_LIMIT_PATTERNS } from "../../util/provider-error-patterns.js";
+import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
+import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -17,6 +20,7 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
+  ToolDefinition,
 } from "../types.js";
 import {
   ContextOverflowError,
@@ -113,7 +117,9 @@ function buildThinkingConfig(
   thinking: Record<string, unknown> | undefined,
   model: string,
 ): genai.ThinkingConfig | undefined {
-  if (!thinking) return undefined;
+  if (!thinking) {
+    return undefined;
+  }
   const floor = geminiThinkingFloor(model);
 
   if (thinking.type === "disabled") {
@@ -122,7 +128,9 @@ function buildThinkingConfig(
       includeThoughts: false,
     };
   }
-  if (thinking.type !== "adaptive") return undefined;
+  if (thinking.type !== "adaptive") {
+    return undefined;
+  }
 
   const result: genai.ThinkingConfig = {};
   if (
@@ -193,13 +201,17 @@ export function detectGeminiContextOverflow(
   const status = error.status;
   // 400 = INVALID_ARGUMENT (prompt too long), 413 occasional,
   // 429 with RESOURCE_EXHAUSTED is the Vertex path.
-  if (status !== 400 && status !== 413 && status !== 429) return null;
+  if (status !== 400 && status !== 413 && status !== 429) {
+    return null;
+  }
   const message = error.message ?? "";
 
   // 429 has two meanings (quota vs context-overflow) — require a
   // token/context-specific phrase to classify as overflow.
   if (status === 429) {
-    if (!GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS.test(message)) return null;
+    if (!GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS.test(message)) {
+      return null;
+    }
     return extractOverflowTokensFromMessage(message);
   }
 
@@ -208,8 +220,109 @@ export function detectGeminiContextOverflow(
   const matches =
     /resource.?exhausted/i.test(message) ||
     GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS.test(message);
-  if (!matches) return null;
+  if (!matches) {
+    return null;
+  }
   return extractOverflowTokensFromMessage(message);
+}
+
+/**
+ * 403/PERMISSION_DENIED bodies that signal a *model/plan* restriction, not a
+ * bad key or generic project/API/location setup failure. Requires an explicit
+ * model-access or plan/tier signal: a bare "model" mention matches IAM failures
+ * on a `.../models/...` resource, and generic setup terms (`billing`,
+ * `not enabled`, `not supported`) fire on project/API setup errors that should
+ * keep their own provider detail rather than a "switch models" banner.
+ */
+const GEMINI_MODEL_RESTRICTED_PATTERNS =
+  /does not have access to (?:the |this )?model|not available (?:on|for|in) your (?:plan|tier|account|subscription|billing)|(?:plan|tier|subscription) does (?:not|n't) (?:include|support|allow)|upgrade your (?:plan|tier)|restricted to (?:certain|specific|paid)|not available on your current (?:plan|tier)/i;
+
+/** 5xx/UNAVAILABLE bodies that indicate transient overload rather than a generic server error. */
+const GEMINI_OVERLOAD_PATTERNS = /overload/i;
+
+/**
+ * Detect whether an `ApiError` has an empty (or whitespace-only) message.
+ * Google's API always returns a JSON body with a real message on genuine
+ * errors. An empty message means the response had no body — the SDK's
+ * fallback `ApiError` construction — which indicates a proxy or egress
+ * filter intercepted the request before it reached Google.
+ */
+function hasEmptyMessage(error: ApiError): boolean {
+  return (error.message ?? "").trim().length === 0;
+}
+
+/**
+ * Format a human-readable error message from a Gemini `ApiError`. When the
+ * error has an empty message (no JSON body returned), surface a distinct,
+ * actionable message pointing at network/proxy interception instead of the
+ * generic "Gemini API error (404): " which reads as "model not found."
+ */
+export function formatGeminiErrorMessage(error: ApiError): string {
+  if (hasEmptyMessage(error)) {
+    return (
+      `Gemini API returned ${error.status} with no response body — ` +
+      "this typically indicates a network proxy or egress filter " +
+      "intercepting the request, not a genuine Google API error. " +
+      "Check your network configuration and ensure requests to " +
+      "generativelanguage.googleapis.com are allowed."
+    );
+  }
+  return `Gemini API error (${error.status}): ${error.message}`;
+}
+
+/**
+ * Map a Gemini `ApiError`'s HTTP status / status-name to a semantic
+ * {@link ProviderErrorReason}. The SDK's `ApiError` exposes only `status` and
+ * `message`, and the canonical status-name (e.g. `PERMISSION_DENIED`) rides the
+ * message body, so we match on both. Context-overflow is handled separately by
+ * {@link detectGeminiContextOverflow}; a plain 429 here is a rate limit.
+ *
+ * When the error message is empty (no JSON body), the response did not come
+ * from Google's API — a proxy or egress filter intercepted the request. In
+ * that case we return `"network_error"` for 404/403 status codes rather than
+ * `"model_not_found"` / `"invalid_credentials"`, which would mislead users.
+ */
+export function deriveGeminiReason(error: ApiError): ProviderErrorReason {
+  const status = error.status;
+  const message = error.message ?? "";
+  const upper = message.toUpperCase();
+  const hasName = (name: string) => upper.includes(name);
+
+  // Empty message → proxy/network interception, not a genuine Google error.
+  // Check this before the status-code branches so 404-with-empty-body doesn't
+  // get misclassified as "model_not_found."
+  if (hasEmptyMessage(error) && (status === 404 || status === 403)) {
+    return "network_error";
+  }
+
+  // The managed proxy's daily-limit 402 body carries a specific code; match it
+  // before the status branches so it isn't classified as a generic 4xx.
+  if (DAILY_LIMIT_PATTERNS.some((re) => re.test(message))) {
+    return "daily_limit_reached";
+  }
+  if (status === 401 || hasName("UNAUTHENTICATED")) {
+    return "invalid_credentials";
+  }
+  if (status === 403 || hasName("PERMISSION_DENIED")) {
+    return GEMINI_MODEL_RESTRICTED_PATTERNS.test(message)
+      ? "model_restricted"
+      : "invalid_credentials";
+  }
+  if (status === 404 || hasName("NOT_FOUND")) {
+    return "model_not_found";
+  }
+  if (status === 429 || hasName("RESOURCE_EXHAUSTED")) {
+    return "rate_limited";
+  }
+  if (status >= 500 || hasName("UNAVAILABLE")) {
+    return GEMINI_OVERLOAD_PATTERNS.test(message)
+      ? "overloaded"
+      : "server_error";
+  }
+  if (status >= 400) {
+    return "bad_request";
+  }
+  return "unknown";
 }
 
 const log = getLogger("gemini-client");
@@ -239,9 +352,19 @@ export async function validateGeminiApiKey(
         return { valid: false, reason: "API key is invalid or expired." };
       }
       if (error.status === 403) {
+        // An empty-body 403 likely came from a proxy, not Google's API.
+        // Treat it as inconclusive (allow key storage) rather than rejecting
+        // with a non-actionable "Gemini API error (403): " message.
+        if (hasEmptyMessage(error)) {
+          log.warn(
+            { status: 403 },
+            "Gemini API returned 403 with empty body during key validation — likely proxy interception, allowing key storage",
+          );
+          return { valid: true };
+        }
         return {
           valid: false,
-          reason: `Gemini API error (${error.status}): ${error.message}`,
+          reason: formatGeminiErrorMessage(error),
         };
       }
       // Transient errors (429, 5xx, etc.) — validation is inconclusive,
@@ -310,6 +433,7 @@ export class GeminiProvider implements Provider {
       : undefined;
 
     try {
+      recordProviderRequestDiagnostics({ model_id: activeModel });
       const geminiContents = this.toGeminiContents(messages, activeModel);
 
       const geminiConfig: genai.GenerateContentConfig = {};
@@ -394,7 +518,9 @@ export class GeminiProvider implements Provider {
           if (functionCallParts.length > 0) {
             for (const part of functionCallParts) {
               const fc = part.functionCall;
-              if (!fc) continue;
+              if (!fc) {
+                continue;
+              }
               appendFunctionCall(fc, part.thoughtSignature);
             }
           } else {
@@ -501,10 +627,12 @@ export class GeminiProvider implements Provider {
           );
         }
         throw new ProviderError(
-          `Gemini API error (${error.status}): ${error.message}`,
+          formatGeminiErrorMessage(error),
           "gemini",
           error.status,
-          abortReason ? { abortReason } : undefined,
+          // Skip reason on caller-abort: abortReason already carries the intent
+          // and short-circuits classification/retry (mirrors the Anthropic client).
+          abortReason ? { abortReason } : { reason: deriveGeminiReason(error) },
         );
       }
       throw new ProviderError(
@@ -518,11 +646,56 @@ export class GeminiProvider implements Provider {
     }
   }
 
+  /**
+   * Exact prompt-token count via Gemini's `models.countTokens` — the real
+   * tokenizer, no generation. Mirrors {@link sendMessage}'s composition
+   * (contents + `systemInstruction` + tool function declarations) so the count
+   * tracks what a real call would send. Throws when the endpoint returns no
+   * `totalTokens`, so the caller falls back to the local estimate.
+   */
+  async countInputTokens(
+    messages: Message[],
+    systemPrompt: string,
+    tools?: ToolDefinition[],
+  ): Promise<number> {
+    const contents = this.toGeminiContents(messages, this.model);
+    const config: genai.CountTokensConfig = {};
+    if (systemPrompt) {
+      config.systemInstruction = systemPrompt.replaceAll(
+        SYSTEM_PROMPT_CACHE_BOUNDARY,
+        "\n\n",
+      );
+    }
+    if (tools && tools.length > 0) {
+      config.tools = [
+        {
+          functionDeclarations: tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+            parametersJsonSchema: t.input_schema,
+          })),
+        },
+      ];
+    }
+    const res = await this.client.models.countTokens({
+      model: this.model,
+      contents,
+      ...(Object.keys(config).length > 0 ? { config } : {}),
+    });
+    if (typeof res.totalTokens !== "number") {
+      throw new Error("Gemini countTokens returned no totalTokens");
+    }
+    return res.totalTokens;
+  }
+
   /** Convert neutral messages to Gemini Content[] format. */
   private toGeminiContents(
     messages: Message[],
     model: string,
   ): genai.Content[] {
+    // Swap any persisted attachment references back to inline base64 before
+    // building parts, so the transforms below can read `source.data`.
+    messages = resolveMediaReferences(messages);
     const result: genai.Content[] = [];
 
     // Build a map from tool_use id → function name so tool_result blocks
@@ -573,39 +746,42 @@ export class GeminiProvider implements Provider {
         case "text":
           parts.push({ text: block.text });
           break;
-        case "image":
+        case "image": {
+          const imageSrc = base64Source(block.source);
           parts.push({
             inlineData: {
-              mimeType: block.source.media_type,
-              data: block.source.data,
+              mimeType: imageSrc.media_type,
+              data: imageSrc.data,
             },
           });
           break;
+        }
         case "file": {
-          if (this.supportsGeminiInlineFile(block.source.media_type)) {
+          const fileSrc = base64Source(block.source);
+          if (this.supportsGeminiInlineFile(fileSrc.media_type)) {
             // Normalize audio MIME onto Gemini's spelling (e.g. audio/mpeg →
             // audio/mp3); PDFs pass through unchanged. Guard the 20 MB inline
             // request limit for audio so an oversize clip degrades to a text
             // note rather than 400ing the whole request.
-            const audioMime = normalizeGeminiAudioMime(block.source.media_type);
-            const rawBytes = base64ByteLength(block.source.data);
+            const audioMime = normalizeGeminiAudioMime(fileSrc.media_type);
+            const rawBytes = base64ByteLength(fileSrc.data);
             if (audioMime && rawBytes > GEMINI_MAX_INLINE_AUDIO_BYTES) {
               const approxMb = Math.round(rawBytes / (1024 * 1024));
               parts.push({
-                text: `[Audio file too large to send inline: ${block.source.filename} (${block.source.media_type}, ~${approxMb}MB). Gemini's inline request limit is 20MB; this file was omitted. Ask the user for a shorter clip.]`,
+                text: `[Audio file too large to send inline: ${fileSrc.filename} (${fileSrc.media_type}, ~${approxMb}MB). Gemini's inline request limit is 20MB; this file was omitted. Ask the user for a shorter clip.]`,
               });
             } else {
               parts.push({
                 inlineData: {
-                  mimeType: audioMime ?? block.source.media_type,
-                  data: block.source.data,
+                  mimeType: audioMime ?? fileSrc.media_type,
+                  data: fileSrc.data,
                 },
               });
             }
           } else {
             const fallback = block.extracted_text?.trim()
-              ? `[Attached file: ${block.source.filename} (${block.source.media_type})]\n${block.extracted_text}`
-              : `[Attached file: ${block.source.filename} (${block.source.media_type})]\nNo extracted text available.`;
+              ? `[Attached file: ${fileSrc.filename} (${fileSrc.media_type})]\n${block.extracted_text}`
+              : `[Attached file: ${fileSrc.filename} (${fileSrc.media_type})]\nNo extracted text available.`;
             parts.push({ text: fallback });
           }
           break;
@@ -642,23 +818,22 @@ export class GeminiProvider implements Provider {
             // mixing inlineData with functionResponse in the same Content entry.
             for (const cb of block.contentBlocks) {
               if (cb.type === "image") {
+                const cbSrc = base64Source(cb.source);
                 toolResultMediaParts.push({
                   inlineData: {
-                    mimeType: cb.source.media_type,
-                    data: cb.source.data,
+                    mimeType: cbSrc.media_type,
+                    data: cbSrc.data,
                   },
                 });
               } else if (cb.type === "file") {
-                const audioMime = normalizeGeminiAudioMime(
-                  cb.source.media_type,
-                );
+                const cbSrc = base64Source(cb.source);
+                const audioMime = normalizeGeminiAudioMime(cbSrc.media_type);
                 if (
                   audioMime &&
-                  base64ByteLength(cb.source.data) <=
-                    GEMINI_MAX_INLINE_AUDIO_BYTES
+                  base64ByteLength(cbSrc.data) <= GEMINI_MAX_INLINE_AUDIO_BYTES
                 ) {
                   toolResultMediaParts.push({
-                    inlineData: { mimeType: audioMime, data: cb.source.data },
+                    inlineData: { mimeType: audioMime, data: cbSrc.data },
                   });
                 } else if (audioMime) {
                   // Oversize audio: note it in the functionResponse output
@@ -667,7 +842,7 @@ export class GeminiProvider implements Provider {
                   // Gemini's request-size limit).
                   outputText =
                     outputText +
-                    `\n[Audio too large to send inline: ${cb.source.filename}. Ask for a shorter clip.]`;
+                    `\n[Audio too large to send inline: ${cbSrc.filename}. Ask for a shorter clip.]`;
                 }
                 // Non-inline-able file sub-blocks (m4a/opus/pdf) are skipped
                 // here; the tool's text output already conveys the file.
@@ -703,18 +878,26 @@ export class GeminiProvider implements Provider {
     parts: genai.Part[],
     model: string,
   ): void {
-    if (!isGemini3Model(model)) return;
+    if (!isGemini3Model(model)) {
+      return;
+    }
 
     const functionCallParts = parts.filter((part) => part.functionCall);
-    if (functionCallParts.length === 0) return;
+    if (functionCallParts.length === 0) {
+      return;
+    }
 
     const hasRealThoughtSignature = functionCallParts.some((part) =>
       Boolean(part.thoughtSignature),
     );
-    if (hasRealThoughtSignature) return;
+    if (hasRealThoughtSignature) {
+      return;
+    }
 
     const firstFunctionCallPart = functionCallParts[0];
-    if (!firstFunctionCallPart) return;
+    if (!firstFunctionCallPart) {
+      return;
+    }
     firstFunctionCallPart.thoughtSignature =
       GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE;
   }

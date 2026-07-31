@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
  * Guard tests for assistant feature flags.
  *
  * 1. Key format validation: ensure production code uses the canonical
- *    simple kebab-case format (e.g., "browser", "ces-tools"), not the
+ *    simple kebab-case format (e.g., "browser", "contacts"), not the
  *    legacy `skills.<id>.enabled` format.
  *
  * 2. Declaration coverage: ensure all assistant-scope flag keys in the
@@ -60,10 +60,7 @@ const CANONICAL_KEY_RE = /^[a-z0-9][a-z0-9-]*$/;
  * Keep this list minimal — only files that genuinely need to reference
  * the legacy format for backward compatibility.
  */
-const LEGACY_KEY_ALLOWLIST = new Set([
-  // macOS client: fallback reads from legacy config section
-  "clients/macos/vellum-assistant/Features/Settings/SettingsAccountTab.swift",
-]);
+const LEGACY_KEY_ALLOWLIST = new Set<string>([]);
 
 function isTestFile(filePath: string): boolean {
   return (
@@ -118,15 +115,19 @@ describe("assistant feature flag guard", () => {
 
     const files = grepOutput.split("\n").filter((f) => f.length > 0);
     const violations = files.filter((f) => {
-      if (isTestFile(f)) return false;
-      if (LEGACY_KEY_ALLOWLIST.has(f)) return false;
+      if (isTestFile(f)) {
+        return false;
+      }
+      if (LEGACY_KEY_ALLOWLIST.has(f)) {
+        return false;
+      }
       return true;
     });
 
     if (violations.length > 0) {
       const message = [
         "Found production files using the legacy `skills.<id>.enabled` key format.",
-        'New code must use the canonical simple kebab-case format (e.g., "browser", "ces-tools").',
+        'New code must use the canonical simple kebab-case format (e.g., "browser", "contacts").',
         'See AGENTS.md "Assistant Feature Flags" for the convention.',
         "",
         "Violations:",
@@ -156,7 +157,7 @@ describe("assistant feature flag guard", () => {
     if (violations.length > 0) {
       const message = [
         "Found assistant-scope keys in the unified registry that do not match the canonical format.",
-        'Expected format: simple kebab-case (e.g., "browser", "ces-tools")',
+        'Expected format: simple kebab-case (e.g., "browser", "contacts")',
         "",
         "Violations:",
         ...violations.map((k) => `  - ${k}`),

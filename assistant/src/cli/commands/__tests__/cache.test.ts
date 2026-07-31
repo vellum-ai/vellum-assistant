@@ -88,16 +88,29 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 mock.module("../../lib/cache-fs.js", () => ({
-  readFileSync: (path: string, encoding?: BufferEncoding) => {
+  // File reads (`--file`) resolve real paths. Stdin never flows through here:
+  // reopening "/dev/stdin" fails ENXIO for pipe read-ends, so any regression
+  // to path-based stdin reading trips this loud throw.
+  readFileSync: (path: string | number, encoding?: BufferEncoding) => {
     if (path === "/dev/stdin") {
-      if (mockStdinContent === null) {
-        throw new Error("EAGAIN: resource temporarily unavailable");
-      }
-      return mockStdinContent;
+      throw new Error("ENXIO: no such device or address, open '/dev/stdin'");
     }
     return actualReadFileSync(path, encoding);
   },
   existsSync: actualExistsSync,
+}));
+
+// Stdin is read via fd 0 through the shared helper, never by reopening
+// "/dev/stdin". Returning the simulated content exercises the piped path;
+// a null content simulates stdin with no readable data.
+mock.module("../../../util/read-stdin.js", () => ({
+  STDIN_FD: 0,
+  readStdinSync: () => {
+    if (mockStdinContent === null) {
+      throw new Error("EAGAIN: resource temporarily unavailable");
+    }
+    return mockStdinContent;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -147,7 +160,9 @@ async function runCommand(
     registerCacheCommand(program);
     await program.parseAsync(["node", "assistant", ...args]);
   } catch {
-    if (process.exitCode === 0) process.exitCode = 1;
+    if (process.exitCode === 0) {
+      process.exitCode = 1;
+    }
   } finally {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;

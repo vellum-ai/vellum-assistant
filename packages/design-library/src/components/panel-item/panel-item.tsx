@@ -85,9 +85,23 @@ interface PanelItemProps {
   badge?: ReactNode;
   /**
    * Trailing slot (commonly an ellipsis / more-options button). Hidden by
-   * default, revealed on hover, and always visible when `active`.
+   * default; revealed on hover or focus-within, while a child menu is open
+   * (`aria-expanded="true"` on the trigger), and always when `active`.
+   *
+   * On touch (coarse-pointer) devices the trailing action stays visible by
+   * default so users can reach it without hover. Set
+   * `hideTrailingActionOnTouch` when the caller provides its own touch
+   * affordance (long-press → bottom sheet, swipe-to-reveal, etc.) so the
+   * ellipsis doesn't duplicate the gesture.
    */
   trailingAction?: ReactNode;
+  /**
+   * Suppress the touch-visible trailing action. Default `false` — the
+   * trailing action is shown on coarse-pointer devices. Set to `true` when
+   * the row has its own long-press or swipe-to-reveal gesture that makes
+   * the trailing ellipsis redundant on touch.
+   */
+  hideTrailingActionOnTouch?: boolean;
   /** Selected state. Sets `aria-current="page"` automatically. */
   active?: boolean;
   /**
@@ -144,7 +158,7 @@ const ROW_BASE_CLASSES = [
 ].join(" ");
 
 const INTERACTIVE_CLASSES = [
-  "hover:bg-[var(--surface-hover)]",
+  "[@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
   "keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
   "cursor-pointer select-none",
 ].join(" ");
@@ -166,7 +180,7 @@ const LEFT_CLUSTER_CLASSES = "flex min-w-0 flex-1 items-center gap-[8px]";
 const LEADING_ICON_BASE_CLASSES = [
   "shrink-0",
   "text-[var(--content-tertiary)]",
-  "group-hover:text-[var(--content-secondary)]",
+  "[@media(hover:hover)]:group-hover:text-[var(--content-secondary)]",
 ].join(" ");
 
 const ICON_ACTIVE_DEFAULT =
@@ -186,8 +200,8 @@ const BADGE_BASE_CLASSES = [
   "text-label-small-default leading-none",
   "text-[var(--content-tertiary)]",
   "rounded-[4px] bg-[var(--surface-base)] px-[4px] py-[2px]",
-  "group-hover:bg-transparent group-hover:rounded-none",
-  "group-hover:px-0 group-hover:py-0",
+  "[@media(hover:hover)]:group-hover:bg-transparent [@media(hover:hover)]:group-hover:rounded-none",
+  "[@media(hover:hover)]:group-hover:px-0 [@media(hover:hover)]:group-hover:py-0",
   "group-aria-[current=page]:bg-transparent group-aria-[current=page]:rounded-none",
   "group-aria-[current=page]:px-0 group-aria-[current=page]:py-0",
 ].join(" ");
@@ -195,7 +209,12 @@ const BADGE_BASE_CLASSES = [
 const TRAILING_ACTION_CLASSES = [
   "flex items-center shrink-0",
   "opacity-0 transition-opacity",
-  "group-hover:opacity-100",
+  "[@media(hover:hover)]:group-hover:opacity-100",
+  // Keyboard path: reveal when the row or the action itself has focus, and
+  // keep it visible while its menu is open (focus moves into the portal'd
+  // menu content, so focus-within alone would let it fade mid-interaction).
+  "group-focus-within:opacity-100",
+  "has-[[aria-expanded=true]]:opacity-100",
   "group-aria-[current=page]:opacity-100",
 ].join(" ");
 
@@ -215,6 +234,7 @@ function PanelItem({
   expandChevron: ExpandChevron,
   badge,
   trailingAction,
+  hideTrailingActionOnTouch = false,
   active = false,
   activeVariant = "default",
   disabled = false,
@@ -261,7 +281,17 @@ function PanelItem({
 
   const trailingNode = trailingAction ? (
     <span
-      className={TRAILING_ACTION_CLASSES}
+      className={cn(
+        TRAILING_ACTION_CLASSES,
+        !hideTrailingActionOnTouch && "pointer-coarse:opacity-100",
+        // When the caller opts out of touch-visible trailing actions, also
+        // disable pointer events on coarse pointers so taps pass through to
+        // the row's own long-press / swipe handlers. Re-enable for the
+        // states where the action is still visible (active row, open menu,
+        // keyboard focus) so those interaction paths stay reachable.
+        hideTrailingActionOnTouch &&
+          "pointer-coarse:pointer-events-none pointer-coarse:has-[[aria-expanded=true]]:pointer-events-auto pointer-coarse:group-focus-within:pointer-events-auto pointer-coarse:group-aria-[current=page]:pointer-events-auto",
+      )}
       onClick={(event: MouseEvent<HTMLSpanElement>) => {
         event.stopPropagation();
         event.preventDefault();
@@ -423,3 +453,4 @@ export {
   ACTIVE_DEFAULT_CLASSES,
   ACTIVE_BRANDED_CLASSES,
 };
+

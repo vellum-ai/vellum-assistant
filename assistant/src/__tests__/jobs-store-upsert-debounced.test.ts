@@ -1,35 +1,22 @@
-import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  loadConfig: () => ({}),
-  getConfig: () => ({}),
-  invalidateConfigCache: () => {},
-}));
+import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   enqueueMemoryJob,
   upsertDebouncedJob,
-} from "../memory/jobs-store.js";
-import { memoryJobs } from "../memory/schema.js";
+} from "../persistence/jobs-store.js";
+import { memoryJobs } from "../persistence/schema/index.js";
 
 describe("upsertDebouncedJob payload refresh", () => {
-  beforeAll(() => {
-    initializeDb();
+  beforeAll(async () => {
+    await initializeDb();
   });
 
   beforeEach(() => {
-    const db = getDb();
+    const db = getMemoryDb()!;
     db.run("DELETE FROM memory_jobs");
   });
 
@@ -49,7 +36,7 @@ describe("upsertDebouncedJob payload refresh", () => {
       Date.now(),
     );
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const rows = db
       .select()
       .from(memoryJobs)
@@ -79,7 +66,7 @@ describe("upsertDebouncedJob payload refresh", () => {
       Date.now(),
     );
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const rows = db
       .select()
       .from(memoryJobs)
@@ -106,7 +93,7 @@ describe("upsertDebouncedJob payload refresh", () => {
       runAfterNew,
     );
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const rows = db
       .select()
       .from(memoryJobs)
@@ -124,7 +111,7 @@ describe("upsertDebouncedJob payload refresh", () => {
       Date.now(),
     );
 
-    const db = getDb();
+    const db = getMemoryDb()!;
     const rows = db
       .select()
       .from(memoryJobs)

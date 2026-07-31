@@ -1,21 +1,12 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // ── Fake CdpClient & Factory ─────────────────────────────────────────
 //
 // This test file validates browser_mode parsing and mode-selection
 // failure formatting in browser-execution.ts. The factory mock
 // intercepts getCdpClient calls and can be configured to throw
 // CdpError for pinned-mode precondition failures.
-
 import { CdpError } from "../tools/browser/cdp-client/errors.js";
 import type { AttemptDiagnostic } from "../tools/browser/cdp-client/types.js";
 
@@ -72,6 +63,16 @@ mock.module("../tools/browser/cdp-client/factory.js", () => ({
             ? "local"
             : "local";
     return makeFakeCdp(kind, context.conversationId);
+  },
+}));
+
+// The real proxy is an always-present singleton; stub the grace wait so
+// extension-pinned acquisition doesn't poll for the full window here.
+mock.module("../daemon/host-browser-proxy.js", () => ({
+  HostBrowserProxy: {
+    get instance() {
+      return { waitForExtensionClient: async () => true };
+    },
   },
 }));
 
@@ -168,7 +169,9 @@ function defaultCdpHandler(
   method: string,
   params?: Record<string, unknown>,
 ): unknown {
-  if (method === "Page.navigate") return { frameId: "f1" };
+  if (method === "Page.navigate") {
+    return { frameId: "f1" };
+  }
   if (method === "Runtime.evaluate") {
     const expression = String(params?.["expression"] ?? "");
     if (expression === "document.location.href") {
@@ -192,7 +195,9 @@ function defaultCdpHandler(
     }
     return { result: { value: null } };
   }
-  if (method === "Accessibility.enable") return {};
+  if (method === "Accessibility.enable") {
+    return {};
+  }
   if (method === "Accessibility.getFullAXTree") {
     return { nodes: [] };
   }
@@ -472,9 +477,9 @@ describe("browser_mode wiring through tool execution", () => {
     expect(result.isError).toBe(false);
   });
 
-  // ── Auto mode still works without browser_mode ────────────────
+  // ── Default browser selection works without browser_mode ──────
 
-  test("auto mode works when browser_mode is not specified", async () => {
+  test("default browser selection works when browser_mode is not specified", async () => {
     const result = await executeBrowserSnapshot({}, ctx);
     expect(result.isError).toBe(false);
   });

@@ -10,13 +10,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Stub the event hub to avoid spinning up real SSE infrastructure.
 mock.module("../../assistant-event-hub.js", () => ({
   assistantEventHub: {
@@ -26,9 +19,12 @@ mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { conversations } from "../../../memory/schema.js";
+import { eq } from "drizzle-orm";
+
+import { setConfig } from "../../../__tests__/helpers/set-config.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { conversations } from "../../../persistence/schema/index.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "../conversation-management-routes.js";
 import { ROUTES as INFERENCE_PROFILE_SESSION_ROUTES } from "../inference-profile-session-routes.js";
 import type { RouteDefinition } from "../types.js";
@@ -37,29 +33,17 @@ import type { RouteDefinition } from "../types.js";
 // DB bootstrap
 // ---------------------------------------------------------------------------
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
-// Config fixture — must expose at least one profile so the handler can
-// validate profile names.
+// Config fixture — the handler validates profile names against
+// `llm.profiles`, so seed at least one workspace profile. `profileSession`
+// keeps its schema default (`maxTtlSeconds: 43200`).
 // ---------------------------------------------------------------------------
 
-let configLlmProfiles: Record<string, unknown> = {};
-
-mock.module("../../../config/loader.js", () => ({
-  loadConfig: () => ({
-    llm: {
-      profiles: configLlmProfiles,
-      profileSession: { maxTtlSeconds: 43200 },
-    },
-  }),
-  getConfig: () => ({
-    llm: {
-      profiles: configLlmProfiles,
-      profileSession: { maxTtlSeconds: 43200 },
-    },
-  }),
-}));
+function seedProfiles(profiles: Record<string, unknown>): void {
+  setConfig("llm", { profiles });
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -67,10 +51,16 @@ mock.module("../../../config/loader.js", () => ({
 
 function findHandler(routes: RouteDefinition[], operationId: string) {
   const route = routes.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 
+const createHandler = findHandler(
+  CONVERSATION_MANAGEMENT_ROUTES,
+  "createConversation",
+);
 const putHandler = findHandler(
   CONVERSATION_MANAGEMENT_ROUTES,
   "setConversationInferenceProfile",
@@ -103,7 +93,6 @@ function seedConversation(id: string): void {
       updatedAt: now,
       source: "test",
       conversationType: "standard",
-      memoryScopeId: "default",
     })
     .run();
 }
@@ -112,13 +101,74 @@ function seedConversation(id: string): void {
 // Tests
 // ---------------------------------------------------------------------------
 
+describe("POST /v1/conversations (createConversation)", () => {
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  function readConversation(id: string) {
+    return getDb()
+      .select({
+        title: conversations.title,
+        isAutoTitle: conversations.isAutoTitle,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, id))
+      .get();
+  }
+
+  test("with a title → persists it as a user-set title (isAutoTitle = 0)", async () => {
+    const result = (await createHandler({
+      body: { conversationType: "standard", title: "Setting up your check-in" },
+    })) as { id: string; created: boolean };
+
+    expect(result.created).toBe(true);
+    const row = readConversation(result.id);
+    expect(row?.title).toBe("Setting up your check-in");
+    // isAutoTitle = 0 keeps the async LLM titler from overwriting it.
+    expect(row?.isAutoTitle).toBe(0);
+  });
+
+  test("blank title falls back to the replaceable 'New Conversation' placeholder", async () => {
+    const result = (await createHandler({
+      body: { conversationType: "standard", title: "   " },
+    })) as { id: string; created: boolean };
+
+    expect(result.created).toBe(true);
+    const row = readConversation(result.id);
+    expect(row?.title).toBe("New Conversation");
+    // Default auto-title flag (1) leaves it replaceable by the auto-titler.
+    expect(row?.isAutoTitle).toBe(1);
+  });
+
+  test("no title → 'New Conversation' placeholder", async () => {
+    const result = (await createHandler({
+      body: { conversationType: "standard" },
+    })) as { id: string; created: boolean };
+
+    expect(result.created).toBe(true);
+    const row = readConversation(result.id);
+    expect(row?.title).toBe("New Conversation");
+    expect(row?.isAutoTitle).toBe(1);
+  });
+
+  test("non-string title → BadRequestError (not a 500), no row created", () => {
+    // The shared route adapter doesn't runtime-validate the body, so the
+    // handler must reject a malformed title before `.trim()` throws.
+    expect(() =>
+      createHandler({ body: { conversationType: "standard", title: 123 } }),
+    ).toThrow(/title must be a string/);
+    expect(getDb().select().from(conversations).all()).toHaveLength(0);
+  });
+});
+
 describe("PUT /v1/conversations/:id/inference-profile", () => {
   beforeEach(() => {
     clearConversations();
-    configLlmProfiles = {
+    seedProfiles({
       fast: { model: "model-a" },
       slow: { model: "model-b" },
-    };
+    });
   });
 
   test("PUT with ttlSeconds=600 → response includes sessionId (UUID), expiresAt, ttlSeconds=600", async () => {
@@ -206,7 +256,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
 describe("POST /v1/conversations/inference-profile-session (inference_profile_open)", () => {
   beforeEach(() => {
     clearConversations();
-    configLlmProfiles = { fast: { model: "model-a" } };
+    seedProfiles({ fast: { model: "model-a" } });
   });
 
   test("POST with ttlSeconds=600 → same shape as PUT: sessionId UUID, expiresAt, ttlSeconds=600", async () => {
@@ -238,7 +288,7 @@ describe("POST /v1/conversations/inference-profile-session (inference_profile_op
 describe("GET /v1/conversations/inference-profile-sessions (inference_profile_list)", () => {
   beforeEach(() => {
     clearConversations();
-    configLlmProfiles = { fast: { model: "model-a" } };
+    seedProfiles({ fast: { model: "model-a" } });
   });
 
   test("GET inference-profile-sessions → returns sessions array with remainingSeconds", async () => {
@@ -273,7 +323,7 @@ describe("GET /v1/conversations/inference-profile-sessions (inference_profile_li
 describe("POST /v1/conversations/inference-profile-session/close (inference_profile_close)", () => {
   beforeEach(() => {
     clearConversations();
-    configLlmProfiles = { fast: { model: "model-a" } };
+    seedProfiles({ fast: { model: "model-a" } });
   });
 
   test("POST inference_profile_close → { noop: false, closed: { profile, sessionId } } after an open", async () => {

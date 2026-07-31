@@ -12,7 +12,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { createMockLoggerModule } from "../../../__tests__/helpers/mock-logger.js";
 import type { ToolContext } from "../../types.js";
 import { CdpError } from "../cdp-client/errors.js";
-import type { CdpClientKind, InternalBrowserMode } from "../cdp-client/types.js";
+import type {
+  CdpClientKind,
+  InternalBrowserMode,
+} from "../cdp-client/types.js";
 
 // ---------------------------------------------------------------------------
 // Captured call state
@@ -34,15 +37,13 @@ function makeFakeScopedClient(kind: CdpClientKind, conversationId: string) {
   };
 }
 
-const getCdpClientMock = mock(
-  (ctx: ToolContext, opts?: CdpClientCallOpts) => {
-    getCdpClientCalls.push({
-      mode: opts?.mode,
-      targetClientId: opts?.targetClientId,
-    });
-    return makeFakeScopedClient("extension", ctx.conversationId);
-  },
-);
+const getCdpClientMock = mock((ctx: ToolContext, opts?: CdpClientCallOpts) => {
+  getCdpClientCalls.push({
+    mode: opts?.mode,
+    targetClientId: opts?.targetClientId,
+  });
+  return makeFakeScopedClient("extension", ctx.conversationId);
+});
 
 // ---------------------------------------------------------------------------
 // Mutable sticky-kind control
@@ -54,6 +55,9 @@ const setPreferredBackendKindMock = mock(
   (_conversationId: string, _kind: CdpClientKind) => {},
 );
 const clearPreferredBackendKindMock = mock((_conversationId: string) => {});
+const waitForExtensionClientMock = mock(
+  async (_actor?: string, _targetClientId?: string) => true,
+);
 
 // ---------------------------------------------------------------------------
 // Module mocks (must be declared before dynamic import)
@@ -78,26 +82,13 @@ mock.module("../browser-manager.js", () => ({
   },
 }));
 
-mock.module("../../../config/loader.js", () => ({
-  getConfig: () => ({
-    hostBrowser: {
-      cdpInspect: {
-        enabled: false,
-        host: "localhost",
-        port: 9222,
-        probeTimeoutMs: 500,
-        desktopAuto: { enabled: false, cooldownMs: 30_000 },
-      },
-    },
-  }),
-}));
-
 mock.module("../../../daemon/host-browser-proxy.js", () => ({
   HostBrowserProxy: {
     get instance() {
       return {
         isAvailable: () => false,
         hasExtensionClient: () => false,
+        waitForExtensionClient: waitForExtensionClientMock,
         request: () => Promise.reject(new Error("no extension")),
       };
     },
@@ -141,7 +132,34 @@ describe("acquireCdpClientWithMode: target_client_id overrides sticky backend mo
     getCdpClientMock.mockClear();
     setPreferredBackendKindMock.mockClear();
     clearPreferredBackendKindMock.mockClear();
+    waitForExtensionClientMock.mockClear();
     stickyKind = null;
+  });
+
+  test("extension-pinned acquisition awaits the reconnect grace window", async () => {
+    await executeBrowserAttach(
+      { target_client_id: "host-client-grace" },
+      makeContext("grace-window"),
+    );
+
+    // The grace wait runs before backend selection so a flapping extension
+    // SSE reconnect doesn't hard-fail the dispatch, and it targets the exact
+    // requested client.
+    expect(waitForExtensionClientMock).toHaveBeenCalledTimes(1);
+    expect(waitForExtensionClientMock).toHaveBeenCalledWith(
+      undefined,
+      "host-client-grace",
+    );
+    expect(getCdpClientCalls[0].mode).toBe("extension");
+  });
+
+  test("non-extension (sticky local, no target) does not wait on the extension", async () => {
+    stickyKind = "local";
+
+    await executeBrowserAttach({}, makeContext("no-grace-for-local"));
+
+    expect(waitForExtensionClientMock).not.toHaveBeenCalled();
+    expect(getCdpClientCalls[0].mode).toBe("local");
   });
 
   test("sticky local + target_client_id → getCdpClient receives mode:extension, not local", async () => {

@@ -3,27 +3,13 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
+import type { AssistantEvent } from "../../../../api/index.js";
 import type { Conversation } from "../../../../daemon/conversation.js";
-import type { ServerMessage } from "../../../../daemon/message-protocol.js";
 
 let _mockConversation: MockConversation | undefined;
 
 mock.module("../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
-}));
-
-mock.module("../../../../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: {
-      default: {
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 200_000,
-          compactThreshold: 0.8,
-        },
-      },
-    },
-  }),
 }));
 
 mock.module("../../../../context/token-estimator.js", () => ({
@@ -32,8 +18,12 @@ mock.module("../../../../context/token-estimator.js", () => ({
 
 mock.module("../helpers.js", () => ({
   getConversationById: async (id: string) => {
-    if (!_mockConversation) return undefined;
-    if (_mockConversation.conversationId !== id) return undefined;
+    if (!_mockConversation) {
+      return undefined;
+    }
+    if (_mockConversation.conversationId !== id) {
+      return undefined;
+    }
     return _mockConversation as unknown as Conversation;
   },
   listConversationsByTitlePrefix: () => [],
@@ -55,13 +45,13 @@ interface MockConversation {
   agentLoop: { compactionCircuit: MockCompactionCircuit };
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
-  sentMessages: ServerMessage[];
-  sendToClient: (msg: ServerMessage) => void;
+  sentMessages: AssistantEvent[];
+  sendToClient: (msg: AssistantEvent) => void;
   getMessages: () => unknown[];
 }
 
 function makeConversation(id = "conv-playground-test"): MockConversation {
-  const sentMessages: ServerMessage[] = [];
+  const sentMessages: AssistantEvent[] = [];
   return {
     conversationId: id,
     agentLoop: {
@@ -82,7 +72,9 @@ function findRoute() {
   const route = ROUTES.find(
     (r) => r.operationId === "playgroundInjectCompactionFailures",
   );
-  if (!route) throw new Error("inject-failures route not registered");
+  if (!route) {
+    throw new Error("inject-failures route not registered");
+  }
   return route;
 }
 

@@ -26,7 +26,9 @@ mock.module("../runtime/pending-interactions.js", () => ({
   get: (requestId: string) => pendingStore.get(requestId),
   resolve: (requestId: string) => {
     const entry = pendingStore.get(requestId);
-    if (entry) pendingStore.delete(requestId);
+    if (entry) {
+      pendingStore.delete(requestId);
+    }
     return entry;
   },
 }));
@@ -99,7 +101,7 @@ afterAll(() => {
 
 const handleTransferContentGet = ROUTES.find(
   (r) => r.endpoint === "transfers/:transferId/content" && r.method === "GET",
-)!.handler;
+)!.handler as (args: Record<string, unknown>) => Promise<unknown>;
 
 const handleTransferContentPut = ROUTES.find(
   (r) => r.endpoint === "transfers/:transferId/content" && r.method === "PUT",
@@ -107,7 +109,7 @@ const handleTransferContentPut = ROUTES.find(
 
 const handleTransferResult = ROUTES.find(
   (r) => r.endpoint === "host-transfer-result",
-)!.handler;
+)!.handler as (args: Record<string, unknown>) => Promise<unknown>;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -186,15 +188,13 @@ describe("handleTransferContentGet — Phase 3 targetClientId guard", () => {
       ).toThrow(BadRequestError);
     });
 
-    test("getTransferContent NOT called on 400", () => {
+    test("getTransferContent NOT called on 400", async () => {
       stubTargetClientId = "client-A";
-      try {
-        handleTransferContentGet({
-          pathParams: { transferId: TEST_TRANSFER_ID },
-        });
-      } catch {
+      await handleTransferContentGet({
+        pathParams: { transferId: TEST_TRANSFER_ID },
+      }).catch(() => {
         // expected
-      }
+      });
       expect(getTransferContentCalls).toHaveLength(0);
     });
   });
@@ -212,16 +212,14 @@ describe("handleTransferContentGet — Phase 3 targetClientId guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("getTransferContent NOT called on 403", () => {
+    test("getTransferContent NOT called on 403", async () => {
       stubTargetClientId = "client-A";
-      try {
-        handleTransferContentGet({
-          pathParams: { transferId: TEST_TRANSFER_ID },
-          headers: { "x-vellum-client-id": "client-B" },
-        });
-      } catch {
+      await handleTransferContentGet({
+        pathParams: { transferId: TEST_TRANSFER_ID },
+        headers: { "x-vellum-client-id": "client-B" },
+      }).catch(() => {
         // expected
-      }
+      });
       expect(getTransferContentCalls).toHaveLength(0);
     });
   });
@@ -526,23 +524,19 @@ describe("handleTransferResult — Phase 3 targetClientId guard", () => {
       );
     });
 
-    test("resolveTransferResult NOT called on 400", () => {
+    test("resolveTransferResult NOT called on 400", async () => {
       registerHostTransferPending("client-A");
-      try {
-        handleTransferResult({ body: resultBody() });
-      } catch {
+      await handleTransferResult({ body: resultBody() }).catch(() => {
         // expected
-      }
+      });
       expect(resolveTransferResultCalls).toHaveLength(0);
     });
 
-    test("pending interaction still present after 400", () => {
+    test("pending interaction still present after 400", async () => {
       registerHostTransferPending("client-A");
-      try {
-        handleTransferResult({ body: resultBody() });
-      } catch {
+      await handleTransferResult({ body: resultBody() }).catch(() => {
         // expected
-      }
+      });
       expect(pendingStore.has(TEST_REQUEST_ID)).toBe(true);
     });
   });
@@ -560,29 +554,25 @@ describe("handleTransferResult — Phase 3 targetClientId guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("resolveTransferResult NOT called on 403", () => {
+    test("resolveTransferResult NOT called on 403", async () => {
       registerHostTransferPending("client-A");
-      try {
-        handleTransferResult({
-          body: resultBody(),
-          headers: { "x-vellum-client-id": "client-B" },
-        });
-      } catch {
+      await handleTransferResult({
+        body: resultBody(),
+        headers: { "x-vellum-client-id": "client-B" },
+      }).catch(() => {
         // expected
-      }
+      });
       expect(resolveTransferResultCalls).toHaveLength(0);
     });
 
-    test("pending interaction still present after 403", () => {
+    test("pending interaction still present after 403", async () => {
       registerHostTransferPending("client-A");
-      try {
-        handleTransferResult({
-          body: resultBody(),
-          headers: { "x-vellum-client-id": "client-B" },
-        });
-      } catch {
+      await handleTransferResult({
+        body: resultBody(),
+        headers: { "x-vellum-client-id": "client-B" },
+      }).catch(() => {
         // expected
-      }
+      });
       expect(pendingStore.has(TEST_REQUEST_ID)).toBe(true);
     });
   });

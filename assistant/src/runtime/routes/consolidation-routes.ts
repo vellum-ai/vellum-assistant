@@ -1,59 +1,73 @@
 /**
- * Route handlers for the memory v2 consolidation job.
+ * Route handlers for the memory consolidation job.
  *
- * Consolidation is the v2 counterpart to filing: an interval-based background
- * pass that routes accumulated `memory/buffer.md` entries into concept pages.
- * The job itself is enqueued by the memory jobs worker (see
+ * Consolidation is the concept-page counterpart to filing: an interval-based
+ * background pass that routes accumulated `memory/buffer.md` entries into
+ * concept pages. The job itself is enqueued by the memory jobs worker (see
  * `maybeEnqueueGraphMaintenanceJobs` in `memory/jobs-worker.ts`); these routes
  * only surface its config and provide an on-demand trigger for the Settings UI.
  *
  * `available` mirrors the filing route's `available` field: it reflects which
- * background memory job is active for this instance. When
- * `config.memory.v2.enabled` is false, consolidation returns
- * `available: false` and the UI hides the row.
+ * background memory job is active for this instance. When concept-page memory
+ * is not active, consolidation returns `available: false` and the UI hides
+ * the row.
  */
 
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
+import { usesConceptPageMemory } from "../../config/memory-v3-gate.js";
+import { getMemoryCheckpoint } from "../../persistence/checkpoints.js";
 import {
   getMessageRoleStatsByConversation,
   listConversationsBySource,
-} from "../../memory/conversation-queries.js";
+} from "../../persistence/conversation-queries.js";
 import {
   enqueueMemoryJob,
   hasActiveJobOfType,
   MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
-} from "../../memory/jobs-store.js";
-import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../memory/jobs-worker.js";
-import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
+} from "../../persistence/jobs-store.js";
+import { getUsageCostForConversationWindow } from "../../persistence/llm-usage-store.js";
+import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../plugins/defaults/memory/jobs-worker.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/substrate/constants.js";
+import { resolveSubstrateTuning } from "../../plugins/defaults/memory/substrate/tuning.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
+import {
+  paginateRuns,
+  parseRunsBeforeCursor,
+  parseRunsLimit,
+  RUNS_NEXT_CURSOR_SCHEMA,
+  RUNS_PAGINATION_QUERY_PARAMS,
+} from "./runs-pagination.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function isConsolidationAvailable(): boolean {
-  const config = getConfig();
-  return config.memory.enabled !== false && config.memory.v2.enabled;
+  return usesConceptPageMemory(getConfig().memory);
 }
 
 function consolidationIntervalMs(): number {
-  return getConfig().memory.v2.consolidation_interval_hours * 60 * 60 * 1000;
+  return (
+    resolveSubstrateTuning(getConfig().memory).consolidation_interval_hours *
+    60 *
+    60 *
+    1000
+  );
 }
 
 function readLastRunAt(): number | null {
   const raw = getMemoryCheckpoint(
     GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
   );
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
 function readConsolidationConfigResponse() {
-  const config = getConfig();
-  const available = config.memory.enabled !== false && config.memory.v2.enabled;
+  const available = isConsolidationAvailable();
   const enabled = available;
   const intervalMs = consolidationIntervalMs();
   const lastRunAt = readLastRunAt();
@@ -118,7 +132,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: async (_args: RouteHandlerArgs) => {
       if (!isConsolidationAvailable()) {
         throw new BadRequestError(
-          "Consolidation is not available (memory.v2.enabled is false)",
+          "Consolidation is not available (concept-page memory is not active)",
         );
       }
       // Coalesce: don't pile up duplicate jobs if the worker hasn't picked up
@@ -162,13 +176,7 @@ export const ROUTES: RouteDefinition[] = [
       "on the conversation row. Shape mirrors `heartbeat/runs` so the " +
       "schedules settings UI can reuse its run-row component.",
     tags: ["consolidation"],
-    queryParams: [
-      {
-        name: "limit",
-        schema: { type: "integer" },
-        description: "Max runs to return (default 20, max 100)",
-      },
-    ],
+    queryParams: RUNS_PAGINATION_QUERY_PARAMS(20),
     responseBody: z.object({
       runs: z
         .array(
@@ -189,16 +197,18 @@ export const ROUTES: RouteDefinition[] = [
           }),
         )
         .describe("Consolidation run records"),
+      nextCursor: RUNS_NEXT_CURSOR_SCHEMA,
     }),
     handler: async ({ queryParams }: RouteHandlerArgs) => {
       const params = queryParams ?? {};
-      const rawLimit = Number(params.limit ?? 20);
-      const limit = Number.isFinite(rawLimit)
-        ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
-        : 20;
-      const rows = listConversationsBySource(
-        MEMORY_V2_CONSOLIDATION_SOURCE,
+      const limit = parseRunsLimit(params, 20);
+      const before = parseRunsBeforeCursor(params);
+      const { rows, nextCursor } = paginateRuns(
+        listConversationsBySource(MEMORY_V2_CONSOLIDATION_SOURCE, limit + 1, {
+          beforeCreatedAt: before,
+        }),
         limit,
+        (c) => c.createdAt,
       );
       // Aggregate assistant-message stats in one batched query: presence of
       // an assistant message is the strongest "agent emitted output" signal
@@ -212,6 +222,7 @@ export const ROUTES: RouteDefinition[] = [
       );
       const now = Date.now();
       return {
+        nextCursor,
         runs: rows.map((c) => {
           const stat = assistantStats.get(c.id);
           const hasAssistantOutput = (stat?.count ?? 0) > 0;

@@ -3,17 +3,27 @@ import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
+import {
+  resolveCredentialWithRefresh,
+  verifySecretWithRefresh,
+} from "../../credential-refresh.js";
 import { StringDedupCache } from "../../dedup-cache.js";
+import {
+  appendFailedEmailAttachmentNotice,
+  ingestEmailAttachments,
+} from "../../email/attachments.js";
 import { normalizeEmailWebhook } from "../../email/normalize.js";
 import { verifyEmailWebhookSignature } from "../../email/verify.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
+import { readLimitedBody } from "../read-limited-body.js";
 import {
   resolveAssistant,
   isRejection,
 } from "../../routing/resolve-assistant.js";
 import {
   handleCircuitBreakerError,
+  interceptedReply,
   processInboundResult,
 } from "../../webhook-pipeline.js";
 
@@ -34,55 +44,30 @@ export function createEmailWebhookHandler(
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    // Payload size guard
-    const contentLength = req.headers.get("content-length");
-    if (
-      contentLength &&
-      Number(contentLength) > config.maxWebhookPayloadBytes
-    ) {
-      tlog.warn({ contentLength }, "Email webhook payload too large");
+    // Cap body buffering before the (unauthenticated) signature check; a
+    // header-only guard is bypassable via chunked / absent Content-Length.
+    // Email payloads carry inlined base64 attachments, so this route uses a
+    // larger ceiling than the generic webhook cap.
+    const bodyResult = await readLimitedBody(
+      req,
+      config.maxEmailWebhookPayloadBytes ?? config.maxWebhookPayloadBytes,
+    );
+    if (bodyResult.status === "too_large") {
+      tlog.warn("Email webhook payload too large");
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
-
-    let rawBody: string;
-    try {
-      rawBody = await req.text();
-    } catch {
+    if (bodyResult.status === "unreadable") {
       return Response.json({ error: "Failed to read body" }, { status: 400 });
     }
-
-    if (Buffer.byteLength(rawBody) > config.maxWebhookPayloadBytes) {
-      tlog.warn(
-        { bodyLength: Buffer.byteLength(rawBody) },
-        "Email webhook payload too large",
-      );
-      return Response.json({ error: "Payload too large" }, { status: 413 });
-    }
-
-    // Resolve webhook secret from credential cache
-    const webhookSecret = caches?.credentials
-      ? await caches.credentials.get(credentialKey("vellum", "webhook_secret"))
-      : undefined;
-
-    // If the initial cache read returned undefined but a credential cache is available,
-    // attempt one forced refresh before fail-closing — the credential may have been
-    // written after the TTL cache was last populated.
-    let effectiveSecret = webhookSecret;
-    if (!effectiveSecret && caches?.credentials) {
-      effectiveSecret = await caches.credentials.get(
-        credentialKey("vellum", "webhook_secret"),
-        { force: true },
-      );
-      if (effectiveSecret) {
-        tlog.info(
-          "Email webhook secret resolved after forced credential refresh",
-        );
-      }
-    }
+    const rawBody = bodyResult.text;
 
     // Signature validation is required — reject when no secret is configured
     // rather than silently accepting unauthenticated payloads (fail-closed).
-    if (!effectiveSecret) {
+    const webhookSecret = await resolveCredentialWithRefresh(
+      caches?.credentials,
+      credentialKey("vellum", "webhook_secret"),
+    );
+    if (!webhookSecret) {
       tlog.warn("Email webhook secret is not configured — rejecting request");
       return Response.json(
         { error: "Webhook secret not configured" },
@@ -90,32 +75,14 @@ export function createEmailWebhookHandler(
       );
     }
 
-    let signatureValid = verifyEmailWebhookSignature(
-      req.headers,
-      rawBody,
-      effectiveSecret,
-    );
-
-    // One-shot force retry: if verification failed and caches are available,
-    // force-refresh the webhook secret and retry once.
-    if (!signatureValid && caches?.credentials) {
-      const freshSecret = await caches.credentials.get(
-        credentialKey("vellum", "webhook_secret"),
-        { force: true },
-      );
-      if (freshSecret) {
-        signatureValid = verifyEmailWebhookSignature(
-          req.headers,
-          rawBody,
-          freshSecret,
-        );
-        if (signatureValid) {
-          tlog.info(
-            "Email webhook signature verified after forced credential refresh",
-          );
-        }
-      }
-    }
+    const signatureValid = await verifySecretWithRefresh({
+      credentials: caches?.credentials,
+      key: credentialKey("vellum", "webhook_secret"),
+      verify: (secret) =>
+        verifyEmailWebhookSignature(req.headers, rawBody, secret),
+      log: tlog,
+      label: "Email webhook signature",
+    });
 
     if (!signatureValid) {
       tlog.warn("Email webhook signature verification failed");
@@ -137,7 +104,13 @@ export function createEmailWebhookHandler(
       return Response.json({ ok: true });
     }
 
-    const { event, eventId, recipientAddress } = normalized;
+    const {
+      event,
+      eventId,
+      recipientAddress,
+      senderAuthenticated,
+      attachments,
+    } = normalized;
 
     // Dedup by event ID
     if (!dedupCache.reserve(eventId)) {
@@ -179,6 +152,35 @@ export function createEmailWebhookHandler(
       return Response.json({ ok: true });
     }
 
+    // Ingest inline base64 attachments into the assistant's attachment store
+    // (which stores them in the conversation workspace) and forward the ids.
+    // A transient upload failure surfaces as 500 so the platform retries.
+    let attachmentIds: string[] | undefined;
+    try {
+      const ingested = await ingestEmailAttachments(config, attachments, tlog);
+      if (ingested.attachmentIds.length > 0) {
+        attachmentIds = ingested.attachmentIds;
+      }
+      event.message.content = appendFailedEmailAttachmentNotice(
+        event.message.content,
+        ingested.failedAttachmentNames,
+      );
+    } catch (err) {
+      const cbResponse = handleCircuitBreakerError(
+        err,
+        dedupCache,
+        eventId,
+        tlog,
+      );
+      if (cbResponse) return cbResponse;
+      tlog.error(
+        { err, eventId },
+        "Failed to ingest inbound email attachments",
+      );
+      dedupCache.unreserve(eventId);
+      return Response.json({ error: "Internal error" }, { status: 500 });
+    }
+
     // Forward to runtime
     try {
       const inReplyTo =
@@ -187,6 +189,7 @@ export function createEmailWebhookHandler(
         typeof payload.subject === "string" ? payload.subject : undefined;
 
       const result = await handleInbound(config, event, {
+        ...(attachmentIds ? { attachmentIds } : {}),
         transportMetadata: buildEmailTransportMetadata({
           senderAddress: event.actor.actorExternalId,
           recipientAddress: recipientAddress,
@@ -196,27 +199,35 @@ export function createEmailWebhookHandler(
         replyCallbackUrl: undefined, // Email replies use `assistant email send` tool (no /deliver/email)
         traceId,
         routingOverride: routing,
+        senderAuthenticated,
         sourceMetadata: {
+          emailProvider: "platform",
           emailSubject: (payload.subject as string | undefined) ?? undefined,
           emailRecipient: recipientAddress,
-          ...(payload.inReplyTo ? { emailInReplyTo: payload.inReplyTo } : {}),
-          ...(payload.references
+          ...(typeof payload.inReplyTo === "string"
+            ? { emailInReplyTo: payload.inReplyTo }
+            : {}),
+          ...(typeof payload.references === "string"
             ? { emailReferences: payload.references }
             : {}),
         },
       });
 
-      // Verification reply — short-circuit before processInboundResult
-      if (result.verificationIntercepted && result.verificationReplyText) {
+      // Verification / invite reply — short-circuit before processInboundResult
+      const intercept = interceptedReply(result);
+      if (intercept) {
         dedupCache.mark(eventId);
         tlog.info(
           { from: event.actor.actorExternalId, to: recipientAddress },
-          "Verification intercepted — returning reply text to platform",
+          "Gateway intercept — returning reply text to platform",
         );
+        // replyText contract: the gateway cannot send email on this path — the
+        // reply rides the HTTP response for the platform (vembda) to deliver,
+        // and delivery is tracked platform-side.
         return Response.json({
           ok: true,
-          verificationIntercepted: true,
-          replyText: result.verificationReplyText,
+          [intercept.flag]: true,
+          replyText: intercept.text,
         });
       }
 
@@ -242,7 +253,9 @@ export function createEmailWebhookHandler(
 
       if (!result.rejected) {
         const denied = result.runtimeResponse?.denied ?? false;
-        const deniedReason = denied ? (result.runtimeResponse?.reason ?? "unknown") : undefined;
+        const deniedReason = denied
+          ? (result.runtimeResponse?.reason ?? "unknown")
+          : undefined;
         tlog.info(
           {
             status: denied ? "denied" : "forwarded",
@@ -257,7 +270,8 @@ export function createEmailWebhookHandler(
 
       // Propagate the runtime's full response (including denied/reason/replyText)
       // so the platform can decide whether to persist the email and how to respond
-      // to the sender.
+      // to the sender. Same replyText contract as above: the gateway cannot send
+      // email here — the platform (vembda) delivers any reply and tracks delivery.
       const runtimeBody = result.runtimeResponse ?? {};
       return Response.json({ ok: true, ...runtimeBody });
     } catch (err) {

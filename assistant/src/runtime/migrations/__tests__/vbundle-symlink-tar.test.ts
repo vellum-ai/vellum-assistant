@@ -80,11 +80,17 @@ function mutateManifestAndRepack(
     header[124 + i] = newSizeOctal.charCodeAt(i);
   }
   header[135] = 0;
-  for (let i = 148; i < 156; i++) header[i] = 0x20;
+  for (let i = 148; i < 156; i++) {
+    header[i] = 0x20;
+  }
   let sum = 0;
-  for (let i = 0; i < 512; i++) sum += header[i];
+  for (let i = 0; i < 512; i++) {
+    sum += header[i];
+  }
   const cksum = sum.toString(8).padStart(6, "0");
-  for (let i = 0; i < 6; i++) header[148 + i] = cksum.charCodeAt(i);
+  for (let i = 0; i < 6; i++) {
+    header[148 + i] = cksum.charCodeAt(i);
+  }
   header[154] = 0;
   header[155] = 0x20;
 
@@ -262,7 +268,9 @@ describe("vbundle symlink tar — emit / parse / validate", () => {
       h.set(nameBytes.subarray(0, 100), 0);
       const writeOctal = (off: number, len: number, value: number) => {
         const s = value.toString(8).padStart(len - 1, "0");
-        for (let i = 0; i < s.length; i++) h[off + i] = s.charCodeAt(i);
+        for (let i = 0; i < s.length; i++) {
+          h[off + i] = s.charCodeAt(i);
+        }
         h[off + len - 1] = 0;
       };
       writeOctal(100, 8, 0o644);
@@ -280,11 +288,17 @@ describe("vbundle symlink tar — emit / parse / validate", () => {
       h[263] = "0".charCodeAt(0);
       h[264] = "0".charCodeAt(0);
       // Checksum field starts as eight spaces per spec
-      for (let i = 148; i < 156; i++) h[i] = 0x20;
+      for (let i = 148; i < 156; i++) {
+        h[i] = 0x20;
+      }
       let sum = 0;
-      for (let i = 0; i < BLOCK; i++) sum += h[i];
+      for (let i = 0; i < BLOCK; i++) {
+        sum += h[i];
+      }
       const cksum = sum.toString(8).padStart(6, "0");
-      for (let i = 0; i < 6; i++) h[148 + i] = cksum.charCodeAt(i);
+      for (let i = 0; i < 6; i++) {
+        h[148 + i] = cksum.charCodeAt(i);
+      }
       h[154] = 0;
       h[155] = 0x20;
       return h;
@@ -292,7 +306,9 @@ describe("vbundle symlink tar — emit / parse / validate", () => {
 
     function padBlock(data: Uint8Array): Uint8Array {
       const rem = data.length % BLOCK;
-      if (rem === 0) return data;
+      if (rem === 0) {
+        return data;
+      }
       const padded = new Uint8Array(data.length + (BLOCK - rem));
       padded.set(data);
       return padded;

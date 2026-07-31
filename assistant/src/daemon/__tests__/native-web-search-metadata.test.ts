@@ -8,36 +8,14 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ── Mock platform (must precede imports that read it) ─────────────────────────
-mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 
-mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: {
-      entries: {},
-      load: { extraDirs: [], watch: false, watchDebounceMs: 0 },
-      install: { nodeManager: "npm" },
-      allowBundled: null,
-      remoteProviders: {
-        skillssh: { enabled: true },
-        clawhub: { enabled: true },
-      },
-      remotePolicy: {
-        blockSuspicious: true,
-        blockMalware: true,
-        maxSkillsShRisk: "medium",
-      },
-    },
-  }),
-  loadConfig: () => ({}),
-}));
+// The finalize path indexes tool-result messages into memory; keep it inert
+// (the old partial mock omitted memory, leaving it disabled) so no real
+// embedding backend is touched.
+setConfig("memory", { enabled: false, v2: { enabled: false } });
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: () => ({ id: "mock-msg-id" }),
   getMessageById: () => null,
   updateMessageContent: () => {},
@@ -45,12 +23,13 @@ mock.module("../../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
+import type { AssistantEvent } from "../../api/index.js";
 import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../../tools/network/web-search-error.js";
 import type {
   EventHandlerDeps,
@@ -60,28 +39,26 @@ import {
   createEventHandlerState,
   dispatchAgentEvent,
 } from "../conversation-agent-loop-handlers.js";
-import type { ServerMessage } from "../message-protocol.js";
 
-type ToolResultEvent = Extract<ServerMessage, { type: "tool_result" }>;
+type ToolResultEvent = Extract<AssistantEvent, { type: "tool_result" }>;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function createCollectorDeps(providerName = "anthropic"): {
   deps: EventHandlerDeps;
-  events: ServerMessage[];
+  events: AssistantEvent[];
 } {
-  const events: ServerMessage[] = [];
+  const events: AssistantEvent[] = [];
   const deps = {
     ctx: {
       conversationId: "conv-native-meta",
       provider: { name: providerName },
-      traceEmitter: { emit: () => {} },
       streamThinking: false,
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},
       currentTurnSurfaces: [],
     } as unknown as EventHandlerDeps["ctx"],
-    onEvent: (msg: ServerMessage) => events.push(msg),
+    onEvent: (msg: AssistantEvent) => events.push(msg),
     reqId: "req-native-meta",
     isFirstMessage: false,
     shouldGenerateTitle: false,

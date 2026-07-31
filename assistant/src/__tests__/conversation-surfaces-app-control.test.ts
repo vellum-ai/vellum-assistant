@@ -95,7 +95,6 @@ function buildMockContext(
             actorPrincipalId,
           } as SurfaceConversationContext["currentTurnAuthContext"])
         : undefined,
-    traceEmitter: { emit: () => {} },
     sendToClient: () => {},
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
@@ -338,7 +337,9 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
         next: InstanceType<typeof HostAppControlProxy> | undefined,
       ) => {
         setterCalls.push(next);
-        if (attached && attached !== next) attached.dispose();
+        if (attached && attached !== next) {
+          attached.dispose();
+        }
         attached = next;
       };
 
@@ -568,9 +569,7 @@ describe("surfaceProxyResolver — app-control tool routing", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain(
-        "Multiple host_app_control clients",
-      );
+      expect(result.content).toContain("Multiple host_app_control clients");
       expect(result.content).toContain("target_client_id");
       // No envelope dispatched.
       expect(sentMessages).toHaveLength(0);

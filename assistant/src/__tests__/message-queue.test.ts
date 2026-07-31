@@ -117,6 +117,46 @@ describe("MessageQueue.shiftN", () => {
   });
 });
 
+describe("MessageQueue.unshift", () => {
+  test("requeues at the front and shift returns it first", () => {
+    const q = new MessageQueue();
+    q.push(makeItem("first", "r1"));
+    q.push(makeItem("second", "r2"));
+
+    const popped = q.shift();
+    expect(popped?.requestId).toBe("r1");
+    q.unshift(popped!);
+
+    expect(q.shift()?.requestId).toBe("r1");
+    expect(q.shift()?.requestId).toBe("r2");
+  });
+
+  test("byte accounting round-trips through shift + unshift", () => {
+    const q = new MessageQueue();
+    q.push(makeItem("first", "r1"));
+    const bytesBefore = q.totalBytes;
+
+    const popped = q.shift()!;
+    q.unshift(popped);
+
+    expect(q.totalBytes).toBe(bytesBefore);
+    expect(q.length).toBe(1);
+  });
+
+  test("accepts a requeue even when the queue is at its byte budget", () => {
+    const q = new MessageQueue(8);
+    const item = makeItem("0123456789", "r1");
+    // First push into an empty queue is always accepted.
+    expect(q.push(item)).toBe(true);
+    const popped = q.shift()!;
+    q.push(makeItem("xxxxxxxxxx", "r2"));
+    // A requeue must never reject: the item was already accepted once.
+    q.unshift(popped);
+    expect(q.length).toBe(2);
+    expect(q.shift()?.requestId).toBe("r1");
+  });
+});
+
 describe("MessageQueue exports", () => {
   test("DEFAULT_MAX_QUEUE_BYTES is importable and positive", () => {
     expect(typeof DEFAULT_MAX_QUEUE_BYTES).toBe("number");

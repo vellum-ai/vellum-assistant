@@ -11,7 +11,9 @@ import { stripCommentLines } from "../util/strip-comment-lines.js";
  */
 export function readNowScratchpad(): string | null {
   const nowPath = getWorkspacePromptPath("NOW.md");
-  if (!existsSync(nowPath)) return null;
+  if (!existsSync(nowPath)) {
+    return null;
+  }
   try {
     const stripped = stripCommentLines(readFileSync(nowPath, "utf-8")).trim();
     return stripped.length > 0 ? stripped : null;

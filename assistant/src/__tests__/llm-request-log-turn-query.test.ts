@@ -1,22 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    model: "test",
-    provider: "test",
-    memory: { enabled: false },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    secretDetection: { enabled: false },
-  }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import { sql } from "drizzle-orm";
 
@@ -24,22 +6,31 @@ import {
   addMessage,
   createConversation,
   forkConversation,
-} from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-crud.js";
+import { getDb, getLogsDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   backfillMessageIdOnLogs,
   getRequestLogsByMessageId,
+  linkRequestLogsToMessage,
   recordRequestLog,
   relinkLlmRequestLogs,
-} from "../memory/llm-request-log-store.js";
-import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
+} from "../persistence/llm-request-log-store.js";
+import {
+  llmRequestLogs,
+  toolInvocations,
+} from "../persistence/schema/index.js";
 
-initializeDb();
+await initializeDb();
+
+// llm_request_logs lives in the dedicated logs connection.
+function logsDb() {
+  return getLogsDb()!;
+}
 
 function resetTables(): void {
   const db = getDb();
-  db.delete(llmRequestLogs).run();
+  logsDb().delete(llmRequestLogs).run();
   db.delete(toolInvocations).run();
   db.run("DELETE FROM message_attachments");
   db.run("DELETE FROM attachments");
@@ -145,7 +136,7 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     // Fork the conversation
     const fork = forkConversation({ conversationId: source.id });
     const forkMessages = (
-      await import("../memory/conversation-crud.js")
+      await import("../persistence/conversation-crud.js")
     ).getMessages(fork.id);
     const forkLastAssistant = forkMessages
       .filter((m) => m.role === "assistant")
@@ -220,7 +211,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     );
 
     // Orphaned log 1: message_id points to a deleted message
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-orphan-1",
         conversationId: conv.id,
@@ -233,7 +225,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
       .run();
 
     // Orphaned log 2
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-orphan-2",
         conversationId: conv.id,
@@ -246,7 +239,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
       .run();
 
     // Surviving log: backfilled to the surviving assistant message
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-surviving",
         conversationId: conv.id,
@@ -280,7 +274,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     );
 
     // Unlinked log: messageId is NULL (backfill hasn't run yet)
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-unlinked-1",
         conversationId: conv.id,
@@ -293,7 +288,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
       .run();
 
     // Linked log: already backfilled to the assistant message
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-linked-1",
         conversationId: conv.id,
@@ -311,7 +307,7 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     expect(logs[1]?.id).toBe("log-linked-1");
 
     // Verify opportunistic backfill ran: the unlinked log should now have a messageId
-    const backfilledLog = db
+    const backfilledLog = logsDb()
       .select({ messageId: llmRequestLogs.messageId })
       .from(llmRequestLogs)
       .where(sql`${llmRequestLogs.id} = 'log-unlinked-1'`)
@@ -332,7 +328,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     db.run(
       sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a1-a', ${convA.id}, 'assistant', '"Hi A"', ${T + 10000})`,
     );
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-conv-a",
         conversationId: convA.id,
@@ -351,7 +348,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     db.run(
       sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a1-b', ${convB.id}, 'assistant', '"Hi B"', ${T + 10000})`,
     );
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-conv-b",
         conversationId: convB.id,
@@ -386,7 +384,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     db.run(
       sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a1-t', ${conv.id}, 'assistant', '"Answer 1"', ${T + 10000})`,
     );
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-turn1-unlinked",
         conversationId: conv.id,
@@ -405,7 +404,8 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     db.run(
       sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a2-t', ${conv.id}, 'assistant', '"Answer 2"', ${T + 70000})`,
     );
-    db.insert(llmRequestLogs)
+    logsDb()
+      .insert(llmRequestLogs)
       .values({
         id: "log-turn2-unlinked",
         conversationId: conv.id,
@@ -463,5 +463,164 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     expect(logs).toHaveLength(2);
     expect(logs[0]?.messageId).toBe(a1.id);
     expect(logs[1]?.messageId).toBe(a1.id);
+  });
+});
+
+describe("compaction-call attribution", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test("fork: an unlinked compactionAgent row does not eclipse the source turn's calls", async () => {
+    const source = createConversation("eclipse-source");
+    await addMessage(source.id, "user", "Original question", {
+      skipIndexing: true,
+    });
+    recordRequestLog(source.id, '{"turn":"src"}', '{"answer":"hi"}');
+    const reply = await addMessage(source.id, "assistant", "Answer", {
+      skipIndexing: true,
+    });
+    backfillMessageIdOnLogs(source.id, reply.id);
+
+    const fork = forkConversation({ conversationId: source.id });
+    const forkMessages = (
+      await import("../persistence/conversation-crud.js")
+    ).getMessages(fork.id);
+    const forkReply = forkMessages.filter((m) => m.role === "assistant").at(-1);
+    expect(forkReply).toBeDefined();
+
+    // A summarize-up-to compaction call lands in the fork, unlinked, inside
+    // the pre-fork turn's open-ended time window.
+    recordRequestLog(
+      fork.id,
+      '{"compaction":true}',
+      '{"summary":"..."}',
+      undefined,
+      "openrouter",
+      "compactionAgent",
+    );
+
+    const logs = getRequestLogsByMessageId(forkReply!.id);
+    const callSites = logs.map((l) => l.callSite);
+    // The recovery may claim the companion row into the window, but the
+    // fork-source fallback must still surface the turn's real call.
+    expect(callSites).toContain(null);
+    expect(logs.some((l) => l.conversationId === source.id)).toBe(true);
+  });
+
+  test("a linked compaction row belongs to the card's own group, not the prior turn", async () => {
+    const conv = createConversation("card-group");
+    await addMessage(conv.id, "user", "Chat away", { skipIndexing: true });
+    recordRequestLog(conv.id, '{"turn":"main"}', '{"answer":"sure"}');
+    const reply = await addMessage(conv.id, "assistant", "Sure!", {
+      skipIndexing: true,
+    });
+    backfillMessageIdOnLogs(conv.id, reply.id);
+
+    // Summarize-up-to persists a card and links the compaction row to it.
+    const compactionLogId = recordRequestLog(
+      conv.id,
+      '{"compaction":true}',
+      '{"summary":"..."}',
+      undefined,
+      "openrouter",
+      "compactionAgent",
+    );
+    const card = await addMessage(
+      conv.id,
+      "assistant",
+      "**Conversation summarized**",
+      {
+        metadata: { messageKind: "system_card" },
+        skipIndexing: true,
+      },
+    );
+    linkRequestLogsToMessage([compactionLogId!], card.id);
+
+    // The prior turn keeps only its own call…
+    const turnLogs = getRequestLogsByMessageId(reply.id);
+    expect(turnLogs).toHaveLength(1);
+    expect(turnLogs[0]?.messageId).toBe(reply.id);
+
+    // …and the card's group holds exactly the compaction call.
+    const cardLogs = getRequestLogsByMessageId(card.id);
+    expect(cardLogs).toHaveLength(1);
+    expect(cardLogs[0]?.id).toBe(compactionLogId!);
+    expect(cardLogs[0]?.messageId).toBe(card.id);
+  });
+
+  test("a card that is a user message's only reply is that turn's group (/compact shape)", async () => {
+    const conv = createConversation("compact-turn");
+    const userMsg = await addMessage(conv.id, "user", "/compact", {
+      skipIndexing: true,
+    });
+    const compactionLogId = recordRequestLog(
+      conv.id,
+      '{"compaction":true}',
+      '{"summary":"..."}',
+      undefined,
+      "openrouter",
+      "compactionAgent",
+    );
+    const card = await addMessage(conv.id, "assistant", "**Compacted**", {
+      metadata: { messageKind: "system_card" },
+      skipIndexing: true,
+    });
+    linkRequestLogsToMessage([compactionLogId!], card.id);
+
+    const logs = getRequestLogsByMessageId(userMsg.id);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]?.id).toBe(compactionLogId!);
+  });
+
+  test("recovery on the prior turn cannot defeat the deliberate card link", async () => {
+    const conv = createConversation("link-race");
+    await addMessage(conv.id, "user", "Chat away", { skipIndexing: true });
+    recordRequestLog(conv.id, '{"turn":"main"}', '{"answer":"sure"}');
+    const reply = await addMessage(conv.id, "assistant", "Sure!", {
+      skipIndexing: true,
+    });
+    backfillMessageIdOnLogs(conv.id, reply.id);
+
+    // The compaction call is recorded unlinked, before its result card
+    // persists — its createdAt falls inside the prior turn's open time window.
+    const compactionLogId = recordRequestLog(
+      conv.id,
+      '{"compaction":true}',
+      '{"summary":"..."}',
+      undefined,
+      "openrouter",
+      "compactionAgent",
+    );
+
+    // Race: the inspector queries the prior turn in the window between the
+    // compaction call and the card link. Recovery may sweep the unlinked
+    // compaction row into the view, but it must NOT durably stamp it onto this
+    // turn — otherwise the IS-NULL-guarded link below would no-op.
+    getRequestLogsByMessageId(reply.id);
+    const afterRecovery = logsDb()
+      .select({ messageId: llmRequestLogs.messageId })
+      .from(llmRequestLogs)
+      .where(sql`${llmRequestLogs.id} = ${compactionLogId!}`)
+      .get();
+    expect(afterRecovery?.messageId).toBeNull();
+
+    // The card persists and the route deliberately links the compaction row.
+    const card = await addMessage(conv.id, "assistant", "**Compacted**", {
+      metadata: { messageKind: "system_card" },
+      skipIndexing: true,
+    });
+    linkRequestLogsToMessage([compactionLogId!], card.id);
+
+    // The deliberate link wins: the compaction call belongs to the card…
+    const cardLogs = getRequestLogsByMessageId(card.id);
+    expect(cardLogs).toHaveLength(1);
+    expect(cardLogs[0]?.id).toBe(compactionLogId!);
+    expect(cardLogs[0]?.messageId).toBe(card.id);
+
+    // …and the prior turn keeps only its own mainAgent call.
+    const turnLogs = getRequestLogsByMessageId(reply.id);
+    expect(turnLogs).toHaveLength(1);
+    expect(turnLogs[0]?.messageId).toBe(reply.id);
   });
 });

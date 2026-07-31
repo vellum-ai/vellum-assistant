@@ -1,9 +1,10 @@
 import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db-connection.js";
-import { rawChanges } from "../memory/raw-query.js";
-import { watcherEvents, watchers } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
+import { rawChanges } from "../persistence/raw-query.js";
+import { watcherEvents, watchers } from "../persistence/schema/index.js";
 import { truncate } from "../util/truncate.js";
 import { DEFAULT_POLL_INTERVAL_MS } from "./constants.js";
 
@@ -86,7 +87,9 @@ export function createWatcher(params: {
 export function getWatcher(id: string): Watcher | null {
   const db = getDb();
   const row = db.select().from(watchers).where(eq(watchers.id, id)).get();
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
   return parseWatcherRow(row);
 }
 
@@ -116,17 +119,25 @@ export function updateWatcher(
 ): Watcher | null {
   const db = getDb();
   const existing = db.select().from(watchers).where(eq(watchers.id, id)).get();
-  if (!existing) return null;
+  if (!existing) {
+    return null;
+  }
 
   const now = Date.now();
   const set: Record<string, unknown> = { updatedAt: now };
 
-  if (updates.name !== undefined) set.name = updates.name;
-  if (updates.actionPrompt !== undefined)
+  if (updates.name !== undefined) {
+    set.name = updates.name;
+  }
+  if (updates.actionPrompt !== undefined) {
     set.actionPrompt = updates.actionPrompt;
-  if (updates.pollIntervalMs !== undefined)
+  }
+  if (updates.pollIntervalMs !== undefined) {
     set.pollIntervalMs = updates.pollIntervalMs;
-  if (updates.configJson !== undefined) set.configJson = updates.configJson;
+  }
+  if (updates.configJson !== undefined) {
+    set.configJson = updates.configJson;
+  }
 
   if (updates.enabled !== undefined) {
     set.enabled = updates.enabled;
@@ -158,6 +169,13 @@ export function deleteWatcher(id: string): boolean {
  * to 'polling' using optimistic locking on the current nextPollAt.
  */
 export function claimDueWatchers(now: number): Watcher[] {
+  // Drain gate: while a quiesce lease is active, claim nothing — a watcher
+  // poll runs provider requests that create no row the drain snapshot can
+  // see, so it must not start at all. Fail-open via the lease read.
+  if (isLifecycleQuiesced()) {
+    return [];
+  }
+
   const db = getDb();
   const candidates = db
     .select()
@@ -185,7 +203,9 @@ export function claimDueWatchers(now: number): Watcher[] {
       )
       .run();
 
-    if (rawChanges() === 0) continue;
+    if (rawChanges() === 0) {
+      continue;
+    }
     claimed.push(
       parseWatcherRow({ ...row, status: "polling", updatedAt: now }),
     );
@@ -202,7 +222,9 @@ export function completeWatcherPoll(
 ): void {
   const db = getDb();
   const watcher = db.select().from(watchers).where(eq(watchers.id, id)).get();
-  if (!watcher) return;
+  if (!watcher) {
+    return;
+  }
 
   const now = Date.now();
   const set: Record<string, unknown> = {
@@ -231,7 +253,9 @@ export function completeWatcherPoll(
 export function skipWatcherPoll(id: string, reason: string): void {
   const db = getDb();
   const watcher = db.select().from(watchers).where(eq(watchers.id, id)).get();
-  if (!watcher) return;
+  if (!watcher) {
+    return;
+  }
 
   const now = Date.now();
   // Use the same backoff formula but based on existing consecutiveErrors
@@ -259,7 +283,9 @@ export function skipWatcherPoll(id: string, reason: string): void {
 export function failWatcherPoll(id: string, error: string): void {
   const db = getDb();
   const watcher = db.select().from(watchers).where(eq(watchers.id, id)).get();
-  if (!watcher) return;
+  if (!watcher) {
+    return;
+  }
 
   const now = Date.now();
   const errors = watcher.consecutiveErrors + 1;
@@ -415,10 +441,12 @@ export function listWatcherEvents(options?: {
 }): WatcherEvent[] {
   const db = getDb();
   const conditions = [];
-  if (options?.watcherId)
+  if (options?.watcherId) {
     conditions.push(eq(watcherEvents.watcherId, options.watcherId));
-  if (options?.since)
+  }
+  if (options?.since) {
     conditions.push(gte(watcherEvents.createdAt, options.since));
+  }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 

@@ -5,14 +5,7 @@
  * `VELLUM_WORKSPACE_DIR` to a per-file temp directory.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   invalidateConfigCache,
@@ -24,11 +17,11 @@ import {
   getAssistantContactMetadata,
   getContact,
 } from "../../../contacts/contact-store.js";
-import { getSqlite } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
+import { getSqlite } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import { getA2AConfig, redeemA2AInvite } from "../config-a2a.js";
 
-initializeDb();
+await initializeDb();
 
 function resetTables(): void {
   const sqlite = getSqlite();
@@ -71,8 +64,6 @@ describe("redeemA2AInvite", () => {
     expect(contact!.displayName).toBe("Sender Bot");
     expect(contact!.channels).toHaveLength(1);
     expect(contact!.channels[0]!.type).toBe("a2a");
-    expect(contact!.channels[0]!.status).toBe("active");
-    expect(contact!.channels[0]!.policy).toBe("allow");
   });
 
   test("idempotency: already-connected sender returns alreadyConnected", () => {
@@ -120,7 +111,6 @@ describe("redeemA2AInvite", () => {
 
     const contact = getContact(result.contactId!);
     expect(contact!.channels[0]!.address).toBe("upper-case-sender-id");
-    expect(contact!.channels[0]!.externalUserId).toBe("UPPER-Case-SENDER-ID");
   });
 
   test("does not make outbound fetch calls", () => {
@@ -129,5 +119,26 @@ describe("redeemA2AInvite", () => {
     // would throw.
     const result = redeemA2AInvite({ sender: SENDER });
     expect(result.success).toBe(true);
+  });
+
+  test("activeConnections counts a2a channel existence", () => {
+    const result = redeemA2AInvite({ sender: SENDER });
+    expect(result.success).toBe(true);
+
+    // Readiness is existence-based: the presence of the a2a channel is what
+    // counts. (Channel ACL status is gateway-owned and not stored locally.)
+    expect(getA2AConfig().activeConnections).toBe(1);
+    invalidateConfigCache();
+    expect(getA2AConfig().activeConnections).toBe(1);
+  });
+
+  test("already-connected guard fires based on channel existence", () => {
+    const first = redeemA2AInvite({ sender: SENDER });
+    expect(first.success).toBe(true);
+
+    // The guard keys off the existing a2a channel, not any stored status.
+    const second = redeemA2AInvite({ sender: SENDER });
+    expect(second.alreadyConnected).toBe(true);
+    expect(second.contactId).toBe(first.contactId);
   });
 });

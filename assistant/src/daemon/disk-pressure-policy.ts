@@ -1,8 +1,10 @@
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { resolveCapabilities } from "../runtime/capabilities.js";
+import { isContactTrustClass } from "../runtime/trust-class.js";
 import type { DiskPressureStatus } from "./disk-pressure-guard.js";
 import type { ConversationType } from "./message-types/shared.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 export type DiskPressureCleanupReason = "local-owner" | "guardian";
 
@@ -74,11 +76,11 @@ export function classifyDiskPressureTurnPolicy(
   }
 
   const trustClass = metadata.trustContext?.trustClass;
-  if (trustClass === "guardian") {
+  if (resolveCapabilities(trustClass).canActUnderDiskPressureCleanup) {
     return { action: "allow-cleanup-mode", reason: "guardian" };
   }
 
-  if (trustClass === "trusted_contact") {
+  if (isContactTrustClass(trustClass)) {
     return { action: "block", reason: "trusted-contact" };
   }
 
@@ -102,8 +104,12 @@ export function classifyDiskPressureTurnPolicy(
 }
 
 function isBackgroundTurn(metadata: DiskPressureTurnMetadata): boolean {
-  if (isExplicitLocalOwnerCleanupTurn(metadata)) return false;
-  if (metadata.isDirectWake) return true;
+  if (isExplicitLocalOwnerCleanupTurn(metadata)) {
+    return false;
+  }
+  if (metadata.isDirectWake) {
+    return true;
+  }
   if (metadata.callSite != null && metadata.callSite !== "mainAgent") {
     return true;
   }
@@ -134,18 +140,24 @@ function isNonGuardianTrustClass(
 function isLocalOwnerTurnWithoutTrust(
   metadata: DiskPressureTurnMetadata,
 ): boolean {
-  if (metadata.trustContext != null) return false;
+  if (metadata.trustContext != null) {
+    return false;
+  }
 
   const channel = metadata.sourceChannel;
   const sourceInterface = metadata.sourceInterface;
-  if (channel !== "vellum" || sourceInterface == null) return false;
+  if (channel !== "vellum" || sourceInterface == null) {
+    return false;
+  }
   return LOCAL_OWNER_INTERFACES.has(sourceInterface);
 }
 
 function isExplicitLocalOwnerCleanupTurn(
   metadata: DiskPressureTurnMetadata,
 ): boolean {
-  if (metadata.isDirectWake !== true) return false;
+  if (metadata.isDirectWake !== true) {
+    return false;
+  }
   const sourceInterface = metadata.sourceInterface;
   if (
     metadata.sourceChannel !== "vellum" ||
@@ -156,6 +168,7 @@ function isExplicitLocalOwnerCleanupTurn(
   }
   return (
     metadata.trustContext == null ||
-    metadata.trustContext.trustClass === "guardian"
+    resolveCapabilities(metadata.trustContext.trustClass)
+      .canActUnderDiskPressureCleanup
   );
 }

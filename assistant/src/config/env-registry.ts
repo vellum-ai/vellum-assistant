@@ -26,7 +26,9 @@ function flag(name: string): boolean {
 
 function int(name: string): number | undefined {
   const raw = str(name);
-  if (raw === undefined) return undefined;
+  if (raw === undefined) {
+    return undefined;
+  }
   const n = parseInt(raw, 10);
   return Number.isFinite(n) ? n : undefined;
 }
@@ -221,6 +223,8 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_HOOK_NAME",
   "VELLUM_HOOK_SETTINGS",
   "VELLUM_LOCKFILE_DIR",
+  "VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS",
+  "VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS",
   "VELLUM_PLATFORM_URL",
   "VELLUM_PROFILER_MAX_BYTES",
   "VELLUM_PROFILER_MAX_RUNS",

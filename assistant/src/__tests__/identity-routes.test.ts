@@ -12,90 +12,28 @@
  */
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Silence logger before any imports that use it
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-const checkpointStore = new Map<string, string>();
-
-mock.module("../memory/checkpoints.js", () => ({
-  getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
-  setMemoryCheckpoint: (key: string, value: string) => {
-    checkpointStore.set(key, value);
-  },
-}));
-
-const getConfiguredProviderCalls: string[] = [];
-const mockProvider = { name: "mock-provider" };
-
-mock.module("../providers/provider-send-message.js", () => ({
-  getConfiguredProvider: mock(async (callSite: string) => {
-    getConfiguredProviderCalls.push(callSite);
-    return mockProvider;
-  }),
-}));
-
-type SidechainCall = {
-  callSite?: string;
-  content: string;
-  maxTokens?: number;
-  systemPrompt?: string;
-  tools: unknown[];
-};
-
-type SidechainResult = {
-  text: string;
-  hadTextDeltas: false;
-  response: { content: [] };
-};
-
-const sidechainCalls: SidechainCall[] = [];
-let sidechainText = "";
-let sidechainResultPromise: Promise<SidechainResult> | null = null;
-
-mock.module("../runtime/btw-sidechain.js", () => ({
-  runBtwSidechain: mock(async (params: SidechainCall) => {
-    sidechainCalls.push(params);
-    if (sidechainResultPromise) {
-      return sidechainResultPromise;
-    }
-    return {
-      text: sidechainText,
-      hadTextDeltas: false,
-      response: { content: [] },
-    };
-  }),
-}));
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  resetReadinessForTest,
+  setDbMigrating,
+  setDbMigrationFailed,
+  setDbReady,
+} from "../daemon/daemon-readiness.js";
+import {
   handleDetailedHealth,
+  handleHealth,
   handleReadyz,
   ROUTES,
 } from "../runtime/routes/identity-routes.js";
 import { setCesClient } from "../security/secure-keys.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { APP_VERSION } from "../version.js";
 import {
   getHatchedSidecarPath,
   resolveHatchedAtReadOnly,
   selectHatchedAtFromStats,
 } from "../workspace/hatched-date.js";
-
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
 
 // ── Env helpers ─────────────────────────────────────────────────────────
 
@@ -194,11 +132,8 @@ beforeEach(() => {
   rmSync(getHatchedSidecarPath(), { force: true });
   rmSync(join(getWorkspaceDir(), "IDENTITY.md"), { force: true });
   rmSync(join(getWorkspaceDir(), "SOUL.md"), { force: true });
-  checkpointStore.clear();
-  getConfiguredProviderCalls.length = 0;
-  sidechainCalls.length = 0;
-  sidechainText = "";
-  sidechainResultPromise = null;
+  resetReadinessForTest();
+  setDbReady(true);
 });
 
 afterEach(() => {
@@ -227,7 +162,10 @@ describe("identity routes — health endpoint", () => {
       expect(body.memory).toBeDefined();
       expect(body.cpu).toBeDefined();
       expect(body.migrations).toBeDefined();
-      expect(body.capabilities).toEqual({ memoryOptOut: true });
+      expect(body.capabilities).toEqual({
+        memoryOptOut: true,
+        retryLastTurn: true,
+      });
 
       // Profiler should either be absent or show enabled: false
       if ("profiler" in body) {
@@ -256,36 +194,33 @@ describe("identity routes — health endpoint", () => {
       expect(body.ces).toBeDefined();
       expect((body.ces as Record<string, unknown>).connected).toBe(false);
     });
+
+    test("detailed health reports MIGRATING while DB migrations are running", async () => {
+      setDbMigrating();
+      const res = handleDetailedHealth();
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.status).toBe("MIGRATING");
+      expect(body.reason).toBe("db_migrations_running");
+      expect((body.dbMigrations as Record<string, unknown>).state).toBe(
+        "running",
+      );
+    });
+
+    test("simple healthz remains ok while DB migrations are running", async () => {
+      setDbMigrating();
+      const res = handleHealth();
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({ status: "ok", version: APP_VERSION });
+    });
   });
 
   describe("CES readiness", () => {
     beforeEach(() => {
       setCesClient(undefined);
-    });
-
-    test("readyz returns 200 and logs warning when CES is unavailable", () => {
-      const res = handleReadyz();
-      expect(res.status).toBe(200);
-    });
-
-    test("readyz returns 200 when CES is connected and ready", () => {
-      const mockClient = {
-        isReady: () => true,
-        close: () => {},
-      } as unknown as import("../credential-execution/client.js").CesClient;
-      setCesClient(mockClient);
-      const res = handleReadyz();
-      expect(res.status).toBe(200);
-    });
-
-    test("readyz returns 200 when CES client exists but is not ready", () => {
-      const mockClient = {
-        isReady: () => false,
-        close: () => {},
-      } as unknown as import("../credential-execution/client.js").CesClient;
-      setCesClient(mockClient);
-      const res = handleReadyz();
-      expect(res.status).toBe(200);
     });
 
     test("/v1/health reports ces.connected=true when CES is ready", async () => {
@@ -474,6 +409,115 @@ describe("identity routes — health endpoint", () => {
   });
 });
 
+describe("identity routes — trivial /healthz liveness probe", () => {
+  test("returns 200 with { status: 'ok', version } carrying APP_VERSION", async () => {
+    const res = handleHealth();
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe("ok");
+    expect(typeof body.version).toBe("string");
+    expect(body.version).not.toBe("");
+    expect(body.version).toBe(APP_VERSION);
+  });
+
+  test("never touches CES/lifecycle state — a throwing CES client is never consulted", async () => {
+    // If the trivial probe touched CES at all this would throw.
+    const explodingClient = {
+      isReady: () => {
+        throw new Error("handleHealth must not access CES");
+      },
+      close: () => {},
+    } as unknown as import("../credential-execution/client.js").CesClient;
+    setCesClient(explodingClient);
+
+    const res = handleHealth();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ status: "ok", version: APP_VERSION });
+
+    setCesClient(undefined);
+  });
+
+  test("answers with CES uninitialized", async () => {
+    setCesClient(undefined);
+    const res = handleHealth();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ status: "ok", version: APP_VERSION });
+  });
+});
+
+describe("identity routes — /readyz readiness gate", () => {
+  afterEach(() => {
+    resetReadinessForTest();
+    setCesClient(undefined);
+  });
+
+  test("returns 200 before startup and DB readiness", async () => {
+    resetReadinessForTest();
+    setDbReady(false);
+    const res = handleReadyz();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe("migrating");
+    expect(body.ready).toBe(false);
+    expect((body.dbMigrations as Record<string, unknown>).state).toBe(
+      "not_started",
+    );
+  });
+
+  test("returns 200 with the migrating body while DB migrations are running", async () => {
+    setDbMigrating();
+    const res = handleReadyz();
+    // Status code stays 200 so k8s keeps the pod in service mid-migration;
+    // the body carries the real state for programmatic callers (CLI).
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe("migrating");
+    expect(body.ready).toBe(false);
+    expect((body.dbMigrations as Record<string, unknown>).state).toBe(
+      "running",
+    );
+  });
+
+  test("returns 503 when DB migrations fail", async () => {
+    setDbMigrationFailed(new Error("migration failed"));
+    const res = handleReadyz();
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ready).toBe(false);
+    expect(body.reason).toBe("db_migrations_failed");
+    expect((body.dbMigrations as Record<string, unknown>).state).toBe("failed");
+  });
+
+  test("returns 200 even if CES is down", async () => {
+    resetReadinessForTest();
+    setDbReady(true);
+    const explodingClient = {
+      isReady: () => {
+        throw new Error("/readyz must not consult CES");
+      },
+      close: () => {},
+    } as unknown as import("../credential-execution/client.js").CesClient;
+    setCesClient(explodingClient);
+
+    const res = handleReadyz();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ready).toBe(true);
+  });
+
+  test("returns 200 with the ok body when fully ready", async () => {
+    resetReadinessForTest();
+    setDbReady(true);
+    const res = handleReadyz();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ status: "ok", ready: true });
+  });
+});
+
 describe("identity routes — createdAt selection", () => {
   test("falls back to mtime when birthtime is the Unix epoch", () => {
     const mtime = new Date("2026-05-01T14:49:47.519Z");
@@ -562,127 +606,5 @@ describe("identity routes — createdAt selection", () => {
     const body = route!.handler({}) as { createdAt?: string };
     expect(Date.parse(body.createdAt ?? "")).toBeGreaterThan(0);
     expect(existsSync(getHatchedSidecarPath())).toBe(false);
-  });
-});
-
-describe("identity routes — intro greetings", () => {
-  test("returns fallback immediately, generates personalized greetings in the background, then reuses the cache", async () => {
-    const workspaceDir = getWorkspaceDir();
-    writeFileSync(
-      join(workspaceDir, "IDENTITY.md"),
-      [
-        "# Identity",
-        "",
-        "- **Name:** Example Assistant",
-        "- **Personality:** enjoys crisp, useful hellos",
-        "",
-        "Identity sentinel: chartreuse compass.",
-      ].join("\n"),
-      "utf-8",
-    );
-    writeFileSync(
-      join(workspaceDir, "SOUL.md"),
-      [
-        "# Soul",
-        "",
-        "Soul sentinel: copper lighthouse.",
-        "",
-        "Keep greetings warm and specific.",
-      ].join("\n"),
-      "utf-8",
-    );
-    const deferredSidechain = createDeferred<SidechainResult>();
-    sidechainResultPromise = deferredSidechain.promise;
-
-    const route = ROUTES.find(
-      (candidate) => candidate.operationId === "identity_intro",
-    );
-    expect(route).toBeDefined();
-
-    const body = route!.handler({
-      queryParams: { localHour: "8", localMinute: "15" },
-    }) as {
-      greetings: string[];
-      text: string;
-      source: string;
-      refreshing: boolean;
-    };
-
-    expect(body).toEqual({
-      greetings: [
-        "What are we working on?",
-        "I'm here whenever you need me.",
-        "What's on your mind?",
-        "Ready when you are.",
-      ],
-      text: "What are we working on?",
-      source: "fallback",
-      refreshing: true,
-    });
-    expect(getConfiguredProviderCalls).toEqual([]);
-    expect(sidechainCalls).toEqual([]);
-
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(getConfiguredProviderCalls).toEqual(["emptyStateGreeting"]);
-    expect(sidechainCalls).toHaveLength(1);
-    expect(sidechainCalls[0]?.callSite).toBe("emptyStateGreeting");
-    expect(sidechainCalls[0]?.tools).toEqual([]);
-    expect(sidechainCalls[0]?.content).toContain("Generate 5 short");
-    expect(sidechainCalls[0]?.content).not.toContain("Current time of day:");
-    expect(sidechainCalls[0]?.content).toContain(
-      "do not mention the current time",
-    );
-    expect(sidechainCalls[0]?.content).toMatch(
-      /Current user-local time for subtle tone only: morning \(08:15\)\.$/,
-    );
-    expect(sidechainCalls[0]?.content).toContain("JSON array");
-    expect(sidechainCalls[0]?.systemPrompt).toContain(
-      "Identity sentinel: chartreuse compass.",
-    );
-    expect(sidechainCalls[0]?.systemPrompt).toContain(
-      "Soul sentinel: copper lighthouse.",
-    );
-    deferredSidechain.resolve({
-      text: JSON.stringify([
-        "Charting the next useful thing?",
-        "I brought the compass. Where to?",
-        "Ready to make this lighter.",
-        "Morning momentum?",
-        "Five options, one good start.",
-        "A useful next step?",
-      ]),
-      hadTextDeltas: false,
-      response: { content: [] },
-    });
-
-    await sidechainResultPromise;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    sidechainCalls.length = 0;
-    getConfiguredProviderCalls.length = 0;
-
-    const cachedBody = (await route!.handler({})) as {
-      greetings: string[];
-      text: string;
-      source: string;
-      refreshing: boolean;
-    };
-
-    expect(cachedBody).toEqual({
-      greetings: [
-        "Charting the next useful thing?",
-        "I brought the compass. Where to?",
-        "Ready to make this lighter.",
-        "Five options, one good start.",
-        "A useful next step?",
-      ],
-      text: "Charting the next useful thing?",
-      source: "cache",
-      refreshing: false,
-    });
-    expect(getConfiguredProviderCalls).toEqual([]);
-    expect(sidechainCalls).toEqual([]);
   });
 });

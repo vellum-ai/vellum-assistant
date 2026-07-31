@@ -204,6 +204,7 @@ describe("AgentLoop", () => {
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
       requestId: "req-1",
       callSite: "mainAgent",
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens,
         overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
@@ -1128,9 +1129,12 @@ describe("AgentLoop", () => {
     let lastToolUseIdx = -1;
     let firstToolResultIdx = events.length;
     events.forEach((e, i) => {
-      if (e.type === "tool_use") lastToolUseIdx = i;
-      if (e.type === "tool_result" && i < firstToolResultIdx)
+      if (e.type === "tool_use") {
+        lastToolUseIdx = i;
+      }
+      if (e.type === "tool_result" && i < firstToolResultIdx) {
         firstToolResultIdx = i;
+      }
     });
     expect(lastToolUseIdx).toBeLessThan(firstToolResultIdx);
 
@@ -2327,6 +2331,7 @@ describe("AgentLoop", () => {
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
     });
 
     // Provider should be called 3 times: initial, empty response, retry
@@ -2410,6 +2415,7 @@ describe("AgentLoop", () => {
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
     });
 
     // Provider called exactly 2 times: initial [text+tool_use], then empty.
@@ -2477,6 +2483,7 @@ describe("AgentLoop", () => {
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      callSite: "mainAgent",
     });
 
     // Provider called 3 times: initial, empty, retry (also empty)

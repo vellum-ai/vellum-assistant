@@ -11,13 +11,6 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-mock.module("../../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Stub the event hub to avoid spinning up real SSE infrastructure.
 mock.module("../../assistant-event-hub.js", () => ({
   assistantEventHub: {
@@ -47,10 +40,10 @@ mock.module("../../sync/resource-sync-events.js", () => ({
 import {
   createConversation,
   getConversation,
-} from "../../../memory/conversation-crud.js";
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { conversations } from "../../../memory/schema.js";
+} from "../../../persistence/conversation-crud.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { conversations } from "../../../persistence/schema/index.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "../conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "../errors.js";
@@ -60,7 +53,7 @@ import type { RouteDefinition } from "../types.js";
 // DB bootstrap
 // ---------------------------------------------------------------------------
 
-initializeDb();
+await initializeDb();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -68,7 +61,9 @@ initializeDb();
 
 function findHandler(routes: RouteDefinition[], operationId: string) {
   const route = routes.find((r) => r.operationId === operationId);
-  if (!route) throw new Error(`Route ${operationId} not found`);
+  if (!route) {
+    throw new Error(`Route ${operationId} not found`);
+  }
   return route.handler;
 }
 

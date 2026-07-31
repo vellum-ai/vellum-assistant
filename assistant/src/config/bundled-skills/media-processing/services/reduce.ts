@@ -14,7 +14,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { getMediaAssetById } from "../../../../memory/media-store.js";
+import { getMediaAssetById } from "../../../../persistence/media-store.js";
 import {
   createTimeout,
   extractAllText,
@@ -137,7 +137,9 @@ async function persistReduceCost(
   result: ReduceResult,
 ): Promise<void> {
   const asset = getMediaAssetById(assetId);
-  if (!asset) return;
+  if (!asset) {
+    return;
+  }
 
   const pipelineDir = join(dirname(asset.filePath), "pipeline", assetId);
   const costPath = join(pipelineDir, "reduce-cost.json");

@@ -19,6 +19,22 @@ import { z } from "zod";
 
 export type SlackEventKind = "message" | "reaction";
 
+/**
+ * Shape-check for a Slack `ts` value. Slack IDs messages by `<seconds>.<micros>`
+ * strings (e.g. `"1700000000.000100"`). The daemon also stores identifiers in
+ * other formats (gateway dedupe keys, UUIDs), so any path that treats a stored
+ * id as a ts — Slack API history bounds, permalink construction — must
+ * shape-check first; Slack rejects non-ts arguments with `invalid_arguments`.
+ */
+export function isSlackTs(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^\d+\.\d+$/.test(value);
+}
+
+/** Slack DM conversation IDs start with `D` followed by alphanumeric chars. */
+export function isSlackDmConversation(conversationExternalId: string): boolean {
+  return /^D[A-Z0-9]+$/i.test(conversationExternalId);
+}
+
 const slackReactionMetadataSchema = z.object({
   emoji: z.string(),
   actorDisplayName: z.string().optional(),
@@ -121,7 +137,9 @@ function compactStoredSlackTimezoneLabel(
   label: string | null | undefined,
 ): string | null {
   const trimmed = label?.trim();
-  if (!trimmed) return null;
+  if (!trimmed) {
+    return null;
+  }
   return (
     COMPACT_SLACK_TIMEZONE_LABEL_BY_NAME.get(trimmed.toUpperCase()) ?? trimmed
   );
@@ -158,12 +176,18 @@ export function formatSlackTimezoneLabel(
   opts: { persistedLabel?: string | null; nowMs?: number } = {},
 ): string | null {
   const persisted = compactStoredSlackTimezoneLabel(opts.persistedLabel);
-  if (persisted) return persisted;
+  if (persisted) {
+    return persisted;
+  }
 
   const trimmedTimezone = timeZone?.trim();
-  if (!trimmedTimezone) return null;
+  if (!trimmedTimezone) {
+    return null;
+  }
   const mapped = COMMON_SLACK_TIMEZONE_LABEL_BY_IANA.get(trimmedTimezone);
-  if (mapped) return mapped;
+  if (mapped) {
+    return mapped;
+  }
   return (
     extractSlackShortTimeZoneName(trimmedTimezone, opts.nowMs ?? Date.now()) ??
     trimmedTimezone
@@ -236,7 +260,9 @@ export function readSlackMetadataFromMessageMetadata(
   metadata: string | null | undefined,
   opts?: { allowFlatLegacy?: boolean },
 ): SlackMessageMetadata | null {
-  if (!metadata) return null;
+  if (!metadata) {
+    return null;
+  }
 
   let parent: Record<string, unknown> | null = null;
   try {
@@ -247,12 +273,16 @@ export function readSlackMetadataFromMessageMetadata(
   } catch {
     return null;
   }
-  if (!parent) return null;
+  if (!parent) {
+    return null;
+  }
 
   const nested = parent.slackMeta;
   if (typeof nested === "string") {
     const parsedNested = readSlackMetadata(nested);
-    if (parsedNested) return parsedNested;
+    if (parsedNested) {
+      return parsedNested;
+    }
   }
 
   return opts?.allowFlatLegacy ? readSlackMetadata(metadata) : null;

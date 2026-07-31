@@ -12,7 +12,10 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { createLocalSecureKeyBackend } from "../materializers/local-secure-key-backend.js";
+import {
+  createLocalSecureKeyBackend,
+  StoreUnavailableError,
+} from "../materializers/local-secure-key-backend.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -152,5 +155,50 @@ describe("createLocalSecureKeyBackend — filesystem", () => {
     const backend = createLocalSecureKeyBackend(vellumRoot);
     const result = await backend.delete("anything");
     expect(result).toBe("error");
+  });
+
+  // -------------------------------------------------------------------------
+  // UNAVAILABLE (store exists but cannot be read / decrypted) must be distinct
+  // from ABSENT (no store, or the store reads cleanly but lacks the key). The
+  // former throws so the RPC layer reports `unreachable`; the latter returns
+  // undefined/[]. This is the cold-start fix: a transiently-unreadable store or
+  // missing key material must never masquerade as "credential not found".
+  // -------------------------------------------------------------------------
+
+  test("get() THROWS (not undefined) when the store file exists but is unreadable", async () => {
+    const { securityDir, vellumRoot } = setup();
+    // A store file that exists but cannot be parsed (e.g. a partial/corrupt
+    // read) — distinct from no store at all.
+    writeFileSync(join(securityDir, "keys.enc"), "{ not valid json", {
+      mode: 0o600,
+    });
+    const backend = createLocalSecureKeyBackend(vellumRoot);
+    await expect(backend.get("anything")).rejects.toThrow(StoreUnavailableError);
+  });
+
+  test("get() returns undefined when the store reads cleanly but the key is absent", async () => {
+    const { vellumRoot } = setup();
+    const backend = createLocalSecureKeyBackend(vellumRoot);
+    await backend.set("present/key", "v"); // valid store with one entry
+    // A genuinely missing key in a readable store is ABSENT, not unavailable.
+    expect(await backend.get("absent/key")).toBeUndefined();
+  });
+
+  test("get() THROWS when a v2 entry exists but store.key is missing (cold-start key-material race)", async () => {
+    const { securityDir, vellumRoot } = setup();
+    const backend = createLocalSecureKeyBackend(vellumRoot);
+    await backend.set("k", "v"); // creates the v2 store + store.key
+    expect(await backend.get("k")).toBe("v"); // sanity: warm read works
+    // Simulate the cold-start window where the key material is transiently
+    // unavailable: the entry still exists, but it cannot be decrypted yet.
+    rmSync(join(securityDir, "store.key"));
+    await expect(backend.get("k")).rejects.toThrow(StoreUnavailableError);
+  });
+
+  test("list() THROWS (not []) when the store file exists but is unreadable", async () => {
+    const { securityDir, vellumRoot } = setup();
+    writeFileSync(join(securityDir, "keys.enc"), "{ corrupt", { mode: 0o600 });
+    const backend = createLocalSecureKeyBackend(vellumRoot);
+    await expect(backend.list()).rejects.toThrow(StoreUnavailableError);
   });
 });
