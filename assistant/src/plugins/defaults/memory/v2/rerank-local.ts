@@ -3,7 +3,11 @@ import { existsSync } from "node:fs";
 
 import type { RerankDtype } from "../../../../config/schemas/memory-v2.js";
 import { EmbeddingRuntimeManager } from "../../../../persistence/embeddings/embedding-runtime-manager.js";
-import { PromiseGuard, workerMemoryEnv } from "../host-utils.js";
+import {
+  PromiseGuard,
+  workerComputeEnv,
+  workerMemoryEnv,
+} from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { getEmbeddingModelsDir } from "../paths.js";
 
@@ -160,7 +164,7 @@ export class LocalRerankBackend {
         modelCacheDir,
         this.dtype,
       ],
-      env: workerMemoryEnv(),
+      env: { ...workerMemoryEnv(), ...workerComputeEnv() },
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",

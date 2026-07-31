@@ -130,9 +130,19 @@ const model = process.argv[2];
 const cacheDir = process.argv[3];
 if (cacheDir && env) env.cacheDir = cacheDir;
 
+// Cap the ONNX intra-op thread pool. Left unset, ONNX takes one thread per
+// physical core for the whole batch and starves foreground work; the host
+// computes the cap in util/worker-compute.ts and passes it in the environment.
+// A missing or unparseable value means no cap, i.e. the ONNX default.
+const intraOpNumThreads = Number(process.env.VELLUM_ONNX_INTRA_OP_THREADS);
+const sessionOptions =
+  Number.isInteger(intraOpNumThreads) && intraOpNumThreads > 0
+    ? { intraOpNumThreads }
+    : undefined;
+
 let extractor;
 try {
-  extractor = await pipeline('feature-extraction', model, { dtype: 'fp32' });
+  extractor = await pipeline('feature-extraction', model, { dtype: 'fp32', session_options: sessionOptions });
   process.stdout.write(JSON.stringify({ type: 'ready' }) + '\\n');
 } catch (err) {
   process.stdout.write(JSON.stringify({ type: 'error', error: err.message || String(err) }) + '\\n');
@@ -204,11 +214,20 @@ const cacheDir = process.argv[3];
 const dtype = process.argv[4] || 'q8';
 if (cacheDir && env) env.cacheDir = cacheDir;
 
+// Cap the ONNX intra-op thread pool. See the embed worker for the rationale;
+// the host computes the cap in util/worker-compute.ts and passes it in the
+// environment. A missing or unparseable value means no cap, i.e. the default.
+const intraOpNumThreads = Number(process.env.VELLUM_ONNX_INTRA_OP_THREADS);
+const sessionOptions =
+  Number.isInteger(intraOpNumThreads) && intraOpNumThreads > 0
+    ? { intraOpNumThreads }
+    : undefined;
+
 let tokenizer;
 let session;
 try {
   tokenizer = await AutoTokenizer.from_pretrained(model);
-  session = await AutoModelForSequenceClassification.from_pretrained(model, { dtype });
+  session = await AutoModelForSequenceClassification.from_pretrained(model, { dtype, session_options: sessionOptions });
   process.stdout.write(JSON.stringify({ type: 'ready' }) + '\\n');
 } catch (err) {
   process.stdout.write(JSON.stringify({ type: 'error', error: err.message || String(err) }) + '\\n');
