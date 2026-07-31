@@ -401,6 +401,19 @@ describe("emitAssistantReplyNotification", () => {
     });
   }
 
+  // A pointer turn fact-checks the rows it generated only after the turn ends
+  // and deletes them when validation fails, so a push at turn end would have
+  // already carried a call outcome the deterministic fallback then replaces.
+  test("stays silent when the turn was opened by a pointer instruction", async () => {
+    initiatingRow = makeMessage({
+      metadata: JSON.stringify({ pointerInstruction: true }),
+    });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+  });
+
   // The phone case carries a `phone` channel; the in-app live-voice case is
   // `vellum`/`macos`, identical to a typed desktop send, which is why the
   // channel field cannot stand in for the `voiceSessionTurn` marker.

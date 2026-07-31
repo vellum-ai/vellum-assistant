@@ -167,7 +167,7 @@ function isChannelOriginatedUserMessage(
 
 /**
  * True when a finished reply to this row must not raise a
- * `chat.assistant_reply` push. Four independent reasons, one predicate so the
+ * `chat.assistant_reply` push. Five independent reasons, one predicate so the
  * producer's own gating and the batch-drain selection of the row it reads
  * cannot disagree: picking a row the producer then suppresses would swallow the
  * push for a genuine prompt coalesced into the same batch.
@@ -179,12 +179,17 @@ function isChannelOriginatedUserMessage(
  * - Channel-originated: the finished reply is delivered back to the
  *   originating messaging surface (`finalizeEventDelivery`), so the sender
  *   already has it and a push would duplicate it on their phone.
+ * - `pointerInstruction`: `runPointerMessageTurn` fact-checks the rows the turn
+ *   generated only after the turn ends, and deletes them when validation fails
+ *   so deterministic fallback copy takes their place. A push at turn end would
+ *   already have carried the rejected text.
  */
 export function isReplyPushIneligibleUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   return (
     metadata?.automated === true ||
+    metadata?.pointerInstruction === true ||
     isEchoSuppressedUserMessage(metadata) ||
     isVoiceSessionUserMessage(metadata) ||
     isChannelOriginatedUserMessage(metadata)
