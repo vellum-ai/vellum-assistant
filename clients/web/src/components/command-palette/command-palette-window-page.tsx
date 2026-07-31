@@ -11,6 +11,7 @@ import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
+import { isLocalClient } from "@/lib/local-mode";
 import {
   dismissCommandPaletteWindow,
   selectCommandPaletteCommand,
@@ -97,15 +98,16 @@ export function CommandPaletteWindowPage() {
   const assistantSwitcherEnabled =
     useClientFeatureFlagStore.use.assistantSwitcher();
   // Mirror use-lifecycle's gating: only resolve the selection when the
-  // multi-assistant or assistant-switcher flag is on; otherwise track the
-  // lifecycle's active id, so the palette never binds to a stale selection
-  // the lifecycle ignored. The resolver reads selectedAssistantId via
-  // getState() (non-reactive), so that slice stays in the dep array as the
-  // recompute signal.
+  // multi-assistant flag is on, or the assistant-switcher flag is on for a
+  // local client; otherwise track the lifecycle's active id, so the palette
+  // never binds to a stale selection the lifecycle ignored. The resolver
+  // reads selectedAssistantId via getState() (non-reactive), so that slice
+  // stays in the dep array as the recompute signal.
   const selectedAssistant = useMemo(
     () => {
       const selectedId =
-        (multiAssistantEnabled || assistantSwitcherEnabled) &&
+        (multiAssistantEnabled ||
+          (assistantSwitcherEnabled && isLocalClient())) &&
         !isGatewayAuthMode() &&
         currentOrganizationId
           ? resolveSelectedAssistantId(currentOrganizationId)

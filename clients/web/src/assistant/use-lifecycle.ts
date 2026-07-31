@@ -50,14 +50,15 @@ export function useAssistantLifecycle({
     (hasPlatformSession || !isLocalClient()) &&
     isOrgReady;
 
-  // Which platform assistant the user has selected, gated by the
-  // multi-platform-assistant flag OR the assistant-switcher flag (whose
-  // Switch Assistant chooser stores the same selection). When both flags are
-  // off this stays null, so the resolution falls back to the default
-  // first-listed assistant — identical to the pre-multi-assistant behavior.
-  // Subscribe to the selection and resolved list so the hook re-renders when
-  // either changes, then resolve through the unified resolver (selected id →
-  // validate for org → lockfile activeAssistant → first valid).
+  // Which platform assistant the user has selected, honored when the
+  // multi-platform-assistant flag is on, or when the assistant-switcher flag
+  // is on for a local client (its Switch Assistant chooser stores the same
+  // selection, and the switcher is local-client-only). Otherwise this stays
+  // null and the resolution falls back to the default first-listed
+  // assistant. Subscribe to the selection and resolved list so the hook
+  // re-renders when either changes, then resolve through the unified
+  // resolver (selected id, validated for org, then lockfile activeAssistant,
+  // then first valid).
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
   const assistantSwitcherEnabled =
@@ -72,7 +73,7 @@ export function useAssistantLifecycle({
   // and project the default assistant.
   const activeOrganizationId = useRequestOrganizationId();
   const resolvedSelectionId =
-    (multiAssistantEnabled || assistantSwitcherEnabled) &&
+    (multiAssistantEnabled || (assistantSwitcherEnabled && isLocalClient())) &&
     !isGatewayAuthMode() &&
     activeOrganizationId
       ? resolveSelectedAssistantId(activeOrganizationId)

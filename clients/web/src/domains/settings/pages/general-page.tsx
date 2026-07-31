@@ -60,6 +60,9 @@ export function GeneralPage() {
   const multiPlatformAssistant =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
   const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
+  // Both flags can be on for the same audience; the switcher card supersedes
+  // the in-page picker so two "Switch Assistant" cards never render together.
+  const showAssistantSwitcherCard = assistantSwitcher && isLocalClient();
   const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const settingsSleepPolicy =
@@ -314,9 +317,11 @@ export function GeneralPage() {
         </DetailCard>
       )}
 
-      {multiPlatformAssistant && <AssistantPicker />}
+      {multiPlatformAssistant && !showAssistantSwitcherCard && (
+        <AssistantPicker />
+      )}
 
-      {assistantSwitcher && isLocalClient() && (
+      {showAssistantSwitcherCard && (
         <DetailCard
           title="Switch Assistant"
           subtitle="Choose which assistant this device is connected to."
