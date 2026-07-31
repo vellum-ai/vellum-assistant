@@ -1,5 +1,5 @@
 /**
- * Face-placement metrics for the empty-chat peeks (`ComposerPeek`).
+ * Face-placement metrics for the empty-chat peek (`ComposerPeek`).
  *
  * Body shapes carry their face at wildly different heights (ghost wears
  * it near the top of a tall body, sprout near the bottom under a tall
@@ -8,7 +8,7 @@
  * therefore hides some avatars' eyes entirely. These metrics express,
  * per body-shape + eye-style combination — including the catalog's
  * `faceCenterOverrides` — where the eye ink actually sits inside the
- * rendered square, so the peeks can size and crop every avatar such
+ * rendered square, so the peek can size and crop every avatar such
  * that the eyes always ride the edge.
  *
  * The math mirrors `computeTransforms` / `AnimatedAvatar`'s layout

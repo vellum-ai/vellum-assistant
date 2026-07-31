@@ -3,8 +3,8 @@ import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-c
 
 /**
  * Empty-state hero for a fresh chat: the serif greeting headline. The
- * avatar itself lives in `ComposerPeek` (hanging from the top of the
- * screen, or peeking behind the input), not beside the headline.
+ * avatar itself lives in `ComposerPeek` (dropped behind the input, and
+ * peeking over its rim while it is focused), not beside the headline.
  * Presentational only — the composer and conversation-starter chips are
  * rendered by the parent `ChatBody` in the same flex column so that
  * greeting → composer → starters appear as one vertically-centered group.

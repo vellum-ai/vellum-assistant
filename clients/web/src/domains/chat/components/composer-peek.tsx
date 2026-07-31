@@ -1,19 +1,27 @@
 /**
- * The empty chat screen's avatar peeks (Figma: New-App 7471-25035 /
- * 7471-25213). The avatar renders with its real body shape and eyes
- * (`AnimatedAvatar`) in two perches:
+ * The empty chat screen's avatar peek (Figma: New-App 7471-25035 /
+ * 7471-25213). One avatar, rendered with its real body shape and eyes
+ * (`AnimatedAvatar`), that lives behind the chat input and comes out
+ * from behind two different edges of it:
  *
- * - **Resting** (input not focused): a big avatar hangs down from the
- *   top edge of the screen, eyes half cut off by the edge with the rest
- *   of the body exposed, breathing and blinking over the chrome.
- * - **Focused** (the input is active): the top dude retreats up off
- *   screen and the avatar surfaces over the input's top edge instead,
- *   its lower half hidden behind the rim, while the input casts a soft
- *   unoffset shadow over it so the body reads as sitting behind the
- *   card. This peek is anchored toward the input's left side.
+ * - **Intro**: on arriving at an empty chat it comes out from behind the
+ *   input's bottom edge, off toward the right and hanging upside down
+ *   the way a body hangs off a ledge, holds a beat, and tucks back up.
+ *   A hello, played once per empty state.
+ * - **Resting**: behind the input, dropped far enough that the clip
+ *   column hides it completely.
+ * - **Focused** (the input is active): it rises over the input's top
+ *   rim instead, anchored toward the left, its lower half still behind
+ *   the card, while the input casts a soft unoffset shadow over it so
+ *   the body reads as sitting behind.
+ *
+ * The two perches never overlap in time: the intro owns the avatar
+ * until it has ducked away, and only then does focus start driving the
+ * top peek. Because the handoff happens while the avatar is hidden, it
+ * is a swap between two clip columns rather than a path between them.
  *
  * The composer is located by its `data-slot="chat-composer"` anchor and
- * its rect tracked per-frame, so the overlays stay glued through
+ * its rect tracked per-frame, so the overlay stays glued through
  * reflows and composer remounts. Rendered into a `document.body`
  * portal, decorative and pointer-transparent. Fully suppressed under
  * `prefers-reduced-motion` and while the in-chat onboarding tour owns
@@ -38,46 +46,41 @@ interface TargetRect {
 }
 
 /**
- * Both perches derive their crop from `avatarPeekMetrics` — where the
- * active body shape + eye style actually place the eye ink — so every
- * avatar shows its eyes at the edge. Bodies whose face sits low (a lot
- * of body above the eyes) get scaled DOWN instead of exposing an ever
- * taller slab, capping each perch's on-screen height.
+ * Both perches derive their crop from `avatarPeekMetrics`, which reports
+ * where the active body shape and eye style actually place the eye ink,
+ * so every avatar shows its eyes past the rim it is peeking over. Bodies
+ * whose face sits low (a lot of body above the eyes) get scaled DOWN
+ * instead of exposing an ever taller slab, capping the on-screen height.
  */
 
-/** Largest square the input-peek avatar renders at. */
+/** Largest square the peek avatar renders at. */
 const PEEK_SIZE_MAX = 100;
-/** Cap on how much of it sticks out above the input's top edge. */
+/** Cap on how much of it sticks out past the input's edge. */
 const PEEK_EXPOSED_MAX_PX = 52;
-/** Air between the eye ink's bottom and the input's rim. */
+/** Air between the eye ink and the input's rim. */
 const PEEK_EYE_PAD_FRAC = 0.03;
 /** Fallback exposure when metrics can't resolve (custom avatars). */
 const PEEK_EXPOSED_FRAC_FALLBACK = 0.46;
-/** Clip-container headroom above the exposed avatar — room for the idle
+/** Clip-column headroom past the exposed avatar, room for the idle
  *  breathing pulse. */
 const CLIP_HEADROOM = 14;
-/** Avatar anchor along the input's width — off toward the left side. */
+/** Focus-peek anchor along the input's width, off toward the left. */
 const PEEK_X_FRACTION = 0.15;
-/** Exit choreography length before the input-peek overlay unmounts. */
-const EXIT_MS = 300;
-/** The composer card's own radius — the shadow caster matches it. */
+/** Intro anchor along the input's width, off toward the right. */
+const INTRO_X_FRACTION = 0.85;
+/** How much of the square hides behind the input during the intro, when
+ *  metrics can't resolve. */
+const INTRO_HIDDEN_FRAC_FALLBACK = 0.5;
+/** How long the intro stays up, measured from the first rect. Covers the
+ *  rise delay, the rise, and the hold. */
+const INTRO_HOLD_MS = 3000;
+/** The duck back down, after which focus takes over the avatar. */
+const INTRO_RETREAT_MS = 300;
+/** The composer card's own radius, matched by the shadow caster. */
 const PANEL_RADIUS = 10;
 /** Soft, unoffset shadow the input casts over the peeking avatar, so the
  *  body reads as sitting behind the card. */
 const PEEK_SHADOW = "0 0 20px rgba(0, 0, 0, 0.15)";
-
-/** The top-of-screen dude, sized off the input width (Figma ~half). */
-const TOP_SIZE_FRACTION = 0.45;
-const TOP_SIZE_MIN = 220;
-const TOP_SIZE_MAX = 360;
-/** Cap on the visible dangle's height, whatever the body shape. */
-const TOP_DANGLE_MAX_PX = 190;
-/** Air between the screen edge and the (mirrored) eye ink's top. */
-const TOP_EYE_PAD_FRAC = 0.02;
-/** Fallback cut when metrics can't resolve. */
-const TOP_CUT_FRACTION_FALLBACK = 0.5;
-
-type Mode = "rest" | "focus" | "focus-exit";
 
 interface ComposerPeekProps {
   components: CharacterComponents | null;
@@ -95,7 +98,9 @@ export function ComposerPeek({
   // The onboarding tour floods the composer itself — never compete with it.
   const navTourActive = useInChatOnboardingStore.use.navTourActive();
   const [rect, setRect] = useState<TargetRect | null>(null);
-  const [mode, setMode] = useState<Mode>("rest");
+  const [focused, setFocused] = useState(false);
+  const [introRisen, setIntroRisen] = useState(false);
+  const [introDone, setIntroDone] = useState(false);
 
   const runnable =
     active && !reduce && !navTourActive && !!components && !!traits;
@@ -111,7 +116,6 @@ export function ComposerPeek({
     if (!runnable) {
       return;
     }
-    let exitTimer: ReturnType<typeof setTimeout> | undefined;
 
     // Re-queried on every measure, never captured: the composer form
     // remounts (e.g. as a draft conversation settles), and a held
@@ -126,15 +130,8 @@ export function ComposerPeek({
       }
       return { left: r.left, top: r.top, width: r.width, height: r.height };
     };
-    const enter = () => {
-      clearTimeout(exitTimer);
-      setMode("focus");
-    };
-    const leave = () => {
-      setMode((m) => (m === "focus" ? "focus-exit" : m));
-      clearTimeout(exitTimer);
-      exitTimer = setTimeout(() => setMode("rest"), EXIT_MS);
-    };
+    const enter = () => setFocused(true);
+    const leave = () => setFocused(false);
     // Document-level so listeners survive composer remounts. Focus moving
     // within the composer (textarea → mic button) isn't a leave — only
     // retract when it lands outside the card.
@@ -157,7 +154,7 @@ export function ComposerPeek({
         leave();
       }
     };
-    // The composer moves and resizes under the peeks without firing any
+    // The composer moves and resizes under the peek without firing any
     // event we could subscribe to — the centered empty-state group reflows
     // as the greeting streams in, the textarea autogrows, slots settle.
     // Track its rect every frame, scheduling an update only on a frame where
@@ -191,8 +188,8 @@ export function ComposerPeek({
     document.addEventListener("focusout", onFocusOut);
 
     // The composer may already hold focus when the act arms (it autofocuses
-    // on a fresh chat) — surface immediately instead of waiting for a blur
-    // round-trip.
+    // on a fresh chat), so record it. The intro still holds the avatar
+    // until it has ducked away.
     if (
       document.activeElement instanceof Element &&
       document.activeElement.closest('[data-slot="chat-composer"]')
@@ -204,21 +201,40 @@ export function ComposerPeek({
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
       cancelAnimationFrame(raf);
-      clearTimeout(exitTimer);
       setRect(null);
-      setMode("rest");
+      setFocused(false);
+      setIntroRisen(false);
+      setIntroDone(false);
     };
   }, [runnable]);
+
+  // The intro runs off the first rect, since that's when the avatar first
+  // has an edge to peek over. It always runs to completion: a fresh chat
+  // autofocuses its composer, so gating on focus would skip it outright.
+  const measured = rect !== null;
+  useEffect(() => {
+    if (!measured) {
+      return;
+    }
+    setIntroRisen(true);
+    const retreat = setTimeout(() => setIntroRisen(false), INTRO_HOLD_MS);
+    const done = setTimeout(
+      () => setIntroDone(true),
+      INTRO_HOLD_MS + INTRO_RETREAT_MS,
+    );
+    return () => {
+      clearTimeout(retreat);
+      clearTimeout(done);
+    };
+  }, [measured]);
 
   // `components`/`traits` re-checked for narrowing — `runnable` implies both.
   if (!runnable || !rect || !components || !traits) {
     return null;
   }
 
-  const focused = mode === "focus";
-
-  // Input peek geometry: expose down to just below the eye ink, capped —
-  // low-faced bodies scale down rather than exposing a taller slab.
+  // Focus-peek geometry: expose down to just below the eye ink, capped.
+  // Low-faced bodies scale down rather than exposing a taller slab.
   const peekExposedFrac = metrics
     ? Math.min(
         0.95,
@@ -234,122 +250,138 @@ export function ComposerPeek({
   );
   const peekExposedPx = peekSize * peekExposedFrac;
   const clipHeight = peekExposedPx + CLIP_HEADROOM;
+  // Resting drop: more than the exposed height, so the avatar clears the
+  // column's bottom edge entirely and reads as behind the card.
   const risePx = peekExposedPx + 8;
   const peekX = Math.max(peekSize / 2 + 16, rect.width * PEEK_X_FRACTION);
 
-  // Top dude geometry: centered over the input, hanging mirrored from
-  // the screen's top edge with its eyes peering down just below the cut
-  // and the visible dangle capped in height.
-  const topCut = metrics
+  // Intro geometry. The avatar hangs mirrored, so the fraction that tucks
+  // behind the input is measured from the square's BOTTOM: flipping puts
+  // the eye ink at `1 - eyeCenterFrac`, and the cut lands just past it so
+  // the eyes clear the rim. What hangs below is capped like the focus peek.
+  const introHiddenFrac = metrics
     ? Math.min(
         0.85,
         Math.max(
-          0,
-          1 - metrics.eyeCenterFrac - metrics.eyeHalfFrac - TOP_EYE_PAD_FRAC,
+          0.05,
+          1 - metrics.eyeCenterFrac - metrics.eyeHalfFrac - PEEK_EYE_PAD_FRAC,
         ),
       )
-    : TOP_CUT_FRACTION_FALLBACK;
-  const topVisibleFrac = 1 - topCut;
-  const topSize = Math.min(
-    Math.min(
-      TOP_SIZE_MAX,
-      Math.max(TOP_SIZE_MIN, rect.width * TOP_SIZE_FRACTION),
-    ),
-    TOP_DANGLE_MAX_PX / topVisibleFrac,
+    : INTRO_HIDDEN_FRAC_FALLBACK;
+  const introBelowPx = peekSize * (1 - introHiddenFrac);
+  const introClipHeight = Math.min(introBelowPx, PEEK_EXPOSED_MAX_PX);
+  const introHidePx = -(introBelowPx + 8);
+  const introX = Math.min(
+    rect.width - peekSize / 2 - 16,
+    rect.width * INTRO_X_FRACTION,
   );
-  const topExposed = topSize * topVisibleFrac;
+
+  const showing = introDone ? focused : introRisen;
 
   return createPortal(
     <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-30">
-      {/* Top-of-screen dude, shown while the input is idle. */}
-      <motion.div
-        className="absolute"
-        style={{
-          width: topSize,
-          height: topSize,
-          left: rect.left + rect.width / 2 - topSize / 2,
-          top: -topSize * topCut,
-        }}
-        initial={{ y: -topExposed - 8 }}
-        animate={{ y: focused ? -topExposed - 8 : 0 }}
-        transition={
-          focused
-            ? { duration: 0.25, ease: "easeIn" }
-            : { type: "spring", stiffness: 220, damping: 20, delay: 0.15 }
-        }
-      >
-        {/* Inner wrapper carries the vertical mirror so it can't interact
-            with the motion `y` transform above (a flipped element's
-            translateY would slide the wrong way). */}
-        <div className="h-full w-full" style={{ transform: "scaleY(-1)" }}>
-          <AnimatedAvatar
-            components={components}
-            traits={traits}
-            size={topSize}
-          />
-        </div>
-      </motion.div>
-      {mode !== "rest" && (
-        <>
-          {/* Input-peek avatar, clipped at the input's top edge so the
-              body reads as peeking out from behind the rim. */}
-          <div
-            className="absolute overflow-hidden"
+      {introDone ? (
+        /* Focus peek: a column above the input, clipped at its top rim so
+           the body reads as peeking out from behind the card.
+
+           Keyed apart from the intro column so React remounts rather than
+           reconciling the two branches into one element. Without the keys
+           the swap keeps the same `motion.div`, `initial` never re-applies,
+           and Motion tweens `y` from the intro's hidden value to this one,
+           sweeping the avatar down through the column on its way. */
+        <div
+          key="focus-peek"
+          className="absolute overflow-hidden"
+          style={{
+            left: rect.left,
+            top: rect.top - clipHeight,
+            width: rect.width,
+            height: clipHeight,
+          }}
+        >
+          <motion.div
+            className="absolute"
             style={{
-              left: rect.left,
-              top: rect.top - clipHeight,
-              width: rect.width,
-              height: clipHeight,
+              width: peekSize,
+              height: peekSize,
+              left: peekX - peekSize / 2,
+              top: clipHeight - peekExposedPx,
             }}
+            initial={{ y: risePx }}
+            animate={focused ? { y: 0 } : { y: risePx }}
+            transition={
+              focused
+                ? { type: "spring", stiffness: 280, damping: 14, delay: 0.15 }
+                : { duration: 0.25, ease: "easeIn" }
+            }
           >
-            <motion.div
-              className="absolute"
-              style={{
-                width: peekSize,
-                height: peekSize,
-                left: peekX - peekSize / 2,
-                top: clipHeight - peekExposedPx,
-              }}
-              initial={{ y: risePx }}
-              animate={focused ? { y: 0 } : { y: risePx }}
-              transition={
-                focused
-                  ? {
-                      type: "spring",
-                      stiffness: 280,
-                      damping: 14,
-                      delay: 0.15,
-                    }
-                  : { duration: 0.25, ease: "easeIn" }
-              }
-            >
+            <AnimatedAvatar
+              components={components}
+              traits={traits}
+              size={peekSize}
+            />
+          </motion.div>
+        </div>
+      ) : (
+        /* Intro: the mirror column, below the input and clipped at its
+           bottom rim, so the same avatar comes out of the other edge. */
+        <div
+          key="intro-peek"
+          className="absolute overflow-hidden"
+          style={{
+            left: rect.left,
+            top: rect.top + rect.height,
+            width: rect.width,
+            height: introClipHeight,
+          }}
+        >
+          <motion.div
+            className="absolute"
+            style={{
+              width: peekSize,
+              height: peekSize,
+              left: introX - peekSize / 2,
+              top: -peekSize * introHiddenFrac,
+            }}
+            initial={{ y: introHidePx }}
+            animate={introRisen ? { y: 0 } : { y: introHidePx }}
+            transition={
+              introRisen
+                ? { type: "spring", stiffness: 260, damping: 16, delay: 0.35 }
+                : { duration: INTRO_RETREAT_MS / 1000, ease: "easeIn" }
+            }
+          >
+            {/* Inner wrapper carries the vertical mirror so it can't
+                interact with the motion `y` transform above (a flipped
+                element's translateY would slide the wrong way). */}
+            <div className="h-full w-full" style={{ transform: "scaleY(-1)" }}>
               <AnimatedAvatar
                 components={components}
                 traits={traits}
                 size={peekSize}
               />
-            </motion.div>
-          </div>
-          {/* Shadow caster painted over the avatar: a transparent rect
-              matching the card whose box-shadow falls on everything around
-              it — the avatar sits under the input's shadow, so it reads as
-              behind. */}
-          <motion.div
-            className="absolute"
-            style={{
-              left: rect.left,
-              top: rect.top,
-              width: rect.width,
-              height: rect.height,
-              borderRadius: PANEL_RADIUS,
-              boxShadow: PEEK_SHADOW,
-            }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: focused ? 1 : 0 }}
-            transition={{ duration: 0.2 }}
-          />
-        </>
+            </div>
+          </motion.div>
+        </div>
       )}
+      {/* Shadow caster painted over the avatar: a transparent rect
+          matching the card whose box-shadow falls on everything around
+          it, so the avatar sits under the input's shadow and reads as
+          behind. */}
+      <motion.div
+        className="absolute"
+        style={{
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+          borderRadius: PANEL_RADIUS,
+          boxShadow: PEEK_SHADOW,
+        }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: showing ? 1 : 0 }}
+        transition={{ duration: 0.2 }}
+      />
     </div>,
     document.body,
   );
