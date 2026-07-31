@@ -27,6 +27,7 @@ import type {
 interface FakeProcessOptions {
   holdWrites?: boolean;
   closeOnStdinEnd?: boolean;
+  ignoredSignals?: readonly NodeJS.Signals[];
 }
 
 class FakeProcess extends EventEmitter {
@@ -40,9 +41,11 @@ class FakeProcess extends EventEmitter {
   signalCode: NodeJS.Signals | null = null;
   killed = false;
   private processClosed = false;
+  private readonly ignoredSignals: ReadonlySet<NodeJS.Signals>;
 
   constructor(options: FakeProcessOptions = {}) {
     super();
+    this.ignoredSignals = new Set(options.ignoredSignals);
     this.stdin = new Writable({
       highWaterMark: options.holdWrites ? 1 : 64 * 1024,
       write: (chunk: Buffer, _encoding, callback) => {
@@ -73,6 +76,9 @@ class FakeProcess extends EventEmitter {
     }
     this.killed = true;
     this.killSignals.push(signal);
+    if (this.ignoredSignals.has(signal)) {
+      return true;
+    }
     queueMicrotask(() => {
       this.finish(null, signal);
     });
@@ -393,6 +399,41 @@ describe("PipeWire device discovery and capture", () => {
     );
   });
 
+  test("reports an unsolicited clean capture exit", async () => {
+    const factory = createProcessFactory();
+    const audio = new PipeWireAudio({
+      spawnProcess: factory.spawn,
+      findExecutable: async (name) => `/usr/bin/${name}`,
+    });
+    const capture = await audio.startCapture({ onFrame: () => {} });
+
+    factory.processes[0].finish(0);
+
+    await expect(capture.closed).rejects.toThrow(
+      "pw-record stopped unexpectedly with code 0",
+    );
+  });
+
+  test("bounds capture shutdown when the process ignores termination", async () => {
+    const factory = createProcessFactory([
+      { ignoredSignals: ["SIGTERM", "SIGKILL"] },
+    ]);
+    const audio = new PipeWireAudio({
+      spawnProcess: factory.spawn,
+      findExecutable: async (name) => `/usr/bin/${name}`,
+      processTerminationGraceMs: 1,
+      processForceKillGraceMs: 1,
+    });
+    const capture = await audio.startCapture({ onFrame: () => {} });
+
+    const firstStop = capture.stop();
+    const secondStop = capture.stop();
+
+    expect(firstStop).toBe(secondStop);
+    expect(await firstStop).toBeNull();
+    expect(factory.processes[0].killSignals).toEqual(["SIGTERM", "SIGKILL"]);
+  });
+
   test("builds the protocol capture cadence without an explicit target", () => {
     expect(buildPipeWirePcmArgs()).toEqual([
       "--raw",
@@ -505,6 +546,60 @@ describe("PipeWire playback", () => {
     await playback.close();
     await playback.close();
     expect(factory.processes[1].killSignals).toEqual(["SIGTERM"]);
+  });
+
+  test("escalates playback shutdown and bounds the final reap wait", async () => {
+    const factory = createProcessFactory([
+      { ignoredSignals: ["SIGTERM", "SIGKILL"] },
+    ]);
+    const audio = new PipeWireAudio({
+      spawnProcess: factory.spawn,
+      findExecutable: async (name) => `/usr/bin/${name}`,
+      processTerminationGraceMs: 1,
+      processForceKillGraceMs: 1,
+    });
+    const playback = audio.createPlayback();
+    await playback.write({
+      audio: Buffer.from([1, 2]),
+      mimeType: "audio/pcm",
+      sampleRate: 16_000,
+    });
+
+    const firstClose = playback.close();
+    const secondClose = playback.close();
+
+    expect(secondClose).toBe(firstClose);
+    await expect(firstClose).rejects.toThrow(
+      "pw-play did not exit after SIGKILL",
+    );
+    expect(factory.processes[0].killSignals).toEqual(["SIGTERM", "SIGKILL"]);
+  });
+
+  test("bounds playback drain when stdin closure does not stop the process", async () => {
+    const factory = createProcessFactory([
+      {
+        closeOnStdinEnd: false,
+        ignoredSignals: ["SIGKILL"],
+      },
+    ]);
+    const audio = new PipeWireAudio({
+      spawnProcess: factory.spawn,
+      findExecutable: async (name) => `/usr/bin/${name}`,
+      processForceKillGraceMs: 1,
+      playbackDrainGraceMs: 1,
+    });
+    const playback = audio.createPlayback();
+    await playback.write({
+      audio: Buffer.from([1, 2]),
+      mimeType: "audio/pcm",
+      sampleRate: 16_000,
+    });
+
+    await expect(playback.drain()).rejects.toThrow(
+      "pw-play did not exit after SIGKILL",
+    );
+    expect(factory.processes[0].killSignals).toEqual(["SIGKILL"]);
+    await playback.close();
   });
 
   test("rejects unsupported provider output with format details", async () => {

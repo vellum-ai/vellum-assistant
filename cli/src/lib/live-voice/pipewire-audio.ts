@@ -40,6 +40,9 @@ const REQUIRED_EXECUTABLES = [
 ] as const;
 const MINIMUM_PIPEWIRE_VERSION = "1.4.0";
 const AUDIO_COMMAND_TIMEOUT_MS = 5_000;
+const PROCESS_TERMINATION_GRACE_MS = 500;
+const PROCESS_FORCE_KILL_GRACE_MS = 500;
+const PLAYBACK_DRAIN_GRACE_MS = 10_000;
 export const LIVE_VOICE_ECHO_CANCEL_SOURCE = "vellum_echo_cancel_source";
 export const LIVE_VOICE_ECHO_CANCEL_SINK = "vellum_echo_cancel_sink";
 const PIPEWIRE_ECHO_CANCEL_MODULE = "libpipewire-module-echo-cancel";
@@ -96,6 +99,23 @@ export interface PipeWireAudioDependencies {
   username?: string;
   runtimeDirectory?: string;
   pathExists?: (path: string) => boolean;
+  processTerminationGraceMs?: number;
+  processForceKillGraceMs?: number;
+  playbackDrainGraceMs?: number;
+}
+
+interface AudioProcessTimeouts {
+  terminationGraceMs: number;
+  forceKillGraceMs: number;
+  drainGraceMs: number;
+}
+
+interface AudioProcessReapResult {
+  closed: boolean;
+  forced: boolean;
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  error?: Error;
 }
 
 export interface PipeWireVersion {
@@ -128,6 +148,7 @@ export class PipeWireAudio {
   private readonly username: string;
   private readonly runtimeDirectory: string | undefined;
   private readonly pathExists: (path: string) => boolean;
+  private readonly processTimeouts: AudioProcessTimeouts;
 
   constructor(dependencies: PipeWireAudioDependencies = {}) {
     this.spawnProcess = dependencies.spawnProcess ?? defaultSpawnProcess;
@@ -143,6 +164,14 @@ export class PipeWireAudio {
     this.runtimeDirectory =
       dependencies.runtimeDirectory ?? process.env.XDG_RUNTIME_DIR;
     this.pathExists = dependencies.pathExists ?? existsSync;
+    this.processTimeouts = {
+      terminationGraceMs:
+        dependencies.processTerminationGraceMs ?? PROCESS_TERMINATION_GRACE_MS,
+      forceKillGraceMs:
+        dependencies.processForceKillGraceMs ?? PROCESS_FORCE_KILL_GRACE_MS,
+      drainGraceMs:
+        dependencies.playbackDrainGraceMs ?? PLAYBACK_DRAIN_GRACE_MS,
+    };
   }
 
   async discoverDevices(): Promise<LiveVoiceAudioDevices> {
@@ -168,11 +197,16 @@ export class PipeWireAudio {
       buildPipeWirePcmArgs(options.target),
       pipeProcessOptions(),
     );
-    return new PipeWireCaptureSession(child, options);
+    return new PipeWireCaptureSession(child, options, this.processTimeouts);
   }
 
   createPlayback(target?: string): LiveVoicePcmPlayback {
-    return new PipeWirePlayback(this.spawnProcess, this.findExecutable, target);
+    return new PipeWirePlayback(
+      this.spawnProcess,
+      this.findExecutable,
+      this.processTimeouts,
+      target,
+    );
   }
 
   async doctor(
@@ -697,6 +731,7 @@ class PipeWireCaptureSession implements LiveVoicePcmCaptureSession {
   constructor(
     private readonly child: ChildProcessWithoutNullStreams,
     private readonly options: LiveVoicePcmCaptureOptions,
+    private readonly processTimeouts: AudioProcessTimeouts,
   ) {
     this.closed = new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -715,7 +750,7 @@ class PipeWireCaptureSession implements LiveVoicePcmCaptureSession {
         settle(error);
       });
       child.once("close", (code, signal) => {
-        if (this.stopping || code === 0) {
+        if (this.stopping) {
           settle();
         } else {
           settle(
@@ -750,11 +785,22 @@ class PipeWireCaptureSession implements LiveVoicePcmCaptureSession {
   }
 
   private async stopOnce(): Promise<Buffer | null> {
-    this.stopping = true;
-    if (this.child.exitCode === null && !this.child.killed) {
-      this.child.kill("SIGTERM");
+    if (this.child.exitCode !== null || this.child.signalCode !== null) {
+      await this.closed;
+      return this.framer.flush(this.muted);
     }
-    await this.closed;
+    this.stopping = true;
+    const result = await terminateAndReapProcess(
+      this.child,
+      () => {
+        this.child.kill("SIGTERM");
+      },
+      this.processTimeouts.terminationGraceMs,
+      this.processTimeouts.forceKillGraceMs,
+    );
+    if (result.closed) {
+      await this.closed;
+    }
     return this.framer.flush(this.muted);
   }
 }
@@ -765,10 +811,12 @@ class PipeWirePlayback implements LiveVoicePcmPlayback {
   private generation = 0;
   private operations: Promise<void> = Promise.resolve();
   private closed = false;
+  private closePromise: Promise<void> | null = null;
 
   constructor(
     private readonly spawnProcess: AudioProcessFactory,
     private readonly findExecutable: AudioExecutableLookup,
+    private readonly processTimeouts: AudioProcessTimeouts,
     private readonly target?: string,
   ) {}
 
@@ -826,8 +874,15 @@ class PipeWirePlayback implements LiveVoicePcmPlayback {
       }
       this.child = null;
       this.sampleRate = null;
-      child.stdin.end();
-      await waitForProcessClose(child, false);
+      const result = await terminateAndReapProcess(
+        child,
+        () => {
+          child.stdin.end();
+        },
+        this.processTimeouts.drainGraceMs,
+        this.processTimeouts.forceKillGraceMs,
+      );
+      requireCleanPlaybackExit(result);
     });
   }
 
@@ -836,22 +891,28 @@ class PipeWirePlayback implements LiveVoicePcmPlayback {
     const child = this.child;
     this.child = null;
     this.sampleRate = null;
-    if (child !== null && child.exitCode === null && !child.killed) {
-      child.kill("SIGTERM");
+    if (child === null) {
+      return this.operations;
     }
-    return this.enqueue(async () => {
-      if (child !== null) {
-        await waitForProcessClose(child, true);
-      }
-    });
+    const result = terminateAndReapProcess(
+      child,
+      () => {
+        child.kill("SIGTERM");
+      },
+      this.processTimeouts.terminationGraceMs,
+      this.processTimeouts.forceKillGraceMs,
+    ).then(requireTerminatedPlaybackProcess);
+    this.operations = result.catch(() => {});
+    return result;
   }
 
   close(): Promise<void> {
-    if (this.closed) {
-      return this.operations;
+    if (this.closePromise !== null) {
+      return this.closePromise;
     }
     this.closed = true;
-    return this.flush();
+    this.closePromise = this.flush();
+    return this.closePromise;
   }
 
   private enqueue(operation: () => Promise<void>): Promise<void> {
@@ -896,10 +957,15 @@ class PipeWirePlayback implements LiveVoicePcmPlayback {
     if (child === null) {
       return;
     }
-    if (child.exitCode === null && !child.killed) {
-      child.kill(signal);
-    }
-    await waitForProcessClose(child, true);
+    const result = await terminateAndReapProcess(
+      child,
+      () => {
+        child.kill(signal);
+      },
+      this.processTimeouts.terminationGraceMs,
+      this.processTimeouts.forceKillGraceMs,
+    );
+    requireTerminatedPlaybackProcess(result);
   }
 }
 
@@ -1137,40 +1203,113 @@ function createDefaultProcessProbe(
     });
 }
 
-function waitForProcessClose(
+function terminateAndReapProcess(
   child: ChildProcessWithoutNullStreams,
-  acceptTermination: boolean,
-): Promise<void> {
+  requestGracefulStop: () => void,
+  gracefulTimeoutMs: number,
+  forceKillTimeoutMs: number,
+): Promise<AudioProcessReapResult> {
   if (child.exitCode !== null || child.signalCode !== null) {
-    return acceptTermination ||
-      (child.exitCode === 0 && child.signalCode === null)
-      ? Promise.resolve()
-      : Promise.reject(playbackExitError(child.exitCode, child.signalCode));
+    return Promise.resolve({
+      closed: true,
+      forced: false,
+      code: child.exitCode,
+      signal: child.signalCode,
+    });
   }
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     let settled = false;
-    const finish = (error?: Error): void => {
+    let forced = false;
+    let processError: Error | undefined;
+    const timers: {
+      graceful?: ReturnType<typeof setTimeout>;
+      forceKill?: ReturnType<typeof setTimeout>;
+    } = {};
+    const cleanup = (): void => {
+      child.off("close", onClose);
+      child.off("error", onError);
+      if (timers.graceful !== undefined) {
+        clearTimeout(timers.graceful);
+      }
+      if (timers.forceKill !== undefined) {
+        clearTimeout(timers.forceKill);
+      }
+    };
+    const finish = (result: AudioProcessReapResult): void => {
       if (settled) {
         return;
       }
       settled = true;
-      if (error === undefined) {
-        resolve();
-      } else {
-        reject(error);
-      }
+      cleanup();
+      resolve(result);
     };
-    child.once("close", (code, signal) => {
-      if (acceptTermination || (code === 0 && signal === null)) {
-        finish();
-      } else {
-        finish(playbackExitError(code, signal));
+    const onClose = (
+      code: number | null,
+      signal: NodeJS.Signals | null,
+    ): void => {
+      finish({ closed: true, forced, code, signal, error: processError });
+    };
+    const onError = (error: Error): void => {
+      processError ??= error;
+    };
+    child.once("close", onClose);
+    child.on("error", onError);
+
+    const forceKill = (): void => {
+      if (settled) {
+        return;
       }
-    });
-    child.once("error", (error) => {
-      finish(error);
-    });
+      forced = true;
+      try {
+        child.kill("SIGKILL");
+      } catch (error) {
+        onError(error instanceof Error ? error : new Error(String(error)));
+      }
+      timers.forceKill = setTimeout(
+        () => {
+          finish({
+            closed: false,
+            forced: true,
+            code: child.exitCode,
+            signal: child.signalCode,
+            error: processError,
+          });
+        },
+        Math.max(0, forceKillTimeoutMs),
+      );
+    };
+
+    try {
+      requestGracefulStop();
+      timers.graceful = setTimeout(forceKill, Math.max(0, gracefulTimeoutMs));
+    } catch (error) {
+      onError(error instanceof Error ? error : new Error(String(error)));
+      forceKill();
+    }
   });
+}
+
+function requireCleanPlaybackExit(result: AudioProcessReapResult): void {
+  if (result.error !== undefined) {
+    throw result.error;
+  }
+  if (!result.closed) {
+    throw new Error("pw-play did not exit after SIGKILL.");
+  }
+  if (result.code !== 0 || result.signal !== null) {
+    throw playbackExitError(result.code, result.signal);
+  }
+}
+
+function requireTerminatedPlaybackProcess(
+  result: AudioProcessReapResult,
+): void {
+  if (result.error !== undefined) {
+    throw result.error;
+  }
+  if (!result.closed) {
+    throw new Error("pw-play did not exit after SIGKILL.");
+  }
 }
 
 function writeWithBackpressure(
