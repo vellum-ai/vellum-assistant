@@ -122,8 +122,8 @@ describe("PreferencesMenu", () => {
     expect(html).toBe("");
   });
 
-  // The trigger names the menu it opens, not the person signed in. A fully
-  // populated platform account is the case that used to render "Jane Doe".
+  // A platform account with every identity field populated is the case most
+  // able to leak one into the trigger, so it is the one asserted against.
   test("labels the trigger 'Preferences', never the account identity", () => {
     authRef.user = {
       kind: "platform",

@@ -44,10 +44,9 @@ const ShareFeedbackModal = lazy(() =>
 );
 
 /**
- * The trigger is a settings entry point, not a profile row: labelling it with
- * the signed-in account's name (as it did between #38187 and this change) read
- * as an identity affordance and left no visible way to name what the menu
- * actually opens. The account identity stays discoverable on the Settings page.
+ * The trigger names the menu it opens, never the signed-in account. This is a
+ * settings entry point rather than a profile row, and the account's identity
+ * belongs on the Settings page the menu links to.
  */
 const PREFERENCES_LABEL = "Preferences";
 
