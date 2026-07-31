@@ -5,6 +5,7 @@
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
         android:label="${appLabel}"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
@@ -55,6 +56,17 @@
                     android:scheme="${vellumAuthScheme}"
                     android:host="billing"
                     android:path="/checkout-complete" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:scheme="${vellumAuthScheme}"
+                    android:host="connect" />
             </intent-filter>
 
         </activity>
