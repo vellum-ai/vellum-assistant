@@ -698,10 +698,18 @@ export function ChatComposer({
           <form
             data-slot="chat-composer"
             onSubmit={onSubmit}
-            className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
+            className={`bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] focus-within:shadow-[0px_2px_2px_rgba(0,0,0,0.13)] ${
               hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"
             }`}
           >
+            {/* overflow-hidden lives here, not on the form itself — the form
+                casts the shadow above, and overflow-hidden on the same box
+                would clip that shadow along with the rounded corners. */}
+            <div
+              className={`overflow-hidden ${
+                hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"
+              }`}
+            >
             <ChatAttachmentsStrip
               attachments={attachments}
               onRemove={removeAttachment}
@@ -996,7 +1004,7 @@ export function ChatComposer({
                   {!isAssistantBusy && thresholdPickerSlot ? (
                     <div
                       aria-hidden="true"
-                      className="h-4 w-px shrink-0 bg-[var(--border-base)] touch-mobile:-mx-1"
+                      className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
                     />
                   ) : null}
                   {thresholdPickerSlot}
@@ -1043,7 +1051,7 @@ export function ChatComposer({
                       {modelPickerSlot && showVoiceInput ? (
                         <div
                           aria-hidden="true"
-                          className="h-4 w-px shrink-0 bg-[var(--border-base)] touch-mobile:-mx-1"
+                          className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
                         />
                       ) : null}
                       {showVoiceInput && (
@@ -1113,6 +1121,7 @@ export function ChatComposer({
                 </div>
               </div>
             )}
+            </div>
           </form>
         </Popover.Anchor>
         <Popover.Content

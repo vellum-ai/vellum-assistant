@@ -219,7 +219,7 @@ export function AssistantNavItem({
       components.colors.find((c) => c.id === traits.color)?.hex) ||
     null;
 
-  // The row wears the identity page's feature-card wash — 28% of the
+  // The row wears the identity page's feature-card wash — 14% of the
   // avatar color mixed into the lifted surface, the Personality card's
   // recipe (see `identity-overview.tsx` `--card-feature-bg`) — falling
   // back to the plain hover treatment when there's no character avatar.
@@ -236,7 +236,7 @@ export function AssistantNavItem({
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         "transition-colors duration-150 active:scale-[0.98]",
         hex && !navTourActive
-          ? "bg-[color-mix(in_srgb,var(--assistant-tint)_28%,var(--surface-lift))] hover:bg-[color-mix(in_srgb,var(--assistant-tint)_36%,var(--surface-lift))]"
+          ? "bg-[color-mix(in_srgb,var(--assistant-tint)_14%,var(--surface-lift))] hover:bg-[color-mix(in_srgb,var(--assistant-tint)_36%,var(--surface-lift))]"
           : "hover:bg-[var(--surface-hover)]",
         collapsed && "justify-center",
       )}
@@ -260,7 +260,9 @@ export function AssistantNavItem({
             read as the same size. */}
         <Plus
           className="h-3.5 w-3.5"
-          style={{ color: "var(--content-secondary)" }}
+          style={{
+            color: "var(--assistant-tint, var(--content-secondary))",
+          }}
         />
       </span>
       {!collapsed && (
