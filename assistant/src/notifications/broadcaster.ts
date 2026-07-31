@@ -251,6 +251,27 @@ interface PendingChannelDispatch {
   hasPersistedDecision: boolean;
 }
 
+/**
+ * Build a delivery result for a prepared dispatch. The single construction
+ * site for every post-preparation outcome branch, so a future field cannot
+ * be added to one branch and missed in another.
+ */
+function buildDeliveryResult(
+  dispatch: PendingChannelDispatch,
+  status: NotificationDeliveryResult["status"],
+  overrides?: Partial<NotificationDeliveryResult>,
+): NotificationDeliveryResult {
+  return {
+    channel: dispatch.channel,
+    destination: dispatch.destinationLabel,
+    status,
+    conversationId: dispatch.pairing.conversationId ?? undefined,
+    messageId: dispatch.pairing.messageId ?? undefined,
+    conversationStrategy: dispatch.pairing.strategy,
+    ...overrides,
+  };
+}
+
 export class NotificationBroadcaster {
   private adapters: Map<NotificationChannel, ChannelAdapter>;
   private onConversationCreated: OnConversationCreatedFn | null = null;
@@ -640,6 +661,17 @@ export class NotificationBroadcaster {
           toolApprovalSource,
         };
 
+        const dispatch: PendingChannelDispatch = {
+          adapter,
+          channel,
+          destination,
+          payload,
+          deliveryId,
+          destinationLabel,
+          pairing,
+          hasPersistedDecision,
+        };
+
         // Compute conversation decision audit fields for the delivery record
         const conversationAudit = {
           conversationAction: conversationAction?.action ?? "start_new",
@@ -678,28 +710,11 @@ export class NotificationBroadcaster {
             { err, channel, signalId: signal.signalId },
             "Failed to create delivery record",
           );
-          results.push({
-            channel,
-            destination: destinationLabel,
-            status: "failed",
-            errorMessage,
-            conversationId: pairing.conversationId ?? undefined,
-            messageId: pairing.messageId ?? undefined,
-            conversationStrategy: pairing.strategy,
-          });
+          results.push(
+            buildDeliveryResult(dispatch, "failed", { errorMessage }),
+          );
           continue;
         }
-
-        const dispatch: PendingChannelDispatch = {
-          adapter,
-          channel,
-          destination,
-          payload,
-          deliveryId,
-          destinationLabel,
-          pairing,
-          hasPersistedDecision,
-        };
 
         if (channel === "vellum" && orderedChannels.includes("platform")) {
           // The vellum intent carries remotePushDispatched, so its send waits
@@ -745,14 +760,7 @@ export class NotificationBroadcaster {
             // The in-flight dispatch's result lands in backgroundResults,
             // which this call no longer reads; its delivery row still gets
             // the real terminal status.
-            results.push({
-              channel,
-              destination: destinationLabel,
-              status: "pending",
-              conversationId: pairing.conversationId ?? undefined,
-              messageId: pairing.messageId ?? undefined,
-              conversationStrategy: pairing.strategy,
-            });
+            results.push(buildDeliveryResult(dispatch, "pending"));
           } else {
             results.push(...backgroundResults);
           }
@@ -760,15 +768,7 @@ export class NotificationBroadcaster {
           continue;
         }
 
-        const adapterResult = await this.sendAndRecord(
-          dispatch,
-          signal,
-          results,
-        );
-        if (channel === "platform") {
-          platformRemotePushAccepted =
-            adapterResult?.remotePushAccepted === true;
-        }
+        await this.sendAndRecord(dispatch, signal, results);
       }
     } finally {
       // Guarantees the vellum intent is emitted (and its pending delivery
@@ -797,7 +797,6 @@ export class NotificationBroadcaster {
       destination,
       payload,
       deliveryId,
-      destinationLabel,
       pairing,
       hasPersistedDecision,
     } = dispatch;
@@ -821,30 +820,23 @@ export class NotificationBroadcaster {
               : undefined,
           );
         }
-        results.push({
-          channel,
-          destination: destinationLabel,
-          status: "sent",
-          sentAt: Date.now(),
-          conversationId: pairing.conversationId ?? undefined,
-          messageId: resolvedMessageId,
-          conversationStrategy: pairing.strategy,
-        });
+        results.push(
+          buildDeliveryResult(dispatch, "sent", {
+            sentAt: Date.now(),
+            messageId: resolvedMessageId,
+          }),
+        );
       } else {
         if (hasPersistedDecision) {
           updateDeliveryStatus(deliveryId, "failed", {
             message: adapterResult.error,
           });
         }
-        results.push({
-          channel,
-          destination: destinationLabel,
-          status: "failed",
-          errorMessage: adapterResult.error,
-          conversationId: pairing.conversationId ?? undefined,
-          messageId: pairing.messageId ?? undefined,
-          conversationStrategy: pairing.strategy,
-        });
+        results.push(
+          buildDeliveryResult(dispatch, "failed", {
+            errorMessage: adapterResult.error,
+          }),
+        );
       }
       return adapterResult;
     } catch (err) {
@@ -864,15 +856,7 @@ export class NotificationBroadcaster {
         }
       }
 
-      results.push({
-        channel,
-        destination: destinationLabel,
-        status: "failed",
-        errorMessage,
-        conversationId: pairing.conversationId ?? undefined,
-        messageId: pairing.messageId ?? undefined,
-        conversationStrategy: pairing.strategy,
-      });
+      results.push(buildDeliveryResult(dispatch, "failed", { errorMessage }));
       return null;
     }
   }

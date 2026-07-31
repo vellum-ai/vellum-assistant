@@ -11,13 +11,17 @@ let mockManagedProxyCtx = {
 };
 let mockAssistantId = "";
 let mockSecureKeys: Record<string, string | null | undefined> = {};
+// Re-pointable so the probe-deadline tests can hang context resolution.
+let mockResolveManagedProxyContext: () => Promise<
+  typeof mockManagedProxyCtx
+> = async () => mockManagedProxyCtx;
 
 // ---------------------------------------------------------------------------
 // Module mocks
 // ---------------------------------------------------------------------------
 
 mock.module("../providers/platform-proxy/context.js", () => ({
-  resolveManagedProxyContext: async () => mockManagedProxyCtx,
+  resolveManagedProxyContext: () => mockResolveManagedProxyContext(),
 }));
 
 mock.module("../config/env.js", () => ({
@@ -38,7 +42,11 @@ mock.module("../security/credential-key.js", () => ({
 // Import under test (after mocks)
 // ---------------------------------------------------------------------------
 
-import { VellumPlatformClient } from "./client.js";
+import {
+  _resetConfiguredProbeCacheForTests,
+  isPlatformClientConfigured,
+  VellumPlatformClient,
+} from "./client.js";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -56,6 +64,8 @@ describe("VellumPlatformClient", () => {
     };
     mockAssistantId = "asst-123";
     mockSecureKeys = {};
+    mockResolveManagedProxyContext = async () => mockManagedProxyCtx;
+    _resetConfiguredProbeCacheForTests();
   });
 
   afterEach(() => {
@@ -116,6 +126,52 @@ describe("VellumPlatformClient", () => {
       expect(client!.baseUrl).toBe("https://stored-platform.example.com");
       expect(client!.assistantApiKey).toBe("stored-api-key");
       expect(client!.platformAssistantId).toBe("stored-assistant-id");
+    });
+  });
+
+  describe("isPlatformClientConfigured()", () => {
+    test("true when base url, api key, and assistant id are all present", async () => {
+      expect(await isPlatformClientConfigured()).toBe(true);
+    });
+
+    test("false when the platform assistant id is missing", async () => {
+      mockAssistantId = "";
+
+      expect(await isPlatformClientConfigured()).toBe(false);
+    });
+
+    test("false when auth prerequisites are missing", async () => {
+      mockManagedProxyCtx = {
+        enabled: false,
+        platformBaseUrl: "",
+        assistantApiKey: "",
+      };
+
+      expect(await isPlatformClientConfigured()).toBe(false);
+    });
+
+    test("hung resolution answers false at the deadline, then serves the late result from cache", async () => {
+      let releaseHang = () => {};
+      const hang = new Promise<void>((resolve) => {
+        releaseHang = resolve;
+      });
+      mockResolveManagedProxyContext = async () => {
+        await hang;
+        return mockManagedProxyCtx;
+      };
+
+      // Resolution is hung and no result has ever settled -- the deadline
+      // must answer false instead of stalling the caller.
+      expect(await isPlatformClientConfigured()).toBe(false);
+
+      // Release the abandoned resolution; it settles true in the background
+      // and refreshes the cache.
+      releaseHang();
+      await Bun.sleep(10);
+
+      // Resolution hangs forever this time, but the cache answers true.
+      mockResolveManagedProxyContext = () => new Promise(() => {});
+      expect(await isPlatformClientConfigured()).toBe(true);
     });
   });
 

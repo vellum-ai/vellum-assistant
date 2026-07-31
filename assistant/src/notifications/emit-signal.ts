@@ -331,8 +331,10 @@ export async function emitNotificationSignal<TEventName extends string>(
     // regardless of what the decision engine selected. macOS surfaces a
     // banner even when the app is focused, and a suspended iOS device is
     // only reachable via APNs. Platform is only forced when the daemon has
-    // platform credentials -- on unbound daemons the dispatch can never
-    // succeed and would write a failed delivery row per signal.
+    // platform credentials and an assistant id -- on unbound daemons the
+    // dispatch can never succeed and would write a failed delivery row per
+    // signal. The probe is deadline-bounded internally, so a slow credential
+    // backend cannot stall the urgent dispatch.
     //
     // Vellum PREPENDS and platform APPENDS: the broadcaster re-sorts by
     // dispatch rank, so selection order only matters to single_channel
