@@ -305,8 +305,6 @@ async function runAdvisorConsult(args: {
       allowedToolNames: context.allowedToolNames,
       trustClass: context.trustClass,
       sourceChannel: context.executionChannel,
-      transcript: sanitizedMessages,
-      signal: context.signal,
     });
 
     // Default to the stronger advisor profile when the caller did not pin one;

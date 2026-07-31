@@ -4,22 +4,22 @@
  *  - the tools available to it this turn,
  *  - the full catalog of skills it can load,
  *  - the workspace around it: top-level context, a bounded directory tree of
- *    its working dir, NOW.md, PKB, and open documents,
- *  - and relevant memory pulled through the recall search.
+ *    its working dir, NOW.md, and open documents.
  *
  * The advisor already receives the agent's transcript and system prompt; this
  * adds the situational context that lives *outside* the prompt (tools and
- * skills are passed to the model as a separate catalog, not inlined) plus a
- * fresh, task-focused memory recall. Without it the advisor cannot reference
- * platform capabilities — it would advise an agent whose toolbox it has never
- * seen.
+ * skills are passed to the model as a separate catalog, not inlined). Without
+ * it the advisor cannot reference platform capabilities — it would advise an
+ * agent whose toolbox it has never seen. Memory surfaces owned by the memory
+ * plugin (PKB, recall search) are deliberately absent: host code must not
+ * import plugin internals, and the inherited transcript already carries the
+ * memory the parent turn was injected with.
  *
- * Personal-memory surfaces are gated to the same policy the main agent's
- * memory injectors apply: the recall search honors `canAccessMemory` (like the
- * `recall` tool), and NOW.md / PKB honor `isPersonalMemoryAllowed` (plus the
- * scratchpad-injection toggle for NOW.md). The advisor consult is low-risk and
- * can run on remote/trusted-contact turns, so without these gates it could
- * forward private content the main agent itself would not receive.
+ * NOW.md is a personal-memory surface, gated to the same policy the main
+ * agent's memory injectors apply: `isPersonalMemoryAllowed` plus the
+ * scratchpad-injection config toggle. The advisor consult is low-risk and can
+ * run on remote/trusted-contact turns, so without the gate it could forward
+ * private content the main agent itself would not receive.
  *
  * Every section is best-effort: each source is wrapped so a failure or empty
  * result drops just that section, never the consult. Daemon-, tool-, and
@@ -35,7 +35,6 @@ import { join } from "node:path";
 
 import type { ChannelId } from "../channels/types.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
-import type { Message } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { truncate as truncateText } from "../util/truncate.js";
 
@@ -46,8 +45,7 @@ export interface AdvisorContextSources {
   allowedToolNames?: ReadonlySet<string>;
   /**
    * Trust class of the turn's actor, from the per-turn `ToolContext.trustClass`
-   * snapshot. Gates the memory recall and (with {@link sourceChannel}) the
-   * personal-memory surfaces.
+   * snapshot. Gates (with {@link sourceChannel}) the personal-memory surfaces.
    */
   trustClass: TrustClass;
   /**
@@ -57,9 +55,6 @@ export interface AdvisorContextSources {
    * than the mutable live conversation trust.
    */
   sourceChannel?: string;
-  /** The captured transcript, used to derive the recall query. */
-  transcript: ReadonlyArray<Message>;
-  signal?: AbortSignal;
 }
 
 /** Cap a block so the assembled context never balloons the consult prompt. */
@@ -74,26 +69,6 @@ function summarize(description: string | undefined, max = 160): string {
   }
   const firstSentence = description.split(/(?<=[.!?])\s/)[0] ?? description;
   return truncate(firstSentence, max);
-}
-
-/** Pull the most recent user-authored text to seed the memory recall query. */
-export function deriveRecallQuery(
-  transcript: ReadonlyArray<Message>,
-): string | null {
-  for (let i = transcript.length - 1; i >= 0; i--) {
-    const message = transcript[i];
-    if (message.role !== "user") {
-      continue;
-    }
-    const text = message.content
-      .map((block) => (block.type === "text" ? block.text : ""))
-      .join(" ")
-      .trim();
-    if (text.length > 0) {
-      return truncate(text, 500);
-    }
-  }
-  return null;
 }
 
 /** `## Available tools` — the live tool set the agent can act with this turn. */
@@ -231,7 +206,7 @@ export function buildWorkspaceTree(
 }
 
 /**
- * Whether personal-memory surfaces (NOW.md, PKB) may be exposed to the advisor
+ * Whether personal-memory surfaces (NOW.md) may be exposed to the advisor
  * — the same `isPersonalMemoryAllowed` gate the runtime memory injectors apply.
  *
  * Derived from the per-turn trust snapshot (`ToolContext.trustClass` /
@@ -318,17 +293,6 @@ async function buildWorkspaceSection(
     } catch {
       /* best-effort */
     }
-
-    try {
-      const { readPkbContext } =
-        await import("../plugins/defaults/memory/v1/pkb/context.js");
-      const pkb = readPkbContext();
-      if (pkb) {
-        parts.push(truncate(pkb, 2000));
-      }
-    } catch {
-      /* best-effort */
-    }
   }
 
   try {
@@ -352,58 +316,11 @@ async function buildWorkspaceSection(
   return `## Workspace & project context\n${parts.join("\n\n")}`;
 }
 
-/** `## Relevant memory (recall)` — a fresh, task-focused recall search. */
-async function buildMemorySection(
-  sources: AdvisorContextSources,
-): Promise<string | null> {
-  try {
-    const { resolveCapabilities } = await import("../runtime/capabilities.js");
-    // Recall reads sensitive local context; honor the same trust gate the
-    // `recall` tool applies. Non-guardian turns get no fresh recall here.
-    if (!resolveCapabilities(sources.trustClass).canAccessMemory) {
-      return null;
-    }
-
-    const query = deriveRecallQuery(sources.transcript);
-    if (!query) {
-      return null;
-    }
-
-    const [{ runDeterministicRecallSearch }, { getConfig }] = await Promise.all(
-      [
-        import("../plugins/defaults/memory/context-search/search.js"),
-        import("../config/loader.js"),
-      ],
-    );
-
-    const { evidence } = await runDeterministicRecallSearch(
-      { query, max_results: 8 },
-      {
-        workingDir: sources.workingDir,
-        conversationId: sources.conversationId,
-        config: getConfig(),
-        signal: sources.signal,
-      },
-    );
-    if (evidence.length === 0) {
-      return null;
-    }
-
-    const lines = evidence.slice(0, 8).map((item) => {
-      const excerpt = truncate(item.excerpt, 220);
-      return `- [${item.source}] ${item.title} (${item.locator}): ${excerpt}`;
-    });
-    return `## Relevant memory (recall: "${truncate(query, 120)}")\n${lines.join("\n")}`;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Per-section deadline. A source that stalls (e.g. a recall search waiting on
- * a subsystem that is down) must cost the consult at most this long and drop
- * only its own section — the advisor is blocking, so context assembly can
- * never be allowed to hang the turn.
+ * Per-section deadline. A source that stalls (e.g. a workspace scan on a slow
+ * volume) must cost the consult at most this long and drop only its own
+ * section — the advisor is blocking, so context assembly can never be allowed
+ * to hang the turn.
  */
 const SECTION_TIMEOUT_MS = 2_000;
 
@@ -432,7 +349,6 @@ export async function buildAdvisorContext(
       buildToolsSection(sources.allowedToolNames),
       buildSkillsSection(),
       buildWorkspaceSection(sources),
-      buildMemorySection(sources),
     ].map((section) => withSectionTimeout(section, sectionTimeoutMs)),
   );
   const present = sections.filter((s): s is string => s !== null);

@@ -1,8 +1,8 @@
 /**
- * Personal-memory gating for the advisor context pack: NOW.md and PKB must only
- * reach the advisor when the turn's trust admits personal memory (and, for
- * NOW.md, when the scratchpad-injection toggle is on) — the same policy the
- * runtime memory injectors apply. Without it, a low-risk advisor consult on a
+ * Personal-memory gating for the advisor context pack: NOW.md must only reach
+ * the advisor when the turn's trust admits personal memory and the
+ * scratchpad-injection toggle is on — the same policy the runtime memory
+ * injectors apply. Without it, a low-risk advisor consult on a
  * remote/trusted-contact turn could forward private content the main agent
  * would never receive.
  *
@@ -24,9 +24,6 @@ mock.module("../../daemon/trust-context.js", () => ({
 mock.module("../../daemon/now-scratchpad.js", () => ({
   readNowScratchpad: () => "NOW-CONTENT",
 }));
-mock.module("../../plugins/defaults/memory/v1/pkb/context.js", () => ({
-  readPkbContext: () => "PKB-CONTENT",
-}));
 mock.module("../../config/loader.js", () => ({
   getConfig: () => ({
     memory: {
@@ -35,15 +32,12 @@ mock.module("../../config/loader.js", () => ({
     llm: {},
   }),
 }));
-// Keep every other section empty so the assertions isolate NOW.md / PKB.
+// Keep every other section empty so the assertions isolate NOW.md.
 mock.module("../../daemon/conversation-workspace.js", () => ({
   resolveWorkspaceTopLevelContext: () => null,
 }));
 mock.module("../../daemon/conversation-runtime-assembly.js", () => ({
   buildActiveDocuments: () => null,
-}));
-mock.module("../../runtime/capabilities.js", () => ({
-  resolveCapabilities: () => ({ canAccessMemory: false }),
 }));
 mock.module("../../config/skills.js", () => ({
   loadSkillCatalog: () => [],
@@ -60,7 +54,6 @@ const sources = {
   // could have wrongly elevated.
   trustClass: "unknown" as const,
   sourceChannel: "telegram",
-  transcript: [],
   allowedToolNames: new Set<string>(),
 };
 
@@ -71,27 +64,24 @@ beforeEach(() => {
 });
 
 describe("advisor context pack — personal-memory gating", () => {
-  test("withholds NOW.md and PKB when personal memory is disallowed", async () => {
+  test("withholds NOW.md when personal memory is disallowed", async () => {
     personalAllowed = false;
     const ctx = (await buildAdvisorContext(sources)) ?? "";
     expect(ctx).not.toContain("NOW-CONTENT");
-    expect(ctx).not.toContain("PKB-CONTENT");
   });
 
-  test("includes NOW.md and PKB when allowed and the scratchpad toggle is on", async () => {
+  test("includes NOW.md when allowed and the scratchpad toggle is on", async () => {
     personalAllowed = true;
     scratchpadEnabled = true;
     const ctx = await buildAdvisorContext(sources);
     expect(ctx).toContain("NOW-CONTENT");
-    expect(ctx).toContain("PKB-CONTENT");
   });
 
-  test("withholds NOW.md when the scratchpad toggle is off, PKB still allowed", async () => {
+  test("withholds NOW.md when the scratchpad toggle is off", async () => {
     personalAllowed = true;
     scratchpadEnabled = false;
     const ctx = (await buildAdvisorContext(sources)) ?? "";
     expect(ctx).not.toContain("NOW-CONTENT");
-    expect(ctx).toContain("PKB-CONTENT");
   });
 
   test("feeds the gate the per-turn trust snapshot, not live conversation state", async () => {

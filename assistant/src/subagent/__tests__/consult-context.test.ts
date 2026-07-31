@@ -3,37 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import type { Message } from "../../providers/types.js";
-import {
-  buildAdvisorContext,
-  buildWorkspaceTree,
-  deriveRecallQuery,
-} from "../consult-context.js";
-
-const userMsg = (t: string): Message => ({
-  role: "user",
-  content: [{ type: "text", text: t }],
-});
-
-describe("deriveRecallQuery", () => {
-  test("returns the most recent user message text", () => {
-    const query = deriveRecallQuery([
-      userMsg("the original task"),
-      { role: "assistant", content: [{ type: "text", text: "ok" }] },
-      userMsg("the latest question"),
-    ]);
-    expect(query).toBe("the latest question");
-  });
-
-  test("returns null when there is no user text", () => {
-    expect(
-      deriveRecallQuery([
-        { role: "assistant", content: [{ type: "text", text: "hi" }] },
-      ]),
-    ).toBeNull();
-    expect(deriveRecallQuery([])).toBeNull();
-  });
-});
+import { buildAdvisorContext, buildWorkspaceTree } from "../consult-context.js";
 
 describe("buildWorkspaceTree", () => {
   test("lists files and directories, skipping dotfiles and dependency dirs", () => {
@@ -83,7 +53,6 @@ describe("buildAdvisorContext", () => {
       workingDir: "/tmp/does-not-exist",
       allowedToolNames: new Set(["bash", "file_read"]),
       trustClass: "unknown",
-      transcript: [userMsg("hi")],
     });
 
     expect(context).toContain("## Available tools");
@@ -97,7 +66,6 @@ describe("buildAdvisorContext", () => {
       workingDir: "/tmp/does-not-exist",
       allowedToolNames: new Set(),
       trustClass: "unknown",
-      transcript: [],
     });
     // Other sources (e.g. the skills catalog) may still contribute, but with no
     // allowed tools the tools section must not appear.
