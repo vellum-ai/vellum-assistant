@@ -204,16 +204,19 @@ Complete the following setup before enabling internal-track uploads:
    `ai.vocify.vellumassistant.staging`, and
    `ai.vocify.vellumassistant.dev`.
 2. Enable Play App Signing for each app and create one controlled upload key.
-3. Grant the release service account permission to publish to each app's
+3. Upload and roll out one signed AAB to each app's internal track manually.
+   Google Play requires this initial release before the Publisher API can
+   upload a completed release.
+4. Grant the release service account permission to publish to each app's
    internal track, then configure the environment-scoped secrets above.
-4. Record each Play signing SHA-256 certificate fingerprint for the Digital
+5. Record each Play signing SHA-256 certificate fingerprint for the Digital
    Asset Links rollout. The upload key fingerprint is not interchangeable with
    the Play signing fingerprint.
-5. Create internal tester groups and verify that testers can install all three
+6. Create internal tester groups and verify that testers can install all three
    package IDs side by side.
-6. Complete each Play listing, privacy policy, Data Safety form, content rating,
+7. Complete each Play listing, privacy policy, Data Safety form, content rating,
    and the declarations required for microphone permissions.
-7. Review app access instructions and release notes before any wider rollout.
+8. Review app access instructions and release notes before any wider rollout.
 
 After setup, verify an internal-track install on a physical device. Confirm the
 package ID, display name, icon color, splash color, web origin, authentication
