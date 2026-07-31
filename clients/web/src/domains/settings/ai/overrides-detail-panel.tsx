@@ -14,6 +14,7 @@ import {
   CUSTOM_SENTINEL,
   draftsEqual,
   isDraftActive,
+  withPickerSelection,
 } from "@/domains/settings/ai/call-site-helpers";
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
@@ -233,10 +234,12 @@ export function OverridesDetailPanel({
     }
     const next: Record<string, CallSiteOverrideDraft | null> = {};
     for (const id of catalogCallSiteIds) {
-      next[id] = { profile: applyAllProfile };
+      // Apply-to-all sets the profile on every row. It is not a reset, so
+      // each row keeps whatever tuning it already carries.
+      next[id] = withPickerSelection(drafts[id], { profile: applyAllProfile });
     }
     setDraftEdits(next);
-  }, [applyAllProfile, catalogCallSiteIds]);
+  }, [applyAllProfile, catalogCallSiteIds, drafts]);
 
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
@@ -315,19 +318,27 @@ export function OverridesDetailPanel({
         orderedProfiles,
         cs?.defaultProfile,
       );
-      if (seedProfile) {
-        setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
-      } else {
-        const defaultProvider =
-          selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
-        const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
-        setDraftEdits((prev) => ({
-          ...prev,
-          [id]: { provider: defaultProvider, model: defaultModel },
-        }));
-      }
+      // Toggling on seeds the picker triple. A persisted entry can be
+      // inactive (tuning fields only, no profile/provider/model) and still
+      // render as off, so seed onto the existing draft rather than over it.
+      const seeded: CallSiteOverrideDraft = seedProfile
+        ? withPickerSelection(drafts[id], { profile: seedProfile })
+        : (() => {
+            const defaultProvider =
+              selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
+            return withPickerSelection(drafts[id], {
+              provider: defaultProvider,
+              model: getDefaultModelForProvider(defaultProvider) ?? "",
+            });
+          })();
+      setDraftEdits((prev) => ({ ...prev, [id]: seeded }));
     },
-    [gatedCallSites, orderedProfiles, selectableInferenceProviders],
+    [
+      gatedCallSites,
+      orderedProfiles,
+      selectableInferenceProviders,
+      drafts,
+    ],
   );
 
   // ---------------------------------------------------------------------------
@@ -340,12 +351,15 @@ export function OverridesDetailPanel({
       const patch: Record<string, CallSiteOverrideDraft | null> = {};
       for (const id of Object.keys(drafts)) {
         const d = drafts[id] ?? null;
+        // Round-trip the whole entry, not just the picker triple: a
+        // persisted call site may carry tuning the editor has no control
+        // for, and rebuilding from three fields would drop it.
         patch[id] = isDraftActive(d)
-          ? {
+          ? withPickerSelection(d, {
               profile: d?.profile ?? null,
               provider: d?.provider ?? null,
               model: d?.model ?? null,
-            }
+            })
           : null;
       }
       await configMutation.mutateAsync({

@@ -12,6 +12,7 @@ import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
 import {
   CUSTOM_SENTINEL,
   isDraftActive,
+  withPickerSelection,
 } from "@/domains/settings/ai/call-site-helpers";
 import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
 
@@ -75,18 +76,24 @@ export function CallSiteOverrideRow({
   }));
   const hasModelError = !!draft?.provider && !draft?.model;
 
+  // Every branch below routes through `withPickerSelection` so a persisted
+  // entry's tuning fields (effort, thinking, maxTokens, ...) survive a
+  // picker change. Clearing the selection is the exception: it drops the
+  // override outright, which is what the off state means.
   function handleProfilePickerChange(val: string) {
     if (val === CUSTOM_SENTINEL) {
       const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
-      onDraftChange(id, {
-        profile: null,
-        provider: defaultProvider,
-        model: defaultModel,
-      });
+      onDraftChange(
+        id,
+        withPickerSelection(draft, {
+          provider: defaultProvider,
+          model: defaultModel,
+        }),
+      );
     } else if (val === "") {
       onDraftChange(id, null);
     } else {
-      onDraftChange(id, { profile: val, provider: null, model: null });
+      onDraftChange(id, withPickerSelection(draft, { profile: val }));
     }
   }
 
@@ -94,16 +101,21 @@ export function CallSiteOverrideRow({
     provider: (typeof INFERENCE_PROVIDERS)[number],
   ) {
     const defaultModel = getDefaultModelForProvider(provider) ?? "";
-    onDraftChange(id, {
-      ...(draft ?? {}),
-      profile: null,
-      provider,
-      model: defaultModel,
-    });
+    onDraftChange(
+      id,
+      withPickerSelection(draft, { provider, model: defaultModel }),
+    );
   }
 
   function handleModelChange(model: string) {
-    onDraftChange(id, { ...(draft ?? {}), model });
+    onDraftChange(
+      id,
+      withPickerSelection(draft, {
+        profile: draft?.profile,
+        provider: draft?.provider,
+        model,
+      }),
+    );
   }
 
   return (

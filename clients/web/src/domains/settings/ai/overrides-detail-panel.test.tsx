@@ -69,11 +69,15 @@ const CONFIG = {
 };
 
 let configPatchBodies: unknown[] = [];
+// The config the mocked `configGet` serves. Tests that need a different
+// persisted shape reassign this, because seeding the query cache alone is
+// not enough: `staleTime: 0` refetches and the mock's value wins.
+let servedConfig: unknown = CONFIG;
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   configLlmCallsitesGet: mock(async () => ({ data: CATALOG })),
-  configGet: mock(async () => ({ data: CONFIG })),
+  configGet: mock(async () => ({ data: servedConfig })),
   configPatch: async (options?: { body?: unknown }) => {
     configPatchBodies.push(options?.body);
     return { data: CONFIG };
@@ -123,6 +127,7 @@ function pickOption(trigger: HTMLElement, optionLabel: string): void {
 
 beforeEach(() => {
   configPatchBodies = [];
+  servedConfig = CONFIG;
 });
 
 afterEach(() => {
@@ -290,5 +295,108 @@ describe("OverridesDetailPanel - advisor", () => {
     // entry from the picker's three fields and drop any tuning field
     // (effort, thinking, maxTokens) a persisted entry carries.
     expect("callSites" in body.llm).toBe(false);
+  });
+});
+
+describe("OverridesDetailPanel - tuning-field preservation (LUM-2949)", () => {
+  // A persisted entry shaped like the real `voiceFrontDoor`: a picker field
+  // plus tuning the editor renders no control for.
+  const TUNED_CONFIG = {
+    ...CONFIG,
+    llm: {
+      ...CONFIG.llm,
+      callSites: {
+        heartbeatAgent: {
+          profile: "quality",
+          effort: "low",
+          thinking: { enabled: false },
+        },
+      },
+    },
+  };
+
+  function renderWithTuned() {
+    servedConfig = TUNED_CONFIG;
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    client.setQueryData([{ _id: "configLlmCallsitesGet" }], CATALOG);
+    client.setQueryData([{ _id: "configGet" }], TUNED_CONFIG);
+    return render(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(OverridesDetailPanel, {
+          assistantId: "asst-1",
+          onClose: () => {},
+        }),
+      ),
+    );
+  }
+
+  test("changing a different row leaves the tuned entry's fields intact", async () => {
+    renderWithTuned();
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+
+    // Turn on an override for a row that is NOT the tuned one.
+    const toggles = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="switch"], input[type="checkbox"]'),
+    );
+    const leafToggle = toggles.find((el) =>
+      (el.getAttribute("aria-label") ?? "").includes("Workflow Leaf"),
+    );
+    if (!leafToggle) {
+      throw new Error("expected the Workflow Leaf toggle");
+    }
+    fireEvent.click(leafToggle);
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as {
+      llm: { callSites: Record<string, Record<string, unknown>> };
+    };
+    // The untouched tuned row round-trips with its tuning intact.
+    expect(body.llm.callSites.heartbeatAgent).toEqual({
+      profile: "quality",
+      provider: null,
+      model: null,
+      effort: "low",
+      thinking: { enabled: false },
+    });
+  });
+
+  test("apply-to-all rewrites the profile and keeps per-row tuning", async () => {
+    renderWithTuned();
+    await waitFor(() => {
+      expect(renderedText()).toContain("Use one profile for all actions");
+    });
+
+    const trigger = document.querySelector<HTMLElement>(
+      'button[role="combobox"]',
+    );
+    if (!trigger) {
+      throw new Error("expected the apply-all dropdown trigger");
+    }
+    pickOption(trigger, "My BYOK");
+    fireEvent.click(getButton("Apply to all"));
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as {
+      llm: { callSites: Record<string, Record<string, unknown>> };
+    };
+    expect(body.llm.callSites.heartbeatAgent).toEqual({
+      profile: "my-byok",
+      provider: null,
+      model: null,
+      effort: "low",
+      thinking: { enabled: false },
+    });
   });
 });

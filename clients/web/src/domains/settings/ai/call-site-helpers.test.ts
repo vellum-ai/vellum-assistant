@@ -8,6 +8,7 @@ import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import {
   isDraftActive,
   draftsEqual,
+  withPickerSelection,
 } from "@/domains/settings/ai/call-site-helpers";
 
 // ---------------------------------------------------------------------------
@@ -118,5 +119,73 @@ describe("buildOrderedProfiles", () => {
 
   test("returns empty array when profiles is empty", () => {
     expect(buildOrderedProfiles({}, ["alpha"])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// withPickerSelection
+// ---------------------------------------------------------------------------
+
+describe("withPickerSelection", () => {
+  // The shape LUM-2949 was filed for: a real `voiceFrontDoor` entry that
+  // pairs a picker field with tuning the editor renders no control for.
+  const TUNED: CallSiteOverrideDraft = {
+    profile: "latency-optimized",
+    effort: "low",
+    thinking: { enabled: false },
+  };
+
+  test("preserves tuning fields when the profile changes", () => {
+    const next = withPickerSelection(TUNED, { profile: "balanced" });
+    expect(next.profile).toBe("balanced");
+    expect(next.effort).toBe("low");
+    expect(next.thinking).toEqual({ enabled: false });
+  });
+
+  test("preserves tuning fields when switching to a provider + model pin", () => {
+    const next = withPickerSelection(TUNED, {
+      provider: "anthropic",
+      model: "claude-fable-5",
+    });
+    expect(next.provider).toBe("anthropic");
+    expect(next.model).toBe("claude-fable-5");
+    expect(next.effort).toBe("low");
+    expect(next.thinking).toEqual({ enabled: false });
+  });
+
+  test("normalizes the picker triple to explicit null so a PATCH clears it", () => {
+    // Deep-merge semantics: an omitted key leaves the persisted value in
+    // place, so switching to a profile has to null the provider/model pin.
+    const pinned: CallSiteOverrideDraft = {
+      provider: "anthropic",
+      model: "claude-fable-5",
+      maxTokens: 4096,
+    };
+    const next = withPickerSelection(pinned, { profile: "balanced" });
+    expect(next).toEqual({
+      profile: "balanced",
+      provider: null,
+      model: null,
+      maxTokens: 4096,
+    });
+  });
+
+  test("accepts a null or undefined draft", () => {
+    expect(withPickerSelection(null, { profile: "balanced" })).toEqual({
+      profile: "balanced",
+      provider: null,
+      model: null,
+    });
+    expect(withPickerSelection(undefined, { profile: "balanced" })).toEqual({
+      profile: "balanced",
+      provider: null,
+      model: null,
+    });
+  });
+
+  test("does not mutate the draft it is given", () => {
+    const original = { ...TUNED };
+    withPickerSelection(TUNED, { profile: "balanced" });
+    expect(TUNED).toEqual(original);
   });
 });
