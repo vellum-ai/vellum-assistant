@@ -504,8 +504,7 @@ describe("prompt cache cross-turn stability: volatile first turn", () => {
   });
 });
 
-// Known cache-stability gaps, documented pending fixes (see the PR that
-// introduced this file for analysis):
+// Known cache-stability gap, documented pending a fix:
 //
 // Daemon-restart divergence: several per-turn blocks are injected into
 // in-memory history but never persisted to message metadata

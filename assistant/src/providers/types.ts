@@ -328,11 +328,15 @@ export interface SendMessageConfig {
   logit_bias?: Record<string, number>;
   /**
    * When true, the most recent user message's content varies across
-   * otherwise-identical turns (e.g. a per-turn memory block was injected into
-   * it). The provider places the primary long-TTL cache breakpoint on the most
-   * recent *stable* user message instead of the volatile latest one, so the
-   * cached prefix stays reusable across turns. Default false — existing
-   * behavior.
+   * otherwise-identical turns (e.g. a per-turn memory spotlight block was
+   * injected into it; the agent loop sets this from actual spotlight
+   * presence). Consumed by the Anthropic client, which skips the long-TTL
+   * turn-start anchor for such a message (anchoring the previous stable user
+   * message instead when one exists) and still places its 5m advancing-tail
+   * breakpoint so in-turn tool-loop iterations read the prefix back. The
+   * OpenAI Responses transport does not consult this field: its explicit
+   * marker ladder marks every markable user item regardless, prepaying the
+   * volatile item's write for in-turn reads. Default false.
    */
   mutableLatestUserMessage?: boolean;
   /**
