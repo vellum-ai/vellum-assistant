@@ -30,7 +30,7 @@
  * `buildAdvisorSystem`), or `null` when nothing could be gathered.
  */
 
-import { readdirSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { ChannelId } from "../channels/types.js";
@@ -55,6 +55,12 @@ export interface AdvisorContextSources {
    * than the mutable live conversation trust.
    */
   sourceChannel?: string;
+  /**
+   * Per-chat plugin scope from `ToolContext.enabledPluginSet`: `null` means no
+   * restriction; otherwise plugin-owned skills outside the set are omitted
+   * from the catalog section, mirroring the `skill_load` gate.
+   */
+  enabledPluginSet?: ReadonlySet<string> | null;
 }
 
 /** Cap a block so the assembled context never balloons the consult prompt. */
@@ -98,12 +104,38 @@ async function buildToolsSection(
  * `## Available skills` — every skill the agent can load via `skill_load`.
  * The full catalog is included (one summarized line per skill) so the advisor
  * can point the agent at any existing capability instead of letting it
- * reinvent one.
+ * reinvent one. Skills the conversation cannot actually load are omitted,
+ * mirroring the `skill_load` gates: plugin-owned skills outside the per-chat
+ * plugin scope and skills whose feature flag is off.
  */
-async function buildSkillsSection(): Promise<string | null> {
+async function buildSkillsSection(
+  enabledPluginSet: ReadonlySet<string> | null | undefined,
+): Promise<string | null> {
   try {
-    const { loadSkillCatalog } = await import("../config/skills.js");
-    const catalog = loadSkillCatalog();
+    const [
+      { loadSkillCatalog },
+      { skillFlagKey },
+      { isAssistantFeatureFlagEnabled },
+      { getConfig },
+    ] = await Promise.all([
+      import("../config/skills.js"),
+      import("../config/skill-state.js"),
+      import("../config/assistant-feature-flags.js"),
+      import("../config/loader.js"),
+    ]);
+    const config = getConfig();
+    const pluginScope = enabledPluginSet ?? null;
+    const catalog = loadSkillCatalog().filter((skill) => {
+      if (
+        pluginScope !== null &&
+        skill.owner?.kind === "plugin" &&
+        !pluginScope.has(skill.owner.id)
+      ) {
+        return false;
+      }
+      const flagKey = skillFlagKey(skill);
+      return !flagKey || isAssistantFeatureFlagEnabled(flagKey, config);
+    });
     if (catalog.length === 0) {
       return null;
     }
@@ -143,21 +175,21 @@ const TREE_MAX_ENTRIES_PER_DIR = 40;
  * {@link TREE_MAX_ENTRIES_PER_DIR} entries and the whole tree is capped at
  * {@link TREE_MAX_LINES} lines.
  */
-export function buildWorkspaceTree(
+export async function buildWorkspaceTree(
   root: string,
   maxDepth = TREE_MAX_DEPTH,
   maxLines = TREE_MAX_LINES,
-): string | null {
+): Promise<string | null> {
   const lines: string[] = [];
   let truncated = false;
 
-  const walk = (dir: string, depth: number): void => {
+  const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > maxDepth || lines.length >= maxLines) {
       return;
     }
     let entries;
     try {
-      entries = readdirSync(dir, { withFileTypes: true });
+      entries = await readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
@@ -183,7 +215,7 @@ export function buildWorkspaceTree(
       const indent = "  ".repeat(depth);
       if (entry.isDirectory()) {
         lines.push(`${indent}${entry.name}/`);
-        walk(join(dir, entry.name), depth + 1);
+        await walk(join(dir, entry.name), depth + 1);
       } else {
         lines.push(`${indent}${entry.name}`);
       }
@@ -195,7 +227,7 @@ export function buildWorkspaceTree(
     }
   };
 
-  walk(root, 0);
+  await walk(root, 0);
   if (lines.length === 0) {
     return null;
   }
@@ -258,7 +290,7 @@ async function buildWorkspaceSection(
   }
 
   try {
-    const tree = buildWorkspaceTree(sources.workingDir);
+    const tree = await buildWorkspaceTree(sources.workingDir);
     if (tree) {
       parts.push(
         `Working directory contents (${sources.workingDir}):\n${truncate(tree, 8000)}`,
@@ -347,7 +379,7 @@ export async function buildAdvisorContext(
   const sections = await Promise.all(
     [
       buildToolsSection(sources.allowedToolNames),
-      buildSkillsSection(),
+      buildSkillsSection(sources.enabledPluginSet),
       buildWorkspaceSection(sources),
     ].map((section) => withSectionTimeout(section, sectionTimeoutMs)),
   );

@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { buildAdvisorContext, buildWorkspaceTree } from "../consult-context.js";
 
 describe("buildWorkspaceTree", () => {
-  test("lists files and directories, skipping dotfiles and dependency dirs", () => {
+  test("lists files and directories, skipping dotfiles and dependency dirs", async () => {
     const root = mkdtempSync(join(tmpdir(), "consult-tree-"));
     writeFileSync(join(root, "readme.md"), "hi");
     writeFileSync(join(root, ".hidden"), "no");
@@ -15,7 +15,7 @@ describe("buildWorkspaceTree", () => {
     mkdirSync(join(root, "node_modules"));
     writeFileSync(join(root, "node_modules", "dep.js"), "");
 
-    const tree = buildWorkspaceTree(root) ?? "";
+    const tree = (await buildWorkspaceTree(root)) ?? "";
     expect(tree).toContain("src/");
     expect(tree).toContain("  index.ts");
     expect(tree).toContain("readme.md");
@@ -23,7 +23,7 @@ describe("buildWorkspaceTree", () => {
     expect(tree).not.toContain("node_modules");
   });
 
-  test("respects the depth limit", () => {
+  test("respects the depth limit", async () => {
     const root = mkdtempSync(join(tmpdir(), "consult-tree-deep-"));
     let dir = root;
     for (let i = 0; i < 6; i++) {
@@ -32,17 +32,19 @@ describe("buildWorkspaceTree", () => {
     }
     writeFileSync(join(dir, "leaf.txt"), "");
 
-    const tree = buildWorkspaceTree(root, 2) ?? "";
+    const tree = (await buildWorkspaceTree(root, 2)) ?? "";
     expect(tree).toContain("level0/");
     expect(tree).toContain("level2/");
     expect(tree).not.toContain("level3");
     expect(tree).not.toContain("leaf.txt");
   });
 
-  test("returns null for a missing or empty directory", () => {
-    expect(buildWorkspaceTree("/tmp/does-not-exist-consult-tree")).toBeNull();
+  test("returns null for a missing or empty directory", async () => {
+    expect(
+      await buildWorkspaceTree("/tmp/does-not-exist-consult-tree"),
+    ).toBeNull();
     const empty = mkdtempSync(join(tmpdir(), "consult-tree-empty-"));
-    expect(buildWorkspaceTree(empty)).toBeNull();
+    expect(await buildWorkspaceTree(empty)).toBeNull();
   });
 });
 
