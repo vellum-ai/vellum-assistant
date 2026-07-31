@@ -65,6 +65,7 @@ Behavior ported from the platform app that intentionally differs:
 - Search extraction/ranking adds element-boundary spacing during text extraction, indexes standalone headings unconditionally as their own chunks with level-aware scoping, and returns matched-term snippets.
 - Tailwind has no class-keyed dark variant. The pre-hydration bootstrap stamps both `.dark` and `data-theme="dark"` on `<html>`; `dark:` utilities key off `data-theme` (the design-library `tokens.css` custom variant) while `docs-theme.css` selectors key off `.dark`.
 - The mobile nav drawer is refactored around a shared `NavPanelShell` (`_components/nav-panel-shell.tsx`) with a ref-counted body-scroll lock (`_components/body-scroll-lock.ts`) and single-owner Cmd/Ctrl+K registration (`DocsSearch registerShortcut`). `docs-nav.tsx`, `releases-nav.tsx`, and `docs-nav-context.tsx` are therefore **hand-merged** during syncs: keep this app's shell structure and mirror only the platform's nav item data.
+- Release anchor/month formatting is centralized in `src/lib/releases-server.ts` (`releaseAnchor`, `monthLabel`) and shared by `releases-content.tsx` and `releases-nav.tsx` so sidebar links always match article IDs; the platform version keeps local copies of these helpers. `releases-content.tsx` is hand-merged during syncs.
 
 ## Deferred items and known divergences from the platform app
 

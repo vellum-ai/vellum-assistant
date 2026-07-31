@@ -1,13 +1,12 @@
-import Link from "next/link";
-
 import { ReleaseMarkdown } from "@/app/docs/_components/release-markdown";
+import { WWW_DOMAIN } from "@/lib/domains";
 import type { ApiRelease } from "@/lib/releases-server";
-import { groupApiReleasesByMonth } from "@/lib/releases-server";
+import {
+  groupApiReleasesByMonth,
+  monthLabel,
+  releaseAnchor,
+} from "@/lib/releases-server";
 import { routes } from "@/lib/routes";
-
-function releaseAnchor(release: ApiRelease) {
-  return `v${release.version}`;
-}
 
 function monthAnchor(releasedAt: string) {
   const d = new Date(releasedAt);
@@ -27,15 +26,6 @@ function formatFullDate(releasedAt: string) {
   });
 }
 
-function getMonthYear(releasedAt: string) {
-  const d = new Date(releasedAt);
-  return d.toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
-
 interface ReleasesContentProps {
   releases: ApiRelease[];
 }
@@ -44,7 +34,7 @@ export function ReleasesContent({ releases }: ReleasesContentProps) {
   const groups = groupApiReleasesByMonth(releases);
   const firstRelease = groups[0]?.releases[0];
   const pageTitle = firstRelease
-    ? getMonthYear(firstRelease.released_at)
+    ? monthLabel(new Date(firstRelease.released_at))
     : "Releases";
 
   return (
@@ -54,7 +44,7 @@ export function ReleasesContent({ releases }: ReleasesContentProps) {
         <h1 className="docs-title font-['DM_Sans',sans-serif] text-4xl font-bold tracking-tight md:text-5xl">
           {pageTitle}
         </h1>
-        <Link
+        <a
           href={routes.signup}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-900 no-underline transition-colors hover:border-zinc-300 hover:bg-zinc-50"
           aria-label="Sign up for Vellum Cloud"
@@ -74,11 +64,11 @@ export function ReleasesContent({ releases }: ReleasesContentProps) {
             <polyline points="12 5 19 12 12 19" />
           </svg>
           Get started
-        </Link>
+        </a>
       </div>
 
-      <Link
-        href="https://www.vellum.ai/roadmap"
+      <a
+        href={`https://${WWW_DOMAIN}/roadmap`}
         className="group mb-10 flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white p-5 no-underline transition-colors hover:border-zinc-300 hover:bg-zinc-50"
       >
         <div className="flex flex-col gap-1">
@@ -95,7 +85,7 @@ export function ReleasesContent({ releases }: ReleasesContentProps) {
         >
           &rarr;
         </span>
-      </Link>
+      </a>
 
       <div className="docs-prose space-y-12">
         {groups.map((group) => {
@@ -115,7 +105,7 @@ export function ReleasesContent({ releases }: ReleasesContentProps) {
                     className="rounded-xl border border-zinc-200 p-5 md:p-6 scroll-mt-24"
                   >
                     <div className="mb-4 flex items-center justify-between gap-3">
-                      <h3 className="text-base font-bold text-zinc-900">
+                      <h3 className="text-base font-bold">
                         <a
                           href={`#${releaseAnchor(release)}`}
                           className="no-underline text-inherit hover:underline"
