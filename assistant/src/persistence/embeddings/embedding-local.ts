@@ -110,14 +110,13 @@ interface WorkerProcess {
  *   its own backend against this same workspace and is entitled to its own
  *   worker; signalling it is what made the two replace each other in a loop.
  *
- * PID 1 means different things in different deployments, and getting it wrong
- * reintroduces exactly the cross-owner interference this exists to remove. In a
- * container `docker-entrypoint.sh` execs the daemon, so PID 1 IS the daemon and
- * a worker parented to it is a healthy sibling's. On a host PID 1 is init, so
- * the same parentage means the owner died. Containerized workers therefore
- * resolve to `foreign`: the daemon still reclaims its own (they match
- * `selfPid`), and declining to signal costs at most a delayed reap, where
- * guessing wrong kills a live worker.
+ * A parent of PID 1 is ambiguous, and resolving it wrongly in either direction
+ * costs something real. `docker-entrypoint.sh` execs the daemon, so PID 1 can
+ * BE the daemon and its child a healthy sibling's worker. Under `docker run
+ * --init`, and on any host, PID 1 is an init process instead, so the same
+ * parentage means the owner died and the worker needs reclaiming. Callers
+ * therefore pass what PID 1 actually is rather than inferring it from whether
+ * the deployment is containerized, which is true in both container shapes.
  */
 export type WorkerOwnership = "reclaim" | "orphan" | "foreign";
 
@@ -125,18 +124,51 @@ export function classifyWorkerOwnership(
   worker: WorkerProcess,
   selfPid: number,
   isOwnerAlive: (pid: number) => boolean,
-  isContainerized: boolean,
+  pid1OwnsWorkers: boolean,
 ): WorkerOwnership {
   if (worker.ppid === selfPid) {
     return "reclaim";
   }
   if (worker.ppid <= 1) {
-    return isContainerized ? "foreign" : "orphan";
+    return pid1OwnsWorkers ? "foreign" : "orphan";
   }
   if (!isOwnerAlive(worker.ppid)) {
     return "orphan";
   }
   return "foreign";
+}
+
+/** Entrypoint the daemon is exec'd with, including inside a container. */
+const DAEMON_ENTRYPOINT_MARKER = "daemon/main";
+
+/**
+ * Whether PID 1 is an assistant daemon rather than an init process.
+ *
+ * True only where the daemon was exec'd as PID 1 (`docker-entrypoint.sh`),
+ * which is what makes a worker parented to 1 a live sibling's rather than an
+ * orphan. Under `docker run --init` PID 1 is docker-init and under launchd or
+ * systemd it is the system init, so both answer false and PID-1 orphans stay
+ * reclaimable. Unreadable means false, which keeps the reclaiming behaviour.
+ */
+function pid1OwnsEmbedWorkers(): boolean {
+  if (process.pid === 1) {
+    return true;
+  }
+  let cmd: string;
+  try {
+    cmd = readFileSync("/proc/1/cmdline", "utf8").split("\0").join(" ");
+  } catch {
+    const result = Bun.spawnSync({
+      cmd: ["ps", "-ww", "-p", "1", "-o", "command="],
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    if (result.exitCode !== 0) {
+      return false;
+    }
+    cmd = new TextDecoder().decode(result.stdout);
+  }
+  return cmd.includes(DAEMON_ENTRYPOINT_MARKER);
 }
 
 /** Enumerate `(pid, ppid, rawCommand)` rows from Linux `/proc`. */
@@ -224,7 +256,11 @@ export function listWorkerProcesses(
   return rows
     .filter(
       (r) =>
-        r.cmd.includes(workerPath) && (model == null || r.cmd.includes(model)),
+        r.cmd.includes(workerPath) &&
+        // An argv token, not a substring: `foo/bar-small` must not match a
+        // `foo/bar-small-v2` worker, or a backend for the shorter name would
+        // reclaim the longer one's live worker. Model names carry no spaces.
+        (!model || r.cmd.split(/\s+/).includes(model)),
     )
     .map((r) => ({ pid: r.pid, ppid: r.ppid }));
 }
@@ -908,7 +944,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         worker,
         process.pid,
         isProcessAlive,
-        getIsContainerized(),
+        pid1OwnsEmbedWorkers(),
       );
       if (ownership === "foreign") {
         continue;
