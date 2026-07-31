@@ -9,13 +9,42 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import { CreditsExhaustedBanner } from "./credits-exhausted-banner";
+let nativeAndroid = false;
+
+mock.module("@/runtime/platform-detection", () => ({
+  useIsNativeAndroid: () => nativeAndroid,
+}));
+
+const { CreditsExhaustedBanner } = await import(
+  "./credits-exhausted-banner"
+);
 
 afterEach(() => {
+  nativeAndroid = false;
   cleanup();
 });
 
 describe("CreditsExhaustedBanner", () => {
+  test("native Android shows website guidance without a purchase action", () => {
+    nativeAndroid = true;
+    const onAddCredits = mock(() => {});
+    const onUpgrade = mock(() => {});
+
+    const { getByText, queryByRole } = render(
+      <CreditsExhaustedBanner
+        mode="add-credits-paid"
+        onAddCredits={onAddCredits}
+        onUpgrade={onUpgrade}
+      />,
+    );
+
+    expect(getByText("Manage your subscription on our website.")).toBeTruthy();
+    expect(queryByRole("button")).toBeNull();
+    expect(queryByRole("link")).toBeNull();
+    expect(onAddCredits).not.toHaveBeenCalled();
+    expect(onUpgrade).not.toHaveBeenCalled();
+  });
+
   test("add-credits-free mode renders exactly one Add credits CTA and no View plans", () => {
     const onAddCredits = mock(() => {});
     const onUpgrade = mock(() => {});

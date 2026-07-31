@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import { AndroidBillingGate } from "@/domains/settings/billing/android-billing-gate";
 import {
   captureTakeoverAvatarStash,
   clearTakeoverAvatarStash,
@@ -91,7 +92,7 @@ function abandonCheckout() {
  * without paying: the return never arrives, so nothing else is coming to move
  * them off this route.
  */
-export function CheckoutPage() {
+function CheckoutPageContent() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const packageKey = searchParams.get(PACKAGE_PARAM) ?? "";
@@ -382,5 +383,13 @@ export function CheckoutPage() {
         Preparing checkout&hellip;
       </p>
     </div>
+  );
+}
+
+export function CheckoutPage() {
+  return (
+    <AndroidBillingGate redirectToBilling>
+      <CheckoutPageContent />
+    </AndroidBillingGate>
   );
 }

@@ -1,5 +1,7 @@
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
 import type { CreditPaywallCtaMode } from "@/domains/chat/utils/credit-paywall-cta";
+import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 
 const COPY: Record<
   CreditPaywallCtaMode,
@@ -34,13 +36,21 @@ export function CreditsExhaustedBanner({
   onUpgrade,
 }: CreditsExhaustedBannerProps) {
   const copy = COPY[mode];
+  const isNativeAndroid = useIsNativeAndroid();
+  const action = isNativeAndroid
+    ? undefined
+    : {
+        label: copy.ctaLabel,
+        onClick: mode === "upgrade" ? onUpgrade : onAddCredits,
+      };
   return (
     <BillingErrorBanner
-      ariaLabel={`${copy.title}. ${copy.subtitle}`}
+      ariaLabel={`${copy.title}. ${
+        isNativeAndroid ? ANDROID_BILLING_MESSAGE : copy.subtitle
+      }`}
       title={`💰  ${copy.title}`}
-      subtitle={copy.subtitle}
-      ctaLabel={copy.ctaLabel}
-      onAction={mode === "upgrade" ? onUpgrade : onAddCredits}
+      subtitle={isNativeAndroid ? ANDROID_BILLING_MESSAGE : copy.subtitle}
+      action={action}
       detached={true}
     />
   );

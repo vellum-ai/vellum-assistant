@@ -2,13 +2,17 @@ import type { ReactNode } from "react";
 
 import { Button } from "@vellumai/design-library";
 
+interface BillingErrorBannerAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface BillingErrorBannerProps {
   ariaLabel: string;
   icon?: ReactNode;
   title: string;
   subtitle: string;
-  ctaLabel: string;
-  onAction: () => void;
+  action?: BillingErrorBannerAction;
   /**
    * Render as a standalone, centered card ~24px narrower than the composer with
    * full rounding, instead of a full-width banner flush-mounted above the
@@ -22,8 +26,7 @@ export function BillingErrorBanner({
   icon,
   title,
   subtitle,
-  ctaLabel,
-  onAction,
+  action,
   detached = false,
 }: BillingErrorBannerProps) {
   return (
@@ -69,16 +72,18 @@ export function BillingErrorBanner({
           </p>
         </div>
 
-        <div className="flex items-center shrink-0">
-          <Button
-            variant="primary"
-            size="regular"
-            onClick={onAction}
-            aria-label={ctaLabel}
-          >
-            {ctaLabel}
-          </Button>
-        </div>
+        {action ? (
+          <div className="flex shrink-0 items-center">
+            <Button
+              variant="primary"
+              size="regular"
+              onClick={action.onClick}
+              aria-label={action.label}
+            >
+              {action.label}
+            </Button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
