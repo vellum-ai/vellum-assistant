@@ -75,17 +75,10 @@ const EMPTY_KEYS: string[] = [];
 // Types
 // ---------------------------------------------------------------------------
 
-/** A sidebar section bound to a specific origin channel. */
-export interface ChannelSectionState {
-  channelId: string;
-  conversations: Conversation[];
-}
-
 /**
  * Which side of the view switch a section sits on. Chats and the channel
  * sections are what the switch changes, so they sit under it; Pinned and the
- * custom groups are untouched by it and lead. Anything that is neither a
- * primary nor a category key is a custom group id.
+ * custom groups are untouched by it and lead.
  */
 function classifySectionKey(key: string): SectionOrderClass {
   if (key === "recents" || isChannelSectionKey(key)) {
@@ -106,7 +99,7 @@ interface SidebarSectionBase {
   key: string;
   /** Header label. */
   label: string;
-  /** Every conversation in the section, ignoring "show more" truncation. */
+  /** Every conversation in the section. */
   all: Conversation[];
 }
 
@@ -127,19 +120,12 @@ export interface SidebarState {
   /** Switch views and persist the choice for this assistant. */
   onViewModeChange: (next: SidebarViewMode) => void;
 
-  pinned: Conversation[];
-  /** Empty in `all` view - those conversations live in {@link flatList}. */
-  channelSections: ChannelSectionState[];
-  /** The `grouped` view's Chats section. */
-  recents: Conversation[];
   /**
    * The `all` view's list: every conversation that is neither pinned nor in a
    * custom group, newest first. Windowed at render, so it carries no page
    * size or reveal state of its own.
    */
   flatList: Conversation[];
-
-  customGroups: CustomGroup[];
 
   /**
    * Every section in the user's chosen order - the list the sidebar renders
@@ -148,6 +134,13 @@ export interface SidebarState {
    * and the channel sections).
    */
   sections: SidebarSection[];
+  /**
+   * How many leading entries of {@link SidebarState.sections} are the curated
+   * layer. The view switch renders at that offset, which is the tier boundary
+   * `enforceCuratedLead` guarantees - so the sidebar places it without
+   * re-deriving what "curated" means.
+   */
+  curatedSectionCount: number;
   /**
    * Persist a new section order. Takes the full ordered key list of the
    * sections currently on screen.
@@ -331,6 +324,13 @@ export function useSidebarState({
     );
   }, [defaultSections, sectionOrder]);
 
+  const curatedSectionCount = useMemo(
+    () =>
+      sections.filter((section) => classifySectionKey(section.key) === "curated")
+        .length,
+    [sections],
+  );
+
   const onReorderSections = useCallback(
     (orderedKeys: string[]) => {
       setSectionOrder(
@@ -441,12 +441,9 @@ export function useSidebarState({
   return {
     viewMode,
     onViewModeChange: setViewMode,
-    pinned: grouped.pinned,
-    channelSections: grouped.channelSections,
-    recents: grouped.recents,
     flatList: grouped.recents,
-    customGroups: grouped.customGroups,
     sections,
+    curatedSectionCount,
     onReorderSections,
     onMoveSection,
     canMoveSection,

@@ -9,24 +9,18 @@
  * The list is bounded: a section can hold an unbounded number of
  * conversations (Chats, or the All view's whole list), and a popover that
  * mounts every one of them would grow past the screen and jank on open. Past
- * {@link VIRTUALIZE_THRESHOLD} rows it windows instead, which is the case
- * `VirtualList` is built for here: unlike the sidebar body, the flyout owns
- * its scroll region, so the list can have the bounded height virtuoso's own
- * scroller needs.
+ * {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows it windows instead,
+ * which is the case `VirtualList` is built for here: unlike the sidebar body,
+ * the flyout owns its scroll region, so the list can have the bounded height
+ * virtuoso's own scroller needs.
  */
 
 import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
+import { CONVERSATION_LIST_VIRTUALIZE_THRESHOLD } from "@/domains/chat/components/conversation-nav-section";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
 import type { Conversation } from "@/types/conversation-types";
-
-/**
- * Row count past which the flyout windows. Below it the rows mount directly,
- * which is the common case (a custom group, a quiet channel) and skips
- * virtuoso's measuring pass entirely.
- */
-const VIRTUALIZE_THRESHOLD = 30;
 
 export interface CollapsedGroupFlyoutProps {
   title: string;
@@ -63,7 +57,7 @@ export function CollapsedGroupFlyout({
         </span>
       </div>
       <div className="px-2">
-        {conversations.length > VIRTUALIZE_THRESHOLD ? (
+        {conversations.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD ? (
           /* Virtuoso's scroller sizes to 100%, so the wrapper is what bounds
              it. The plain branch below caps at the same height. */
           <div className="h-96">

@@ -24,7 +24,7 @@ import { SidebarListContextMenu } from "@/domains/chat/components/sidebar-list-c
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
-import { SidebarFlatConversationList } from "@/domains/chat/components/sidebar-flat-conversation-list";
+import { ConversationRowList } from "@/domains/chat/components/conversation-nav-section";
 import { SidebarViewModeToggle } from "@/domains/chat/components/sidebar-view-mode-toggle";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
@@ -397,19 +397,6 @@ export function AssistantSideMenu({
     />
   );
 
-  // How many *leading* sections are the user's own curation layer (Pinned and
-  // the custom groups). The switch renders at the first section it governs,
-  // so everything above it is the part of the sidebar it does not change.
-  //
-  // Counting curated sections wherever they land would not do: Chats is free
-  // to sit anywhere (only channel sections are floored), so a user who drags
-  // it above a group would push the switch below the very list it controls.
-  const firstGovernedIndex = sidebar.sections.findIndex(
-    (section) => section.type !== "pinned" && section.type !== "group",
-  );
-  const curatedSectionCount =
-    firstGovernedIndex === -1 ? sidebar.sections.length : firstGovernedIndex;
-
   // --- Built-in navigation ---
   // Pinned apps above the built-in nav, separated by a divider. On the rail
   // this block lives in the non-scrolling header; on the overlay it renders
@@ -624,7 +611,9 @@ export function AssistantSideMenu({
                     marks where a section starts. The single rule below is not
                     a section break: it separates the curated layer from the
                     switch that governs everything under it. */}
-                {sidebar.sections.slice(0, curatedSectionCount).map(renderSection)}
+                {sidebar.sections
+                  .slice(0, sidebar.curatedSectionCount)
+                  .map(renderSection)}
                 {/* The one divider in the list, and the only place a rule is
                     honest: it marks where the user's own curation ends and
                     the switch takes over, which is a real boundary rather
@@ -632,7 +621,7 @@ export function AssistantSideMenu({
                     pinned and no group exists, so the list never opens on a
                     rule. `my-0` keeps it on the root's own gap instead of
                     adding to it. */}
-                {curatedSectionCount > 0 ? (
+                {sidebar.curatedSectionCount > 0 ? (
                   <SideMenu.Separator className="my-0" />
                 ) : null}
                 {/* The switch governs only what follows it - the flat list, or
@@ -643,13 +632,15 @@ export function AssistantSideMenu({
                   value={sidebar.viewMode}
                   onChange={sidebar.onViewModeChange}
                 />
-                {sidebar.sections.slice(curatedSectionCount).map(renderSection)}
+                {sidebar.sections
+                  .slice(sidebar.curatedSectionCount)
+                  .map(renderSection)}
               </CollapsibleNavSection.Root>
               {/* The All view's remainder: no header, no channel buckets, and
                   no "Show more" - it just keeps going as the user scrolls. */}
-              {sidebar.viewMode === "all" ? (
-                <SidebarFlatConversationList
-                  conversations={sidebar.flatList}
+              {sidebar.viewMode === "all" && bodyElement ? (
+                <ConversationRowList
+                  items={sidebar.flatList}
                   scrollParent={bodyElement}
                 />
               ) : null}

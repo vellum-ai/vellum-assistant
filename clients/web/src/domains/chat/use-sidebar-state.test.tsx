@@ -50,6 +50,18 @@ afterEach(() => {
  * localStorage in an effect, so seeding the key is what survives the hook's
  * own `setAssistantId` call.
  */
+/** The rendered section carrying `key`, or a clear failure if it is absent. */
+function sectionFor(
+  sections: { key: string; all: unknown[] }[],
+  key: string,
+): { key: string; all: unknown[] } {
+  const section = sections.find((s) => s.key === key);
+  if (!section) {
+    throw new Error(`expected a "${key}" section`);
+  }
+  return section;
+}
+
 function seedGroupedView(assistantId = "asst-1"): void {
   localStorage.setItem(`vellum:sidebar-view-mode:${assistantId}`, "grouped");
   useSidebarLayoutStore.setState({ viewMode: "grouped" });
@@ -59,6 +71,7 @@ describe("useSidebarState grouping", () => {
   // Sections hand over their whole conversation list; bounding and scrolling
   // it is the row list's job, so there is no page size or reveal state here.
   test("Chats carries every conversation, uncapped", () => {
+    seedGroupedView();
     const conversations = Array.from({ length: 40 }, (_, index) =>
       makeConversation(index),
     );
@@ -67,7 +80,7 @@ describe("useSidebarState grouping", () => {
       useSidebarState({ assistantId: "asst-1", conversations }),
     );
 
-    expect(result.current.recents).toHaveLength(40);
+    expect(sectionFor(result.current.sections, "recents").all).toHaveLength(40);
   });
 
   test("exposes one section per origin channel", () => {
@@ -83,15 +96,15 @@ describe("useSidebarState grouping", () => {
       useSidebarState({ assistantId: "asst-1", conversations }),
     );
 
-    expect(result.current.channelSections.map((s) => s.channelId)).toEqual([
-      "slack",
-      "telegram",
-    ]);
     expect(
-      result.current.channelSections.find((s) => s.channelId === "telegram")
-        ?.conversations,
+      result.current.sections
+        .filter((section) => section.type === "channel")
+        .map((section) => section.key),
+    ).toEqual(["channel:slack", "channel:telegram"]);
+    expect(
+      sectionFor(result.current.sections, "channel:telegram").all,
     ).toHaveLength(2);
-    expect(result.current.recents).toHaveLength(1);
+    expect(sectionFor(result.current.sections, "recents").all).toHaveLength(1);
   });
 });
 
@@ -246,7 +259,9 @@ describe("useSidebarState all view", () => {
   test("merges the channel conversations into one recency-sorted list", () => {
     const { result } = renderSidebar();
 
-    expect(result.current.channelSections).toEqual([]);
+    expect(
+      result.current.sections.filter((section) => section.type === "channel"),
+    ).toEqual([]);
     expect(result.current.flatList.map((c) => c.conversationId)).toEqual([
       "s1",
       "r1",

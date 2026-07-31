@@ -1,18 +1,21 @@
 /**
  * The two list-shaped pieces of the sidebar conversation list:
  *
- * - {@link ConversationRowList} — a `SideMenu.SubList` of
- *   {@link ConversationRow}s, bounded and scrollable. Used directly by
- *   Pinned and Recents, and inside every collapsible section.
+ * - {@link ConversationRowList} — the one way conversation rows render as a
+ *   list, used by every section and by the All view's flat list.
  * - {@link ConversationNavSection} — a `CollapsibleNavSection.Section`
  *   shell (icon + label + trailing + context menu) wrapping a
  *   `ConversationRowList`. Used by channel sections and custom groups.
  *
- * Every section scrolls rather than paginating, so all of them behave the way
- * the All view's flat list does: no "Show more", the rows just keep going.
- * The cap ({@link SIDEBAR_SECTION_MAX_HEIGHT}) is what makes that safe in a
- * stack of sections, since an uncapped busy section would push its
- * neighbours off screen.
+ * Nothing paginates: the rows just keep going. What differs is where they
+ * scroll. A section caps at {@link SIDEBAR_SECTION_MAX_HEIGHT} and scrolls
+ * within itself, since an uncapped busy section would push its neighbours off
+ * screen. The flat list instead scrolls against the sidebar body it already
+ * fills (`scrollParent`), which keeps the rail to a single scrollbar.
+ *
+ * Either way a long list windows rather than mounting every row, because an
+ * assistant accumulates conversations indefinitely and they all arrive in one
+ * query - there is no page to fetch, only rows to render.
  *
  * Row callbacks and state come from {@link useConversationListContext}
  * (via `ConversationRow`), so neither takes them as props.
@@ -40,11 +43,11 @@ import {
 import type { Conversation } from "@/types/conversation-types";
 
 /**
- * Row count past which a section windows its rows instead of mounting all of
- * them. Below it the rows mount directly, which is the common case and skips
- * virtuoso's measuring pass.
+ * Row count past which a conversation list windows its rows instead of
+ * mounting all of them. Below it the rows mount directly, which is the common
+ * case and skips virtuoso's measuring pass.
  */
-const VIRTUALIZE_THRESHOLD = 30;
+export const CONVERSATION_LIST_VIRTUALIZE_THRESHOLD = 30;
 
 export interface ConversationRowListProps {
   items: Conversation[];
@@ -55,12 +58,19 @@ export interface ConversationRowListProps {
    * only when the visible `items` are a subset.
    */
   dragSiblings?: Conversation[];
+  /**
+   * Scroll against this ancestor rather than bounding the list. Only the flat
+   * list passes it: it already fills the sidebar body, so opening a scroller
+   * of its own would put a second scrollbar in the rail.
+   */
+  scrollParent?: HTMLElement;
 }
 
 export function ConversationRowList({
   items,
   dragSection,
   dragSiblings,
+  scrollParent,
 }: ConversationRowListProps) {
   const renderRow = (conversation: Conversation) => (
     <ConversationRow
@@ -71,24 +81,31 @@ export function ConversationRowList({
     />
   );
 
+  /* The primitive paints `--surface-base` for a list that owns its surface;
+     every list here sits on a sidebar that has already painted its own. */
+  const windowed = (
+    <VirtualList
+      items={items}
+      customScrollParent={scrollParent}
+      computeItemKey={(_, conversation) => conversation.conversationId}
+      itemContent={(_, conversation) => renderRow(conversation)}
+      className={scrollParent ? "bg-transparent" : "h-full bg-transparent"}
+    />
+  );
+
+  if (scrollParent) {
+    return windowed;
+  }
+
   // Reorderable sections (Pinned, custom groups) always mount every row: the
   // drag controller resolves a drop target from the rows themselves, so a
   // windowed list would have nothing to drop onto past the viewport. They
   // stay bounded and scrollable either way, and they are the curated
   // sections, so they are the least likely to run long.
-  if (!dragSection && items.length > VIRTUALIZE_THRESHOLD) {
-    return (
-      /* Virtuoso's scroller sizes to 100%, so this branch commits to the full
-         height — which is honest here, since the list is past the cap. */
-      <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>
-        <VirtualList
-          items={items}
-          computeItemKey={(_, conversation) => conversation.conversationId}
-          itemContent={(_, conversation) => renderRow(conversation)}
-          className="h-full bg-transparent"
-        />
-      </div>
-    );
+  if (!dragSection && items.length > CONVERSATION_LIST_VIRTUALIZE_THRESHOLD) {
+    /* Virtuoso's scroller sizes to 100%, so this branch commits to the full
+       height — which is honest here, since the list is past the cap. */
+    return <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>;
   }
 
   return (
@@ -100,7 +117,6 @@ export function ConversationRowList({
     </div>
   );
 }
-
 export interface ConversationNavSectionProps extends ConversationRowListProps {
   /** Collapse/expand key (matches the controlling `CollapsibleNavSection.Root`). */
   value: string;
