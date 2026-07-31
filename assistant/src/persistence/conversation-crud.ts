@@ -298,11 +298,9 @@ export const messageMetadataSchema = z
      */
     hidden: z.boolean().optional(),
     /**
-     * Marks a role-`"user"` row that opened a live phone or in-app voice turn
-     * (every row `startVoiceTurn` persists, see `calls/voice-session-bridge.ts`).
-     * The channel/interface fields cannot stand in for it: a live-voice turn
-     * persists as `vellum`/`macos`, exactly like a typed desktop send. Test with
-     * {@link isVoiceSessionUserMessage}.
+     * Marks a role-`"user"` row that opened a live phone or in-app voice turn.
+     * Test with {@link isVoiceSessionUserMessage}, which documents why the
+     * channel/interface fields cannot stand in for it.
      */
     voiceSessionTurn: z.boolean().optional(),
     /**
@@ -411,13 +409,17 @@ export function isEchoSuppressedUserMessage(
 
 /**
  * True when a role-`"user"` row was persisted by the voice bridge for a live
- * phone call or in-app voice session (see the `voiceSessionTurn` field on
- * {@link messageMetadataSchema}).
+ * phone call or in-app voice session (every row `startVoiceTurn` persists, see
+ * `calls/voice-session-bridge.ts`).
  *
  * The reply to such a turn is spoken back over the still-open session, so any
  * consumer that treats a finished reply as something the user has yet to see
  * (the assistant-reply notification producer) must skip it rather than push a
  * notification for audio the user is hearing right now.
+ *
+ * This marker is the only durable signal for that: the channel/interface fields
+ * cannot stand in, because an in-app live-voice turn persists as
+ * `vellum`/`macos`, indistinguishable from a typed desktop send.
  */
 export function isVoiceSessionUserMessage(
   metadata: Record<string, unknown> | undefined,

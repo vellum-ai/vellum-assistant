@@ -1,20 +1,13 @@
 /**
- * Wiring tests for the `chat.assistant_reply` emit in `runDeferredTurnTail`.
- *
- * Coverage matrix:
- *   - a `message_complete` turn emits exactly once, carrying the conversation
- *     id and the turn's last assistant row id;
- *   - handoff and cancellation outcomes never emit;
- *   - a completed turn that produced no assistant row never emits;
- *   - the emit runs after the deferred finalize effects, so the producer's
- *     unseen check reads the attention cursor this turn just projected;
- *   - the tail does not await the producer, and a producer failure cannot
- *     break turn finalization.
+ * Wiring tests for the `chat.assistant_reply` emit in `runDeferredTurnTail`:
+ * which turn outcomes reach the producer, what the tail hands it, and that the
+ * emit can neither block nor break turn finalization.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "../../__tests__/helpers/mock-logger.js";
 import { setConfig } from "../../__tests__/helpers/set-config.js";
+import type { MessageRow } from "../../persistence/conversation-crud.js";
 import type { InflightContentWriter } from "../inflight-message-content.js";
 
 // The finalize module's import graph reaches the memory indexer; keep it inert
@@ -23,10 +16,13 @@ setConfig("memory", { enabled: false, v2: { enabled: false } });
 
 const CONVERSATION_ID = "conv-tail-1";
 const ASSISTANT_MESSAGE_ID = "msg-assistant-1";
+const USER_MESSAGE_ID = "msg-user-1";
 
 interface EmitCall {
   conversationId: string;
   assistantMessageId: string;
+  userMessageId: string | undefined;
+  assistantMessage?: MessageRow | null;
 }
 
 const emitCalls: EmitCall[] = [];
@@ -39,6 +35,8 @@ mock.module("../../notifications/assistant-reply-producer.js", () => ({
     emitCalls.push({
       conversationId: params.conversationId,
       assistantMessageId: params.assistantMessageId,
+      userMessageId: params.userMessageId,
+      assistantMessage: params.assistantMessage,
     });
     trace.push("emit");
     if (producerBehavior === "reject") {
@@ -74,7 +72,8 @@ const rlog = makeMockLogger() as Parameters<
 async function runTail(overrides: {
   turnCompleted: boolean;
   lastAssistantMessageId?: string | undefined;
-  deferredFinalizeEffects?: ReadonlyArray<() => Promise<void>>;
+  deferredFinalizeEffects?: ReadonlyArray<() => Promise<MessageRow | null>>;
+  userMessageId?: string | undefined;
 }): Promise<void> {
   await runDeferredTurnTail({
     ctx: { conversationId: CONVERSATION_ID, messages: [] },
@@ -89,7 +88,22 @@ async function runTail(overrides: {
     rlog,
     generationCompletedAt: Date.now(),
     turnCompleted: overrides.turnCompleted,
+    userMessageId:
+      "userMessageId" in overrides ? overrides.userMessageId : USER_MESSAGE_ID,
   });
+}
+
+function makeFinalizedRow(id: string): MessageRow {
+  return {
+    id,
+    conversationId: CONVERSATION_ID,
+    role: "assistant",
+    content: [{ type: "text", text: "done" }],
+    createdAt: 1700000000200,
+    metadata: null,
+    clientMessageId: null,
+    finalized: 1,
+  };
 }
 
 beforeEach(() => {
@@ -106,6 +120,8 @@ describe("runDeferredTurnTail assistant-reply notification", () => {
       {
         conversationId: CONVERSATION_ID,
         assistantMessageId: ASSISTANT_MESSAGE_ID,
+        userMessageId: USER_MESSAGE_ID,
+        assistantMessage: null,
       },
     ]);
   });
@@ -128,14 +144,30 @@ describe("runDeferredTurnTail assistant-reply notification", () => {
       deferredFinalizeEffects: [
         async () => {
           trace.push("effect-1");
+          return null;
         },
         async () => {
           trace.push("effect-2");
+          return null;
         },
       ],
     });
 
     expect(trace).toEqual(["effect-1", "effect-2", "emit"]);
+  });
+
+  test("hands the producer the row the finalize effect already read", async () => {
+    const finalizedRow = makeFinalizedRow(ASSISTANT_MESSAGE_ID);
+
+    await runTail({
+      turnCompleted: true,
+      deferredFinalizeEffects: [
+        async () => makeFinalizedRow("msg-assistant-0"),
+        async () => finalizedRow,
+      ],
+    });
+
+    expect(emitCalls[0]?.assistantMessage).toBe(finalizedRow);
   });
 
   test("completes without awaiting the producer, even when it never settles", async () => {

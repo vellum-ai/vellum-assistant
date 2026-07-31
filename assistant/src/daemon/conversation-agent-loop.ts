@@ -620,9 +620,10 @@ export async function runAgentLoopImpl(
   // has been emitted. Guards the catch block: an error thrown afterwards
   // (deferred turn-tail bookkeeping) must not relabel a visibly-replied turn.
   let turnReplied = false;
-  // Narrower than `turnReplied`: true only for the `message_complete` branch.
-  // A handed-off generation continues the run, so the deferred tail must not
-  // treat its reply as final.
+  // Narrower than `turnReplied`: true only for a `message_complete` branch that
+  // produced a genuine reply. A handed-off generation continues the run, and a
+  // provider-error turn's only assistant row is the synthetic error text, so
+  // the deferred tail must not treat either as a final reply.
   let turnCompleted = false;
 
   const publishLoopMessagesChanged = (): void => {
@@ -1510,7 +1511,7 @@ export async function runAgentLoopImpl(
         publishLoopMessagesChanged();
       } else {
         turnReplied = true;
-        turnCompleted = true;
+        turnCompleted = !persistedErrorAssistantMessage;
         ctx.emitActivityState("idle", "message_complete", {
           anchor: "global",
           requestId: reqId,
@@ -1552,6 +1553,7 @@ export async function runAgentLoopImpl(
       rlog,
       generationCompletedAt,
       turnCompleted,
+      userMessageId,
     });
   } catch (err) {
     clearConversationNotices(ctx.conversationId);

@@ -25,8 +25,10 @@ import {
 import { emitAssistantReplyNotification } from "../notifications/assistant-reply-producer.js";
 import { projectAssistantMessage } from "../persistence/conversation-attention-store.js";
 import {
+  type ConversationRow,
   getConversation,
   getMessageById,
+  type MessageRow,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
@@ -49,7 +51,9 @@ interface TurnTailContext {
 
 /** Minimal per-run handler state the deferred tail consumes. */
 interface TurnTailState {
-  readonly deferredFinalizeEffects: ReadonlyArray<() => Promise<void>>;
+  readonly deferredFinalizeEffects: ReadonlyArray<
+    () => Promise<MessageRow | null>
+  >;
   readonly lastAssistantMessageId: string | undefined;
   /** In-flight content writers the turn left behind (see EventHandlerState). */
   readonly inflightWriters: Map<string, InflightContentWriter>;
@@ -66,19 +70,20 @@ interface TurnTailState {
  * The returned closure captures the row id and its already-persisted content
  * JSON, and is drained by {@link runDeferredTurnTail} after the terminal SSE.
  * Each step is best-effort: a memory hiccup must not escalate a delivered reply
- * into a turn-level throw.
+ * into a turn-level throw. It returns the finalized row it read so the tail can
+ * hand it to the notification producer instead of re-reading it.
  */
 export function buildDeferredFinalizeEffect(params: {
   conversationId: string;
   assistantMessageId: string;
   contentJson: string;
   rlog: pino.Logger;
-}): () => Promise<void> {
+}): () => Promise<MessageRow | null> {
   const { conversationId, assistantMessageId, contentJson, rlog } = params;
   return async () => {
     const finalizedRow = getMessageById(assistantMessageId, conversationId);
     if (!finalizedRow) {
-      return;
+      return null;
     }
     // Provenance/automation flags for the memory write-gate come off the
     // persisted metadata via the shared `parseMessageMetadata` (the single
@@ -124,6 +129,7 @@ export function buildDeferredFinalizeEffect(params: {
         "Failed to project assistant message for attention tracking (non-fatal)",
       );
     }
+    return finalizedRow;
   };
 }
 
@@ -144,20 +150,48 @@ export async function runDeferredTurnTail(params: {
   rlog: pino.Logger;
   generationCompletedAt: number;
   /**
-   * True only for a `message_complete` turn. A handed-off generation is not
-   * the end of the run, and a cancelled one has no final reply.
+   * True only for a `message_complete` turn that produced a genuine reply. A
+   * handed-off generation is not the end of the run, a cancelled one has no
+   * final reply, and a provider-error turn's only assistant row is the
+   * synthetic error text.
    */
   turnCompleted: boolean;
+  /** Id of the row that opened this turn, for the notification producer. */
+  userMessageId: string | undefined;
 }): Promise<void> {
-  const { ctx, state, rlog, generationCompletedAt, turnCompleted } = params;
+  const {
+    ctx,
+    state,
+    rlog,
+    generationCompletedAt,
+    turnCompleted,
+    userMessageId,
+  } = params;
   const tailStartedAt = Date.now();
+
+  // One conversation read for the whole tail: the notification producer, the
+  // truncation step, and the disk mirror all want the same row. Guarded like
+  // every step below, because this runs after the terminal SSE and a SQLite
+  // hiccup must not escape into the loop's outer catch.
+  let conversation: ConversationRow | null = null;
+  try {
+    conversation = getConversation(ctx.conversationId);
+  } catch (err) {
+    rlog.warn({ err }, "Failed to read conversation for end-of-turn work");
+  }
 
   // Per-message memory/attention finalize side-effects deferred from
   // `handleMessageComplete` — one closure per assistant row produced this turn,
   // in production order.
+  // Effects accumulate across a multi-call turn, so keep only the row the
+  // notification below is about rather than whichever ran last.
+  let finalizedAssistantRow: MessageRow | null = null;
   for (const effect of state.deferredFinalizeEffects) {
     try {
-      await effect();
+      const finalizedRow = await effect();
+      if (finalizedRow && finalizedRow.id === state.lastAssistantMessageId) {
+        finalizedAssistantRow = finalizedRow;
+      }
     } catch (err) {
       rlog.warn({ err }, "Deferred finalize side-effect failed (non-fatal)");
     }
@@ -172,7 +206,10 @@ export async function runDeferredTurnTail(params: {
     void emitAssistantReplyNotification({
       conversationId: ctx.conversationId,
       assistantMessageId: state.lastAssistantMessageId,
+      userMessageId,
       rlog,
+      conversation,
+      assistantMessage: finalizedAssistantRow,
     });
   }
 
@@ -181,11 +218,10 @@ export async function runDeferredTurnTail(params: {
   // turn's context. Rewrites only the in-memory history, so it has no bearing on
   // the reply already delivered to the client.
   try {
-    const conv = getConversation(ctx.conversationId);
-    if (conv) {
+    if (conversation) {
       const convDir = getResolvedConversationDirPath(
         ctx.conversationId,
-        conv.createdAt,
+        conversation.createdAt,
       );
       const { messages: derefMessages, dereferencedCount } =
         derefToolResultReReads(ctx.messages);
@@ -218,20 +254,16 @@ export async function runDeferredTurnTail(params: {
   }
 
   // Mirror the final assistant row into the JSONL disk view. Guarded like the
-  // steps above: this runs AFTER the terminal SSE, so a throw here (e.g. a
-  // SQLite read failure in `getConversation`) must not escape into the loop's
-  // outer catch and emit a second, contradictory terminal event for a turn the
-  // client already saw complete.
+  // steps above: this runs AFTER the terminal SSE, so a throw here must not
+  // escape into the loop's outer catch and emit a second, contradictory
+  // terminal event for a turn the client already saw complete.
   try {
-    if (state.lastAssistantMessageId) {
-      const convForDisk = getConversation(ctx.conversationId);
-      if (convForDisk) {
-        syncMessageToDisk(
-          ctx.conversationId,
-          state.lastAssistantMessageId,
-          convForDisk.createdAt,
-        );
-      }
+    if (state.lastAssistantMessageId && conversation) {
+      syncMessageToDisk(
+        ctx.conversationId,
+        state.lastAssistantMessageId,
+        conversation.createdAt,
+      );
     }
   } catch (err) {
     rlog.warn({ err }, "Failed to sync assistant message to disk (non-fatal)");

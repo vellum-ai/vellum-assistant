@@ -1,23 +1,10 @@
 /**
- * Tests for `assistant-reply-producer.ts`.
- *
- * Coverage matrix:
- *   - Qualifying unseen reply in a user conversation emits exactly one signal,
- *     asserted on the full shape (dedupeKey, absent `requiresConversation`).
- *   - Every non-"user" kind of the shared `resolveConversationKind` classifier
- *     is silent.
- *   - An `automated: true` initiating user message is silent.
- *   - A hidden lifecycle row (subagent / ACP notification) opening the turn is
- *     silent.
- *   - A live phone / in-app voice utterance opening the turn is silent.
- *   - A turn opened from a messaging channel (Slack, Telegram, …) is silent,
- *     while the in-app `vellum` channel and an unstamped row still emit.
- *   - An already-seen reply is silent.
- *   - A tool-only reply (empty text preview) is silent.
- *   - A throwing dependency is swallowed, not propagated.
+ * Tests for `assistant-reply-producer.ts`: which finished replies earn a push,
+ * and the shape of the signal the qualifying ones emit.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import type { AttentionState } from "../../persistence/conversation-attention-store.js";
 import type {
   ConversationRow,
@@ -34,9 +21,10 @@ import type { ContentBlock } from "../../providers/types.js";
 // below and inspects the captured emit calls afterwards.
 
 const emitCalls: any[] = [];
+const messageLookups: string[] = [];
 let conversationRow: ConversationRow | null = null;
 let assistantRow: MessageRow | null = null;
-let userRows: MessageRow[] = [];
+let initiatingRow: MessageRow | null = null;
 let attentionState: AttentionState | null = null;
 let getConversationShouldThrow = false;
 
@@ -53,6 +41,10 @@ mock.module("../emit-signal.js", () => ({
   },
 }));
 
+const CONVERSATION_ID = "conv-1";
+const ASSISTANT_MESSAGE_ID = "msg-assistant-1";
+const USER_MESSAGE_ID = "msg-user-1";
+
 const realCrud = await import("../../persistence/conversation-crud.js");
 mock.module("../../persistence/conversation-crud.js", () => ({
   ...realCrud,
@@ -62,23 +54,16 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     }
     return conversationRow;
   },
-  getMessageById: () => assistantRow,
-  getMessagesPaginated: (
-    _conversationId: string,
-    _limit: number | undefined,
-    beforeTimestamp: number | undefined,
-    filter?: (row: MessageRow) => boolean,
-  ) => {
-    const matches = userRows
-      .filter(
-        (row) => beforeTimestamp == null || row.createdAt < beforeTimestamp,
-      )
-      .filter((row) => !filter || filter(row));
-    return { messages: matches.slice(-1), hasMore: false };
+  getMessageById: (messageId: string) => {
+    messageLookups.push(messageId);
+    return messageId === ASSISTANT_MESSAGE_ID ? assistantRow : initiatingRow;
   },
 }));
 
+const realAttentionStore =
+  await import("../../persistence/conversation-attention-store.js");
 mock.module("../../persistence/conversation-attention-store.js", () => ({
+  ...realAttentionStore,
   getAttentionStateByConversationIds: (ids: string[]) => {
     const map = new Map<string, AttentionState>();
     if (attentionState) {
@@ -92,9 +77,6 @@ const { emitAssistantReplyNotification } =
   await import("../assistant-reply-producer.js");
 
 // ── Fixtures ───────────────────────────────────────────────────────────
-
-const CONVERSATION_ID = "conv-1";
-const ASSISTANT_MESSAGE_ID = "msg-assistant-1";
 
 function makeConversation(
   overrides: Partial<ConversationRow> = {},
@@ -136,7 +118,7 @@ function makeConversation(
 
 function makeMessage(overrides: Partial<MessageRow> = {}): MessageRow {
   return {
-    id: "msg-1",
+    id: USER_MESSAGE_ID,
     conversationId: CONVERSATION_ID,
     role: "user",
     content: [{ type: "text", text: "hello" }] as ContentBlock[],
@@ -197,24 +179,32 @@ const rlog = {
   },
 } as any;
 
-async function run(): Promise<void> {
+async function run(
+  overrides: Partial<Parameters<typeof emitAssistantReplyNotification>[0]> = {},
+): Promise<void> {
   await emitAssistantReplyNotification({
     conversationId: CONVERSATION_ID,
     assistantMessageId: ASSISTANT_MESSAGE_ID,
+    userMessageId: USER_MESSAGE_ID,
     rlog,
+    ...overrides,
   });
 }
 
 beforeEach(() => {
   emitCalls.length = 0;
   warnCalls.length = 0;
+  messageLookups.length = 0;
   getConversationShouldThrow = false;
   conversationRow = makeConversation();
   assistantRow = makeAssistantRow([
     { type: "text", text: "Sure, here is the plan." },
   ] as ContentBlock[]);
-  userRows = [makeMessage()];
+  initiatingRow = makeMessage();
   attentionState = makeAttentionState();
+  // Empty overrides = every flag resolves to its registry default, so the
+  // kill switch reads as enabled unless a case says otherwise.
+  setOverridesForTesting({});
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -246,6 +236,14 @@ describe("emitAssistantReplyNotification", () => {
     expect("routingIntent" in emitCalls[0]).toBe(false);
   });
 
+  test("stays silent when the kill-switch flag is off", async () => {
+    setOverridesForTesting({ "assistant-reply-push": false });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+  });
+
   test("omits requestedTitle when the conversation has no title", async () => {
     conversationRow = makeConversation({ title: "   " });
 
@@ -257,9 +255,9 @@ describe("emitAssistantReplyNotification", () => {
     });
   });
 
-  test("collapses whitespace and caps the preview at 200 chars", async () => {
+  test("caps the preview at 200 chars", async () => {
     assistantRow = makeAssistantRow([
-      { type: "text", text: `${"a".repeat(300)}\n\n  b` },
+      { type: "text", text: "a".repeat(300) },
     ] as ContentBlock[]);
 
     await run();
@@ -267,6 +265,17 @@ describe("emitAssistantReplyNotification", () => {
     const preview = emitCalls[0].contextPayload.requestedMessage as string;
     expect(preview).toHaveLength(200);
     expect(preview.endsWith("…")).toBe(true);
+  });
+
+  // Control characters would otherwise ride into the APNs payload verbatim.
+  test("strips control characters and newlines out of the preview", async () => {
+    assistantRow = makeAssistantRow([
+      { type: "text", text: "Hello\n\tthere" },
+    ] as ContentBlock[]);
+
+    await run();
+
+    expect(emitCalls[0].contextPayload.requestedMessage).toBe("Hello there");
   });
 
   // Each case asserts the shared classifier's verdict alongside the silence, so
@@ -298,7 +307,9 @@ describe("emitAssistantReplyNotification", () => {
   });
 
   test("stays silent when the initiating user message is automated", async () => {
-    userRows = [makeMessage({ metadata: JSON.stringify({ automated: true }) })];
+    initiatingRow = makeMessage({
+      metadata: JSON.stringify({ automated: true }),
+    });
 
     await run();
 
@@ -329,7 +340,7 @@ describe("emitAssistantReplyNotification", () => {
 
   for (const { name, metadata } of LIFECYCLE_ROW_CASES) {
     test(`stays silent when the turn was opened by a ${name} row`, async () => {
-      userRows = [makeMessage({ metadata: JSON.stringify(metadata) })];
+      initiatingRow = makeMessage({ metadata: JSON.stringify(metadata) });
 
       await run();
 
@@ -337,12 +348,9 @@ describe("emitAssistantReplyNotification", () => {
     });
   }
 
-  // A voice utterance persists as an ordinary visible user row on a standard
-  // conversation, so only the `voiceSessionTurn` marker the bridge stamps keeps
-  // every spoken reply from also pushing. The phone case carries a `phone`
-  // channel; the in-app live-voice case is `vellum`/`macos`, identical to a
-  // typed desktop send, which is why the channel field cannot stand in for the
-  // marker.
+  // The phone case carries a `phone` channel; the in-app live-voice case is
+  // `vellum`/`macos`, identical to a typed desktop send, which is why the
+  // channel field cannot stand in for the `voiceSessionTurn` marker.
   const VOICE_ROW_CASES: Array<{ name: string; metadata: unknown }> = [
     {
       name: "phone call",
@@ -364,7 +372,7 @@ describe("emitAssistantReplyNotification", () => {
 
   for (const { name, metadata } of VOICE_ROW_CASES) {
     test(`stays silent when the turn was opened by a ${name} utterance`, async () => {
-      userRows = [makeMessage({ metadata: JSON.stringify(metadata) })];
+      initiatingRow = makeMessage({ metadata: JSON.stringify(metadata) });
 
       await run();
 
@@ -373,14 +381,12 @@ describe("emitAssistantReplyNotification", () => {
   }
 
   test("still emits for a typed desktop send on the same channel", async () => {
-    userRows = [
-      makeMessage({
-        metadata: JSON.stringify({
-          userMessageChannel: "vellum",
-          userMessageInterface: "macos",
-        }),
+    initiatingRow = makeMessage({
+      metadata: JSON.stringify({
+        userMessageChannel: "vellum",
+        userMessageInterface: "macos",
       }),
-    ];
+    });
 
     await run();
 
@@ -391,14 +397,12 @@ describe("emitAssistantReplyNotification", () => {
   // sender already has it in Slack/Telegram; a push would be a second copy.
   for (const channel of ["slack", "telegram"] as const) {
     test(`stays silent for a turn opened from ${channel}`, async () => {
-      userRows = [
-        makeMessage({
-          metadata: JSON.stringify({
-            userMessageChannel: channel,
-            assistantMessageChannel: channel,
-          }),
+      initiatingRow = makeMessage({
+        metadata: JSON.stringify({
+          userMessageChannel: channel,
+          assistantMessageChannel: channel,
         }),
-      ];
+      });
 
       await run();
 
@@ -409,40 +413,62 @@ describe("emitAssistantReplyNotification", () => {
   // Rows predating the channel stamp (and the daemon paths that omit it) are
   // in-app turns, so an absent channel must not suppress the push.
   test("still emits when the initiating row carries no channel", async () => {
-    userRows = [
-      makeMessage({
-        metadata: JSON.stringify({ userMessageInterface: "web" }),
-      }),
-    ];
+    initiatingRow = makeMessage({
+      metadata: JSON.stringify({ userMessageInterface: "web" }),
+    });
 
     await run();
 
     expect(emitCalls).toHaveLength(1);
   });
 
-  test("stays silent when no real user message opened the turn", async () => {
-    userRows = [];
+  // Only a value the channel registry recognizes may suppress: a corrupt one
+  // must fail open to notifying rather than silently swallow every reply.
+  test("still emits when the initiating row carries an unrecognized channel", async () => {
+    initiatingRow = makeMessage({
+      metadata: JSON.stringify({ userMessageChannel: "not-a-channel" }),
+    });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+  });
+
+  test("reads the initiating row by the threaded id, not by scanning", async () => {
+    await run();
+
+    expect(messageLookups).toEqual([ASSISTANT_MESSAGE_ID, USER_MESSAGE_ID]);
+    expect(emitCalls).toHaveLength(1);
+  });
+
+  test("stays silent when no initiating user message id was threaded", async () => {
+    await run({ userMessageId: undefined });
+
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test("stays silent when the initiating user message row is missing", async () => {
+    initiatingRow = null;
 
     await run();
 
     expect(emitCalls).toHaveLength(0);
   });
 
-  test("skips tool-result rows when locating the initiating user message", async () => {
-    userRows = [
-      makeMessage({ id: "msg-user-1", createdAt: 1700000000100 }),
-      makeMessage({
-        id: "msg-tool-result-1",
-        createdAt: 1700000000150,
-        content: [
-          { type: "tool_result", tool_use_id: "t1", content: "done" },
-        ] as ContentBlock[],
-      }),
-    ];
+  test("uses the caller-supplied rows instead of re-reading them", async () => {
+    conversationRow = null;
+    assistantRow = null;
 
-    await run();
+    await run({
+      conversation: makeConversation(),
+      assistantMessage: makeAssistantRow([
+        { type: "text", text: "Handed down." },
+      ] as ContentBlock[]),
+    });
 
     expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].contextPayload.requestedMessage).toBe("Handed down.");
+    expect(messageLookups).toEqual([USER_MESSAGE_ID]);
   });
 
   test("stays silent when the reply is already seen", async () => {
