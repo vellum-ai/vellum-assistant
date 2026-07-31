@@ -314,16 +314,6 @@ export class Conversation {
    * instance itself), so waiters cannot miss a release.
    */
   private idleWaiters = new Set<() => void>();
-  /**
-   * Serialization point for the detached end-of-turn tails (memory/attention
-   * indexing) the agent loop schedules after releasing the processing lock.
-   * Each turn chains its tail onto this promise, so a turn's tail can overlap
-   * the NEXT turn's generation but never another tail on the same
-   * conversation. Always carries a `.catch`, so the chain cannot be poisoned
-   * by a rejected tail.
-   * @internal
-   */
-  turnTailChain: Promise<void> = Promise.resolve();
   private stale = false;
   /** @internal */ abortController: AbortController | null = null;
   /** @internal */ prompter: PermissionPrompter;

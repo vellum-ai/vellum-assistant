@@ -46,9 +46,13 @@ export function handleMessageQueued(
         requestId,
         messageId,
         setOptimisticSends: ctx.setOptimisticSends,
+        // The daemon broadcasts the cancel before answering the DELETE, so
+        // `handleMessageQueuedDeleted` can pop the mapping first. Whichever
+        // path pops it spends the slot, so the pair never double-decrements.
         onDeleted: () => {
-          ctx.popRequestIdMapping(requestId);
-          ctx.turnActions.deleteQueuedMessage();
+          if (ctx.popRequestIdMapping(requestId)) {
+            ctx.turnActions.deleteQueuedMessage();
+          }
         },
       });
     }
@@ -89,13 +93,24 @@ export function handleMessageQueuedDeleted(
   event: MessageQueuedDeletedEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.turnActions.deleteQueuedMessage();
   const deletedMessageId = ctx.popRequestIdMapping(event.requestId);
+  // Same pairing rule as `handleMessageDequeued`: the requestId mapping is the
+  // record of a queued send this client counted, and popping it is what spends
+  // the slot. The daemon broadcasts the cancel to every subscriber, so this
+  // also lands on the tab that issued it, where the local cancel path pops the
+  // same mapping. Tying the decrement to the pop keeps that to exactly one
+  // decrement per cancel whichever path observes it first, and none at all on
+  // a tab that never counted the enqueue. Without the gate, a second decrement
+  // retires the turn while a real message is still queued.
   if (deletedMessageId) {
+    ctx.turnActions.deleteQueuedMessage();
     ctx.setOptimisticSends((prev) =>
       removeQueuedMessage(prev, deletedMessageId),
     );
   }
+  // Row removal is unconditional: a queued row seeded from a `/messages`
+  // reseed is keyed by requestId and never went through the counter, but it is
+  // rendered and must stop reading as queued.
   patchTranscriptMessages((prev) =>
     removeQueuedMessage(prev, deletedMessageId ?? event.requestId),
   );

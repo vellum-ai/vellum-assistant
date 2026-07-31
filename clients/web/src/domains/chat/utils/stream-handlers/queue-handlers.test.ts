@@ -233,7 +233,10 @@ describe("handleMessageDequeued", () => {
 });
 
 describe("handleMessageQueuedDeleted", () => {
-  it("removes queued message when messageId mapping exists", () => {
+  it("spends the queue slot on a tab that counted the enqueue but did not cancel", () => {
+    // A second tab watching the same conversation counted the enqueue, so its
+    // mapping is still present when the broadcast lands. That tab owes the
+    // decrement and the row removal.
     const ctx = makeCtx({
       requestIdToMessageId: new Map([["req-1", "stable-1"]]),
     });
@@ -245,12 +248,36 @@ describe("handleMessageQueuedDeleted", () => {
       },
       ctx,
     );
-    expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
+    expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalledTimes(1);
     expect(ctx.popRequestIdMapping).toHaveBeenCalledWith("req-1");
     expect(ctx.setOptimisticSends).toHaveBeenCalled();
   });
 
-  it("skips setOptimisticSends when no messageId mapping exists", () => {
+  it("does not decrement twice on the tab that issued the cancel", () => {
+    // The cancelling tab pops the mapping in its own `onDeleted`, so the
+    // broadcast echo finds nothing to pair with. A second decrement would
+    // retire the turn at count 0 while a real message is still queued.
+    const ctx = makeCtx({
+      requestIdToMessageId: new Map([["req-1", "stable-1"]]),
+    });
+    expect(ctx.popRequestIdMapping("req-1")).toBe("stable-1");
+
+    handleMessageQueuedDeleted(
+      {
+        type: "message_queued_deleted",
+        conversationId: "conv-1",
+        requestId: "req-1",
+      },
+      ctx,
+    );
+    expect(ctx.turnActions.deleteQueuedMessage).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+  });
+
+  it("does not spend a queue slot for a cancel this client never counted", () => {
+    // The daemon broadcasts to every subscriber, so a tab that never saw the
+    // enqueue (opened mid-turn, or another tab's send) receives this too and
+    // must leave its own count alone.
     const ctx = makeCtx();
     handleMessageQueuedDeleted(
       {
@@ -260,7 +287,7 @@ describe("handleMessageQueuedDeleted", () => {
       },
       ctx,
     );
-    expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
+    expect(ctx.turnActions.deleteQueuedMessage).not.toHaveBeenCalled();
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 

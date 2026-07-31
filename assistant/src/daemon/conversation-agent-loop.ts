@@ -129,6 +129,7 @@ import {
   MEMORY_CONTEXT_PHASE_KEY,
   TurnLatencyTracker,
 } from "./turn-latency-tracker.js";
+import { chainTurnTail } from "./turn-tail-chain.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -641,6 +642,10 @@ export async function runAgentLoopImpl(
    * back to the live seq counter once that registration is gone (safe because
    * `settlePendingPartialFlush` has already flushed the turn's content).
    * Idempotent, so the `finally` can call it unconditionally.
+   *
+   * The release frees direct sends only. Queued messages are drained from the
+   * loop's `finally`, after the turn-boundary commit, so a dequeued turn's
+   * first file writes cannot be swept into the finished turn's commit.
    */
   const releaseTurn = (): void => {
     if (turnReleased) {
@@ -661,59 +666,43 @@ export async function runAgentLoopImpl(
     }
     ctx.abortController = null;
     ctx.setProcessing(false);
-    // Everything below is bookkeeping the release does not depend on, so it
-    // runs under a `finally` that guarantees the drain kick: a throw in any of
-    // it would otherwise free the conversation while leaving the queue with
-    // nothing to re-trigger it.
-    try {
-      unregisterInflightTurn(ctx.conversationId, state);
+    unregisterInflightTurn(ctx.conversationId, state);
 
-      // Tear down the remaining per-turn state before the drain below, so a
-      // queued turn dequeued on this reused conversation cannot inherit stale
-      // turn scope (task-run permissions, allowed tools, override profile,
-      // command intent). Everything from the release above through the drain
-      // kick below is synchronous, so no other turn can observe a half-cleared
-      // conversation.
-      ctx.onConfirmationOutcome = undefined;
-      ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
-      ctx.approvedViaPromptThisTurn = false;
-      ctx.currentRequestId = undefined;
-      ctx.currentActiveSurfaceId = undefined;
-      ctx.allowedToolNames = undefined;
-      ctx.diskPressureCleanupModeActive = false;
-      ctx.preactivatedSkillIds = undefined;
-      ctx.currentTurnOverrideProfile = undefined;
-      ctx.currentTurnModelProfileNoticeKey = undefined;
-      // Turn-scoped interactivity. Clear it so paths that bypass this loop
-      // (e.g. opportunity wakes calling `agentLoop.run` directly) don't inherit
-      // a stale value and instead fall back to live client state in the tool
-      // context.
-      ctx.currentTurnIsNonInteractive = undefined;
-      // Turn-scoped request origin. Clear so a later turn on a reused
-      // conversation cannot inherit a stale origin-scoped permission grant.
-      ctx.currentTurnRequestOrigin = undefined;
-      // Channel command intents (e.g. Telegram /start) are single-turn
-      // metadata. Clear at turn end so they never leak into subsequent
-      // unrelated messages.
-      ctx.commandIntent = undefined;
-      // taskRunId scopes ephemeral task-run permissions to a single turn.
-      ctx.taskRunId = undefined;
+    // Tear down the remaining per-turn state in the same synchronous step as
+    // the release, so a turn that starts against the freed conversation cannot
+    // inherit stale turn scope (task-run permissions, allowed tools, override
+    // profile, command intent) or observe a half-cleared conversation.
+    ctx.onConfirmationOutcome = undefined;
+    ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
+    ctx.approvedViaPromptThisTurn = false;
+    ctx.currentRequestId = undefined;
+    ctx.currentActiveSurfaceId = undefined;
+    ctx.allowedToolNames = undefined;
+    ctx.diskPressureCleanupModeActive = false;
+    ctx.preactivatedSkillIds = undefined;
+    ctx.currentTurnOverrideProfile = undefined;
+    ctx.currentTurnModelProfileNoticeKey = undefined;
+    // Turn-scoped interactivity. Clear it so paths that bypass this loop
+    // (e.g. opportunity wakes calling `agentLoop.run` directly) don't inherit
+    // a stale value and instead fall back to live client state in the tool
+    // context.
+    ctx.currentTurnIsNonInteractive = undefined;
+    // Turn-scoped request origin. Clear so a later turn on a reused
+    // conversation cannot inherit a stale origin-scoped permission grant.
+    ctx.currentTurnRequestOrigin = undefined;
+    // Channel command intents (e.g. Telegram /start) are single-turn
+    // metadata. Clear at turn end so they never leak into subsequent
+    // unrelated messages.
+    ctx.commandIntent = undefined;
+    // taskRunId scopes ephemeral task-run permissions to a single turn.
+    ctx.taskRunId = undefined;
 
-      // Close the turn's profiling window here rather than after the drain:
-      // the profiler is per-conversation and the next turn's
-      // `startToolProfilingRequest` resets it, so a summary emitted after a
-      // drained turn started would report that turn's window under this turn's
-      // request id.
-      emitToolProfilingSummary(ctx.conversationId, reqId);
-    } finally {
-      // kickDrainQueue never rejects: a drain failure here would otherwise be
-      // an unhandled rejection that strands the queue with nothing left to
-      // re-trigger it.
-      void ctx.kickDrainQueue(
-        yieldedForHandoff ? "checkpoint_handoff" : "loop_complete",
-        "agent_loop_release",
-      );
-    }
+    // Close the turn's profiling window here rather than after the queue
+    // drain: the profiler is per-conversation and the next turn's
+    // `startToolProfilingRequest` resets it, so a summary emitted after a
+    // drained turn started would report that turn's window under this turn's
+    // request id.
+    emitToolProfilingSummary(ctx.conversationId, reqId);
   };
 
   const publishLoopMessagesChanged = (): void => {
@@ -1642,18 +1631,19 @@ export async function runAgentLoopImpl(
     // deferred tail rather than in the `finally`: the tail's memory indexing is
     // network-bound and unbounded, and holding the lock across it is what makes
     // a fully-delivered reply still answer a follow-up send with a queue slot.
+    // The queue itself is drained later, from the `finally` after the
+    // turn-boundary commit.
     const criticalSectionMs = Date.now() - generationCompletedAt;
     releaseTurn();
 
-    // Detached, and chained on the conversation's tail promise so two turns'
-    // tails run in turn order instead of concurrently. `.catch` is required:
-    // the chain outlives this function, so an unhandled rejection here would
-    // also poison every later turn's tail.
-    ctx.turnTailChain = ctx.turnTailChain
-      .then(() => runDeferredTurnTail({ state, rlog, criticalSectionMs }))
-      .catch((err: unknown) => {
-        rlog.warn({ err }, "Deferred turn tail failed (non-fatal)");
-      });
+    // Detached, and chained on the conversation's tail chain so two turns'
+    // tails run in turn order instead of concurrently. The chain is keyed by
+    // conversation id rather than held on this instance, because the tail runs
+    // while the conversation reads idle and can therefore outlive the instance
+    // that scheduled it.
+    chainTurnTail(ctx.conversationId, () =>
+      runDeferredTurnTail({ state, rlog, criticalSectionMs }),
+    );
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
     const errorCtx = {
@@ -1703,48 +1693,65 @@ export async function runAgentLoopImpl(
   } finally {
     // Backstop release for the cancel/error paths, which throw out of the try
     // before the happy path's release runs. Idempotent, so the happy path
-    // reaches here already released. It stays first in the `finally` so nothing
-    // that can throw (the turn-boundary commit, profiling) can run ahead of it
-    // and leave the row latched "mid-turn".
+    // reaches here already released. It stays first in the `finally` so the
+    // turn-boundary commit below cannot throw ahead of it and leave the row
+    // latched "mid-turn".
     releaseTurn();
 
-    if (turnStarted) {
-      ctx.turnCount++;
-      const config = getConfig();
-      const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
-      const deadlineMs = Date.now() + maxWait;
+    // The queue drain runs after the turn-boundary commit, under a `finally`
+    // so a throw in the commit section cannot strand the queue with nothing
+    // left to re-trigger it. Ordering is load-bearing: `commitTurnChanges`
+    // attributes the working tree's changes to the finished turn, so a queued
+    // turn that started while it was preparing would have its first file
+    // writes swept into the wrong commit. The wait is deadline-bounded, and
+    // direct sends are already unblocked by the release above.
+    try {
+      if (turnStarted) {
+        ctx.turnCount++;
+        const config = getConfig();
+        const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
+        const deadlineMs = Date.now() + maxWait;
 
-      const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
-      const commitPromise = commitTurnChangesFn(
-        ctx.workingDir,
-        ctx.conversationId,
-        ctx.turnCount,
-        undefined,
-        deadlineMs,
-      );
-      const outcome = await raceWithTimeout(commitPromise, maxWait);
-      if (outcome === "timed_out") {
-        rlog.warn(
-          {
-            turnNumber: ctx.turnCount,
-            maxWaitMs: maxWait,
-            conversationId: ctx.conversationId,
-          },
-          "Turn-boundary commit timed out — continuing without waiting (commit still runs in background)",
+        const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
+        const commitPromise = commitTurnChangesFn(
+          ctx.workingDir,
+          ctx.conversationId,
+          ctx.turnCount,
+          undefined,
+          deadlineMs,
         );
+        const outcome = await raceWithTimeout(commitPromise, maxWait);
+        if (outcome === "timed_out") {
+          rlog.warn(
+            {
+              turnNumber: ctx.turnCount,
+              maxWaitMs: maxWait,
+              conversationId: ctx.conversationId,
+            },
+            "Turn-boundary commit timed out; continuing without waiting (commit still runs in background)",
+          );
+        }
+
+        // Recompute relationship-state.json at turn boundary (fire-and-forget).
+        // The writer swallows its own errors, but we still guard with catch()
+        // here so a regression in the writer can never bubble out of the
+        // agent loop and reject an otherwise-complete turn.
+        void writeRelationshipState().catch(() => {});
       }
 
-      // Recompute relationship-state.json at turn boundary (fire-and-forget).
-      // The writer swallows its own errors, but we still guard with catch()
-      // here so a regression in the writer can never bubble out of the
-      // agent loop and reject an otherwise-complete turn.
-      void writeRelationshipState().catch(() => {});
+      // Consolidation deferred to compaction: keeping assistant + tool_result
+      // messages unconsolidated preserves the exact message structure sent to
+      // the API, enabling stable prefix caching across turns.  Compaction
+      // consolidates when it summarizes old messages (cache miss is expected).
+    } finally {
+      // kickDrainQueue never rejects: a drain failure here would otherwise be
+      // an unhandled rejection that strands the queue with nothing left to
+      // re-trigger it.
+      void ctx.kickDrainQueue(
+        yieldedForHandoff ? "checkpoint_handoff" : "loop_complete",
+        "agent_loop_finally",
+      );
     }
-
-    // Consolidation deferred to compaction: keeping assistant + tool_result
-    // messages unconsolidated preserves the exact message structure sent to
-    // the API, enabling stable prefix caching across turns.  Compaction
-    // consolidates when it summarizes old messages (cache miss is expected).
   }
 }
 

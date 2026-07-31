@@ -7,7 +7,7 @@
  * double typed as `Conversation` (`makeWakeConversation`) that stubs only the
  * handful of members the wake touches — `getMessages`, `messages.push`,
  * `isProcessing`/`setProcessing`/`waitForIdle`, `currentTurnTrustContext`,
- * `setSubagentAllowedTools`, `drainQueue`, `maybeCompact`,
+ * `setSubagentAllowedTools`, `kickDrainQueue`, `maybeCompact`,
  * `contextWindowManager.estimateInputTokens`, and a scripted `agentLoop.run()`.
  *
  * The wake's side effects flow through the daemon boundary, so the
@@ -62,7 +62,7 @@ interface WakeConversationProbe {
   processingToggles: boolean[];
   /** Tail messages persisted via `addMessage`, in call order. */
   persistedTailCalls: Message[];
-  /** Number of times `drainQueue` was invoked. */
+  /** Number of times `kickDrainQueue` was invoked. */
   drainQueueCalls: number;
   /**
    * Cross-hook call sequence tag. Each push/persist/drain (and the
@@ -71,7 +71,7 @@ interface WakeConversationProbe {
    */
   callSequence: string[];
   /**
-   * Snapshot of the processing flag at the moment `drainQueue` was
+   * Snapshot of the processing flag at the moment `kickDrainQueue` was
    * invoked. Lets tests prove drain ran AFTER setProcessing(false),
    * rather than just inferring it from the order of recorded toggles.
    */
@@ -380,7 +380,7 @@ function makeWakeConversation(options: {
   scriptedTail?: Message[];
   scriptedEvents?: AgentEvent[];
   isProcessing?: boolean;
-  /** When true, omit `drainQueue` so we can verify the wake handles its absence. */
+  /** When true, omit `kickDrainQueue` so we can verify the wake handles its absence. */
   omitDrainQueue?: boolean;
   initialAllowedTools?: Set<string>;
   /** Replaces the default scripted `agentLoop.run` body entirely. */
@@ -471,7 +471,7 @@ function makeWakeConversation(options: {
 
   const runBody = options.runImpl ?? defaultRun;
 
-  const drainQueue = options.omitDrainQueue
+  const kickDrainQueue = options.omitDrainQueue
     ? undefined
     : async () => {
         probe.drainQueueCalls += 1;
@@ -597,7 +597,7 @@ function makeWakeConversation(options: {
     },
     buildCurrentSystemPrompt: () => "mock-system-prompt",
     modelOverride: undefined,
-    ...(drainQueue ? { drainQueue } : {}),
+    ...(kickDrainQueue ? { kickDrainQueue } : {}),
   };
 
   return conversation as unknown as WakeConversation;
@@ -2116,11 +2116,11 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.persistedTailCalls).toHaveLength(0);
   });
 
-  test("drainQueue is called in finally after a successful run", async () => {
+  test("kickDrainQueue is called in finally after a successful run", async () => {
     // Verifies Gap 1 fix: messages queued during a wake (because the
     // wake set `processing = true`) must be picked up after the wake
     // completes. Mirrors the canonical user-turn `finally` path which
-    // sets `processing = false` then calls `drainQueue`.
+    // sets `processing = false` then calls `kickDrainQueue`.
     const conversation = makeWakeConversation({
       baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       scriptedAssistant: {
@@ -2152,7 +2152,7 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.isProcessing()).toBe(false);
   });
 
-  test("drainQueue is called in finally even when the agent loop throws", async () => {
+  test("kickDrainQueue is called in finally even when the agent loop throws", async () => {
     // Verifies the drain is in the finally block, not just on success.
     // A wake that crashes mid-run must still flush queued messages —
     // otherwise a transient LLM error strands every concurrent send.
@@ -2180,7 +2180,7 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.processingToggles).toEqual([true, false]);
   });
 
-  test("missing drainQueue hook is tolerated (no-op fallback)", async () => {
+  test("missing kickDrainQueue hook is tolerated (no-op fallback)", async () => {
     // The hook is intentionally optional so test stubs without a queue
     // can omit it. Production daemon always wires it.
     const conversation = makeWakeConversation({
@@ -2206,7 +2206,7 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.drainQueueCalls).toBe(0);
   });
 
-  test("drainQueue rejection does not propagate from the wake", async () => {
+  test("kickDrainQueue rejection does not propagate from the wake", async () => {
     // Defense in depth: if the queue drain throws (e.g. a poisoned
     // message), the wake itself must still resolve normally — the
     // drain failure is logged but never surfaced.
@@ -2217,7 +2217,7 @@ describe("wakeAgentForOpportunity", () => {
         content: [{ type: "text", text: "reply" }],
       },
     });
-    conversation.drainQueue = async () => {
+    conversation.kickDrainQueue = async () => {
       throw new Error("drain blew up");
     };
 
@@ -2280,7 +2280,7 @@ describe("wakeAgentForOpportunity", () => {
   });
 
   test(
-    "tail messages are pushed and persisted BEFORE drainQueue runs " +
+    "tail messages are pushed and persisted BEFORE the queue drain runs " +
       "(so dequeued turns see updated history)",
     async () => {
       // Locks in the round-3 fix: a user message queued during the wake
@@ -2293,7 +2293,7 @@ describe("wakeAgentForOpportunity", () => {
       //
       // Mirrors the canonical user-turn pattern in
       // conversation-agent-loop.ts: messages updated →
-      // processing=false → drainQueue.
+      // processing=false → kickDrainQueue.
       const firstAssistant: Message = {
         role: "assistant",
         content: [
@@ -2355,13 +2355,13 @@ describe("wakeAgentForOpportunity", () => {
   );
 
   test(
-    "silent no-op: drainQueue still runs (in finally) but nothing is " +
+    "silent no-op: the queue drain still runs (in finally) but nothing is " +
       "pushed, persisted, or emitted",
     async () => {
       // The wake's silent-no-op semantics must be preserved by the
       // round-3 reordering: an empty assistant reply produces no
       // visible text and no tool calls, so no push/persist/emit should
-      // happen. drainQueue must still run in the finally block so a
+      // happen. The queue drain must still run in the finally block so a
       // racy queued message is not stranded.
       const conversation = makeWakeConversation({
         baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],

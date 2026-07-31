@@ -819,9 +819,17 @@ export function useSendMessage({
                 requestId,
                 messageId: userMessage.id,
                 setOptimisticSends,
+                // The daemon broadcasts the cancel before answering the
+                // DELETE, so the stream handler can pop the mapping first.
+                // Whichever path pops it spends the queue slot.
                 onDeleted: () => {
-                  useChatSessionStore.getState().popRequestIdMapping(requestId);
-                  useTurnStore.getState().deleteQueuedMessage();
+                  if (
+                    useChatSessionStore
+                      .getState()
+                      .popRequestIdMapping(requestId)
+                  ) {
+                    useTurnStore.getState().deleteQueuedMessage();
+                  }
                 },
               });
             }

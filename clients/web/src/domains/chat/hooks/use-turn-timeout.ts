@@ -15,6 +15,17 @@
  * phase is the less trustworthy half of the state: the refetched snapshot
  * carries the daemon's authoritative `processing` flag, so the UI converges on
  * server truth (still busy, or genuinely idle) rather than on a guess.
+ *
+ * Firing therefore runs the same two-store terminal transition every other
+ * terminal path runs, via `endTurn`. Clearing the conversation's processing key
+ * is not cosmetic: `useConversationHistory` counts that set into
+ * `activeInProgress`, which gates its periodic `snapshotProcessing`
+ * revalidation off. Idling only the turn store would leave the watchdog's own
+ * one-shot refetch as the last word, so a conversation the daemon really did
+ * finish would stay busy forever. Leaving it asserts nothing about the server:
+ * if the daemon is still processing, the revalidation reseeds
+ * `snapshotProcessing`, which re-drives busy and re-arms the poll that keeps
+ * reconciling.
  */
 
 import { useEffect } from "react";
@@ -23,6 +34,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { recordDiagnostic } from "@/lib/diagnostics";
 
@@ -74,7 +86,7 @@ export function useTurnTimeout({
         snapshotSeq,
         timeoutMs,
       });
-      useTurnStore.getState().onTurnTimeout();
+      endTurn({ conversationId: activeConversationId, reason: "timeout" });
       if (assistantId && activeConversationId) {
         void queryClient.invalidateQueries({
           queryKey: conversationHistoryQueryKey(

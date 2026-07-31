@@ -77,6 +77,7 @@ import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
 import type { Conversation } from "../daemon/conversation.js";
+import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
 import { recordUsage } from "../daemon/conversation-usage.js";
 import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import {
@@ -475,6 +476,47 @@ async function defaultResolveTarget(
   }
 }
 
+// ── Queue drain kick ──────────────────────────────────────────────────
+
+/**
+ * The queue-drain surface the wake kicks on its way out.
+ *
+ * The hook is optional because the wake runs against whatever
+ * {@link WakeDeps.resolveTarget} hands it, which in tests is a partial
+ * conversation double. Production `Conversation` always provides it.
+ */
+interface WakeDrainTarget {
+  kickDrainQueue?: (
+    reason?: QueueDrainReason,
+    origin?: string,
+  ) => Promise<void>;
+}
+
+/**
+ * Drain the target's message queue once the wake has released the
+ * conversation.
+ *
+ * `Conversation.kickDrainQueue` retries a failed drain once and notifies the
+ * queued senders when the retry also fails, so a stalled wake-tail drain is
+ * visible instead of silently stranding the queue, and it never rejects. An
+ * injected target can still omit the hook or reject from it, and neither may
+ * fail the wake, whose own work is already complete by this point.
+ */
+async function kickWakeDrainQueue(
+  conversation: WakeDrainTarget,
+  origin: string,
+  logContext: { conversationId: string; source: string },
+): Promise<void> {
+  try {
+    await conversation.kickDrainQueue?.("loop_complete", origin);
+  } catch (err) {
+    log.warn(
+      { ...logContext, err },
+      "agent-wake: kickDrainQueue threw; continuing",
+    );
+  }
+}
+
 // ── Per-conversation single-flight lock ───────────────────────────────
 //
 // When a wake arrives and another run is in flight for the same
@@ -754,7 +796,7 @@ export async function wakeAgentForOpportunity(
     // Apply the caller's persona override for the duration of the run. The
     // prompt is built once before `agentLoop.run()` (via
     // `conversation.buildCurrentSystemPrompt()`), which reads this field;
-    // cleared (below, before drainQueue) so a queued user turn never builds
+    // cleared (below, before the queue drain) so a queued user turn never builds
     // its prompt under the wake's override. Assigned only AFTER the
     // profile/config reads above — those can throw, and they run before the
     // try/finally that clears the override, so an earlier assignment would
@@ -1444,7 +1486,7 @@ export async function wakeAgentForOpportunity(
       // Run completed cleanly. The canonical user-turn pattern
       // (conversation-agent-loop.ts:1860, 2106-2126) updates
       // `ctx.messages` first, then clears the flag via `ctx.setProcessing(false)`, then
-      // calls `ctx.drainQueue(...)`. We mirror that order so a message
+      // calls `ctx.kickDrainQueue(...)`. We mirror that order so a message
       // queued during the wake dequeues against an already-updated
       // history — otherwise `drainSingleMessage` reads `ctx.messages`
       // mid-tail and writes a DB row that lands out of chronological
@@ -1467,7 +1509,7 @@ export async function wakeAgentForOpportunity(
         // Silent no-op: drop buffered events, push nothing, persist
         // nothing, emit nothing. (No checkpoint fired during the run
         // since checkpoints only fire after tool turns and there were
-        // none.) The finally still runs drainQueue so a racy queued
+        // none.) The finally still kicks the queue drain so a racy queued
         // message isn't stranded.
         return { invoked: true, producedToolCalls: false };
       }
@@ -1498,21 +1540,21 @@ export async function wakeAgentForOpportunity(
           "agent-wake: setProcessing(false) threw; continuing",
         );
       }
-      // `kickDrainQueue` never rejects: it retries a failed drain once and
-      // notifies the queued senders when the retry also fails, so a stalled
-      // wake-tail drain is visible instead of silently stranding the queue.
-      await conversation.kickDrainQueue("loop_complete", "agent_wake_tail");
+      await kickWakeDrainQueue(conversation, "agent_wake_tail", {
+        conversationId,
+        source,
+      });
       drainedInTry = true;
 
       return { invoked: true, producedToolCalls };
     } finally {
       // Put the conversation's resting trust back on every exit path.
       restorePersistentWakeTrust();
-      // The success path (above) already called setProcessing(false)
-      // + drainQueue after tail persist. This catch-all handles the
-      // error and early-return paths where no tail was produced — those
-      // exit the try body before reaching the drain block, so
-      // `drainedInTry` is still false.
+      // The success path (above) already called setProcessing(false) and
+      // kicked the queue drain after tail persist. This catch-all handles the
+      // error and early-return paths where no tail was produced: those exit
+      // the try body before reaching the drain block, so `drainedInTry` is
+      // still false.
       if (!drainedInTry) {
         restoreWakeAllowedTools();
         clearWakePersonaOverride();
@@ -1524,10 +1566,10 @@ export async function wakeAgentForOpportunity(
             "agent-wake: setProcessing(false) threw; continuing",
           );
         }
-        await conversation.kickDrainQueue(
-          "loop_complete",
-          "agent_wake_cleanup",
-        );
+        await kickWakeDrainQueue(conversation, "agent_wake_cleanup", {
+          conversationId,
+          source,
+        });
       }
 
       const durationMs = nowFn() - startedAt;

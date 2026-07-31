@@ -533,8 +533,6 @@ function makeCtx(
     },
     abortController: new AbortController(),
     currentRequestId: "test-req",
-    // The loop chains its detached end-of-turn tail here.
-    turnTailChain: Promise.resolve(),
 
     agentLoop,
     provider: {

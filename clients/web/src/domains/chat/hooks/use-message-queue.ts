@@ -103,9 +103,18 @@ export function useMessageQueue({
           requestId: targetRequestId,
           messageId,
           setOptimisticSends,
+          // The daemon broadcasts `message_queued_deleted` before answering
+          // the DELETE, so the stream handler can pop the mapping ahead of
+          // this callback. Whichever path pops it spends the queue slot, which
+          // keeps a cancel to exactly one decrement on this tab.
           onDeleted: () => {
-            useChatSessionStore.getState().popRequestIdMapping(targetRequestId);
-            useTurnStore.getState().deleteQueuedMessage();
+            if (
+              useChatSessionStore
+                .getState()
+                .popRequestIdMapping(targetRequestId)
+            ) {
+              useTurnStore.getState().deleteQueuedMessage();
+            }
           },
         });
       } else {

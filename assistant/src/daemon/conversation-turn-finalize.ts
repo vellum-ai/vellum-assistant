@@ -19,8 +19,8 @@
  *   fold, so holding the lock across them costs the queue nothing: synchronous
  *   work blocks the event loop either way.
  * - {@link runDeferredTurnTail} runs detached, after the lock releases, chained
- *   per conversation so two turns' tails never overlap each other. Its steps are
- *   keyed by the message ids this turn produced and are network-bound
+ *   by `chainTurnTail` so two turns' tails never overlap each other. Its steps
+ *   are keyed by the message ids this turn produced and are network-bound
  *   (embeddings, vector upserts), which is the work that must not hold the lock:
  *   a slow index otherwise leaves the next send queued behind an idle-looking UI.
  */
@@ -223,11 +223,12 @@ export async function settleTurnContent(params: {
 /**
  * Drain a turn's deferred bookkeeping after the processing lock has released.
  *
- * Runs detached from the agent loop and chained on the conversation's tail
- * promise, so a slow index never holds the next turn's send behind an idle
- * composer, yet two turns' tails still run in turn order. Every step is
- * best-effort and keyed by a message id this turn produced, so it neither reads
- * nor writes state the next turn owns.
+ * Runs detached from the agent loop and chained through `chainTurnTail`, so a
+ * slow index never holds the next turn's send behind an idle composer, yet two
+ * turns' tails still run in turn order even when the second turn ran on a
+ * rebuilt `Conversation` instance. Every step is best-effort and keyed by a
+ * message id this turn produced, so it neither reads nor writes state the next
+ * turn owns.
  *
  * `criticalSectionMs` is the lock-held window the agent loop measured from the
  * end of generation; paired with `deferredTailMs` it splits the end-of-turn

@@ -17,6 +17,7 @@ import {
   TURN_SILENCE_TIMEOUT_MS,
   useTurnTimeout,
 } from "@/domains/chat/hooks/use-turn-timeout";
+import { useConversationStore } from "@/stores/conversation-store";
 
 const TEST_TIMEOUT_MS = 20;
 
@@ -63,12 +64,14 @@ beforeEach(() => {
   ) as unknown as QueryClient["invalidateQueries"];
   useTurnStore.setState({ ...INITIAL_TURN_STATE });
   useChatSessionStore.setState({ snapshot: null });
+  useConversationStore.getState().removeProcessingConversationId("conv-A");
 });
 
 afterEach(() => {
   cleanup();
   useTurnStore.setState({ ...INITIAL_TURN_STATE });
   useChatSessionStore.setState({ snapshot: null });
+  useConversationStore.getState().removeProcessingConversationId("conv-A");
 });
 
 describe("useTurnTimeout", () => {
@@ -118,6 +121,29 @@ describe("useTurnTimeout", () => {
       "asst-1",
       "conv-A",
     ]);
+  });
+
+  test("clears the conversation's processing key so the reconciliation poll can run", async () => {
+    // `useConversationHistory` counts `processingConversationIds` into
+    // `activeInProgress`, which gates its periodic revalidation off. Leaving
+    // the key set would starve the poll, so the watchdog's own one-shot
+    // refetch would be the last word and a finished conversation could read
+    // busy forever.
+    act(() => {
+      useConversationStore.getState().addProcessingConversationId("conv-A");
+    });
+    mount();
+
+    act(() => {
+      useTurnStore.getState().requestSend("turn-1");
+    });
+
+    await waitFor(() => {
+      expect(useTurnStore.getState().phase).toBe("idle");
+    });
+    expect(
+      useConversationStore.getState().processingConversationIds.has("conv-A"),
+    ).toBe(false);
   });
 
   test("a terminal event before the bound disarms it", async () => {
