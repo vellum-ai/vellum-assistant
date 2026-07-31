@@ -31,6 +31,8 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
 // directly; the bridge's own off-native/skew behavior is pinned by
 // `runtime/native-audio-session.test.ts`.
 type InterruptionEvent = { type: "began" | "ended" };
+let onNativeAndroid = false;
+let onNativeIOS = false;
 const activateVoiceAudioSession = mock(async () => true);
 const deactivateVoiceAudioSession = mock(async () => undefined);
 const unsubscribeInterruptions = mock(() => undefined);
@@ -50,6 +52,12 @@ mock.module("@/runtime/native-audio-session", () => ({
       interruptionHandlers = interruptionHandlers.filter((h) => h !== handler);
     };
   },
+}));
+
+mock.module("@/runtime/platform-detection", () => ({
+  isNativeAndroid: () => onNativeAndroid,
+  isNativeIOS: () => onNativeIOS,
+  isNativeMobile: () => onNativeAndroid || onNativeIOS,
 }));
 
 /** Deliver a native `AVAudioSession` interruption to every live subscriber. */
@@ -161,6 +169,8 @@ beforeEach(() => {
   useAssistantIdentityStore.setState({ assistantId: null, version: null });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
   interruptionHandlers = [];
+  onNativeAndroid = false;
+  onNativeIOS = false;
   activateVoiceAudioSession.mockClear();
   activateVoiceAudioSession.mockImplementation(async () => true);
   deactivateVoiceAudioSession.mockClear();
@@ -341,7 +351,8 @@ describe("native audio session", () => {
   // #39331 (no capture at all, reverted in #39345) and again in #39306, where
   // a session died ~60ms after its socket opened. Nothing may reintroduce it
   // without a device test, and the Simulator cannot provide one.
-  test("never activates an audio session of its own", async () => {
+  test("iOS never activates an audio session of its own", async () => {
+    onNativeIOS = true;
     const h = renderPersistentController();
     await startListeningViaStarter(h);
 
@@ -362,7 +373,8 @@ describe("native audio session", () => {
     expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
   });
 
-  test("never deactivates one either, through idle, failure or unmount", async () => {
+  test("iOS never deactivates one through idle, failure, or unmount", async () => {
+    onNativeIOS = true;
     const h = renderPersistentController();
     await startListeningViaStarter(h);
 
@@ -379,6 +391,37 @@ describe("native audio session", () => {
     });
 
     expect(deactivateVoiceAudioSession).not.toHaveBeenCalled();
+  });
+
+  test("Android holds audio focus for exactly the active session", async () => {
+    onNativeAndroid = true;
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      useLiveVoiceStore.getState().controls?.stop();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("Android releases focus after a native interruption ends voice", async () => {
+    onNativeAndroid = true;
+    const h = renderPersistentController();
+    await startListeningViaStarter(h);
+
+    await act(async () => {
+      emitInterruption({ type: "began" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(h.lastClient().ended).toBe(true);
+    expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
   });
 
   test("drops the interruption listener on unmount", async () => {

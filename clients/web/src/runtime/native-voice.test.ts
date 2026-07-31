@@ -1,9 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 
-let onNativeIOS = false;
+let onNativeMobile = false;
 
 mock.module("@/runtime/platform-detection", () => ({
-  isNativeIOS: () => onNativeIOS,
+  isNativeAndroid: () => false,
+  isNativeIOS: () => onNativeMobile,
+  isNativeMobile: () => onNativeMobile,
 }));
 
 import { callNativeVoice } from "@/runtime/native-voice";
@@ -19,15 +21,15 @@ import { callNativeVoice } from "@/runtime/native-voice";
 
 describe("callNativeVoice", () => {
   test("returns the fallback off-native without invoking the bridge", async () => {
-    onNativeIOS = false;
+    onNativeMobile = false;
     const invoke = mock(async () => "native");
 
     expect(await callNativeVoice(invoke, "fallback")).toBe("fallback");
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  test("returns the invoke result on native iOS", async () => {
-    onNativeIOS = true;
+  test("returns the invoke result in a native mobile shell", async () => {
+    onNativeMobile = true;
     const invoke = mock(async () => "native");
 
     expect(await callNativeVoice(invoke, "fallback")).toBe("native");
@@ -35,7 +37,7 @@ describe("callNativeVoice", () => {
   });
 
   test("returns the fallback when the bridge call rejects", async () => {
-    onNativeIOS = true;
+    onNativeMobile = true;
     // The shape of an older shell missing the plugin entirely.
     const invoke = mock(async () => {
       throw new Error("VoiceAudioSession does not have web implementation.");
@@ -46,7 +48,7 @@ describe("callNativeVoice", () => {
   });
 
   test("never rethrows, for a synchronous throw or a non-Error rejection", async () => {
-    onNativeIOS = true;
+    onNativeMobile = true;
 
     expect(
       await callNativeVoice(() => {
@@ -67,10 +69,10 @@ describe("callNativeVoice", () => {
       throw new Error("bridge failure");
     };
 
-    onNativeIOS = false;
+    onNativeMobile = false;
     expect(await callNativeVoice(failing, false)).toBe(false);
 
-    onNativeIOS = true;
+    onNativeMobile = true;
     expect(await callNativeVoice(failing, false)).toBe(false);
   });
 });

@@ -105,6 +105,19 @@ ciphertext.
 Stored preferences contain only an encrypted payload and IV. Android backups
 are disabled, and token values are never written to logs or crash metadata.
 
+## Voice Audio Focus
+
+The `VoiceAudioSession` plugin requests transient voice-communication audio
+focus while a live voice session is active. Calls and competing media produce
+the same interruption payload used by iOS, while Bluetooth and wired-device
+changes produce a route-change interruption. Focus is released when voice ends
+or the activity closes so interrupted media can resume.
+
+Microphone capture and the voice socket remain in the foreground WebView. No
+microphone foreground service is used. Physical-device background validation
+has not been completed: app switching and screen locking can suspend WebView
+capture or networking and are not supported as background voice behavior.
+
 ## Structure
 
 ```
@@ -125,6 +138,7 @@ clients/
     │       │   ├── NativeBiometricPlugin.java
     │       │   ├── BiometricTokenStore.java
     │       │   ├── SelfHostedServer.java
+    │       │   ├── VoiceAudioSessionPlugin.java
     │       │   └── WorkOSAuth.java
     │       └── res/              # Vellum icon, splash, colors, file paths
     ├── build.gradle

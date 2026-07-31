@@ -15,18 +15,23 @@ import type {
   VoiceLiveActivityStart,
 } from "@/runtime/native-live-activity";
 
-let onNativeIOS = false;
+let onNativeMobile = false;
 
 mock.module("@/runtime/platform-detection", () => ({
-  isNativeIOS: () => onNativeIOS,
+  isNativeAndroid: () => false,
+  isNativeIOS: () => onNativeMobile,
+  isNativeMobile: () => onNativeMobile,
 }));
 
 const start = mock(async () => ({ started: true }));
 const update = mock(async () => undefined);
 const end = mock(async () => undefined);
+const addListener = mock(async () => ({
+  remove: async () => undefined,
+}));
 
 mock.module("@capacitor/core", () => ({
-  registerPlugin: () => ({ start, update, end }),
+  registerPlugin: () => ({ start, update, end, addListener }),
 }));
 
 const {
@@ -49,7 +54,7 @@ const startOptions: VoiceLiveActivityStart = {
 };
 
 beforeEach(() => {
-  onNativeIOS = true;
+  onNativeMobile = true;
   start.mockClear();
   start.mockImplementation(async () => ({ started: true }));
   update.mockClear();
@@ -62,9 +67,9 @@ beforeEach(() => {
 // Off-native — the browser and Electron paths
 // ---------------------------------------------------------------------------
 
-describe("off the iOS shell", () => {
+describe("outside a native mobile shell", () => {
   beforeEach(() => {
-    onNativeIOS = false;
+    onNativeMobile = false;
   });
 
   test("start resolves false without touching the bridge", async () => {

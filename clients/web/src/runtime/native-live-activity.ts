@@ -9,13 +9,10 @@
  * calling {@link startVoiceLiveActivity} twice updates the running one instead
  * of stacking a second island.
  *
- * **Skew contract.** The iOS shell ships through App Store review while this
- * bundle deploys continuously (`clients/ios/README.md` § "Web content
- * delivery"), so an arbitrarily old shell may host this bundle with no such
- * plugin compiled in. Every call therefore goes through {@link callNativeVoice},
- * which returns the fallback off-iOS and on any bridge failure. A Live Activity
- * is a flourish: nothing here may throw, block, or otherwise reach a voice
- * session.
+ * **Skew contract.** An installed mobile shell may not include this plugin.
+ * Every call therefore goes through {@link callNativeVoice}, which returns the
+ * fallback outside native mobile or on any bridge failure. The status surface
+ * is optional and must never block or end a voice session.
  *
  * That fallback also covers the case where the user has turned Live Activities
  * off for the app in iOS Settings — the plugin reports that as
@@ -27,11 +24,13 @@
  * Reference: https://developer.apple.com/documentation/activitykit/activity
  */
 
-import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { registerPlugin } from "@capacitor/core";
 
 import type { ActiveLiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { callNativeVoice } from "@/runtime/native-voice";
-import { isNativeIOS } from "@/runtime/platform-detection";
+import {
+  callNativeVoice,
+  subscribeNativeVoiceListener,
+} from "@/runtime/native-voice";
 
 /** The mutable half of the activity — everything that can change mid-session. */
 export interface VoiceLiveActivityContent {
@@ -90,7 +89,7 @@ interface VoiceLiveActivityPlugin {
   addListener(
     eventName: "liveActivityPushToken",
     handler: (event: VoiceLiveActivityPushToken) => void,
-  ): Promise<PluginListenerHandle>;
+  ): Promise<{ remove(): Promise<void> }>;
 }
 
 const VoiceLiveActivity =
@@ -98,8 +97,8 @@ const VoiceLiveActivity =
 
 /**
  * Show a Live Activity for a session that just became active. Resolves whether
- * one is now running — `false` off-iOS, on a shell without the plugin, and when
- * the user has disabled Live Activities for the app in Settings.
+ * one is now running. Returns `false` outside native mobile, on a shell without
+ * the plugin, and when the user has disabled the platform status surface.
  *
  * Safe to call when one is already running: the plugin updates it rather than
  * requesting a second island. Pair every call with {@link endVoiceLiveActivity}
@@ -122,8 +121,8 @@ export async function startVoiceLiveActivity(
 }
 
 /**
- * Push new content to the running activity. A no-op when none is running, and
- * off-iOS, and on an older shell. Never throws.
+ * Push new content to the running activity. A no-op when none is running,
+ * outside native mobile, and on an older shell. Never throws.
  *
  * ActivityKit rate-limits updates, so callers must push only on an actual
  * {@link VoiceLiveActivityContent} change — never on high-frequency store
@@ -139,7 +138,7 @@ export async function updateVoiceLiveActivity(
 
 /**
  * Dismiss the Live Activity at the end of a session. A no-op when none is
- * running, and off-iOS, and on an older shell. Never throws.
+ * running, outside native mobile, and on an older shell. Never throws.
  */
 export async function endVoiceLiveActivity(): Promise<void> {
   return callNativeVoice(async () => {
@@ -169,30 +168,8 @@ export async function endVoiceLiveActivity(): Promise<void> {
 export function subscribeVoiceLiveActivityPushToken(
   handler: (event: VoiceLiveActivityPushToken) => void,
 ): () => void {
-  if (!isNativeIOS()) {
-    return () => undefined;
-  }
-
-  let handle: PluginListenerHandle | null = null;
-  let cancelled = false;
-
-  VoiceLiveActivity.addListener("liveActivityPushToken", handler)
-    .then((registered) => {
-      if (cancelled) {
-        void registered.remove();
-        return;
-      }
-      handle = registered;
-    })
-    .catch((err: unknown) => {
-      // `console.debug`, not `captureError`, for the same reason
-      // `callNativeVoice` swallows: a shell without this plugin is an expected
-      // state on every web deploy, not a fault.
-      console.debug("[native-live-activity] push token listener failed:", err);
-    });
-
-  return () => {
-    cancelled = true;
-    void handle?.remove();
-  };
+  return subscribeNativeVoiceListener(
+    () => VoiceLiveActivity.addListener("liveActivityPushToken", handler),
+    "native-live-activity",
+  );
 }
