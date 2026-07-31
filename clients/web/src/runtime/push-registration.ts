@@ -367,12 +367,27 @@ function loadCurrentRegistration(): RegisteredToken | null {
 }
 
 /**
- * True when this device holds a platform push registration for
- * `assistantId`. Pure state read, never touches Capacitor plugins, so it
- * is safe to call synchronously on any platform.
+ * True when this device holds a push registration for `assistantId` that was
+ * confirmed in the current JS session (module-memory `lastRegistered`, set
+ * only when an upsert succeeded after this process started).
+ *
+ * Deliberately ignores the persisted-storage registration: a record from an
+ * earlier session only proves an upsert once succeeded, not that the platform
+ * still holds a token row for this device (APNs BadDeviceToken responses
+ * prune rows server-side). A session-confirmed upsert proves the platform
+ * held a live token row for this device at mount time, which is the evidence
+ * the remote-push banner dedup in `runtime/notifications.ts` needs before
+ * suppressing a local banner. The logout path is different: deleting a
+ * possibly-stale token is harmless, so `unregisterFromRemotePush` falls back
+ * to the persisted registration.
+ *
+ * Pure state read, never touches Capacitor plugins, so it is safe to call
+ * synchronously on any platform.
  */
-export function hasActiveRemotePushRegistration(assistantId: string): boolean {
-  return loadCurrentRegistration()?.assistantId === assistantId;
+export function hasSessionConfirmedRemotePushRegistration(
+  assistantId: string,
+): boolean {
+  return lastRegistered?.assistantId === assistantId;
 }
 
 /** Test-only: reset module + persisted state between cases. */

@@ -2,9 +2,9 @@
  * `postLocalNotification` native-branch behavior, focused on the
  * remote-push dedup skip: the local banner is scheduled whenever
  * `remotePushDispatched` is absent or false; it is skipped only when the
- * daemon confirmed an accepted remote push, this device holds an active
- * APNs registration, and the app was hidden when the intent arrived (the
- * APNs banner covers that case).
+ * daemon confirmed an accepted remote push, this device holds a
+ * session-confirmed APNs registration, and the app was hidden when the
+ * intent arrived (the APNs banner covers that case).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -28,11 +28,11 @@ mock.module("@/runtime/native-auth", () => ({
 // push-registration.test.ts.
 
 let remotePushSupported = true;
-let activeRegistrationAssistantId: string | null = null;
+let sessionConfirmedAssistantId: string | null = null;
 mock.module("@/runtime/push-registration", () => ({
   isRemotePushSupported: () => remotePushSupported,
-  hasActiveRemotePushRegistration: (assistantId: string) =>
-    activeRegistrationAssistantId === assistantId,
+  hasSessionConfirmedRemotePushRegistration: (assistantId: string) =>
+    sessionConfirmedAssistantId === assistantId,
 }));
 
 // ── @capacitor/local-notifications ───────────────────────────────────────────
@@ -85,7 +85,7 @@ const baseArgs = {
 
 beforeEach(() => {
   remotePushSupported = true;
-  activeRegistrationAssistantId = null;
+  sessionConfirmedAssistantId = null;
   scheduleMock.mockClear();
   ackMock.mockClear();
   ackArgs.length = 0;
@@ -94,7 +94,7 @@ beforeEach(() => {
 
 describe("postLocalNotification remote-push dedup (native branch)", () => {
   test("hidden + dispatched + registered: skips the local banner and acks success", async () => {
-    activeRegistrationAssistantId = "assistant-1";
+    sessionConfirmedAssistantId = "assistant-1";
     setVisibility("hidden");
 
     await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
@@ -110,7 +110,7 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
   });
 
   test("visible app schedules the local banner (the only foreground surface)", async () => {
-    activeRegistrationAssistantId = "assistant-1";
+    sessionConfirmedAssistantId = "assistant-1";
     setVisibility("visible");
 
     await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
@@ -126,7 +126,7 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
   });
 
   test("visible at intent arrival, hidden after the permission await: schedules", async () => {
-    activeRegistrationAssistantId = "assistant-1";
+    sessionConfirmedAssistantId = "assistant-1";
     setVisibility("visible");
 
     // The call's synchronous prefix snapshots visibility, then suspends on
@@ -144,7 +144,7 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
   });
 
   test("field absent (older daemon): schedules even when hidden", async () => {
-    activeRegistrationAssistantId = "assistant-1";
+    sessionConfirmedAssistantId = "assistant-1";
     setVisibility("hidden");
 
     await postLocalNotification({ ...baseArgs });
@@ -160,8 +160,29 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     expect(scheduleMock).toHaveBeenCalledTimes(1);
   });
 
+  test("dispatched with only a persisted registration from an earlier session: schedules", async () => {
+    // The mocked helper mirrors the real one in ignoring persisted storage:
+    // only a session-confirmed upsert counts. Seeding storage documents the
+    // reload scenario where a stored record survives but proves nothing
+    // about a live server-side token row, so the dedup skip must not fire.
+    localStorage.setItem(
+      "vellum:push_registration",
+      JSON.stringify({
+        token: "persisted-token",
+        bundleId: "ai.vocify-inc.vellum-assistant-ios",
+        assistantId: "assistant-1",
+      }),
+    );
+    setVisibility("hidden");
+
+    await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+    localStorage.removeItem("vellum:push_registration");
+  });
+
   test("dispatched but registration belongs to a different assistant: schedules", async () => {
-    activeRegistrationAssistantId = "assistant-2";
+    sessionConfirmedAssistantId = "assistant-2";
     setVisibility("hidden");
 
     await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
@@ -171,7 +192,7 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
 
   test("dispatched but remote push unsupported on this native platform: schedules", async () => {
     remotePushSupported = false;
-    activeRegistrationAssistantId = "assistant-1";
+    sessionConfirmedAssistantId = "assistant-1";
     setVisibility("hidden");
 
     await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
@@ -180,7 +201,7 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
   });
 
   test("no assistantId: schedules even when hidden and dispatched, no ack", async () => {
-    activeRegistrationAssistantId = "assistant-1";
+    sessionConfirmedAssistantId = "assistant-1";
     setVisibility("hidden");
 
     await postLocalNotification({
@@ -194,7 +215,7 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
   });
 
   test("skip without a deliveryId still skips but sends no ack", async () => {
-    activeRegistrationAssistantId = "assistant-1";
+    sessionConfirmedAssistantId = "assistant-1";
     setVisibility("hidden");
 
     await postLocalNotification({
