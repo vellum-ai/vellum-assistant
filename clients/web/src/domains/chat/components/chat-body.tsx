@@ -28,8 +28,9 @@ import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
  * area on top, and a composer stack underneath.
  *
  * **Empty‑state centering (LUM-1566):** When the empty state is visible,
- * the outer container switches to `justify-content: safe center` +
- * `overflow-y-auto` and the scroll area drops its `flex-1`. This lets
+ * the outer container becomes a plain `overflow-y-auto` scroll container,
+ * an inner `min-h-full` wrapper carries `justify-content: safe center`,
+ * and the scroll area drops its `flex-1`. This lets
  * the greeting, composer, and conversation-starter chips center as a
  * single visual group — matching the original centered layout — while
  * the composer **stays at the same position in the React tree** so its
@@ -274,15 +275,22 @@ export function ChatBody({
       ? "justify-end"
       : "[justify-content:safe_center]";
 
-  // The docked (suggestions-library) empty state owns its own vertical
-  // layout (a full-height first screen that centers the greeting + composer
-  // and pins the featured row to the bottom), so it does not use
-  // `safe center`.
-  const outerClass = isEmptyState
-    ? dockStartersToBottom
-      ? `${baseClass} overflow-y-auto`
-      : `${baseClass} overflow-y-auto ${nonDockedAlignmentClass}`
-    : baseClass;
+  // On the empty state the outer container is a plain scroll container.
+  // Group alignment lives on an inner `min-h-full` wrapper (the docked
+  // branch builds its own): alignment directly on the scroll container
+  // would make end-aligned content taller than the viewport overflow past
+  // the START edge, where scrolling cannot reach, leaving the greeting
+  // unreachable on short viewports while the keyboard is open.
+  const outerClass = isEmptyState ? `${baseClass} overflow-y-auto` : baseClass;
+
+  // Inner wrapper for the non-docked layout. On the empty state it fills
+  // the first viewport (`min-h-full`) and carries the group alignment; on
+  // the active state it is a plain fill wrapper (`min-h-0 flex-1`) so the
+  // transcript keeps its height chain. It exists in both states so the
+  // composer keeps its tree position across the empty→active transition.
+  const nonDockedInnerClass = isEmptyState
+    ? `flex min-h-full flex-col ${nonDockedAlignmentClass}`
+    : "flex min-h-0 flex-1 flex-col";
 
   // Suppress the absolutely-positioned overlay on the empty state: its
   // `bottom-full` positioning would overlap the greeting when the outer
@@ -485,21 +493,23 @@ export function ChatBody({
       onDragLeave={dragHandlers.onDragLeave}
       onDrop={dragHandlers.onDrop}
     >
-      <ChatScrollArea
-        {...scrollAreaProps}
-        bottomOverlayReservePx={bottomOverlayReservePx}
-      />
+      <div className={nonDockedInnerClass}>
+        <ChatScrollArea
+          {...scrollAreaProps}
+          bottomOverlayReservePx={bottomOverlayReservePx}
+        />
 
-      {!isEmptyState && activeProcessOverlaysSlot && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
-          {/* Registry-driven row of active background-process overlays. The
-              caller owns which kinds it covers and their order; each overlay
-              self-gates on its own active ids. */}
-          {activeProcessOverlaysSlot}
-        </div>
-      )}
+        {!isEmptyState && activeProcessOverlaysSlot && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
+            {/* Registry-driven row of active background-process overlays. The
+                caller owns which kinds it covers and their order; each overlay
+                self-gates on its own active ids. */}
+            {activeProcessOverlaysSlot}
+          </div>
+        )}
 
-      {renderComposerStack(startersSlot)}
+        {renderComposerStack(startersSlot)}
+      </div>
       {dragOverlay}
     </div>
   );

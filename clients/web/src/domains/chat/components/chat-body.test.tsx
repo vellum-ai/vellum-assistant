@@ -510,6 +510,49 @@ describe("ChatBody - plain empty state bottom-anchors while the keyboard is open
   });
 });
 
+describe("ChatBody - the empty-state scroll container never carries alignment", () => {
+  // Pins the scrollability STRUCTURE, not rendered geometry (happy-dom
+  // performs no layout): with `justify-end` on the `overflow-y-auto`
+  // container itself, content taller than the viewport overflows past the
+  // START edge, which scrolling cannot reach, so the greeting becomes
+  // unreachable on short viewports while the keyboard is open. The
+  // conditional alignment must live on the inner `min-h-full` wrapper.
+
+  const outerOf = (container: HTMLElement) =>
+    container.firstElementChild as HTMLElement;
+
+  afterEach(() => {
+    keyboardOpen = false;
+    cleanup();
+  });
+
+  test("keyboard open, zero starters: justify-end sits on the inner min-h-full wrapper, not the scroll container", () => {
+    keyboardOpen = true;
+    const { container } = render(<ChatBody {...withEmptyState()} />);
+
+    const outer = outerOf(container);
+    expect(outer.className).toContain("overflow-y-auto");
+    expect(outer.className).not.toContain("justify-end");
+
+    const inner = outer.firstElementChild as HTMLElement;
+    expect(inner.className).toContain("min-h-full");
+    expect(inner.className).toContain("justify-end");
+  });
+
+  test("at rest: safe_center sits on the inner min-h-full wrapper, not the scroll container", () => {
+    keyboardOpen = false;
+    const { container } = render(<ChatBody {...withEmptyState()} />);
+
+    const outer = outerOf(container);
+    expect(outer.className).toContain("overflow-y-auto");
+    expect(outer.className).not.toContain("[justify-content:safe_center]");
+
+    const inner = outer.firstElementChild as HTMLElement;
+    expect(inner.className).toContain("min-h-full");
+    expect(inner.className).toContain("[justify-content:safe_center]");
+  });
+});
+
 describe("ChatBody - plugin pills hide while the keyboard is open", () => {
   // The plugin controls rendered below the composer share the dock's
   // collapse treatment (both call sites render through the same helper):
