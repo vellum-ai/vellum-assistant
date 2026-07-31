@@ -385,6 +385,23 @@ export type OnboardingResearchTelemetryEvent = z.infer<
   typeof onboardingResearchTelemetryEventSchema
 >;
 
+export const assistantResultSeenTelemetryEventSchema = z.object({
+  type: z.literal("assistant_result_seen"),
+  daemon_event_id: z.string().trim().min(1).max(128),
+  recorded_at: z.number().int(),
+  assistant_version: z.string().trim().min(1).max(64).nullable().optional(),
+  conversation_id: z.string().trim().min(1).max(128),
+  assistant_message_id: z.string().trim().min(1).max(128),
+  assistant_message_recorded_at: z.number().int(),
+  signal_type: z.string().trim().min(1).max(64),
+  confidence: z.string().trim().min(1).max(32),
+  source_channel: z.string().trim().min(1).max(64).nullable().optional(),
+  source_interface: z.string().trim().min(1).max(64).nullable().optional(),
+});
+export type AssistantResultSeenTelemetryEvent = z.infer<
+  typeof assistantResultSeenTelemetryEventSchema
+>;
+
 export type WireEventMap = {
   llm_usage: LlmUsageTelemetryEvent;
   turn: TurnTelemetryEvent;
@@ -396,6 +413,7 @@ export type WireEventMap = {
   watchdog: WatchdogTelemetryEvent;
   config_setting: ConfigSettingTelemetryEvent;
   onboarding_research: OnboardingResearchTelemetryEvent;
+  assistant_result_seen: AssistantResultSeenTelemetryEvent;
 };
 
 export const telemetryEventSchema = z.discriminatedUnion("type", [
@@ -409,6 +427,7 @@ export const telemetryEventSchema = z.discriminatedUnion("type", [
   watchdogTelemetryEventSchema,
   configSettingTelemetryEventSchema,
   onboardingResearchTelemetryEventSchema,
+  assistantResultSeenTelemetryEventSchema,
 ]);
 export type TelemetryEvent = z.infer<typeof telemetryEventSchema>;
 

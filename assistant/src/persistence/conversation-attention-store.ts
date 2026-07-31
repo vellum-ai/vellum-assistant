@@ -9,7 +9,9 @@
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { recordAssistantResultSeen } from "../telemetry/assistant-result-seen.js";
 import { UserError } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
 import { getDb } from "./db-connection.js";
 import {
   conversationAssistantAttentionState,
@@ -17,6 +19,8 @@ import {
   conversations,
   messages,
 } from "./schema/index.js";
+
+const log = getLogger("conversation-attention-store");
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -59,6 +63,19 @@ export interface AttentionState {
   lastSeenEvidenceText: string | null;
   createdAt: number;
   updatedAt: number;
+}
+
+/** Post-transaction outcome of {@link recordConversationSeenSignal}. */
+export interface RecordSeenSignalResult {
+  /** The appended immutable attention evidence row. */
+  event: AttentionEvent;
+  /**
+   * The assistant message this signal newly marked as seen — the seen cursor
+   * advanced to cover it. Null when the signal advanced nothing: the
+   * conversation has no assistant message, or its latest was already seen.
+   * Result-seen telemetry is emitted only when this is non-null.
+   */
+  newlySeenAssistantMessage: { id: string; recordedAt: number } | null;
 }
 
 // ── Row mappers ──────────────────────────────────────────────────────
@@ -250,6 +267,8 @@ export function seedForkedConversationAttention(params: {
 /**
  * Record a "seen" signal: appends an immutable event row and advances the
  * seen cursor in the state projection to the current latest assistant message.
+ * When the cursor advances to newly cover an assistant message, emits an
+ * `assistant_result_seen` telemetry event (consent-gated) for that message.
  */
 export function recordConversationSeenSignal(params: {
   conversationId: string;
@@ -260,7 +279,7 @@ export function recordConversationSeenSignal(params: {
   evidenceText?: string;
   metadata?: Record<string, unknown>;
   observedAt?: number;
-}): AttentionEvent {
+}): RecordSeenSignalResult {
   const {
     conversationId,
     sourceChannel,
@@ -291,100 +310,152 @@ export function recordConversationSeenSignal(params: {
     createdAt: now,
   };
 
-  db.transaction((tx) => {
-    // 1. Append immutable evidence row
-    tx.insert(conversationAttentionEvents).values(event).run();
+  // Assistant message the seen cursor newly advances to cover, returned from
+  // the transaction and used to emit result-seen telemetry after it commits.
+  const newlySeenAssistantMessage = db.transaction(
+    (tx): { id: string; recordedAt: number } | null => {
+      // 1. Append immutable evidence row
+      tx.insert(conversationAttentionEvents).values(event).run();
 
-    // 2. Advance the seen cursor to the current latest assistant message
-    const state = tx
-      .select()
-      .from(conversationAssistantAttentionState)
-      .where(
-        eq(conversationAssistantAttentionState.conversationId, conversationId),
-      )
-      .get();
-
-    if (!state) {
-      // No state row yet — look up the conversation's latest assistant message so
-      // upgraded databases (with existing messages but no attention row) correctly
-      // initialize the full state on the first seen signal.
-      const latestMsg = tx
-        .select({ id: messages.id, createdAt: messages.createdAt })
-        .from(messages)
+      // 2. Advance the seen cursor to the current latest assistant message
+      const state = tx
+        .select()
+        .from(conversationAssistantAttentionState)
         .where(
-          and(
-            eq(messages.conversationId, conversationId),
-            eq(messages.role, "assistant"),
+          eq(
+            conversationAssistantAttentionState.conversationId,
+            conversationId,
           ),
         )
-        .orderBy(desc(messages.createdAt))
-        .limit(1)
         .get();
 
-      const latestMsgId = latestMsg?.id ?? null;
-      const latestMsgAt = latestMsg?.createdAt ?? null;
+      if (!state) {
+        // No state row yet — look up the conversation's latest assistant message so
+        // upgraded databases (with existing messages but no attention row) correctly
+        // initialize the full state on the first seen signal.
+        const latestMsg = tx
+          .select({ id: messages.id, createdAt: messages.createdAt })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.conversationId, conversationId),
+              eq(messages.role, "assistant"),
+            ),
+          )
+          .orderBy(desc(messages.createdAt))
+          .limit(1)
+          .get();
 
-      tx.insert(conversationAssistantAttentionState)
-        .values({
-          conversationId,
-          latestAssistantMessageId: latestMsgId,
-          latestAssistantMessageAt: latestMsgAt,
-          lastSeenAssistantMessageId: latestMsgId,
-          lastSeenAssistantMessageAt: latestMsgAt,
-          lastSeenEventAt: eventObservedAt,
-          lastSeenConfidence: confidence,
-          lastSeenSignalType: signalType,
-          lastSeenSourceChannel: sourceChannel,
-          lastSeenSource: source,
-          lastSeenEvidenceText: evidenceText ?? null,
-          createdAt: now,
-          updatedAt: now,
-        })
+        const latestMsgId = latestMsg?.id ?? null;
+        const latestMsgAt = latestMsg?.createdAt ?? null;
+
+        tx.insert(conversationAssistantAttentionState)
+          .values({
+            conversationId,
+            latestAssistantMessageId: latestMsgId,
+            latestAssistantMessageAt: latestMsgAt,
+            lastSeenAssistantMessageId: latestMsgId,
+            lastSeenAssistantMessageAt: latestMsgAt,
+            lastSeenEventAt: eventObservedAt,
+            lastSeenConfidence: confidence,
+            lastSeenSignalType: signalType,
+            lastSeenSourceChannel: sourceChannel,
+            lastSeenSource: source,
+            lastSeenEvidenceText: evidenceText ?? null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        return latestMsgId != null && latestMsgAt != null
+          ? { id: latestMsgId, recordedAt: latestMsgAt }
+          : null;
+      }
+
+      // Only advance the seen cursor if there is a latest assistant message to mark as seen,
+      // and the seen cursor hasn't already reached or passed it (monotonic invariant).
+      const shouldAdvanceSeen =
+        state.latestAssistantMessageAt != null &&
+        (state.lastSeenAssistantMessageAt == null ||
+          state.latestAssistantMessageAt > state.lastSeenAssistantMessageAt);
+
+      // Guard seen metadata monotonicity: only update lastSeen* metadata when the
+      // new signal's observedAt is at least as recent as the existing projection.
+      // Out-of-order delivery (e.g. delayed channel callbacks) must not regress
+      // the projected channel/source/confidence metadata.
+      const isNewerSignal =
+        state.lastSeenEventAt == null ||
+        eventObservedAt >= state.lastSeenEventAt;
+
+      const updates: Record<string, unknown> = {
+        updatedAt: now,
+      };
+
+      if (isNewerSignal) {
+        updates.lastSeenEventAt = eventObservedAt;
+        updates.lastSeenConfidence = confidence;
+        updates.lastSeenSignalType = signalType;
+        updates.lastSeenSourceChannel = sourceChannel;
+        updates.lastSeenSource = source;
+        updates.lastSeenEvidenceText = evidenceText ?? null;
+      }
+
+      const advancedTo =
+        shouldAdvanceSeen &&
+        state.latestAssistantMessageId != null &&
+        state.latestAssistantMessageAt != null
+          ? {
+              id: state.latestAssistantMessageId,
+              recordedAt: state.latestAssistantMessageAt,
+            }
+          : null;
+
+      if (shouldAdvanceSeen) {
+        updates.lastSeenAssistantMessageId = state.latestAssistantMessageId;
+        updates.lastSeenAssistantMessageAt = state.latestAssistantMessageAt;
+      }
+
+      tx.update(conversationAssistantAttentionState)
+        .set(updates)
+        .where(
+          eq(
+            conversationAssistantAttentionState.conversationId,
+            conversationId,
+          ),
+        )
         .run();
-      return;
+      return advancedTo;
+    },
+  );
+
+  // Emit result-seen telemetry only when the cursor advanced to newly cover an
+  // assistant message. A redundant signal (already seen) or one on a
+  // conversation with no assistant message advances nothing and emits nothing,
+  // so a repeated seen produces a single event. Best-effort: a telemetry
+  // failure never disturbs the recorded seen signal.
+  if (newlySeenAssistantMessage) {
+    try {
+      recordAssistantResultSeen({
+        conversationId,
+        attentionEventId: eventId,
+        assistantMessageId: newlySeenAssistantMessage.id,
+        assistantMessageRecordedAt: newlySeenAssistantMessage.recordedAt,
+        signalType,
+        confidence,
+        sourceChannel,
+        sourceInterface: source,
+      });
+    } catch (err) {
+      log.warn(
+        { err, conversationId },
+        "Failed to record assistant_result_seen telemetry",
+      );
     }
+  }
 
-    // Only advance the seen cursor if there is a latest assistant message to mark as seen,
-    // and the seen cursor hasn't already reached or passed it (monotonic invariant).
-    const shouldAdvanceSeen =
-      state.latestAssistantMessageAt != null &&
-      (state.lastSeenAssistantMessageAt == null ||
-        state.latestAssistantMessageAt > state.lastSeenAssistantMessageAt);
-
-    // Guard seen metadata monotonicity: only update lastSeen* metadata when the
-    // new signal's observedAt is at least as recent as the existing projection.
-    // Out-of-order delivery (e.g. delayed channel callbacks) must not regress
-    // the projected channel/source/confidence metadata.
-    const isNewerSignal =
-      state.lastSeenEventAt == null || eventObservedAt >= state.lastSeenEventAt;
-
-    const updates: Record<string, unknown> = {
-      updatedAt: now,
-    };
-
-    if (isNewerSignal) {
-      updates.lastSeenEventAt = eventObservedAt;
-      updates.lastSeenConfidence = confidence;
-      updates.lastSeenSignalType = signalType;
-      updates.lastSeenSourceChannel = sourceChannel;
-      updates.lastSeenSource = source;
-      updates.lastSeenEvidenceText = evidenceText ?? null;
-    }
-
-    if (shouldAdvanceSeen) {
-      updates.lastSeenAssistantMessageId = state.latestAssistantMessageId;
-      updates.lastSeenAssistantMessageAt = state.latestAssistantMessageAt;
-    }
-
-    tx.update(conversationAssistantAttentionState)
-      .set(updates)
-      .where(
-        eq(conversationAssistantAttentionState.conversationId, conversationId),
-      )
-      .run();
-  });
-
-  return rowToEvent(event as typeof conversationAttentionEvents.$inferSelect);
+  return {
+    event: rowToEvent(event as typeof conversationAttentionEvents.$inferSelect),
+    newlySeenAssistantMessage,
+  };
 }
 
 // ── markConversationUnread ───────────────────────────────────────────

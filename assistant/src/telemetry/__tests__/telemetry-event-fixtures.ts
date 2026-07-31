@@ -14,6 +14,7 @@
  * imports are type-only; this module has no runtime side effects.
  */
 import type {
+  AssistantResultSeenTelemetryEvent,
   AuthFallbackTelemetryEvent,
   ConfigSettingTelemetryEvent,
   LifecycleTelemetryEvent,
@@ -247,6 +248,20 @@ export const onboardingResearch: OnboardingResearchTelemetryEvent = {
   installed_plugins: ["gmail", "calendar"],
 };
 
+const assistantResultSeen: AssistantResultSeenTelemetryEvent = {
+  type: "assistant_result_seen",
+  daemon_event_id: "assistant_result_seen:evt-seen-001",
+  recorded_at: RECORDED_AT,
+  assistant_version: "1.2.3",
+  conversation_id: "conv-xyz",
+  assistant_message_id: "msg-2",
+  assistant_message_recorded_at: RECORDED_AT - 1_000,
+  signal_type: "macos_conversation_opened",
+  confidence: "explicit",
+  source_channel: "vellum",
+  source_interface: "http-api",
+};
+
 /** One daemon-typed, wire-valid sample per generated wire event type. */
 export const wireEventSamples = [
   llmUsage,
@@ -259,4 +274,5 @@ export const wireEventSamples = [
   watchdog,
   configSetting,
   onboardingResearch,
+  assistantResultSeen,
 ] as const;

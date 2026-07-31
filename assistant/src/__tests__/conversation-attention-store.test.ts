@@ -17,8 +17,31 @@ import {
   conversations,
   messages,
 } from "../persistence/schema/index.js";
+import {
+  pendingOutboxPayloads,
+  resetOutboxTable,
+  setShareAnalytics,
+} from "../telemetry/__tests__/outbox-test-harness.js";
+import { buildAssistantResultSeenDaemonEventId } from "../telemetry/assistant-result-seen.js";
 
 await initializeDb();
+
+type AssistantResultSeenPayload = {
+  daemon_event_id: string;
+  conversation_id: string;
+  assistant_message_id: string;
+  assistant_message_recorded_at: number;
+  signal_type: string;
+  confidence: string;
+  source_channel: string | null;
+  source_interface: string | null;
+};
+
+function seenTelemetryPayloads(): AssistantResultSeenPayload[] {
+  return pendingOutboxPayloads<AssistantResultSeenPayload>(
+    "assistant_result_seen",
+  );
+}
 
 function ensureConversation(id: string): void {
   const db = getDb();
@@ -62,6 +85,10 @@ function insertAssistantMessage(
 describe("conversation-attention-store", () => {
   beforeEach(() => {
     clearTables();
+    // recordConversationSeenSignal emits assistant_result_seen telemetry as a
+    // side effect; keep the outbox and consent deterministic for every test.
+    resetOutboxTable();
+    setShareAnalytics(true);
   });
 
   // ── projectAssistantMessage ─────────────────────────────────────
@@ -269,7 +296,7 @@ describe("conversation-attention-store", () => {
 
     test("appends an immutable event row", () => {
       ensureConversation("conv-1");
-      const event = recordConversationSeenSignal({
+      const { event } = recordConversationSeenSignal({
         conversationId: "conv-1",
         sourceChannel: "vellum",
         signalType: "macos_conversation_opened",
@@ -371,7 +398,7 @@ describe("conversation-attention-store", () => {
     test("records evidence text and metadata in event", () => {
       ensureConversation("conv-1");
 
-      const event = recordConversationSeenSignal({
+      const { event } = recordConversationSeenSignal({
         conversationId: "conv-1",
         sourceChannel: "telegram",
         signalType: "telegram_callback",
@@ -440,6 +467,192 @@ describe("conversation-attention-store", () => {
       expect(state.lastSeenAssistantMessageAt).toBe(1000);
       // Signal metadata should reflect the latest signal
       expect(state.lastSeenSignalType).toBe("telegram_inbound_message");
+    });
+  });
+
+  // ── assistant_result_seen telemetry ──────────────────────────────
+
+  describe("recordConversationSeenSignal — assistant_result_seen telemetry", () => {
+    test("emits one event when a seen signal newly covers an assistant message", () => {
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+
+      const { event, newlySeenAssistantMessage } = recordConversationSeenSignal(
+        {
+          conversationId: "conv-1",
+          sourceChannel: "vellum",
+          signalType: "macos_conversation_opened",
+          confidence: "explicit",
+          source: "http-api",
+        },
+      );
+
+      expect(newlySeenAssistantMessage).toEqual({
+        id: "msg-1",
+        recordedAt: 1000,
+      });
+
+      const payloads = seenTelemetryPayloads();
+      expect(payloads).toHaveLength(1);
+      const payload = payloads[0]!;
+      expect(payload.conversation_id).toBe("conv-1");
+      expect(payload.assistant_message_id).toBe("msg-1");
+      expect(payload.assistant_message_recorded_at).toBe(1000);
+      expect(payload.signal_type).toBe("macos_conversation_opened");
+      expect(payload.confidence).toBe("explicit");
+      expect(payload.source_channel).toBe("vellum");
+      expect(payload.source_interface).toBe("http-api");
+      // Deterministic id keyed on attention event id + covered message id.
+      expect(payload.daemon_event_id).toBe(
+        buildAssistantResultSeenDaemonEventId(event.id, "msg-1"),
+      );
+    });
+
+    test("maps a notification-view signal onto the wire fields", () => {
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "macos_notification_view",
+        confidence: "inferred",
+        source: "notification",
+      });
+
+      const payloads = seenTelemetryPayloads();
+      expect(payloads).toHaveLength(1);
+      expect(payloads[0]!.signal_type).toBe("macos_notification_view");
+      expect(payloads[0]!.confidence).toBe("inferred");
+      expect(payloads[0]!.source_interface).toBe("notification");
+    });
+
+    test("emits for a bulk mark-read signal", () => {
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "web_bulk_mark_read",
+        confidence: "explicit",
+        source: "http-api",
+      });
+
+      const payloads = seenTelemetryPayloads();
+      expect(payloads).toHaveLength(1);
+      expect(payloads[0]!.signal_type).toBe("web_bulk_mark_read");
+    });
+
+    test("emits nothing when there is no assistant message to cover", () => {
+      ensureConversation("conv-1");
+
+      const { newlySeenAssistantMessage } = recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "telegram",
+        signalType: "telegram_inbound_message",
+        confidence: "inferred",
+        source: "inbound-message-handler",
+      });
+
+      expect(newlySeenAssistantMessage).toBeNull();
+      expect(seenTelemetryPayloads()).toHaveLength(0);
+    });
+
+    test("a repeated seen signal emits a single event", () => {
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "http-api",
+      });
+      // Second signal advances nothing (already seen) — no additional event.
+      const second = recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "http-api",
+      });
+
+      expect(second.newlySeenAssistantMessage).toBeNull();
+      expect(seenTelemetryPayloads()).toHaveLength(1);
+    });
+
+    test("omits evidence text and attention metadata from the event", () => {
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "http-api",
+        evidenceText: "User opened the conversation at 9am",
+        metadata: { secretKey: "secretValue" },
+      });
+
+      const payloads = seenTelemetryPayloads();
+      expect(payloads).toHaveLength(1);
+      const keys = Object.keys(payloads[0]!);
+      expect(keys).not.toContain("evidence_text");
+      expect(keys).not.toContain("evidenceText");
+      expect(keys).not.toContain("metadata");
+      expect(keys).not.toContain("metadata_json");
+      expect(JSON.stringify(payloads[0])).not.toContain("secretValue");
+      expect(JSON.stringify(payloads[0])).not.toContain(
+        "User opened the conversation",
+      );
+    });
+
+    test("emits nothing when analytics consent is opted out, but still records the seen signal", () => {
+      setShareAnalytics(false);
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "http-api",
+      });
+
+      expect(seenTelemetryPayloads()).toHaveLength(0);
+      // The seen signal itself is unaffected by telemetry consent.
+      const state = getAttentionStateByConversationIds(["conv-1"]).get(
+        "conv-1",
+      )!;
+      expect(state.lastSeenAssistantMessageId).toBe("msg-1");
     });
   });
 
