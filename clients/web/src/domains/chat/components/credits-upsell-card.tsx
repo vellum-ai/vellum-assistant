@@ -26,10 +26,11 @@ const ADD_CREDITS_COPY = {
 /**
  * Friendly credits upsell card: a single-CTA credit wall built on
  * {@link BillingErrorBanner}, rendered in the transcript in place of a
- * persisted credits-exhausted provider-error row. Self-contained (it resolves
- * its own CTA mode; the Add Credits CTA opens the shared modal mounted in
- * `ActiveChatView` via {@link useAddCreditsModalStore}), so it can also be
- * mounted outside the transcript with no transcript-specific props.
+ * persisted credits-exhausted provider-error row. Takes no
+ * transcript-specific props and resolves its own CTA mode, so it works
+ * anywhere under `ActiveChatView`, where the shared `LazyAddCreditsModal` the
+ * Add Credits CTA opens (via {@link useAddCreditsModalStore}) is mounted; a
+ * mount outside that tree would have a dead Add Credits CTA.
  */
 export function CreditsUpsellCard() {
   const navigate = useNavigate();
