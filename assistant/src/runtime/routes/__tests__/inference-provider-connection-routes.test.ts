@@ -460,6 +460,18 @@ describe("POST inference/provider-connections (create)", () => {
     });
   });
 
+  test("throws 400 on the reserved managed connection name", async () => {
+    await expect(
+      call(findHandler("inference_provider_connections_create"), {
+        body: {
+          name: "vellum",
+          provider: "openai",
+          credential: "credential/openai/api_key",
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
   test("throws 400 when auth is omitted and a keyed provider has no credential", async () => {
     await expect(
       call(findHandler("inference_provider_connections_create"), {
@@ -935,7 +947,7 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
   test("managed-connection rejection still takes precedence over the defaultProvider guard", async () => {
     seedConnection({
       name: "vellum",
-      provider: "anthropic",
+      provider: "vellum",
       auth: { type: "platform" },
     });
     setConfig("llm", { defaultProvider: { provider: "vellum" } });
@@ -1069,7 +1081,7 @@ describe("Managed connection write protection", () => {
       // should be the managed-protection 400, not the references-409.
       seedConnection({
         name: "vellum",
-        provider: "anthropic",
+        provider: "vellum",
         auth: { type: "platform" },
       });
       setConfig("llm", {
@@ -1085,6 +1097,29 @@ describe("Managed connection write protection", () => {
 
       expect(err).toBeInstanceOf(BadRequestError);
       expect((err as BadRequestError).message).toContain("managed");
+    });
+
+    test("a user-owned row claiming the managed name stays deletable", async () => {
+      // Boot seeding refuses to overwrite it and managed routing ignores it,
+      // so deleting is the only way to restore the canonical row. The vellum
+      // default resolves to this same name, and that guard must not block the
+      // delete either: the next boot re-seeds the row it points at.
+      seedConnection({
+        name: "vellum",
+        provider: "openai",
+        auth: { type: "api_key", credential: "credential/openai/api_key" },
+      });
+      setConfig("llm", { defaultProvider: { provider: "vellum" } });
+
+      await call(findHandler("inference_provider_connections_delete"), {
+        pathParams: { name: "vellum" },
+      });
+
+      const remaining = (await call(
+        findHandler("inference_provider_connections_list"),
+        {},
+      )) as { connections: unknown[] };
+      expect(remaining.connections).toHaveLength(0);
     });
   });
 
@@ -1255,7 +1290,7 @@ describe("isManaged flag on connection responses", () => {
     test("returns isManaged: true for a managed name", async () => {
       seedConnection({
         name: "vellum",
-        provider: "anthropic",
+        provider: "vellum",
         auth: { type: "platform" },
       });
 
@@ -1265,6 +1300,24 @@ describe("isManaged flag on connection responses", () => {
       )) as { name: string; isManaged: boolean };
 
       expect(result.isManaged).toBe(true);
+    });
+
+    test("returns isManaged: false for a user-owned row claiming a managed name", async () => {
+      // Clients gate edit and delete on this flag, so a claiming row must
+      // report as the ordinary connection it is or the collision cannot be
+      // cleared from the UI.
+      seedConnection({
+        name: "vellum",
+        provider: "openai",
+        auth: { type: "api_key", credential: "credential/openai/api_key" },
+      });
+
+      const result = (await call(
+        findHandler("inference_provider_connections_get"),
+        { pathParams: { name: "vellum" } },
+      )) as { name: string; isManaged: boolean };
+
+      expect(result.isManaged).toBe(false);
     });
 
     test("returns isManaged: false for a user-created name", async () => {
@@ -1304,7 +1357,7 @@ describe("isManaged flag on connection responses", () => {
     test("returns isManaged: true after relabeling a managed connection", async () => {
       seedConnection({
         name: "vellum",
-        provider: "anthropic",
+        provider: "vellum",
         auth: { type: "platform" },
       });
 

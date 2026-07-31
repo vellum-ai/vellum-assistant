@@ -39,7 +39,11 @@ import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
-import { getConnection, listConnections } from "./inference/connections.js";
+import {
+  canonicalVellumConnection,
+  getConnection,
+  listConnections,
+} from "./inference/connections.js";
 import { resolveManagedProxyContext } from "./platform-proxy/context.js";
 import { checkCredentialPresence } from "./provider-availability.js";
 import type { ProvidersConfig } from "./registry.js";
@@ -52,6 +56,7 @@ import type { Provider } from "./types.js";
 import {
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_MANAGED_CONNECTION_NAME,
 } from "./vellum-model-routing.js";
 
 export { ConnectionResolutionError, resolveRoutingIdentity };
@@ -92,6 +97,7 @@ export async function tryResolveProviderForConnectionName(
   // identity's canonical connection row and derived upstream before any
   // lookup. The stored connectionName is overridden — an identity has
   // exactly one authoritative row.
+  const declaredProvider = expectedProvider;
   const identity = resolveRoutingIdentity(expectedProvider, model);
   if (identity) {
     connectionName = identity.connectionName;
@@ -113,6 +119,23 @@ export async function tryResolveProviderForConnectionName(
       connectionName,
       "not_found",
       `provider_connection "${connectionName}" not found in DB — check your config or run the boot-time backfill`,
+    );
+  }
+  // Any route through the canonical connection name is platform-billed, so it
+  // resolves on platform auth and ignores a user-owned row claiming that name
+  // (boot seeding refuses to overwrite such a row, so these installs have no
+  // canonical row at all). Keyed on the name rather than the declared
+  // provider: a call-site tweak pinning a concrete upstream over a managed
+  // profile keeps the managed connection while replacing the provider
+  // (`llm-resolver.ts`), and that route is platform-billed just the same.
+  if (
+    connectionName === VELLUM_MANAGED_CONNECTION_NAME &&
+    !isVellumManagedConnection(connection)
+  ) {
+    return resolveThroughPlatform(
+      config,
+      expectedProvider ?? declaredProvider,
+      model,
     );
   }
   // The provider-agnostic Vellum-managed connection carries only the `vellum`
@@ -207,6 +230,35 @@ export async function tryResolveProviderForConnectionName(
       { err, connectionName },
       "provider_connection auth resolution failed transiently — returning null",
     );
+    return null;
+  }
+}
+
+/**
+ * Resolve a managed route through platform auth without reading a connection
+ * row. Used when the canonical `vellum` row is claimed by a user-owned
+ * connection, so the row boot seeding would have written does not exist.
+ */
+async function resolveThroughPlatform(
+  config: ProvidersConfig,
+  upstream: string | undefined,
+  model: string | undefined,
+): Promise<Provider | null> {
+  if (!upstream || !MANAGED_ROUTABLE_PROVIDERS.has(upstream)) {
+    return null;
+  }
+  log.info(
+    { upstream, model },
+    "Vellum-managed route resolved through platform auth: a user-owned connection claims the canonical connection name",
+  );
+  try {
+    return await resolveProviderFromConnection(
+      canonicalVellumConnection(),
+      config,
+      { model, providerOverride: upstream },
+    );
+  } catch (err) {
+    log.warn({ err }, "Platform fallback auth resolution failed transiently");
     return null;
   }
 }
@@ -357,6 +409,14 @@ export async function preflightResolvedConfig(
       `provider_connection "${connectionName}" does not exist — add a connection for provider "${resolved.provider}" or pick a different default in Settings`,
       errorOptions,
     );
+  }
+  // Dispatch routes anything through the canonical name on platform auth, so
+  // preflight judges the platform rather than a claiming row's credentials.
+  if (
+    connectionName === VELLUM_MANAGED_CONNECTION_NAME &&
+    !isVellumManagedConnection(connection)
+  ) {
+    connection = canonicalVellumConnection();
   }
 
   if (isVellumManagedConnection(connection)) {

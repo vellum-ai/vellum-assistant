@@ -72,6 +72,7 @@ mock.module("@/stores/organization-store", () => ({
   useOrganizationStore: {
     getState: () => ({ fetchOrganizations: () => Promise.resolve() }),
   },
+  useRequestOrganizationId: () => null,
 }));
 
 // Stub the takeover avatar hook so the provisioning target's avatar doesn't

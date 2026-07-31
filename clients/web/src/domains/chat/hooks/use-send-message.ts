@@ -821,7 +821,6 @@ export function useSendMessage({
                 setOptimisticSends,
                 onDeleted: () => {
                   useChatSessionStore.getState().popRequestIdMapping(requestId);
-                  useTurnStore.getState().deleteQueuedMessage();
                 },
               });
             }

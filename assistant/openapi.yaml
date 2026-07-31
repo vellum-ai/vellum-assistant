@@ -20459,7 +20459,9 @@ paths:
     delete:
       operationId: messages_queued_by_id_delete
       summary: Delete a queued message
-      description: Remove a pending message from the conversation queue before it is processed.
+      description:
+        Remove a pending message from the conversation queue before it is processed. Broadcasts
+        `message_queued_deleted` so every client can close out the pending row.
       tags:
         - messages
       parameters:
@@ -20477,6 +20479,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: The queued message was enqueued by a different actor principal.
+        "404":
+          description: Conversation or queued message not found.
   /v1/messages/queued/{id}/steer:
     post:
       operationId: messages_queued_by_id_steer_post
@@ -22758,6 +22764,145 @@ paths:
                 required:
                   - disconnected
                   - previousBaseUrl
+                additionalProperties: false
+  /v1/platform/invoices:
+    get:
+      operationId: platform_invoices_get
+      summary: List one page of the organization's Stripe invoices
+      description:
+        Fetches one page of the org's Stripe invoice history (newest first) from the platform billing invoices
+        endpoint. Amounts are in the currency's minor units. When has_more is true, pass the last invoice's id as
+        starting_after to fetch the next page.
+      tags:
+        - platform
+      parameters:
+        - name: starting_after
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Cursor: return invoices older than the invoice with this id (from the previous page's last entry)."
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        number:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        status:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        currency:
+                          type: string
+                        amount_due:
+                          type: number
+                        amount_paid:
+                          type: number
+                        amount_remaining:
+                          type: number
+                        created:
+                          type: number
+                        hosted_invoice_url:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        invoice_pdf:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - number
+                        - status
+                        - currency
+                        - amount_due
+                        - amount_paid
+                        - amount_remaining
+                        - created
+                        - hosted_invoice_url
+                        - invoice_pdf
+                      additionalProperties: false
+                  has_more:
+                    type: boolean
+                required:
+                  - invoices
+                  - has_more
+                additionalProperties: false
+  /v1/platform/invoices/{id}:
+    get:
+      operationId: platform_invoices_by_id_get
+      summary: Get a single Stripe invoice by ID
+      description:
+        Pages through the org's invoice list from the platform and returns the invoice matching the given Stripe
+        invoice ID (e.g. in_xxx). 404 if no such invoice.
+      tags:
+        - platform
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  number:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  status:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  currency:
+                    type: string
+                  amount_due:
+                    type: number
+                  amount_paid:
+                    type: number
+                  amount_remaining:
+                    type: number
+                  created:
+                    type: number
+                  hosted_invoice_url:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  invoice_pdf:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - id
+                  - number
+                  - status
+                  - currency
+                  - amount_due
+                  - amount_paid
+                  - amount_remaining
+                  - created
+                  - hosted_invoice_url
+                  - invoice_pdf
                 additionalProperties: false
   /v1/platform/plans:
     get:
@@ -26692,6 +26837,10 @@ paths:
                 properties:
                   query:
                     type: string
+                  queryTokens:
+                    type: array
+                    items:
+                      type: string
                   results:
                     type: object
                     properties:
@@ -26814,6 +26963,7 @@ paths:
                     additionalProperties: false
                 required:
                   - query
+                  - queryTokens
                   - results
                 additionalProperties: false
   /v1/secret:

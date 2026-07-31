@@ -5,7 +5,7 @@ interface ResolveBootstrappedConversationIdArgs {
   onboardingDraftConversationId?: string | null;
   /**
    * Client-minted draft key for platforms that cold-launch into a new chat
-   * (the Capacitor iOS shell), supplied only while nothing is selected yet
+   * (the native mobile shells), supplied only while nothing is selected yet
    * (see `shouldMintNewChatDraft`). Absent everywhere else.
    */
   newChatDraftConversationId?: string | null;
@@ -30,7 +30,7 @@ export function createDraftConversationId(): string {
 }
 
 interface ShouldMintNewChatDraftArgs {
-  /** True on platforms that cold-launch into a new chat (the iOS shell). */
+  /** True on platforms that cold-launch into a new chat. */
   platformStartsInNewChat: boolean;
   urlConversationId: string | null;
   currentConversationId: string | null;

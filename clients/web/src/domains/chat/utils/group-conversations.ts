@@ -17,7 +17,10 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
  *   (or legacy `groupId === "system:all"`). Each origin channel is a
  *   first-class collapsible section, not a foreground/background status; one
  *   `ChannelSection` is produced per channel that has conversations, ordered
- *   by channel id.
+ *   by channel id. With `groupByChannel: false` no channel sections are
+ *   produced at all and those conversations go to `recents` instead, at the
+ *   same point in the precedence chain, so which bucket a conversation is
+ *   visible in changes but whether it is visible does not.
  * - `scheduled` — `conversationType === "scheduled"` OR legacy
  *   `groupId === "system:scheduled"`.
  * - `background` — all background threads
@@ -193,8 +196,16 @@ export function groupConversations(
   conversations: Conversation[],
   options?: {
     groups?: ConversationGroup[];
+    /**
+     * Bucket unassigned external-channel conversations into one section per
+     * origin channel. When `false`, `channelSections` comes back empty and
+     * those conversations join `recents`, giving one flat recency list.
+     * Defaults to `true`.
+     */
+    groupByChannel?: boolean;
   },
 ): GroupedConversations {
+  const groupByChannel = options?.groupByChannel ?? true;
   const pinned: Conversation[] = [];
   const scheduled: Conversation[] = [];
   const background: Conversation[] = [];
@@ -244,8 +255,18 @@ export function groupConversations(
       }
     }
 
+    // Channel precedence is the same in both modes; only the destination
+    // differs. Short-circuiting here (rather than skipping the check when
+    // channel sections are off) keeps membership identical between the two
+    // views: a channel conversation that also carries a background or
+    // scheduled type stays visible either way, instead of falling through to
+    // a system bucket the sidebar never renders.
     const channelId = channelSectionBucketId(c);
     if (channelId) {
+      if (!groupByChannel) {
+        recents.push(c);
+        continue;
+      }
       const bucket = channelBuckets.get(channelId);
       if (bucket) {
         bucket.push(c);

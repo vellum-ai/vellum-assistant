@@ -14,7 +14,7 @@
  */
 import { listAssistants } from "@/assistant/api";
 import { isGatewayAuthEnabled } from "@/lib/auth/gateway-session";
-import { isLocalMode, isRemoteGatewayMode } from "@/lib/local-mode";
+import { isLocalClient, isRemoteGatewayMode } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
@@ -42,7 +42,7 @@ let latestReload = 0;
  * skipping the write there is correct.
  */
 export async function reloadPlatformAssistants(): Promise<void> {
-  if (isLocalMode() || isRemoteGatewayMode() || isGatewayAuthEnabled()) {
+  if (isLocalClient() || isRemoteGatewayMode() || isGatewayAuthEnabled()) {
     return;
   }
   const gen = ++latestReload;

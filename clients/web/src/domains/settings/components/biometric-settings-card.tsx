@@ -13,10 +13,12 @@ import {
   setBiometricEnabled,
   storeBiometricToken,
 } from "@/runtime/native-biometric";
+import { useIsNativeIOS } from "@/runtime/platform-detection";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 export function BiometricSettingsCard() {
   const isNative = useIsNativePlatform();
+  const isNativeIOS = useIsNativeIOS();
   const [enabled, setEnabled] = useState(() => isBiometricEnabled());
   const [available, setAvailable] = useState(false);
   const [biometricLabel, setBiometricLabel] = useState("Face ID");
@@ -40,8 +42,10 @@ export function BiometricSettingsCard() {
       const next = !enabled;
       if (next) {
         const token = getSessionTokenFromCookies();
-        if (token) {
-          await storeBiometricToken(token);
+        if (!token || !(await storeBiometricToken(token))) {
+          setBiometricEnabled(false);
+          setEnabled(false);
+          return;
         }
         setBiometricEnabled(true);
         setEnabled(true);
@@ -63,8 +67,9 @@ export function BiometricSettingsCard() {
             Use {biometricLabel} for sign-in
           </div>
           <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
-            When your session expires, verify with {biometricLabel} or your
-            device passcode instead of signing in again.
+            When your session expires, verify with {biometricLabel}
+            {isNativeIOS && " or your device passcode"}
+            {" instead of signing in again."}
           </p>
         </div>
         <Toggle

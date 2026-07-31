@@ -1,6 +1,7 @@
 /**
- * Single source of truth for whether the full-screen live-voice room is
- * visible.
+ * Single source of truth for whether the live-voice room is visible. (Placement
+ * is the room's own concern: an inset panel on desktop, full-screen on mobile.
+ * See `voice-room.tsx`.)
  *
  * The room is the owning-composer's voice surface: it shows exactly when a
  * session is active AND the composer currently on screen owns it AND this is
@@ -26,9 +27,11 @@
  * - `activeComposerOwnsSession` — the on-screen composer's conversation owns
  *   the session (`isLiveVoiceSessionOwnedBy`), covering the draft case too.
  *
- * Pop-outs: the room is a `fixed inset-0` overlay, so in an Electron pop-out
- * thread window it would cover the `variant="standalone"` pill that headerless
- * pop-outs rely on. Pop-outs therefore never show the room — the standalone
+ * Pop-outs: the room fills whichever box it is mounted in, so in an Electron
+ * pop-out thread window it would cover the `variant="standalone"` pill that
+ * headerless pop-outs rely on. Insetting it to the content area does not help,
+ * because the content area is the whole pop-out. Pop-outs therefore never show
+ * the room. The standalone
  * pill is their only session surface — so the room predicate ANDs in
  * `!isPopout`. The pill keeps its own popout-free complement
  * ({@link useOwningComposerSurfaceVisible}), so in a pop-out it still hides

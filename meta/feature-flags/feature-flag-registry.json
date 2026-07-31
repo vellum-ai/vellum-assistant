@@ -342,6 +342,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "assistant-switcher",
+      "scope": "client",
+      "key": "assistant-switcher",
+      "label": "Assistant Switcher",
+      "description": "Show the Switch Assistant section in General settings (local mode only), linking to the assistant chooser.",
+      "defaultEnabled": false
+    },
+    {
       "id": "marketing-pricing-takeover",
       "scope": "client",
       "key": "marketing-pricing-takeover",

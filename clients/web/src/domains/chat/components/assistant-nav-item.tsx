@@ -1,12 +1,11 @@
 /**
- * The sidebar's assistant cluster: a "New Chat" row — a plus glyph with a
- * label beside it, on the same avatar-tinted wash the identity page's
- * feature cards wear — with the "Your Assistant" nav row directly beneath,
- * dressed up as the assistant: a standard-height row painted solid in the
- * avatar's color with the avatar's eyes sitting in the leading icon slot,
- * centered on the same axis as the New Chat plus so the two rows' labels
- * align. On the collapsed rail both rows survive as icon-only tiles
- * (Figma 7257:135811).
+ * The sidebar's assistant cluster: the "Your Assistant" nav row, dressed up
+ * as the assistant (a standard-height row painted solid in the avatar's color
+ * with the avatar's eyes sitting in the leading icon slot), and a "New Chat"
+ * row directly beneath it: a plus glyph with a label beside it, on the same
+ * avatar-tinted wash the identity page's feature cards wear. The plus centers
+ * on the same axis as the eyes, so the two rows' labels align. On the
+ * collapsed rail both rows survive as icon-only tiles (Figma 7257:135811).
  *
  * Periodically the eyes go on patrol: they sink out through the row's
  * bottom fold, resurface grown on the right side (cut off by the edge),
@@ -72,7 +71,7 @@ interface AssistantNavItemProps {
   active: boolean;
   collapsed?: boolean;
   onSelect?: () => void;
-  /** Renders the "New Chat" row above the assistant row. */
+  /** Renders the "New Chat" row below the assistant row. */
   onNewConversation?: () => void;
 }
 
@@ -219,7 +218,7 @@ export function AssistantNavItem({
       components.colors.find((c) => c.id === traits.color)?.hex) ||
     null;
 
-  // The row wears the identity page's feature-card wash — 28% of the
+  // The row wears the identity page's feature-card wash: 14% of the
   // avatar color mixed into the lifted surface, the Personality card's
   // recipe (see `identity-overview.tsx` `--card-feature-bg`) — falling
   // back to the plain hover treatment when there's no character avatar.
@@ -237,7 +236,7 @@ export function AssistantNavItem({
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         "transition-colors duration-150 active:scale-[0.98]",
         hex && !navTourActive
-          ? "bg-[color-mix(in_srgb,var(--assistant-tint)_28%,var(--surface-lift))] hover:bg-[color-mix(in_srgb,var(--assistant-tint)_36%,var(--surface-lift))]"
+          ? "bg-[color-mix(in_srgb,var(--assistant-tint)_14%,var(--surface-lift))] hover:bg-[color-mix(in_srgb,var(--assistant-tint)_36%,var(--surface-lift))]"
           : "hover:bg-[var(--surface-hover)]",
         collapsed && "justify-center",
       )}
@@ -265,7 +264,9 @@ export function AssistantNavItem({
             read as the same size. */}
         <Plus
           className="h-3.5 w-3.5"
-          style={{ color: "var(--content-secondary)" }}
+          style={{
+            color: "var(--assistant-tint, var(--content-secondary))",
+          }}
         />
       </span>
       {!collapsed && (
@@ -287,7 +288,6 @@ export function AssistantNavItem({
     // rows' labels stay on one axis.
     return (
       <div className="flex flex-col gap-[8px]">
-        {newConversationRow}
         <button
           type="button"
           onClick={onSelect}
@@ -341,6 +341,7 @@ export function AssistantNavItem({
             </span>
           )}
         </button>
+        {newConversationRow}
       </div>
     );
   }
@@ -421,7 +422,7 @@ export function AssistantNavItem({
       ) : (
         <>
           {/* Leading eye slot, chip-width so the eyes center on the New
-              Chat row's plus chip above; the sprite is absolutely placed
+              Chat row's plus chip below; the sprite is absolutely placed
               so patrols can carry it across (and under) the whole row. */}
           <span
             aria-hidden="true"
@@ -471,8 +472,8 @@ export function AssistantNavItem({
 
   return (
     <div className="flex flex-col gap-[8px]">
-      {newConversationRow}
       {assistantRow}
+      {newConversationRow}
     </div>
   );
 }

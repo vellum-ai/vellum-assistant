@@ -23,7 +23,7 @@ import { getDeviceBool, setDeviceBool } from "@/utils/device-settings";
 interface NativeBiometricPlugin {
   isAvailable(): Promise<{
     available: boolean;
-    biometryType: "faceId" | "touchId" | "opticId" | "none";
+    biometryType: "faceId" | "touchId" | "opticId" | "biometric" | "none";
   }>;
   storeToken(opts: { token: string; server: string }): Promise<void>;
   retrieveToken(opts: {
@@ -61,7 +61,7 @@ export async function isBiometricAvailable(): Promise<boolean> {
  * preference when this returns `true`.
  */
 export async function storeBiometricToken(token: string): Promise<boolean> {
-  if (!(await isBiometricAvailable())) {
+  if (!isNativePlatform()) {
     return false;
   }
   try {

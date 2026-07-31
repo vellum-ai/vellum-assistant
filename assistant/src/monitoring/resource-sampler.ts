@@ -36,6 +36,7 @@ import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 import { buildProcessTree, listProcesses } from "../util/process-tree.js";
 import { readActiveConversations } from "./active-conversations.js";
+import { topProcessesByFd } from "./file-descriptors.js";
 import { getTrackedDataFiles, readFileResidency } from "./page-cache.js";
 import { topProcessesByMemory } from "./process-memory.js";
 import { prunePrefixedJsonFiles } from "./prune-snapshots.js";
@@ -176,6 +177,10 @@ export async function writeSnapshot(
     // Slab memory belongs to no process; without this, cgroup usage that
     // exceeds the per-process sum has no visible owner.
     topSlabCaches: topSlabCaches(10),
+    // Descriptor pressure, ranked against each process's own soft limit. An
+    // EMFILE storm and a memory spike look alike from the outside (unrelated
+    // failures across the daemon), so the capture records both.
+    topProcessesByFd: topProcessesByFd(15),
     processTree: tree,
   };
 

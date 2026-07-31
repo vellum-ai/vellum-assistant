@@ -20,16 +20,32 @@ const log = getLogger("plugin-ingress-approvals");
 /**
  * Digest of what a declaration asks for.
  *
- * Covers reach only — each route's transport, signer, and path,
- * order-independent. A `description` reword leaves the digest alone, so it
- * does not revoke an approval, while adding a route, changing one's
- * transport, or changing whose signature opens it does.
+ * Covers reach only — each route's transport, signer, handshake scheme, and
+ * path, order-independent. A `description` reword leaves the digest alone, so
+ * it does not revoke an approval, while adding a route, changing one's
+ * transport, changing whose signature opens it, or moving it to a scheme that
+ * exposes it differently all do.
+ *
+ * A route on the default `signed-headers` scheme is encoded without that
+ * field, exactly as it was before the field existed. The alternative is that
+ * introducing `handshake` silently re-digests every unchanged manifest, drops
+ * each one back to `pending`, and 404s routes a guardian already approved
+ * until someone approves them again. Omitting the default is unambiguous
+ * because a path may not contain whitespace (see `IngressRouteSchema`), so a
+ * three-token line can never be read as a four-token one.
  */
 export function ingressDeclarationDigest(
-  routes: readonly Pick<IngressRoute, "kind" | "path" | "signer">[],
+  routes: readonly Pick<
+    IngressRoute,
+    "kind" | "path" | "signer" | "handshake"
+  >[],
 ): string {
   const canonical = routes
-    .map((route) => `${route.kind} ${route.signer} ${route.path}`)
+    .map((route) =>
+      route.handshake === "signed-headers"
+        ? `${route.kind} ${route.signer} ${route.path}`
+        : `${route.kind} ${route.signer} ${route.handshake} ${route.path}`,
+    )
     .sort()
     .join("\n");
   return createHash("sha256").update(canonical).digest("hex").slice(0, 32);

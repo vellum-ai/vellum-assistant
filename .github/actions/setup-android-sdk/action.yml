@@ -1,0 +1,31 @@
+name: Setup Android SDK
+description: Install the Android SDK packages required by CI.
+
+inputs:
+  platform:
+    description: Android SDK platform version
+    required: false
+    default: '36'
+  build_tools:
+    description: Android SDK build-tools version
+    required: false
+    default: '36.0.0'
+
+runs:
+  using: composite
+  steps:
+    - name: Accept Android SDK licenses
+      shell: bash
+      run: |
+        set +o pipefail
+        yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
+          --sdk_root="${ANDROID_HOME}" --licenses >/dev/null
+        set -o pipefail
+
+    - name: Install Android SDK packages
+      shell: bash
+      run: |
+        "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
+          --sdk_root="${ANDROID_HOME}" \
+          "platforms;android-${{ inputs.platform }}" \
+          "build-tools;${{ inputs.build_tools }}"

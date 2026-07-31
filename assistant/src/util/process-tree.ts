@@ -116,6 +116,25 @@ export function deriveName(command: string): string {
 }
 
 /**
+ * Redacted command descriptor for a live PID from `/proc/<pid>/cmdline`, or
+ * null when the process is gone or its `/proc` entry is unreadable. Kernel
+ * threads have an empty command line and read as `(unknown)`.
+ *
+ * The raw command line is read here but never returned: it can carry secrets
+ * (bearer tokens, API keys, database URLs) passed as process arguments, so
+ * callers that record process identity in snapshots or logs get only the
+ * {@link deriveName} descriptor.
+ */
+export function readProcessCommand(pid: number): string | null {
+  try {
+    const raw = readFileSync(`/proc/${pid}/cmdline`, "utf8");
+    return deriveName(raw.split("\0").filter(Boolean).join(" "));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Captures the plugin path segment(s) from a command whose executable/script
  * path lives under a `plugins/<name>/` directory. Group 1 is the first segment
  * after `plugins/`; group 2 is the next segment (present for bundled defaults,

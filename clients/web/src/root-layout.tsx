@@ -6,11 +6,8 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
 import { useOpenUrlDirectives } from "@/hooks/use-open-url-directives";
 import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import {
-  useVisibleViewport,
-  KEYBOARD_OPEN_THRESHOLD_PX,
-} from "@/hooks/use-visible-viewport";
+import { useKeyboardOpen } from "@/hooks/use-keyboard-open";
+import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-setup-close-notify";
@@ -20,7 +17,7 @@ import {
   useHasPlatformSession,
 } from "@/stores/auth-store";
 import { handleLogout } from "@/lib/auth/handle-logout";
-import { getSelectedAssistant, isLocalMode } from "@/lib/local-mode";
+import { getSelectedAssistant, isLocalClient } from "@/lib/local-mode";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
@@ -54,6 +51,7 @@ import { useIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import { useElectronIdentitySync } from "@/hooks/use-electron-identity-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
+import { subscribeAndroidBackButtonSource } from "@/runtime/event-sources/android-back-button";
 import { isElectron } from "@/runtime/is-electron";
 import { isPopoutWindow } from "@/runtime/popout-window";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
@@ -73,7 +71,7 @@ const ShareFeedbackModal = lazy(() =>
 );
 
 /**
- * App-level layout route. Owns three cross-route concerns:
+ * App-level layout route. Owns four cross-route concerns:
  *
  * 1. Safe-area insets and iOS visual-viewport keyboard tracking.
  * 2. The single assistant lifecycle (`useAssistantLifecycle`). Mounted
@@ -88,6 +86,8 @@ const ShareFeedbackModal = lazy(() =>
  *    app-state) need to be alive on every authenticated route — not
  *    just chat — so cross-tab sync invalidations keep firing while the
  *    user is on settings, logs, etc.
+ * 4. Android system Back routing. The active UI layer gets first refusal,
+ *    followed by WebView history and app minimization at the root.
  *
  * References:
  * - React Router layout routes: https://reactrouter.com/start/data/routing
@@ -96,7 +96,7 @@ const ShareFeedbackModal = lazy(() =>
  */
 export function RootLayout() {
   useAppTheme();
-  const isMobile = useIsMobile();
+  const keyboardOpen = useKeyboardOpen();
   const visibleViewport = useVisibleViewport();
 
   const location = useLocation();
@@ -156,7 +156,11 @@ export function RootLayout() {
   useAvatarAccentVar(avatar.components, avatar.traits, avatar.customImageUrl);
   // Publish the same avatar for the iOS Live Activity, which cannot fetch an
   // image at render time and needs the bytes to travel with the activity.
-  useIslandAvatarSource(avatar.customImageUrl, avatar.components, avatar.traits);
+  useIslandAvatarSource(
+    avatar.customImageUrl,
+    avatar.components,
+    avatar.traits,
+  );
 
   // Feed the same avatar to the Electron Dock + menu-bar icons, and publish
   // the live connection status to the menu-bar dot. Both no-op off Electron.
@@ -172,6 +176,7 @@ export function RootLayout() {
   useOnboardingWindowSize();
 
   useEventBusInit({ assistantId, isAssistantActive });
+  useEffect(() => subscribeAndroidBackButtonSource(), []);
   // Inbound deep-link navigation + window activation. Mounted here
   // (not in `ChatPage`) so a `vellum://thread/...` arriving while
   // the user is on `/assistant/settings`, `/logs`, etc. still
@@ -234,7 +239,7 @@ export function RootLayout() {
       // The chooser route is local-only — navigation-resolver redirects
       // platform users away — so platform sessions switch via the Switch
       // Assistant picker on the settings page instead.
-      if (isLocalMode()) {
+      if (isLocalClient()) {
         void navigate(`${routes.selectAssistant}?noAutoSkip=1`);
       } else {
         void navigate(routes.settings.general);
@@ -283,11 +288,6 @@ export function RootLayout() {
     setRetirePending(false);
     setRetireId(null);
   };
-
-  const keyboardOpen =
-    isMobile &&
-    visibleViewport !== null &&
-    visibleViewport.keyboardHeight > KEYBOARD_OPEN_THRESHOLD_PX;
 
   // When the iOS keyboard opens, the system scrolls the layout viewport
   // down by `offsetTop` to keep the focused input visible. Size the outer

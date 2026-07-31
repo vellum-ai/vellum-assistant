@@ -193,7 +193,11 @@ function CollapsibleNavSectionSection({
     <div
       data-slot="collapsible-nav-section-header"
       className={cn(
-        "flex items-center justify-between",
+        // Named group so the trailing "…" can react to hovering anywhere on
+        // the header. The trigger carries its own unnamed `group` for the
+        // icon/chevron swap, and it is a *sibling* of the trailing slot, so
+        // that one can't reach it.
+        "group/header flex items-center justify-between",
         drag && "cursor-grab active:cursor-grabbing",
       )}
       {...drag?.headerProps}
@@ -255,8 +259,21 @@ function CollapsibleNavSectionSection({
         <span
           data-slot="collapsible-nav-section-trailing"
           /* `empty:hidden` so a trailing component that renders nothing (a
-             menu with no wired actions) doesn't leave a padded box behind. */
-          className="flex items-center shrink-0 pr-[6px] max-md:pr-2 empty:hidden"
+             menu with no wired actions) doesn't leave a padded box behind.
+
+             Revealed on hover so a row of resting section headers stays quiet.
+             It also stays up while its own menu is open (`aria-expanded`),
+             or the control would vanish the moment it was clicked, and while
+             anything inside holds focus, so it is reachable by keyboard. Touch
+             has no hover, and the header's long-press sheet is the equivalent
+             affordance there, so below `md` it simply stays visible. */
+          className={cn(
+            "flex items-center shrink-0 pr-[6px] max-md:pr-2 empty:hidden",
+            "opacity-0 transition-opacity",
+            "group-hover/header:opacity-100 focus-within:opacity-100",
+            "has-[[aria-expanded=true]]:opacity-100",
+            "max-md:opacity-100",
+          )}
           onClick={(event) => event.stopPropagation()}
         >
           {trailing}
