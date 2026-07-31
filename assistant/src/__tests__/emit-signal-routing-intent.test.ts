@@ -536,6 +536,27 @@ describe("high/critical urgency channel force", () => {
     );
   });
 
+  test("re-persists the stored decision with the force-added channels when routing enforcement is a no-op", async () => {
+    evaluateSignalMock.mockResolvedValue(makeDecision({}));
+
+    await emitWithUrgency("high");
+
+    // The identity enforcement mock leaves the decision unchanged, so only
+    // the urgency force-add differs from the evaluated decision. The stored
+    // row must still be synced to the dispatched channels.
+    expect(updateDecisionMock).toHaveBeenCalledTimes(1);
+    expect(updateDecisionMock).toHaveBeenCalledWith("dec-urg-1", {
+      selectedChannels: ["vellum", "platform", "telegram"],
+      reasoningSummary:
+        "LLM selected telegram only (vellum, platform forced: high urgency)",
+      validationResults: {
+        dedupeKey: "dedupe-urg-1",
+        channelCount: 3,
+        hasCopy: false,
+      },
+    });
+  });
+
   test("forces only the missing channel when the other is already selected", async () => {
     evaluateSignalMock.mockResolvedValue(
       makeDecision({ selectedChannels: ["vellum"] }),
@@ -566,6 +587,7 @@ describe("high/critical urgency channel force", () => {
     };
     expect(dispatched.selectedChannels).toEqual(["vellum", "platform"]);
     expect(dispatched.reasoningSummary).not.toContain("forced");
+    expect(updateDecisionMock).not.toHaveBeenCalled();
   });
 
   test("leaves medium and low urgency selections untouched", async () => {
