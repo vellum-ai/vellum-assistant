@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { permanentRedirect } from "next/navigation";
 
 import { createMetadata } from "@/lib/metadata";
 
@@ -10,5 +10,5 @@ export const metadata = createMetadata({
 });
 
 export default function KeyConceptsPage() {
-  redirect("/docs/key-concepts");
+  permanentRedirect("/docs/key-concepts");
 }
