@@ -6,9 +6,14 @@
 // used by notification-feed and memory filters, plus the source-aware
 // `resolveConversationKind` classifier.
 
-// The only import here is a frozen string constant with no dependencies of its
-// own, which keeps this module cheap for every importer.
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../plugins/defaults/memory/substrate/constants.js";
+/**
+ * Canonical `conversations.source` string for background memory v2
+ * consolidation runs. A persisted column value, so it lives with the rest of
+ * the conversation vocabulary rather than inside the memory plugin that
+ * writes it (persistence must not depend on a plugin).
+ */
+// FROZEN: persisted `conversations.source` value. Never rename it.
+export const MEMORY_V2_CONSOLIDATION_SOURCE = "memory_v2_consolidation";
 
 /** How a conversation was created / its execution mode. */
 export type ConversationCreateType = "standard" | "background" | "scheduled";
