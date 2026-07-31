@@ -19,7 +19,7 @@
  * comes in already resolved.
  */
 
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
 import { ConversationNavSection } from "@/domains/chat/components/conversation-nav-section";
@@ -38,6 +38,10 @@ export interface SidebarSectionItemProps {
   drag?: CollapsibleNavSectionDrag;
   /** Activity dot shown in the header only while the section is collapsed. */
   collapsedIndicator?: ReactNode;
+  /** Reaches the row list's bounded scroll div (the sidebar wires Pinned's). */
+  listRef?: Ref<HTMLDivElement>;
+  /** Caps the row list instead of the shared section max height. */
+  listMaxHeight?: number;
 }
 
 /**
@@ -60,6 +64,8 @@ export function SidebarSectionItem({
   groupMenu,
   drag,
   collapsedIndicator,
+  listRef,
+  listMaxHeight,
 }: SidebarSectionItemProps) {
   return (
     <ConversationNavSection
@@ -76,6 +82,8 @@ export function SidebarSectionItem({
       groupMenu={groupMenu}
       collapsedIndicator={collapsedIndicator}
       drag={drag}
+      listRef={listRef}
+      listMaxHeight={listMaxHeight}
       {...rowListPropsFor(section)}
     />
   );

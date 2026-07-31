@@ -37,8 +37,14 @@ import {
   type SidebarSection,
   type UseSidebarStateParams,
 } from "@/domains/chat/use-sidebar-state";
+import { SidebarSectionResizeHandle } from "@/domains/chat/components/sidebar-section-resize-handle";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
 import { NATIVE_IOS_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-ios-button-constants";
+import {
+  resetPinnedSectionHeight,
+  savePinnedSectionHeight,
+  usePinnedSectionHeight,
+} from "@/domains/chat/utils/sidebar-pinned-height";
 import {
   RECENTS_SECTION_ICON,
   RECENTS_SECTION_LABEL,
@@ -154,7 +160,8 @@ function SearchButton() {
  *     • [ All | Grouped ] - the view switch, first and sticky
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
- *     • ───────────────  - when anything is curated above it
+ *     • ───────────────  - when anything is curated above it; drags to
+ *       resize Pinned while that section is expanded
  *     • All view: every remaining conversation as one headerless,
  *       virtualized list, newest first
  *     • Grouped view: Chats ▾ then one collapsible section per origin
@@ -231,6 +238,18 @@ export function AssistantSideMenu({
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
 
   const isCollapsedRail = collapsed && variant === "rail";
+
+  // --- Pinned section resize ---
+  // The section list's one rule doubles as the Pinned section's resize
+  // handle. During a drag the handle drives the bounded row list through
+  // this ref (no per-frame React state); the released height persists per
+  // assistant. Radix unmounts closed accordion content, so the ref only
+  // reaches a node while Pinned is expanded.
+  const pinnedListRef = useRef<HTMLDivElement | null>(null);
+  const pinnedListMaxHeight = usePinnedSectionHeight(assistantId);
+  const pinnedResizable =
+    sidebar.sections.some((section) => section.type === "pinned") &&
+    sidebar.effectiveOpenSections.includes("pinned");
 
   // --- Overlay bottom reserve ---
   // The overlay's floating bottom column (tip card + action pills) covers the
@@ -404,6 +423,10 @@ export function AssistantSideMenu({
       groupMenu={sectionMenu(section)}
       drag={sectionDragFor(section)}
       collapsedIndicator={collapsedActivityDot(section.all)}
+      listRef={section.type === "pinned" ? pinnedListRef : undefined}
+      listMaxHeight={
+        section.type === "pinned" ? pinnedListMaxHeight : undefined
+      }
     />
   );
 
@@ -652,10 +675,18 @@ export function AssistantSideMenu({
                   .map(renderSection)}
                 {/* The list's one rule, marking where curation ends and the
                     conversations begin. Absent when nothing is curated yet, so
-                    a fresh sidebar never opens on a stray line. `my-0` keeps it
-                    on the root's own gap instead of adding to it. */}
+                    a fresh sidebar never opens on a stray line. It carries no
+                    margin, sitting on the root's own gap, and doubles as the
+                    Pinned section's resize handle while Pinned is expanded. */}
                 {sidebar.curatedSectionCount > 0 ? (
-                  <SideMenu.Separator className="my-0" />
+                  <SidebarSectionResizeHandle
+                    targetRef={pinnedListRef}
+                    resizable={pinnedResizable}
+                    onCommit={(height) =>
+                      savePinnedSectionHeight(assistantId, height)
+                    }
+                    onReset={() => resetPinnedSectionHeight(assistantId)}
+                  />
                 ) : null}
                 {sidebar.sections
                   .slice(sidebar.curatedSectionCount)
