@@ -27,6 +27,8 @@ export interface UnifiedTurnContextOptions {
     appId: string;
     name: string;
     sourceDir: string;
+    /** Set when the app is bundled by an installed plugin rather than built here. */
+    pluginName?: string;
   } | null;
   channelName?: string;
   actorContext?: InboundActorContext | null;
@@ -115,8 +117,14 @@ export function buildUnifiedTurnContextBlock(
   }
   if (options.activeApp) {
     const app = options.activeApp;
+    // Plugin-bundled apps are owned by their plugin: their source is replaced
+    // on plugin update, so the model is told where it came from rather than
+    // treating it as an ordinary sandbox app to rewrite.
+    const provenance = app.pluginName
+      ? ` It is bundled by the "${sanitizeInlineContextValue(app.pluginName)}" plugin, not built in the sandbox.`
+      : "";
     lines.push(
-      `active_app: "${sanitizeInlineContextValue(app.name)}" (app_id: "${sanitizeInlineContextValue(app.appId)}", source: "${sanitizeInlineContextValue(app.sourceDir)}"). The user has this app open on screen; unqualified references to "the app" mean this one.`,
+      `active_app: "${sanitizeInlineContextValue(app.name)}" (app_id: "${sanitizeInlineContextValue(app.appId)}", source: "${sanitizeInlineContextValue(app.sourceDir)}"). The user has this app open on screen; unqualified references to "the app" mean this one.${provenance}`,
     );
   }
 

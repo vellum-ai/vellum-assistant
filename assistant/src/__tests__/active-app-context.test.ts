@@ -8,7 +8,7 @@
  * rather than failing the turn.
  */
 
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -24,6 +24,7 @@ import {
 } from "../daemon/conversation-runtime-assembly.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import type { Message } from "../providers/types.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 
 // The injector chain is registered by the daemon bootstrap in production; do
 // the same here so `applyRuntimeInjections` walks a non-empty chain.
@@ -78,6 +79,30 @@ describe("buildActiveAppContext", () => {
 
   test("returns null for a traversal-shaped id instead of throwing", () => {
     expect(buildActiveAppContext("../../etc/passwd")).toBeNull();
+  });
+
+  test("resolves a plugin-bundled app, which the viewer can open too", () => {
+    const pluginDir = join(getWorkspacePluginsDir(), "acme");
+    mkdirSync(join(pluginDir, "apps", "acme-dashboard"), { recursive: true });
+    writeFileSync(
+      join(pluginDir, "package.json"),
+      JSON.stringify({ name: "acme", version: "1.0.0" }),
+    );
+    writeFileSync(
+      join(pluginDir, "apps", "acme-dashboard", "index.html"),
+      "<h1>Plugin app</h1>",
+    );
+
+    expect(buildActiveAppContext("plugins~acme~acme-dashboard")).toEqual({
+      appId: "plugins~acme~acme-dashboard",
+      name: "acme-dashboard",
+      sourceDir: join(pluginDir, "apps", "acme-dashboard"),
+      pluginName: "acme",
+    });
+  });
+
+  test("returns null for a plugin app whose plugin is not installed", () => {
+    expect(buildActiveAppContext("plugins~not-a-plugin~x")).toBeNull();
   });
 });
 

@@ -164,6 +164,8 @@ export interface TurnContext {
     name: string;
     /** Absolute path of the app's source directory. */
     sourceDir: string;
+    /** Owning plugin, when the app is plugin-bundled rather than sandbox-built. */
+    pluginName?: string;
   } | null;
   /** Channel label gating response-discretion guidance in `<turn_context>`. */
   readonly channelName?: string;

@@ -13,6 +13,7 @@ import {
   getAppDirPath,
   listAppFiles,
   resolveAppDir,
+  resolveAppSource,
 } from "../apps/app-store.js";
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { resolveDefaultProfileForProvider } from "../config/default-profile-catalog.js";
@@ -438,22 +439,35 @@ export function buildActiveDocuments(conversationId: string): Array<{
  * `unified-turn-context` injector renders as the `active_app:` line. Returns
  * `null` when no app is in view or the id no longer resolves to an app (e.g.
  * it was deleted while open).
+ *
+ * Resolution goes through `resolveAppSource` rather than `getApp` so both id
+ * shapes the viewer can hold are covered: workspace apps (opaque id) and
+ * plugin-bundled apps (`plugins~<plugin>~<app>`), which the apps list and open
+ * routes serve alongside them. Plugin apps carry their owning plugin so the
+ * rendered line can say the source belongs to a plugin rather than reading as
+ * an ordinary sandbox app to rewrite.
  */
-export function buildActiveAppContext(
-  appId: string | undefined,
-): { appId: string; name: string; sourceDir: string } | null {
+export function buildActiveAppContext(appId: string | undefined): {
+  appId: string;
+  name: string;
+  sourceDir: string;
+  pluginName?: string;
+} | null {
   if (!appId) {
     return null;
   }
   try {
-    const app = getApp(appId);
-    if (!app) {
+    const source = resolveAppSource(appId);
+    if (!source) {
       return null;
     }
     return {
-      appId: app.id,
-      name: app.name,
-      sourceDir: getAppDirPath(app.id),
+      appId: source.id,
+      name: source.name,
+      sourceDir: source.sourceDir,
+      ...(source.origin.kind === "plugin"
+        ? { pluginName: source.origin.pluginName }
+        : {}),
     };
   } catch {
     // Malformed id (traversal-shaped, empty): treat as no app in view.

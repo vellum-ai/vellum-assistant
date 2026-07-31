@@ -31,6 +31,33 @@ describe("unified-turn-context active_app", () => {
     expect(block).toContain('references to "the app" mean this one');
   });
 
+  test("names the owning plugin for a plugin-bundled app", () => {
+    const block = buildUnifiedTurnContextBlock({
+      timestamp: TS,
+      interfaceName: "web",
+      activeApp: {
+        appId: "plugins~acme~acme-dashboard",
+        name: "acme-dashboard",
+        sourceDir: "/workspace/plugins/acme/apps/acme-dashboard",
+        pluginName: "acme",
+      },
+    });
+    expect(block).toContain('bundled by the "acme" plugin');
+  });
+
+  test("says nothing about plugins for a sandbox-built app", () => {
+    const block = buildUnifiedTurnContextBlock({
+      timestamp: TS,
+      interfaceName: "web",
+      activeApp: {
+        appId: "app-123",
+        name: "Grocery List",
+        sourceDir: "/workspace/data/apps/grocery-list",
+      },
+    });
+    expect(block).not.toContain("plugin");
+  });
+
   test("omits active_app when no app is in view", () => {
     const block = buildUnifiedTurnContextBlock({
       timestamp: TS,
