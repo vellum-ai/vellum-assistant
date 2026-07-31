@@ -51,7 +51,7 @@ type Story = StoryObj<typeof AssistantSideMenu>;
 export const ConversationSections: Story = {
   name: "Conversation sections",
   render: (args) => (
-    <div className="h-screen w-[280px] border-r border-[var(--border-default)] bg-[var(--surface-default)]">
+    <div className="h-screen w-[280px] border-r border-[var(--border-element)] bg-[var(--surface-default)]">
       <AssistantSideMenu {...args} />
     </div>
   ),

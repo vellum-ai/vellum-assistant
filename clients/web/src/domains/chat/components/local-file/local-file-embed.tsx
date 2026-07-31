@@ -36,7 +36,7 @@ import type { LocalFileKind } from "@/domains/chat/utils/mime-sniff";
 const MAX_INLINE_MEDIA_BYTES = 100 * 1024 * 1024;
 
 const MEDIA_CLASSES =
-  "max-h-[400px] max-w-full rounded-lg border border-[var(--border-default)] object-contain";
+  "max-h-[400px] max-w-full rounded-lg border border-[var(--border-element)] object-contain";
 
 const MENU_OVERLAY_CLASSES = [
   "pointer-events-none absolute right-2 top-2 rounded-md bg-[var(--surface-lift)] opacity-0 transition-opacity",
@@ -104,10 +104,10 @@ function PdfFrame({
   const secondary = filename !== displayName ? filename : null;
 
   return (
-    <span className="my-2 flex w-full flex-col overflow-hidden rounded-lg border border-[var(--border-default)]">
+    <span className="my-2 flex w-full flex-col overflow-hidden rounded-lg border border-[var(--border-element)]">
       <span
         title={filename}
-        className="flex items-center gap-2.5 border-b border-[var(--border-default)] bg-[var(--surface-lift)] p-2"
+        className="flex items-center gap-2.5 border-b border-[var(--border-element)] bg-[var(--surface-lift)] p-2"
       >
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--surface-sunken)] text-[var(--content-secondary)]">
           <LocalFileIcon kind={kind} filename={filename} className="h-4 w-4" />

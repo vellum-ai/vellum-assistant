@@ -57,7 +57,7 @@ export const BareOverview: Story = {
                 placeItems: "center",
                 height: "100%",
                 width: "100%",
-                border: "1px dashed var(--border-default)",
+                border: "1px dashed var(--border-element)",
                 borderRadius: 8,
                 color: "var(--content-tertiary)",
               }}

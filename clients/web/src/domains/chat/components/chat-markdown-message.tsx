@@ -132,7 +132,7 @@ function markdownChildrenText(children: ReactNode): string {
 }
 
 const IMAGE_CLASSES =
-  "my-2 max-w-full max-h-[400px] rounded-lg border border-[var(--border-default)] object-contain";
+  "my-2 max-w-full max-h-[400px] rounded-lg border border-[var(--border-element)] object-contain";
 
 function ImageErrorFallback({ alt }: { alt: string }) {
   return (

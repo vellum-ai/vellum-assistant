@@ -6,9 +6,10 @@
  * Rendered inside a markdown paragraph, so every element is inline-level.
  */
 
-import type { KeyboardEvent, ReactNode } from "react";
+import { ExternalLink, PanelRight, PanelRightClose } from "lucide-react";
+import type { ComponentType, KeyboardEvent, ReactNode } from "react";
 
-import { Typography } from "@vellumai/design-library";
+import { cn, Typography } from "@vellumai/design-library";
 
 import {
   formatAttachmentSize,
@@ -16,7 +17,12 @@ import {
 } from "@/domains/chat/components/chat-attachments/utils";
 import { LocalFileIcon } from "@/domains/chat/components/local-file/local-file-icon";
 import { LocalFileMenu } from "@/domains/chat/components/local-file/local-file-menu";
-import { openLocalFile } from "@/domains/chat/components/local-file/open-local-file";
+import {
+  previewKindFor,
+  toggleLocalFile,
+  useIsWorkspaceFileOpen,
+  usesDocumentDrawer,
+} from "@/domains/chat/components/local-file/open-local-file";
 import type { LocalFileKind } from "@/domains/chat/utils/mime-sniff";
 
 export interface LocalFileCardProps {
@@ -29,6 +35,48 @@ export interface LocalFileCardProps {
   state: "ready" | "missing" | "unavailable";
   workspacePath: string | null;
   assistantId?: string;
+}
+
+/**
+ * The click hint keeps its slot in the layout at all times and is only faded
+ * in, so revealing it on hover cannot reflow the name or the size beside it.
+ * Coarse pointers have no hover, so there it stays visible.
+ */
+const HINT_REVEAL_CLASSES = [
+  "opacity-0 transition-opacity",
+  "group-hover/local-file-card:opacity-100",
+  "group-focus-visible/local-file-card:opacity-100",
+  "[@media(pointer:coarse)]:opacity-100",
+].join(" ");
+
+/** What a click does, spelled out so nothing navigates the user by surprise. */
+interface ClickHint {
+  label: string;
+  Icon: ComponentType<{ className?: string }>;
+}
+
+/** Where a click lands: away in the workspace, or in one of the drawer's two modes. */
+type ClickTarget = "workspace" | "editor" | "preview";
+
+function clickTargetFor(filename: string, assistantId?: string): ClickTarget {
+  if (!usesDocumentDrawer(filename, assistantId)) {
+    return "workspace";
+  }
+  return previewKindFor(filename) !== null ? "preview" : "editor";
+}
+
+function clickHintFor(target: ClickTarget, isOpen: boolean): ClickHint {
+  if (target === "workspace") {
+    return { label: "Open in workspace", Icon: ExternalLink };
+  }
+  if (target === "preview") {
+    return isOpen
+      ? { label: "Close preview", Icon: PanelRightClose }
+      : { label: "Open preview", Icon: PanelRight };
+  }
+  return isOpen
+    ? { label: "Close editor", Icon: PanelRightClose }
+    : { label: "Open in editor", Icon: PanelRight };
 }
 
 function secondaryLineFor(
@@ -56,11 +104,22 @@ export function LocalFileCard({
 }: LocalFileCardProps): ReactNode {
   const isReady = state === "ready";
   const canOpen = isReady && workspacePath !== null;
+  const clickTarget = clickTargetFor(filename, assistantId);
+  const opensDrawer = clickTarget !== "workspace";
+  const isOpenInDrawer =
+    useIsWorkspaceFileOpen(canOpen ? workspacePath : null) && opensDrawer;
   const secondary = secondaryLineFor(state, displayName, filename);
+  const { label: hintLabel, Icon: HintIcon } = clickHintFor(
+    clickTarget,
+    isOpenInDrawer,
+  );
+  const actionLabel = isOpenInDrawer
+    ? `Close ${clickTarget} for ${filename}`
+    : `Open ${filename}`;
 
-  const open = () => {
+  const activate = () => {
     if (canOpen) {
-      openLocalFile(workspacePath, filename, assistantId);
+      toggleLocalFile(workspacePath, filename, assistantId);
     }
   };
 
@@ -68,29 +127,40 @@ export function LocalFileCard({
     <span
       role={canOpen ? "button" : undefined}
       tabIndex={canOpen ? 0 : undefined}
-      aria-label={canOpen ? `Open ${filename}` : undefined}
+      aria-label={canOpen ? actionLabel : undefined}
+      aria-expanded={canOpen && opensDrawer ? isOpenInDrawer : undefined}
       title={filename}
-      onClick={canOpen ? open : undefined}
+      onClick={canOpen ? activate : undefined}
       onKeyDown={
         canOpen
           ? (event: KeyboardEvent) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                open();
+                activate();
               }
             }
           : undefined
       }
-      className={`my-2 flex w-full max-w-md items-center gap-2.5 rounded-lg border border-[var(--border-default)] bg-[var(--surface-lift)] p-2${
-        canOpen ? " cursor-pointer" : ""
-      }`}
+      className={cn(
+        "group/local-file-card my-2 flex w-full max-w-md items-center gap-2.5 rounded-lg border p-2 transition-colors",
+        isOpenInDrawer
+          ? "border-[var(--border-active)] bg-[var(--surface-active)]"
+          : "border-[var(--border-element)] bg-[var(--surface-lift)]",
+        canOpen && "cursor-pointer",
+      )}
     >
       <span
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[var(--surface-sunken)] ${
+        className={cn(
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
+          // The open card's surface sits where the sunken tile normally does,
+          // so lift the tile instead to keep it readable as a tile.
+          isOpenInDrawer
+            ? "bg-[var(--surface-lift)]"
+            : "bg-[var(--surface-sunken)]",
           isReady
             ? "text-[var(--content-secondary)]"
-            : "text-[var(--content-disabled)]"
-        }`}
+            : "text-[var(--content-disabled)]",
+        )}
       >
         <LocalFileIcon kind={kind} filename={filename} className="h-4 w-4" />
       </span>
@@ -98,7 +168,12 @@ export function LocalFileCard({
         <Typography
           as="span"
           variant="body-small-default"
-          className="truncate text-[var(--content-default)]"
+          className={cn(
+            "truncate",
+            isOpenInDrawer
+              ? "text-[var(--content-emphasised)]"
+              : "text-[var(--content-default)]",
+          )}
         >
           {middleTruncate(displayName, 40)}
         </Typography>
@@ -112,6 +187,27 @@ export function LocalFileCard({
           </Typography>
         )}
       </span>
+      {canOpen && (
+        // Named by the card's own aria-label, so it is decorative here.
+        <span
+          aria-hidden="true"
+          className={cn(
+            "flex shrink-0 items-center gap-1",
+            isOpenInDrawer
+              ? "text-[var(--content-secondary)]"
+              : cn(HINT_REVEAL_CLASSES, "text-[var(--content-tertiary)]"),
+          )}
+        >
+          <HintIcon className="h-3.5 w-3.5" />
+          <Typography
+            as="span"
+            variant="label-small-default"
+            className="whitespace-nowrap"
+          >
+            {hintLabel}
+          </Typography>
+        </span>
+      )}
       {sizeBytes !== null && (
         <Typography
           as="span"
