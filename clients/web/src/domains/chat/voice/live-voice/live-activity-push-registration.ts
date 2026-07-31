@@ -41,6 +41,7 @@ import {
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { captureError } from "@/lib/sentry/capture-error";
+import { createStorageAccessor } from "@/utils/typed-storage";
 
 /**
  * Bundle-id suffix that maps to the development APNs entitlement — the same
@@ -79,8 +80,43 @@ function phaseLabels(): Record<string, string> {
   return labels;
 }
 
-/** The registration currently held, so it can be retired when the session is. */
-let registered: { token: string; assistantId: string } | null = null;
+interface ActivityRegistration {
+  token: string;
+  assistantId: string;
+}
+
+function parseRegistration(raw: string): ActivityRegistration | null {
+  const value = JSON.parse(raw) as Partial<ActivityRegistration>;
+  if (typeof value.token === "string" && typeof value.assistantId === "string") {
+    return { token: value.token, assistantId: value.assistantId };
+  }
+  return null;
+}
+
+/**
+ * The registration currently held, so it can be retired when the session is.
+ *
+ * Persisted rather than kept in module memory alone, for the same reason
+ * `runtime/push-registration.ts` persists its device-token registration: the
+ * web view can reload mid-session — and on iOS, reloading is exactly what
+ * happens when the app is resumed after a long suspension — which would drop
+ * the module state and with it any way to name the token that needs deleting.
+ * The registration would then survive until the platform expired it.
+ *
+ * The stored value is a push-routing address, not auth material; losing it to
+ * XSS grants nothing.
+ */
+const persistedRegistration = createStorageAccessor<ActivityRegistration | null>(
+  {
+    key: "vellum:live_activity_registration",
+    scope: "user",
+    parse: parseRegistration,
+    serialize: JSON.stringify,
+    fallback: null,
+  },
+);
+
+let registered: ActivityRegistration | null = null;
 
 /**
  * Register (or re-register) the activity's push token for a conversation.
@@ -121,6 +157,7 @@ export async function registerLiveActivityPushToken(
     }
 
     registered = { token, assistantId };
+    persistedRegistration.save(registered);
   } catch (err) {
     captureError(err, {
       context: "live_activity_push_registration",
@@ -131,18 +168,23 @@ export async function registerLiveActivityPushToken(
 }
 
 /**
- * Retire the registration when the session ends.
+ * Retire the registration when the session ends — or when the user logs out,
+ * which `stores/auth-store.ts` calls before clearing the session cookie so the
+ * platform delete is still authenticated.
  *
  * Best-effort by nature — the session may be ending precisely because the app
  * is going away, and this request may never leave. The platform therefore
  * expires registrations on its own; this is the fast path, not the guarantee.
  */
 export async function unregisterLiveActivityPushToken(): Promise<void> {
-  const current = registered;
+  // Falls back to storage: a reload between registering and ending leaves the
+  // module state empty while the registration is still very much live.
+  const current = registered ?? persistedRegistration.load();
   if (current === null) {
     return;
   }
   registered = null;
+  persistedRegistration.remove();
   try {
     await assistantsLiveActivityTokensDelete({
       path: { assistant_id: current.assistantId, token: current.token },
