@@ -9,7 +9,7 @@
  * parser silently drops events that do not.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
@@ -462,27 +462,22 @@ describe("an svg that cannot scale to the frame", () => {
 // Skill reference examples
 // ---------------------------------------------------------------------------
 
-describe("the visualize reference examples pass the fragment guards", () => {
-  const referencesDir = join(
+describe("the visualize skill examples pass the fragment guards", () => {
+  const skillFile = join(
     import.meta.dir,
-    "../config/bundled-skills/visualize/references",
+    "../config/bundled-skills/visualize/SKILL.md",
   );
 
-  const examples = readdirSync(referencesDir)
-    .filter((file) => file.endsWith(".md"))
-    .sort()
-    .flatMap((file) => {
-      const source = readFileSync(join(referencesDir, file), "utf8");
-      return [...source.matchAll(/```(\w*)\n([\s\S]*?)```/g)].map(
-        (match, index) => ({
-          name: `${file} example ${index + 1} (${match[1] || "text"})`,
-          body: match[2],
-        }),
-      );
-    });
+  const source = readFileSync(skillFile, "utf8");
+  const examples = [...source.matchAll(/```(\w*)\n([\s\S]*?)```/g)].map(
+    (match, index) => ({
+      name: `SKILL.md example ${index + 1} (${match[1] || "text"})`,
+      body: match[2],
+    }),
+  );
 
   test("every fenced example is present", () => {
-    expect(examples.length).toBe(20);
+    expect(examples.length).toBe(5);
   });
 
   for (const example of examples) {
