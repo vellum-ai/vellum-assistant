@@ -127,3 +127,53 @@ describe("vellum connection mismatch handling", () => {
     expect(resolveCalls[0].opts.providerOverride).toBeUndefined();
   });
 });
+
+/**
+ * Boot seeding leaves a user-owned row claiming the `vellum` name in place, so
+ * a managed profile whose model resolves to that row's provider would pass the
+ * plain provider-equality check and dispatch on the user's own credentials.
+ */
+describe("user-owned connection claiming the vellum name", () => {
+  beforeEach(reset);
+
+  const userOwnedVellum: Connection = {
+    name: "vellum",
+    provider: "openai",
+    auth: { type: "api_key", credential: "credential/openai/api_key" },
+  };
+
+  test("a managed profile never dispatches through it", async () => {
+    fakeConnections.set("vellum", userOwnedVellum);
+    // Recovery candidates exist and must not be used either: a managed
+    // profile is platform-billed, not reroutable onto a BYOK row.
+    listResult = [userOwnedVellum];
+    let caught: unknown;
+    try {
+      await tryResolveProviderForConnectionName(
+        "vellum",
+        config,
+        "vellum",
+        "gpt-5.6-luna",
+      );
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ConnectionResolutionError);
+    expect((caught as ConnectionResolutionError).reason).toBe(
+      "provider_mismatch",
+    );
+    expect(resolveCalls).toHaveLength(0);
+  });
+
+  test("the canonical row still routes", async () => {
+    fakeConnections.set("vellum", vellumConn);
+    const provider = await tryResolveProviderForConnectionName(
+      "vellum",
+      config,
+      "vellum",
+      "gpt-5.6-luna",
+    );
+    expect(provider).not.toBeNull();
+    expect(resolveCalls[0].opts.providerOverride).toBe("openai");
+  });
+});

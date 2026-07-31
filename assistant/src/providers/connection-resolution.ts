@@ -45,6 +45,7 @@ import { checkCredentialPresence } from "./provider-availability.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
 import {
+  assertVellumIdentityConnection,
   ConnectionResolutionError,
   resolveRoutingIdentity,
 } from "./routing-identity.js";
@@ -92,6 +93,7 @@ export async function tryResolveProviderForConnectionName(
   // identity's canonical connection row and derived upstream before any
   // lookup. The stored connectionName is overridden — an identity has
   // exactly one authoritative row.
+  const declaredProvider = expectedProvider;
   const identity = resolveRoutingIdentity(expectedProvider, model);
   if (identity) {
     connectionName = identity.connectionName;
@@ -115,6 +117,9 @@ export async function tryResolveProviderForConnectionName(
       `provider_connection "${connectionName}" not found in DB — check your config or run the boot-time backfill`,
     );
   }
+  assertVellumIdentityConnection(declaredProvider, connection, connectionName, {
+    ...(model !== undefined ? { model } : {}),
+  });
   // The provider-agnostic Vellum-managed connection carries only the `vellum`
   // sentinel, so the usual `connection.provider === expectedProvider` equality
   // never holds. It routes by the resolving profile's declared provider
@@ -358,6 +363,12 @@ export async function preflightResolvedConfig(
       errorOptions,
     );
   }
+  assertVellumIdentityConnection(
+    resolved.provider,
+    connection,
+    connectionName,
+    errorOptions,
+  );
 
   if (isVellumManagedConnection(connection)) {
     if (!MANAGED_ROUTABLE_PROVIDERS.has(provider)) {
