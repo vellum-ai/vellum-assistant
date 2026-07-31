@@ -45,6 +45,9 @@ mock.module("../ipc/gateway-client.js", () => ({
     gatewayMintCalls.push({ method, params });
     return gatewayMintResult;
   },
+  // assistant-feature-flags imports this from the same module; the mock
+  // factory must cover every export a transitive importer touches.
+  ipcGetFeatureFlags: async () => null,
 }));
 
 // Controls what the conversation registry returns for the test conversation.
