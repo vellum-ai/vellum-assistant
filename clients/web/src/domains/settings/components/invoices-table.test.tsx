@@ -51,7 +51,7 @@ mock.module("@/generated/api/sdk.gen", () => ({
 
 import { InvoicesTable } from "./invoices-table";
 
-function makeInvoice(id: string): Invoice {
+function makeInvoice(id: string, overrides?: Partial<Invoice>): Invoice {
   return {
     id,
     number: `INV-${id}`,
@@ -63,13 +63,14 @@ function makeInvoice(id: string): Invoice {
     created: 1735689600,
     hosted_invoice_url: `https://invoice.example.com/${id}`,
     invoice_pdf: `https://invoice.example.com/${id}.pdf`,
+    ...overrides,
   };
 }
 
 /** Five invoices on page 1 with more behind cursor "5": invoices 6 and 7. */
 function seedTwoPages(): void {
   listResult = {
-    invoices: ["1", "2", "3", "4", "5"].map(makeInvoice),
+    invoices: ["1", "2", "3", "4", "5"].map((id) => makeInvoice(id)),
     has_more: true,
   };
   nextPages["5"] = {
@@ -170,6 +171,43 @@ describe("InvoicesTable collapse", () => {
   });
 });
 
+describe("InvoicesTable amount formatting", () => {
+  test("ISK uses Stripe's two-decimal scaling, not ISO zero-decimal", async () => {
+    listResult = {
+      invoices: [makeInvoice("1", { currency: "isk", amount_due: 500 })],
+      has_more: false,
+    };
+    const { getAllByTestId } = await openTable();
+
+    const row = getAllByTestId("invoice-row")[0]!;
+    expect(row.textContent).toMatch(/5[.,]00/);
+    expect(row.textContent).not.toContain("500");
+  });
+
+  test("JPY is zero-decimal: minor units render undivided", async () => {
+    listResult = {
+      invoices: [makeInvoice("1", { currency: "jpy", amount_due: 500 })],
+      has_more: false,
+    };
+    const { getAllByTestId } = await openTable();
+
+    const row = getAllByTestId("invoice-row")[0]!;
+    expect(row.textContent).toContain("500");
+    expect(row.textContent).not.toMatch(/5[.,]00/);
+  });
+
+  test("USD divides minor units by 100 with two decimals", async () => {
+    listResult = {
+      invoices: [makeInvoice("1", { currency: "usd", amount_due: 1234 })],
+      has_more: false,
+    };
+    const { getAllByTestId } = await openTable();
+
+    const row = getAllByTestId("invoice-row")[0]!;
+    expect(row.textContent).toMatch(/12[.,]34/);
+  });
+});
+
 describe("InvoicesTable pagination", () => {
   test("Load more requests the next page with starting_after and renders both pages", async () => {
     seedTwoPages();
@@ -195,7 +233,7 @@ describe("InvoicesTable pagination", () => {
 
   test("Load more is absent when has_more is false", async () => {
     listResult = {
-      invoices: ["1", "2", "3", "4", "5"].map(makeInvoice),
+      invoices: ["1", "2", "3", "4", "5"].map((id) => makeInvoice(id)),
       has_more: false,
     };
     const { getByTestId, queryByTestId } = await openTable({ showAll: true });
@@ -209,7 +247,7 @@ describe("InvoicesTable pagination", () => {
 
   test("Show less stays available and works while more server pages remain", async () => {
     listResult = {
-      invoices: ["1", "2", "3", "4", "5"].map(makeInvoice),
+      invoices: ["1", "2", "3", "4", "5"].map((id) => makeInvoice(id)),
       has_more: true,
     };
     const { getByTestId, queryByTestId, getAllByTestId } = await openTable({
@@ -384,7 +422,7 @@ describe("InvoicesTable pagination", () => {
       has_more: true,
     };
     nextPages["2"] = {
-      invoices: ["3", "4", "5"].map(makeInvoice),
+      invoices: ["3", "4", "5"].map((id) => makeInvoice(id)),
       has_more: false,
     };
     const { getByTestId, queryByTestId, getAllByTestId } = await openTable();

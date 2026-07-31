@@ -31,6 +31,16 @@ export type IngressRouteKind = z.infer<typeof IngressRouteKindSchema>;
 export const IngressSignerSchema = z.enum(["plugin", "vellum"]);
 export type IngressSigner = z.infer<typeof IngressSignerSchema>;
 
+/**
+ * Where the caller carries its signature. Selects the scheme, never whether
+ * one is required — an unsigned plugin route does not exist.
+ */
+export const IngressHandshakeSchema = z.enum([
+  "signed-headers",
+  "signed-query",
+]);
+export type IngressHandshake = z.infer<typeof IngressHandshakeSchema>;
+
 /** Plugin directory name usable as a public URL path segment. */
 const SAFE_PLUGIN_NAME = /^[a-z0-9][a-z0-9._-]*$/i;
 
@@ -99,6 +109,28 @@ export const IngressRouteSchema = z.object({
    * route between the two without the change being visible.
    */
   signer: IngressSignerSchema.default("plugin"),
+  /**
+   * How the caller proves it holds the signing secret.
+   *
+   * `signed-headers` (the default) is the platform's scheme: the signature
+   * travels in `Vellum-Signature`, over the body for HTTP and over
+   * `<timestamp>.<pathname>` for a WebSocket upgrade.
+   *
+   * `signed-query` puts the same HMAC in the URL instead, for a caller that
+   * is handed a URL and nothing else. Recall.ai's realtime endpoint is the
+   * case that forced it: a third party dialing a socket has no place to put a
+   * header. The tradeoff is that such a URL is a bearer credential until it
+   * expires, which is why it carries an expiry the minter chooses and the
+   * scheme bounds (`@vellumai/service-contracts/plugin-ingress-handshake`).
+   *
+   * WebSocket only. An HTTP route declaring it is rejected: an HTTP request
+   * always has somewhere to put a header, so the weaker scheme would buy
+   * nothing.
+   *
+   * Part of the digest, so a route cannot move between schemes under an
+   * approval a guardian granted for the other one.
+   */
+  handshake: IngressHandshakeSchema.default("signed-headers"),
   /** Human-readable purpose, surfaced in gateway logs and admin UI. */
   description: z.string().min(1),
 });
@@ -168,6 +200,13 @@ export function parsePluginIngressManifest(
       throw new Error(`duplicate route ${route.path}`);
     }
     seen.add(route.path);
+    // Rejected here rather than in the schema so the whole declaration fails
+    // with one message, the same way a duplicate path does.
+    if (route.handshake === "signed-query" && route.kind !== "websocket") {
+      throw new Error(
+        `route ${route.path}: signed-query handshakes are only valid for websocket routes`,
+      );
+    }
   }
   return manifest;
 }
