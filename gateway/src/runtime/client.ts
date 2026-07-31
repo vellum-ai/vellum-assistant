@@ -316,24 +316,16 @@ export type ResetConversationInput = {
   conversationExternalId: string;
   sourceThreadId?: string;
   /**
-   * Per-actor trust verdict and the channel's admission floor, forwarded so
-   * the RUNTIME authorizes the reset with the same primitives it uses for a
-   * message (`verdictUsability`, `enforceAdmissionPolicy`,
-   * `resolveCapabilities`). The gateway's own calls carry a service
-   * principal, so this verdict is how the channel actor's identity reaches
-   * the decision. Mirrors how `sourceMetadata` carries both for an inbound
-   * message.
+   * Forwarded so the RUNTIME authorizes the reset. The gateway's calls carry
+   * a service principal, so the verdict is how the actor's identity arrives.
    */
   trustVerdict?: TrustVerdict;
   admissionPolicy?: AdmissionPolicy;
 };
 
 /**
- * Ask the runtime to reset a channel conversation.
- *
- * Returns `{ denied: true }` when the runtime refused on authorization
- * grounds, which callers surface silently. Transport and server failures
- * still throw, so a caller can tell "you may not" from "it broke".
+ * `{ denied: true }` means the runtime refused on authorization grounds, which
+ * callers surface silently. Transport and server failures throw instead.
  */
 export async function resetConversation(
   config: GatewayConfig,
@@ -381,8 +373,7 @@ export async function resetConversation(
 
   cbOnSuccess();
 
-  // Fail closed on a malformed 2xx body. Treating an unparseable response as
-  // "not denied" would announce a reset that never happened.
+  // Fail closed: an unparseable 2xx must not read as a completed reset.
   const raw = await response.json().catch(() => undefined);
   const parsed = ChannelResetResponseSchema.safeParse(raw);
   if (!parsed.success) {

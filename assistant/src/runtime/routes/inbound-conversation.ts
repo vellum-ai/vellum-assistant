@@ -43,10 +43,8 @@ import type { RouteHandlerArgs } from "./types.js";
 const log = getLogger("inbound-conversation");
 
 /**
- * Outcome of the reset authorization gate. A denial is reported to the caller
- * rather than thrown so the gateway can stay silent toward the sender: a
- * channel the guardian turned off must not answer, and an actor below the bar
- * should not learn the command exists.
+ * Denials are returned, not thrown, so the gateway can stay silent toward the
+ * sender rather than surfacing an error.
  */
 export type DeleteConversationResult =
   | { ok: true }
@@ -55,34 +53,20 @@ export type DeleteConversationResult =
 /**
  * Authorize a channel-originated conversation reset.
  *
- * `/new` (and the planned `/stop` / `/fork` / `/rename`) is handled at the
- * gateway and never runs the inbound message pipeline, so this endpoint is
- * the only place its actor can be checked. It authorizes with the SAME
- * runtime primitives a message gets, in the same order:
+ * `/new` is handled at the gateway and never runs the inbound message
+ * pipeline, so this endpoint is the only place its actor can be checked. It
+ * uses the same primitives a message gets: verdict usability (could-not-vouch
+ * fails closed), the `policy: "deny"` governance rule, the admission floor
+ * plus blocked/revoked, and finally the capability.
  *
- * 1. {@link verdictUsability} rejects an unusable gateway verdict
- *    (resolution failure, unresolvable member, guardian without a member row),
- *    so could-not-vouch fails closed instead of passing as a stranger.
- * 2. An explicit per-channel `policy: "deny"` is governance and outranks
- *    classification, matching `acl-enforcement.ts` for members and for the
- *    guardian's own row alike.
- * 3. {@link enforceAdmissionPolicy} applies the channel's admission floor and
- *    the blocked/revoked hard-deny. The floor is the one the gateway resolved
- *    and forwarded, exactly as `sourceMetadata.admissionPolicy` carries it for
- *    a message.
- * 4. {@link resolveCapabilities} answers whether this trust class may drive an
- *    interactive control action at all. Admission is "who gets in the door";
- *    resetting shared conversation state additionally needs the capability,
- *    which is why an admitted stranger on a `strangers` channel still cannot
- *    reset. Composing `mayBeInteractive` with runtime context is the
- *    documented pattern for context-dependent capability decisions.
+ * The capability check is what admission alone cannot cover: an admitted
+ * stranger still meets the runtime's fail-closed capability set on a message,
+ * but a command never reaches that turn, so `mayBeInteractive` restores the
+ * second gate.
  *
- * Only calls arriving with the gateway service principal are gated: that is
- * the untrusted public-ingress path, and the verdict is how the gateway
- * conveys the channel actor's identity (its own calls are service-principal,
- * so the route policy cannot authenticate the human behind them). Actor and
- * local principals are already authenticated by the route policy itself and
- * are unchanged.
+ * Only gateway-principal calls are gated. That is the untrusted ingress path,
+ * where the verdict is how the channel actor's identity arrives; actor and
+ * local principals are already authenticated by the route policy.
  */
 function authorizeChannelReset(args: {
   sourceChannel: ChannelId;
@@ -135,8 +119,7 @@ export function handleDeleteConversation({
   body = {},
   headers,
 }: RouteHandlerArgs): DeleteConversationResult {
-  // Authenticated transport is not validation: parse the body before any of
-  // it reaches the authorization decision.
+  // Authenticated transport is not validation.
   const parsed = ChannelResetRequestSchema.safeParse(body);
   if (!parsed.success) {
     throw new BadRequestError(

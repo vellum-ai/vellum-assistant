@@ -171,10 +171,9 @@ export type RuntimeInboundPayload = z.infer<typeof RuntimeInboundPayloadSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * Reset request body. The gateway forwards the actor's resolved verdict and
- * the channel's admission floor so the RUNTIME can authorize the reset with
- * the same primitives it uses for a message. Authenticated transport is not
- * a substitute for validation: the daemon parses this before authorizing.
+ * Reset request. Carries the actor's verdict + channel floor so the runtime
+ * can authorize. The daemon parses this before authorizing: authenticated
+ * transport is not a substitute for validation.
  */
 export const ChannelResetRequestSchema = z.object({
   sourceChannel: z.string().min(1),
@@ -187,12 +186,9 @@ export const ChannelResetRequestSchema = z.object({
 export type ChannelResetRequest = z.infer<typeof ChannelResetRequestSchema>;
 
 /**
- * Reset response, a semantic union so a failure cannot be read as a success.
- * `{ ok: true }` is the only shape that means the conversation was reset;
- * every failure must name itself, so a caller cannot announce success from a
- * body that says it did not happen. The gateway parses this rather than
- * casting: an unparseable OR merely unsuccessful body must never read as an
- * admitted reset.
+ * Reset response. A union so failure cannot read as success: `{ ok: true }`
+ * is the only shape meaning the conversation was reset, and every failure
+ * names itself.
  */
 export const ChannelResetResponseSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(true) }),

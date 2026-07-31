@@ -501,10 +501,8 @@ export function createTelegramWebhookHandler(
       return respond({ ok: true });
     }
 
-    // Handle /new command: reset the conversation before it reaches the
-    // runtime. The gateway applies only the `no_one` kill switch here; the
-    // runtime authorizes the actor when it services the reset. Routing is not
-    // consulted because the reset uses no assistantId.
+    // The gateway applies only the `no_one` kill switch; the runtime
+    // authorizes the actor when it services the reset.
     if (isNewCommand(normalized.message.content)) {
       await handleNewCommand({
         config,

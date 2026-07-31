@@ -49,23 +49,14 @@ export function handleCircuitBreakerError(
 }
 
 /**
- * Gateway-owned part of authorizing a gateway-terminal channel command
- * (`/new`; the planned `/stop` / `/fork` / `/rename` family belongs here too).
+ * Gateway-owned half of authorizing a gateway-terminal command (`/new`, and
+ * the planned `/stop` / `/fork` / `/rename`): the `no_one` kill switch,
+ * before any I/O so a killed channel denies everyone with zero lookups.
  *
- * The gateway owns exactly ONE half of the decision, the same half it owns for
- * a message: the `no_one` kill switch, enforced before any I/O so a channel
- * the guardian turned off denies everyone (guardian included) with zero
- * contact-table lookups. That is the "true kill" property documented for
- * `handle-inbound.ts`.
- *
- * It deliberately does NOT decide anything else. The rest (verdict usability,
- * per-channel `policy: "deny"`, the admission floor, and whether the actor's
- * trust class may drive an interactive control action at all) is resolved in
- * the RUNTIME by `handleDeleteConversation`, using the same primitives the
- * message pipeline uses. The gateway resolves the actor's verdict and the
- * channel floor and forwards them, exactly as it stamps `sourceMetadata` on an
- * inbound message; it never re-derives the decision. Capabilities stay in the
- * runtime per `gateway/CLAUDE.md`.
+ * It decides nothing else. `handleDeleteConversation` authorizes the actor in
+ * the runtime; this only resolves the verdict + floor and forwards them, the
+ * way `sourceMetadata` carries them for a message. Never re-derive that
+ * decision here (see gateway/AGENTS.md, Channel Command Authorization).
  */
 export type ChannelCommandGate =
   | {
@@ -79,8 +70,7 @@ export async function resolveChannelCommandGate(
   sourceChannel: ChannelId,
   actorExternalId: string | undefined,
 ): Promise<ChannelCommandGate> {
-  // Exempt channels (platform/a2a) sit outside the human-trust model, matching
-  // handle-inbound and the runtime admission stage.
+  // Exempt channels (platform/a2a) sit outside the human-trust model.
   const admissionPolicy = isAdmissionPolicyExemptChannel(sourceChannel)
     ? undefined
     : (resolveAdmissionPolicy(sourceChannel) ?? ADMISSION_POLICY_DEFAULT);
@@ -102,23 +92,15 @@ export async function resolveChannelCommandGate(
 }
 
 /**
- * Handles the /new command flow: resolves the gateway-owned gate, asks the
- * runtime to reset (which authorizes the actor), and replies.
+ * The /new flow: resolve the gateway gate, ask the runtime to reset (it
+ * authorizes the actor), reply. Always terminal for the message.
  *
- * Returns `{ handled: true }` in all cases: admit, deny, and error are all
- * terminal for this message. A denied /new must not fall through to the
- * runtime as a regular message, and on a killed channel even a canned reply
- * would leak that the bot is alive.
+ * Denials are silent, so a killed channel does not reveal the bot is alive
+ * and an actor below the bar does not learn the command exists. Only
+ * transient failures send text, via the throttled `sendNotice`.
  *
- * Deny replies are silent. A channel the guardian turned off must not
- * respond, and an actor below the bar should not learn the command exists.
- * Only a transient failure (the reset could not be attempted or the runtime
- * errored) sends text, and it goes through the throttled `sendNotice` so a
- * repeated `/new` cannot amplify into one outbound send per inbound message.
- *
- * Routing is deliberately not consulted: the reset does not use an
- * `assistantId`, and `resolveAssistant` rejects only an event carrying no
- * routable identity at all, which has no sender to reply to.
+ * Routing is not consulted: the reset uses no `assistantId`, and
+ * `resolveAssistant` rejects only events with no identity to reply to.
  */
 export interface NewCommandRequest {
   config: GatewayConfig;

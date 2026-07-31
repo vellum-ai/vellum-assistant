@@ -201,10 +201,9 @@ import { RejectionRateLimiter } from "./rejection-rate-limiter.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 
 /**
- * Throttles the Slack `/new` transient-failure notice, mirroring the
- * per-recipient limiter the Telegram and WhatsApp webhook routes use. Keyed
- * by channel, so a retry loop against an unavailable runtime cannot amplify
- * into one outbound Slack message per inbound event.
+ * Throttles the Slack `/new` transient-failure notice, mirroring the limiter
+ * the Telegram and WhatsApp routes use, so a retry loop against an
+ * unavailable runtime cannot amplify into one message per inbound event.
  */
 const slackNoticeLimiter = new RejectionRateLimiter();
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
@@ -2321,9 +2320,6 @@ async function main() {
             actorExternalId: normalized.event.actor.actorExternalId,
             sendReply: postToSlack,
             sendNotice: (text) => {
-              // Throttled like the Telegram and WhatsApp paths: a repeated
-              // /new against an unavailable runtime must not produce one
-              // outbound Slack message per inbound event.
               if (!slackNoticeLimiter.shouldSend(channel)) {
                 return;
               }

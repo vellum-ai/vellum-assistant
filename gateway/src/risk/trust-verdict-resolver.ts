@@ -39,15 +39,10 @@ export interface ResolveTrustVerdictInput {
 }
 
 /**
- * {@link resolveTrustVerdict} with the canonical failure sentinel applied.
- * The single place that turns a resolver throw into a verdict.
- *
- * Every caller needs the same fallback: stamp a `resolutionFailed` sentinel
- * (carrying the canonical sender id) so a consumer can tell a resolver
- * failure from a real `unknown` stranger. Resolution never throws here;
- * what each caller DOES with `resolutionFailed` is theirs to decide.
- * Message ingress forwards it (the runtime is the deny decider), the
- * channel-command seam denies on it (the gateway is).
+ * {@link resolveTrustVerdict} with the failure sentinel applied: the single
+ * place a resolver throw becomes a `resolutionFailed` verdict, so consumers
+ * can tell it from a real stranger. Never throws; what each caller does with
+ * `resolutionFailed` is its own decision.
  */
 export async function resolveTrustVerdictOrSentinel(
   input: ResolveTrustVerdictInput,

@@ -177,10 +177,8 @@ export function createWhatsAppWebhookHandler(
         "WhatsApp webhook received",
       );
 
-      // Mark message as read (best-effort, do not await). Deferred for /new
-      // so a channel killed by `no_one` emits no read receipt: that receipt is
-      // outbound I/O that would reveal the bot is alive on a channel the
-      // guardian turned off.
+      // Best-effort, do not await. Deferred for /new so a channel killed by
+      // `no_one` emits no read receipt revealing the bot is alive.
       const markRead = () => {
         markWhatsAppMessageRead(whatsappMessageId, apiCaches).catch((err) => {
           tlog.debug(
