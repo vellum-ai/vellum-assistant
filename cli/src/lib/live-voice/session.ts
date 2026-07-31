@@ -298,19 +298,24 @@ export class LiveVoicePushToTalkSession {
     channel: LiveVoiceSessionChannel,
   ): Promise<HandshakeResult> {
     return new Promise<HandshakeResult>((resolve, reject) => {
-      let settled = false;
+      let handshakeState: HandshakeResult["type"] | "pending" | "failed" =
+        "pending";
+      const isActiveReadyChannel = (): boolean =>
+        handshakeState === "ready" &&
+        this.channel === channel &&
+        !this.shuttingDown;
       const settle = (result: HandshakeResult): void => {
-        if (settled) {
+        if (handshakeState !== "pending") {
           return;
         }
-        settled = true;
+        handshakeState = result.type;
         resolve(result);
       };
       const rejectOnce = (error: Error): void => {
-        if (settled) {
+        if (handshakeState !== "pending") {
           return;
         }
-        settled = true;
+        handshakeState = "failed";
         reject(error);
       };
 
@@ -321,29 +326,29 @@ export class LiveVoicePushToTalkSession {
         settle({ type: "busy", frame });
       });
       channel.on("frame", (frame) => {
-        if (!settled || this.channel !== channel) {
+        if (!isActiveReadyChannel()) {
           return;
         }
         this.enqueueFrame(channel, frame);
       });
       channel.on("error", (event) => {
         const error = new Error(event.message);
-        if (!settled) {
+        if (handshakeState === "pending") {
           rejectOnce(error);
-        } else if (event.recoverable) {
+        } else if (handshakeState === "ready" && event.recoverable) {
           this.options.onError?.(error);
-        } else if (this.channel === channel && !this.shuttingDown) {
+        } else if (isActiveReadyChannel()) {
           void this.fail(error);
         }
       });
       channel.on("closed", (event) => {
-        if (!settled) {
+        if (handshakeState === "pending") {
           rejectOnce(
             new Error(
               event.reason || "The live-voice connection closed unexpectedly.",
             ),
           );
-        } else if (this.channel === channel && !this.shuttingDown) {
+        } else if (isActiveReadyChannel()) {
           void this.fail(
             new Error(
               event.reason || "The live-voice connection closed unexpectedly.",

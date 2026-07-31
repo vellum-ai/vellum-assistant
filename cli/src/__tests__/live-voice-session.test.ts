@@ -139,6 +139,7 @@ class FakeChannel implements LiveVoiceSessionChannel {
           seq: 1,
           activeSessionId: this.behavior.activeSessionId,
         });
+        this.close();
       }
     });
   }
@@ -168,6 +169,11 @@ class FakeChannel implements LiveVoiceSessionChannel {
 
   close(): void {
     this.closeCount += 1;
+    this.emit("closed", {
+      code: null,
+      reason: "client closed",
+      retryable: false,
+    });
   }
 
   emit<EventName extends LiveVoiceChannelClientEventName>(
@@ -332,7 +338,7 @@ describe("LiveVoicePushToTalkSession", () => {
     await harness.session.shutdown();
   });
 
-  test("retries a busy response only when it belongs to the just-ended session", async () => {
+  test("retries when a same-session busy frame is followed by the client's immediate close", async () => {
     const harness = makeHarness([
       {
         type: "ready",
@@ -361,8 +367,31 @@ describe("LiveVoicePushToTalkSession", () => {
       "same-session retry",
     );
     expect(harness.sleeps).toEqual([100, 250]);
+    expect(harness.channels[1].closeCount).toBe(1);
+    expect(harness.channels[2].closeCount).toBe(1);
     expect(harness.errors).toEqual([]);
     await harness.session.shutdown();
+  });
+
+  test("still treats a close after ready as fatal", async () => {
+    const harness = makeHarness([
+      {
+        type: "ready",
+        sessionId: "session-1",
+        conversationId: "conversation-1",
+      },
+    ]);
+
+    await harness.session.start();
+    harness.channels[0].emit("closed", {
+      code: 1006,
+      reason: "network connection lost",
+      retryable: false,
+    });
+
+    await harness.session.waitUntilClosed();
+    expect(harness.session.currentState).toBe("failed");
+    expect(harness.errors[0]?.message).toBe("network connection lost");
   });
 
   test("does not steal a different active session", async () => {
