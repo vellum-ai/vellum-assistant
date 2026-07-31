@@ -173,6 +173,60 @@ describe("VellumPlatformClient", () => {
       mockResolveManagedProxyContext = () => new Promise(() => {});
       expect(await isPlatformClientConfigured()).toBe(true);
     });
+
+    test("concurrent calls share a single in-flight resolution", async () => {
+      let resolutionCount = 0;
+      mockResolveManagedProxyContext = async () => {
+        resolutionCount += 1;
+        await Bun.sleep(5);
+        return mockManagedProxyCtx;
+      };
+
+      const [first, second] = await Promise.all([
+        isPlatformClientConfigured(),
+        isPlatformClientConfigured(),
+      ]);
+
+      expect(first).toBe(true);
+      expect(second).toBe(true);
+      expect(resolutionCount).toBe(1);
+    });
+
+    test("a settled flight clears, so the next call starts a fresh resolution", async () => {
+      let resolutionCount = 0;
+      mockResolveManagedProxyContext = async () => {
+        resolutionCount += 1;
+        return mockManagedProxyCtx;
+      };
+
+      expect(await isPlatformClientConfigured()).toBe(true);
+      expect(await isPlatformClientConfigured()).toBe(true);
+      expect(resolutionCount).toBe(2);
+    });
+
+    test("a late caller joins the slow flight instead of racing a second resolution that could settle out of order", async () => {
+      let resolutionCount = 0;
+      let releaseHang = () => {};
+      const hang = new Promise<void>((resolve) => {
+        releaseHang = resolve;
+      });
+      mockResolveManagedProxyContext = async () => {
+        resolutionCount += 1;
+        await hang;
+        return mockManagedProxyCtx;
+      };
+
+      // The first caller abandons the slow flight at the deadline.
+      expect(await isPlatformClientConfigured()).toBe(false);
+
+      // A later caller joins the same still-in-flight resolution, so no
+      // second resolution exists whose settle could clobber a newer cache
+      // value.
+      const joined = isPlatformClientConfigured();
+      releaseHang();
+      expect(await joined).toBe(true);
+      expect(resolutionCount).toBe(1);
+    });
   });
 
   describe("fetch()", () => {

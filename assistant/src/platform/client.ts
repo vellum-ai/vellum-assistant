@@ -107,23 +107,21 @@ async function resolvePlatformClientConfig(): Promise<PlatformClientConfig | nul
 const CONFIGURED_PROBE_DEADLINE_MS = 500;
 
 let lastKnownConfigured: boolean | null = null;
+// Single-flight slot: concurrent probes share one resolution, so the cache is
+// written once per flight and an out-of-order settle cannot overwrite a newer
+// result.
+let inFlightConfiguredProbe: Promise<boolean> | null = null;
 
 export function _resetConfiguredProbeCacheForTests(): void {
   lastKnownConfigured = null;
+  inFlightConfiguredProbe = null;
 }
 
-/**
- * Whether the platform client can actually dispatch: auth prerequisites plus
- * a nonempty platform assistant id (`PlatformPushAdapter.send()` fails fast
- * without one). Constructs no client and makes no network requests.
- *
- * Bounded by {@link CONFIGURED_PROBE_DEADLINE_MS}: when config resolution is
- * slower than the deadline, returns the last settled result (or `false` when
- * none exists yet). The abandoned resolution still settles in the background
- * and refreshes the cache for the next call.
- */
-export async function isPlatformClientConfigured(): Promise<boolean> {
-  const probe = resolvePlatformClientConfig()
+function startOrJoinConfiguredProbe(): Promise<boolean> {
+  if (inFlightConfiguredProbe) {
+    return inFlightConfiguredProbe;
+  }
+  const flight = resolvePlatformClientConfig()
     .then((config) => config !== null && config.assistantId.length > 0)
     .catch((err: unknown) => {
       log.debug(
@@ -133,9 +131,31 @@ export async function isPlatformClientConfigured(): Promise<boolean> {
       return false;
     })
     .then((value) => {
-      lastKnownConfigured = value;
+      // A cleared slot means a test reset invalidated this flight, so its
+      // result must not resurrect the cache.
+      if (inFlightConfiguredProbe === flight) {
+        lastKnownConfigured = value;
+        inFlightConfiguredProbe = null;
+      }
       return value;
     });
+  inFlightConfiguredProbe = flight;
+  return flight;
+}
+
+/**
+ * Whether the platform client can actually dispatch: auth prerequisites plus
+ * a nonempty platform assistant id (`PlatformPushAdapter.send()` fails fast
+ * without one). Constructs no client and makes no network requests.
+ *
+ * Bounded by {@link CONFIGURED_PROBE_DEADLINE_MS}: when config resolution is
+ * slower than the deadline, returns the last settled result (or `false` when
+ * none exists yet). The probe is single-flight: concurrent calls share one
+ * resolution, and a resolution abandoned at the deadline still settles in
+ * the background and refreshes the cache for the next call.
+ */
+export async function isPlatformClientConfigured(): Promise<boolean> {
+  const probe = startOrJoinConfiguredProbe();
 
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<"deadline">((resolve) => {
