@@ -1,8 +1,6 @@
 /**
  * Canonical `conversations.source` string for background memory v2
- * consolidation runs. Lives in a tiny constants module so the route layer can
- * recognize consolidation conversations without importing the consolidation
- * job (which pulls in agent-wake + bootstrap dependencies).
+ * consolidation runs. Owned by the persistence layer (it is a persisted
+ * column value) and re-exported here for the plugin's own call sites.
  */
-// FROZEN: persisted `conversations.source` value — never rename it.
-export const MEMORY_V2_CONSOLIDATION_SOURCE = "memory_v2_consolidation";
+export { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../../persistence/conversation-types.js";
