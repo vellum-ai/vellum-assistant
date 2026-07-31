@@ -54,10 +54,10 @@ export const MonitoringConfigSchema = z
       .number({ error: "monitoring.fdPollIntervalMs must be a number" })
       .int("monitoring.fdPollIntervalMs must be an integer")
       .min(1_000, "monitoring.fdPollIntervalMs must be at least 1000ms")
-      .max(300_000, "monitoring.fdPollIntervalMs must be <= 300000ms")
-      .default(10_000)
+      .max(1_800_000, "monitoring.fdPollIntervalMs must be <= 1800000ms")
+      .default(300_000)
       .describe(
-        "How often the monitor walks the container's processes to compare their open file-descriptor counts against their limits, in milliseconds. Slower than the memory sampler (default 10s) because the walk costs a readdir per process and descriptor counts climb over minutes.",
+        "How often the monitor walks the container's processes to compare their open file-descriptor counts against their limits, in milliseconds. Far slower than the memory sampler (default 5 minutes) because the walk costs a readdir per process and descriptor counts climb over minutes, not milliseconds.",
       ),
     highFdThresholdRatio: z
       .number({ error: "monitoring.highFdThresholdRatio must be a number" })
@@ -65,7 +65,7 @@ export const MonitoringConfigSchema = z
       .max(1, "monitoring.highFdThresholdRatio must be <= 1")
       .default(0.8)
       .describe(
-        "Fraction of a process's open-file soft limit (RLIMIT_NOFILE) at which the monitor logs a warning naming the processes involved. Default 0.8, leaving headroom before open() starts failing with EMFILE.",
+        "Fraction of a process's open-file soft limit (RLIMIT_NOFILE) at which the monitor logs a warning identifying the PIDs involved. Default 0.8, leaving headroom before open() starts failing with EMFILE.",
       ),
     fdWarnCooldownMs: z
       .number({ error: "monitoring.fdWarnCooldownMs must be a number" })

@@ -26,7 +26,7 @@ import { readProcessCommand } from "../util/process-tree.js";
 
 const log = getLogger("file-descriptors");
 
-/** How many over-threshold processes a single warn line names. */
+/** How many over-threshold processes a single warn line reports. */
 const WARN_PROCESS_LIMIT = 5;
 
 export interface OpenFileLimits {
@@ -195,9 +195,10 @@ function logFdPressure(action: FdPressureAction, thresholdRatio: number): void {
       {
         thresholdRatio,
         processCount: action.processes.length,
+        // PID only, no command: a command line can carry secrets passed as
+        // arguments, and this line lands in the rotating workspace log.
         processes: action.processes.slice(0, WARN_PROCESS_LIMIT).map((p) => ({
           pid: p.pid,
-          command: p.command,
           openCount: p.openCount,
           softLimit: p.softLimit,
           hardLimit: p.hardLimit,
