@@ -11,24 +11,6 @@ import { subscribe } from "@/lib/event-bus";
 let isNative = true;
 let platform = "ios";
 
-// ── ApnsEnvironment (module-scope registerPlugin bridge) ─────────────────────
-//
-// The default simulates an old shell without the plugin (bridge call rejects),
-// so the pre-plugin tests below keep exercising the bundle-suffix heuristic
-// they were written against. Cases that exercise the signing-derived path set
-// `apnsEnvironmentRejects = false` and an explicit `apnsEnvironmentResult`.
-
-let apnsEnvironmentResult: string | undefined;
-let apnsEnvironmentRejects = true;
-const apnsEnvironmentGetMock = mock(
-  async (): Promise<{ environment?: string }> => {
-    if (apnsEnvironmentRejects) {
-      throw new Error("ApnsEnvironment.get() is not implemented on ios");
-    }
-    return { environment: apnsEnvironmentResult };
-  },
-);
-
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNative,
 }));
@@ -37,8 +19,20 @@ mock.module("@capacitor/core", () => ({
     isNativePlatform: () => isNative,
     getPlatform: () => platform,
   },
-  registerPlugin: (name: string) =>
-    name === "ApnsEnvironment" ? { get: apnsEnvironmentGetMock } : {},
+}));
+
+// ── APNs environment resolver ────────────────────────────────────────────────
+//
+// Mocked directly; the resolver's own fallback matrix is covered by
+// apns-environment.test.ts. These tests only pin the wiring: the upsert body
+// carries whatever the resolver returns.
+
+let resolvedApnsEnvironment: "development" | "production" = "production";
+const resolveSignedApnsEnvironmentMock = mock(
+  async () => resolvedApnsEnvironment,
+);
+mock.module("@/runtime/apns-environment", () => ({
+  resolveSignedApnsEnvironment: resolveSignedApnsEnvironmentMock,
 }));
 
 // ── @capacitor/push-notifications (lazy-imported plugin Proxy) ────────────────
@@ -83,7 +77,7 @@ mock.module("@capacitor/push-notifications", () => ({
 
 // ── @capacitor/app (lazy-imported plugin Proxy) ──────────────────────────────
 
-let bundleId = "ai.vocify-inc.vellum-assistant-ios";
+const bundleId = "ai.vocify-inc.vellum-assistant-ios";
 const getInfoMock = mock(async () => ({
   id: bundleId,
   name: "Vellum",
@@ -185,10 +179,8 @@ beforeEach(() => {
   isNative = true;
   platform = "ios";
   permissionState = "granted";
-  bundleId = "ai.vocify-inc.vellum-assistant-ios";
-  apnsEnvironmentResult = undefined;
-  apnsEnvironmentRejects = true;
-  apnsEnvironmentGetMock.mockClear();
+  resolvedApnsEnvironment = "production";
+  resolveSignedApnsEnvironmentMock.mockClear();
   registrationHandler = null;
   registrationErrorHandler = null;
   actionPerformedHandler = null;
@@ -257,15 +249,6 @@ describe("registerForRemotePush", () => {
     });
   });
 
-  test("derives the development APNs environment from a .dev bundle id", async () => {
-    bundleId = "ai.vocify-inc.vellum-assistant-ios.dev";
-    await registerForRemotePush("assistant-1");
-    registrationHandler?.({ value: "apns-token-dev" });
-    await flushMicrotasks();
-
-    expect(lastUpsertArg?.body.apns_environment).toBe("development");
-  });
-
   test("does not register when notification permission is denied", async () => {
     permissionState = "denied";
     await registerForRemotePush("assistant-1");
@@ -294,53 +277,16 @@ describe("registerForRemotePush", () => {
   });
 });
 
-describe("signing-derived APNs environment", () => {
-  const registerToken = async (token: string) => {
+describe("APNs environment wiring", () => {
+  test("upsert body carries the resolver's result for the build's bundle id", async () => {
+    resolvedApnsEnvironment = "development";
+
     await registerForRemotePush("assistant-1");
-    registrationHandler?.({ value: token });
+    registrationHandler?.({ value: "apns-token-dev" });
     await flushMicrotasks();
-  };
 
-  test("prefers the signed entitlement: production on a .dev bundle (TestFlight dev build)", async () => {
-    apnsEnvironmentRejects = false;
-    apnsEnvironmentResult = "production";
-    bundleId = "ai.vocify-inc.vellum-assistant-ios.dev";
-
-    await registerToken("apns-token-testflight");
-
-    expect(lastUpsertArg?.body.apns_environment).toBe("production");
-  });
-
-  test("registers development when the build is development-signed (Xcode install)", async () => {
-    apnsEnvironmentRejects = false;
-    apnsEnvironmentResult = "development";
-
-    await registerToken("apns-token-xcode");
-
-    // The plugin result wins even though the non-.dev bundle id would map to
-    // production under the heuristic.
+    expect(resolveSignedApnsEnvironmentMock).toHaveBeenCalledWith(bundleId);
     expect(lastUpsertArg?.body.apns_environment).toBe("development");
-  });
-
-  test("falls back to the bundle-suffix heuristic when the entitlement is unreadable", async () => {
-    apnsEnvironmentRejects = false;
-    apnsEnvironmentResult = "unknown";
-    bundleId = "ai.vocify-inc.vellum-assistant-ios.dev";
-
-    await registerToken("apns-token-unknown");
-
-    expect(lastUpsertArg?.body.apns_environment).toBe("development");
-  });
-
-  test("old shell without the plugin: heuristic fallback, no Sentry capture", async () => {
-    apnsEnvironmentRejects = true;
-    bundleId = "ai.vocify-inc.vellum-assistant-ios.dev";
-
-    await registerToken("apns-token-old-shell");
-
-    expect(apnsEnvironmentGetMock).toHaveBeenCalledTimes(1);
-    expect(lastUpsertArg?.body.apns_environment).toBe("development");
-    expect(captureErrorMock).not.toHaveBeenCalled();
   });
 });
 

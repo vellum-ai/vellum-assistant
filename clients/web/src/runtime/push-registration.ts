@@ -311,7 +311,9 @@ export async function unregisterFromRemotePush(): Promise<void> {
     await Promise.allSettled([...pendingUpserts]);
   }
 
-  const registered = loadCurrentRegistration();
+  // Module memory, falling back to persisted storage: a process reload wipes
+  // `lastRegistered` while the token stays registered server-side.
+  const registered = lastRegistered ?? persistedRegistration.load();
   lastRegistered = null;
   persistedRegistration.remove();
 
@@ -346,15 +348,6 @@ export async function unregisterFromRemotePush(): Promise<void> {
       bestEffort: true,
     });
   }
-}
-
-/**
- * The registration this device currently holds: module memory, falling
- * back to persisted storage (a process reload wipes `lastRegistered`
- * while the token stays registered server-side).
- */
-function loadCurrentRegistration(): RegisteredToken | null {
-  return lastRegistered ?? persistedRegistration.load();
 }
 
 /**

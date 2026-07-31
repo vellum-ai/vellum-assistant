@@ -43,24 +43,10 @@ interface ApnsEnvironmentPlugin {
 const ApnsEnvironment =
   registerPlugin<ApnsEnvironmentPlugin>("ApnsEnvironment");
 
-/**
- * Bundle-id suffix that maps to the development APNs entitlement in the
- * fallback heuristic, consulted only for shells predating the
- * `ApnsEnvironment` plugin and for profiles it cannot parse (`"unknown"`).
- * The dev Xcode config (`clients/ios/App/App/Config/App-Dev.xcconfig`) signs
- * with `App-Dev.entitlements` (`aps-environment = development`) and ships the
- * `.dev` bundle id; production and staging both sign with `App.entitlements`
- * (`aps-environment = production`). The heuristic misreads TestFlight-signed
- * dev builds (production tokens on a `.dev` bundle id), which is why the
- * signing-derived plugin result wins when available.
- */
+/** Suffix dev-signed builds ship (`App-Dev.xcconfig`); see module docblock. */
 const DEV_BUNDLE_SUFFIX = ".dev";
 
-/**
- * Fallback heuristic: map the running build's bundle id to its APNs
- * entitlement environment. Only consulted when the `ApnsEnvironment` plugin
- * is absent (older shell) or cannot read the entitlement (`"unknown"`).
- */
+/** Suffix-heuristic fallback for absent or `"unknown"` plugin results. */
 function resolveApnsEnvironment(bundleId: string): ApnsEnvironmentEnum {
   return bundleId.endsWith(DEV_BUNDLE_SUFFIX) ? "development" : "production";
 }

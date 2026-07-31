@@ -32,10 +32,7 @@ import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
 import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
-import {
-  hasSessionConfirmedRemotePushRegistration,
-  isRemotePushSupported,
-} from "@/runtime/push-registration";
+import { hasSessionConfirmedRemotePushRegistration } from "@/runtime/push-registration";
 
 /**
  * Payload stored alongside each native notification so the tap handler can
@@ -409,7 +406,9 @@ export async function postLocalNotification(
     // at mount), and the app was hidden when the intent arrived; the
     // remote push banners on its own there, and scheduling the local one
     // too would double-notify during the SSE grace window after
-    // backgrounding.
+    // backgrounding. No separate support check: a session-confirmed
+    // registration is only reachable through `registerForRemotePush`,
+    // which requires remote-push support.
     //
     // Residual limitation: `remotePushDispatched` is an aggregate
     // account-level outcome (any device token accepted), so on a
@@ -419,7 +418,6 @@ export async function postLocalNotification(
     // dispatch endpoint.
     if (
       args.remotePushDispatched === true &&
-      isRemotePushSupported() &&
       args.assistantId !== undefined &&
       hasSessionConfirmedRemotePushRegistration(args.assistantId) &&
       visibilityAtIntent === "hidden"
