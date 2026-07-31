@@ -8,7 +8,6 @@
 
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 
-import { SIDEBAR_ROW_PADDING_X } from "@/components/sidebar-nav-geometry";
 import type { SidebarViewMode } from "@/domains/chat/utils/sidebar-view-mode";
 
 const VIEW_MODE_ITEMS: { value: SidebarViewMode; label: string }[] = [
@@ -26,12 +25,24 @@ export function SidebarViewModeToggle({
   onChange,
 }: SidebarViewModeToggleProps) {
   return (
-    /* Inset to the shared row padding so the control's edges line up with the
-       conversation titles beside it. Size and width are the primitive's own:
+    /* Sticky, so the view switch is reachable from anywhere in a list that
+       can run tens of thousands of pixels tall. It needs the sidebar's own
+       surface behind it and a z-index, or rows would scroll through it, and
+       A sticky offset is measured from the scrollport's *content* box, so a
+       plain `top-0` parks this the full height of the body's top inset below
+       the edge and rows slide through the strip above it. The negative `top`
+       cancels that inset so it sits flush against the header, and the
+       matching negative margin keeps it flush at rest too.
+
+       It spans the full scrollport width and carries no padding of its own,
+       so the list runs right up under it. Size and width are the primitive's
+       own:
        `sm` for a rail-dense row height, and its default full width, which
        splits evenly between the segments - so the halves stay equal whatever
        the labels say, and "Grouped" gets no bigger a target than "All". */
-    <div style={{ paddingInline: SIDEBAR_ROW_PADDING_X }}>
+    <div
+      className="sticky -top-3 z-20 -mt-3 bg-[var(--surface-overlay)] max-md:-top-4 max-md:-mt-4"
+    >
       <SegmentControl<SidebarViewMode>
         items={VIEW_MODE_ITEMS}
         value={value}

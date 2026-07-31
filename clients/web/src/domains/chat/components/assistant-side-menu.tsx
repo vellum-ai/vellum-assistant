@@ -26,10 +26,12 @@ import type { GroupMenuItemsProps } from "@/domains/chat/components/group-action
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
 import { ConversationRowList } from "@/domains/chat/components/conversation-nav-section";
 import { SidebarViewModeToggle } from "@/domains/chat/components/sidebar-view-mode-toggle";
+import { SidebarBackToTop } from "@/domains/chat/components/sidebar-back-to-top";
 import { AssistantNavItem } from "@/domains/chat/components/assistant-nav-item";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { useSectionDragReorder } from "@/domains/chat/hooks/use-section-drag-reorder";
+import { useScrolledPast } from "@/domains/chat/hooks/use-scrolled-past";
 import {
   useSidebarState,
   type SidebarSection,
@@ -145,7 +147,7 @@ function SearchButton() {
  *     • Your Assistant → Intelligence view, with New Chat beneath it
  *     • ───────────────
  *   Body · one section list, in the user's own order (default shown)
- *     • [ All | Grouped ] - the view switch, always first
+ *     • [ All | Grouped ] - the view switch, first and sticky
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group
  *     • ───────────────  - when anything is curated above it
@@ -235,6 +237,10 @@ export function AssistantSideMenu({
   // because the list only mounts once the node exists and has to re-render
   // when it does.
   const [bodyElement, setBodyElement] = useState<HTMLElement | null>(null);
+
+  // Far enough down that the pill never flickers in on a nudge, and short
+  // enough that it is there by the time the curated layer is off screen.
+  const scrolledPast = useScrolledPast(bodyElement, 400);
 
   const overlayBottomColumnRef = useRef<HTMLDivElement | null>(null);
   const [overlayBottomColumnHeight, setOverlayBottomColumnHeight] = useState(0);
@@ -588,7 +594,17 @@ export function AssistantSideMenu({
             /* Right-clicking the list (including the empty space below the
                last section) creates a group, so the affordance covers the
                whole scrollport rather than any one section. */
-            <SidebarListContextMenu onCreateGroup={onCreateGroup}>
+            <>
+              {/* The switch leads the whole list and stays put: it is the
+                  sidebar's top-level choice, not a header on any one part of
+                  it. It sits outside the list wrapper because a sticky element
+                  only holds while its own containing block is on screen, and
+                  the section list ends where the flat list begins. */}
+              <SidebarViewModeToggle
+                value={sidebar.viewMode}
+                onChange={sidebar.onViewModeChange}
+              />
+              <SidebarListContextMenu onCreateGroup={onCreateGroup}>
               {/* Every section - Pinned, Chats, channels, custom groups -
                   shares one accordion root, so its gap is the only thing
                   between any two of them and the spacing is uniform by
@@ -603,14 +619,6 @@ export function AssistantSideMenu({
                 value={sidebar.effectiveOpenSections}
                 onValueChange={sidebar.onOpenSectionsChange}
               >
-                {/* The switch leads the whole list: it is the sidebar's
-                    top-level choice, not a header on any one part of it, and
-                    keeping it at a fixed spot means it never travels as
-                    sections are reordered under it. */}
-                <SidebarViewModeToggle
-                  value={sidebar.viewMode}
-                  onChange={sidebar.onViewModeChange}
-                />
                 {/* Pinned and the custom groups: the user's own curation,
                     identical in both views. No dividers *between* them, since
                     a custom group is a peer of Pinned rather than a different
@@ -637,7 +645,14 @@ export function AssistantSideMenu({
                   scrollParent={bodyElement}
                 />
               ) : null}
-            </SidebarListContextMenu>
+              </SidebarListContextMenu>
+              <SidebarBackToTop
+                visible={scrolledPast}
+                onClick={() =>
+                  bodyElement?.scrollTo({ top: 0, behavior: "smooth" })
+                }
+              />
+            </>
           )}
         </SideMenu.Body>
 
@@ -684,11 +699,13 @@ export function AssistantSideMenu({
             </div>
           </div>
         ) : footerAction || tipCard ? (
-          <SideMenu.Footer>
+          // `pt-0`, and a flush separator, so the conversation list runs right
+          // up to the rule instead of trailing off into dead space.
+          <SideMenu.Footer className="pt-0">
             {/* Tip card first, divider between it and the footer action. The
                collapsed rail drops both (per design). */}
             {isCollapsedRail ? null : tipCard}
-            {isCollapsedRail ? null : <SideMenu.Separator />}
+            {isCollapsedRail ? null : <SideMenu.Separator className="my-0" />}
             {footerAction}
           </SideMenu.Footer>
         ) : null}

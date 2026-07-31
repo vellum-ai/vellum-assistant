@@ -999,25 +999,24 @@ describe("AssistantSideMenu · equal section treatment", () => {
     ).toHaveLength(0);
   });
 
-  test("the view switch leads the whole list", () => {
-    const container = parse(
-      renderMenu({
-        conversations: LAYOUT_CONVERSATIONS,
-        conversationGroups: LAYOUT_GROUPS,
-      }),
+  // The switch sits outside the section list, ahead of it: a sticky element
+  // only holds while its own containing block is on screen, and the section
+  // list ends where the flat list begins.
+  test("the view switch leads the whole list and sticks", () => {
+    const html = renderMenu({
+      conversations: LAYOUT_CONVERSATIONS,
+      conversationGroups: LAYOUT_GROUPS,
+    });
+
+    expect(html.indexOf('data-slot="segment-control"')).toBeLessThan(
+      html.indexOf('data-slot="collapsible"'),
     );
 
-    const root = container.querySelector<HTMLElement>(
-      '[data-slot="collapsible"]',
-    );
-    if (!root) {
-      throw new Error("expected the section list's accordion root");
-    }
-    const switchIndex = Array.from(root.children).findIndex((el) =>
-      el.querySelector('[data-slot="segment-control"]'),
-    );
-
-    expect(switchIndex).toBe(0);
+    const container = parse(html);
+    const wrapper = container
+      .querySelector('[data-slot="segment-control"]')
+      ?.closest("div.sticky");
+    expect(wrapper).not.toBeNull();
   });
 
   test("every section renders through the same component with the same affordances", () => {
