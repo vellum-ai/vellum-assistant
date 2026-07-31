@@ -26,6 +26,22 @@ function wasLayerDismissed(
   return state !== null && state !== "open";
 }
 
+function getLayerEscapeTarget(layer: HTMLElement): HTMLElement {
+  if (layer.dataset.slot !== "dropdown-menu" || !layer.id) {
+    return layer;
+  }
+
+  const triggers = document.querySelectorAll<HTMLElement>(
+    '[data-slot="dropdown-trigger"][aria-controls]',
+  );
+  for (const trigger of triggers) {
+    if (trigger.getAttribute("aria-controls") === layer.id) {
+      return trigger;
+    }
+  }
+  return layer;
+}
+
 async function dismissOpenLayer(): Promise<boolean> {
   const layers = document.querySelectorAll<HTMLElement>(OPEN_LAYER_SELECTOR);
   const layer = layers.item(layers.length - 1);
@@ -38,7 +54,7 @@ async function dismissOpenLayer(): Promise<boolean> {
     bubbles: true,
     cancelable: true,
   });
-  layer.dispatchEvent(event);
+  getLayerEscapeTarget(layer).dispatchEvent(event);
 
   if (wasLayerDismissed(layer, event)) {
     return true;

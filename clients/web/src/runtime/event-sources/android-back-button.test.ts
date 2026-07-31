@@ -51,7 +51,8 @@ await import("@capacitor/app");
 const { subscribeAndroidBackButtonSource } =
   await import("@/runtime/event-sources/android-back-button");
 
-const flushMicrotasks = async (rounds = 4) => {
+const flushAsyncWork = async (rounds = 4) => {
+  await new Promise((resolve) => setTimeout(resolve, 0));
   for (let i = 0; i < rounds; i++) {
     await Promise.resolve();
   }
@@ -62,7 +63,7 @@ const pressBack = async (canGoBack: boolean) => {
   await new Promise<void>((resolve) => {
     window.requestAnimationFrame(() => resolve());
   });
-  await flushMicrotasks();
+  await flushAsyncWork();
 };
 
 beforeEach(() => {
@@ -85,7 +86,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     nativeAndroid = false;
 
     subscribeAndroidBackButtonSource();
-    await flushMicrotasks();
+    await flushAsyncWork();
 
     expect(addListenerMock).not.toHaveBeenCalled();
   });
@@ -105,7 +106,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     document.addEventListener("keydown", escapeHandler);
 
     subscribeAndroidBackButtonSource();
-    await flushMicrotasks();
+    await flushAsyncWork();
     await pressBack(true);
 
     expect(escapeHandler).toHaveBeenCalledTimes(1);
@@ -113,6 +114,35 @@ describe("subscribeAndroidBackButtonSource", () => {
     expect(minimizeAppMock).not.toHaveBeenCalled();
 
     document.removeEventListener("keydown", escapeHandler);
+    historyBackSpy.mockRestore();
+  });
+
+  test("closes a portaled dropdown before changing history", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    const trigger = document.createElement("button");
+    trigger.dataset.slot = "dropdown-trigger";
+    trigger.setAttribute("aria-controls", "test-dropdown");
+    const menu = document.createElement("ul");
+    menu.id = "test-dropdown";
+    menu.dataset.slot = "dropdown-menu";
+    const escapeHandler = mock((event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        menu.remove();
+      }
+    });
+    trigger.addEventListener("keydown", escapeHandler);
+    document.body.append(trigger, menu);
+
+    subscribeAndroidBackButtonSource();
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(escapeHandler).toHaveBeenCalledTimes(1);
+    expect(historyBackSpy).not.toHaveBeenCalled();
+    expect(minimizeAppMock).not.toHaveBeenCalled();
     historyBackSpy.mockRestore();
   });
 
@@ -125,7 +155,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     document.body.append(dialog);
 
     subscribeAndroidBackButtonSource();
-    await flushMicrotasks();
+    await flushAsyncWork();
     await pressBack(true);
 
     expect(historyBackSpy).toHaveBeenCalledTimes(1);
@@ -148,7 +178,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     });
 
     subscribeAndroidBackButtonSource();
-    await flushMicrotasks();
+    await flushAsyncWork();
     await pressBack(true);
 
     expect(historyBackSpy).not.toHaveBeenCalled();
@@ -162,7 +192,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     );
 
     subscribeAndroidBackButtonSource();
-    await flushMicrotasks();
+    await flushAsyncWork();
     await pressBack(true);
 
     expect(historyBackSpy).toHaveBeenCalledTimes(1);
@@ -177,7 +207,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     viewerMainView = "tool-detail";
 
     subscribeAndroidBackButtonSource();
-    await flushMicrotasks();
+    await flushAsyncWork();
     await pressBack(true);
 
     expect(closeActiveOverlayMock).toHaveBeenCalledTimes(1);
@@ -190,7 +220,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     viewerMainView = "app";
 
     subscribeAndroidBackButtonSource();
-    await flushMicrotasks();
+    await flushAsyncWork();
     await pressBack(true);
 
     expect(minimizeViewerAppMock).toHaveBeenCalledTimes(1);
@@ -199,7 +229,7 @@ describe("subscribeAndroidBackButtonSource", () => {
 
   test("minimizes the app at the WebView history root", async () => {
     subscribeAndroidBackButtonSource();
-    await flushMicrotasks();
+    await flushAsyncWork();
 
     await pressBack(false);
 
@@ -208,7 +238,7 @@ describe("subscribeAndroidBackButtonSource", () => {
 
   test("removes the native listener on cleanup", async () => {
     const unsubscribe = subscribeAndroidBackButtonSource();
-    await flushMicrotasks();
+    await flushAsyncWork();
 
     unsubscribe();
 
