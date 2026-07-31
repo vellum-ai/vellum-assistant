@@ -8,6 +8,7 @@ import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
 import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js";
+import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
@@ -494,7 +495,9 @@ export async function updateSchedule(
     const rewritesMode =
       updates.mode !== undefined && updates.mode !== existing.mode;
     if (rewritesTrigger || rewritesTarget || rewritesMode) {
-      throw new Error(
+      // UserError: a caller-facing refusal, not a daemon fault. Transport
+      // surfaces map it to a 4xx carrying this message, not a generic 500.
+      throw new UserError(
         "A trusted deferred wake's target, trigger text, and mode are fixed at creation; cancel and re-create it",
       );
     }
@@ -526,7 +529,7 @@ export async function updateSchedule(
       timezone: newTimezone,
     };
     if (!isValidScheduleExpression(spec)) {
-      throw new Error(`Invalid ${newSyntax} expression: "${newExpr}"`);
+      throw new UserError(`Invalid ${newSyntax} expression: "${newExpr}"`);
     }
   }
 

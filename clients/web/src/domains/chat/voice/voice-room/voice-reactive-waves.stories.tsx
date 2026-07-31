@@ -524,8 +524,12 @@ function ComposerBarScene(args: SceneArgs) {
         <VoiceComposerBar
           state={state}
           getAmplitude={getAmplitude}
+          getOutputAmplitude={getAmplitude}
           muted={false}
           onToggleMute={() => {}}
+          outputMuted={false}
+          onToggleOutputMute={() => {}}
+          fillIsLight={false}
           onEnd={() => {}}
           onExpand={() => {}}
           standalone

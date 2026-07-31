@@ -33,12 +33,16 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
 type InterruptionEvent = { type: "began" | "ended" };
 const activateVoiceAudioSession = mock(async () => true);
 const deactivateVoiceAudioSession = mock(async () => undefined);
+const describeVoiceAudioSession = mock(async () => null);
 const unsubscribeInterruptions = mock(() => undefined);
 let interruptionHandlers: ((event: InterruptionEvent) => void)[] = [];
 
+// A whole-module mock, so every export the controller's import graph reaches
+// has to be present here or the module fails to load.
 mock.module("@/runtime/native-audio-session", () => ({
   activateVoiceAudioSession,
   deactivateVoiceAudioSession,
+  describeVoiceAudioSession,
   subscribeVoiceAudioInterruptions: (
     handler: (event: InterruptionEvent) => void,
   ) => {
@@ -344,7 +348,12 @@ describe("native audio session", () => {
     await startListeningViaStarter(h);
 
     // The churn a real turn produces, none of which may reach the bridge.
-    for (const phase of ["transcribing", "thinking", "speaking", "listening"] as const) {
+    for (const phase of [
+      "transcribing",
+      "thinking",
+      "speaking",
+      "listening",
+    ] as const) {
       await act(async () => {
         useLiveVoiceStore.getState().setState(phase);
         await Promise.resolve();

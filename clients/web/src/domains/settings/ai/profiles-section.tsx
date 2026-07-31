@@ -33,7 +33,7 @@ interface ProfilesSectionProps {
 /**
  * The inline Profiles list of the V2 Language Model card (Figma
  * 7412:133358). Rows open the profile sidepanel; the kebab menu carries
- * Make Active / Make Advisor / Enable / Disable / Delete.
+ * Make Default / Enable / Disable / Delete.
  */
 export function ProfilesSection({
   assistantId,
@@ -51,7 +51,6 @@ export function ProfilesSection({
   });
 
   const activeProfile = config?.llm?.activeProfile ?? null;
-  const advisorProfile = config?.llm?.advisorProfile ?? null;
 
   return (
     <>
@@ -98,13 +97,10 @@ export function ProfilesSection({
               key={profile.name}
               profile={profile}
               isActiveProfile={profile.name === activeProfile}
-              isAdvisorProfile={profile.name === advisorProfile}
               selected={profile.name === selectedProfileName}
               connections={connections}
               onOpen={() => onOpenProfile(profile.name)}
               onMakeActive={() => void actions.makeActive(profile.name)}
-              onMakeAdvisor={() => void actions.makeAdvisor(profile.name)}
-              onClearAdvisor={() => void actions.clearAdvisor()}
               onSetStatus={(active) =>
                 void actions.setStatus(profile.name, active)
               }

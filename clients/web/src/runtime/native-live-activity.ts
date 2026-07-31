@@ -27,10 +27,11 @@
  * Reference: https://developer.apple.com/documentation/activitykit/activity
  */
 
-import { registerPlugin } from "@capacitor/core";
+import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
 import type { ActiveLiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { callNativeVoice } from "@/runtime/native-voice";
+import { isNativeIOS } from "@/runtime/platform-detection";
 
 /** The mutable half of the activity — everything that can change mid-session. */
 export interface VoiceLiveActivityContent {
@@ -76,10 +77,20 @@ export interface VoiceLiveActivityStart extends VoiceLiveActivityContent {
   avatarBase64?: string;
 }
 
+/** The `liveActivityPushToken` event payload. */
+export interface VoiceLiveActivityPushToken {
+  /** APNs device token for the running activity, hex-encoded. */
+  token: string;
+}
+
 interface VoiceLiveActivityPlugin {
   start(options: VoiceLiveActivityStart): Promise<{ started: boolean }>;
   update(content: VoiceLiveActivityContent): Promise<void>;
   end(): Promise<void>;
+  addListener(
+    eventName: "liveActivityPushToken",
+    handler: (event: VoiceLiveActivityPushToken) => void,
+  ): Promise<PluginListenerHandle>;
 }
 
 const VoiceLiveActivity =
@@ -134,4 +145,54 @@ export async function endVoiceLiveActivity(): Promise<void> {
   return callNativeVoice(async () => {
     await VoiceLiveActivity.end();
   }, undefined);
+}
+
+/**
+ * Subscribe to the ActivityKit push token for the running activity, returning
+ * an unsubscribe.
+ *
+ * The token is what lets the *server* update the island. Every local push in
+ * this module originates on the JS main thread, which WebKit throttles and
+ * eventually suspends once the app is backgrounded — the only state in which
+ * the island is ever on screen. Registering this token with the platform gives
+ * the session a second path to the same activity, one that does not need this
+ * web view to be running at all.
+ *
+ * Fires more than once: iOS may rotate a token mid-activity, and each value
+ * invalidates the last, so treat every event as "re-register this".
+ *
+ * `addListener` is one of the few property names the Capacitor plugin Proxy
+ * does not trap into a fabricated native method, so calling it on a shell
+ * without the plugin is safe — it simply never fires, which is the correct
+ * degradation for a shell too old to mint a token.
+ */
+export function subscribeVoiceLiveActivityPushToken(
+  handler: (event: VoiceLiveActivityPushToken) => void,
+): () => void {
+  if (!isNativeIOS()) {
+    return () => undefined;
+  }
+
+  let handle: PluginListenerHandle | null = null;
+  let cancelled = false;
+
+  VoiceLiveActivity.addListener("liveActivityPushToken", handler)
+    .then((registered) => {
+      if (cancelled) {
+        void registered.remove();
+        return;
+      }
+      handle = registered;
+    })
+    .catch((err: unknown) => {
+      // `console.debug`, not `captureError`, for the same reason
+      // `callNativeVoice` swallows: a shell without this plugin is an expected
+      // state on every web deploy, not a fault.
+      console.debug("[native-live-activity] push token listener failed:", err);
+    });
+
+  return () => {
+    cancelled = true;
+    void handle?.remove();
+  };
 }
