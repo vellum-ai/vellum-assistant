@@ -241,6 +241,7 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     });
     const decision = makeDecision({
       reasoningSummary: "assistant_tool pass-through",
+      verbatimCopy: true,
       renderedCopy: {
         vellum: { title: "Assistant share", body: "assistant share" },
       },
@@ -253,6 +254,7 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     const signal = makeSignal({ sourceChannel: "assistant_tool" });
     const decision = makeDecision({
       reasoningSummary: "assistant_tool pass-through",
+      verbatimCopy: true,
       renderedCopy: {
         vellum: { title: "Reminder", body: "" },
       },
@@ -260,6 +262,74 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     const result = await runDeterministicChecks(signal, decision, context);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("empty");
+  });
+
+  test("passes assistant_reply pass-through even when body matches normalized event name", async () => {
+    const signal = makeSignal({
+      sourceChannel: "vellum",
+      sourceEventName: "chat.assistant_reply",
+    });
+    const decision = makeDecision({
+      reasoningSummary: "assistant_reply pass-through",
+      verbatimCopy: true,
+      renderedCopy: {
+        vellum: { title: "Assistant", body: "chat assistant reply" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(true);
+  });
+
+  test("passes assistant_reply pass-through after downstream suffixes mutate the reasoning summary", async () => {
+    // `emit-signal` and routing-intent enforcement append suffixes to
+    // `reasoningSummary`, so the exemption must key off `verbatimCopy`.
+    const signal = makeSignal({
+      sourceChannel: "vellum",
+      sourceEventName: "chat.assistant_reply",
+    });
+    const decision = makeDecision({
+      reasoningSummary:
+        "assistant_reply pass-through (vellum forced: high urgency)",
+      verbatimCopy: true,
+      renderedCopy: {
+        vellum: { title: "Assistant", body: "chat assistant reply" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(true);
+  });
+
+  test("fails assistant_reply pass-through with empty body (empty-body branch still fires)", async () => {
+    const signal = makeSignal({
+      sourceChannel: "vellum",
+      sourceEventName: "chat.assistant_reply",
+    });
+    const decision = makeDecision({
+      reasoningSummary: "assistant_reply pass-through",
+      verbatimCopy: true,
+      renderedCopy: {
+        vellum: { title: "Assistant", body: "" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("empty");
+  });
+
+  test("still fails a non-pass-through decision on a chat.assistant_reply event-name body", async () => {
+    const signal = makeSignal({
+      sourceChannel: "vellum",
+      sourceEventName: "chat.assistant_reply",
+    });
+    const decision = makeDecision({
+      reasoningSummary: "llm classification",
+      renderedCopy: {
+        vellum: { title: "Assistant", body: "chat.assistant_reply" },
+      },
+    });
+    const result = await runDeterministicChecks(signal, decision, context);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("fallback leak");
   });
 
   test("still fails non-pass-through decision when body matches event name", async () => {

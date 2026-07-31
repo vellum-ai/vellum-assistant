@@ -78,6 +78,16 @@ const PROMPT_VERSION = "v4";
  */
 const MAX_IDENTITY_CONTEXT_CHARS = 2000;
 
+/**
+ * Delivery scope for `chat.assistant_reply` signals.
+ *
+ * v1 (LUM-2952) is iOS push only: `platform` is a push_only relay, so it
+ * delivers an APNs push and never materializes a conversation. Adding
+ * `"vellum"` to this array is the entire switch for in-app banners on
+ * macOS, web, and foregrounded iOS.
+ */
+const ASSISTANT_REPLY_CHANNELS: NotificationChannel[] = ["platform"];
+
 // ── System prompt ──────────────────────────────────────────────────────
 
 function buildSystemPrompt(
@@ -855,6 +865,72 @@ function ensureInviteFlowDirectiveInCopy(
   };
 }
 
+// ── Producer pass-through decisions ────────────────────────────────────
+
+/** Deep-link metadata is only honored when the producer supplies a plain object. */
+function readDeepLinkTarget(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  return payload.deepLinkMetadata != null &&
+    typeof payload.deepLinkMetadata === "object" &&
+    !Array.isArray(payload.deepLinkMetadata)
+    ? (payload.deepLinkMetadata as Record<string, unknown>)
+    : undefined;
+}
+
+/**
+ * Build, guard, and persist a decision whose copy came verbatim from the
+ * producer, bypassing the LLM classifier.
+ *
+ * `renderedCopy` and `conversationActions` are populated for every available
+ * channel, not just `selectedChannels`: downstream guards (routing-intent
+ * expansion in `enforceRoutingIntent`, urgency-forced vellum prepending in
+ * `emit-signal`) may widen `selectedChannels` afterwards, and pre-seeding
+ * keeps the verbatim message from degrading to an empty
+ * `composeFallbackCopy` body.
+ */
+function buildPassThroughDecision(params: {
+  signal: NotificationSignal;
+  availableChannels: NotificationChannel[];
+  selectedChannels: NotificationChannel[];
+  title: string;
+  body: string;
+  reasoningSummary: string;
+  dedupeKey: string;
+  deepLinkTarget?: Record<string, unknown>;
+}): NotificationDecision {
+  const { availableChannels, body, deepLinkTarget, signal, title } = params;
+  let decision: NotificationDecision = {
+    shouldNotify: params.selectedChannels.length > 0,
+    selectedChannels: params.selectedChannels,
+    reasoningSummary: params.reasoningSummary,
+    renderedCopy: Object.fromEntries(
+      availableChannels.map((ch) => [
+        ch,
+        { title, body, conversationSeedMessage: body },
+      ]),
+    ) as NotificationDecision["renderedCopy"],
+    conversationActions: Object.fromEntries(
+      availableChannels.map((ch) => [ch, { action: "start_new" as const }]),
+    ) as NotificationDecision["conversationActions"],
+    dedupeKey: params.dedupeKey,
+    confidence: 1.0,
+    fallbackUsed: false,
+    verbatimCopy: true,
+    ...(deepLinkTarget ? { deepLinkTarget } : {}),
+  };
+  decision = enforceGuardianRequestCode(decision, signal);
+  decision = enforceToolApprovalSeedBlocks(decision, signal);
+  decision = enforceAccessRequestInstructions(decision, signal);
+  decision = enforceGuardianRequestConversationAffinity(decision, signal);
+  decision = enforceConversationAffinity(
+    decision,
+    signal.conversationAffinityHint,
+  );
+  decision.persistedDecisionId = persistDecision(signal, decision);
+  return decision;
+}
+
 // ── Core evaluation function ───────────────────────────────────────────
 
 export async function evaluateSignal(
@@ -939,48 +1015,43 @@ export async function evaluateSignal(
         );
       }
     }
-    // Thread `--deep-link-metadata` through when supplied as a plain object.
-    const deepLinkTarget =
-      payload.deepLinkMetadata != null &&
-      typeof payload.deepLinkMetadata === "object" &&
-      !Array.isArray(payload.deepLinkMetadata)
-        ? (payload.deepLinkMetadata as Record<string, unknown>)
-        : undefined;
-    // Populate renderedCopy and conversationActions for every available
-    // channel — not just `selectedChannels`. Downstream guards
-    // (routing-intent expansion in `enforceRoutingIntent`, urgency-forced
-    // vellum prepending in `emit-signal`) may widen `selectedChannels`
-    // beyond what we picked here. Pre-seeding copy for all channels ensures
-    // the verbatim message survives those expansions rather than falling
-    // back to an empty `composeFallbackCopy` body.
-    let decision: NotificationDecision = {
-      shouldNotify: selectedChannels.length > 0,
+    return buildPassThroughDecision({
+      signal,
+      availableChannels,
       selectedChannels,
+      title,
+      body,
       reasoningSummary: "assistant_tool pass-through",
-      renderedCopy: Object.fromEntries(
-        availableChannels.map((ch) => [
-          ch,
-          { title, body, conversationSeedMessage: body },
-        ]),
-      ) as NotificationDecision["renderedCopy"],
-      conversationActions: Object.fromEntries(
-        availableChannels.map((ch) => [ch, { action: "start_new" as const }]),
-      ) as NotificationDecision["conversationActions"],
       dedupeKey: signal.signalId,
-      confidence: 1.0,
-      fallbackUsed: false,
-      ...(deepLinkTarget ? { deepLinkTarget } : {}),
-    };
-    decision = enforceGuardianRequestCode(decision, signal);
-    decision = enforceToolApprovalSeedBlocks(decision, signal);
-    decision = enforceAccessRequestInstructions(decision, signal);
-    decision = enforceGuardianRequestConversationAffinity(decision, signal);
-    decision = enforceConversationAffinity(
-      decision,
-      signal.conversationAffinityHint,
-    );
-    decision.persistedDecisionId = persistDecision(signal, decision);
-    return decision;
+      // Thread `--deep-link-metadata` through when supplied as a plain object.
+      deepLinkTarget: readDeepLinkTarget(payload),
+    });
+  }
+
+  // Assistant-reply pass-through: the producer supplies the copy and the
+  // delivery scope is fixed (ASSISTANT_REPLY_CHANNELS), so the LLM
+  // classifier has nothing to decide. Deterministic: no urgency
+  // dependence, no preferredChannels handling. The seeded conversation
+  // actions are inert because the producer never sets
+  // `requiresConversation`.
+  if (signal.sourceEventName === "chat.assistant_reply") {
+    const body = requestedBody ?? "";
+    return buildPassThroughDecision({
+      signal,
+      availableChannels,
+      selectedChannels: ASSISTANT_REPLY_CHANNELS.filter((ch) =>
+        availableChannels.includes(ch),
+      ),
+      title:
+        nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
+        deriveTitle(body),
+      body,
+      reasoningSummary: "assistant_reply pass-through",
+      dedupeKey: signal.dedupeKey ?? signal.signalId,
+      deepLinkTarget: readDeepLinkTarget(
+        signal.contextPayload as Record<string, unknown>,
+      ),
+    });
   }
 
   const provider = await getConfiguredProvider("notificationDecision");
