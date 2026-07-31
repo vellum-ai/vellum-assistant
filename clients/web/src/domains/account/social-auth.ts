@@ -80,24 +80,33 @@ export function readAttributionParams(search: string): Record<string, string> {
 }
 
 /**
- * Append the allowlisted attribution params found in `search` to `href`.
+ * Append the allowlisted attribution params found in `search` to `href`, so
+ * auth cross-links keep the cookie-free attribution path described above
+ * alive across a pivot.
  *
- * Auth cross-links (login ↔ signup) must keep URL-borne attribution alive:
- * `startProviderRedirect` reads it off `window.location.search` at click
- * time, so a pivot to the other screen that drops the params breaks the
- * cookie-free path described above. Returns `href` unchanged when `search`
- * carries no attribution.
+ * Keys already present in `href`'s query string win: an href that carries
+ * attribution was decorated deliberately upstream, so re-applying is safe
+ * (idempotent). Returns `href` unchanged when nothing new is collected.
  */
 export function withPreservedAttribution(
   href: string,
   search: string,
 ): string {
-  const attribution = Object.entries(readAttributionParams(search));
-  if (attribution.length === 0) {
+  const queryStart = href.indexOf("?");
+  const existing = new URLSearchParams(
+    queryStart === -1 ? "" : href.slice(queryStart + 1),
+  );
+  const additions = new URLSearchParams();
+  for (const [key, value] of Object.entries(readAttributionParams(search))) {
+    if (!existing.has(key)) {
+      additions.append(key, value);
+    }
+  }
+  const query = additions.toString();
+  if (query === "") {
     return href;
   }
-  const query = new URLSearchParams(attribution).toString();
-  return `${href}${href.includes("?") ? "&" : "?"}${query}`;
+  return `${href}${queryStart === -1 ? "?" : "&"}${query}`;
 }
 
 export interface ProviderRedirectOptions {

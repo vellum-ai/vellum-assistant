@@ -76,6 +76,31 @@ describe("withPreservedAttribution", () => {
       withPreservedAttribution("/account/signup", "?debug=1&utm_source=ig"),
     ).toBe("/account/signup?utm_source=ig");
   });
+
+  test("keeps the href's existing value on a conflicting key", () => {
+    expect(
+      withPreservedAttribution("/account/signup?utm_source=x", "?utm_source=y"),
+    ).toBe("/account/signup?utm_source=x");
+  });
+
+  test("appends only the keys the href does not already carry", () => {
+    expect(
+      withPreservedAttribution(
+        "/account/signup?utm_source=x",
+        "?utm_source=y&fbclid=abc123",
+      ),
+    ).toBe("/account/signup?utm_source=x&fbclid=abc123");
+  });
+
+  test("is idempotent when re-applied with the same search", () => {
+    const search = "?utm_source=ig&fbclid=abc123";
+    const once = withPreservedAttribution(
+      "/account/signup?returnTo=%2Fassistant",
+      search,
+    );
+
+    expect(withPreservedAttribution(once, search)).toBe(once);
+  });
 });
 
 describe("buildProviderRedirectFields", () => {
