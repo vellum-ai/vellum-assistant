@@ -86,3 +86,14 @@ export const MESSAGE_PREVIEW_MAX_LENGTH = 200;
 export function sanitizeMessagePreview(value: string): string {
   return sanitize(value, MESSAGE_PREVIEW_MAX_LENGTH);
 }
+
+/** Character budget every notification title shares. */
+export const NOTIFICATION_TITLE_MAX_LENGTH = 60;
+
+/**
+ * Sanitize an untrusted notification title for inclusion in notification copy.
+ * Strips control characters and clamps to `NOTIFICATION_TITLE_MAX_LENGTH`.
+ */
+export function sanitizeNotificationTitle(value: string): string {
+  return sanitize(value, NOTIFICATION_TITLE_MAX_LENGTH);
+}

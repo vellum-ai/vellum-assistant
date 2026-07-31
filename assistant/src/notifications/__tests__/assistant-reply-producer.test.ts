@@ -15,6 +15,7 @@ import {
   resolveConversationKind,
 } from "../../persistence/conversation-types.js";
 import type { ContentBlock } from "../../providers/types.js";
+import { NOTIFICATION_TITLE_MAX_LENGTH } from "../notification-utils.js";
 
 // ── Module mocks ───────────────────────────────────────────────────────
 //
@@ -248,6 +249,41 @@ describe("emitAssistantReplyNotification", () => {
 
   test("omits requestedTitle when the conversation has no title", async () => {
     conversationRow = makeConversation({ title: "   " });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].contextPayload).toEqual({
+      requestedMessage: "Sure, here is the plan.",
+    });
+  });
+
+  // Titles are user-controlled (renames, imports), so they get the same
+  // treatment as the body rather than riding into the payload verbatim.
+  test("strips control characters and newlines out of the title", async () => {
+    conversationRow = makeConversation({
+      title: "Weekend\nplans\u0007today",
+    });
+
+    await run();
+
+    expect(emitCalls[0].contextPayload.requestedTitle).toBe(
+      "Weekend plans today",
+    );
+  });
+
+  test("caps the title at the shared title budget", async () => {
+    conversationRow = makeConversation({ title: "T".repeat(300) });
+
+    await run();
+
+    const title = emitCalls[0].contextPayload.requestedTitle as string;
+    expect(title).toHaveLength(NOTIFICATION_TITLE_MAX_LENGTH);
+    expect(title.endsWith("…")).toBe(true);
+  });
+
+  test("omits requestedTitle when the title sanitizes to nothing", async () => {
+    conversationRow = makeConversation({ title: "\u0000\u0007" });
 
     await run();
 

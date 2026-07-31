@@ -83,9 +83,10 @@ const PROMPT_VERSION = "v4";
 const MAX_IDENTITY_CONTEXT_CHARS = 2000;
 
 /**
- * Delivery scope for `chat.assistant_reply` signals. v1 (LUM-2952) is iOS push
- * only: `platform` is a push_only relay that never materializes a conversation.
- * Adding `"vellum"` here is the entire switch for in-app banners.
+ * Delivery scope for `chat.assistant_reply` signals: the platform channel is a
+ * push_only relay that never materializes a conversation, so these signals
+ * reach the user exclusively as a push. Adding a channel here widens delivery
+ * to it.
  */
 const ASSISTANT_REPLY_CHANNELS = [
   "platform",

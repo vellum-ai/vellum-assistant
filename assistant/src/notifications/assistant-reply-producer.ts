@@ -28,10 +28,21 @@ import {
 import { stringifyMessageContent } from "../persistence/message-content.js";
 import { safeParseRecord } from "../util/json.js";
 import { emitNotificationSignal } from "./emit-signal.js";
-import { sanitizeMessagePreview } from "./notification-utils.js";
+import {
+  sanitizeMessagePreview,
+  sanitizeNotificationTitle,
+} from "./notification-utils.js";
 
 /** Kill switch for this producer, on by default. */
 const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
+
+/**
+ * Collapse whitespace runs ahead of the sanitizers' truncation: blank lines and
+ * list indentation would otherwise eat into the copy's length budget.
+ */
+function collapseWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
 
 /**
  * Read the markers the eligibility gate below consults off a persisted
@@ -111,18 +122,21 @@ export async function emitAssistantReplyNotification(params: {
       return;
     }
 
-    // Collapse whitespace runs before the sanitizer truncates: blank lines and
-    // list indentation would otherwise eat into the preview's length budget.
     const preview = sanitizeMessagePreview(
-      stringifyMessageContent(assistantRow.content).replace(/\s+/g, " ").trim(),
+      collapseWhitespace(stringifyMessageContent(assistantRow.content)),
     );
     if (!preview) {
       return;
     }
 
-    // Absent `requestedTitle` lets the decision branch derive a title from the
-    // body, which reads better than an empty or placeholder conversation title.
-    const requestedTitle = conversation.title?.trim();
+    // Conversation titles are user-controlled and unbounded (renames, imports),
+    // so the title gets the same treatment as the body before it reaches the
+    // lock screen. Absent `requestedTitle` lets the decision branch derive a
+    // title from the body, which reads better than an empty or placeholder
+    // conversation title.
+    const requestedTitle = sanitizeNotificationTitle(
+      collapseWhitespace(conversation.title ?? ""),
+    );
 
     await emitNotificationSignal({
       sourceEventName: "chat.assistant_reply",
