@@ -17,12 +17,11 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantQuery } from "@/assistant/queries";
-import { resolveSelectedAssistantId } from "@/assistant/selection";
+import { useGatedSelectedAssistantId } from "@/assistant/selection";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { getLocalAssistants, isLocalClient } from "@/lib/local-mode";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useRequestOrganizationId } from "@/stores/organization-store";
 
@@ -50,20 +49,6 @@ export function useAssistantLifecycle({
     (hasPlatformSession || !isLocalClient()) &&
     isOrgReady;
 
-  // Which platform assistant the user has selected, honored when the
-  // multi-platform-assistant flag is on, or when the assistant-switcher flag
-  // is on for a local client (its Switch Assistant chooser stores the same
-  // selection, and the switcher is local-client-only). Otherwise this stays
-  // null and the resolution falls back to the default first-listed
-  // assistant. Subscribe to the selection and resolved list so the hook
-  // re-renders when either changes, then resolve through the unified
-  // resolver (selected id, validated for org, then lockfile activeAssistant,
-  // then first valid).
-  const multiAssistantEnabled =
-    useClientFeatureFlagStore.use.multiPlatformAssistant();
-  const assistantSwitcherEnabled =
-    useClientFeatureFlagStore.use.assistantSwitcher();
-  useResolvedAssistantsStore.use.selectedAssistantId();
   // Subscribe so the hook re-renders (and the lockfile-local check below
   // re-evaluates) when the resolved list / lockfile change.
   useResolvedAssistantsStore.use.assistants();
@@ -72,12 +57,12 @@ export function useAssistantLifecycle({
   // resolving from the fetched selection alone would drop the user's choice
   // and project the default assistant.
   const activeOrganizationId = useRequestOrganizationId();
-  const resolvedSelectionId =
-    (multiAssistantEnabled || (assistantSwitcherEnabled && isLocalClient())) &&
-    !isGatewayAuthMode() &&
-    activeOrganizationId
-      ? resolveSelectedAssistantId(activeOrganizationId)
-      : null;
+  // Which platform assistant the user has selected; null when no selection
+  // is honored (see the flag gate in the hook), so the resolution falls back
+  // to the default first-listed assistant.
+  const resolvedSelectionId = useGatedSelectedAssistantId(
+    activeOrganizationId,
+  );
   // Keep only lockfile-only LOCAL assistants off the platform retrieve path:
   // they're gateway-based, never registered on the platform, so getAssistant(id)
   // 404s. Managed AND platform self-hosted (API `is_local`) assistants ARE valid
