@@ -501,57 +501,49 @@ export function createTelegramWebhookHandler(
       return respond({ ok: true });
     }
 
-    // Handle /new command — reset conversation before it reaches the runtime
+    // Handle /new command: reset the conversation before it reaches the
+    // runtime. The gateway applies only the `no_one` kill switch here; the
+    // runtime authorizes the actor when it services the reset. Routing is not
+    // consulted because the reset uses no assistantId.
     if (isNewCommand(normalized.message.content)) {
-      const routing = resolveAssistant(
+      await handleNewCommand({
         config,
-        normalized.message.conversationExternalId,
-        normalized.actor.actorExternalId,
-      );
-
-      if (isRejection(routing)) {
-        tlog.warn(
-          {
-            chatId: normalized.message.conversationExternalId,
-            reason: routing.reason,
-          },
-          "Routing rejected /new command",
-        );
-        if (
-          rejectionLimiter.shouldSend(normalized.message.conversationExternalId)
-        ) {
+        sourceChannel: normalized.sourceChannel,
+        conversationExternalId: normalized.message.conversationExternalId,
+        actorExternalId: normalized.actor.actorExternalId,
+        sendReply: async (text) => {
+          await sendTelegramReply(
+            config,
+            normalized.message.conversationExternalId,
+            text,
+            undefined,
+            replyOpts,
+          );
+        },
+        sendNotice: (text) => {
+          if (
+            !rejectionLimiter.shouldSend(
+              normalized.message.conversationExternalId,
+            )
+          ) {
+            return;
+          }
           sendTelegramReply(
             config,
             normalized.message.conversationExternalId,
-            `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
+            `\u26a0\ufe0f ${text}`,
             undefined,
             replyOpts,
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
-              "Failed to send /new routing rejection notice",
+              "Failed to send /new notice",
             );
           });
-        }
-      } else {
-        await handleNewCommand(
-          config,
-          normalized.sourceChannel,
-          normalized.message.conversationExternalId,
-          normalized.actor.actorExternalId,
-          async (text) => {
-            await sendTelegramReply(
-              config,
-              normalized.message.conversationExternalId,
-              text,
-              undefined,
-              replyOpts,
-            );
-          },
-          tlog,
-          topicThreadId,
-        );
-      }
+        },
+        logger: tlog,
+        sourceThreadId: topicThreadId,
+      });
 
       // Acknowledge callback query so the button spinner clears
       acknowledgeCallbackQuery(

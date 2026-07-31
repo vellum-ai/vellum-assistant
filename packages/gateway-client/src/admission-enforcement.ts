@@ -1,5 +1,5 @@
 /**
- * Shared admission-floor enforcement — the single implementation of the
+ * Shared admission-floor enforcement. The single implementation of the
  * "who gets in the door" decision (`TRUST_CLASS_RANK >= ADMISSION_FLOOR`).
  *
  * Consumed by BOTH sides of the split-enforcement design:
@@ -16,7 +16,7 @@
  * Living here keeps it one model: a channel command is authorized by exactly
  * the decision a channel message would get, not by a per-channel or
  * per-command re-implementation. Capabilities (what an admitted actor may
- * do) are NOT computed here — that axis stays in the runtime
+ * do) are NOT computed here. That axis stays in the runtime
  * (`assistant/src/runtime/capabilities.ts`).
  */
 
@@ -72,8 +72,8 @@ export type AdmissionPolicyResult =
 /**
  * Trust-class ordinal compared against {@link ADMISSION_FLOOR} to make the
  * admission decision (`rank >= floor`). Higher rank = more trusted.
- * Blocked/revoked never reach this comparison — they short-circuit to deny on
- * member status in {@link enforceAdmissionPolicy} — so they carry no rank
+ * Blocked/revoked never reach this comparison. They short-circuit to deny on
+ * member status in {@link enforceAdmissionPolicy}, so they carry no rank
  * here.
  */
 export const TRUST_CLASS_RANK: Record<TrustClass, number> = {
@@ -98,7 +98,7 @@ const POLICIES_THAT_COULD_UPGRADE: ReadonlySet<AdmissionPolicy> = new Set([
 /**
  * Enforce the admission policy floor against the resolved trust class.
  *
- * Pure function — all I/O happens in the caller. Returns the canned
+ * Pure function, all I/O happens in the caller. Returns the canned
  * admit/deny verdict; callers wire denials into their own reply/notify
  * pipelines.
  */
@@ -114,7 +114,7 @@ export function enforceAdmissionPolicy(
 
   // Blocked and revoked members never clear admission regardless of floor.
   // Their trust class is already `unknown`, but under a `strangers` floor
-  // rank 1 would otherwise clear — the raw-status check keeps the explicit
+  // rank 1 would otherwise clear. The raw-status check keeps the explicit
   // per-channel governance action winning.
   if (input.memberStatus === "blocked" || input.memberStatus === "revoked") {
     return {

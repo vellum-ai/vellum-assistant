@@ -2286,30 +2286,39 @@ async function main() {
         const isEdit = !!normalized.event.message.isEdit;
         const isCallback = !!normalized.event.message.callbackData;
 
-        // Handle /new command — reset conversation before it reaches the runtime
+        // Handle /new command: reset the conversation before it reaches the
+        // runtime. Authorization happens inside handleNewCommand so an
+        // unauthorized sender gets no reply at all.
         if (isNewCommand(normalized.event.message.content)) {
-          handleNewCommand(
+          const postToSlack = async (text: string) => {
+            await fetchImpl("https://slack.com/api/chat.postMessage", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${botToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                channel,
+                text,
+                ...(threadTs ? { thread_ts: threadTs } : {}),
+              }),
+            });
+          };
+          void handleNewCommand({
             config,
-            "slack",
-            normalized.event.message.conversationExternalId,
-            normalized.event.actor.actorExternalId,
-            async (text) => {
-              await fetchImpl("https://slack.com/api/chat.postMessage", {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${botToken}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  channel,
-                  text,
-                  ...(threadTs ? { thread_ts: threadTs } : {}),
-                }),
+            sourceChannel: "slack",
+            conversationExternalId:
+              normalized.event.message.conversationExternalId,
+            actorExternalId: normalized.event.actor.actorExternalId,
+            sendReply: postToSlack,
+            sendNotice: (text) => {
+              void postToSlack(text).catch((err) => {
+                log.error({ err, channel }, "Failed to send /new notice");
               });
             },
-            log,
-            threadTs,
-          );
+            logger: log,
+            sourceThreadId: threadTs,
+          });
           return;
         }
 

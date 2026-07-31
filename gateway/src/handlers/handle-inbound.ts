@@ -170,7 +170,7 @@ export async function handleInbound(
   // runtime to consume. Runs after the verification intercept (messages it
   // consumes never pay resolution cost) and before the invite intercept,
   // which gates on the resolved class.
-  // Producer fails soft — resolution never breaks ingress. The shared helper
+  // Producer fails soft, resolution never breaks ingress. The shared helper
   // stamps a sentinel so the consumer can tell a resolver failure from a real
   // stranger.
   let trustVerdict: TrustVerdict | undefined =

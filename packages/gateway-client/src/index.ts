@@ -87,7 +87,7 @@ export {
   TrustVerdictSchema,
 } from "./trust-verdict-contract.js";
 
-// Admission enforcement (shared gateway ↔ daemon) — the single
+// Admission enforcement (shared gateway ↔ daemon). The single
 // rank-vs-floor decision, evaluated by the runtime admission stage and the
 // gateway's channel-command authorization seam
 export {

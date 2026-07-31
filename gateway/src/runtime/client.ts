@@ -8,7 +8,11 @@ import {
 } from "@vellumai/service-contracts/twilio-ingress";
 import { normalizeHttpPublicBaseUrl } from "@vellumai/service-contracts/ingress";
 
-import type { RuntimeInboundPayload } from "@vellumai/gateway-client";
+import type {
+  AdmissionPolicy,
+  RuntimeInboundPayload,
+  TrustVerdict,
+} from "@vellumai/gateway-client";
 import type { ChannelId } from "../channels/types.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import {
@@ -306,12 +310,34 @@ export async function forwardToRuntime(
   throw lastError ?? new Error("Runtime forward failed after retries");
 }
 
+export type ResetConversationInput = {
+  sourceChannel: ChannelId;
+  conversationExternalId: string;
+  sourceThreadId?: string;
+  /**
+   * Per-actor trust verdict and the channel's admission floor, forwarded so
+   * the RUNTIME authorizes the reset with the same primitives it uses for a
+   * message (`verdictUsability`, `enforceAdmissionPolicy`,
+   * `resolveCapabilities`). The gateway's own calls carry a service
+   * principal, so this verdict is how the channel actor's identity reaches
+   * the decision. Mirrors how `sourceMetadata` carries both for an inbound
+   * message.
+   */
+  trustVerdict?: TrustVerdict;
+  admissionPolicy?: AdmissionPolicy;
+};
+
+/**
+ * Ask the runtime to reset a channel conversation.
+ *
+ * Returns `{ denied: true }` when the runtime refused on authorization
+ * grounds, which callers surface silently. Transport and server failures
+ * still throw, so a caller can tell "you may not" from "it broke".
+ */
 export async function resetConversation(
   config: GatewayConfig,
-  sourceChannel: ChannelId,
-  conversationExternalId: string,
-  sourceThreadId?: string,
-): Promise<void> {
+  input: ResetConversationInput,
+): Promise<{ denied: boolean; reason?: string }> {
   cbBeforeRequest();
 
   const url = buildUpstreamUrl(
@@ -327,9 +353,15 @@ export async function resetConversation(
         method: "DELETE",
         headers: serviceHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
-          sourceChannel,
-          conversationExternalId,
-          ...(sourceThreadId ? { sourceThreadId } : {}),
+          sourceChannel: input.sourceChannel,
+          conversationExternalId: input.conversationExternalId,
+          ...(input.sourceThreadId
+            ? { sourceThreadId: input.sourceThreadId }
+            : {}),
+          ...(input.trustVerdict ? { trustVerdict: input.trustVerdict } : {}),
+          ...(input.admissionPolicy
+            ? { admissionPolicy: input.admissionPolicy }
+            : {}),
         }),
       },
       config.runtimeTimeoutMs,
@@ -347,6 +379,16 @@ export async function resetConversation(
   }
 
   cbOnSuccess();
+
+  const result = (await response.json().catch(() => ({}))) as {
+    ok?: boolean;
+    denied?: boolean;
+    reason?: string;
+  };
+  return {
+    denied: result.denied === true,
+    ...(result.reason ? { reason: result.reason } : {}),
+  };
 }
 
 export type UploadAttachmentInput = {

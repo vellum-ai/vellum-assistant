@@ -8,7 +8,7 @@
  * to the resolved trust class's rank and either admits or denies.
  *
  * The decision itself (`enforceAdmissionPolicy`) lives in
- * `@vellumai/gateway-client` (`admission-enforcement.ts`) — one shared
+ * `@vellumai/gateway-client` (`admission-enforcement.ts`). One shared
  * implementation, also evaluated by the gateway's channel-command
  * authorization seam for gateway-terminal commands like `/new`. This module
  * is the runtime-facing surface and keeps the runtime deny semantics

@@ -168,12 +168,14 @@ beforeEach(async () => {
   resetAdmissionPolicyCache();
   await initGatewayDb();
   // initGatewayDb reconnects to the same on-disk DB; clear leftover ACL rows
-  // (channels first — FK cascade from contacts) so trust resolution is
+  // (channels first, FK cascade from contacts) so trust resolution is
   // deterministic across sibling suites.
   getGatewayDb().delete(gwContactChannels).run();
   getGatewayDb().delete(gwContacts).run();
   const policyStore = new AdmissionPolicyStore();
-  for (const row of policyStore.list()) policyStore.remove(row.channelType);
+  for (const row of policyStore.list()) {
+    policyStore.remove(row.channelType);
+  }
   initAdmissionPolicyCache();
   fetchCalls = [];
 });
@@ -216,7 +218,11 @@ function extractHeaders(
  * Install a mock fetch that records calls and returns a 200 JSON response.
  * Runtime forward calls get an eventId response; Telegram API calls get { ok: true }.
  */
-function installFetchMock() {
+function installFetchMock(
+  opts: {
+    resetResponse?: Record<string, unknown>;
+  } = {},
+) {
   fetchMock = mock(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url =
@@ -252,12 +258,16 @@ function installFetchMock() {
         );
       }
 
-      // Runtime reset conversation endpoint
+      // Runtime reset conversation endpoint. The runtime owns the
+      // authorization decision, so tests can stand in a denial here.
       if (url.includes("/channels/conversation") && method === "DELETE") {
-        return new Response("{}", {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify(opts.resetResponse ?? { ok: true }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
       }
 
       // Telegram API calls (sendMessage, etc.)
@@ -521,35 +531,12 @@ describe("telegram webhook handler: /new admission", () => {
     ],
   };
 
-  /** Assert no reset happened and nothing was said back to the chat. */
-  function expectSilentlyDenied() {
-    expect(
-      fetchCalls.find((c) => c.url.includes("/channels/conversation")),
-    ).toBeUndefined();
-    expect(
-      fetchCalls.find((c) => c.url.includes("/sendMessage")),
-    ).toBeUndefined();
-  }
+  const resetCall = () =>
+    fetchCalls.find((c) => c.url.includes("/channels/conversation"));
 
-  test("stranger's /new is denied under the default floor — no reset, no reply", async () => {
-    // No contact row → trust class `unknown` (rank 1) < `trusted_contacts`
-    // (floor 3). This is the LUM-2945 bug: any actor who could reach the bot
-    // used to be able to drop the bound conversation's continuity.
-    installFetchMock();
-    const { handler } = createTelegramWebhookHandler(
-      makeConfig(ROUTED),
-      makeCaches(),
-    );
-
-    const res = await handler(
-      makeWebhookRequest(makeTelegramPayload("/new", 5001)),
-    );
-
-    expect(res.status).toBe(200);
-    expectSilentlyDenied();
-  });
-
-  test("`no_one` denies /new even for the guardian (kill switch is off for everyone)", async () => {
+  test("`no_one` kills /new at the gateway: the runtime is never called", async () => {
+    // The kill switch is the gateway's own decision, enforced before any I/O
+    // so a channel the guardian turned off denies everyone, guardian included.
     seedActorContact({ role: "guardian" });
     setTelegramPolicy("no_one");
     installFetchMock();
@@ -563,31 +550,18 @@ describe("telegram webhook handler: /new admission", () => {
     );
 
     expect(res.status).toBe(200);
-    expectSilentlyDenied();
+    expect(resetCall()).toBeUndefined();
+    expect(
+      fetchCalls.find((c) => c.url.includes("/sendMessage")),
+    ).toBeUndefined();
   });
 
-  test("blocked member's /new is denied even under the `strangers` floor", async () => {
-    // Rank alone would clear a floor of 1; the raw-status hard-deny is what
-    // keeps an explicit governance action winning.
-    seedActorContact({ status: "blocked" });
-    setTelegramPolicy("strangers");
-    installFetchMock();
-    const { handler } = createTelegramWebhookHandler(
-      makeConfig(ROUTED),
-      makeCaches(),
-    );
-
-    const res = await handler(
-      makeWebhookRequest(makeTelegramPayload("/new", 5003)),
-    );
-
-    expect(res.status).toBe(200);
-    expectSilentlyDenied();
-  });
-
-  test("contact below a `guardian_only` floor is denied; the guardian is admitted", async () => {
+  test("forwards the actor's trust verdict and floor for the runtime to judge", async () => {
+    // The gateway does not decide admission for a command; it resolves the
+    // identity and hands it to the runtime, exactly as it stamps
+    // sourceMetadata on a message. The deny decision itself is covered by
+    // assistant/src/runtime/routes/__tests__/inbound-conversation-authorization.test.ts
     seedActorContact();
-    setTelegramPolicy("guardian_only");
     installFetchMock();
     const { handler } = createTelegramWebhookHandler(
       makeConfig(ROUTED),
@@ -595,32 +569,37 @@ describe("telegram webhook handler: /new admission", () => {
     );
 
     await handler(makeWebhookRequest(makeTelegramPayload("/new", 5004)));
-    expectSilentlyDenied();
 
-    // Same floor, guardian actor → admitted.
-    getGatewayDb().delete(gwContactChannels).run();
-    getGatewayDb().delete(gwContacts).run();
-    seedActorContact({ role: "guardian" });
-    fetchCalls = [];
-
-    const res = await handler(
-      makeWebhookRequest(makeTelegramPayload("/new", 5005)),
-    );
-
-    expect(res.status).toBe(200);
-    const resetCall = fetchCalls.find((c) =>
-      c.url.includes("/channels/conversation"),
-    );
-    expect(resetCall).toBeDefined();
-    expect(resetCall!.method).toBe("DELETE");
+    const call = resetCall();
+    expect(call).toBeDefined();
+    expect(call!.method).toBe("DELETE");
+    const body = call!.body as {
+      trustVerdict?: { trustClass?: string };
+      admissionPolicy?: string;
+    };
+    expect(body.trustVerdict?.trustClass).toBe("trusted_contact");
+    expect(body.admissionPolicy).toBe("trusted_contacts");
   });
 
-  test("stranger's /new is denied under `strangers` too — floor met, but rank is the only gate", async () => {
-    // A `strangers` floor (1) admits rank-1 `unknown`: the seam is an
-    // admission check, not a blanket guardian gate, so a channel the
-    // guardian opened to strangers still accepts /new from one.
-    setTelegramPolicy("strangers");
+  test("a stranger is still forwarded: the runtime, not the gateway, denies", async () => {
     installFetchMock();
+    const { handler } = createTelegramWebhookHandler(
+      makeConfig(ROUTED),
+      makeCaches(),
+    );
+
+    await handler(makeWebhookRequest(makeTelegramPayload("/new", 5005)));
+
+    const body = resetCall()!.body as {
+      trustVerdict?: { trustClass?: string };
+    };
+    expect(body.trustVerdict?.trustClass).toBe("unknown");
+  });
+
+  test("a runtime denial is silent: no confirmation reaches the sender", async () => {
+    installFetchMock({
+      resetResponse: { denied: true, reason: "not_interactive" },
+    });
     const { handler } = createTelegramWebhookHandler(
       makeConfig(ROUTED),
       makeCaches(),
@@ -631,10 +610,9 @@ describe("telegram webhook handler: /new admission", () => {
     );
 
     expect(res.status).toBe(200);
-    const resetCall = fetchCalls.find((c) =>
-      c.url.includes("/channels/conversation"),
-    );
-    expect(resetCall).toBeDefined();
+    expect(
+      fetchCalls.find((c) => c.url.includes("/sendMessage")),
+    ).toBeUndefined();
   });
 });
 

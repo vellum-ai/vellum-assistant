@@ -188,37 +188,30 @@ export function createWhatsAppWebhookHandler(
       // Resolve routing once so we can gate further operations on it
       const routing = resolveAssistant(config, from, from);
 
-      // Handle /new command — reset conversation before it reaches the runtime
+      // Handle /new command: reset the conversation before it reaches the
+      // runtime. Authorization (and the routing check) happen inside
+      // handleNewCommand so an unauthorized sender gets no reply at all.
       if (isNewCommand(event.message.content)) {
-        if (isRejection(routing)) {
-          tlog.warn(
-            { from, reason: routing.reason },
-            "Routing rejected /new command",
-          );
-          sendWhatsAppReply(
-            config,
-            from,
-            ROUTING_REJECTION_NOTICE,
-            undefined,
-            apiCaches,
-          ).catch((err) => {
-            tlog.error(
-              { err, to: from },
-              "Failed to send /new routing rejection notice",
+        await handleNewCommand({
+          config,
+          sourceChannel: event.sourceChannel,
+          conversationExternalId: event.message.conversationExternalId,
+          actorExternalId: event.actor.actorExternalId,
+          sendReply: async (text) => {
+            await sendWhatsAppReply(config, from, text, undefined, apiCaches);
+          },
+          sendNotice: (text) => {
+            if (!rejectionLimiter.shouldSend(from)) {
+              return;
+            }
+            sendWhatsAppReply(config, from, text, undefined, apiCaches).catch(
+              (err) => {
+                tlog.error({ err, to: from }, "Failed to send /new notice");
+              },
             );
-          });
-        } else {
-          await handleNewCommand(
-            config,
-            event.sourceChannel,
-            event.message.conversationExternalId,
-            event.actor.actorExternalId,
-            async (text) => {
-              await sendWhatsAppReply(config, from, text, undefined, apiCaches);
-            },
-            tlog,
-          );
-        }
+          },
+          logger: tlog,
+        });
 
         dedupCache.mark(whatsappMessageId);
         continue;
