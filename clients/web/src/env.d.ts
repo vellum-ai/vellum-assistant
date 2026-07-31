@@ -87,4 +87,6 @@ interface Window {
    * the data endpoint has an init option but the beacon does not.
    */
   __SDKCONFIG__?: { statsURL?: string; serverURL?: string };
+  /** Meta Pixel queue function, injected by `lib/meta-pixel/meta-pixel.ts`. */
+  fbq?: (...args: unknown[]) => void;
 }

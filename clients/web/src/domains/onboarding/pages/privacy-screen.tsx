@@ -23,6 +23,10 @@ import {
 } from "@/lib/billing/checkout-intent";
 import { buildCustomCheckoutSearch } from "@/lib/billing/custom-checkout-params";
 import { isLocalClient } from "@/lib/local-mode";
+import {
+  initMetaPixel,
+  trackCompleteRegistration,
+} from "@/lib/meta-pixel/meta-pixel";
 import { postCheckoutHatchReturnTo } from "@/lib/navigation/navigation-resolver";
 import {
   usePrivacyConsent,
@@ -55,6 +59,13 @@ export function PrivacyScreen() {
   useEffect(() => {
     getOnboardingFunnelSessionId();
   }, []);
+
+  useEffect(() => {
+    if (!isNative) {
+      initMetaPixel();
+      trackCompleteRegistration();
+    }
+  }, [isNative]);
 
   const isPreview = searchParams.get("preview") === "true";
   const noop = useCallback((_next: boolean) => {}, []);
