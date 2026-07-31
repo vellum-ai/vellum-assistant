@@ -23,7 +23,6 @@ import { getLocalAssistants, isLocalClient } from "@/lib/local-mode";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useRequestOrganizationId } from "@/stores/organization-store";
 
 interface UseAssistantLifecycleOptions {
   sessionStatus: SessionStatus;
@@ -52,17 +51,10 @@ export function useAssistantLifecycle({
   // Subscribe so the hook re-renders (and the lockfile-local check below
   // re-evaluates) when the resolved list / lockfile change.
   useResolvedAssistantsStore.use.assistants();
-  // Resolve the org id from the same source as the `shouldQueryServer` gate:
-  // when the gate opens off the persisted id because the store fetch failed,
-  // resolving from the fetched selection alone would drop the user's choice
-  // and project the default assistant.
-  const activeOrganizationId = useRequestOrganizationId();
   // Which platform assistant the user has selected; null when no selection
-  // is honored (see the flag gate in the hook), so the resolution falls back
-  // to the default first-listed assistant.
-  const resolvedSelectionId = useGatedSelectedAssistantId(
-    activeOrganizationId,
-  );
+  // is honored (see the flag and org gates in the hook), so the resolution
+  // falls back to the default first-listed assistant.
+  const resolvedSelectionId = useGatedSelectedAssistantId();
   // Keep only lockfile-only LOCAL assistants off the platform retrieve path:
   // they're gateway-based, never registered on the platform, so getAssistant(id)
   // 404s. Managed AND platform self-hosted (API `is_local`) assistants ARE valid

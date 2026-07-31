@@ -20,7 +20,6 @@ import {
   useHasPlatformSession,
   useIsSessionInitializing,
 } from "@/stores/auth-store";
-import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 const noop = (): void => undefined;
@@ -86,14 +85,10 @@ export function CommandPaletteWindowPage() {
 
   const assistants = useResolvedAssistantsStore.use.assistants();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const currentOrganizationId =
-    useOrganizationStore.use.currentOrganizationId();
   // The same gated read the lifecycle uses; when no selection is honored,
   // track the lifecycle's active id, so the palette never binds to a
   // selection the lifecycle ignored.
-  const gatedSelectedAssistantId = useGatedSelectedAssistantId(
-    currentOrganizationId,
-  );
+  const gatedSelectedAssistantId = useGatedSelectedAssistantId();
   const selectedAssistant = useMemo(() => {
     const selectedId = gatedSelectedAssistantId ?? activeAssistantId;
     if (!selectedId) {

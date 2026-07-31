@@ -19,6 +19,7 @@ import {
   setActiveLockfileAssistant,
 } from "@/lib/local-mode";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useRequestOrganizationId } from "@/stores/organization-store";
 import {
   assistantsValidForOrg,
   useResolvedAssistantsStore,
@@ -72,13 +73,15 @@ export function resolveSelectedAssistantId(
  * assistant-switcher flag is on for a local client (its Switch Assistant
  * chooser stores the same selection, and the switcher is local-client-only).
  * Gateway-auth mode and a missing org id return null, as does a closed gate:
- * callers apply their own fallback. Subscribes to the flags, the selection,
+ * callers apply their own fallback. The org id comes from the same derivation
+ * the `Vellum-Organization-Id` header uses (the resolved selection, or the
+ * persisted id standing in for it), so a failed organization fetch cannot
+ * drop the user's choice. Subscribes to the flags, the org, the selection,
  * and the resolved list so consumers re-render when any resolution input
  * changes.
  */
-export function useGatedSelectedAssistantId(
-  organizationId: string | null,
-): string | null {
+export function useGatedSelectedAssistantId(): string | null {
+  const organizationId = useRequestOrganizationId();
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
   const assistantSwitcherEnabled =

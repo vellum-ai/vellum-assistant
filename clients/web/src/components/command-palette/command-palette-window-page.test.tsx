@@ -103,7 +103,10 @@ mock.module("@/stores/organization-store", () => {
   useOrganizationStore.getState = () => ({
     currentOrganizationId: orgRef.currentOrganizationId,
   });
-  return { useOrganizationStore };
+  return {
+    useOrganizationStore,
+    useRequestOrganizationId: () => orgRef.currentOrganizationId,
+  };
 });
 
 mock.module("@/stores/resolved-assistants-store", () => {
