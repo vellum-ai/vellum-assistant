@@ -37,18 +37,20 @@ import {
   actorTrustContextFromVerdict,
   verdictUsability,
 } from "../trust-verdict-consumer.js";
-import { BadRequestError } from "./errors.js";
+import { BadRequestError, ForbiddenError } from "./errors.js";
 import type { RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("inbound-conversation");
 
 /**
- * Denials are returned, not thrown, so the gateway can stay silent toward the
- * sender rather than surfacing an error.
+ * Denials are a 403, not a 200 body. A gateway that predates this check only
+ * inspects `response.ok`, so returning a denial as a successful response
+ * would make it announce a reset that never happened (root AGENTS.md,
+ * Backwards Compatibility). Current gateways map the 403 to a silent deny.
  */
-export type DeleteConversationResult =
-  | { ok: true }
-  | { ok: false; denied: true; reason: string };
+export type DeleteConversationResult = { ok: true };
+
+type ResetAuthorization = { ok: true } | { ok: false; reason: string };
 
 /**
  * Authorize a channel-originated conversation reset.
@@ -74,14 +76,14 @@ function authorizeChannelReset(args: {
   principalType: string | undefined;
   trustVerdict: TrustVerdict | undefined;
   admissionPolicy: AdmissionPolicy | undefined;
-}): DeleteConversationResult {
+}): ResetAuthorization {
   if (args.principalType !== "svc_gateway") {
     return { ok: true };
   }
 
   const usable = verdictUsability(args.trustVerdict);
   if (!usable.usable) {
-    return { ok: false, denied: true, reason: `verdict_${usable.reason}` };
+    return { ok: false, reason: `verdict_${usable.reason}` };
   }
 
   const trust = actorTrustContextFromVerdict(usable.verdict, {
@@ -90,7 +92,7 @@ function authorizeChannelReset(args: {
   });
 
   if (trust.memberRecord?.policy === "deny") {
-    return { ok: false, denied: true, reason: "policy_deny" };
+    return { ok: false, reason: "policy_deny" };
   }
 
   if (
@@ -104,12 +106,12 @@ function authorizeChannelReset(args: {
       policy: args.admissionPolicy,
     });
     if (!floor.admitted) {
-      return { ok: false, denied: true, reason: floor.reason };
+      return { ok: false, reason: floor.reason };
     }
   }
 
   if (!resolveCapabilities(trust.trustClass).mayBeInteractive) {
-    return { ok: false, denied: true, reason: "not_interactive" };
+    return { ok: false, reason: "not_interactive" };
   }
 
   return { ok: true };
@@ -150,7 +152,7 @@ export function handleDeleteConversation({
       { sourceChannel, conversationExternalId, reason: authorization.reason },
       "Channel conversation reset denied",
     );
-    return authorization;
+    throw new ForbiddenError(authorization.reason);
   }
 
   const normalizedThreadId = sourceThreadId?.trim() || undefined;

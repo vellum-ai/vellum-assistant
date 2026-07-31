@@ -186,17 +186,10 @@ export const ChannelResetRequestSchema = z.object({
 export type ChannelResetRequest = z.infer<typeof ChannelResetRequestSchema>;
 
 /**
- * Reset response. A union so failure cannot read as success: `{ ok: true }`
- * is the only shape meaning the conversation was reset, and every failure
- * names itself.
+ * Reset response. Success is the ONLY 2xx shape: an unauthorized reset is a
+ * 403, so no successful-looking body can mean "refused". A gateway predating
+ * that check inspects only `response.ok`, so it too sees a denial as failure.
  */
-export const ChannelResetResponseSchema = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true) }),
-  z.object({
-    ok: z.literal(false),
-    denied: z.literal(true),
-    reason: z.string().min(1),
-  }),
-]);
+export const ChannelResetResponseSchema = z.object({ ok: z.literal(true) });
 
 export type ChannelResetResponse = z.infer<typeof ChannelResetResponseSchema>;

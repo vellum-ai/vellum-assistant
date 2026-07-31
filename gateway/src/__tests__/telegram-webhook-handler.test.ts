@@ -221,6 +221,7 @@ function extractHeaders(
 function installFetchMock(
   opts: {
     resetResponse?: Record<string, unknown>;
+    resetStatus?: number;
   } = {},
 ) {
   fetchMock = mock(
@@ -264,7 +265,7 @@ function installFetchMock(
         return new Response(
           JSON.stringify(opts.resetResponse ?? { ok: true }),
           {
-            status: 200,
+            status: opts.resetStatus ?? 200,
             headers: { "content-type": "application/json" },
           },
         );
@@ -597,9 +598,8 @@ describe("telegram webhook handler: /new admission", () => {
   });
 
   test("a runtime denial is silent: no confirmation reaches the sender", async () => {
-    installFetchMock({
-      resetResponse: { ok: false, denied: true, reason: "not_interactive" },
-    });
+    // The runtime refuses an unauthorized reset with 403.
+    installFetchMock({ resetStatus: 403, resetResponse: { error: "denied" } });
     const { handler } = createTelegramWebhookHandler(
       makeConfig(ROUTED),
       makeCaches(),
@@ -615,9 +615,9 @@ describe("telegram webhook handler: /new admission", () => {
     ).toBeUndefined();
   });
 
-  test("`{ ok: false }` is a failure, not a silent success", async () => {
-    // Valid by shape but says the reset did not happen. The response union
-    // makes this impossible to read as an admitted reset.
+  test("a non-success 2xx body is a failure, not a silent success", async () => {
+    // Success is the only 2xx shape, so anything else must not read as a
+    // completed reset.
     seedActorContact();
     installFetchMock({ resetResponse: { ok: false } });
     const { handler } = createTelegramWebhookHandler(

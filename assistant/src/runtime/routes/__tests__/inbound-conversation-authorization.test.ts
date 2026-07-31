@@ -33,6 +33,21 @@ const { handleDeleteConversation } = await import("../inbound-conversation.js");
 
 const GATEWAY_HEADERS = { "x-vellum-principal-type": "svc_gateway" };
 
+/** Denials are a 403 (`ForbiddenError`), so assert on the thrown reason. */
+function expectDenied(fn: () => unknown, reason?: string) {
+  let thrown: unknown;
+  try {
+    fn();
+  } catch (err) {
+    thrown = err;
+  }
+  expect(thrown).toBeDefined();
+  expect((thrown as Error).name).toBe("ForbiddenError");
+  if (reason !== undefined) {
+    expect((thrown as Error).message).toContain(reason);
+  }
+}
+
 function verdict(overrides: Partial<TrustVerdict> = {}): TrustVerdict {
   return {
     trustClass: "trusted_contact",
@@ -77,12 +92,12 @@ describe("handleDeleteConversation authorization", () => {
   });
 
   test("denies a stranger under the default floor", () => {
-    const result = reset({
-      trustVerdict: strangerVerdict(),
-      admissionPolicy: "trusted_contacts",
-    });
-
-    expect(result).toMatchObject({ ok: false, denied: true });
+    expectDenied(() =>
+      reset({
+        trustVerdict: strangerVerdict(),
+        admissionPolicy: "trusted_contacts",
+      }),
+    );
   });
 
   test("denies a stranger even under a `strangers` floor: admission is not capability", () => {
@@ -90,12 +105,14 @@ describe("handleDeleteConversation authorization", () => {
     // `mayBeInteractive: false`, so an admitted stranger still may not reset
     // shared state. This is the check that would be missing entirely if the
     // command were authorized by admission alone.
-    const result = reset({
-      trustVerdict: strangerVerdict(),
-      admissionPolicy: "strangers",
-    });
-
-    expect(result).toMatchObject({ ok: false, reason: "not_interactive" });
+    expectDenied(
+      () =>
+        reset({
+          trustVerdict: strangerVerdict(),
+          admissionPolicy: "strangers",
+        }),
+      "not_interactive",
+    );
   });
 
   test("an unverified member may reset: contacts are interactive", () => {
@@ -113,60 +130,60 @@ describe("handleDeleteConversation authorization", () => {
   test('honors an explicit per-channel `policy: "deny"`', () => {
     // Parity with `acl-enforcement.ts`: governance outranks classification,
     // so the same actor cannot be denied a message yet reset by command.
-    const result = reset({
-      trustVerdict: verdict({ policy: "deny" }),
-      admissionPolicy: "trusted_contacts",
-    });
-
-    expect(result).toMatchObject({ ok: false, reason: "policy_deny" });
+    expectDenied(
+      () =>
+        reset({
+          trustVerdict: verdict({ policy: "deny" }),
+          admissionPolicy: "trusted_contacts",
+        }),
+      "policy_deny",
+    );
   });
 
   test('`policy: "deny"` denies the guardian too', () => {
-    const result = reset({
-      trustVerdict: verdict({
-        trustClass: "guardian",
-        policy: "deny",
-        guardianExternalUserId: "U1",
-        guardianPrincipalId: "principal-1",
-      }),
-      admissionPolicy: "trusted_contacts",
-    });
-
-    expect(result).toMatchObject({ ok: false, reason: "policy_deny" });
+    expectDenied(
+      () =>
+        reset({
+          trustVerdict: verdict({
+            trustClass: "guardian",
+            policy: "deny",
+            guardianExternalUserId: "U1",
+            guardianPrincipalId: "principal-1",
+          }),
+          admissionPolicy: "trusted_contacts",
+        }),
+      "policy_deny",
+    );
   });
 
   test("denies a blocked member even under a `strangers` floor", () => {
-    const result = reset({
-      trustVerdict: verdict({ trustClass: "unknown", status: "blocked" }),
-      admissionPolicy: "strangers",
-    });
-
-    expect(result).toMatchObject({ ok: false, denied: true });
+    expectDenied(() =>
+      reset({
+        trustVerdict: verdict({ trustClass: "unknown", status: "blocked" }),
+        admissionPolicy: "strangers",
+      }),
+    );
   });
 
   test("fails closed on a could-not-vouch verdict", () => {
-    const result = reset({
-      trustVerdict: verdict({ resolutionFailed: true }),
-      admissionPolicy: "trusted_contacts",
-    });
-
-    expect(result).toMatchObject({ ok: false });
-    expect(String((result as { reason: string }).reason)).toContain("verdict_");
+    expectDenied(
+      () =>
+        reset({
+          trustVerdict: verdict({ resolutionFailed: true }),
+          admissionPolicy: "trusted_contacts",
+        }),
+      "verdict_",
+    );
   });
 
   test("fails closed when the gateway sends no verdict at all", () => {
-    const result = reset({ admissionPolicy: "trusted_contacts" });
-
-    expect(result).toMatchObject({ ok: false });
+    expectDenied(() => reset({ admissionPolicy: "trusted_contacts" }));
   });
 
   test("denies a below-floor contact under `guardian_only`", () => {
-    const result = reset({
-      trustVerdict: verdict(),
-      admissionPolicy: "guardian_only",
-    });
-
-    expect(result).toMatchObject({ ok: false });
+    expectDenied(() =>
+      reset({ trustVerdict: verdict(), admissionPolicy: "guardian_only" }),
+    );
   });
 
   test("rejects a malformed body before authorizing", () => {

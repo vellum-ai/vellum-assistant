@@ -219,8 +219,9 @@ export function createWhatsAppWebhookHandler(
           logger: tlog,
         });
 
-        // A killed channel stays entirely silent, including read receipts.
-        if (outcome !== "killed") {
+        // Denied and killed commands stay entirely silent, read receipts
+        // included: a receipt would confirm the command was processed.
+        if (outcome !== "killed" && outcome !== "denied") {
           markRead();
         }
 

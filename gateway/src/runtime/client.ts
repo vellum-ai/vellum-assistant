@@ -368,6 +368,11 @@ export async function resetConversation(
     const body = await response.text();
     if (response.status >= 500) cbOnFailure();
     else cbOnSuccess();
+    // The runtime refuses an unauthorized reset with 403. That is a decision,
+    // not a fault, and callers surface it silently.
+    if (response.status === 403) {
+      return { denied: true, reason: body || "forbidden" };
+    }
     throw new Error(`Reset conversation failed (${response.status}): ${body}`);
   }
 
@@ -381,10 +386,7 @@ export async function resetConversation(
       `Reset conversation returned a malformed response: ${parsed.error.issues[0]?.message ?? "unparseable body"}`,
     );
   }
-  if (parsed.data.ok) {
-    return { denied: false };
-  }
-  return { denied: true, reason: parsed.data.reason };
+  return { denied: false };
 }
 
 export type UploadAttachmentInput = {
