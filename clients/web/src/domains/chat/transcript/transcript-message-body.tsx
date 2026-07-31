@@ -3,7 +3,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -42,6 +41,7 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
@@ -208,8 +208,7 @@ export function TranscriptMessageBody({
       ? onRetryLatestTurn
       : undefined;
 
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [revealed, setRevealed] = useState(false);
+  const { wrapperRef, revealed, toggleRevealed } = useCoarsePointerReveal();
   const slackMessageUrl = getExternalLinkUrl(message.slackMessage?.messageLink);
 
   const [longPressOpen, setLongPressOpen] = useState(false);
@@ -249,24 +248,6 @@ export function TranscriptMessageBody({
     }
   }, []);
 
-  useEffect(() => {
-    if (!revealed) {
-      return;
-    }
-    const onDocPointerDown = (e: PointerEvent) => {
-      const target = e.target as Node | null;
-      if (
-        target &&
-        wrapperRef.current &&
-        !wrapperRef.current.contains(target)
-      ) {
-        setRevealed(false);
-      }
-    };
-    document.addEventListener("pointerdown", onDocPointerDown);
-    return () => document.removeEventListener("pointerdown", onDocPointerDown);
-  }, [revealed]);
-
   const handleBubbleClick = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
       // Suppress the click that follows a long-press activation so the
@@ -291,9 +272,9 @@ export function TranscriptMessageBody({
       if (!isPointerCoarse()) {
         return;
       }
-      setRevealed((v) => !v);
+      toggleRevealed();
     },
-    [slackMessageUrl],
+    [slackMessageUrl, toggleRevealed],
   );
 
   const linkedSubagentEntries = useSubagentStore((s) =>

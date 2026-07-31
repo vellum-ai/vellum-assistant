@@ -65,6 +65,22 @@ describe("LazyAddCreditsModal", () => {
     expect(queryByTestId("add-credits-modal-stub")).toBeNull();
   });
 
+  test("unmounting the modal host resets the store so the checkout does not reopen", async () => {
+    // The modal's single stable mount lives in `ActiveChatView`, which
+    // unmounts on SPA navigation (settings/plans), the auto-greet overlay,
+    // and lifecycle transitions. A stale `open` would pop the checkout back
+    // up uninvoked on the next chat mount.
+    useAddCreditsModalStore.getState().setOpen(true);
+    const { findByTestId, unmount } = render(<LazyAddCreditsModal />);
+    expect(await findByTestId("add-credits-modal-stub")).toBeTruthy();
+
+    unmount();
+    expect(useAddCreditsModalStore.getState().open).toBe(false);
+
+    const { queryByTestId } = render(<LazyAddCreditsModal />);
+    expect(queryByTestId("add-credits-modal-stub")).toBeNull();
+  });
+
   test("an open checkout survives its CTA host unmounting", async () => {
     // Mirrors the production arrangement: the banner is a conditionally
     // rendered CTA host, the modal is mounted at a stable ancestor.
@@ -80,8 +96,16 @@ describe("LazyAddCreditsModal", () => {
     expect(await findByTestId("add-credits-modal-stub")).toBeTruthy();
 
     // Balance state flips (e.g. a concurrent turn ends and the warn band
-    // clears): the banner unmounts, the checkout must stay up.
-    rerender(<LazyAddCreditsModal />);
+    // clears): the banner unmounts, the checkout must stay up. The `{null}`
+    // placeholder keeps the modal at the same tree position, mirroring
+    // production where the CTA host unmounts elsewhere in the tree while the
+    // modal's own mount under `ActiveChatView` stays put.
+    rerender(
+      <>
+        {null}
+        <LazyAddCreditsModal />
+      </>,
+    );
 
     expect(queryByText("Your credits are running low")).toBeNull();
     expect(getByTestId("add-credits-modal-stub")).toBeTruthy();

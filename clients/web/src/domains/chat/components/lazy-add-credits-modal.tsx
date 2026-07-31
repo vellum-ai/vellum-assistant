@@ -1,4 +1,4 @@
-import { lazy } from "react";
+import { lazy, useEffect } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useAddCreditsModalStore } from "@/stores/add-credits-modal-store";
@@ -20,6 +20,13 @@ const AddCreditsModal = lazy(() =>
 export function LazyAddCreditsModal() {
   const open = useAddCreditsModalStore.use.open();
   const setOpen = useAddCreditsModalStore.use.setOpen();
+  // The store outlives this stable mount, so an `open` left behind when the
+  // chat host unmounts (SPA navigation to settings/plans, the auto-greet
+  // overlay, an assistant-lifecycle transition) would pop the checkout back
+  // up uninvoked on the next chat mount. Closing on unmount scopes an open
+  // checkout to the life of its host while still letting it survive its CTA
+  // (banner/card) unmounting.
+  useEffect(() => () => useAddCreditsModalStore.getState().setOpen(false), []);
   if (!open) {
     return null;
   }

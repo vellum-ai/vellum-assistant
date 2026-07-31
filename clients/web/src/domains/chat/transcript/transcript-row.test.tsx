@@ -114,4 +114,67 @@ describe("TranscriptRow creditsUpsell dispatch", () => {
 
     expect(container.querySelector('[title="Inspect"]')).toBeNull();
   });
+
+  test("a coarse-pointer tap reveals the actions; tapping outside dismisses", () => {
+    // Touch screens have no hover and no focus-visible path to the actions
+    // row, so the substituted card mirrors ordinary rows' tap-to-reveal:
+    // tapping the row stamps `data-revealed=true` on the `group/msg` wrapper
+    // (which the actions row's `group-data-[revealed=true]/msg:opacity-100`
+    // class keys off), and a press outside the row dismisses it.
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: mock((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        onchange: null,
+        addListener: mock(() => {}),
+        removeListener: mock(() => {}),
+        addEventListener: mock(() => {}),
+        removeEventListener: mock(() => {}),
+        dispatchEvent: mock(() => false),
+      })),
+    });
+
+    try {
+      const { container, getByTestId } = render(
+        <TranscriptRow
+          item={substitutedItem("m1")}
+          onSurfaceAction={() => {}}
+          onInspectMessage={() => {}}
+        />,
+      );
+      const wrapper = container.querySelector("#msg-m1")!;
+      expect(wrapper.getAttribute("data-revealed")).toBe("false");
+
+      fireEvent.click(getByTestId("credits-upsell-card-stub"));
+      expect(wrapper.getAttribute("data-revealed")).toBe("true");
+
+      fireEvent.pointerDown(document.body);
+      expect(wrapper.getAttribute("data-revealed")).toBe("false");
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
+  test("a fine-pointer click does not toggle the reveal state", () => {
+    // Desktop keeps hover/focus-visible as the only reveal paths; clicking
+    // the row must not latch the actions open.
+    const { container, getByTestId } = render(
+      <TranscriptRow
+        item={substitutedItem("m1")}
+        onSurfaceAction={() => {}}
+        onInspectMessage={() => {}}
+      />,
+    );
+    const wrapper = container.querySelector("#msg-m1")!;
+
+    fireEvent.click(getByTestId("credits-upsell-card-stub"));
+    expect(wrapper.getAttribute("data-revealed")).toBe("false");
+  });
 });
