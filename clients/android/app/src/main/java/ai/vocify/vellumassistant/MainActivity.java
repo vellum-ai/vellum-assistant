@@ -114,7 +114,10 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void finishPendingConnect(String loadedUrl) {
-        if (pendingConnect == null || !SelfHostedServer.samePage(pendingConnect.pairPage(), loadedUrl)) {
+        if (
+            pendingConnect == null ||
+            !SelfHostedServer.samePage(pendingConnect.pairPage().toASCIIString(), loadedUrl)
+        ) {
             return;
         }
         SelfHostedServer.store(this, pendingConnect.server());

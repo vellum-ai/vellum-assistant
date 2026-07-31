@@ -126,18 +126,15 @@ final class SelfHostedServer {
         return candidatePath.equals(basePath) || candidatePath.startsWith(basePath + "/");
     }
 
-    static boolean samePage(URI expected, String rawUrl) {
-        URI actual = validateNavigationUrl(rawUrl);
+    static boolean samePage(String expectedUrl, String actualUrl) {
+        URI expected = validateNavigationUrl(expectedUrl);
+        URI actual = validateNavigationUrl(actualUrl);
         return expected != null
             && actual != null
             && expected.getScheme().equalsIgnoreCase(actual.getScheme())
             && expected.getHost().equalsIgnoreCase(actual.getHost())
             && effectivePort(expected) == effectivePort(actual)
             && normalizePath(expected.getRawPath()).equals(normalizePath(actual.getRawPath()));
-    }
-
-    static boolean samePage(String expectedUrl, String actualUrl) {
-        return samePage(validateNavigationUrl(expectedUrl), actualUrl);
     }
 
     static CapConfig overrideCapacitorConfig(Context context, URI server) throws IOException, JSONException {
