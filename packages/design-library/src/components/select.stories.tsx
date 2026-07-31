@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Globe, Lock, Users } from "lucide-react";
-import { useArgs } from "storybook/preview-api";
 import { useState } from "react";
+import { useArgs } from "storybook/preview-api";
 import { expect, userEvent, within } from "storybook/test";
 
-import { Select, type SelectOption, type SelectProps } from "./select";
+import { Select, type SelectOption } from "./select";
 import { Modal } from "./modal";
 import { Tag } from "./tag";
 
@@ -18,7 +18,28 @@ const fruits: SelectOption<string>[] = [
   { value: "elderberry", label: "Elderberry" },
 ];
 
-const meta: Meta<SelectProps<string>> = {
+const visibilityOptions: SelectOption<string>[] = [
+  { value: "public", label: "Public", icon: <Globe className="h-4 w-4" /> },
+  { value: "team", label: "Team only", icon: <Users className="h-4 w-4" /> },
+  { value: "private", label: "Private", icon: <Lock className="h-4 w-4" /> },
+];
+
+const machineSizes: SelectOption<string>[] = [
+  {
+    value: "small",
+    label: "Small, 2 vCPU, 3 GiB",
+    suffix: <Tag tone="positive">Current</Tag>,
+  },
+  { value: "medium", label: "Medium, 2.5 vCPU, 5 GiB" },
+  { value: "large", label: "Large, 4 vCPU, 8 GiB" },
+];
+
+const manyOptions: SelectOption<string>[] = Array.from(
+  { length: 20 },
+  (_, i) => ({ value: `option-${i + 1}`, label: `Option ${i + 1}` }),
+);
+
+const meta: Meta<typeof Select> = {
   title: "Components/Select",
   component: Select,
   parameters: {
@@ -43,6 +64,11 @@ const meta: Meta<SelectProps<string>> = {
       },
     },
   },
+  args: {
+    options: fruits,
+    value: "apple",
+    "aria-label": "Fruit",
+  },
   argTypes: {
     placeholder: { control: "text" },
     disabled: { control: "boolean" },
@@ -54,112 +80,55 @@ const meta: Meta<SelectProps<string>> = {
     options: { control: false },
     onChange: { control: false },
   },
-};
-
-export default meta;
-type Story = StoryObj<SelectProps<string>>;
-
-export const Default: Story = {
-  args: { value: "apple",
-    "aria-label": "Fruit",
-  },
-  render: function DefaultSelect(args) {
-    const [{ value }, updateArgs] = useArgs();
-    return (
-      <div className="w-64">
-        <Select {...args} options={fruits} value={value}
-          onChange={(next) => updateArgs({ value: next })} />
-      </div>
-    );
-  },
-};
-
-export const WithPlaceholder: Story = {
-  args: { value: "",
-    placeholder: "Select a fruit…",
-    "aria-label": "Fruit",
-  },
-  render: function PlaceholderSelect(args) {
-    const [{ value }, updateArgs] = useArgs();
-    return (
-      <div className="w-64">
-        <Select {...args} options={fruits} value={value}
-          onChange={(next) => updateArgs({ value: next })} />
-      </div>
-    );
-  },
-};
-
-const visibilityOptions: SelectOption<"public" | "team" | "private">[] = [
-  { value: "public", label: "Public", icon: <Globe className="h-4 w-4" /> },
-  { value: "team", label: "Team only", icon: <Users className="h-4 w-4" /> },
-  { value: "private", label: "Private", icon: <Lock className="h-4 w-4" /> },
-];
-
-// Typed to its own narrower `T` rather than casting `args` inside `render`.
-// The generic is the point of these two stories, and a story may declare a
-// props type narrower than the meta's.
-export const WithIcons: StoryObj<SelectProps<"public" | "team" | "private">> = {
-  args: { value: "public",
-    "aria-label": "Visibility",
-  },
-  render: function IconSelect(args) {
+  // Shared by every presentational story: `Select` is controlled, so the value
+  // is driven from the arg and written back, keeping the canvas and the
+  // Controls panel in sync.
+  render: function RenderSelect(args) {
     const [{ value }, updateArgs] = useArgs();
     return (
       <div className="w-64">
         <Select
           {...args}
-          options={visibilityOptions}
           value={value}
           onChange={(next) => updateArgs({ value: next })}
         />
       </div>
     );
+  },
+};
+
+export default meta;
+type Story = StoryObj<typeof Select>;
+
+export const Default: Story = {};
+
+export const WithPlaceholder: Story = {
+  args: { value: "", placeholder: "Select a fruit…" },
+};
+
+export const WithIcons: Story = {
+  args: {
+    options: visibilityOptions,
+    value: "public",
+    "aria-label": "Visibility",
   },
 };
 
 export const Disabled: Story = {
-  args: {
-    disabled: true,
-    "aria-label": "Fruit",
-  },
-  render: (args) => (
-    <div className="w-64">
-      <Select {...args} options={fruits} value="banana" onChange={() => {}} />
-    </div>
-  ),
+  args: { disabled: true, value: "banana" },
 };
 
-const manyOptions: SelectOption<string>[] = Array.from(
-  { length: 20 },
-  (_, i) => ({ value: `option-${i + 1}`, label: `Option ${i + 1}` }),
-);
-
 export const LongList: Story = {
-  args: { value: "option-1",
+  args: {
+    options: manyOptions,
+    value: "option-1",
     menuMaxHeight: 200,
     "aria-label": "Option",
-  },
-  render: function LongListSelect(args) {
-    const [{ value }, updateArgs] = useArgs();
-    return (
-      <div className="w-64">
-        <Select
-          {...args}
-          options={manyOptions}
-          value={value}
-          onChange={(next) => updateArgs({ value: next })}
-        />
-      </div>
-    );
   },
 };
 
 export const EndAligned: Story = {
-  args: { value: "apple",
-    menuAlign: "end",
-    "aria-label": "Fruit",
-  },
+  args: { menuAlign: "end" },
   render: function EndAlignedSelect(args) {
     const [{ value }, updateArgs] = useArgs();
     return (
@@ -167,7 +136,6 @@ export const EndAligned: Story = {
         <div className="w-48">
           <Select
             {...args}
-            options={fruits}
             value={value}
             onChange={(next) => updateArgs({ value: next })}
           />
@@ -177,18 +145,10 @@ export const EndAligned: Story = {
   },
 };
 
-const machineSizes: SelectOption<"small" | "medium" | "large">[] = [
-  {
+export const WithSuffix: Story = {
+  args: {
+    options: machineSizes,
     value: "small",
-    label: "Small, 2 vCPU, 3 GiB",
-    suffix: <Tag tone="positive">Current</Tag>,
-  },
-  { value: "medium", label: "Medium, 2.5 vCPU, 5 GiB" },
-  { value: "large", label: "Large, 4 vCPU, 8 GiB" },
-];
-
-export const WithSuffix: StoryObj<SelectProps<"small" | "medium" | "large">> = {
-  args: { value: "small",
     "aria-label": "Machine size",
   },
   render: function SuffixSelect(args) {
@@ -197,7 +157,6 @@ export const WithSuffix: StoryObj<SelectProps<"small" | "medium" | "large">> = {
       <div className="w-80">
         <Select
           {...args}
-          options={machineSizes}
           value={value}
           onChange={(next) => updateArgs({ value: next })}
         />
@@ -207,27 +166,21 @@ export const WithSuffix: StoryObj<SelectProps<"small" | "medium" | "large">> = {
 };
 
 export const Compact: Story = {
-  args: { value: "apple",
-    size: "compact",
-    "aria-label": "Fruit",
-  },
+  args: { size: "compact" },
   render: function CompactSelect(args) {
     const [{ value }, updateArgs] = useArgs();
     return (
       <div className="w-48">
-        <Select {...args} options={fruits} value={value}
-          onChange={(next) => updateArgs({ value: next })} />
+        <Select
+          {...args}
+          value={value}
+          onChange={(next) => updateArgs({ value: next })}
+        />
       </div>
     );
   },
 };
 
-/**
- * The behaviour `Dropdown` gets wrong: an ancestor with a `transform` becomes
- * the containing block for fixed-position descendants, so a menu rendered
- * inside one resolves its viewport coordinates against that ancestor's box and
- * lands offscreen. Radix portals out of the subtree, so it cannot happen here.
- */
 export const InsideTransformedAncestor: Story = {
   args: { value: "apple", "aria-label": "Fruit" },
   render: function TransformedAncestorSelect(args) {

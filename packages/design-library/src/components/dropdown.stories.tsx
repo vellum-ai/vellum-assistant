@@ -3,7 +3,7 @@ import { Globe, Lock, Users } from "lucide-react";
 import { useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 
-import { Dropdown, type DropdownOption, type DropdownProps } from "./dropdown";
+import { Dropdown, type DropdownOption } from "./dropdown";
 import { Modal } from "./modal";
 import { Tag } from "./tag";
 
@@ -15,7 +15,7 @@ const fruits: DropdownOption<string>[] = [
   { value: "elderberry", label: "Elderberry" },
 ];
 
-const meta: Meta<DropdownProps<string>> = {
+const meta: Meta<typeof Dropdown> = {
   title: "Components/Dropdown",
   component: Dropdown,
   parameters: {
@@ -68,7 +68,7 @@ const meta: Meta<DropdownProps<string>> = {
 };
 
 export default meta;
-type Story = StoryObj<DropdownProps<string>>;
+type Story = StoryObj<typeof Dropdown>;
 
 export const Default: Story = {
   args: {
@@ -109,7 +109,7 @@ export const WithPlaceholder: Story = {
   },
 };
 
-const visibilityOptions: DropdownOption<"public" | "team" | "private">[] = [
+const visibilityOptions: DropdownOption<string>[] = [
   { value: "public", label: "Public", icon: <Globe className="h-4 w-4" /> },
   { value: "team", label: "Team only", icon: <Users className="h-4 w-4" /> },
   {
@@ -124,11 +124,11 @@ export const WithIcons: Story = {
     "aria-label": "Visibility",
   },
   render: function IconDropdown(args) {
-    const [value, setValue] = useState<"public" | "team" | "private">("public");
+    const [value, setValue] = useState("public");
     return (
       <div className="w-64">
         <Dropdown
-          {...(args as DropdownProps<"public" | "team" | "private">)}
+          {...args}
           options={visibilityOptions}
           value={value}
           onChange={setValue}
@@ -205,7 +205,7 @@ export const EndAligned: Story = {
   },
 };
 
-const machineSizes: DropdownOption<"small" | "medium" | "large">[] = [
+const machineSizes: DropdownOption<string>[] = [
   {
     value: "small",
     label: "Small — 2 vCPU, 3 GiB",
@@ -220,11 +220,11 @@ export const WithSuffix: Story = {
     "aria-label": "Machine size",
   },
   render: function SuffixDropdown(args) {
-    const [value, setValue] = useState<"small" | "medium" | "large">("small");
+    const [value, setValue] = useState("small");
     return (
       <div className="w-80">
         <Dropdown
-          {...(args as DropdownProps<"small" | "medium" | "large">)}
+          {...args}
           options={machineSizes}
           value={value}
           onChange={setValue}
