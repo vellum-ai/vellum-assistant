@@ -17,9 +17,23 @@ describe("buildSideConversationMessageBody", () => {
     });
 
     expect(body.hidden).toBe(true);
+    expect(body.sourceChannel).toBe("vellum");
     expect(body.interface).toBe("vellum");
     // `clientOs` is a web-transport concern only.
     expect(body.clientOs).toBeUndefined();
+  });
+
+  test("mints a fresh idempotency nonce per send", () => {
+    const build = () =>
+      buildSideConversationMessageBody({
+        conversationId: "conv-1",
+        content: "same content",
+        transport: "vellum",
+      });
+
+    // Guards against hoisting the nonce to module scope, which would make
+    // the daemon deduplicate every side-conversation send after the first.
+    expect(build().clientMessageId).not.toBe(build().clientMessageId);
   });
 
   test("marks the send hidden on the web transport and carries the OS", () => {

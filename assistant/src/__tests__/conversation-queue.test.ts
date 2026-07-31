@@ -1803,15 +1803,23 @@ describe("Batched drain correctness fixes", () => {
   // only rode along behind it. A channel send gets its reply delivered back to
   // Slack and a hidden marker is nobody's prompt, so pointing the producer at
   // either would suppress a push the user is waiting on.
+  // expectEcho pins the deliberate asymmetry between the two gates: the
+  // echo broadcast uses the narrower echo-suppression predicate, so a
+  // channel send is push-ineligible yet must still echo to passive devices.
   const TRAILING_INELIGIBLE_ROW_CASES: Array<{
     name: string;
     metadata: Record<string, unknown>;
+    expectEcho: boolean;
   }> = [
-    { name: "hidden marker", metadata: { hidden: true } },
-    { name: "channel send", metadata: { userMessageChannel: "slack" } },
+    { name: "hidden marker", metadata: { hidden: true }, expectEcho: false },
+    {
+      name: "channel send",
+      metadata: { userMessageChannel: "slack" },
+      expectEcho: true,
+    },
   ];
 
-  for (const { name, metadata } of TRAILING_INELIGIBLE_ROW_CASES) {
+  for (const { name, metadata, expectEcho } of TRAILING_INELIGIBLE_ROW_CASES) {
     test(`drainBatch notifies about the genuine prompt, not a trailing ${name}`, async () => {
       emitAssistantReplyNotificationMock.mockClear();
       const conversation = makeConversation();
@@ -1828,10 +1836,14 @@ describe("Batched drain correctness fixes", () => {
         content: "batch-prompt-genuine",
         requestId: "req-prompt",
       });
+      const trailingEvents: AssistantEvent[] = [];
       conversation.enqueueMessage({
         content: "batch-prompt-trailing",
         requestId: "req-trailing",
         metadata,
+        onEvent: (e) => {
+          trailingEvents.push(e);
+        },
       });
 
       await resolveRun(0);
@@ -1851,6 +1863,11 @@ describe("Batched drain correctness fixes", () => {
       const notifyCalls = emitAssistantReplyNotificationMock.mock
         .calls as unknown as Array<[{ userMessageId: string | undefined }]>;
       expect(notifyCalls.at(-1)?.[0].userMessageId).toBe(genuineRow!.id);
+
+      const trailingEchoes = trailingEvents.filter(
+        (e) => e.type === "user_message_echo",
+      );
+      expect(trailingEchoes.length).toBe(expectEcho ? 1 : 0);
 
       await new Promise((r) => setTimeout(r, 10));
     });

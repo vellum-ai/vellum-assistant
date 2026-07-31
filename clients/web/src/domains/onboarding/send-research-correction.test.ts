@@ -126,6 +126,9 @@ describe("sendResearchCorrection", () => {
     expect(postCalls[0]?.throwOnError).toBe(false);
     // See `lib/side-conversation-message.ts` for why this posts hidden.
     expect(postCalls[0]?.body.hidden).toBe(true);
+    // Pins this caller's transport choice; the builder test owns the
+    // transport-to-field mapping.
+    expect(postCalls[0]?.body.interface).toBe("web");
 
     expect(archiveCalls).toHaveLength(1);
     expect(archiveCalls[0]?.path).toEqual({ assistant_id: "a1", id: "c1" });
