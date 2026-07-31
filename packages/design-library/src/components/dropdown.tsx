@@ -71,6 +71,21 @@ export interface DropdownProps<T extends string> {
 /**
  * Single-select dropdown for choosing a text item.
  *
+ * @deprecated Use `Select` instead. `Dropdown` hand-rolls its own positioning,
+ * keyboard navigation, outside-click handling and focus management; `Select`
+ * is a thin wrapper over Radix Select, which is what every other overlay in
+ * this package already uses. The two render identically, and `Select`'s props
+ * are a drop-in match apart from options no longer being allowed an
+ * empty-string `value` (use `placeholder`, or a real sentinel).
+ *
+ * Migrating also fixes two defects this component still has: the menu cannot
+ * flip upward, so a trigger low in the viewport opens below the fold, and it
+ * is only safe from ancestor `transform`s because it portals to
+ * `document.body` by hand rather than through a primitive that guarantees it.
+ *
+ * No rush on any individual call site: move them as you touch the files. This
+ * component is not going anywhere until the last one is gone.
+ *
  * Generic over `T extends string` so callers can narrow selection to a union
  * of literal values (e.g. `"managed" | "your-own"`) and get a typed
  * `onChange` callback. Visuals follow semantic tokens (`--surface-lift`,

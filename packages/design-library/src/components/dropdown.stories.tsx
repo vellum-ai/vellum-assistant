@@ -20,6 +20,29 @@ const meta: Meta<DropdownProps<string>> = {
   component: Dropdown,
   parameters: {
     layout: "centered",
+    docs: {
+      description: {
+        component: [
+          "> **Deprecated. Use [`Select`](/docs/components-select--docs) instead.**",
+          ">",
+          "> `Select` renders identically and its props are a drop-in match, except",
+          "> that an option may no longer carry an empty-string `value` (use the",
+          "> `placeholder` prop, or a real sentinel value).",
+          ">",
+          "> **Why:** this component hand-rolls its own positioning, keyboard",
+          "> navigation, outside-click handling and focus management. `Select` is a",
+          "> thin wrapper over Radix Select, which is what every other overlay in",
+          "> this package already uses.",
+          ">",
+          "> **What you get by moving:** the menu flips upward when the trigger sits",
+          "> low in the viewport (this one always opens downward, below the fold),",
+          "> and it cannot be captured by an ancestor `transform`.",
+          ">",
+          "> No rush per call site. Move them as you touch the files; this component",
+          "> stays until the last one is gone.",
+        ].join("\n"),
+      },
+    },
   },
   argTypes: {
     placeholder: { control: "text" },
