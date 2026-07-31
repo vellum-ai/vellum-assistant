@@ -156,7 +156,10 @@ export interface ChatBodyProps {
    * wrapper directly below the composer and above {@link startersSlot}.
    * Visible only on the empty state; the parent passes `undefined` once
    * messages arrive. Rendered as a slot (like {@link startersSlot}) so
-   * `ChatBody` stays agnostic of the plugin data model.
+   * `ChatBody` stays agnostic of the plugin data model. While the soft
+   * keyboard is open the row fades out and collapses its reserved height
+   * (kept mounted) so the composer, not the plugin row, docks to the
+   * keyboard edge.
    */
   pluginPillsSlot?: ReactNode;
 
@@ -297,6 +300,18 @@ export function ChatBody({
     return unregisterVisibleBanner;
   }, [bannerRendered, registerVisibleBanner, unregisterVisibleBanner]);
 
+  // Shared treatment for the below-composer extras (the starters dock and
+  // the plugin pills) while the soft keyboard is open: fade out and collapse
+  // the reserved height so the bottom-anchored composer reaches the keyboard
+  // edge. Each stays mounted so dismissing the keyboard restores it without
+  // a remount, and `inert` removes it from the tab order and the
+  // accessibility tree.
+  const keyboardCollapseProps = {
+    inert: keyboardOpen || undefined,
+    className: `grid transition-[grid-template-rows,opacity] duration-150${keyboardOpen ? " pointer-events-none opacity-0" : ""}`,
+    style: { gridTemplateRows: keyboardOpen ? "0fr" : "1fr" },
+  };
+
   // Composer stack — stays at the same tree position across the empty→active
   // transition so React preserves its state (focus, draft text, attachments)
   // and iOS Safari does not blur the input on first send (LUM-1506 / LUM-1516).
@@ -366,7 +381,13 @@ export function ChatBody({
         {channelFooterSlot}
         <StagedQuotesStrip />
         {composerSlot}
-        {pluginPillsSlot && <div className="mt-4">{pluginPillsSlot}</div>}
+        {pluginPillsSlot && (
+          <div data-slot="new-chat-plugins" {...keyboardCollapseProps}>
+            <div className="min-h-0 overflow-hidden">
+              <div className="mt-4">{pluginPillsSlot}</div>
+            </div>
+          </div>
+        )}
         {trailingStarters}
       </div>
     </div>
@@ -411,17 +432,7 @@ export function ChatBody({
             {renderComposerStack(null)}
           </div>
           {startersSlot && (
-            // While the keyboard is open the dock fades and collapses its
-            // reserved height so the bottom-anchored composer reaches the
-            // keyboard edge. It stays mounted so it restores without a
-            // remount, and `inert` removes it from the tab order and the
-            // accessibility tree.
-            <div
-              data-slot="docked-starters"
-              inert={keyboardOpen || undefined}
-              className={`grid transition-[grid-template-rows,opacity] duration-150${keyboardOpen ? " pointer-events-none opacity-0" : ""}`}
-              style={{ gridTemplateRows: keyboardOpen ? "0fr" : "1fr" }}
-            >
+            <div data-slot="docked-starters" {...keyboardCollapseProps}>
               <div className="min-h-0 overflow-hidden">
                 <div className="px-3 pb-3 sm:px-6">
                   <div className="mx-auto max-w-[var(--chat-max-width)]">
