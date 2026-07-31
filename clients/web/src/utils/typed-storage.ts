@@ -111,20 +111,6 @@ function readRaw(key: string): string | null {
 }
 
 /**
- * Per-entity snapshot cache for `useValue`, keyed by entity ID.
- *
- * `useSyncExternalStore` calls `getSnapshot` on every render and bails out
- * only when the result is reference-equal, so a non-primitive `T` reparsed
- * each call would re-render forever. Caching on the raw string keeps the
- * reference stable while the stored text is unchanged, and self-heals when
- * it isn't. This is the same contract `createStorageAccessor` implements for
- * the static case.
- *
- * Deliberately not shared with `load`. `load` returns a freshly parsed value
- * that callers may mutate; handing them the cached instance would corrupt
- * every subscriber's snapshot.
- */
-/**
  * Session-scoped holding area for values storage refuses to take.
  *
  * `localStorage.setItem` throws in private browsing, under a policy that
@@ -142,17 +128,23 @@ function readRaw(key: string): string | null {
  * that recovers (the user leaves private browsing, quota frees up) goes back
  * to reading straight from storage.
  */
-function createOverrides<T>() {
+function createOverrides<T>(scope: StorageScope) {
   const overrides = new Map<string, T>();
   const store = {
     has: (id: string) => overrides.has(id),
     get: (id: string) => overrides.get(id) as T,
     drop: (id: string) => overrides.delete(id),
+    scope,
     clear: () => overrides.clear(),
     /** Write through to storage, holding the value in memory if it bounces. */
     write(id: string, key: string, value: T, serialized: string): void {
+      // Drop first. `setLocalSetting` notifies synchronously on success, and a
+      // subscriber reading its snapshot during that dispatch would see the
+      // held value, match its previous snapshot, and skip the re-render. No
+      // second notification follows a deletion, so the control would sit on
+      // the superseded value until an unrelated render moved it.
+      overrides.delete(id);
       if (setLocalSetting(key, serialized)) {
-        overrides.delete(id);
         return;
       }
       overrides.set(id, value);
@@ -164,32 +156,52 @@ function createOverrides<T>() {
 }
 
 /**
- * Every override map, so logout can reach all of them.
+ * Every override map, so logout can reach the user-scoped ones.
  *
  * Accessors are module-level singletons created at import time, so this grows
  * once per accessor and never shrinks.
  */
-const overrideStores: { clear: () => void }[] = [];
+const overrideStores: { scope: StorageScope; clear: () => void }[] = [];
 
 /**
- * Drop every value held in memory on behalf of a rejected write.
+ * Drop every user-scoped value held in memory on behalf of a rejected write.
  *
- * These values are user-scoped but live outside `localStorage`, so the logout
- * sweep cannot see them: it removes keys, and an override is precisely the
- * value that never became one. Without this, a preference set on a device that
- * refuses writes would outlive the session that set it and be read by whoever
- * logs in next in the same tab, which is the same trap
- * `clearTakeoverAvatarStash` exists to close for the avatar mirror.
+ * These values live outside `localStorage`, so the logout sweep cannot see
+ * them: it removes keys, and a held value is precisely the one that never
+ * became a key. Without this, a preference set on a device that refuses writes
+ * would outlive the session that set it and be read by whoever logs in next in
+ * the same tab, the same trap `clearTakeoverAvatarStash` exists to close for
+ * the avatar mirror.
+ *
+ * Device-scoped values are left alone. `device:` keys survive logout by
+ * design, so dropping their in-memory counterparts would make a rejected write
+ * the one case where a device preference does not.
  */
-export function clearStorageOverrides(): void {
+export function clearUserScopedOverrides(): void {
   for (const store of overrideStores) {
-    store.clear();
+    if (store.scope === "user") {
+      store.clear();
+    }
   }
 }
 
 /** The single entity id a static-key accessor stores its override under. */
 const STATIC_ID = "";
 
+/**
+ * Per-entity snapshot cache for `useValue`, keyed by entity ID.
+ *
+ * `useSyncExternalStore` calls `getSnapshot` on every render and bails out
+ * only when the result is reference-equal, so a non-primitive `T` reparsed
+ * each call would re-render forever. Caching on the raw string keeps the
+ * reference stable while the stored text is unchanged, and self-heals when
+ * it isn't. This is the same contract `createStorageAccessor` implements for
+ * the static case.
+ *
+ * Deliberately not shared with `load`. `load` returns a freshly parsed value
+ * that callers may mutate; handing them the cached instance would corrupt
+ * every subscriber's snapshot.
+ */
 function createSnapshotCache<T>(
   read: (id: string) => string | null,
   parseOrFallback: (raw: string | null) => T,
@@ -266,7 +278,7 @@ export function createStorageAccessor<T>(
   // and re-render indefinitely.
   let cachedRaw: string | null | undefined;
   let cachedValue: T = fallback;
-  const overrides = createOverrides<T>();
+  const overrides = createOverrides<T>(scope);
 
   function load(): T {
     if (overrides.has(STATIC_ID)) {
@@ -360,7 +372,7 @@ export function createKeyedStorageAccessor<T>(
     }
   }
 
-  const overrides = createOverrides<T>();
+  const overrides = createOverrides<T>(scope);
 
   function load(id: string): T {
     if (overrides.has(id)) {
@@ -490,7 +502,7 @@ export function createRecordStorageAccessor<V>(
     }
   }
 
-  const overrides = createOverrides<Record<string, V>>();
+  const overrides = createOverrides<Record<string, V>>(scope);
 
   function persist(id: string, record: Record<string, V>): void {
     overrides.write(id, keyFn(id), record, JSON.stringify(record));

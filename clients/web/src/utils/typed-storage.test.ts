@@ -3,7 +3,7 @@ import { act, renderHook } from "@testing-library/react";
 
 import { withRejectedWrites } from "./rejected-writes.test-helper";
 import {
-  clearStorageOverrides,
+  clearUserScopedOverrides,
   createKeyedStorageAccessor,
   createRecordStorageAccessor,
   createStorageAccessor,
@@ -18,7 +18,7 @@ afterEach(() => {
   localStorage.clear();
   // Accessors are module singletons, so a value held after a rejected write
   // outlives the test that set it. Logout clears these for the same reason.
-  clearStorageOverrides();
+  clearUserScopedOverrides();
 });
 
 // ---------------------------------------------------------------------------
@@ -226,6 +226,24 @@ describe("createKeyedStorageAccessor", () => {
       expect(keyed.load("asst-1")).toBe("conv-abc");
     });
 
+    // The held value has to be gone before the success notification fires.
+    // `setLocalSetting` dispatches synchronously, so a subscriber reading its
+    // snapshot mid-dispatch would still see the held value, match its previous
+    // snapshot, and skip the re-render. Nothing notifies again afterwards.
+    test("a later successful write reaches mounted subscribers", () => {
+      const { result } = renderHook(() => keyed.useValue("asst-1"));
+
+      withRejectedWrites(() => {
+        act(() => keyed.save("asst-1", "held"));
+      });
+      expect(result.current).toBe("held");
+
+      act(() => keyed.save("asst-1", "persisted"));
+
+      expect(localStorage.getItem("vellum:lastConvo:asst-1")).toBe("persisted");
+      expect(result.current).toBe("persisted");
+    });
+
     test("a later successful write drops the in-memory value", () => {
       withRejectedWrites(() => keyed.save("asst-1", "conv-abc"));
       expect(keyed.load("asst-1")).toBe("conv-abc");
@@ -242,14 +260,37 @@ describe("createKeyedStorageAccessor", () => {
     // sweep cannot reach it by removing keys: the value never became one.
     // Without an explicit clear it would be read by whoever logs in next in
     // the same tab.
-    test("clearStorageOverrides drops a value the logout sweep cannot see", () => {
+    test("clearUserScopedOverrides drops a value the logout sweep cannot see", () => {
       withRejectedWrites(() => keyed.save("asst-1", "conv-abc"));
       expect(keyed.load("asst-1")).toBe("conv-abc");
       expect(localStorage.getItem("vellum:lastConvo:asst-1")).toBeNull();
 
-      clearStorageOverrides();
+      clearUserScopedOverrides();
 
       expect(keyed.load("asst-1")).toBe("");
+    });
+
+    // `device:` keys survive logout by design. Dropping their in-memory
+    // counterparts would make a rejected write the one case where a device
+    // preference does not, so the logout sweep clears user scope only.
+    test("logout leaves a device-scoped held value alone", () => {
+      const deviceAccessor = createKeyedStorageAccessor<string>({
+        keyFn: (id) => `device:probe:${id}`,
+        scope: "device",
+        parse: (raw) => (raw.length > 0 ? raw : null),
+        serialize: (v) => v,
+        fallback: "",
+      });
+
+      withRejectedWrites(() => {
+        keyed.save("asst-1", "user-value");
+        deviceAccessor.save("asst-1", "device-value");
+      });
+
+      clearUserScopedOverrides();
+
+      expect(keyed.load("asst-1")).toBe("");
+      expect(deviceAccessor.load("asst-1")).toBe("device-value");
     });
 
     test("a mutated load() result does not corrupt the snapshot", () => {

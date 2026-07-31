@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, renderHook } from "@testing-library/react";
 
-import { clearStorageOverrides } from "@/utils/typed-storage";
+import { clearUserScopedOverrides } from "@/utils/typed-storage";
 import { withRejectedWrites } from "@/utils/rejected-writes.test-helper";
 import {
   DEFAULT_SIDEBAR_VIEW_MODE,
@@ -17,7 +17,7 @@ afterEach(() => {
   localStorage.clear();
   // Accessors are module singletons, so a value held after a rejected write
   // outlives the test that set it. Logout clears these for the same reason.
-  clearStorageOverrides();
+  clearUserScopedOverrides();
 });
 
 describe("sidebar view mode storage", () => {
