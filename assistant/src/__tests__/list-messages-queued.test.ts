@@ -201,7 +201,7 @@ describe("handleListMessages in-memory queue", () => {
     registerLiveConversation(conv.id, [
       makeQueued({
         requestId: "req-subagent",
-        content: '[Subagent "investigate-ttft" — important] found the cause',
+        content: '[Subagent "investigate-ttft" - important] found the cause',
         metadata: {
           subagentNotification: {
             subagentId: "sub-1",

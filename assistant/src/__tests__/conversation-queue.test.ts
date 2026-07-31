@@ -792,7 +792,7 @@ describe("Conversation message queue", () => {
     // reads, not a send the user is waiting on: it queues without an ack so
     // it never renders in the client's queue drawer.
     const notif = conversation.enqueueMessage({
-      content: '[Subagent "research" — important] found the cause',
+      content: '[Subagent "research" - important] found the cause',
       onEvent: (e) => notifEvents.push(e),
       requestId: "req-notif",
       metadata: {
