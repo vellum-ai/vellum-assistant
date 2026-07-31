@@ -129,15 +129,11 @@ export async function computeConnectionAvailability(
     }
     return vellumManagedMismatch(resolvedConnectionName, provider);
   }
-  // A managed route whose canonical row is claimed by a user-owned connection
-  // dispatches through platform auth and never touches that row, so the
-  // platform's own status is the answer, not the row's. Scoped to the
-  // canonical name: a managed default explicitly pinned to some other row is a
-  // real misconfiguration and still reads as a mismatch below.
-  if (
-    provider === VELLUM_MANAGED_PROVIDER &&
-    resolvedConnectionName === VELLUM_MANAGED_CONNECTION_NAME
-  ) {
+  // Everything routed through the canonical name dispatches on platform auth,
+  // never on a claiming row's credentials, so the platform's own status is the
+  // answer. Scoped to that name: a managed default explicitly pinned to some
+  // other row is a real misconfiguration and still reads as a mismatch below.
+  if (resolvedConnectionName === VELLUM_MANAGED_CONNECTION_NAME) {
     return vellumConnectionAvailability();
   }
   if (connection.provider !== provider) {

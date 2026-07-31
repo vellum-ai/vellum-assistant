@@ -203,7 +203,11 @@ describe("user-owned connection claiming the vellum name", () => {
     expect(resolveCalls[0].connection.auth.type).toBe("platform");
   });
 
-  test("the row still serves a profile that names it directly", async () => {
+  test("a concrete provider over the canonical name is still platform-billed", async () => {
+    // The shape `resolveCallSiteConfig` produces when a call-site tweak pins a
+    // concrete upstream over a managed profile: provider is the upstream, the
+    // managed connection survives. The legacy config of the same shape (a BYOK
+    // profile pointing at a row named `vellum`) resolves the same way.
     fakeConnections.set("vellum", userOwnedOpenai);
     const provider = await tryResolveProviderForConnectionName(
       "vellum",
@@ -213,7 +217,8 @@ describe("user-owned connection claiming the vellum name", () => {
     );
     expect(provider).not.toBeNull();
     expect(resolveCalls).toHaveLength(1);
-    expect(resolveCalls[0].connection.auth.type).toBe("api_key");
+    expect(resolveCalls[0].connection.auth.type).toBe("platform");
+    expect(resolveCalls[0].opts.providerOverride).toBe("openai");
   });
 
   test("the canonical row still routes", async () => {

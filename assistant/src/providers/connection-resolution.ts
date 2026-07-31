@@ -56,7 +56,7 @@ import type { Provider } from "./types.js";
 import {
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
-  VELLUM_MANAGED_PROVIDER,
+  VELLUM_MANAGED_CONNECTION_NAME,
 } from "./vellum-model-routing.js";
 
 export { ConnectionResolutionError, resolveRoutingIdentity };
@@ -121,17 +121,22 @@ export async function tryResolveProviderForConnectionName(
       `provider_connection "${connectionName}" not found in DB — check your config or run the boot-time backfill`,
     );
   }
-  // A `vellum`-identity route ignores a user-owned row claiming the canonical
-  // name. Boot seeding refuses to overwrite such a row, so these installs have
-  // no canonical row at all, but they are platform installs (a managed
-  // profile only resolves when `llm.defaultProvider` is `vellum`), so the
-  // route belongs on platform auth, not on whatever credentials that row
-  // happens to carry. The row keeps serving any profile that names it.
+  // Any route through the canonical connection name is platform-billed, so it
+  // resolves on platform auth and ignores a user-owned row claiming that name
+  // (boot seeding refuses to overwrite such a row, so these installs have no
+  // canonical row at all). Keyed on the name rather than the declared
+  // provider: a call-site tweak pinning a concrete upstream over a managed
+  // profile keeps the managed connection while replacing the provider
+  // (`llm-resolver.ts`), and that route is platform-billed just the same.
   if (
-    declaredProvider === VELLUM_MANAGED_PROVIDER &&
+    connectionName === VELLUM_MANAGED_CONNECTION_NAME &&
     !isVellumManagedConnection(connection)
   ) {
-    return resolveThroughPlatform(config, expectedProvider, model);
+    return resolveThroughPlatform(
+      config,
+      expectedProvider ?? declaredProvider,
+      model,
+    );
   }
   // The provider-agnostic Vellum-managed connection carries only the `vellum`
   // sentinel, so the usual `connection.provider === expectedProvider` equality
@@ -405,11 +410,10 @@ export async function preflightResolvedConfig(
       errorOptions,
     );
   }
-  // Dispatch routes a managed profile through platform auth when a user-owned
-  // row claims the canonical name, so preflight judges the platform rather
-  // than that row's credentials.
+  // Dispatch routes anything through the canonical name on platform auth, so
+  // preflight judges the platform rather than a claiming row's credentials.
   if (
-    resolved.provider === VELLUM_MANAGED_PROVIDER &&
+    connectionName === VELLUM_MANAGED_CONNECTION_NAME &&
     !isVellumManagedConnection(connection)
   ) {
     connection = canonicalVellumConnection();

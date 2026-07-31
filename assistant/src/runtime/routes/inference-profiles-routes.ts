@@ -41,7 +41,6 @@ import { ROUTING_IDENTITY_PROVIDERS } from "../../providers/inference/auth.js";
 import { computeConnectionAvailability } from "../../providers/inference/connection-availability.js";
 import { getConnection } from "../../providers/inference/connections.js";
 import { isModelInCatalog } from "../../providers/model-catalog.js";
-import { VELLUM_MANAGED_PROVIDER } from "../../providers/vellum-model-routing.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   commitConfigWrite,
@@ -225,14 +224,8 @@ async function profileAvailability(
       if (!identity) {
         return null;
       }
-      // The managed sentinel is judged as itself, not as the derived upstream:
-      // its route is platform auth whatever row holds the canonical name.
-      // `chatgpt` rows genuinely store the upstream as their provider, so they
-      // keep judging against it.
       return computeConnectionAvailability(
-        provider === VELLUM_MANAGED_PROVIDER
-          ? provider
-          : identity.expectedProvider,
+        identity.expectedProvider,
         identity.connectionName,
       );
     } catch (err) {
