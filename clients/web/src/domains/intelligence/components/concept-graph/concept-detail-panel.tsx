@@ -159,6 +159,7 @@ export function ConceptDetailPanel({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
         onClose();
       }
     };

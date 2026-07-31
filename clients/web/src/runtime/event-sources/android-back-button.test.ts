@@ -169,6 +169,51 @@ describe("subscribeAndroidBackButtonSource", () => {
     historyBackSpy.mockRestore();
   });
 
+  test("offers Back to a global Escape surface without a dialog marker", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    const escapeHandler = mock((event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+      }
+    });
+    window.addEventListener("keydown", escapeHandler);
+
+    subscribeAndroidBackButtonSource();
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(escapeHandler).toHaveBeenCalledTimes(1);
+    expect(historyBackSpy).not.toHaveBeenCalled();
+    expect(minimizeAppMock).not.toHaveBeenCalled();
+
+    window.removeEventListener("keydown", escapeHandler);
+    historyBackSpy.mockRestore();
+  });
+
+  test("does not close a lower global surface behind a claimed layer", async () => {
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.addEventListener("keydown", (event) => event.preventDefault());
+    document.body.append(dialog);
+    const lowerClose = mock(() => {});
+    const lowerHandler = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        lowerClose();
+      }
+    };
+    window.addEventListener("keydown", lowerHandler);
+
+    subscribeAndroidBackButtonSource();
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(lowerClose).not.toHaveBeenCalled();
+
+    window.removeEventListener("keydown", lowerHandler);
+  });
+
   test("closes an active process overlay before changing history", async () => {
     const historyBackSpy = spyOn(window.history, "back").mockImplementation(
       () => undefined,

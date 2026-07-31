@@ -45,19 +45,25 @@ function getLayerEscapeTarget(layer: HTMLElement): HTMLElement {
   return layer;
 }
 
-async function dismissOpenLayer(): Promise<boolean> {
-  const layers = document.querySelectorAll<HTMLElement>(OPEN_LAYER_SELECTOR);
-  const layer = layers.item(layers.length - 1);
-  if (!layer) {
-    return false;
-  }
-
+function dispatchEscape(target: EventTarget): KeyboardEvent {
   const event = new KeyboardEvent("keydown", {
     key: "Escape",
     bubbles: true,
     cancelable: true,
   });
-  getLayerEscapeTarget(layer).dispatchEvent(event);
+  target.dispatchEvent(event);
+  return event;
+}
+
+async function dismissEscapeLayer(): Promise<boolean> {
+  const layers = document.querySelectorAll<HTMLElement>(OPEN_LAYER_SELECTOR);
+  const layer = layers.item(layers.length - 1);
+  if (!layer) {
+    const target = document.activeElement ?? document.body;
+    return dispatchEscape(target).defaultPrevented;
+  }
+
+  const event = dispatchEscape(getLayerEscapeTarget(layer));
 
   if (wasLayerDismissed(layer, event)) {
     return true;
@@ -102,7 +108,7 @@ export function subscribeAndroidBackButtonSource(): () => void {
     const { App } = await import("@capacitor/app");
     let handlingBack = false;
     const handleBack = async (canGoBack: boolean): Promise<void> => {
-      if ((await dismissOpenLayer()) || dismissViewerLayer()) {
+      if ((await dismissEscapeLayer()) || dismissViewerLayer()) {
         return;
       }
       if (canGoBack) {
