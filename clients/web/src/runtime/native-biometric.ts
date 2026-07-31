@@ -4,6 +4,11 @@ import { isNativePlatform } from "@/runtime/native-auth";
 import { APEX_DOMAIN, isVellumDomain } from "@/utils/domains";
 import { getDeviceBool, setDeviceBool } from "@/utils/device-settings";
 
+/**
+ * Biometric login is enabled by default on devices that support it. Users
+ * can opt out via Settings → Privacy. The preference is stored in
+ * localStorage under the `device:biometric_enabled` key.
+ */
 export type BiometricType =
   | "faceId"
   | "touchId"
@@ -76,8 +81,10 @@ function nativeErrorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
-function legacyServerFor(origin: string): string | null {
-  return isVellumDomain(new URL(origin).hostname) ? APEX_DOMAIN : null;
+function biometricServers(origin: string): string[] {
+  return isVellumDomain(new URL(origin).hostname)
+    ? [origin, APEX_DOMAIN]
+    : [origin];
 }
 
 export async function getBiometricCapability(): Promise<BiometricCapability> {
@@ -123,6 +130,14 @@ async function retrieveTokenForServer(server: string): Promise<string> {
   return token;
 }
 
+/**
+ * Attempt to retrieve a session token via biometric authentication.
+ * iOS presents the Face ID / Touch ID prompt automatically when the
+ * Keychain item is accessed.
+ *
+ * Returns `null` if no token is stored, biometrics fail, or the user
+ * cancels the prompt.
+ */
 export async function retrieveBiometricToken(): Promise<string | null> {
   if (!isNativePlatform()) {
     return null;
@@ -132,57 +147,54 @@ export async function retrieveBiometricToken(): Promise<string | null> {
   }
 
   pendingRetrieval = (async () => {
-    const server = getBiometricServerOrigin();
-    try {
-      return await retrieveTokenForServer(server);
-    } catch (error) {
-      const code = nativeErrorCode(error);
-      const legacyServer = legacyServerFor(server);
-      if (code === "TOKEN_NOT_FOUND" && legacyServer) {
-        try {
-          return await retrieveTokenForServer(legacyServer);
-        } catch (legacyError) {
-          if (nativeErrorCode(legacyError) === "KEY_INVALIDATED") {
-            setBiometricEnabled(false);
-          }
+    for (const server of biometricServers(getBiometricServerOrigin())) {
+      try {
+        return await retrieveTokenForServer(server);
+      } catch (error) {
+        const code = nativeErrorCode(error);
+        if (code === "KEY_INVALIDATED") {
+          setBiometricEnabled(false);
         }
-      } else if (code === "KEY_INVALIDATED") {
-        setBiometricEnabled(false);
+        if (code !== "TOKEN_NOT_FOUND") {
+          return null;
+        }
       }
-      return null;
-    } finally {
-      pendingRetrieval = null;
     }
-  })();
+    return null;
+  })().finally(() => {
+    pendingRetrieval = null;
+  });
 
   return pendingRetrieval;
 }
 
+/**
+ * Delete any stored biometric session token. Called on logout to ensure
+ * the next app launch requires a fresh WorkOS login.
+ */
 export async function deleteBiometricToken(): Promise<void> {
   if (!isNativePlatform()) {
     return;
   }
 
-  const server = getBiometricServerOrigin();
-  const servers = [server];
-  const legacyServer = legacyServerFor(server);
-  if (legacyServer) {
-    servers.push(legacyServer);
-  }
-
-  for (const serverKey of servers) {
+  for (const server of biometricServers(getBiometricServerOrigin())) {
     try {
-      await NativeBiometric.deleteToken({ server: serverKey });
+      await NativeBiometric.deleteToken({ server });
     } catch {
       // Missing plugins and absent credentials are safe to ignore during logout.
     }
   }
 }
 
+// ---------------------------------------------------------------------------
+// Preference helpers
+// ---------------------------------------------------------------------------
+
 export function isBiometricEnabled(): boolean {
   return getDeviceBool("biometricEnabled", true);
 }
 
+/** Persist the biometric login preference. */
 export function setBiometricEnabled(enabled: boolean): void {
   setDeviceBool("biometricEnabled", enabled);
 }
