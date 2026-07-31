@@ -4,7 +4,8 @@
  * Coverage matrix:
  *   - Qualifying unseen reply in a user conversation emits exactly one signal,
  *     asserted on the full shape (dedupeKey, absent `requiresConversation`).
- *   - Background / scheduled / memory-consolidation conversations are silent.
+ *   - Every non-"user" kind of the shared `resolveConversationKind` classifier
+ *     is silent.
  *   - An `automated: true` initiating user message is silent.
  *   - An already-seen reply is silent.
  *   - A tool-only reply (empty text preview) is silent.
@@ -17,6 +18,8 @@ import type {
   ConversationRow,
   MessageRow,
 } from "../../persistence/conversation-crud.js";
+import { resolveConversationKind } from "../../persistence/conversation-types.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/substrate/constants.js";
 import type { ContentBlock } from "../../providers/types.js";
 
 // ── Module mocks ───────────────────────────────────────────────────────
@@ -170,6 +173,18 @@ function makeAttentionState(
   };
 }
 
+const NON_USER_KIND_CASES: Array<{
+  name: string;
+  overrides: Partial<ConversationRow>;
+}> = [
+  { name: "background", overrides: { conversationType: "background" } },
+  { name: "scheduled", overrides: { conversationType: "scheduled" } },
+  {
+    name: "memory-consolidation",
+    overrides: { source: MEMORY_V2_CONSOLIDATION_SOURCE },
+  },
+];
+
 const warnCalls: unknown[] = [];
 const rlog = {
   warn: (...args: unknown[]) => {
@@ -249,33 +264,25 @@ describe("emitAssistantReplyNotification", () => {
     expect(preview.endsWith("…")).toBe(true);
   });
 
-  test("stays silent for a background conversation", async () => {
-    conversationRow = makeConversation({ conversationType: "background" });
+  // Each case asserts the shared classifier's verdict alongside the silence, so
+  // the gate is exercised through `resolveConversationKind` rather than through
+  // a restatement of its branches.
+  for (const { name, overrides } of NON_USER_KIND_CASES) {
+    test(`stays silent for a ${name} conversation`, async () => {
+      conversationRow = makeConversation(overrides);
 
-    await run();
+      expect(
+        resolveConversationKind(
+          conversationRow.source,
+          conversationRow.conversationType,
+        ),
+      ).not.toBe("user");
 
-    expect(emitCalls).toHaveLength(0);
-  });
+      await run();
 
-  test("stays silent for a scheduled conversation", async () => {
-    conversationRow = makeConversation({ conversationType: "scheduled" });
-
-    await run();
-
-    expect(emitCalls).toHaveLength(0);
-  });
-
-  test("stays silent for a memory-consolidation conversation", async () => {
-    const { MEMORY_V2_CONSOLIDATION_SOURCE } =
-      await import("../../plugins/defaults/memory/substrate/constants.js");
-    conversationRow = makeConversation({
-      source: MEMORY_V2_CONSOLIDATION_SOURCE,
+      expect(emitCalls).toHaveLength(0);
     });
-
-    await run();
-
-    expect(emitCalls).toHaveLength(0);
-  });
+  }
 
   test("stays silent when the conversation is missing", async () => {
     conversationRow = null;

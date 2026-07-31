@@ -13,35 +13,19 @@ import type pino from "pino";
 import { isToolResultMessage } from "../context/refusal-quarantine.js";
 import { getAttentionStateByConversationIds } from "../persistence/conversation-attention-store.js";
 import {
-  type ConversationRow,
   getConversation,
   getMessageById,
   getMessagesPaginated,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
+import { resolveConversationKind } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../plugins/defaults/memory/substrate/constants.js";
 import type { ContentBlock } from "../providers/types.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import { truncate } from "./notification-utils.js";
 
 /** Roughly one notification body's worth of reply text. */
 const PREVIEW_MAX_CHARS = 200;
-
-/**
- * True only for the `"user"` kind of `resolveConversationKind`
- * (`runtime/routes/conversation-query-routes.ts`). Replicated rather than
- * imported because producers must not depend on `runtime/routes`; the three
- * excluded kinds (memory consolidation, background, scheduled) are the ones
- * that already have their own notification producers.
- */
-function isUserInitiatedConversation(conversation: ConversationRow): boolean {
-  return (
-    conversation.source !== MEMORY_V2_CONSOLIDATION_SOURCE &&
-    conversation.conversationType !== "background" &&
-    conversation.conversationType !== "scheduled"
-  );
-}
 
 /**
  * Same unseen predicate the sidebar renders from (`buildAssistantAttention` in
@@ -99,7 +83,13 @@ export async function emitAssistantReplyNotification(params: {
     if (!conversation) {
       return;
     }
-    if (!isUserInitiatedConversation(conversation)) {
+    // The other three kinds (memory consolidation, background, scheduled) each
+    // already have their own notification producer.
+    const kind = resolveConversationKind(
+      conversation.source,
+      conversation.conversationType,
+    );
+    if (kind !== "user") {
       return;
     }
     if (!isLatestReplyUnseen(conversationId)) {
