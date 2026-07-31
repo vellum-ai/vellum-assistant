@@ -288,9 +288,96 @@ describe("releasing ownership of a worker", () => {
       },
     };
 
-    await backend.terminateWorker(wedged);
+    const confirmed = await backend.terminateWorker(wedged);
 
     expect(signals).toEqual([undefined, "SIGKILL"]);
+    // A successful kill() proves signal delivery, not exit.
+    expect(confirmed).toBe(false);
+  });
+});
+
+/**
+ * The tail case: the child never exits, even after SIGKILL (uninterruptible
+ * I/O). Bounding the wait must not become "assume it worked". Forgetting the
+ * child here and spawning a replacement would recreate the exact
+ * invisible-duplicate failure this change exists to remove, so every path
+ * fails closed: ownership and the PID publication are retained, and no
+ * replacement may start until the process is confirmed gone.
+ */
+describe("termination that cannot be confirmed", () => {
+  function wedgedProc(pid = 4444) {
+    return {
+      pid,
+      exited: new Promise<number>(() => {}),
+      kill() {},
+      stdin: { write() {}, flush() {} },
+    };
+  }
+
+  test("keeps the PID publication instead of unpublishing a possibly-live child", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.terminateGraceMs = 20;
+    const proc = wedgedProc();
+    backend.workerProc = proc;
+    writeFileSync(getEmbedWorkerPidPath(), String(proc.pid));
+
+    await backend.shutdown();
+
+    expect(existsSync(getEmbedWorkerPidPath())).toBe(true);
+    expect(readFileSync(getEmbedWorkerPidPath(), "utf-8").trim()).toBe(
+      String(proc.pid),
+    );
+    expect(backend.unconfirmedWorker).toBe(proc.pid);
+  });
+
+  test("refuses to start a replacement while the child may still be alive", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    // No workerPath recorded, so liveness falls back to a PID probe. Our own
+    // PID is certainly alive, standing in for a child that will not die.
+    backend.unconfirmedWorker = process.pid;
+
+    await expect(backend.ensureInitialized()).rejects.toThrow(
+      /could not be confirmed terminated/,
+    );
+  });
+
+  test("surfaces the incomplete teardown through embed() rather than failing silently", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.unconfirmedWorker = process.pid;
+
+    await expect(backend.embed(["hello"])).rejects.toThrow(
+      /could not be confirmed terminated/,
+    );
+  });
+
+  test("lifts the block once the process is actually gone", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "embed-worker-recover-"));
+    const scriptPath = join(dir, "embed-worker.mjs");
+    writeFileSync(scriptPath, "setTimeout(() => {}, 60_000);\n");
+
+    const proc = Bun.spawn({
+      cmd: [process.execPath, scriptPath],
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await Bun.sleep(400);
+
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.workerPath = scriptPath;
+    backend.unconfirmedWorker = proc.pid;
+    writeFileSync(getEmbedWorkerPidPath(), String(proc.pid));
+
+    // Still listed, so the block holds.
+    expect(backend.unconfirmedWorkerStillAlive()).toBe(true);
+
+    proc.kill();
+    await proc.exited;
+    await Bun.sleep(300);
+
+    // Gone, so the backend recovers on its own without a restart.
+    expect(backend.unconfirmedWorkerStillAlive()).toBe(false);
+    expect(backend.unconfirmedWorker).toBeNull();
+    expect(existsSync(getEmbedWorkerPidPath())).toBe(false);
   });
 });
 

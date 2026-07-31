@@ -67,6 +67,14 @@ function clearModelCache(): void {
 /** How long a worker gets to exit after each signal before we escalate. */
 const WORKER_TERMINATE_GRACE_MS = 2_000;
 
+/**
+ * Worst-case time to tear down one worker: the SIGTERM wait plus the SIGKILL
+ * wait. Exported so a caller that bounds its own shutdown (the standalone
+ * memory-worker process) can budget above this instead of guessing, which
+ * would otherwise exit before disposal could finish on the slow path.
+ */
+export const WORKER_TEARDOWN_BUDGET_MS = WORKER_TERMINATE_GRACE_MS * 2;
+
 /** Poll interval while waiting for a worker we hold no handle for to exit. */
 const WORKER_EXIT_POLL_MS = 50;
 
@@ -244,6 +252,10 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
 
   private readonly initGuard = new PromiseGuard<void>();
   private initInFlight: Promise<void> | null = null;
+  /** A worker signalled but never confirmed dead. Blocks any replacement. */
+  private unconfirmedWorker: number | null = null;
+  /** Path of the worker script, retained so liveness can be re-probed. */
+  private workerPath: string | null = null;
   /** Overridable so tests can exercise the escalation path without the wait. */
   private terminateGraceMs = WORKER_TERMINATE_GRACE_MS;
 
@@ -348,6 +360,13 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     if (this.workerProc) {
       return;
     }
+    // Fail closed: a child we could not confirm dead may still be running, so
+    // starting a replacement here would recreate the duplicate-worker bug.
+    if (this.unconfirmedWorkerStillAlive()) {
+      throw new Error(
+        `Local embedding backend unavailable: worker ${this.unconfirmedWorker} could not be confirmed terminated`,
+      );
+    }
     // Tracked so `shutdown()` can wait for an initialization that has not yet
     // assigned `workerProc`. Without it, shutting down mid-download returns
     // with nothing to reap and the initializer spawns an orphan afterwards.
@@ -417,6 +436,8 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   ): Promise<void> {
     const embeddingModelsDir = getEmbeddingModelsDir();
     const modelCacheDir = `${embeddingModelsDir}/model-cache`;
+
+    this.workerPath = workerPath;
 
     // Singleton guard: a worker this process already owns (or one orphaned by
     // a crashed owner) may still be running. Reclaim it, and wait for it to be
@@ -542,7 +563,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       // entry is gone, no later reclaim can find it, so it lives until reboot
       // holding ~570 MB (JARVIS-1125). Terminate and wait for the OS to confirm
       // before forgetting it.
-      await this.terminateWorker(proc);
+      const confirmed = await this.terminateWorker(proc);
 
       // Re-check: a new worker may have been spawned while we awaited exit.
       if (this.workerProc !== proc) {
@@ -557,10 +578,16 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       this.pendingRequests.clear();
       this.workerProc = null;
       this.stdoutReaderActive = false;
-      this.releasePidFile(proc.pid);
       this.stdoutBuffer = "";
-      // Allow re-initialization on next embed() call
+      // Allow re-initialization on next embed() call. When the child was not
+      // confirmed dead, ownership and publication are retained instead, and
+      // ensureInitialized refuses to spawn beside it.
       this.initGuard.reset();
+      if (confirmed) {
+        this.releasePidFile(proc.pid);
+      } else {
+        this.retainUnconfirmedWorker(proc.pid);
+      }
     })();
   }
 
@@ -575,15 +602,16 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    * The wait is bounded. A worker wedged in native ONNX code can ignore SIGTERM,
    * and an unbounded wait here would hang every in-flight embed and block
    * re-initialization forever, since the caller only resolves pending requests
-   * afterwards. SIGKILL cannot be ignored, so reaching the second timeout means
-   * the process is already unkillable (uninterruptible I/O), where proceeding is
-   * strictly better than hanging: the reclaim sweep on the next spawn is the
-   * backstop.
+   * afterwards.
+   *
+   * Returns whether the child was CONFIRMED gone. A successful `kill` proves
+   * signal delivery, not exit, so callers must not treat `false` as disposal:
+   * see {@link retainUnconfirmedWorker} for the fail-closed handling.
    */
   private async terminateWorker(proc: {
     kill: (signal?: number | NodeJS.Signals) => void;
     exited: Promise<unknown>;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const settled = proc.exited.catch(() => undefined);
 
     try {
@@ -592,7 +620,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       // Already exiting or already reaped.
     }
     if (await didSettle(settled, this.terminateGraceMs)) {
-      return;
+      return true;
     }
 
     log.warn(
@@ -604,12 +632,52 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     } catch {
       // Already gone.
     }
-    if (!(await didSettle(settled, this.terminateGraceMs))) {
-      log.error(
-        { model: this.model },
-        "Embedding worker survived SIGKILL; leaving it to the next reclaim sweep",
-      );
+    return didSettle(settled, this.terminateGraceMs);
+  }
+
+  /**
+   * Record a worker that was signalled but never confirmed dead.
+   *
+   * This is the fail-closed half of the "never forget an unconfirmed child"
+   * invariant. The transport is gone either way, so `workerProc` is cleared,
+   * but ownership is not: the PID publication is kept and this state blocks
+   * {@link ensureInitialized} from spawning a replacement. Otherwise a child
+   * that survived SIGKILL (uninterruptible I/O) would run unowned and
+   * unpublished beside its replacement, which is the invisible-duplicate class
+   * this whole change exists to remove.
+   *
+   * Self-healing: the block lifts as soon as the process actually disappears,
+   * checked on the next initialization attempt.
+   */
+  private retainUnconfirmedWorker(pid: number): void {
+    this.unconfirmedWorker = pid;
+    log.error(
+      { pid, model: this.model },
+      "Embedding worker could not be confirmed terminated; retaining ownership and refusing to spawn a replacement",
+    );
+  }
+
+  /**
+   * Whether a retained worker is still present. Clears the retention when it
+   * has finally gone, so the backend recovers without a restart.
+   */
+  private unconfirmedWorkerStillAlive(): boolean {
+    const pid = this.unconfirmedWorker;
+    if (pid == null) {
+      return false;
     }
+    const stillListed = this.workerPath
+      ? listWorkerProcesses(this.workerPath).some((w) => w.pid === pid)
+      : isProcessAlive(pid);
+    if (!stillListed) {
+      log.info(
+        { pid, model: this.model },
+        "Previously unconfirmed embedding worker is gone; allowing a replacement",
+      );
+      this.unconfirmedWorker = null;
+      this.releasePidFile(pid);
+    }
+    return stillListed;
   }
 
   /**
@@ -839,11 +907,21 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         } catch {
           // Already gone.
         }
-        await this.waitForWorkerExit(
-          worker.pid,
-          workerPath,
-          this.terminateGraceMs,
-        );
+        if (
+          !(await this.waitForWorkerExit(
+            worker.pid,
+            workerPath,
+            this.terminateGraceMs,
+          ))
+        ) {
+          // Fail closed. Publishing a replacement now would leave this child
+          // running unowned beside it, which is the duplicate-worker class
+          // being fixed. Abort the spawn instead and keep the publication.
+          this.retainUnconfirmedWorker(worker.pid);
+          throw new Error(
+            `Local embedding backend unavailable: worker ${worker.pid} survived SIGKILL and could not be confirmed terminated`,
+          );
+        }
       }
 
       this.releasePidFile(worker.pid);
@@ -885,8 +963,13 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       return;
     }
 
-    this.releasePidFile(proc.pid);
-    void this.terminateWorker(proc);
+    void this.terminateWorker(proc).then((confirmed) => {
+      if (confirmed) {
+        this.releasePidFile(proc.pid);
+      } else {
+        this.retainUnconfirmedWorker(proc.pid);
+      }
+    });
   }
 
   /**
@@ -925,7 +1008,12 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       return;
     }
 
-    this.releasePidFile(proc.pid);
-    await this.terminateWorker(proc);
+    if (await this.terminateWorker(proc)) {
+      this.releasePidFile(proc.pid);
+      return;
+    }
+    // Leave the publication in place: the child may outlive us, and the entry
+    // is what lets the next owner's reclaim sweep find and reap it.
+    this.retainUnconfirmedWorker(proc.pid);
   }
 }

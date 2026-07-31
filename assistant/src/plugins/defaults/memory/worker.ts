@@ -17,6 +17,7 @@ import { isMemoryEnabled } from "../../../config/memory-v3-gate.js";
 import { rehydratePlatformCredentials } from "../../../config/platform-rehydration.js";
 import { resetDb } from "../../../persistence/db-connection.js";
 import { shutdownEmbeddingBackends } from "../../../persistence/embeddings/embedding-backend.js";
+import { WORKER_TEARDOWN_BUDGET_MS } from "../../../persistence/embeddings/embedding-local.js";
 import { disableStreamSeqStamping } from "../../../runtime/assistant-stream-state.js";
 import { initializeTools } from "../../../tools/registry.js";
 import {
@@ -81,12 +82,13 @@ async function main(): Promise<void> {
   let keepAlive: ReturnType<typeof setInterval> | null = null;
   let disposePidGuard: (() => void) | null = null;
   // Set synchronously by shutdown() so startup below can tell it has been
-  // superseded. The exit itself is deferred (see shutdown), and without this
-  // flag an evicted worker would fall through to the jobs worker loop, whose
+  // superseded. Eviction exits immediately, but a signal arriving mid-startup
+  // defers its exit to reap the backend, and without this flag that worker
+  // would fall through to the jobs worker loop, whose
   // resetRunningJobsToPending() resets the LIVE successor's in-progress jobs
   // and fires the startup orphan sweeps against its data.
   let shuttingDown = false;
-  const shutdown = (signal: string) => {
+  const shutdown = (signal: string, opts: { immediate?: boolean } = {}) => {
     if (shuttingDown) {
       return;
     }
@@ -99,16 +101,25 @@ async function main(): Promise<void> {
     disposePidGuard?.();
     cleanupWorkerPidFile(pidPath);
 
-    // This process runs its own embedding backend, so it owns an ONNX worker
-    // subprocess the daemon must not touch. Reap it here rather than leaving an
-    // orphan for a later spawn's sweep to find (JARVIS-1125). Bounded, because
-    // exiting promptly matters more than a clean reap and the sweep is the
-    // backstop.
+    // Eviction means a successor is already live and about to reset every
+    // `running` job to `pending`. `worker.stop()` does not cancel the tick
+    // already in flight, so staying alive to reap would let this process keep
+    // executing a job the successor has just reclaimed. Exit now instead; the
+    // embed worker is reparented to init and the successor's sweep reaps it
+    // as an orphan.
+    if (opts.immediate) {
+      process.exit(0);
+    }
+
+    // Signal shutdown: no successor exists, so take the time to reap the ONNX
+    // worker subprocess this process owns rather than leaving an orphan
+    // (JARVIS-1125). The budget clears one full worker teardown (SIGTERM wait
+    // plus SIGKILL wait) so disposal can finish on the slow path.
     void Promise.race([
       shutdownEmbeddingBackends().catch((err: unknown) => {
         log.warn({ err }, "Embedding backend shutdown failed (non-fatal)");
       }),
-      Bun.sleep(2_000),
+      Bun.sleep(WORKER_TEARDOWN_BUDGET_MS + 1_000),
     ]).finally(() => process.exit(0));
   };
 
@@ -121,7 +132,7 @@ async function main(): Promise<void> {
   disposePidGuard = startWorkerPidFileGuard(pidPath, {
     onEvicted: (reason) => {
       log.warn({ reason }, "Evicted: the PID file no longer names this worker");
-      shutdown("pid-file-eviction");
+      shutdown("pid-file-eviction", { immediate: true });
     },
   });
 
