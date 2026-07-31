@@ -60,7 +60,7 @@ describe("handleListMessages provider-error projection", () => {
       JSON.stringify([
         {
           type: "text",
-          text: "You're out of credits, so I can't reply right now. Add credits in Settings → Billing and we can pick up where we left off.",
+          text: "I couldn't reply because you ran out of credits. Add credits in Settings → Billing and we can pick up where we left off.",
         },
       ]),
       {

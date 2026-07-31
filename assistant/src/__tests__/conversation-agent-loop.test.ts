@@ -2262,7 +2262,7 @@ describe("session-agent-loop", () => {
         text: string;
       }>;
       expect(persistedBlocks[0]?.text).toBe(
-        "You're out of credits, so I can't reply right now. Add credits in Settings → Billing and we can pick up where we left off.",
+        "I couldn't reply because you ran out of credits. Add credits in Settings → Billing and we can pick up where we left off.",
       );
       expect(addCall[3]?.metadata).toMatchObject({
         messageKind: "provider_error",
