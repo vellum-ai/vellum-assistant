@@ -1,0 +1,190 @@
+/**
+ * `postLocalNotification` native-branch behavior, focused on the
+ * remote-push dedup skip: a hidden Capacitor iOS app with an active APNs
+ * registration and a daemon-confirmed accepted remote push must not also
+ * schedule the local banner (the APNs banner covers it), while foreground
+ * and old-daemon paths keep scheduling as before.
+ */
+
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// ── host platform guards ─────────────────────────────────────────────────────
+//
+// Force the native (Capacitor) branch: `isNativePlatform` reports false
+// under happy-dom, and the Electron branch would return before reaching
+// the code under test.
+
+mock.module("@/runtime/is-electron", () => ({
+  isElectron: () => false,
+}));
+mock.module("@/runtime/native-auth", () => ({
+  isNativePlatform: () => true,
+}));
+
+// ── push-registration read-only helpers ──────────────────────────────────────
+//
+// Mocked as pure flags; the helpers' own behavior is covered by
+// push-registration.test.ts.
+
+let remotePushSupported = true;
+let activeRegistrationAssistantId: string | null = null;
+mock.module("@/runtime/push-registration", () => ({
+  isRemotePushSupported: () => remotePushSupported,
+  hasActiveRemotePushRegistration: (assistantId: string) =>
+    activeRegistrationAssistantId === assistantId,
+}));
+
+// ── @capacitor/local-notifications ───────────────────────────────────────────
+
+interface ScheduleArg {
+  notifications: Array<{ id: number; title: string; body: string }>;
+}
+const scheduleMock = mock(async (_arg: ScheduleArg) => {});
+mock.module("@capacitor/local-notifications", () => ({
+  LocalNotifications: {
+    checkPermissions: async () => ({ display: "granted" }),
+    requestPermissions: async () => ({ display: "granted" }),
+    schedule: scheduleMock,
+    addListener: async () => ({ remove: async () => {} }),
+  },
+}));
+
+// ── daemon ack SDK ───────────────────────────────────────────────────────────
+
+interface AckArg {
+  path: { assistant_id: string };
+  body: { deliveryId: string; success: boolean; errorMessage?: string };
+  throwOnError: boolean;
+}
+const ackArgs: AckArg[] = [];
+const ackMock = mock(async (arg: AckArg) => {
+  ackArgs.push(arg);
+  return { data: undefined, error: undefined };
+});
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  notificationintentresultPost: ackMock,
+}));
+
+const { postLocalNotification } = await import("@/runtime/notifications");
+
+const setVisibility = (state: "visible" | "hidden") => {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => state,
+  });
+};
+
+const baseArgs = {
+  title: "Reminder",
+  body: "Stand up",
+  sourceEventName: "reminder.fired",
+  deliveryId: "delivery-1",
+  assistantId: "assistant-1",
+};
+
+beforeEach(() => {
+  remotePushSupported = true;
+  activeRegistrationAssistantId = null;
+  scheduleMock.mockClear();
+  ackMock.mockClear();
+  ackArgs.length = 0;
+  setVisibility("visible");
+});
+
+describe("postLocalNotification remote-push dedup (native branch)", () => {
+  test("hidden + dispatched + registered: skips the local banner and acks success", async () => {
+    activeRegistrationAssistantId = "assistant-1";
+    setVisibility("hidden");
+
+    await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
+
+    expect(scheduleMock).not.toHaveBeenCalled();
+    expect(ackArgs).toEqual([
+      {
+        path: { assistant_id: "assistant-1" },
+        body: { deliveryId: "delivery-1", success: true },
+        throwOnError: false,
+      },
+    ]);
+  });
+
+  test("visible app schedules the local banner (the only foreground surface)", async () => {
+    activeRegistrationAssistantId = "assistant-1";
+    setVisibility("visible");
+
+    await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+    expect(ackArgs).toEqual([
+      {
+        path: { assistant_id: "assistant-1" },
+        body: { deliveryId: "delivery-1", success: true },
+        throwOnError: false,
+      },
+    ]);
+  });
+
+  test("field absent (older daemon): schedules as before even when hidden", async () => {
+    activeRegistrationAssistantId = "assistant-1";
+    setVisibility("hidden");
+
+    await postLocalNotification({ ...baseArgs });
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("dispatched but no active registration (e.g. permission denied): schedules", async () => {
+    setVisibility("hidden");
+
+    await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("dispatched but registration belongs to a different assistant: schedules", async () => {
+    activeRegistrationAssistantId = "assistant-2";
+    setVisibility("hidden");
+
+    await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("dispatched but remote push unsupported on this native platform: schedules", async () => {
+    remotePushSupported = false;
+    activeRegistrationAssistantId = "assistant-1";
+    setVisibility("hidden");
+
+    await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("no assistantId: schedules even when hidden and dispatched, no ack", async () => {
+    activeRegistrationAssistantId = "assistant-1";
+    setVisibility("hidden");
+
+    await postLocalNotification({
+      ...baseArgs,
+      assistantId: undefined,
+      remotePushDispatched: true,
+    });
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+    expect(ackMock).not.toHaveBeenCalled();
+  });
+
+  test("skip without a deliveryId still skips but sends no ack", async () => {
+    activeRegistrationAssistantId = "assistant-1";
+    setVisibility("hidden");
+
+    await postLocalNotification({
+      ...baseArgs,
+      deliveryId: undefined,
+      remotePushDispatched: true,
+    });
+
+    expect(scheduleMock).not.toHaveBeenCalled();
+    expect(ackMock).not.toHaveBeenCalled();
+  });
+});

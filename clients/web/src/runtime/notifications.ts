@@ -32,6 +32,10 @@ import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
 import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
+import {
+  hasActiveRemotePushRegistration,
+  isRemotePushSupported,
+} from "@/runtime/push-registration";
 
 /**
  * Payload stored alongside each native notification so the tap handler can
@@ -272,6 +276,12 @@ export interface PostLocalNotificationArgs {
    * directly with `success=true`.
    */
   assistantId?: string;
+  /**
+   * True when the daemon confirmed the platform (APNs) channel accepted a
+   * remote push for this delivery. A hidden native app with an active push
+   * registration skips the local banner so the remote push is the only one.
+   */
+  remotePushDispatched?: boolean;
 }
 
 /**
@@ -385,6 +395,29 @@ export async function postLocalNotification(
   let errorMessage: string | undefined;
 
   if (isNativePlatform()) {
+    // iOS suppresses remote pushes while the app is foregrounded (no
+    // presentationOptions configured), so the local banner is the only
+    // foreground surface and must stay. When the app is hidden with an
+    // active APNs registration and a daemon-confirmed accepted push, the
+    // remote push will banner on its own; scheduling the local one too
+    // would double-notify during the SSE grace window after backgrounding.
+    if (
+      args.remotePushDispatched === true &&
+      isRemotePushSupported() &&
+      args.assistantId !== undefined &&
+      hasActiveRemotePushRegistration(args.assistantId) &&
+      document.visibilityState === "hidden"
+    ) {
+      if (args.deliveryId) {
+        await sendNotificationIntentAck(
+          args.assistantId,
+          args.deliveryId,
+          true,
+        );
+      }
+      return;
+    }
+
     const seed =
       args.deliveryId ?? `${args.sourceEventName}:${args.title}:${args.body}`;
     const notification: LocalNotificationSchema = {

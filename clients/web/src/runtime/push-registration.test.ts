@@ -128,6 +128,7 @@ mock.module("@/lib/sentry/capture-error", () => ({
 
 const {
   extractPushConversationId,
+  hasActiveRemotePushRegistration,
   isRemotePushSupported,
   registerForRemotePush,
   unregisterFromRemotePush,
@@ -352,6 +353,52 @@ describe("extractPushConversationId", () => {
     expect(extractPushConversationId({ deep_link: null })).toBeUndefined();
     expect(extractPushConversationId({ deep_link: {} })).toBeUndefined();
     expect(extractPushConversationId({ conversationId: 42 })).toBeUndefined();
+  });
+});
+
+describe("hasActiveRemotePushRegistration", () => {
+  test("false when nothing has been registered", () => {
+    expect(hasActiveRemotePushRegistration("assistant-1")).toBe(false);
+  });
+
+  test("true after a successful upsert for the same assistant", async () => {
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+
+    expect(hasActiveRemotePushRegistration("assistant-1")).toBe(true);
+  });
+
+  test("false for a different assistant than the registered one", async () => {
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+
+    expect(hasActiveRemotePushRegistration("assistant-2")).toBe(false);
+  });
+
+  test("falls back to the persisted registration after a process reload", () => {
+    localStorage.setItem(
+      "vellum:push_registration",
+      JSON.stringify({
+        token: "persisted-token",
+        bundleId: "ai.vocify-inc.vellum-assistant-ios",
+        assistantId: "assistant-9",
+      }),
+    );
+
+    expect(hasActiveRemotePushRegistration("assistant-9")).toBe(true);
+    expect(hasActiveRemotePushRegistration("assistant-1")).toBe(false);
+  });
+
+  test("false again after unregister clears the registration", async () => {
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+
+    await unregisterFromRemotePush();
+
+    expect(hasActiveRemotePushRegistration("assistant-1")).toBe(false);
   });
 });
 

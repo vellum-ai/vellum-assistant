@@ -320,9 +320,7 @@ export async function unregisterFromRemotePush(): Promise<void> {
     await Promise.allSettled([...pendingUpserts]);
   }
 
-  // Fall back to persisted storage: a process reload before re-registration
-  // leaves `lastRegistered` null even though a token is still registered.
-  const registered = lastRegistered ?? persistedRegistration.load();
+  const registered = loadCurrentRegistration();
   lastRegistered = null;
   persistedRegistration.remove();
 
@@ -357,6 +355,24 @@ export async function unregisterFromRemotePush(): Promise<void> {
       bestEffort: true,
     });
   }
+}
+
+/**
+ * The registration this device currently holds: module memory, falling
+ * back to persisted storage (a process reload wipes `lastRegistered`
+ * while the token stays registered server-side).
+ */
+function loadCurrentRegistration(): RegisteredToken | null {
+  return lastRegistered ?? persistedRegistration.load();
+}
+
+/**
+ * True when this device holds a platform push registration for
+ * `assistantId`. Pure state read, never touches Capacitor plugins, so it
+ * is safe to call synchronously on any platform.
+ */
+export function hasActiveRemotePushRegistration(assistantId: string): boolean {
+  return loadCurrentRegistration()?.assistantId === assistantId;
 }
 
 /** Test-only: reset module + persisted state between cases. */
