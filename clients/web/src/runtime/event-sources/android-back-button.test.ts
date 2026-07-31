@@ -283,6 +283,42 @@ describe("subscribeAndroidBackButtonSource", () => {
     historyBackSpy.mockRestore();
   });
 
+  test("closes a focused control's dropdown before its dialog", async () => {
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const trigger = document.createElement("button");
+    trigger.dataset.slot = "dropdown-trigger";
+    trigger.setAttribute("aria-controls", "nested-dropdown");
+    dialog.append(trigger);
+    const menu = document.createElement("div");
+    menu.id = "nested-dropdown";
+    menu.dataset.slot = "dropdown-menu";
+    document.body.append(dialog, menu);
+    trigger.focus();
+
+    const closeDialog = mock(() => dialog.remove());
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        closeDialog();
+      }
+    });
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        menu.remove();
+      }
+    });
+
+    subscribeAndroidBackButtonSource();
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(menu.isConnected).toBe(false);
+    expect(dialog.isConnected).toBe(true);
+    expect(closeDialog).not.toHaveBeenCalled();
+  });
+
   test("closes an active process overlay before changing history", async () => {
     const historyBackSpy = spyOn(window.history, "back").mockImplementation(
       () => undefined,

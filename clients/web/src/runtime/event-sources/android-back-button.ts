@@ -59,6 +59,16 @@ function getTopEscapeLayer(
   layers: NodeListOf<HTMLElement>,
 ): HTMLElement | null {
   const active = document.activeElement;
+  if (active instanceof HTMLElement) {
+    const controlledId = active.getAttribute("aria-controls");
+    if (controlledId) {
+      for (const layer of layers) {
+        if (layer.id === controlledId) {
+          return layer;
+        }
+      }
+    }
+  }
   const focusedLayer =
     active instanceof Element
       ? active.closest<HTMLElement>(OPEN_LAYER_SELECTOR)
