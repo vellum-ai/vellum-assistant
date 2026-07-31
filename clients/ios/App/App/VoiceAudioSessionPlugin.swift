@@ -73,7 +73,6 @@ public class VoiceAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "activate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deactivate", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "describe", returnType: CAPPluginReturnPromise),
     ]
 
     /// Event name forwarded to JS via `notifyListeners`. Must match the
@@ -159,33 +158,6 @@ public class VoiceAudioSessionPlugin: CAPPlugin, CAPBridgedPlugin {
                 error
             )
         }
-    }
-
-    // MARK: - describe
-
-    /// Report how the shared `AVAudioSession` is currently configured.
-    ///
-    /// Read-only, and deliberately so. `WKWebView` configures the session for
-    /// `getUserMedia` and whether it selected a voice-processing mode decides
-    /// whether echo cancellation exists at all, but the web layer has no way to
-    /// see that. Reading the category back answers the question without the
-    /// reconfiguration that has broken capture on a handset twice.
-    ///
-    /// Resolves a dictionary of whatever the system reports. Every field is
-    /// optional on the JS side, so a future OS that stops exposing one of these
-    /// degrades to a smaller object rather than an error.
-    @objc public func describe(_ call: CAPPluginCall) {
-        let session = AVAudioSession.sharedInstance()
-        let route = session.currentRoute
-        call.resolve([
-            "category": session.category.rawValue,
-            "mode": session.mode.rawValue,
-            "categoryOptions": Int(session.categoryOptions.rawValue),
-            "outputs": route.outputs.map { $0.portType.rawValue },
-            "inputs": route.inputs.map { $0.portType.rawValue },
-            "sampleRate": session.sampleRate,
-            "otherAudioPlaying": session.isOtherAudioPlaying,
-        ])
     }
 
     // MARK: - System events
