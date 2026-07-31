@@ -151,6 +151,13 @@ export interface LiveVoiceSessionControls {
    */
   setMuted: (muted: boolean) => void;
   /**
+   * Mute (or unmute) the assistant's audio without ending the session or
+   * stopping the reply in progress. The turn keeps running and the transcript
+   * keeps filling; only the sound stops, so unmuting mid-reply drops the user
+   * back into it wherever it has reached.
+   */
+  setOutputMuted: (muted: boolean) => void;
+  /**
    * Retune the live session's turn-detection knobs ("pause before reply" /
    * "interrupt sensitivity") without reconnecting. Each field is optional; the
    * daemon applies the change from the next utterance. No-op unless the
@@ -261,6 +268,12 @@ export interface LiveVoiceState {
    */
   muted: boolean;
   /**
+   * True while the user muted the assistant's audio (see
+   * {@link LiveVoiceSessionControls.setOutputMuted}). Written by the controller
+   * so surfaces render the state; cleared on session reset like `muted`.
+   */
+  outputMuted: boolean;
+  /**
    * Whether the active session runs hands-free (server-VAD). Published by the
    * controller at start and downgraded on the version-skew fallback (an older
    * daemon that ignores `turnDetection`). Surfaces use it to gate hands-free-
@@ -358,6 +371,8 @@ export interface LiveVoiceActions {
   setInputAmplitude: (amplitude: number) => void;
   /** Record the muted state published by the controller. */
   setMuted: (muted: boolean) => void;
+  /** Record the assistant-audio muted state published by the controller. */
+  setOutputMuted: (muted: boolean) => void;
   /** Record whether the active session runs hands-free (server-VAD). */
   setHandsFree: (handsFree: boolean) => void;
   /** Record whether the voice room is dismissed for the active session. */
@@ -487,6 +502,7 @@ const INITIAL_SESSION_STATE: Omit<LiveVoiceState, "starter"> = {
   assistantTranscript: "",
   inputAmplitude: 0,
   muted: false,
+  outputMuted: false,
   handsFree: false,
   roomMinimized: false,
   entryOrigin: null,
@@ -512,6 +528,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
       conversationId,
       startedConversationId: conversationId,
       muted: false,
+      outputMuted: false,
     }),
   setConversationId: (conversationId) => set({ conversationId }),
   setControls: (controls) => set({ controls }),
@@ -525,6 +542,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
   setMuted: (muted) => set({ muted }),
+  setOutputMuted: (outputMuted) => set({ outputMuted }),
   setHandsFree: (handsFree) => set({ handsFree }),
   setRoomMinimized: (roomMinimized) => set({ roomMinimized }),
   setEntryOrigin: (entryOrigin) => set({ entryOrigin }),
@@ -693,6 +711,15 @@ export function stopLiveVoiceResponse(): void {
  */
 export function setLiveVoiceMuted(muted: boolean): void {
   useLiveVoiceStore.getState().controls?.setMuted(muted);
+}
+
+/**
+ * Mute or unmute the assistant's audio through the store-registered controls
+ * (the controller mirrors the state into `outputMuted`). No-op when no session
+ * exists. See {@link endLiveVoiceSession} for why this is module-level.
+ */
+export function setLiveVoiceOutputMuted(muted: boolean): void {
+  useLiveVoiceStore.getState().controls?.setOutputMuted(muted);
 }
 
 /**

@@ -536,6 +536,76 @@ describe("AssistantSideMenu · overlay close affordance", () => {
   });
 });
 
+describe("AssistantSideMenu · overlay iOS floating glyph row", () => {
+  // Class-presence pins only: they assert the markup still carries the
+  // `native-ios:` utilities, not that anything floats or composites.
+  const conversations = [
+    makeConversation({ conversationId: "a", title: "Alpha" }),
+  ];
+
+  const overlayDom = (): HTMLElement => {
+    // A detached node, not a testing-library render: this only inspects
+    // static markup, and mounting it would leave React's cleanup with a tree
+    // it doesn't own.
+    const container = document.createElement("div");
+    container.innerHTML = renderMenu({ conversations, variant: "overlay" });
+    return container;
+  };
+
+  const glyph = (container: HTMLElement, label: string): HTMLElement => {
+    const match = container.querySelector<HTMLElement>(
+      `[aria-label="${label}"]`,
+    );
+    if (!match) {
+      throw new Error(`No overlay header glyph labelled "${label}"`);
+    }
+    return match;
+  };
+
+  // Whole class tokens, so an assertion matches a utility rather than a prefix
+  // of one: `top-4` must not be satisfied by `top-40`.
+  const classTokens = (element: Element | null): string[] =>
+    element ? Array.from(element.classList) : [];
+
+  test("the glyph row carries the floating placement utilities", () => {
+    const container = overlayDom();
+    const row = classTokens(glyph(container, "Close navigation").parentElement);
+
+    expect(row).toContain("native-ios:absolute");
+    expect(row).toContain("native-ios:inset-x-4");
+    expect(row).toContain("native-ios:top-4");
+    expect(row).toContain("native-ios:z-10");
+    expect(row).toContain("native-ios:pointer-events-none");
+  });
+
+  test("both glyphs opt back into pointer events", () => {
+    const container = overlayDom();
+
+    expect(classTokens(glyph(container, "Close navigation"))).toContain(
+      "pointer-events-auto",
+    );
+    expect(classTokens(glyph(container, "Search (⌘K)"))).toContain(
+      "pointer-events-auto",
+    );
+  });
+
+  test("the scroll body reserves the glyph band and carries both mask declarations", () => {
+    const body = classTokens(
+      overlayDom().querySelector('[data-slot="side-menu-body"]'),
+    );
+
+    expect(body).toContain("native-ios:pt-14");
+    // Complete declarations, so the fade geometry is pinned too: a different
+    // stop or gradient direction is a different token.
+    expect(body).toContain(
+      "native-ios:[mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
+    );
+    expect(body).toContain(
+      "native-ios:[-webkit-mask-image:linear-gradient(to_bottom,transparent,black_3.5rem)]",
+    );
+  });
+});
+
 describe("AssistantSideMenu · section header menus", () => {
   const conversations = [
     makeConversation({

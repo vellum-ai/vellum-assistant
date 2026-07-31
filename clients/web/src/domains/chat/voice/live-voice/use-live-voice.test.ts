@@ -1229,6 +1229,42 @@ describe("hands-free session controls (send now / stop response / mute)", () => 
     expect(useLiveVoiceStore.getState().muted).toBe(true);
   });
 
+  test("the assistant mute is re-applied to the graph a reconnect builds", async () => {
+    // The mute lives in the player's gain stage, which a reconnect replaces
+    // along with the rest of the graph. The store keeps the user's answer, so
+    // whatever player comes back has to be told it before audio flows again —
+    // otherwise the assistant is audible after a blip the user never asked to
+    // end the mute.
+    const h = renderController({ reconnectBackoffMs: [10] });
+    await startListening(h, { handsFree: true });
+    act(() => controls().setOutputMuted(true));
+    expect(h.player.outputMuted).toBe(true);
+    // Stand in for the fresh graph a reconnect brings: an unmuted gain stage.
+    h.player.outputMuted = false;
+
+    await act(async () => {
+      h.client.emit("closed", {
+        code: 1013,
+        reason: "assistant tunnel disconnected",
+      });
+    });
+    await act(async () => {
+      await sleep(40);
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+    expect(useLiveVoiceStore.getState().outputMuted).toBe(true);
+    expect(h.player.outputMuted).toBe(true);
+  });
+
   test("a minimized room stays minimized across a retryable reconnect", async () => {
     const h = renderController({ reconnectBackoffMs: [10] });
     await startListening(h, { handsFree: true });
