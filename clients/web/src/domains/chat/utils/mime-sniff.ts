@@ -32,6 +32,17 @@ const EXTENSION_MIME_TYPES: Record<string, string> = {
   pdf: "application/pdf",
 };
 
+/**
+ * Office Open XML formats. Every one of these is a zip package, so the bytes
+ * only ever sniff as `application/zip` and the extension is what names the
+ * actual format.
+ */
+const OOXML_MIME_TYPES: Record<string, string> = {
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+
 /** Server types that name no format and must not shadow the extension map. */
 const GENERIC_MIME_TYPES = new Set([
   "application/octet-stream",
@@ -217,7 +228,9 @@ function kindForMimeType(mime: string | null): LocalFileKind {
 
 /**
  * Combine sniffed mime, server-reported (extension-based) mime, and filename
- * into a final mime + rendering kind. Sniffed mime wins on mismatch.
+ * into a final mime + rendering kind. Sniffed mime wins on mismatch, except
+ * where a signature is too coarse to name the format on its own: markup that
+ * may or may not be svg, and the zip envelope shared by every OOXML document.
  */
 export function resolveLocalFileType(opts: {
   sniffedMime: string | null;
@@ -229,8 +242,13 @@ export function resolveLocalFileType(opts: {
   const sniffed = normalizeMimeType(opts.sniffedMime);
   // Markup only counts as an image when the filename agrees; an `.html` file
   // holding an inline `<svg>` is still a document.
-  const trustedSniff =
-    sniffed === "image/svg+xml" && extension !== "svg" ? null : sniffed;
+  const svgShadowsDocument = sniffed === "image/svg+xml" && extension !== "svg";
+  // An OOXML package is a zip, so `application/zip` is what its bytes always
+  // say. Naming the real format keeps the document previews reachable while
+  // still letting a genuine mismatch (a `.docx` holding png bytes) win.
+  const ooxmlMime =
+    sniffed === "application/zip" ? (OOXML_MIME_TYPES[extension] ?? null) : null;
+  const trustedSniff = svgShadowsDocument ? null : (ooxmlMime ?? sniffed);
   const server = normalizeMimeType(opts.serverMime);
   const namedServer = server && !GENERIC_MIME_TYPES.has(server) ? server : null;
 

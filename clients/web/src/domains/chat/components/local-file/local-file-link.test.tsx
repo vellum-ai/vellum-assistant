@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import type { WorkspaceFilePreviewKind } from "@/stores/viewer-store";
+
 const openWorkspaceFile = mock(async (_path: string) => {});
 const toastError = mock((_message: string) => {});
 
@@ -21,12 +23,19 @@ const { useViewerStore } = await import("@/stores/viewer-store");
 const loadWorkspaceFileDocument = mock(
   async (_assistantId: string, _workspacePath: string) => {},
 );
+const openWorkspaceFilePreview = mock(
+  (_workspacePath: string, _previewKind: WorkspaceFilePreviewKind) => {},
+);
 
 beforeEach(() => {
   openWorkspaceFile.mockClear();
   toastError.mockClear();
   loadWorkspaceFileDocument.mockClear();
-  useViewerStore.setState({ loadWorkspaceFileDocument });
+  openWorkspaceFilePreview.mockClear();
+  useViewerStore.setState({
+    loadWorkspaceFileDocument,
+    openWorkspaceFilePreview,
+  });
 });
 
 afterEach(() => {
@@ -73,11 +82,11 @@ describe("LocalFileLink", () => {
   test("clicking opens the workspace file instead of navigating", () => {
     render(
       <LocalFileLink
-        href="/workspace/data/rows.csv"
-        workspacePath="data/rows.csv"
+        href="/workspace/logs/run.txt"
+        workspacePath="logs/run.txt"
         assistantId="asst-1"
       >
-        the rows
+        the log
       </LocalFileLink>,
     );
 
@@ -89,8 +98,29 @@ describe("LocalFileLink", () => {
 
     expect(event.defaultPrevented).toBe(true);
     expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
-    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("data/rows.csv");
+    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("logs/run.txt");
     expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+  });
+
+  test("clicking a previewable file opens the read-only drawer", () => {
+    render(
+      <LocalFileLink
+        href="/workspace/data/rows.csv"
+        workspacePath="data/rows.csv"
+        assistantId="asst-1"
+      >
+        the rows
+      </LocalFileLink>,
+    );
+
+    fireEvent.click(screen.getByRole("link"));
+
+    expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview.mock.calls[0]).toEqual([
+      "data/rows.csv",
+      "csv",
+    ]);
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
   test("clicking a markdown file opens it in the document drawer", () => {

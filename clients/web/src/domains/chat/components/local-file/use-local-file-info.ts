@@ -187,6 +187,39 @@ export function useLocalFileInfo(
 }
 
 /**
+ * Query options for the full bytes of a workspace file, shared by every
+ * surface that needs them (inline media embeds, the read-only file preview) so
+ * one file is fetched once however many surfaces show it.
+ *
+ * `enabled` is left to the caller: the key tolerates a missing assistant id so
+ * the options can be built before one is known.
+ */
+export function workspaceFileBlobQuery(
+  workspacePath: string | null,
+  assistantId?: string,
+) {
+  return {
+    queryKey: ["local-file-blob", assistantId ?? null, workspacePath] as const,
+    queryFn: async (): Promise<Blob> => {
+      const { data, error } = await workspaceFileContentGet({
+        path: { assistant_id: assistantId! },
+        query: { path: workspacePath! },
+        parseAs: "blob",
+        throwOnError: false,
+      });
+      if (error || !(data instanceof Blob)) {
+        throw new Error("Failed to load workspace file");
+      }
+      return data;
+    },
+    // A workspace file's bytes are re-read by opening it again, never by a
+    // background refetch behind an embed the user is already watching.
+    staleTime: Infinity,
+    retry: false,
+  };
+}
+
+/**
  * Full bytes of a workspace file as an object URL, re-wrapped so the URL
  * carries the classified MIME type rather than the server's extension guess.
  * Revoked on unmount and whenever the underlying blob changes.
@@ -201,22 +234,8 @@ export function useLocalFileObjectUrl(args: {
   const canFetch = enabled && workspacePath !== null && !!assistantId;
 
   const { data: blob, isError } = useQuery({
-    queryKey: ["local-file-blob", assistantId ?? null, workspacePath],
-    queryFn: async () => {
-      const { data, error } = await workspaceFileContentGet({
-        path: { assistant_id: assistantId! },
-        query: { path: workspacePath! },
-        parseAs: "blob",
-        throwOnError: false,
-      });
-      if (error || !(data instanceof Blob)) {
-        throw new Error("Failed to load workspace file");
-      }
-      return data;
-    },
+    ...workspaceFileBlobQuery(workspacePath, assistantId),
     enabled: canFetch,
-    staleTime: Infinity,
-    retry: false,
   });
 
   const [url, setUrl] = useState<string | null>(null);

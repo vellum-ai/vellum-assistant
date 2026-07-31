@@ -198,6 +198,17 @@ describe("resolveLocalFileType: the bytes win", () => {
     ).toEqual({ mime: "image/png", kind: "image" });
   });
 
+  test("a .docx holding png bytes keeps the sniffed type", () => {
+    expect(
+      resolveLocalFileType({
+        sniffedMime: "image/png",
+        serverMime:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename: "brief.docx",
+      }),
+    ).toEqual({ mime: "image/png", kind: "image" });
+  });
+
   test("svg markup only counts as an image under a .svg name", () => {
     expect(
       resolveLocalFileType({
@@ -234,6 +245,77 @@ describe("resolveLocalFileType: documents are never media", () => {
         sniffedMime: sniffMimeType(ZIP),
         serverMime: "image/png",
         filename: "bundle.png",
+      }),
+    ).toEqual({ mime: "application/zip", kind: "file" });
+  });
+});
+
+describe("resolveLocalFileType: OOXML packages under their zip signature", () => {
+  const cases: Array<[string, string]> = [
+    [
+      "brief.docx",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ],
+    [
+      "deck.pptx",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ],
+    [
+      "budget.xlsx",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ],
+  ];
+
+  for (const [filename, mime] of cases) {
+    test(`${filename} resolves to its Office type`, () => {
+      expect(
+        resolveLocalFileType({
+          sniffedMime: sniffMimeType(ZIP),
+          serverMime: null,
+          filename,
+        }),
+      ).toEqual({ mime, kind: "file" });
+    });
+
+    test(`${filename} keeps its Office type over a generic server type`, () => {
+      expect(
+        resolveLocalFileType({
+          sniffedMime: sniffMimeType(ZIP),
+          serverMime: "application/octet-stream",
+          filename,
+        }),
+      ).toEqual({ mime, kind: "file" });
+    });
+  }
+
+  test("an uppercase extension resolves the same way", () => {
+    expect(
+      resolveLocalFileType({
+        sniffedMime: sniffMimeType(ZIP),
+        serverMime: null,
+        filename: "BRIEF.DOCX",
+      }).mime,
+    ).toBe(
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+  });
+
+  test("a plain zip stays a plain zip", () => {
+    expect(
+      resolveLocalFileType({
+        sniffedMime: sniffMimeType(ZIP),
+        serverMime: null,
+        filename: "bundle.zip",
+      }),
+    ).toEqual({ mime: "application/zip", kind: "file" });
+  });
+
+  test("zip bytes under an unrelated extension stay a zip", () => {
+    expect(
+      resolveLocalFileType({
+        sniffedMime: sniffMimeType(ZIP),
+        serverMime: null,
+        filename: "notes.md",
       }),
     ).toEqual({ mime: "application/zip", kind: "file" });
   });

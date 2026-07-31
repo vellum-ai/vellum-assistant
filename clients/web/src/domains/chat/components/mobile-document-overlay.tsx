@@ -1,4 +1,5 @@
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
+import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
 import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
 import type { OpenedDocumentState } from "@/stores/viewer-store";
 
@@ -17,8 +18,9 @@ interface MobileDocumentOverlayProps {
 }
 
 /**
- * Mobile-only full-screen overlay that hosts the document viewer for a
- * surface referenced from chat.
+ * Mobile-only full-screen overlay that hosts the document viewer for a surface
+ * referenced from chat, or the read-only preview for a workspace file the
+ * editor cannot round-trip.
  *
  * **Mounting constraint**: must render inside `RootLayout`'s
  * `#viewport-overlays` portal, outside the main content wrapper.
@@ -33,6 +35,21 @@ export function MobileDocumentOverlay({
 
   if (!openedDocumentState || !assistantId) {
     return null;
+  }
+
+  if (openedDocumentState.source === "workspace-file-preview") {
+    return (
+      <div className="fixed inset-x-0 z-30" style={shellStyle}>
+        <FilePreviewContainer
+          key={`preview:${openedDocumentState.workspacePath}`}
+          assistantId={assistantId}
+          workspacePath={openedDocumentState.workspacePath}
+          documentName={openedDocumentState.documentName}
+          previewKind={openedDocumentState.previewKind}
+          onClose={onClose}
+        />
+      </div>
+    );
   }
 
   return (

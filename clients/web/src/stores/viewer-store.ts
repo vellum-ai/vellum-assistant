@@ -8,7 +8,8 @@
  * - `mainView` — which top-level panel is displayed
  * - `activeAppId` / `openedAppState` — app viewer
  * - `activeDocumentTarget` / `openedDocumentState` — document viewer, holding
- *   either a db-backed document surface or a workspace markdown file
+ *   a db-backed document surface, a workspace markdown file, or a read-only
+ *   preview of a workspace file the editor cannot round-trip
  * - `isAppMinimized` — mobile-only: app viewer minimized
  * - `intelligenceTab` — sub-tab inside the intelligence panel
  * - `assetsRefreshKey` — counter bumped to force asset re-fetches
@@ -41,6 +42,7 @@ import {
   workspaceFileGet,
 } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
+import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import { createSelectors } from "@/utils/create-selectors";
@@ -197,14 +199,31 @@ export interface OpenedWorkspaceFileDocumentState {
   content: string;
 }
 
+/** Workspace file formats the drawer renders read-only, without an editor. */
+export type WorkspaceFilePreviewKind = "csv" | "docx" | "pptx";
+
+/**
+ * A workspace file shown read-only in the drawer, because the markdown editor
+ * could not round-trip it. Nothing is editable, so this variant carries no
+ * content: the preview component reads the bytes from the query cache, which
+ * stays the single owner of that server data.
+ */
+export interface OpenedWorkspaceFilePreviewState {
+  source: "workspace-file-preview";
+  workspacePath: string;
+  documentName: string;
+  previewKind: WorkspaceFilePreviewKind;
+}
+
 /**
  * What the document viewer is showing. The `source` discriminant decides where
- * saves go, so it is never optional: a file-backed document has no surface id
- * and a db-backed document has no workspace path.
+ * saves go, so it is never optional: a file-backed document has no surface id,
+ * a db-backed document has no workspace path, and a preview saves nowhere.
  */
 export type OpenedDocumentState =
   | OpenedDbDocumentState
-  | OpenedWorkspaceFileDocumentState;
+  | OpenedWorkspaceFileDocumentState
+  | OpenedWorkspaceFilePreviewState;
 
 /**
  * The document the viewer is loading or showing, tracked so a load that
@@ -214,7 +233,8 @@ export type OpenedDocumentState =
  */
 export type DocumentTarget =
   | { source: "document"; surfaceId: string }
-  | { source: "workspace-file"; workspacePath: string };
+  | { source: "workspace-file"; workspacePath: string }
+  | { source: "workspace-file-preview"; workspacePath: string };
 
 /** Whether two document targets address the same document. */
 export function sameDocumentTarget(
@@ -227,11 +247,12 @@ export function sameDocumentTarget(
   if (a.source === "document" && b.source === "document") {
     return a.surfaceId === b.surfaceId;
   }
-  return (
-    a.source === "workspace-file" &&
-    b.source === "workspace-file" &&
-    a.workspacePath === b.workspacePath
-  );
+  // The same path opened as an editable file and as a preview are different
+  // targets, and the `source` check above has already separated them.
+  if (a.source === "document" || b.source === "document") {
+    return false;
+  }
+  return a.workspacePath === b.workspacePath;
 }
 
 export type ChannelSetupType = SetupChannelId;
@@ -510,6 +531,16 @@ export interface ViewerActions {
     assistantId: string,
     workspacePath: string,
   ) => Promise<void>;
+  /**
+   * Open a workspace file the editor cannot round-trip (a spreadsheet, a Word
+   * or PowerPoint package) read-only in the document drawer. Synchronous: the
+   * preview owns its own bytes through the query cache, so the store records
+   * only which file is on show.
+   */
+  openWorkspaceFilePreview: (
+    workspacePath: string,
+    previewKind: WorkspaceFilePreviewKind,
+  ) => void;
   setLoadedDocument: (document: OpenedDocumentState) => void;
   updateDocumentContent: (
     surfaceId: string,
@@ -1032,6 +1063,20 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     }
   },
 
+  openWorkspaceFilePreview: (workspacePath, previewKind) => {
+    set({
+      mainView: "document",
+      activeDocumentTarget: { source: "workspace-file-preview", workspacePath },
+      openedDocumentState: {
+        source: "workspace-file-preview",
+        workspacePath,
+        documentName: workspaceBasenameOf(workspacePath),
+        previewKind,
+      },
+      viewBeforeDocument: resolveViewBefore(get(), "viewBeforeDocument"),
+    });
+  },
+
   setLoadedDocument: (document) => {
     set({ openedDocumentState: document });
   },
@@ -1039,7 +1084,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   updateDocumentContent: (surfaceId, content, mode) => {
     const prev = get().openedDocumentState;
     // Streamed edits address a document surface, so they never apply to a
-    // file-backed document.
+    // file-backed document or to a read-only preview.
     if (!prev || prev.source !== "document" || prev.surfaceId !== surfaceId) {
       return;
     }

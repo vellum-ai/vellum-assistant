@@ -70,6 +70,12 @@ const SAMPLE_FILE_DOC = {
   documentName: "notes.md",
   content: "# Notes",
 } as const;
+const SAMPLE_FILE_PREVIEW = {
+  source: "workspace-file-preview",
+  workspacePath: "data/rows.csv",
+  documentName: "rows.csv",
+  previewKind: "csv",
+} as const;
 const SAMPLE_TOOL: ToolDetailPayload = {
   toolCallId: "tc-1",
   toolName: "spawn_subagent",
@@ -889,13 +895,100 @@ describe("updateDocumentContent", () => {
   it("applies a streamed replace to the matching document surface", () => {
     useViewerStore.setState({ openedDocumentState: SAMPLE_DOC });
     getState().updateDocumentContent("surf-1", "# Replaced", "replace");
-    expect(getState().openedDocumentState?.content).toBe("# Replaced");
+    expect(getState().openedDocumentState).toMatchObject({
+      content: "# Replaced",
+    });
   });
 
   it("leaves a file-backed document alone", () => {
     useViewerStore.setState({ openedDocumentState: SAMPLE_FILE_DOC });
     getState().updateDocumentContent("surf-1", "# Replaced", "replace");
     expect(getState().openedDocumentState).toBe(SAMPLE_FILE_DOC);
+  });
+
+  it("leaves a read-only preview alone", () => {
+    useViewerStore.setState({ openedDocumentState: SAMPLE_FILE_PREVIEW });
+    getState().updateDocumentContent("surf-1", "# Replaced", "replace");
+    expect(getState().openedDocumentState).toBe(SAMPLE_FILE_PREVIEW);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Document viewer: read-only file previews
+// ---------------------------------------------------------------------------
+
+describe("openWorkspaceFilePreview", () => {
+  it("shows the file read-only, named by its basename", () => {
+    getState().openWorkspaceFilePreview("data/reports/rows.csv", "csv");
+
+    const state = getState();
+    expect(state.mainView).toBe("document");
+    expect(state.openedDocumentState).toEqual({
+      source: "workspace-file-preview",
+      workspacePath: "data/reports/rows.csv",
+      documentName: "rows.csv",
+      previewKind: "csv",
+    });
+    expect(state.activeDocumentTarget).toEqual({
+      source: "workspace-file-preview",
+      workspacePath: "data/reports/rows.csv",
+    });
+  });
+
+  it("saves the prior view so closing restores it", () => {
+    useViewerStore.setState({ mainView: "app" });
+
+    getState().openWorkspaceFilePreview("rows.csv", "csv");
+    expect(getState().viewBeforeDocument).toBe("app");
+
+    getState().closeDocument();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.openedDocumentState).toBeNull();
+    expect(state.activeDocumentTarget).toBeNull();
+  });
+
+  it("keeps the prior view when swapping one preview for another", () => {
+    useViewerStore.setState({ mainView: "app" });
+
+    getState().openWorkspaceFilePreview("rows.csv", "csv");
+    getState().openWorkspaceFilePreview("deck.pptx", "pptx");
+
+    const state = getState();
+    expect(state.viewBeforeDocument).toBe("app");
+    expect(state.openedDocumentState).toMatchObject({
+      workspacePath: "deck.pptx",
+      previewKind: "pptx",
+    });
+  });
+
+  it("makes an in-flight file load for the same path stale", async () => {
+    let resolveLoad: (value: WorkspaceFileGetResult) => void = () => {};
+    workspaceFileGetResult = () =>
+      new Promise<WorkspaceFileGetResult>((resolve) => {
+        resolveLoad = resolve;
+      });
+
+    const load = getState().loadWorkspaceFileDocument("asst-1", "rows.csv");
+    // The same path, but opened as a preview: a different target.
+    getState().openWorkspaceFilePreview("rows.csv", "csv");
+
+    resolveLoad({
+      data: {
+        path: "rows.csv",
+        name: "rows.csv",
+        size: 2,
+        mimeType: "text/csv",
+        modifiedAt: "2026-07-29T00:00:00.000Z",
+        content: "a,b",
+        isBinary: false,
+      },
+    });
+    await load;
+
+    expect(getState().openedDocumentState).toMatchObject({
+      source: "workspace-file-preview",
+    });
   });
 });
 

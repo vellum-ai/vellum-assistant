@@ -18,6 +18,7 @@ import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-dr
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
+import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
 import {
   ChatMainPanel,
   type ChatMainPanelProps,
@@ -434,11 +435,25 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   let rightPanel: ReactNode = null;
   if (!isMobile) {
     if (mainView === "document" && openedDocumentState && assistantId) {
-      // Keyed per document so switching targets remounts the editor. Feeding a
-      // new document into the mounted editor emits a Tiptap update, which the
-      // autosave would write straight into whichever target is now current.
-      rightPanel =
-        openedDocumentState.source === "workspace-file" ? (
+      // A file the editor cannot round-trip is shown read-only instead, in a
+      // panel that fetches its own bytes.
+      if (openedDocumentState.source === "workspace-file-preview") {
+        rightPanel = (
+          <FilePreviewContainer
+            key={`preview:${openedDocumentState.workspacePath}`}
+            assistantId={assistantId}
+            workspacePath={openedDocumentState.workspacePath}
+            documentName={openedDocumentState.documentName}
+            previewKind={openedDocumentState.previewKind}
+            onClose={handleCloseDocument}
+          />
+        );
+      } else {
+        // Keyed per document so switching targets remounts the editor. Feeding a
+        // new document into the mounted editor emits a Tiptap update, which the
+        // autosave would write straight into whichever target is now current.
+        rightPanel =
+          openedDocumentState.source === "workspace-file" ? (
           <DocumentViewerContainer
             key={`file:${openedDocumentState.workspacePath}`}
             source="workspace-file"
@@ -469,6 +484,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             }}
           />
         );
+      }
     } else if (
       mainView === "subagent-detail" &&
       activeSubagentId &&

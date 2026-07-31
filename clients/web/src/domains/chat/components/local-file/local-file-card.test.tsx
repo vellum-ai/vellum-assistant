@@ -1,22 +1,63 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import type { WorkspaceFilePreviewKind } from "@/stores/viewer-store";
+
 const openWorkspaceFile = mock(async (_path: string) => {});
 
 mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
 
-const { LocalFileCard } =
-  await import("@/domains/chat/components/local-file/local-file-card");
+const { LocalFileCard } = await import(
+  "@/domains/chat/components/local-file/local-file-card"
+);
 const { useViewerStore } = await import("@/stores/viewer-store");
 
 const loadWorkspaceFileDocument = mock(
   async (_assistantId: string, _workspacePath: string) => {},
 );
+const openWorkspaceFilePreview = mock(
+  (_workspacePath: string, _previewKind: WorkspaceFilePreviewKind) => {},
+);
+const closeDocument = mock(() => {});
+
+/** Put the viewer store where it would be with `workspacePath` in the drawer. */
+function openDrawerWith(workspacePath: string) {
+  useViewerStore.setState({
+    mainView: "document",
+    openedDocumentState: {
+      source: "workspace-file",
+      workspacePath,
+      documentName: "notes.md",
+      content: "# notes",
+    },
+  });
+}
+
+/** Put the viewer store where it would be previewing `workspacePath`. */
+function openPreviewWith(workspacePath: string) {
+  useViewerStore.setState({
+    mainView: "document",
+    openedDocumentState: {
+      source: "workspace-file-preview",
+      workspacePath,
+      documentName: "rows.csv",
+      previewKind: "csv",
+    },
+  });
+}
 
 beforeEach(() => {
   openWorkspaceFile.mockClear();
   loadWorkspaceFileDocument.mockClear();
-  useViewerStore.setState({ loadWorkspaceFileDocument });
+  openWorkspaceFilePreview.mockClear();
+  closeDocument.mockClear();
+  useViewerStore.setState({
+    mainView: "chat",
+    openedDocumentState: null,
+    loadWorkspaceFileDocument,
+    openWorkspaceFilePreview,
+    closeDocument,
+  });
 });
 
 afterEach(() => {
@@ -96,37 +137,37 @@ describe("LocalFileCard", () => {
   test("clicking a ready card opens the workspace file", () => {
     render(
       <LocalFileCard
-        displayName="rows.csv"
-        filename="rows.csv"
+        displayName="run.txt"
+        filename="run.txt"
         sizeBytes={12}
         kind="file"
         state="ready"
-        workspacePath="data/rows.csv"
+        workspacePath="logs/run.txt"
         assistantId="asst-1"
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open rows.csv" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open run.txt" }));
 
     expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
-    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("data/rows.csv");
+    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("logs/run.txt");
     expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
   });
 
   test("Enter on a ready card opens the workspace file", () => {
     render(
       <LocalFileCard
-        displayName="rows.csv"
-        filename="rows.csv"
+        displayName="run.txt"
+        filename="run.txt"
         sizeBytes={12}
         kind="file"
         state="ready"
-        workspacePath="data/rows.csv"
+        workspacePath="logs/run.txt"
         assistantId="asst-1"
       />,
     );
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "Open rows.csv" }), {
+    fireEvent.keyDown(screen.getByRole("button", { name: "Open run.txt" }), {
       key: "Enter",
     });
 
@@ -152,6 +193,29 @@ describe("LocalFileCard", () => {
     expect(loadWorkspaceFileDocument.mock.calls[0]).toEqual([
       "asst-1",
       "drafts/notes.md",
+    ]);
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  test("clicking a previewable card opens it read-only in the drawer", () => {
+    render(
+      <LocalFileCard
+        displayName="rows.csv"
+        filename="rows.csv"
+        sizeBytes={12}
+        kind="file"
+        state="ready"
+        workspacePath="data/rows.csv"
+        assistantId="asst-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open rows.csv" }));
+
+    expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview.mock.calls[0]).toEqual([
+      "data/rows.csv",
+      "csv",
     ]);
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
@@ -220,5 +284,323 @@ describe("LocalFileCard", () => {
     );
 
     expect(screen.queryByRole("button", { name: /^Open/ })).toBeNull();
+  });
+});
+
+describe("LocalFileCard click hint", () => {
+  test("a markdown card says the click opens the editor", () => {
+    render(
+      <LocalFileCard
+        displayName="notes.md"
+        filename="notes.md"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="drafts/notes.md"
+        assistantId="asst-1"
+      />,
+    );
+
+    expect(screen.getByText("Open in editor")).toBeTruthy();
+    expect(screen.queryByText("Open in workspace")).toBeNull();
+  });
+
+  test("a navigating card says the click leaves for the workspace", () => {
+    render(
+      <LocalFileCard
+        displayName="run.txt"
+        filename="run.txt"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="logs/run.txt"
+        assistantId="asst-1"
+      />,
+    );
+
+    expect(screen.getByText("Open in workspace")).toBeTruthy();
+  });
+
+  test("a previewable card says the click opens a preview", () => {
+    for (const filename of ["rows.csv", "report.docx", "deck.pptx"]) {
+      render(
+        <LocalFileCard
+          displayName={filename}
+          filename={filename}
+          sizeBytes={null}
+          kind="file"
+          state="ready"
+          workspacePath={`data/${filename}`}
+          assistantId="asst-1"
+        />,
+      );
+
+      expect(screen.getByText("Open preview")).toBeTruthy();
+      expect(screen.queryByText("Open in workspace")).toBeNull();
+      expect(screen.queryByText("Open in editor")).toBeNull();
+      cleanup();
+    }
+  });
+
+  test("a previewable card without an assistant navigates, and says so", () => {
+    render(
+      <LocalFileCard
+        displayName="rows.csv"
+        filename="rows.csv"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="data/rows.csv"
+      />,
+    );
+
+    expect(screen.getByText("Open in workspace")).toBeTruthy();
+  });
+
+  test("a markdown card without an assistant navigates, and says so", () => {
+    render(
+      <LocalFileCard
+        displayName="notes.md"
+        filename="notes.md"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="drafts/notes.md"
+      />,
+    );
+
+    expect(screen.getByText("Open in workspace")).toBeTruthy();
+  });
+
+  test("the hint is revealed on hover and focus, never on layout", () => {
+    render(
+      <LocalFileCard
+        displayName="notes.md"
+        filename="notes.md"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="drafts/notes.md"
+        assistantId="asst-1"
+      />,
+    );
+
+    const hint = screen.getByText("Open in editor").parentElement;
+    expect(hint?.className).toContain("opacity-0");
+    expect(hint?.className).toContain(
+      "group-hover/local-file-card:opacity-100",
+    );
+    expect(hint?.className).toContain(
+      "group-focus-visible/local-file-card:opacity-100",
+    );
+    expect(hint?.className).toContain("[@media(pointer:coarse)]:opacity-100");
+  });
+
+  test("cards that cannot be opened carry no hint", () => {
+    render(
+      <LocalFileCard
+        displayName="gone.md"
+        filename="gone.md"
+        sizeBytes={null}
+        kind="file"
+        state="missing"
+        workspacePath="drafts/gone.md"
+        assistantId="asst-1"
+      />,
+    );
+
+    expect(screen.queryByText(/^Open in/)).toBeNull();
+  });
+
+  test("a ready card with no servable path carries no hint", () => {
+    render(
+      <LocalFileCard
+        displayName="notes.md"
+        filename="notes.md"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath={null}
+        assistantId="asst-1"
+      />,
+    );
+
+    expect(screen.queryByText(/^Open in/)).toBeNull();
+  });
+});
+
+describe("LocalFileCard open state", () => {
+  test("the card for the file in the drawer reads as open", () => {
+    openDrawerWith("drafts/notes.md");
+
+    render(
+      <LocalFileCard
+        displayName="notes.md"
+        filename="notes.md"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="drafts/notes.md"
+        assistantId="asst-1"
+      />,
+    );
+
+    const card = screen.getByRole("button", {
+      name: "Close editor for notes.md",
+    });
+    expect(card.getAttribute("aria-expanded")).toBe("true");
+    expect(card.className).toContain("border-[var(--border-active)]");
+    expect(card.className).toContain("bg-[var(--surface-active)]");
+
+    const hint = screen.getByText("Close editor").parentElement;
+    expect(hint?.className).not.toContain("opacity-0");
+  });
+
+  test("the card for the previewed file reads as open", () => {
+    openPreviewWith("data/rows.csv");
+
+    render(
+      <LocalFileCard
+        displayName="rows.csv"
+        filename="rows.csv"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="data/rows.csv"
+        assistantId="asst-1"
+      />,
+    );
+
+    const card = screen.getByRole("button", {
+      name: "Close preview for rows.csv",
+    });
+    expect(card.getAttribute("aria-expanded")).toBe("true");
+    expect(card.className).toContain("border-[var(--border-active)]");
+    expect(screen.getByText("Close preview")).toBeTruthy();
+  });
+
+  test("clicking an open preview card closes the drawer", () => {
+    openPreviewWith("data/rows.csv");
+
+    render(
+      <LocalFileCard
+        displayName="rows.csv"
+        filename="rows.csv"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="data/rows.csv"
+        assistantId="asst-1"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close preview for rows.csv" }),
+    );
+
+    expect(closeDocument).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
+  });
+
+  test("a closed markdown card reports the collapsed drawer", () => {
+    render(
+      <LocalFileCard
+        displayName="notes.md"
+        filename="notes.md"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="drafts/notes.md"
+        assistantId="asst-1"
+      />,
+    );
+
+    const card = screen.getByRole("button", { name: "Open notes.md" });
+    expect(card.getAttribute("aria-expanded")).toBe("false");
+    expect(card.className).toContain("bg-[var(--surface-lift)]");
+  });
+
+  test("a navigating card has no expanded state to report", () => {
+    render(
+      <LocalFileCard
+        displayName="run.txt"
+        filename="run.txt"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="logs/run.txt"
+        assistantId="asst-1"
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole("button", { name: "Open run.txt" })
+        .getAttribute("aria-expanded"),
+    ).toBeNull();
+  });
+
+  test("another file in the drawer leaves this card closed", () => {
+    openDrawerWith("drafts/other.md");
+
+    render(
+      <LocalFileCard
+        displayName="notes.md"
+        filename="notes.md"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="drafts/notes.md"
+        assistantId="asst-1"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Open notes.md" })).toBeTruthy();
+  });
+
+  test("clicking an open card closes the drawer", () => {
+    openDrawerWith("drafts/notes.md");
+
+    render(
+      <LocalFileCard
+        displayName="notes.md"
+        filename="notes.md"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="drafts/notes.md"
+        assistantId="asst-1"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close editor for notes.md" }),
+    );
+
+    expect(closeDocument).toHaveBeenCalledTimes(1);
+    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+  });
+
+  test("clicking a closed card opens the drawer", () => {
+    render(
+      <LocalFileCard
+        displayName="notes.md"
+        filename="notes.md"
+        sizeBytes={null}
+        kind="file"
+        state="ready"
+        workspacePath="drafts/notes.md"
+        assistantId="asst-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open notes.md" }));
+
+    expect(loadWorkspaceFileDocument).toHaveBeenCalledTimes(1);
+    expect(loadWorkspaceFileDocument.mock.calls[0]).toEqual([
+      "asst-1",
+      "drafts/notes.md",
+    ]);
+    expect(closeDocument).not.toHaveBeenCalled();
   });
 });
