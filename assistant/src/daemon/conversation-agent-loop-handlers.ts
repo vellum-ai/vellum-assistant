@@ -2799,10 +2799,9 @@ export async function handleMessageComplete(
   // The row was reserved at `llm_call_started` (with channel metadata
   // stamped at that point) and `state.lastAssistantMessageId` carries its
   // id. Flush the final content via `updateContent` instead of inserting a
-  // new row. No `syncToDisk` flag here — the orchestrator separately
-  // invokes `syncMessageToDisk` on `state.lastAssistantMessageId` after
-  // the loop completes (see
-  // `conversation-agent-loop.ts::syncLastAssistantMessageToDisk`).
+  // new row. No `syncToDisk` flag here: the orchestrator separately invokes
+  // `syncMessageToDisk` on `state.lastAssistantMessageId` after the loop
+  // completes (see `conversation-turn-finalize.ts::settleTurnContent`).
   const assistantMessageId = state.lastAssistantMessageId;
   if (!assistantMessageId) {
     throw new Error(

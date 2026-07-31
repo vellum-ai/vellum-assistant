@@ -88,6 +88,7 @@ function makeTarget(): Conversation {
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
     drainQueue: async () => {},
+    kickDrainQueue: async () => {},
     // Pre-run auto-compaction gate — no-op for these tests.
     maybeCompact: async () => null,
   };

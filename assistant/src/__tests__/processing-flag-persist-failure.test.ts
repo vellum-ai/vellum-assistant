@@ -1,9 +1,15 @@
 /**
  * Regression: `Conversation.setProcessing(value)` flips the in-memory flag and
- * then persists it to the `processing_started_at` column. If that DB write
- * throws (e.g. SQLITE_BUSY under contention), the in-memory flag must not be
- * left stranded out of sync with the column — it reverts to its prior value
- * and the error re-throws so callers' existing failure handling still runs.
+ * then persists it to the `processing_started_at` column. The two directions
+ * treat a failed write differently, and both are covered here.
+ *
+ * Acquiring is strict: the in-memory flag reverts to its prior value and the
+ * error re-throws so callers' existing failure handling still runs.
+ *
+ * Clearing is not: the in-memory flag is this process's queue gate while the
+ * column is advisory state the boot-time stale-processing sweep recovers, so a
+ * failed mirror write must still leave the conversation released rather than
+ * latching it "busy" for the rest of the daemon's life.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -209,17 +215,16 @@ describe("Conversation.setProcessing persistence failure", () => {
     expect(conversation.isProcessing()).toBe(false);
   });
 
-  test("restores the prior value when clearing fails mid-turn", () => {
+  test("releases in memory when the clear's mirror write fails", () => {
     conversation.setProcessing(true);
     expect(conversation.isProcessing()).toBe(true);
 
     persistShouldThrow = true;
-    expect(() => conversation.setProcessing(false)).toThrow(
-      "database is locked",
-    );
+    expect(() => conversation.setProcessing(false)).not.toThrow();
 
-    // Clear didn't persist, so the flag stays consistent with the column.
-    expect(conversation.isProcessing()).toBe(true);
+    // The queue gate is the in-memory flag, so a failed advisory write must
+    // not leave the conversation rejecting every later send as "busy".
+    expect(conversation.isProcessing()).toBe(false);
   });
 
   test("commits the flag when the DB write succeeds", () => {

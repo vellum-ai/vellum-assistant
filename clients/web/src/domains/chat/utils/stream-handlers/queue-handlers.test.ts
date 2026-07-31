@@ -143,7 +143,11 @@ describe("handleMessageDequeued", () => {
     expect(ctx.setOptimisticSends).toHaveBeenCalled();
   });
 
-  it("skips setOptimisticSends when no messageId mapping exists", () => {
+  it("does not spend a queue slot for a dequeue this client never counted", () => {
+    // Only `handleMessageQueued` increments the counter, and only when it
+    // could bind the ack to a local row, in which case it also writes the
+    // requestId mapping. An unpaired dequeue (another tab's send, a
+    // daemon-internal enqueue) has no mapping and must leave the count alone.
     const ctx = makeCtx();
     handleMessageDequeued(
       {
@@ -153,7 +157,7 @@ describe("handleMessageDequeued", () => {
       },
       ctx,
     );
-    expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
+    expect(ctx.turnActions.dequeueMessage).not.toHaveBeenCalled();
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
   });
 
@@ -188,6 +192,43 @@ describe("handleMessageDequeued", () => {
     expect(message?.isOptimistic).toBe(true);
     expect(message?.queueStatus).toBeUndefined();
     expect(message?.queuePosition).toBeUndefined();
+  });
+
+  it("clears a snapshot-seeded queued row without touching the counter", () => {
+    // A row rendered from a `/messages` reseed is keyed by requestId and never
+    // ran through `handleMessageQueued`, so it owns no queue slot, but it is
+    // on screen and must stop reading as queued.
+    useChatSessionStore.setState({
+      snapshot: {
+        messages: [
+          {
+            id: "req-seeded",
+            role: "user",
+            queueStatus: "queued",
+            queuePosition: 1,
+          },
+        ],
+        hasMore: false,
+        oldestTimestamp: null,
+        oldestMessageId: null,
+        seq: 1,
+      },
+    });
+    const ctx = makeCtx();
+
+    handleMessageDequeued(
+      {
+        type: "message_dequeued",
+        conversationId: "conv-1",
+        requestId: "req-seeded",
+      },
+      ctx,
+    );
+
+    expect(ctx.turnActions.dequeueMessage).not.toHaveBeenCalled();
+    expect(
+      useChatSessionStore.getState().snapshot?.messages[0]?.queueStatus,
+    ).toBeUndefined();
   });
 });
 

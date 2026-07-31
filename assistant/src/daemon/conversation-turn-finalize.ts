@@ -1,5 +1,5 @@
 /**
- * End-of-turn finalize work that runs OFF the send-button critical path.
+ * End-of-turn finalize work that runs after the terminal SSE.
  *
  * The web/Capacitor/CLI clients re-enable the composer the moment they observe
  * the terminal `message_complete` / `assistant_activity_state("idle")` SSE, so
@@ -9,10 +9,20 @@
  * None of the work here gates delivery of the reply: memory/attention indexing
  * only feeds the NEXT turn's retrieval and a sidebar indicator, tool-result
  * truncation only reshapes the in-memory history the next turn is built from,
- * and the disk-view mirror is a durability convenience. The agent loop persists
- * the reply content synchronously and emits the terminal SSE first, then drains
- * this module's work before the turn's `finally` starts the next turn — so the
- * bookkeeping still completes within the turn, just after the composer is free.
+ * and the disk-view mirror is a durability convenience. The work is split by
+ * whether a step is safe to overlap the NEXT turn:
+ *
+ * - {@link settleTurnContent} runs while the turn still holds the processing
+ *   lock. Its steps rewrite `ctx.messages` and append to the conversation's disk
+ *   view, both of which the next turn also writes, so they must finish before
+ *   the lock releases. Every step is synchronous apart from the stranded-content
+ *   fold, so holding the lock across them costs the queue nothing: synchronous
+ *   work blocks the event loop either way.
+ * - {@link runDeferredTurnTail} runs detached, after the lock releases, chained
+ *   per conversation so two turns' tails never overlap each other. Its steps are
+ *   keyed by the message ids this turn produced and are network-bound
+ *   (embeddings, vector upserts), which is the work that must not hold the lock:
+ *   a slow index otherwise leaves the next send queued behind an idle-looking UI.
  */
 
 import type pino from "pino";
@@ -40,18 +50,22 @@ import {
 } from "./inflight-message-content.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 
-/** Minimal live-conversation surface the deferred tail reads and rewrites. */
+/** Minimal live-conversation surface the finalize steps read and rewrite. */
 interface TurnTailContext {
   readonly conversationId: string;
   messages: Message[];
 }
 
-/** Minimal per-run handler state the deferred tail consumes. */
-interface TurnTailState {
-  readonly deferredFinalizeEffects: ReadonlyArray<() => Promise<void>>;
+/** Minimal per-run handler state {@link settleTurnContent} consumes. */
+interface TurnContentState {
   readonly lastAssistantMessageId: string | undefined;
   /** In-flight content writers the turn left behind (see EventHandlerState). */
   readonly inflightWriters: Map<string, InflightContentWriter>;
+}
+
+/** Minimal per-run handler state the detached tail consumes. */
+interface TurnTailState {
+  readonly deferredFinalizeEffects: ReadonlyArray<() => Promise<void>>;
 }
 
 /**
@@ -127,35 +141,22 @@ export function buildDeferredFinalizeEffect(params: {
 }
 
 /**
- * Drain a turn's deferred bookkeeping after the terminal SSE has re-enabled the
- * composer but before the agent loop's `finally` commits and drains the queue
- * for the next turn. Ordering with the next turn is preserved (this completes
- * before `drainQueue`), while the last-token→send-button latency no longer
- * includes it. Every step is best-effort.
+ * Settle the turn's content while the processing lock is still held.
  *
- * `generationCompletedAt` is stamped when the agent loop returns; the emitted
- * `criticalSectionMs` / `deferredTailMs` split makes the previously-uninstrumented
- * end-of-turn window measurable.
+ * These steps run after the terminal SSE (so they are off the last-token to
+ * composer-enabled path) but before the lock releases, because each one writes
+ * a resource the next turn also writes: the in-memory history array and the
+ * conversation's append-only disk view. The processing lock is the only
+ * per-conversation serialization those resources have, so letting these steps
+ * run past the release would let a fast follow-up turn interleave with them.
+ * Every step is best-effort.
  */
-export async function runDeferredTurnTail(params: {
+export async function settleTurnContent(params: {
   ctx: TurnTailContext;
-  state: TurnTailState;
+  state: TurnContentState;
   rlog: pino.Logger;
-  generationCompletedAt: number;
 }): Promise<void> {
-  const { ctx, state, rlog, generationCompletedAt } = params;
-  const tailStartedAt = Date.now();
-
-  // Per-message memory/attention finalize side-effects deferred from
-  // `handleMessageComplete` — one closure per assistant row produced this turn,
-  // in production order.
-  for (const effect of state.deferredFinalizeEffects) {
-    try {
-      await effect();
-    } catch (err) {
-      rlog.warn({ err }, "Deferred finalize side-effect failed (non-fatal)");
-    }
-  }
+  const { ctx, state, rlog } = params;
 
   // Post-turn tool-result truncation: spool oversized results to disk and
   // replace their in-context content with a stub + pointer, shrinking the next
@@ -217,10 +218,43 @@ export async function runDeferredTurnTail(params: {
   } catch (err) {
     rlog.warn({ err }, "Failed to sync assistant message to disk (non-fatal)");
   }
+}
+
+/**
+ * Drain a turn's deferred bookkeeping after the processing lock has released.
+ *
+ * Runs detached from the agent loop and chained on the conversation's tail
+ * promise, so a slow index never holds the next turn's send behind an idle
+ * composer, yet two turns' tails still run in turn order. Every step is
+ * best-effort and keyed by a message id this turn produced, so it neither reads
+ * nor writes state the next turn owns.
+ *
+ * `criticalSectionMs` is the lock-held window the agent loop measured from the
+ * end of generation; paired with `deferredTailMs` it splits the end-of-turn
+ * window into the part a waiting sender feels and the part it no longer does.
+ */
+export async function runDeferredTurnTail(params: {
+  state: TurnTailState;
+  rlog: pino.Logger;
+  criticalSectionMs: number;
+}): Promise<void> {
+  const { state, rlog, criticalSectionMs } = params;
+  const tailStartedAt = Date.now();
+
+  // Per-message memory/attention finalize side-effects deferred from
+  // `handleMessageComplete`: one closure per assistant row produced this turn,
+  // in production order.
+  for (const effect of state.deferredFinalizeEffects) {
+    try {
+      await effect();
+    } catch (err) {
+      rlog.warn({ err }, "Deferred finalize side-effect failed (non-fatal)");
+    }
+  }
 
   rlog.info(
     {
-      criticalSectionMs: tailStartedAt - generationCompletedAt,
+      criticalSectionMs,
       deferredTailMs: Date.now() - tailStartedAt,
     },
     "End-of-turn work complete",

@@ -65,13 +65,21 @@ export function handleMessageDequeued(
   event: MessageDequeuedEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.turnActions.dequeueMessage();
   const dequeuedMessageId = ctx.popRequestIdMapping(event.requestId);
+  // The requestId mapping is the record of a queued send this client counted:
+  // `handleMessageQueued` writes it in the same breath as `enqueueMessage()`,
+  // and writes neither for an ack it could not bind to a local row. Decrement
+  // only against that record, so a dequeue for another tab's send or a
+  // daemon-internal enqueue cannot spend a slot this client never took.
   if (dequeuedMessageId) {
+    ctx.turnActions.dequeueMessage();
     ctx.setOptimisticSends((prev) =>
       applyQueuedMessageDequeue(prev, dequeuedMessageId),
     );
   }
+  // Row removal is unconditional: a queued row seeded from a `/messages`
+  // reseed is keyed by requestId and never went through the counter, but it is
+  // rendered and must stop reading as queued.
   patchTranscriptMessages((prev) =>
     applyQueuedMessageDequeue(prev, dequeuedMessageId ?? event.requestId),
   );

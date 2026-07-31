@@ -174,6 +174,7 @@ import {
   emitCannedMessageComplete,
   persistCannedAssistantCard,
 } from "./canned-message-complete.js";
+import { scheduleCannedReplyRelease } from "./canned-reply-release.js";
 import { buildChannelMetadata } from "./channel-metadata.js";
 import {
   BadRequestError,
@@ -1986,34 +1987,37 @@ export async function handleSendMessage(
         }
       }
 
-      setTimeout(() => {
-        broadcastMessage({
-          type: "user_message_echo",
-          text: rawContent,
-          conversationId,
-          messageId: persisted.id,
-          clientMessageId,
-        });
-        broadcastMessage({
-          type: "assistant_text_delta",
-          text: cannedGreeting,
-          conversationId,
-        });
-        emitCannedMessageComplete(
-          broadcastMessage,
-          conversationId,
-          persistedAssistant.id,
-        );
-        // Rows persisted before this deferred burst; advance the
-        // snapshot↔stream anchor past the events just emitted so `/messages`
-        // never returns these rows behind a stale anchor.
-        recordConversationPersistedSeq(conversationId, getCurrentSeq());
-        publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.setProcessing(false);
-        void conversation.kickDrainQueue("loop_complete", "canned_greeting");
-
-        conversation.warmPromptCache();
-      }, 0);
+      scheduleCannedReplyRelease({
+        conversation,
+        origin: "canned_greeting",
+        emit: () => {
+          broadcastMessage({
+            type: "user_message_echo",
+            text: rawContent,
+            conversationId,
+            messageId: persisted.id,
+            clientMessageId,
+          });
+          broadcastMessage({
+            type: "assistant_text_delta",
+            text: cannedGreeting,
+            conversationId,
+          });
+          emitCannedMessageComplete(
+            broadcastMessage,
+            conversationId,
+            persistedAssistant.id,
+          );
+          // Rows persisted before this deferred burst; advance the
+          // snapshot↔stream anchor past the events just emitted so `/messages`
+          // never returns these rows behind a stale anchor.
+          recordConversationPersistedSeq(conversationId, getCurrentSeq());
+          publishConversationMessagesChanged(conversationId, originClientId);
+        },
+        afterRelease: () => {
+          conversation.warmPromptCache();
+        },
+      });
 
       log.info(
         { conversationId, personalized: !!body.onboarding },
@@ -2311,33 +2315,35 @@ export async function handleSendMessage(
       // starts processing.
       const conversationId = mapping.conversationId;
       const message = slashResult.message;
-      setTimeout(() => {
-        broadcastMessage({
-          type: "user_message_echo",
-          text: rawContent,
-          conversationId,
-          messageId: persisted.id,
-          clientMessageId,
-        });
-        if (modelInfoEvent) {
-          broadcastMessage(modelInfoEvent);
-        }
-        broadcastMessage({
-          type: "assistant_text_delta",
-          text: message,
-          conversationId,
-        });
-        emitCannedMessageComplete(
-          broadcastMessage,
-          conversationId,
-          persistedAssistant.id,
-        );
-        // Same anchor advance as the canned-greeting path above.
-        recordConversationPersistedSeq(conversationId, getCurrentSeq());
-        publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.setProcessing(false);
-        void conversation.kickDrainQueue("loop_complete", "slash_command");
-      }, 0);
+      scheduleCannedReplyRelease({
+        conversation,
+        origin: "slash_command",
+        emit: () => {
+          broadcastMessage({
+            type: "user_message_echo",
+            text: rawContent,
+            conversationId,
+            messageId: persisted.id,
+            clientMessageId,
+          });
+          if (modelInfoEvent) {
+            broadcastMessage(modelInfoEvent);
+          }
+          broadcastMessage({
+            type: "assistant_text_delta",
+            text: message,
+            conversationId,
+          });
+          emitCannedMessageComplete(
+            broadcastMessage,
+            conversationId,
+            persistedAssistant.id,
+          );
+          // Same anchor advance as the canned-greeting path above.
+          recordConversationPersistedSeq(conversationId, getCurrentSeq());
+          publishConversationMessagesChanged(conversationId, originClientId);
+        },
+      });
 
       cleanupDeferred = true;
       return response;

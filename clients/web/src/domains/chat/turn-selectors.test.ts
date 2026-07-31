@@ -90,6 +90,49 @@ describe("isAssistantBusy — authoritative processing close-gate", () => {
   });
 });
 
+describe("isAssistantBusy: authoritative processing open-gate", () => {
+  test("busy when the daemon reports processing and no local signal agrees", () => {
+    // A reloaded tab, or a daemon holding the processing lock past its last
+    // SSE event: the phase is idle and nothing is streaming, yet sends would
+    // be queued. The Stop button is the only escape, so this must read busy.
+    expect(isAssistantBusy("idle", ctx({ snapshotProcessing: true }))).toBe(
+      true,
+    );
+  });
+
+  test("a pending question still suppresses busy", () => {
+    // The prompt IS the UI: a queued-behind-a-prompt daemon must not also
+    // render a spinner and a Stop button over the question card.
+    expect(
+      isAssistantBusy(
+        "idle",
+        ctx({ snapshotProcessing: true, hasPendingQuestion: true }),
+      ),
+    ).toBe(false);
+  });
+
+  test("a pending confirmation still suppresses busy", () => {
+    expect(
+      isAssistantBusy(
+        "idle",
+        ctx({ snapshotProcessing: true, hasPendingConfirmation: true }),
+      ),
+    ).toBe(false);
+  });
+
+  test("processing:false short-circuits from an idle phase", () => {
+    expect(isAssistantBusy("idle", ctx({ snapshotProcessing: false }))).toBe(
+      false,
+    );
+  });
+
+  test("undefined processing keeps an idle client not busy", () => {
+    expect(
+      isAssistantBusy("idle", ctx({ snapshotProcessing: undefined })),
+    ).toBe(false);
+  });
+});
+
 describe("isAssistantBusy — awaiting_user_input without a pending prompt", () => {
   test("stays busy when a prompt resolved but the turn keeps streaming (LUM-2786)", () => {
     // The incident state: the phase is stranded at `awaiting_user_input` after

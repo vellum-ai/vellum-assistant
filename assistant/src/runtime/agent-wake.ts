@@ -1498,14 +1498,10 @@ export async function wakeAgentForOpportunity(
           "agent-wake: setProcessing(false) threw; continuing",
         );
       }
-      try {
-        await conversation.drainQueue();
-      } catch (err) {
-        log.warn(
-          { conversationId, source, err },
-          "agent-wake: drainQueue threw; continuing",
-        );
-      }
+      // `kickDrainQueue` never rejects: it retries a failed drain once and
+      // notifies the queued senders when the retry also fails, so a stalled
+      // wake-tail drain is visible instead of silently stranding the queue.
+      await conversation.kickDrainQueue("loop_complete", "agent_wake_tail");
       drainedInTry = true;
 
       return { invoked: true, producedToolCalls };
@@ -1528,14 +1524,10 @@ export async function wakeAgentForOpportunity(
             "agent-wake: setProcessing(false) threw; continuing",
           );
         }
-        try {
-          await conversation.drainQueue();
-        } catch (err) {
-          log.warn(
-            { conversationId, source, err },
-            "agent-wake: drainQueue threw; continuing",
-          );
-        }
+        await conversation.kickDrainQueue(
+          "loop_complete",
+          "agent_wake_cleanup",
+        );
       }
 
       const durationMs = nowFn() - startedAt;

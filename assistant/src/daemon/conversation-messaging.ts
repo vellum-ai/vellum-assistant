@@ -738,9 +738,9 @@ export async function persistUserMessage(
     return result;
   } catch (err) {
     // Clear the flag, but never let a clear failure mask the original error
-    // or skip the bookkeeping reset. `setProcessing` reverts its own
-    // in-memory flag when its persist throws, so the conversation is left
-    // consistent either way.
+    // or skip the bookkeeping reset. `setProcessing(false)` releases in memory
+    // regardless of its advisory mirror write, so the guard here is purely
+    // defensive against future changes.
     try {
       ctx.setProcessing(false);
     } catch (clearErr) {

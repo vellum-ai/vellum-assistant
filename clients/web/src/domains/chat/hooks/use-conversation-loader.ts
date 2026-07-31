@@ -32,6 +32,7 @@ import { routes } from "@/utils/routes";
 import { useNavigate } from "react-router";
 
 import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history";
+import { useTurnTimeout } from "@/domains/chat/hooks/use-turn-timeout";
 import type { AssistantStateKind } from "@/domains/chat/types";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { useQueryClient } from "@tanstack/react-query";
@@ -86,6 +87,7 @@ interface UseConversationLoaderParams {
  *
  * Delegates to:
  * - `useConversationHistory` -- conversation switch, cache, and history loading
+ * - `useTurnTimeout` -- terminates a turn whose stream went silent
  *
  * Attention/processing-key tracking is owned by `useAttentionTracking`,
  * mounted in `ChatLayout` so the bus-driven `interaction_resolved`
@@ -414,6 +416,12 @@ export function useConversationLoader({
     assistantStateKind,
     activeConversationId,
   });
+
+  // -------------------------------------------------------------------------
+  // Delegate: stranded-turn watchdog. Terminates a turn whose stream went
+  // silent and revalidates history so the UI settles on server truth.
+  // -------------------------------------------------------------------------
+  useTurnTimeout({ assistantId, activeConversationId });
 
   // -------------------------------------------------------------------------
   // switchConversation
