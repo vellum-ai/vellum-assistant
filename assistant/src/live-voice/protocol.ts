@@ -1,354 +1,38 @@
-const LIVE_VOICE_CLIENT_FRAME_TYPES = [
-  "start",
-  "audio",
-  "ptt_release",
-  "interrupt",
-  "end",
-  "update_config",
-] as const;
+import { isInterfaceId } from "@vellumai/service-contracts/channels";
+import {
+  LIVE_VOICE_TURN_DETECTION_MODES,
+  type LiveVoiceAudioConfig,
+  type LiveVoiceClientControlFrame,
+  type LiveVoiceClientStartFrame,
+  type LiveVoiceClientUpdateConfigFrame,
+  type LiveVoiceLegacyBase64AudioFrame,
+  type LiveVoiceProtocolError,
+  LiveVoiceProtocolErrorCode,
+  type LiveVoiceServerFrame,
+  type LiveVoiceServerFramePayload,
+  type LiveVoiceTurnDetectionMode,
+  MAX_BARGE_IN_MIN_SPEECH_MS,
+  MAX_SILENCE_THRESHOLD_MS,
+  MIN_BARGE_IN_MIN_SPEECH_MS,
+  MIN_SILENCE_THRESHOLD_MS,
+} from "@vellumai/service-contracts/live-voice";
 
-type LiveVoiceClientFrameType = (typeof LIVE_VOICE_CLIENT_FRAME_TYPES)[number];
-
-const _LIVE_VOICE_SERVER_FRAME_TYPES = [
-  "ready",
-  "busy",
-  "speech_started",
-  "utterance_end",
-  "utterance_discarded",
-  "stt_partial",
-  "stt_final",
-  "thinking",
-  "assistant_text_delta",
-  "tts_audio",
-  "tts_done",
-  "turn_cancelled",
-  "minimize_room",
-  "metrics",
-  "archived",
-  "error",
-] as const;
-
-type LiveVoiceServerFrameType = (typeof _LIVE_VOICE_SERVER_FRAME_TYPES)[number];
-
-export const LiveVoiceProtocolErrorCode = {
-  InvalidJson: "invalid_json",
-  InvalidFrame: "invalid_frame",
-  UnknownType: "unknown_type",
-  MissingRequiredField: "missing_required_field",
-  InvalidField: "invalid_field",
-  InvalidAudioPayload: "invalid_audio_payload",
-  /**
-   * Session startup was rejected because the daemon cannot run both audio
-   * legs (STT/TTS providers or credentials are unresolved). The error
-   * `message` names the offending provider(s) and missing credential(s).
-   */
-  CredentialsUnavailable: "credentials_unavailable",
-} as const;
-
-export type LiveVoiceProtocolErrorCode =
-  (typeof LiveVoiceProtocolErrorCode)[keyof typeof LiveVoiceProtocolErrorCode];
-
-export interface LiveVoiceProtocolError {
-  readonly code: LiveVoiceProtocolErrorCode;
-  readonly message: string;
-  readonly field?: string;
-  readonly frameType?: string;
-}
+export * from "@vellumai/service-contracts/live-voice";
 
 type LiveVoiceParseResult<T> =
   | { ok: true; frame: T }
   | { ok: false; error: LiveVoiceProtocolError };
 
-export interface LiveVoiceAudioConfig {
-  readonly mimeType: "audio/pcm";
-  readonly sampleRate: number;
-  readonly channels: 1;
-}
-
-const LIVE_VOICE_TURN_DETECTION_MODES = ["manual", "server_vad"] as const;
-
-export type LiveVoiceTurnDetectionMode =
-  (typeof LIVE_VOICE_TURN_DETECTION_MODES)[number];
-
-export interface LiveVoiceClientStartFrame {
-  readonly type: "start";
-  readonly conversationId?: string;
-  readonly audio: LiveVoiceAudioConfig;
-  /**
-   * Turn-detection mode for the session. Absent means "manual" (push-to-talk).
-   * "server_vad" also implies a multi-turn session: the server detects
-   * utterance boundaries and runs repeated utterance→turn cycles.
-   */
-  readonly turnDetection?: LiveVoiceTurnDetectionMode;
-  /**
-   * Per-session override for the trailing-silence duration (ms) that ends the
-   * user's turn — the "pause before reply" the client exposes as a setting.
-   * Absent falls back to the daemon `liveVoice.vad.silenceThresholdMs` config.
-   * Only meaningful for `turnDetection: "server_vad"`. Bounded to
-   * [{@link MIN_SILENCE_THRESHOLD_MS}, {@link MAX_SILENCE_THRESHOLD_MS}].
-   */
-  readonly silenceThresholdMs?: number;
-  /**
-   * Per-session override for the sustained speech (ms) required before the
-   * user's speech interrupts the assistant mid-reply — the "interrupt
-   * sensitivity" the client exposes as a setting (higher = harder to
-   * interrupt; 0 disables the guard so barge-in is immediate). Absent falls
-   * back to the daemon `liveVoice.vad.bargeInMinSpeechMs` config. Bounded to
-   * [{@link MIN_BARGE_IN_MIN_SPEECH_MS}, {@link MAX_BARGE_IN_MIN_SPEECH_MS}].
-   */
-  readonly bargeInMinSpeechMs?: number;
-}
-
-/**
- * Bounds for the per-session turn-detection overrides carried on the start
- * frame. Kept deliberately wide — they only reject nonsensical values (a
- * sub-100 ms pause would end turns mid-word; a 10 s barge-in guard would make
- * the assistant uninterruptible). The daemon config defaults sit inside these.
- */
-export const MIN_SILENCE_THRESHOLD_MS = 100;
-export const MAX_SILENCE_THRESHOLD_MS = 5_000;
-export const MIN_BARGE_IN_MIN_SPEECH_MS = 0;
-export const MAX_BARGE_IN_MIN_SPEECH_MS = 3_000;
-
-export interface LiveVoiceClientAudioFrame {
-  readonly type: "audio";
-  readonly dataBase64: string;
-}
-
-export interface LiveVoiceClientPttReleaseFrame {
-  readonly type: "ptt_release";
-}
-
-export interface LiveVoiceClientInterruptFrame {
-  readonly type: "interrupt";
-}
-
-export interface LiveVoiceClientEndFrame {
-  readonly type: "end";
-}
-
-/**
- * Mid-session tuning update: applies the same turn-detection knobs the start
- * frame carries to the *running* session, so the client can retune "pause
- * before reply" / "interrupt sensitivity" without reconnecting. Each field is
- * optional and independently applied; the same bounds as the start frame apply.
- * Only meaningful for `server_vad` sessions.
- */
-export interface LiveVoiceClientUpdateConfigFrame {
-  readonly type: "update_config";
-  readonly silenceThresholdMs?: number;
-  readonly bargeInMinSpeechMs?: number;
-}
+export type LiveVoiceClientAudioFrame = LiveVoiceLegacyBase64AudioFrame;
 
 export type LiveVoiceClientFrame =
-  | LiveVoiceClientStartFrame
-  | LiveVoiceClientAudioFrame
-  | LiveVoiceClientPttReleaseFrame
-  | LiveVoiceClientInterruptFrame
-  | LiveVoiceClientEndFrame
-  | LiveVoiceClientUpdateConfigFrame;
+  | LiveVoiceClientControlFrame
+  | LiveVoiceLegacyBase64AudioFrame;
 
 interface LiveVoiceBinaryAudioFrame {
   readonly type: "binary_audio";
   readonly data: Uint8Array;
 }
-
-interface LiveVoiceServerFrameBase {
-  readonly type: LiveVoiceServerFrameType;
-  readonly seq: number;
-}
-
-export interface LiveVoiceReadyServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "ready";
-  readonly sessionId: string;
-  readonly conversationId: string;
-  /**
-   * Echoes the turn-detection mode the session is actually running, so
-   * clients can detect a daemon that ignored a requested mode. Absent
-   * (older daemons) means "manual".
-   */
-  readonly turnDetection?: LiveVoiceTurnDetectionMode;
-}
-
-export interface LiveVoiceBusyServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "busy";
-  readonly activeSessionId: string;
-}
-
-/**
- * Emitted when the server VAD detects user speech. The client MUST
- * immediately stop local TTS playback — this doubles as the flush-tail-audio
- * signal (the in-app analog of the phone stack's buffered-audio clear).
- */
-export interface LiveVoiceSpeechStartedServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "speech_started";
-}
-
-/**
- * Emitted when the server VAD closes the utterance and the turn's
- * transcription begins (plays the role ptt_release plays in manual mode).
- */
-export interface LiveVoiceUtteranceEndServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "utterance_end";
-  readonly reason: "silence" | "max-duration";
-}
-
-/**
- * Emitted only in server_vad mode when the closed utterance produced no
- * usable speech: it is dropped without an assistant turn and the client
- * should return to listening.
- */
-export interface LiveVoiceUtteranceDiscardedServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "utterance_discarded";
-}
-
-export interface LiveVoiceSttPartialServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "stt_partial";
-  readonly text: string;
-}
-
-export interface LiveVoiceSttFinalServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "stt_final";
-  readonly text: string;
-}
-
-export interface LiveVoiceThinkingServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "thinking";
-  readonly turnId: string;
-}
-
-export interface LiveVoiceAssistantTextDeltaServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "assistant_text_delta";
-  readonly text: string;
-}
-
-export interface LiveVoiceTtsAudioServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "tts_audio";
-  readonly mimeType: string;
-  readonly sampleRate: number;
-  readonly dataBase64: string;
-}
-
-export interface LiveVoiceTtsDoneServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "tts_done";
-  readonly turnId: string;
-}
-
-/**
- * Emitted when an in-flight assistant turn is aborted by barge-in. The client
- * must drop any buffered tts_audio for that turn; no tts_done will follow.
- */
-export interface LiveVoiceTurnCancelledServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "turn_cancelled";
-  readonly turnId: string;
-}
-
-/**
- * Assistant-requested room minimize: the just-completed turn asked (via the
- * inline [-1] control marker) for the client to dismiss the full-screen
- * voice room so the user can see the screen behind it. Sent only after the
- * turn's TTS has fully drained, at most once per turn. Advisory — clients
- * without a room (pop-outs, older clients) ignore it.
- */
-export interface LiveVoiceMinimizeRoomServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "minimize_room";
-  readonly turnId: string;
-}
-
-export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "metrics";
-  readonly event?: string;
-  readonly sessionId?: string;
-  readonly conversationId?: string;
-  readonly turnId: string;
-  readonly metrics?: unknown;
-  readonly sttMs: number | null;
-  readonly llmFirstDeltaMs: number | null;
-  readonly ttsFirstAudioMs: number | null;
-  /** End-of-speech (utterance_end, or ptt_release in manual mode) to first TTS audio. */
-  readonly roundTripMs: number | null;
-  readonly totalMs: number | null;
-  /**
-   * Semantic-endpointing "hold" decisions taken during the turn. Present only
-   * when the endpoint decider was consulted (otherwise the field is absent,
-   * keeping frames unchanged).
-   */
-  readonly endpointHoldCount?: number;
-  /** Worst endpoint-decision latency observed during the turn. */
-  readonly endpointDecisionMaxLatencyMs?: number;
-  /** Which floor-holding ack actually spoke during the turn, if any. */
-  readonly ackSpoken?: "first_delta" | "tool_use";
-  /**
-   * Spoken progress narrations during the turn. Present only when at least
-   * one progress update spoke (otherwise the field is absent, keeping frames
-   * unchanged).
-   */
-  readonly progressUpdatesSpoken?: number;
-}
-
-export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "archived";
-  readonly conversationId: string;
-  readonly sessionId: string;
-  readonly turnId?: string;
-  readonly role?: "user" | "assistant";
-  readonly attachmentId?: string;
-  readonly attachmentIds?: string[];
-  readonly warning?: {
-    readonly code: string;
-    readonly message: string;
-  };
-}
-
-export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
-  readonly type: "error";
-  readonly code: LiveVoiceProtocolErrorCode;
-  readonly message: string;
-  /**
-   * True when the session continues past the error (e.g. a transient
-   * transcriber blip or one failed TTS segment). Absent (including on frames
-   * from older daemons) means the error is terminal for the session.
-   */
-  readonly recoverable?: boolean;
-}
-
-export type LiveVoiceServerFrame =
-  | LiveVoiceReadyServerFrame
-  | LiveVoiceBusyServerFrame
-  | LiveVoiceSpeechStartedServerFrame
-  | LiveVoiceUtteranceEndServerFrame
-  | LiveVoiceUtteranceDiscardedServerFrame
-  | LiveVoiceSttPartialServerFrame
-  | LiveVoiceSttFinalServerFrame
-  | LiveVoiceThinkingServerFrame
-  | LiveVoiceAssistantTextDeltaServerFrame
-  | LiveVoiceTtsAudioServerFrame
-  | LiveVoiceTtsDoneServerFrame
-  | LiveVoiceTurnCancelledServerFrame
-  | LiveVoiceMinimizeRoomServerFrame
-  | LiveVoiceMetricsServerFrame
-  | LiveVoiceArchivedServerFrame
-  | LiveVoiceErrorServerFrame;
-
-type WithoutSeq<T extends LiveVoiceServerFrameBase> = Omit<T, "seq">;
-
-export type LiveVoiceServerFramePayload =
-  | WithoutSeq<LiveVoiceReadyServerFrame>
-  | WithoutSeq<LiveVoiceBusyServerFrame>
-  | WithoutSeq<LiveVoiceSpeechStartedServerFrame>
-  | WithoutSeq<LiveVoiceUtteranceEndServerFrame>
-  | WithoutSeq<LiveVoiceUtteranceDiscardedServerFrame>
-  | WithoutSeq<LiveVoiceSttPartialServerFrame>
-  | WithoutSeq<LiveVoiceSttFinalServerFrame>
-  | WithoutSeq<LiveVoiceThinkingServerFrame>
-  | WithoutSeq<LiveVoiceAssistantTextDeltaServerFrame>
-  | WithoutSeq<LiveVoiceTtsAudioServerFrame>
-  | WithoutSeq<LiveVoiceTtsDoneServerFrame>
-  | WithoutSeq<LiveVoiceTurnCancelledServerFrame>
-  | WithoutSeq<LiveVoiceMinimizeRoomServerFrame>
-  | WithoutSeq<LiveVoiceMetricsServerFrame>
-  | WithoutSeq<LiveVoiceArchivedServerFrame>
-  | WithoutSeq<LiveVoiceErrorServerFrame>;
 
 class LiveVoiceServerFrameSequencer {
   private seq: number;
@@ -412,15 +96,6 @@ export function validateLiveVoiceClientFrame(
     );
   }
 
-  if (!isLiveVoiceClientFrameType(value.type)) {
-    return protocolError(
-      "unknown_type",
-      `Unknown live voice client frame type: ${value.type}`,
-      "type",
-      value.type,
-    );
-  }
-
   switch (value.type) {
     case "start":
       return validateStartFrame(value);
@@ -434,6 +109,13 @@ export function validateLiveVoiceClientFrame(
       return { ok: true, frame: { type: "end" } };
     case "update_config":
       return validateUpdateConfigFrame(value);
+    default:
+      return protocolError(
+        "unknown_type",
+        `Unknown live voice client frame type: ${value.type}`,
+        "type",
+        value.type,
+      );
   }
 }
 
@@ -563,6 +245,15 @@ function validateStartFrame(
     );
   }
 
+  if ("sourceInterface" in value && !isInterfaceId(value.sourceInterface)) {
+    return protocolError(
+      "invalid_field",
+      "start frame field sourceInterface must be a canonical interface identifier",
+      "sourceInterface",
+      "start",
+    );
+  }
+
   if (
     "turnDetection" in value &&
     !isLiveVoiceTurnDetectionMode(value.turnDetection)
@@ -615,6 +306,9 @@ function validateStartFrame(
         ? { conversationId: value.conversationId }
         : {}),
       audio: audioConfig.frame,
+      ...(isInterfaceId(value.sourceInterface)
+        ? { sourceInterface: value.sourceInterface }
+        : {}),
       ...(isLiveVoiceTurnDetectionMode(value.turnDetection)
         ? { turnDetection: value.turnDetection }
         : {}),
@@ -729,12 +423,6 @@ function validateAudioConfig(
       channels: 1,
     },
   };
-}
-
-function isLiveVoiceClientFrameType(
-  value: string,
-): value is LiveVoiceClientFrameType {
-  return (LIVE_VOICE_CLIENT_FRAME_TYPES as readonly string[]).includes(value);
 }
 
 function isLiveVoiceTurnDetectionMode(

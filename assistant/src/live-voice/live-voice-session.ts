@@ -3716,13 +3716,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     };
 
     try {
+      const sourceInterface =
+        this.context.startFrame.sourceInterface ?? "macos";
       const handle = await this.startVoiceTurn({
         conversationId: this.conversationId,
         voiceSessionId: this.context.sessionId,
         userMessageChannel: "vellum",
         assistantMessageChannel: "vellum",
-        userMessageInterface: "macos",
-        assistantMessageInterface: "macos",
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
         voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {
           ...(leg.frontDoor !== undefined ? { frontDoor: leg.frontDoor } : {}),
         }),
