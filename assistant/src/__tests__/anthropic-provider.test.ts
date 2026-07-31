@@ -782,7 +782,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   });
 
   test("mutableLatestUserMessage: a volatile turn start keeps the 5m TTL through its tool-use loop", async () => {
-    // The turn start is fixed for the rest of the turn, so it stays markable —
+    // The turn start is fixed for the rest of the turn, so it stays markable;
     // but it is volatile ACROSS turns, so the long TTL would buy a write that
     // can never be read back. Upgrading it here would also mark the same block
     // at a second TTL, billing two writes for one reusable prefix.

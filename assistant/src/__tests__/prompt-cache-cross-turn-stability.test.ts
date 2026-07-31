@@ -319,7 +319,7 @@ function anthropicMarkedIndexes(
 }
 
 /**
- * TTLs marked on the turn-starting user message — the last user message
+ * TTLs marked on the turn-starting user message, the last user message
  * carrying text, which is the boundary the Anthropic client anchors on.
  */
 function anthropicTurnStartTtls(

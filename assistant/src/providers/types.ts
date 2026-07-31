@@ -335,7 +335,7 @@ export interface SendMessageConfig {
    * one injected block strip-and-replaced from every user message each turn).
    *
    * The flag describes the turn, not the request, so it holds for every
-   * request the turn makes — including tool-loop iterations, whose trailing
+   * request the turn makes, including tool-loop iterations, whose trailing
    * tool-result message is user-role but carries no injected blocks.
    *
    * Consumed by the Anthropic client only, where it selects the TTL of the
@@ -343,7 +343,7 @@ export interface SendMessageConfig {
    * so the turn's tool-loop iterations read the prefix back and each hit
    * refreshes the entry; nothing is spent on a long-TTL entry whose bytes
    * change before the next turn could reach it. Holding the flag steady across
-   * the turn is what keeps that one boundary on a single TTL — marking it at
+   * the turn is what keeps that one boundary on a single TTL; marking it at
    * two would bill two writes for one reusable prefix.
    *
    * The OpenAI Responses transport ignores the flag and marks every markable

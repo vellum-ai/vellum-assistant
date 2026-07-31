@@ -1189,7 +1189,7 @@ export class AnthropicProvider implements Provider {
       // takes the SHORT TTL instead of the long one. The long TTL would buy
       // nothing: the bytes change next turn, so that entry can never be read
       // across turns, and the only reads it can serve are this turn's tool-loop
-      // iterations — which the short TTL already serves, refreshing on each
+      // iterations, which the short TTL already serves, refreshing on each
       // hit. Marking the same boundary at two different TTLs across a turn
       // bills two writes for one reusable prefix, the long one at the higher
       // write multiplier.
@@ -1197,7 +1197,7 @@ export class AnthropicProvider implements Provider {
       // The signal is turn-scoped, not request-scoped: it describes the
       // turn-starting user message, so it holds for every request in the turn
       // and the TTL chosen here stays consistent as the tool loop advances.
-      // `disableTurnStartCache` is independent — it expresses a different
+      // `disableTurnStartCache` is independent: it expresses a different
       // intent (one-shot callers with no future hit).
       if (turnStartIdx >= 0 && !disableCache && !disableTurnStartCache) {
         applyCacheControlToLastBlock(
