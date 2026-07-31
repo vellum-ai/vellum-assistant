@@ -40,8 +40,10 @@ const IN_APP_CHANNEL = "vellum";
  * surface (Slack, Telegram, WhatsApp, email, a phone call, …) rather than the
  * native app.
  *
- * An absent channel counts as in-app: rows persisted before the stamp existed,
- * and the daemon-side paths that omit it, are all native-app turns.
+ * An absent channel counts as in-app: every external ingress path stamps its
+ * channel via buildChannelMetadata, so the rows that omit the field are
+ * daemon-internal persists on native-app conversations (for example the
+ * deliberate omission in calls/call-pointer-messages.ts).
  */
 function isChannelOriginatedUserMessage(
   metadata: Record<string, unknown> | undefined,
