@@ -1,8 +1,7 @@
 /**
- * Tests for the pass-through paths in the notification decision engine
- * (assistant_tool signals and chat.assistant_reply signals). When a producer
- * hands us a verbatim message via contextPayload.requestedMessage, the engine
- * must skip the LLM call entirely and use the producer-supplied copy as-is.
+ * Tests for the pass-through paths in the notification decision engine. When a
+ * producer hands us a verbatim message via contextPayload.requestedMessage, the
+ * engine must skip the LLM call entirely and use the copy as-is.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -443,6 +442,32 @@ describe("chat.assistant_reply pass-through in notification decision engine", ()
     expect(persistedDecisions[0]?.reasoningSummary).toBe(
       "assistant_reply pass-through",
     );
+  });
+
+  test("an empty body skips the pass-through branch entirely", async () => {
+    const signal = makeAssistantReplySignal({
+      contextPayload: { requestedMessage: "   ", requestedTitle: "Assistant" },
+    });
+    const previousSendMessage = providerSendMessage;
+    let providerCalled = false;
+    providerSendMessage = async () => {
+      providerCalled = true;
+      return {};
+    };
+
+    try {
+      const decision = await evaluateSignal(signal, [
+        "platform",
+      ] as NotificationChannel[]);
+
+      expect(providerCalled).toBe(true);
+      expect(decision.verbatimCopy).toBeUndefined();
+      expect(decision.reasoningSummary).not.toBe(
+        "assistant_reply pass-through",
+      );
+    } finally {
+      providerSendMessage = previousSendMessage;
+    }
   });
 });
 

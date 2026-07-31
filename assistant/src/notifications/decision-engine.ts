@@ -54,7 +54,11 @@ import {
   stripConflictingGuardianRequestInstructions,
   stripGuardianRequestCodeInstructions,
 } from "./guardian-question-mode.js";
-import { nonEmpty, readPayloadString } from "./notification-utils.js";
+import {
+  nonEmpty,
+  readPayloadObject,
+  readPayloadString,
+} from "./notification-utils.js";
 import { getPreferenceSummary } from "./preference-summary.js";
 import type { NotificationSignal, RoutingIntent } from "./signal.js";
 import type {
@@ -79,14 +83,13 @@ const PROMPT_VERSION = "v4";
 const MAX_IDENTITY_CONTEXT_CHARS = 2000;
 
 /**
- * Delivery scope for `chat.assistant_reply` signals.
- *
- * v1 (LUM-2952) is iOS push only: `platform` is a push_only relay, so it
- * delivers an APNs push and never materializes a conversation. Adding
- * `"vellum"` to this array is the entire switch for in-app banners on
- * macOS, web, and foregrounded iOS.
+ * Delivery scope for `chat.assistant_reply` signals. v1 (LUM-2952) is iOS push
+ * only: `platform` is a push_only relay that never materializes a conversation.
+ * Adding `"vellum"` here is the entire switch for in-app banners.
  */
-const ASSISTANT_REPLY_CHANNELS: NotificationChannel[] = ["platform"];
+const ASSISTANT_REPLY_CHANNELS = [
+  "platform",
+] as const satisfies readonly NotificationChannel[];
 
 // ── System prompt ──────────────────────────────────────────────────────
 
@@ -867,20 +870,10 @@ function ensureInviteFlowDirectiveInCopy(
 
 // ── Producer pass-through decisions ────────────────────────────────────
 
-/** Deep-link metadata is only honored when the producer supplies a plain object. */
-function readDeepLinkTarget(
-  payload: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-  return payload.deepLinkMetadata != null &&
-    typeof payload.deepLinkMetadata === "object" &&
-    !Array.isArray(payload.deepLinkMetadata)
-    ? (payload.deepLinkMetadata as Record<string, unknown>)
-    : undefined;
-}
-
 /**
  * Build, guard, and persist a decision whose copy came verbatim from the
- * producer, bypassing the LLM classifier.
+ * producer, bypassing the LLM classifier. The title falls back to one derived
+ * from the body when the producer supplies none.
  *
  * `renderedCopy` and `conversationActions` are populated for every available
  * channel, not just `selectedChannels`: downstream guards (routing-intent
@@ -893,13 +886,18 @@ function buildPassThroughDecision(params: {
   signal: NotificationSignal;
   availableChannels: NotificationChannel[];
   selectedChannels: NotificationChannel[];
-  title: string;
   body: string;
   reasoningSummary: string;
   dedupeKey: string;
-  deepLinkTarget?: Record<string, unknown>;
 }): NotificationDecision {
-  const { availableChannels, body, deepLinkTarget, signal, title } = params;
+  const { availableChannels, body, signal } = params;
+  const title =
+    nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
+    deriveTitle(body);
+  const deepLinkTarget = readPayloadObject(
+    signal.contextPayload,
+    "deepLinkMetadata",
+  );
   let decision: NotificationDecision = {
     shouldNotify: params.selectedChannels.length > 0,
     selectedChannels: params.selectedChannels,
@@ -938,50 +936,20 @@ export async function evaluateSignal(
   availableChannels: NotificationChannel[],
   preferenceContext?: string,
 ): Promise<NotificationDecision> {
-  // When no explicit preference context is provided, load the user's
-  // stored notification preferences from the memory-backed store.
-  // Wrapped in try/catch so a DB failure doesn't break the decision path.
-  let resolvedPreferenceContext = preferenceContext;
-  if (resolvedPreferenceContext === undefined) {
-    try {
-      resolvedPreferenceContext = getPreferenceSummary() ?? undefined;
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      log.warn(
-        { err: errMsg },
-        "Failed to load preference summary, proceeding without preferences",
-      );
-      resolvedPreferenceContext = undefined;
-    }
-  }
-
-  // Build conversation candidate set for reuse decisions. Wrapped in try/catch
-  // so candidate lookup failures do not block the decision path.
-  let candidateSet: ConversationCandidateSet | undefined;
-  try {
-    candidateSet = await buildConversationCandidates(availableChannels);
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    log.warn(
-      { err: errMsg },
-      "Failed to build conversation candidates, proceeding without candidates",
-    );
-  }
+  // Pass-through branches run before the preference and candidate loads
+  // below: their copy and routing are producer-supplied, so neither DB
+  // lookup can influence the outcome.
 
   // Assistant-tool pass-through: when a producer hands us a verbatim
   // message body via contextPayload.requestedMessage, skip the LLM
   // classifier entirely. The producer has already done the routing and
-  // copy decisions — we just enforce the standard post-decision guards
+  // copy decisions, we just enforce the standard post-decision guards
   // and persist the result.
   const requestedBody = nonEmpty(
     readPayloadString(signal.contextPayload, "requestedMessage"),
   );
   if (signal.sourceChannel === "assistant_tool" && requestedBody) {
     const payload = signal.contextPayload as Record<string, unknown>;
-    const body = requestedBody;
-    const title =
-      nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
-      deriveTitle(body);
     const isUrgent =
       signal.attentionHints.urgency === "critical" ||
       signal.attentionHints.urgency === "high";
@@ -1019,39 +987,55 @@ export async function evaluateSignal(
       signal,
       availableChannels,
       selectedChannels,
-      title,
-      body,
+      body: requestedBody,
       reasoningSummary: "assistant_tool pass-through",
       dedupeKey: signal.signalId,
-      // Thread `--deep-link-metadata` through when supplied as a plain object.
-      deepLinkTarget: readDeepLinkTarget(payload),
     });
   }
 
-  // Assistant-reply pass-through: the producer supplies the copy and the
-  // delivery scope is fixed (ASSISTANT_REPLY_CHANNELS), so the LLM
-  // classifier has nothing to decide. Deterministic: no urgency
-  // dependence, no preferredChannels handling. The seeded conversation
-  // actions are inert because the producer never sets
-  // `requiresConversation`.
-  if (signal.sourceEventName === "chat.assistant_reply") {
-    const body = requestedBody ?? "";
+  // Assistant-reply pass-through: the delivery scope is fixed
+  // (ASSISTANT_REPLY_CHANNELS), so the LLM classifier has nothing to decide.
+  if (signal.sourceEventName === "chat.assistant_reply" && requestedBody) {
     return buildPassThroughDecision({
       signal,
       availableChannels,
       selectedChannels: ASSISTANT_REPLY_CHANNELS.filter((ch) =>
         availableChannels.includes(ch),
       ),
-      title:
-        nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
-        deriveTitle(body),
-      body,
+      body: requestedBody,
       reasoningSummary: "assistant_reply pass-through",
       dedupeKey: signal.dedupeKey ?? signal.signalId,
-      deepLinkTarget: readDeepLinkTarget(
-        signal.contextPayload as Record<string, unknown>,
-      ),
     });
+  }
+
+  // When no explicit preference context is provided, load the user's
+  // stored notification preferences from the memory-backed store.
+  // Wrapped in try/catch so a DB failure doesn't break the decision path.
+  let resolvedPreferenceContext = preferenceContext;
+  if (resolvedPreferenceContext === undefined) {
+    try {
+      resolvedPreferenceContext = getPreferenceSummary() ?? undefined;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { err: errMsg },
+        "Failed to load preference summary, proceeding without preferences",
+      );
+      resolvedPreferenceContext = undefined;
+    }
+  }
+
+  // Build conversation candidate set for reuse decisions. Wrapped in try/catch
+  // so candidate lookup failures do not block the decision path.
+  let candidateSet: ConversationCandidateSet | undefined;
+  try {
+    candidateSet = await buildConversationCandidates(availableChannels);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { err: errMsg },
+      "Failed to build conversation candidates, proceeding without candidates",
+    );
   }
 
   const provider = await getConfiguredProvider("notificationDecision");
