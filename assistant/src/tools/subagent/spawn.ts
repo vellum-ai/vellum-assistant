@@ -341,9 +341,11 @@ async function runAdvisorConsult(args: {
           label,
           // Carry the agent's own objective into the consult request — the
           // agent states the task here, and the inherited transcript can be
-          // thin. The situational pack rides in this request turn too, keeping
-          // the system prompt minimal.
-          objective: advisorRequestText(objective, situationalContext),
+          // thin. The situational pack rides in the model request only
+          // (`requestText`), keeping the system prompt minimal and the
+          // display-facing `objective` free of bulky internal context.
+          objective: advisorRequestText(objective),
+          requestText: advisorRequestText(objective, situationalContext),
           sendResultToUser: false,
           role: "advisor",
           fork: true,
