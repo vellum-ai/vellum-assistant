@@ -106,6 +106,34 @@ describe("LocalFileLink", () => {
     expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
   });
 
+  test("clicking a file already open in the drawer closes it", () => {
+    const closeDocument = mock(() => {});
+    useViewerStore.setState({
+      closeDocument,
+      mainView: "document",
+      openedDocumentState: {
+        source: "workspace-file-preview",
+        workspacePath: "logs/run.txt",
+        documentName: "run.txt",
+        previewKind: "text",
+      },
+    });
+    render(
+      <LocalFileLink
+        href="/workspace/logs/run.txt"
+        workspacePath="logs/run.txt"
+        assistantId="asst-1"
+      >
+        the log
+      </LocalFileLink>,
+    );
+
+    fireEvent.click(screen.getByRole("link"));
+
+    expect(closeDocument).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
+  });
+
   test("a file with no reader opens the drawer's unsupported state", () => {
     render(
       <LocalFileLink

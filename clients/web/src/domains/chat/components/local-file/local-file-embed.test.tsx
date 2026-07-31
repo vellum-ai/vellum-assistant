@@ -209,27 +209,7 @@ describe("LocalFileEmbed media", () => {
     },
   );
 
-  test("pdf bytes render the inline pdf preview", async () => {
-    serve = serveFile({
-      bytes: bytesOf("%PDF-1.7\n%stub"),
-      contentType: "application/pdf",
-    });
-
-    renderEmbed("vellum://workspace/reports/q3.pdf", "Q3 report");
-
-    const preview = await waitFor(() => screen.getByTestId("pdf-preview"));
-    expect(preview.getAttribute("data-url")?.startsWith("blob:")).toBe(true);
-    expect(preview.parentElement?.getAttribute("class")).toContain(
-      "max-h-[420px]",
-    );
-    // The frame is capped well under the message column: a page blown up to the
-    // full width reads as the document rather than a preview of it.
-    expect(
-      preview.parentElement?.parentElement?.getAttribute("class"),
-    ).toContain("max-w-lg");
-  });
-
-  test("a pdf embed frames the preview with a header naming the file", async () => {
+  test("pdf bytes render a file card, not an inline preview", async () => {
     serve = serveFile({
       bytes: bytesOf("%PDF-1.7\n%stub"),
       contentType: "application/pdf",
@@ -238,12 +218,15 @@ describe("LocalFileEmbed media", () => {
 
     renderEmbed("vellum://workspace/reports/q3.pdf", "Q3 report");
 
-    await waitFor(() => expect(screen.getByTestId("pdf-preview")).toBeTruthy());
+    // A page preview inside the transcript reads as an attempt to be the
+    // document, so a pdf embeds as the card and its link opens the drawer.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Open q3.pdf" })).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("pdf-preview")).toBeNull();
     expect(screen.getByText("Q3 report")).toBeTruthy();
-    // The filename differs from the alt text, so it shows as secondary text.
     expect(screen.getByText("q3.pdf")).toBeTruthy();
     expect(screen.getByText("4.0 KB")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "File actions" })).toBeTruthy();
   });
 
   test("a video's menu offers Picture in Picture", async () => {

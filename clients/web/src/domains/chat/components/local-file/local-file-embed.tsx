@@ -12,18 +12,10 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import { toast, Typography } from "@vellumai/design-library";
+import { toast } from "@vellumai/design-library";
 
-import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
-import {
-  formatAttachmentSize,
-  middleTruncate,
-} from "@/domains/chat/components/chat-attachments/utils";
 import { LocalFileCard } from "@/domains/chat/components/local-file/local-file-card";
-import {
-  LocalFileIcon,
-  localFileKindFromFilename,
-} from "@/domains/chat/components/local-file/local-file-icon";
+import { localFileKindFromFilename } from "@/domains/chat/components/local-file/local-file-icon";
 import { MAX_INLINE_MEDIA_BYTES } from "@/domains/chat/components/local-file/local-file-limits";
 import { LocalFileMenu } from "@/domains/chat/components/local-file/local-file-menu";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
@@ -31,7 +23,6 @@ import {
   useLocalFileInfo,
   useLocalFileObjectUrl,
 } from "@/domains/chat/components/local-file/use-local-file-info";
-import type { LocalFileKind } from "@/domains/chat/utils/mime-sniff";
 
 const MEDIA_CLASSES =
   "max-h-[400px] max-w-full rounded-lg border border-[var(--border-element)] object-contain";
@@ -71,82 +62,6 @@ function MediaFrame({
     <span className="group/local-media relative my-2 inline-block max-w-full align-top">
       {children}
       <span className={MENU_OVERLAY_CLASSES}>{menu}</span>
-    </span>
-  );
-}
-
-interface PdfFrameProps {
-  displayName: string;
-  filename: string;
-  kind: LocalFileKind;
-  sizeBytes: number | null;
-  /** Rendered inline at the right edge of the header, always visible. */
-  menu: ReactNode;
-  url: string;
-}
-
-/**
- * Pdf embed: a titled header over the capped, scrollable page preview.
- *
- * The menu sits in the header rather than hovering over the pages, where it is
- * both hard to find and easy to mistake for part of the document.
- *
- * Capped narrower than the message column, in the same left-aligned rhythm as
- * the file cards: a page blown up to the full column reads as an attempt to be
- * the document rather than a preview of it, and buys no legibility.
- */
-function PdfFrame({
-  displayName,
-  filename,
-  kind,
-  sizeBytes,
-  menu,
-  url,
-}: PdfFrameProps): ReactNode {
-  const secondary = filename !== displayName ? filename : null;
-
-  return (
-    <span className="my-2 flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-[var(--border-element)]">
-      <span
-        title={filename}
-        className="flex items-center gap-2.5 border-b border-[var(--border-element)] bg-[var(--surface-lift)] p-2"
-      >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--surface-sunken)] text-[var(--content-secondary)]">
-          <LocalFileIcon kind={kind} filename={filename} className="h-4 w-4" />
-        </span>
-        <span className="flex min-w-0 flex-1 flex-col">
-          <Typography
-            as="span"
-            variant="body-small-default"
-            className="truncate text-[var(--content-default)]"
-          >
-            {middleTruncate(displayName, 40)}
-          </Typography>
-          {secondary !== null && (
-            <Typography
-              as="span"
-              variant="label-small-default"
-              className="truncate text-[var(--content-tertiary)]"
-            >
-              {secondary}
-            </Typography>
-          )}
-        </span>
-        {sizeBytes !== null && (
-          <Typography
-            as="span"
-            variant="label-small-default"
-            className="shrink-0 text-[var(--content-disabled)]"
-          >
-            {formatAttachmentSize(sizeBytes)}
-          </Typography>
-        )}
-        {menu}
-      </span>
-      {/* PdfPreview sizes its canvases for the fullscreen modal (90vw); pin them to the chat column. */}
-      <span className="block max-h-[420px] overflow-y-auto [&_canvas]:w-full!">
-        <PdfPreview url={url} />
-      </span>
     </span>
   );
 }
@@ -201,8 +116,15 @@ export function LocalFileEmbed({
   const kind = ready?.kind ?? localFileKindFromFilename(filename);
   const sizeBytes = ready?.sizeBytes ?? null;
   const isOversized = sizeBytes !== null && sizeBytes > MAX_INLINE_MEDIA_BYTES;
+  // Only playable media embeds inline. A PDF used to render as an inline
+  // frame, but a page preview inside the transcript reads as an attempt to be
+  // the document; PDFs fall through to the card, and their link opens the
+  // drawer preview.
   const wantsMedia =
-    ready !== null && kind !== "file" && !isOversized && failedHref !== href;
+    ready !== null &&
+    (kind === "image" || kind === "video" || kind === "audio") &&
+    !isOversized &&
+    failedHref !== href;
 
   const { url, isError } = useLocalFileObjectUrl({
     workspacePath: target.workspacePath,
@@ -328,19 +250,6 @@ export function LocalFileEmbed({
           className={MEDIA_CLASSES}
         />
       </MediaFrame>
-    );
-  }
-
-  if (kind === "pdf") {
-    return (
-      <PdfFrame
-        displayName={displayName}
-        filename={filename}
-        kind={kind}
-        sizeBytes={sizeBytes}
-        menu={menu}
-        url={url}
-      />
     );
   }
 

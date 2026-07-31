@@ -13,15 +13,16 @@ import {
   localFileKindFromFilename,
 } from "@/domains/chat/components/local-file/local-file-icon";
 import { filenameFromHref } from "@/domains/chat/components/local-file/local-file-target";
-import { openLocalFile } from "@/domains/chat/components/local-file/open-local-file";
+import { toggleLocalFile } from "@/domains/chat/components/local-file/open-local-file";
 import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
 
 export interface LocalFileLinkProps {
   href: string;
   workspacePath: string | null;
   /**
-   * The active assistant, needed to read a markdown file into the document
-   * drawer. Without it the click falls back to the workspace browser.
+   * The active assistant, needed to read the file into the document drawer.
+   * Without it the click falls back to the workspace browser. A click is a
+   * toggle: on a file already open in the drawer, it closes it.
    */
   assistantId?: string;
   /** The markdown label. */
@@ -52,7 +53,7 @@ export function LocalFileLink({
       toast.error("This file isn't available here");
       return;
     }
-    openLocalFile(workspacePath, filename, assistantId);
+    toggleLocalFile(workspacePath, filename, assistantId);
   };
 
   return (
