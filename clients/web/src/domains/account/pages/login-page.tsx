@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { NativeSplash } from "@/components/native-splash";
 import { AuthWaitSpinner } from "@/domains/account/components/auth-wait-spinner";
@@ -14,6 +14,7 @@ import {
   PROVIDER_ID,
   buildProviderCallbackUrl,
 } from "@/domains/account/login-flow";
+import { withPreservedAttribution } from "@/domains/account/social-auth";
 import {
   startAuthFlow,
   startNativeLogin,
@@ -107,9 +108,15 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const callbackUrl = buildProviderCallbackUrl(returnTo);
-  const signUpHref = returnTo
-    ? `${routes.account.signup}?returnTo=${encodeURIComponent(returnTo)}`
-    : routes.account.signup;
+  // Keep URL-borne attribution alive across the pivot — the signup screen's
+  // provider click reads it off its own location.
+  const { search } = useLocation();
+  const signUpHref = withPreservedAttribution(
+    returnTo
+      ? `${routes.account.signup}?returnTo=${encodeURIComponent(returnTo)}`
+      : routes.account.signup,
+    search,
+  );
 
   const handleContinue = async () => {
     setErrorMessage(null);

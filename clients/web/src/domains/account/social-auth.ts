@@ -79,6 +79,27 @@ export function readAttributionParams(search: string): Record<string, string> {
   return collected;
 }
 
+/**
+ * Append the allowlisted attribution params found in `search` to `href`.
+ *
+ * Auth cross-links (login ↔ signup) must keep URL-borne attribution alive:
+ * `startProviderRedirect` reads it off `window.location.search` at click
+ * time, so a pivot to the other screen that drops the params breaks the
+ * cookie-free path described above. Returns `href` unchanged when `search`
+ * carries no attribution.
+ */
+export function withPreservedAttribution(
+  href: string,
+  search: string,
+): string {
+  const attribution = Object.entries(readAttributionParams(search));
+  if (attribution.length === 0) {
+    return href;
+  }
+  const query = new URLSearchParams(attribution).toString();
+  return `${href}${href.includes("?") ? "&" : "?"}${query}`;
+}
+
 export interface ProviderRedirectOptions {
   readonly intent?: ProviderIntent;
   /** Pre-fill the WorkOS AuthKit email field (and email-first flows). */
