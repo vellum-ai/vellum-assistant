@@ -148,24 +148,26 @@ describe("preflightResolvedConfig", () => {
     expect(err?.reason).toBe("platform_unauthenticated");
   });
 
-  test("a user-owned row claiming the vellum name throws provider_mismatch", async () => {
-    // Its provider equals the identity's derived upstream, so only the
-    // managed-row check rejects it.
+  test("a user-owned row claiming the vellum name is not a static failure", async () => {
+    // Dispatch self-heals (that row when it serves the upstream, platform auth
+    // otherwise), so preflight has no sound verdict — including the case where
+    // the row carries no credential at all.
     connectionsByName["vellum"] = {
       name: "vellum",
       provider: "openai",
       auth: { type: "api_key", credential: "credential/openai/api_key" },
     };
-    secureKeys["credential/openai/api_key"] = "sk-openai";
-    platformLoggedIn = true;
-    const err = await preflightError(
-      resolved({
-        provider: "vellum",
-        provider_connection: "",
-        model: "gpt-5.6-luna",
-      }),
-    );
-    expect(err?.reason).toBe("provider_mismatch");
+    platformLoggedIn = false;
+    await expect(
+      preflightResolvedConfig(
+        resolved({
+          provider: "vellum",
+          provider_connection: "",
+          model: "gpt-5.6-luna",
+        }),
+        {},
+      ),
+    ).resolves.toBeUndefined();
   });
 
   test("an unroutable vellum model throws unroutable_managed_model", async () => {

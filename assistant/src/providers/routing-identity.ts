@@ -14,7 +14,6 @@ import { CHATGPT_SUBSCRIPTION_CONNECTION_NAME } from "./inference/auth.js";
 import { isCodexSubscriptionModel } from "./openai/codex-models.js";
 import {
   getManagedUpstream,
-  isVellumManagedConnection,
   VELLUM_MANAGED_CONNECTION_NAME,
   VELLUM_MANAGED_PROVIDER,
 } from "./vellum-model-routing.js";
@@ -98,41 +97,4 @@ export function resolveRoutingIdentity(
     };
   }
   return null;
-}
-
-/**
- * Reject a `vellum`-identity route that lands on a row which is not the
- * canonical platform connection.
- *
- * Boot seeding deliberately leaves a user-owned connection claiming the
- * `vellum` name in place (`seedCanonicalConnections`), so an install can hold
- * a real BYOK row under that name. The identity's derived upstream is a real
- * provider id, so once a managed profile pins a model whose upstream matches
- * that row's provider (e.g. an `openai`-owned model against a user-owned
- * `vellum`/openai row), the ordinary `connection.provider === expectedProvider`
- * equality accepts it and the managed profile dispatches on the user's own
- * key — off platform billing, off platform usage attribution, and silent.
- * Managed routes must run on the platform row or fail loudly.
- *
- * No-ops unless `declaredProvider` is the managed sentinel: `chatgpt` rows
- * legitimately store their upstream (`openai`) as the row provider.
- */
-export function assertVellumIdentityConnection(
-  declaredProvider: string | undefined,
-  connection: { provider: string; auth: { type: string } },
-  connectionName: string,
-  options?: { model?: string; profileName?: string },
-): void {
-  if (declaredProvider !== VELLUM_MANAGED_PROVIDER) {
-    return;
-  }
-  if (isVellumManagedConnection(connection)) {
-    return;
-  }
-  throw new ConnectionResolutionError(
-    connectionName,
-    "provider_mismatch",
-    `provider_connection "${connectionName}" is a user-owned connection for provider "${connection.provider}", not the Vellum-managed connection — a Vellum-managed profile cannot route through your own credentials. Rename or remove that connection so the managed connection can be seeded on the next restart.`,
-    options,
-  );
 }

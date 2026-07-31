@@ -39,13 +39,16 @@ import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
 } from "./connection-model-compat.js";
-import { getConnection, listConnections } from "./inference/connections.js";
+import {
+  canonicalVellumConnection,
+  getConnection,
+  listConnections,
+} from "./inference/connections.js";
 import { resolveManagedProxyContext } from "./platform-proxy/context.js";
 import { checkCredentialPresence } from "./provider-availability.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
 import {
-  assertVellumIdentityConnection,
   ConnectionResolutionError,
   resolveRoutingIdentity,
 } from "./routing-identity.js";
@@ -53,6 +56,7 @@ import type { Provider } from "./types.js";
 import {
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_MANAGED_PROVIDER,
 } from "./vellum-model-routing.js";
 
 export { ConnectionResolutionError, resolveRoutingIdentity };
@@ -117,9 +121,13 @@ export async function tryResolveProviderForConnectionName(
       `provider_connection "${connectionName}" not found in DB — check your config or run the boot-time backfill`,
     );
   }
-  assertVellumIdentityConnection(declaredProvider, connection, connectionName, {
-    ...(model !== undefined ? { model } : {}),
-  });
+  // A `vellum`-identity route whose row is user-owned (boot seeding leaves
+  // such a row in place, so the canonical row can be missing entirely) never
+  // errors: it uses that row when the row can serve the request, and falls
+  // back to platform auth when it cannot. See `resolveThroughPlatform` below.
+  const managedRouteOnUserRow =
+    declaredProvider === VELLUM_MANAGED_PROVIDER &&
+    !isVellumManagedConnection(connection);
   // The provider-agnostic Vellum-managed connection carries only the `vellum`
   // sentinel, so the usual `connection.provider === expectedProvider` equality
   // never holds. It routes by the resolving profile's declared provider
@@ -177,6 +185,11 @@ export async function tryResolveProviderForConnectionName(
     } catch {
       // DB not available — fall through to the original error.
     }
+    if (!resolved && managedRouteOnUserRow) {
+      // No BYOK row serves this upstream, so the managed route falls back to
+      // the platform rather than failing on a name collision it did not cause.
+      return resolveThroughPlatform(config, expectedProvider, model);
+    }
     if (!resolved) {
       const incompatMsg = mismatchCandidates
         ? describeSubscriptionModelIncompatibility(mismatchCandidates, model)
@@ -203,15 +216,56 @@ export async function tryResolveProviderForConnectionName(
   // catch is specifically for in-flight failures that should not take
   // dispatch offline.
   try {
-    return await resolveProviderFromConnection(connection, config, {
+    const provider = await resolveProviderFromConnection(connection, config, {
       model,
       providerOverride: isVellumRoute ? expectedProvider : undefined,
     });
+    if (provider === null && managedRouteOnUserRow) {
+      // The user-owned row fits the upstream but has no usable credential —
+      // the managed route still has the platform.
+      return resolveThroughPlatform(config, expectedProvider, model);
+    }
+    if (provider !== null && managedRouteOnUserRow) {
+      log.warn(
+        { connectionName, resolvedConnection: connection.name },
+        "Vellum-managed route served by a user-owned connection — the request bills to that connection's own credentials, not the platform",
+      );
+    }
+    return provider;
   } catch (err) {
     log.warn(
       { err, connectionName },
       "provider_connection auth resolution failed transiently — returning null",
     );
+    return null;
+  }
+}
+
+/**
+ * Resolve a managed route through platform auth without reading a connection
+ * row. Used when the canonical `vellum` row is occupied by a user-owned
+ * connection that cannot serve the request.
+ */
+async function resolveThroughPlatform(
+  config: ProvidersConfig,
+  upstream: string | undefined,
+  model: string | undefined,
+): Promise<Provider | null> {
+  if (!upstream || !MANAGED_ROUTABLE_PROVIDERS.has(upstream)) {
+    return null;
+  }
+  log.info(
+    { upstream, model },
+    "Vellum-managed route fell back to platform auth — the canonical connection row is claimed by a user-owned connection",
+  );
+  try {
+    return await resolveProviderFromConnection(
+      canonicalVellumConnection(),
+      config,
+      { model, providerOverride: upstream },
+    );
+  } catch (err) {
+    log.warn({ err }, "Platform fallback auth resolution failed transiently");
     return null;
   }
 }
@@ -363,12 +417,15 @@ export async function preflightResolvedConfig(
       errorOptions,
     );
   }
-  assertVellumIdentityConnection(
-    resolved.provider,
-    connection,
-    connectionName,
-    errorOptions,
-  );
+  // A managed route landing on a user-owned row has two live paths at
+  // dispatch (that row, else platform auth), so no static verdict here is
+  // sound — a real failure still surfaces at dispatch with its own message.
+  if (
+    resolved.provider === VELLUM_MANAGED_PROVIDER &&
+    !isVellumManagedConnection(connection)
+  ) {
+    return;
+  }
 
   if (isVellumManagedConnection(connection)) {
     if (!MANAGED_ROUTABLE_PROVIDERS.has(provider)) {

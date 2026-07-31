@@ -26,12 +26,14 @@ mock.module("../inference/connections.js", () => ({
     fakeConnections.get(name) ?? null,
   listConnections: (_db: unknown, _filter?: { provider?: string }) =>
     listResult,
+  canonicalVellumConnection: () => ({ ...vellumConn }),
 }));
 
 const resolveCalls: Array<{
   connection: Connection;
   opts: { model?: string; providerOverride?: string };
 }> = [];
+let resolveResult: unknown = undefined;
 mock.module("../registry.js", () => ({
   resolveProviderFromConnection: async (
     connection: Connection,
@@ -39,7 +41,11 @@ mock.module("../registry.js", () => ({
     opts: { model?: string; providerOverride?: string },
   ) => {
     resolveCalls.push({ connection, opts });
-    return { __provider: connection.name };
+    // `undefined` means "use the default stub"; an explicit null models a
+    // credential the vault cannot serve.
+    return resolveResult === undefined
+      ? { __provider: connection.name }
+      : resolveResult;
   },
 }));
 
@@ -65,6 +71,7 @@ function reset(): void {
   resolveCalls.length = 0;
   fakeConnections.clear();
   listResult = [];
+  resolveResult = undefined;
 }
 
 describe("vellum connection mismatch handling", () => {
@@ -130,39 +137,89 @@ describe("vellum connection mismatch handling", () => {
 
 /**
  * Boot seeding leaves a user-owned row claiming the `vellum` name in place, so
- * a managed profile whose model resolves to that row's provider would pass the
- * plain provider-equality check and dispatch on the user's own credentials.
+ * an install can have no canonical row at all. A managed route must still
+ * resolve: the user's own connection when it serves the upstream, platform
+ * auth otherwise. It never errors on a collision the user did not author.
  */
 describe("user-owned connection claiming the vellum name", () => {
   beforeEach(reset);
 
-  const userOwnedVellum: Connection = {
+  const userOwnedOpenai: Connection = {
     name: "vellum",
     provider: "openai",
     auth: { type: "api_key", credential: "credential/openai/api_key" },
   };
 
-  test("a managed profile never dispatches through it", async () => {
-    fakeConnections.set("vellum", userOwnedVellum);
-    // Recovery candidates exist and must not be used either: a managed
-    // profile is platform-billed, not reroutable onto a BYOK row.
-    listResult = [userOwnedVellum];
-    let caught: unknown;
-    try {
-      await tryResolveProviderForConnectionName(
-        "vellum",
-        config,
-        "vellum",
-        "gpt-5.6-luna",
-      );
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(ConnectionResolutionError);
-    expect((caught as ConnectionResolutionError).reason).toBe(
-      "provider_mismatch",
+  test("the user's own connection serves a matching upstream", async () => {
+    fakeConnections.set("vellum", userOwnedOpenai);
+    const provider = await tryResolveProviderForConnectionName(
+      "vellum",
+      config,
+      "vellum",
+      "gpt-5.6-luna",
     );
-    expect(resolveCalls).toHaveLength(0);
+    expect(provider).not.toBeNull();
+    expect(resolveCalls).toHaveLength(1);
+    expect(resolveCalls[0].connection.provider).toBe("openai");
+    expect(resolveCalls[0].connection.auth.type).toBe("api_key");
+  });
+
+  test("another BYOK row serves an upstream the claiming row cannot", async () => {
+    fakeConnections.set("vellum", {
+      name: "vellum",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+    });
+    listResult = [
+      {
+        name: "openai-personal",
+        provider: "openai",
+        auth: { type: "api_key", credential: "credential/openai/api_key" },
+      },
+    ];
+    const provider = await tryResolveProviderForConnectionName(
+      "vellum",
+      config,
+      "vellum",
+      "gpt-5.6-luna",
+    );
+    expect(provider).not.toBeNull();
+    expect(resolveCalls[0].connection.name).toBe("openai-personal");
+  });
+
+  test("falls back to platform auth when no BYOK row serves the upstream", async () => {
+    fakeConnections.set("vellum", {
+      name: "vellum",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+    });
+    listResult = [];
+    const provider = await tryResolveProviderForConnectionName(
+      "vellum",
+      config,
+      "vellum",
+      "gpt-5.6-luna",
+    );
+    expect(provider).not.toBeNull();
+    expect(resolveCalls).toHaveLength(1);
+    expect(resolveCalls[0].connection.auth.type).toBe("platform");
+    expect(resolveCalls[0].opts.providerOverride).toBe("openai");
+  });
+
+  test("falls back to platform auth when the claiming row has no usable credential", async () => {
+    fakeConnections.set("vellum", userOwnedOpenai);
+    resolveResult = null; // credential missing from the vault
+    const provider = await tryResolveProviderForConnectionName(
+      "vellum",
+      config,
+      "vellum",
+      "gpt-5.6-luna",
+    );
+    expect(resolveCalls).toHaveLength(2);
+    expect(resolveCalls[0].connection.auth.type).toBe("api_key");
+    expect(resolveCalls[1].connection.auth.type).toBe("platform");
+    // The stub returns null for every call here, including the fallback.
+    expect(provider).toBeNull();
   });
 
   test("the canonical row still routes", async () => {
@@ -174,6 +231,7 @@ describe("user-owned connection claiming the vellum name", () => {
       "gpt-5.6-luna",
     );
     expect(provider).not.toBeNull();
+    expect(resolveCalls).toHaveLength(1);
     expect(resolveCalls[0].opts.providerOverride).toBe("openai");
   });
 });

@@ -128,15 +128,6 @@ export async function computeConnectionAvailability(
     }
     return vellumManagedMismatch(resolvedConnectionName, provider);
   }
-  // Mirrors `assertVellumIdentityConnection`: a managed route judged against a
-  // user-owned row claiming the canonical name is a mismatch, even when that
-  // row's provider happens to equal the identity's derived upstream.
-  if (provider === VELLUM_MANAGED_PROVIDER) {
-    return {
-      status: "provider_mismatch",
-      message: `Connection "${resolvedConnectionName}" is a user-owned connection for provider "${connection.provider}", not the Vellum-managed connection. Rename or remove it ${SETTINGS_HINT} so the managed connection can be restored.`,
-    };
-  }
   if (connection.provider !== provider) {
     return {
       status: "provider_mismatch",

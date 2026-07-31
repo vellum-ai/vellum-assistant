@@ -391,6 +391,29 @@ const CANONICAL_CONNECTIONS: Array<{
 ];
 
 /**
+ * The Vellum-managed connection as boot seeding defines it, built without a DB
+ * read. Dispatch uses this when the `vellum` name is occupied by a user-owned
+ * row: seeding refuses to overwrite such a row, so the canonical row can be
+ * absent from the DB while managed routing still has to work. Platform auth
+ * needs no row of its own — only this shape.
+ */
+export function canonicalVellumConnection(): ProviderConnection {
+  const now = Date.now();
+  const canonical = CANONICAL_CONNECTIONS[0];
+  return {
+    name: canonical.name,
+    provider: canonical.provider,
+    auth: canonical.auth,
+    label: canonical.label,
+    baseUrl: null,
+    models: null,
+    createdAt: now,
+    updatedAt: now,
+    isManaged: true,
+  };
+}
+
+/**
  * Names of the canonical Vellum-managed connections. Seeded on every daemon
  * boot via `seedCanonicalConnections` and representing the platform-managed
  * inference route. They are write-protected at the route layer:
