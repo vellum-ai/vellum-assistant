@@ -1,13 +1,25 @@
 import {
   CHANNEL_IDS,
   type ChannelId,
+  INTERFACE_IDS,
+  type InterfaceId,
   isChannelId,
+  isInterfaceId,
+  parseInterfaceId,
 } from "@vellumai/service-contracts/channels";
 
-// The assistant understands the full canonical channel set, so it adopts the
-// shared vocabulary wholesale. `parseChannelId` stays local — it is only used
-// daemon-side and is a thin convenience over the shared guard.
-export { CHANNEL_IDS, type ChannelId, isChannelId };
+// The assistant understands the full canonical channel and interface sets, so
+// it adopts the shared vocabularies wholesale. `parseChannelId` stays local
+// because it is a thin convenience over the shared guard.
+export {
+  CHANNEL_IDS,
+  type ChannelId,
+  INTERFACE_IDS,
+  type InterfaceId,
+  isChannelId,
+  isInterfaceId,
+  parseInterfaceId,
+};
 
 export function parseChannelId(value: unknown): ChannelId | null {
   return isChannelId(value) ? value : null;
@@ -137,64 +149,6 @@ export const CHANNEL_METADATA: Partial<Record<ChannelId, ChannelInfo>> = {
     },
   },
 };
-
-export const INTERFACE_IDS = [
-  "macos",
-  "ios",
-  "cli",
-  "telegram",
-  "phone",
-  "web",
-  "whatsapp",
-  "slack",
-  "email",
-  "chrome-extension",
-  "a2a",
-  "discord",
-  // Turns injected by workspace custom routes (webhook receivers, cron jobs,
-  // device/service callbacks). Non-interactive — permission prompts route
-  // through the guardian system, not an interactive client — and non-host-proxy.
-  "route",
-] as const;
-
-export type InterfaceId = (typeof INTERFACE_IDS)[number];
-
-/**
- * Interface IDs that older clients or persisted data may still use.
- * `normalizeInterfaceId` maps these to their canonical replacements.
- */
-const LEGACY_INTERFACE_ALIASES: Record<string, InterfaceId> = {
-  // The web client used to report "vellum" as its interface ID. Older
-  // conversation records and in-flight SSE connections may still carry this
-  // value. Normalize to "web" so downstream logic only needs one branch.
-  vellum: "web",
-};
-
-/**
- * Strict type guard — returns `true` only for canonical `InterfaceId`
- * values. Legacy aliases like `"vellum"` return `false`; use
- * `parseInterfaceId` to accept and normalize those.
- */
-export function isInterfaceId(value: unknown): value is InterfaceId {
-  return (
-    typeof value === "string" &&
-    (INTERFACE_IDS as readonly string[]).includes(value)
-  );
-}
-
-export function parseInterfaceId(value: unknown): InterfaceId | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  if ((INTERFACE_IDS as readonly string[]).includes(value)) {
-    return value as InterfaceId;
-  }
-  const alias = LEGACY_INTERFACE_ALIASES[value];
-  if (alias) {
-    return alias;
-  }
-  return null;
-}
 
 /**
  * Client OS surfaces — the value set for the message-body `clientOs` field.
