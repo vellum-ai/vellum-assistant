@@ -17,6 +17,15 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { z } from "zod";
 
+// The route's hidden-prompt branch is exactly what these pure predicates
+// decide, so the crud mock below hands back the real ones rather than a
+// restatement that can drift. Imported from the `conversation-types` leaf so
+// naming them here pulls in no DB graph.
+import {
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
+} from "../persistence/conversation-types.js";
+
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
@@ -60,12 +69,6 @@ interface MessageRowLike {
 const getConversationMock = mock((id: string) =>
   id === "conv-retry-test" ? { id } : null,
 );
-
-// The metadata predicates are pure functions of the row's metadata record, and
-// the route's hidden-prompt branch is exactly what they decide, so the mock
-// hands back the real ones rather than a restatement that can drift.
-const { isBackgroundEventMetadata, isEchoSuppressedUserMessage } =
-  await import("../persistence/conversation-crud.js");
 
 mock.module("../persistence/conversation-crud.js", () => ({
   addMessage: async () => ({ id: "unused", deduplicated: false }),

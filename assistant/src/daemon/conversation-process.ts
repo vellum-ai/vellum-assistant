@@ -31,6 +31,7 @@ import {
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../persistence/conversation-crud.js";
+import { isReplyPushIneligibleUserMessage } from "../persistence/conversation-types.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import {
@@ -1351,11 +1352,11 @@ async function drainBatch(
   let lastSuccessfulCurrentPage: string | undefined;
   let lastSuccessfulContent: string | undefined;
   let lastUserMessageId: string | undefined;
-  // `messages.id` of the last member that is a person's prompt rather than a
-  // machine signal. The reply-notification producer reads this row to decide
-  // whether the finished reply answers something a user is waiting on, so a
-  // trailing hidden marker must not stand in for the prompt ahead of it.
-  let lastVisibleUserMessageId: string | undefined;
+  // `messages.id` of the last member the reply-push producer would actually
+  // notify about. Selected with the producer's own eligibility predicate so a
+  // trailing row it suppresses (a hidden marker, a channel send) cannot stand
+  // in for the prompt ahead of it and swallow that prompt's push.
+  let lastPushEligibleUserMessageId: string | undefined;
   // Members whose persist succeeded. `fanOutOnEvent` below must only
   // broadcast agent-loop events to these — clients whose persist failed
   // already received an error event and must not also receive the
@@ -1521,10 +1522,13 @@ async function drainBatch(
       continue;
     }
 
+    if (!isReplyPushIneligibleUserMessage(qm.metadata)) {
+      lastPushEligibleUserMessageId = lastUserMessageId;
+    }
+
     // Broadcast the user message to all hub subscribers so passive devices
     // see each batched user turn before the assistant reply starts streaming.
     if (!isEchoSuppressedUserMessage(qm.metadata)) {
-      lastVisibleUserMessageId = lastUserMessageId;
       qm.onEvent({
         type: "user_message_echo",
         text: qmContent,
@@ -1661,10 +1665,10 @@ async function drainBatch(
     notifyUserMessageId?: string;
   } = {
     isUserMessage: true,
-    // A batch of only machine signals falls back to the last row, which the
-    // producer's own suppression gates then read and stay silent on.
-    notifyUserMessageId: lastVisibleUserMessageId ?? lastUserMessageId,
   };
+  if (lastPushEligibleUserMessageId !== undefined) {
+    drainLoopOptions.notifyUserMessageId = lastPushEligibleUserMessageId;
+  }
   // Source interactive flag from the last successfully-persisted sibling so
   // a trailing failed tail doesn't flip the agent loop's interactivity.
   const lastSuccessfulBatchEntry =

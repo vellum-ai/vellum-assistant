@@ -257,8 +257,9 @@ export async function runAgentLoopImpl(
     /**
      * Row the end-of-turn reply notification should treat as the prompt this
      * turn answers. Defaults to `userMessageId`; a coalesced batch overrides it
-     * with its last non-machine-signal member, whose reply the user is actually
-     * waiting on, rather than a hidden marker that merely landed last.
+     * with its last push-eligible member (see
+     * `isReplyPushIneligibleUserMessage`), whose reply the user is actually
+     * waiting on, rather than a suppressed row that merely landed last.
      */
     notifyUserMessageId?: string;
     /**

@@ -332,9 +332,9 @@ describe("emitAssistantReplyNotification", () => {
     expect(emitCalls).toHaveLength(0);
   });
 
-  // Hidden lifecycle rows persist with role "user" and are neither tool
-  // results nor `automated`, so only the shared echo-suppression classifier
-  // keeps a subagent or ACP completion turn from pushing a reply.
+  // Machine-signal rows persist with role "user" and are neither tool results
+  // nor `automated`, so only the shared echo-suppression classifier keeps a
+  // turn opened by one of them from pushing a reply.
   const LIFECYCLE_ROW_CASES: Array<{ name: string; metadata: unknown }> = [
     {
       name: "subagent notification",

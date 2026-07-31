@@ -1878,8 +1878,7 @@ export async function handleSendMessage(
   // real first response. Gated behind the `self-intro-greeting` flag (default
   // off); `undefined` (flag off or no names) falls back to the canned path.
   const selfIntroGreetingEnabled =
-    isWakeUp &&
-    isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG, getConfig());
+    isWakeUp && isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG);
   const selfIntro = selfIntroGreetingEnabled
     ? buildSelfIntroMessage(body.onboarding ?? undefined)
     : undefined;

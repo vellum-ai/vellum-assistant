@@ -10,7 +10,6 @@
 
 import type pino from "pino";
 
-import { parseChannelId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   getAttentionStateByConversationIds,
@@ -20,11 +19,12 @@ import {
   type ConversationRow,
   getConversation,
   getMessageById,
-  isEchoSuppressedUserMessage,
-  isVoiceSessionUserMessage,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
-import { resolveConversationKind } from "../persistence/conversation-types.js";
+import {
+  isReplyPushIneligibleUserMessage,
+  resolveConversationKind,
+} from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
 import { safeParseRecord } from "../util/json.js";
 import { emitNotificationSignal } from "./emit-signal.js";
@@ -34,30 +34,13 @@ import { sanitizeMessagePreview } from "./notification-utils.js";
 const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
 
 /**
- * True when the row that opened the turn arrived over an external messaging
- * surface (Slack, Telegram, WhatsApp, email, a phone call, …) rather than the
- * native app.
- *
- * An absent (or unrecognized) channel counts as in-app: every external ingress
- * path stamps its channel via buildChannelMetadata, so the rows that omit the
- * field are daemon-internal persists on native-app conversations (for example
- * the deliberate omission in calls/call-pointer-messages.ts).
- */
-function isChannelOriginatedUserMessage(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  const channel = parseChannelId(metadata?.userMessageChannel);
-  return channel != null && channel !== "vellum";
-}
-
-/**
- * Read the markers the gates below consult off a persisted message's metadata
- * column.
+ * Read the markers the eligibility gate below consults off a persisted
+ * message's metadata column.
  *
  * `parseMessageMetadata` validates the whole column and yields nothing when
  * any single field fails, so one unrecognized value would otherwise present
- * here as "no metadata" and open every gate at once. The gates are plain-record
- * predicates, so a permissive read of the same JSON keeps them answering over
+ * here as "no metadata" and open every gate at once. The gate is a plain-record
+ * predicate, so a permissive read of the same JSON keeps it answering over
  * whichever fields are intact.
  */
 function readSuppressionMarkers(
@@ -124,26 +107,7 @@ export async function emitAssistantReplyNotification(params: {
     const initiatingMetadata = readSuppressionMarkers(
       initiatingMessage.metadata,
     );
-    // Scheduled/background prompts injected into an ordinary user conversation
-    // are automated turns with their own producers (e.g. `schedule.notify`);
-    // notifying here too would double-notify.
-    if (initiatingMetadata?.automated === true) {
-      return;
-    }
-    // A turn opened by internal scaffolding is nobody's prompt awaiting a
-    // reply; see `isEchoSuppressedUserMessage`.
-    if (isEchoSuppressedUserMessage(initiatingMetadata)) {
-      return;
-    }
-    // A spoken reply is delivered over the still-open session; see
-    // `isVoiceSessionUserMessage`.
-    if (isVoiceSessionUserMessage(initiatingMetadata)) {
-      return;
-    }
-    // A turn started from a messaging channel has its finished reply delivered
-    // back to that channel (`finalizeEventDelivery`), so the sender already has
-    // it; pushing here would duplicate it on their phone.
-    if (isChannelOriginatedUserMessage(initiatingMetadata)) {
+    if (isReplyPushIneligibleUserMessage(initiatingMetadata)) {
       return;
     }
 
