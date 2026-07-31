@@ -117,7 +117,7 @@ const commitLockfile = (data: Lockfile): void => {
 
 const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 
-export function isLocalMode(): boolean {
+export function isLocalClient(): boolean {
   const raw = import.meta.env.VITE_PLATFORM_MODE;
   if (!raw) {
     return true;
@@ -551,7 +551,7 @@ function expectsLocalGateway(
 ): assistant is LockfileAssistant {
   return (
     !!assistant &&
-    isLocalMode() &&
+    isLocalClient() &&
     !isRemoteGatewayMode() &&
     isLocalGatewayAssistant(assistant)
   );

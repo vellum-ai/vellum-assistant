@@ -3,7 +3,7 @@ import { createMemoryRouter } from "react-router";
 
 import type { LockfileAssistant } from "@/lib/local-mode";
 
-const isLocalModeMock = mock(() => true);
+const isLocalClientMock = mock(() => true);
 const hasAssistantsMock = mock(() => false);
 let mockSelectedAssistant: LockfileAssistant | undefined;
 
@@ -13,7 +13,7 @@ let mockSelectedAssistant: LockfileAssistant | undefined;
 const localModeActual = await import("@/lib/local-mode");
 mock.module("@/lib/local-mode", () => ({
   ...localModeActual,
-  isLocalMode: isLocalModeMock,
+  isLocalClient: isLocalClientMock,
   hasAssistants: hasAssistantsMock,
   getLocalGatewayUrl: () => undefined,
   getSelectedAssistant: () => mockSelectedAssistant,
@@ -121,7 +121,7 @@ const managedFunnel = `${routes.onboarding.research}?hosting=vellum-cloud&post_c
  * does not apply, yet the funnel decision still hangs on the probe.
  */
 function makeSelfHostedLocalReturn(): void {
-  isLocalModeMock.mockImplementation(() => true);
+  isLocalClientMock.mockImplementation(() => true);
   hasAssistantsMock.mockImplementation(() => true);
   mockGatewayAuthMode = true;
   mockSelectedAssistant = localAssistant;
@@ -207,7 +207,7 @@ async function runMiddleware(pathname: string): Promise<Response> {
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 beforeEach(() => {
-  isLocalModeMock.mockImplementation(() => true);
+  isLocalClientMock.mockImplementation(() => true);
   hasAssistantsMock.mockImplementation(() => false);
   consentPrefs.tos = true;
   consentPrefs.privacy = true;
@@ -355,7 +355,7 @@ describe("authMiddleware — app-access admit gate", () => {
   });
 
   test("still redirects a logged-out platform user with no reachable assistant to login", async () => {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     hasAssistantsMock.mockImplementation(() => false);
     mockSelectedAssistant = undefined;
     mockGatewayTokenPresent = false;
@@ -378,7 +378,7 @@ describe("authMiddleware — app-access admit gate", () => {
 
 describe("authMiddleware — post-checkout return with nothing provisioned", () => {
   function makePaidPlatformReturn(): void {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     useAuthStore.setState({
       sessionStatus: "authenticated",
       user: fakeUser,
@@ -401,7 +401,7 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
 
   test("funnels it under a gateway session too, which otherwise bypasses the pipeline", async () => {
     makePaidPlatformReturn();
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     mockGatewayAuthMode = true;
 
     const res = await runMiddleware(postCheckoutBilling);
@@ -415,7 +415,7 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
   // entry is untouched.
   test("funnels a local-mode return whose only assistant is self-hosted", async () => {
     makePaidPlatformReturn();
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     mockGatewayAuthMode = true;
     mockSelectedAssistant = localAssistant;
     useResolvedAssistantsStore.setState({
@@ -442,7 +442,7 @@ describe("authMiddleware — post-checkout return with nothing provisioned", () 
   // stays on billing, whose login notice carries `session_id` through sign-in.
   test("admits a local-mode return with no platform session", async () => {
     makePaidPlatformReturn();
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     mockGatewayAuthMode = true;
     mockSelectedAssistant = localAssistant;
     useAuthStore.setState({ platformSession: "absent" });
@@ -650,7 +650,7 @@ describe("authMiddleware — late-probe re-run through a real router", () => {
 
 describe("authMiddleware — hydration timeout", () => {
   test("a hung hydration degrades to a decision instead of re-entering the wait", async () => {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     useAuthStore.setState({
       sessionStatus: "authenticated",
       user: fakeUser,
@@ -690,7 +690,7 @@ describe("authMiddleware — hydration timeout", () => {
   // user's onboarding. It admits instead. The assistants list is hydrated here,
   // so the fail-open rests on the consent wait alone.
   test("admits a research funnel entry whose consent hydration hung", async () => {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     useAuthStore.setState({
       sessionStatus: "authenticated",
       user: fakeUser,
@@ -719,7 +719,7 @@ describe("authMiddleware — hydration timeout", () => {
   // on an unconsented user still bounces, carrying the funnel URL so the paid
   // markers survive the privacy screen.
   test("bounces the same entry once consent hydrates unconsented", async () => {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     useAuthStore.setState({
       sessionStatus: "authenticated",
       user: fakeUser,
@@ -750,7 +750,7 @@ describe("authMiddleware — hydration timeout", () => {
   // doing, so a stalled list must not launder an unconsented user past the gate
   // and into a hatch they would be charged for.
   test("bounces an unconsented research entry when only the assistants list stalls", async () => {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     useAuthStore.setState({
       sessionStatus: "authenticated",
       user: fakeUser,
@@ -793,7 +793,7 @@ describe("authMiddleware — hydration timeout", () => {
   // the time the guard recurses. Carrying the expired stall forward would fail
   // the gate open on a hydration that has since landed.
   test("bounces an unconsented research entry when consent lands during the assistants wait", async () => {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     useAuthStore.setState({
       sessionStatus: "authenticated",
       user: fakeUser,
@@ -834,7 +834,7 @@ describe("authMiddleware — hydration timeout", () => {
   // Both fetches hang, so the consent wait times out on its own account and the
   // entry falls back to its unconditional admission.
   test("admits the research entry when both hydration waits stall", async () => {
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
     useAuthStore.setState({
       sessionStatus: "authenticated",
       user: fakeUser,

@@ -176,10 +176,9 @@ mock.module("@/domains/chat/surface-actions", () => ({
   handleSurfaceAction: handleSurfaceActionSpy,
 }));
 
-// The settings gear calls this hook at mount (hoisted above its picker so
-// the serialized write chain survives close/reopen), which would pull the
-// daemon React Query graph into every room render. Stubbed as unavailable;
-// its behavior is covered in voice-room-settings-menu.test.tsx.
+// Stubbed so the room's subtree never pulls the daemon React Query graph
+// into a render. Nothing in the room selects a listening language now, but the
+// first-run card reaches for the same hook.
 mock.module("@/components/speech/use-stt-language-selection", () => ({
   useSttLanguageSelection: () => ({
     available: false,
@@ -486,6 +485,154 @@ describe("VoiceRoom: placement variants", () => {
   });
 });
 
+// The mobile sheet rests below the thread header instead of covering it. Radix
+// portals it out of the layout, so unlike the desktop panel it cannot inherit
+// that edge from the DOM and is positioned against a measured header height.
+describe("VoiceRoom: mobile sheet", () => {
+  /**
+   * Stand in for the real header so the sheet has an edge to rest below.
+   * `top` defaults non-zero because that is the real case: `root-layout.tsx`
+   * pads the app shell above the header by the notch inset, and stacks the iOS
+   * keyboard offset on top of that.
+   */
+  function mountHeader({ top = 47, height = 96 } = {}) {
+    const header = document.createElement("div");
+    header.setAttribute("data-slot", "chat-layout-header");
+    header.getBoundingClientRect = () =>
+      ({ height, width: 390, top, left: 0, bottom: top + height }) as DOMRect;
+    document.body.appendChild(header);
+    return () => header.remove();
+  }
+
+  test("rests at the header's bottom edge, not its height", () => {
+    // The sheet is `fixed` against the viewport, so the offset has to be the
+    // header's bottom in viewport coordinates. Positioning by height alone
+    // puts it above the notch inset and overlaps the header it should sit
+    // under, and the gap widens when the iOS keyboard shifts the shell down.
+    const removeHeader = mountHeader({ top: 47, height: 96 });
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    const sheet = screen.getByRole("dialog", { name: "Voice session" });
+    expect(sheet.getAttribute("data-slot")).toBe("bottom-sheet-content");
+    expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("143px");
+    removeHeader();
+  });
+
+  test("a header flush to the viewport top offsets by its height", () => {
+    const removeHeader = mountHeader({ top: 0, height: 96 });
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    expect(
+      screen
+        .getByRole("dialog", { name: "Voice session" })
+        .style.getPropertyValue("--voice-sheet-top"),
+    ).toBe("96px");
+    removeHeader();
+  });
+
+  test("the sheet is unpadded, so the room reaches its rounded corners", () => {
+    // The room is a surface, not sheet content: a color fill inset by the
+    // primitive's default `px-4 pt-4` would leave a frame of sheet background
+    // around it.
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    const { container } = render(<VoiceRoom variant="sheet" />);
+
+    const inner = document.querySelector(
+      '[data-slot="bottom-sheet-content-inner"]',
+    );
+    expect(inner).not.toBeNull();
+    expect(inner?.className).not.toContain("px-4");
+    expect(container).toBeTruthy();
+    removeHeader();
+  });
+
+  test("the room fills the sheet without declaring a second dialog", () => {
+    // Radix's content element is the dialog. A nested role + label inside it
+    // would announce the room twice.
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    removeHeader();
+  });
+
+  test("opening does not land focus on the exit", () => {
+    // Radix focuses the first focusable child on open, which is the top-right
+    // exit. That lit its focus ring and popped its "End voice session"
+    // tooltip, so the first thing a freshly opened room said was how to leave
+    // it. Focus belongs on the sheet itself.
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    const sheet = screen.getByRole("dialog", { name: "Voice session" });
+    const exit = screen.getByRole("button", { name: "Exit voice session" });
+    expect(document.activeElement).not.toBe(exit);
+    expect(document.activeElement).toBe(sheet);
+    removeHeader();
+  });
+
+  test("with no header present the sheet rests at the top edge", () => {
+    // Pop-outs render no header. They never show the room, but a zero offset
+    // is the right answer for a surface with nothing above it either way.
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    const sheet = screen.getByRole("dialog", { name: "Voice session" });
+    expect(sheet.style.getPropertyValue("--voice-sheet-top")).toBe("0px");
+  });
+
+  test("Escape minimizes, and does not end the session", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
+    expect(controls.stop).not.toHaveBeenCalled();
+    removeHeader();
+  });
+
+  // The sheet rests below the thread header so that header stays usable. All
+  // three of Radix's modal reflexes would contradict that: the dim greys the
+  // header out, the focus trap makes it inert while still looking available,
+  // and dismiss-on-outside collapses the room the moment the user reaches for
+  // it.
+  test("is non-modal, so the header above it stays live", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    const sheet = screen.getByRole("dialog", { name: "Voice session" });
+    // Radix marks the page inert for modal dialogs only.
+    expect(document.body.getAttribute("aria-hidden")).toBeNull();
+    expect(sheet.getAttribute("data-state")).toBe("open");
+    removeHeader();
+  });
+
+  test("does not dim the page behind it", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    // Radix renders no overlay at all once `modal` is false, so there is
+    // nothing to grey out the thread header the sheet rests below.
+    expect(
+      document.querySelector('[data-slot="bottom-sheet-overlay"]'),
+    ).toBeNull();
+    removeHeader();
+  });
+});
+
 describe("VoiceRoom — listening waves", () => {
   const waves = () => screen.queryByTestId("listening-waves");
 
@@ -528,17 +675,64 @@ describe("VoiceRoom — exit", () => {
   });
 });
 
+// The three things a caller does mid-call sit in one centred row: mute the
+// mic, stop the assistant talking, show the transcript. Ending the session is
+// deliberately NOT among them.
+describe("VoiceRoom: centred session controls", () => {
+  const controlRow = () => screen.getByTestId("voice-room-controls");
+
+  test("the row is centred, not pinned to a corner", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(controlRow().className).toContain("justify-center");
+    expect(controlRow().className).toContain("inset-x-0");
+  });
+
+  test("carries exactly the three mid-call controls", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    const row = controlRow();
+    expect(row.querySelectorAll("button")).toHaveLength(3);
+    for (const name of [
+      "Mute microphone",
+      "Mute assistant",
+      "Show transcript",
+    ]) {
+      expect(row.contains(screen.getByRole("button", { name }))).toBe(true);
+    }
+  });
+
+  test("ending the session stays out of the row, in the top-right", () => {
+    // Grouping a destructive control with three reversible toggles invites the
+    // one mis-tap that cannot be undone.
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    const exit = screen.getByRole("button", { name: "Exit voice session" });
+    expect(controlRow().contains(exit)).toBe(false);
+  });
+});
+
 describe("VoiceRoom — minimize (session keeps running)", () => {
   const minimizeButton = () =>
-    screen.queryByRole("button", { name: "Minimize voice room" });
+    screen.queryByRole("button", { name: "Show transcript" });
 
-  test("the minimize control dismisses the room without ending the session", () => {
+  test("show transcript dismisses the room without ending the session", () => {
+    // Minimizing IS revealing the conversation, so the control is named for
+    // what the user wants rather than for what the window does.
     startOwnedSession("listening");
     render(<VoiceRoom />);
     fireEvent.click(minimizeButton()!);
     expect(useLiveVoiceStore.getState().roomMinimized).toBe(true);
     expect(useLiveVoiceStore.getState().state).toBe("listening");
     expect(controls.stop).not.toHaveBeenCalled();
+  });
+
+  test("no bare minimize control remains", () => {
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+    expect(
+      screen.queryByRole("button", { name: "Minimize voice room" }),
+    ).toBeNull();
   });
 
   test("Escape minimizes instead of ending the session", () => {
@@ -579,16 +773,18 @@ describe("VoiceRoom — minimize (session keeps running)", () => {
   });
 });
 
-describe("VoiceRoom — settings gear", () => {
-  // The captions toggle + pause slider now live in the settings-gear popover
-  // (see voice-room-settings-menu.test.tsx for their behavior). The room just
-  // renders the gear in place of the old direct captions button.
-  test("renders the voice-settings gear, not a bare captions button", () => {
+describe("VoiceRoom: top-right corner", () => {
+  test("holds the exit and nothing else", () => {
+    // The corner is down to one control. A cluster of small chrome competed
+    // with the room's own cast, so the in-session settings gear was deleted
+    // along with the minimize it sat beside; voice and listening language are
+    // picked in Settings.
     startOwnedSession("listening");
     render(<VoiceRoom />);
     expect(
-      screen.getByRole("button", { name: "Voice settings" }),
+      screen.getByRole("button", { name: "Exit voice session" }),
     ).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Voice settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Show captions" })).toBeNull();
   });
 });
@@ -612,32 +808,58 @@ describe("VoiceRoom — mute toggle", () => {
   });
 });
 
-describe("VoiceRoom — stop response", () => {
-  const stopButton = () =>
-    screen.queryByRole("button", { name: "Stop assistant response" });
+// Muting the assistant replaced the turn-scoped stop. The stop read as
+// ambiguous, and it was transient, so the row changed shape whenever a reply
+// started or ended. A mute is a persistent toggle and the mirror of the mic
+// mute beside it: one control per direction of the conversation.
+describe("VoiceRoom: mute the assistant", () => {
+  const assistantMute = () =>
+    screen.queryByRole("button", { name: /(Unm|M)ute assistant/ });
 
-  test("■ renders while speaking hands-free and drives the interrupt control", () => {
+  test("drives the registered setOutputMuted control", () => {
     startOwnedSession("speaking");
     useLiveVoiceStore.setState({ handsFree: true });
     render(<VoiceRoom />);
-    fireEvent.click(stopButton()!);
-    expect(controls.interrupt).toHaveBeenCalledTimes(1);
+    fireEvent.click(assistantMute()!);
+    expect(controls.setOutputMuted).toHaveBeenCalledWith(true);
+    // Muting is not stopping: the reply keeps running underneath.
+    expect(controls.interrupt).not.toHaveBeenCalled();
     expect(controls.stop).not.toHaveBeenCalled();
   });
 
-  test("no ■ outside speaking, or for a manual (fallback) session", () => {
-    startOwnedSession("listening");
-    useLiveVoiceStore.setState({ handsFree: true });
-    const { unmount } = render(<VoiceRoom />);
-    expect(stopButton()).toBeNull();
-    unmount();
-
-    // Manual session (version-skew fallback): interrupt would end the whole
-    // session, so the room must not offer the turn-scoped control.
+  test("muted: offers unmute and reports pressed", () => {
     startOwnedSession("speaking");
-    useLiveVoiceStore.setState({ handsFree: false });
+    useLiveVoiceStore.setState({ outputMuted: true });
     render(<VoiceRoom />);
-    expect(stopButton()).toBeNull();
+    const button = screen.getByRole("button", { name: "Unmute assistant" });
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(button);
+    expect(controls.setOutputMuted).toHaveBeenCalledWith(false);
+  });
+
+  test("present in every state, including a manual session", () => {
+    // Unlike the stop it replaced, this is not turn-scoped: you can silence
+    // the assistant before it ever opens its mouth.
+    for (const [state, handsFree] of [
+      ["listening", true],
+      ["thinking", true],
+      ["speaking", false],
+    ] as const) {
+      startOwnedSession(state);
+      useLiveVoiceStore.setState({ handsFree });
+      const { unmount } = render(<VoiceRoom />);
+      expect(assistantMute()).not.toBeNull();
+      unmount();
+    }
+  });
+
+  test("the old stop control is gone", () => {
+    startOwnedSession("speaking");
+    useLiveVoiceStore.setState({ handsFree: true });
+    render(<VoiceRoom />);
+    expect(
+      screen.queryByRole("button", { name: "Stop assistant response" }),
+    ).toBeNull();
   });
 });
 

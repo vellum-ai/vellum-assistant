@@ -126,21 +126,26 @@ describe("capPayloadForStorage", () => {
 
   test("the ceiling holds for a payload with no long string to trim", () => {
     // Numbers are individually tiny, so a wide, deep tree of them is bounded by
-    // neither the text cap nor the field caps.
+    // neither the text cap nor the field caps. Branching stays narrow: the tree
+    // only has to clear the row ceiling, which a 4-way tree at this depth does
+    // several times over.
     const build = (depth: number): unknown => {
       if (depth === 0) {
         return Array.from({ length: 40 }, (_, i) => i * 1_234_567);
       }
       const out: Record<string, unknown> = {};
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 4; i++) {
         out[`n${i}`] = build(depth - 1);
       }
       return out;
     };
 
-    const stored = JSON.stringify(
-      capPayloadForStorage(build(5) as Record<string, unknown>),
+    const tree = build(5) as Record<string, unknown>;
+    expect(JSON.stringify(tree).length).toBeGreaterThan(
+      WATCHER_PAYLOAD_ROW_MAX_CHARS,
     );
+
+    const stored = JSON.stringify(capPayloadForStorage(tree));
 
     expect(stored.length).toBeLessThanOrEqual(WATCHER_PAYLOAD_ROW_MAX_CHARS);
   });

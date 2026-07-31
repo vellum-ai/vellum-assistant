@@ -6,7 +6,7 @@ import { AssistantLifecyclePanel } from "@/domains/settings/components/panels/as
 import { EnvironmentConfigPanel } from "@/domains/settings/components/panels/environment-config-panel";
 import { FeatureFlagsPanel } from "@/domains/settings/components/panels/feature-flags-panel";
 import { SentryTestingPanel } from "@/domains/settings/components/panels/sentry-testing-panel";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalClient } from "@/lib/local-mode";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
@@ -79,7 +79,7 @@ export function DeveloperPage() {
             );
           })}
         </div>
-        {isLocalMode() && (
+        {isLocalClient() && (
           <Button
             variant="outlined"
             className="mb-1 shrink-0"

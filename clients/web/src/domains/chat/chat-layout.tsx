@@ -87,10 +87,7 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
-import {
-  useVoiceSessionPillPresence,
-  VoiceSessionPillHost,
-} from "@/domains/chat/components/voice-session-pill-host";
+import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
@@ -318,6 +315,98 @@ export function ChatLayout({
     setLocalNumber(SIDEBAR_WIDTH_STORAGE_KEY, Math.round(width));
   }, []);
 
+  // The tour's focused stage slides the whole rail away and bounces it back
+  // on reveal. Driven with the Web Animations API rather than a standing
+  // inline width + transition on the rail's wrapper: React only learns new
+  // widths when a drag commits on pointer-up, so a standing wrapper width
+  // lags the SideMenu nav's live drag-resize and, with the wrapper's
+  // overflow clip, pins the visible edge at the stale width whenever the
+  // nav is dragged wider.
+  // The node lives in state (callback ref) so the effect re-runs when the
+  // desktop aside leaves and re-enters the tree (mobile layout swaps), not
+  // only when the focus flag flips.
+  const [sideMenuAside, setSideMenuAside] = useState<HTMLElement | null>(null);
+  const railFocusAnimationsRef = useRef<Animation[]>([]);
+  const prevChatFocusRef = useRef(chatFocusActive);
+  useEffect(() => {
+    // Snapshot before the null check: focus flips that land while the aside
+    // is absent must still be recorded, so a later remount settles into the
+    // current state instead of replaying the missed transition.
+    const prev = prevChatFocusRef.current;
+    prevChatFocusRef.current = chatFocusActive;
+    if (!sideMenuAside) {
+      // Drop animations that target the departed node so a remount
+      // reinitializes from scratch.
+      for (const animation of railFocusAnimationsRef.current) {
+        animation.cancel();
+      }
+      railFocusAnimationsRef.current = [];
+      return;
+    }
+    const aside = sideMenuAside;
+    if (prev === chatFocusActive) {
+      if (chatFocusActive && railFocusAnimationsRef.current.length === 0) {
+        // Mounted (or remounted) while already focused: hold the hidden
+        // state, no motion.
+        railFocusAnimationsRef.current = [
+          aside.animate(
+            { width: "0px", opacity: "0", marginRight: "-16px" },
+            { duration: 0, fill: "forwards" },
+          ),
+        ];
+      }
+      return;
+    }
+    // Sample mid-flight values before cancelling so a reversal starts from
+    // where the rail visually is.
+    const style = getComputedStyle(aside);
+    const fromWidth = style.width;
+    const fromMargin = style.marginRight;
+    const fromOpacity = style.opacity;
+    for (const animation of railFocusAnimationsRef.current) {
+      animation.cancel();
+    }
+    if (chatFocusActive) {
+      // Hide: ease away smoothly and hold width 0 while focused. The
+      // negative margin cancels the row gap so the chat goes full-width.
+      railFocusAnimationsRef.current = [
+        aside.animate(
+          [
+            { width: fromWidth, marginRight: fromMargin },
+            { width: "0px", marginRight: "-16px" },
+          ],
+          { duration: 500, easing: "ease-in-out", fill: "forwards" },
+        ),
+        aside.animate([{ opacity: fromOpacity }, { opacity: "0" }], {
+          duration: 300,
+          easing: "ease-in-out",
+          fill: "forwards",
+        }),
+      ];
+    } else {
+      // Reveal: a back-ease so the rail lands with a slight bounce. The
+      // landing width comes from state, not DOM measurement: skipping the
+      // tour un-forces a collapsed rail in this same commit, so the nav's
+      // measured width still reads expanded while it is already collapsing
+      // to 48px. No fill, so the wrapper returns to shrink-wrapping the nav
+      // the moment the animation ends.
+      const targetWidth = effectiveCollapsed ? 48 : sidebarWidth;
+      railFocusAnimationsRef.current = [
+        aside.animate(
+          [
+            { width: fromWidth, marginRight: fromMargin },
+            { width: `${targetWidth}px`, marginRight: "0px" },
+          ],
+          { duration: 550, easing: "cubic-bezier(0.34, 1.56, 0.64, 1)" },
+        ),
+        aside.animate([{ opacity: fromOpacity }, { opacity: "1" }], {
+          duration: 250,
+          easing: "ease-out",
+        }),
+      ];
+    }
+  }, [chatFocusActive, sideMenuAside, effectiveCollapsed, sidebarWidth]);
+
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
   // True while a left-edge swipe is dragging the drawer in from off-screen but
@@ -537,13 +626,6 @@ export function ChatLayout({
       activeConversationId,
       isAssistantActive,
     ) ?? null;
-
-  // Drives the header's right-cluster collapse: while the voice pill occupies
-  // the row, the remaining controls fold behind a ⋯ so the centre title keeps
-  // a readable width. Same hook the host itself uses, so the two agree.
-  const { visible: voicePillVisible, showFailure: voicePillFailure } =
-    useVoiceSessionPillPresence();
-  const voicePillPresent = voicePillVisible || voicePillFailure;
 
   const topBarCenter =
     topBarCenterSlot ??
@@ -872,6 +954,12 @@ export function ChatLayout({
 
   return (
     <>
+      {/* An off-conversation session on a phone rides above the thread header
+          as its own full-width row, in flow: it pushes the page down instead of
+          overlaying it, so nothing is ever hidden behind a live session. The
+          host renders null when there is no session to show. */}
+      {!isPopout && isMobile ? <VoiceSessionPillHost variant="row" /> : null}
+
       {!isPopout && (
         <ChatLayoutHeader
           isMobile={isMobile}
@@ -891,13 +979,12 @@ export function ChatLayout({
           // per-route hooks that unmount on navigation, exactly when the pill
           // must persist. The host renders null when no session is active (or
           // while viewing the owning thread's composer), so the header is
-          // unaffected otherwise. It leads the cluster (ahead of the mobile
-          // search button) rather than sitting between search and the
-          // notification bell.
-          topBarRightLeading={<VoiceSessionPillHost />}
-          // Only phones need the collapse — desktop headers have the width for
-          // the full cluster, and the pill renders its expanded form there.
-          collapseRightCluster={isMobile && voicePillPresent}
+          // unaffected otherwise. It leads the cluster rather than sitting
+          // between search and the notification bell.
+          //
+          // Desktop only: a phone-width header cannot seat a pill next to the
+          // centre title, so there the session takes the row above instead.
+          topBarRightLeading={isMobile ? null : <VoiceSessionPillHost />}
           topBarRightSlot={
             <>
               {topBarRightSlot}
@@ -996,25 +1083,14 @@ export function ChatLayout({
         <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">
           <aside
             id="chat-side-menu"
-            className="shrink-0 overflow-hidden"
+            ref={setSideMenuAside}
+            // No width of its own: the wrapper shrink-wraps the SideMenu
+            // nav, which owns the rail width (drag-resize mutates it outside
+            // React until pointer-up). The tour's slide-away effect animates
+            // this element imperatively; overflow-hidden clips the nav
+            // mid-slide.
+            className="w-fit shrink-0 overflow-hidden"
             aria-label="Navigation"
-            // Explicit width (matching the rail's own) so the onboarding
-            // prototype's focused stage can slide the whole rail away; the
-            // negative margin cancels the row gap so the chat goes full-width.
-            // Hiding eases smoothly; revealing uses a back-ease so the rail
-            // lands with a slight bounce (the tour's takeover moment).
-            style={{
-              width: chatFocusActive
-                ? 0
-                : effectiveCollapsed
-                  ? 48
-                  : sidebarWidth,
-              opacity: chatFocusActive ? 0 : 1,
-              marginRight: chatFocusActive ? -16 : 0,
-              transition: chatFocusActive
-                ? "width 500ms ease-in-out, opacity 300ms ease-in-out, margin-right 500ms ease-in-out"
-                : "width 550ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 250ms ease-out, margin-right 550ms cubic-bezier(0.34, 1.56, 0.64, 1)",
-            }}
           >
             {renderSideMenu({
               collapsed: effectiveCollapsed,
@@ -1043,12 +1119,13 @@ export function ChatLayout({
           overlay; it never remounts the chat, so a suggestion click's
           navigate + `?prompt=` auto-send isn't raced by a remount. */}
       {isFocused ? <ResearchResultsOverlay /> : null}
-      {/* Live-voice room, mobile: still a full-viewport takeover, so it mounts
-          at layout scope next to the other full-viewport overlays rather than
-          inside `<main>` (JARVIS-1383 turns this into a bottom sheet). The
-          desktop room is the inset panel mounted inside `<main>` above; the two
-          mounts are mutually exclusive, so the room never double-mounts. */}
-      {isMobile ? <VoiceRoom variant="fullscreen" /> : null}
+      {/* Live-voice room, mobile: a bottom sheet that slides up and rests below
+          the thread header, the mobile counterpart of the desktop inset panel.
+          It portals out of the layout, so it mounts here rather than inside
+          `<main>`. The desktop room is the inset panel mounted inside `<main>`
+          above; the two mounts are mutually exclusive, so the room never
+          double-mounts. */}
+      {isMobile ? <VoiceRoom variant="sheet" /> : null}
       {/* First step of the focused flow: the gcal "Let's chat tomorrow" page,
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}
@@ -1070,6 +1147,7 @@ export function ChatLayout({
             onClose={commandPalette.close}
             query={commandPalette.query}
             onQueryChange={commandPalette.setQuery}
+            highlightTokens={commandPalette.searchTokens}
             selectedIndex={commandPalette.selectedIndex}
             sections={mergedSections}
             isSearching={commandPalette.isSearching}

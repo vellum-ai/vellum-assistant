@@ -132,6 +132,25 @@ class MockAudioContext {
     return this.mediaStreamDestination;
   }
 
+  /** Records the gain stage the output mute rides on. */
+  gain: { gain: { value: number }; connectedTo: AudioNode | null } | null =
+    null;
+
+  createGain(): GainNode {
+    const node = {
+      gain: { value: 1 },
+      connectedTo: null as AudioNode | null,
+      connect(destination: AudioNode) {
+        node.connectedTo = destination;
+      },
+      disconnect() {
+        node.connectedTo = null;
+      },
+    };
+    this.gain = node;
+    return node as unknown as GainNode;
+  }
+
   async close(): Promise<void> {
     this.closed = true;
   }
@@ -291,7 +310,11 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(mediaStreamContext.mediaStreamDestinationCreateCount).toBe(1);
     expect(mediaElement.srcObject).toBe(mediaStreamContext.mediaStream);
     expect(mediaElement.playCount).toBe(1);
+    // Sources feed the mute stage, which feeds the MediaStream bus.
     expect(mediaStreamContext.sources[0]!.connectedTo).toBe(
+      mediaStreamContext.gain as unknown as AudioNode,
+    );
+    expect(mediaStreamContext.gain?.connectedTo).toBe(
       mediaStreamContext.mediaStreamDestination,
     );
   });
@@ -311,7 +334,12 @@ describe("LiveVoiceAudioPlayer", () => {
 
       expect(mediaElement.srcObject).toBeNull();
       expect(mediaStreamContext.mediaStreamTrack.stopped).toBe(true);
+      // The mute stage survives the fallback, so a muted session does not
+      // start playing aloud because its iOS output route dropped.
       expect(mediaStreamContext.sources[0]!.connectedTo).toBe(
+        mediaStreamContext.gain as unknown as AudioNode,
+      );
+      expect(mediaStreamContext.gain?.connectedTo).toBe(
         mediaStreamContext.destination,
       );
       expect(consoleError).toHaveBeenCalled();
@@ -332,7 +360,10 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(ctx.sources[1]!.startedAt).toBeCloseTo(1.0, 6);
     // Buffers were built at the frame's own 24 kHz rate, not the 48 kHz ctx.
     expect(ctx.sources[0]!.buffer!.sampleRate).toBe(24000);
-    expect(ctx.sources[0]!.connectedTo).toBe(ctx.destination);
+    expect(ctx.sources[0]!.connectedTo).toBe(
+      ctx.gain as unknown as AudioNode,
+    );
+    expect(ctx.gain?.connectedTo).toBe(ctx.destination);
 
     expect(player.isPlaying).toBe(true);
   });
@@ -698,5 +729,62 @@ describe("LiveVoiceAudioPlayer", () => {
     // A fresh enqueue lazily rebuilds a context and schedules normally.
     player.enqueue(chunk(new Array(24000).fill(1)));
     expect(player.isPlaying).toBe(true);
+  });
+});
+
+// Muting the assistant is a gain stage, not a stop: the reply keeps being
+// scheduled and the transcript keeps filling, so unmuting drops the user back
+// into whatever is playing rather than restarting it.
+describe("LiveVoiceAudioPlayer output mute", () => {
+  test("mute zeroes the output gain and unmute restores it", () => {
+    const { player, ctx } = makePlayer();
+    player.prewarm();
+
+    player.setOutputMuted(true);
+    expect(ctx.gain?.gain.value).toBe(0);
+    expect(player.isOutputMuted()).toBe(true);
+
+    player.setOutputMuted(false);
+    expect(ctx.gain?.gain.value).toBe(1);
+    expect(player.isOutputMuted()).toBe(false);
+  });
+
+  test("a mute set before the graph exists applies to the graph it gets", () => {
+    // This is the reconnect path: the socket blips, a fresh context is built,
+    // and a user who silenced the assistant must not have it start talking
+    // again on its own.
+    const { player, ctx } = makePlayer();
+    player.setOutputMuted(true);
+    expect(ctx.gain).toBeNull();
+
+    player.prewarm();
+    expect(ctx.gain?.gain.value).toBe(0);
+  });
+
+  test("muting does not stop or drop scheduled audio", () => {
+    const { player, ctx } = makePlayer();
+    player.prewarm();
+    player.enqueue({
+      dataBase64: encodePcm16Base64([1000, -1000, 500]),
+      sampleRate: 24000,
+      mimeType: "audio/pcm",
+    });
+    const scheduled = ctx.sources.length;
+
+    player.setOutputMuted(true);
+
+    expect(ctx.sources.length).toBe(scheduled);
+    expect(ctx.sources.every((s) => !s.stopped)).toBe(true);
+  });
+
+  test("no gain stage available: records the flag without throwing", () => {
+    // A context that cannot make one (lightweight host) simply cannot mute.
+    const { player, ctx } = makePlayer();
+    const noGain = ctx as unknown as { createGain?: unknown };
+    delete noGain.createGain;
+    player.prewarm();
+
+    expect(() => player.setOutputMuted(true)).not.toThrow();
+    expect(player.isOutputMuted()).toBe(true);
   });
 });

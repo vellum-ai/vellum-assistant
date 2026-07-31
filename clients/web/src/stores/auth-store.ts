@@ -44,7 +44,7 @@ import {
 } from "@/lib/auth/gateway-session";
 import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import {
-  isLocalMode,
+  isLocalClient,
   isRemoteGatewayMode,
   getPlatformAssistants,
   getLocalAssistants,
@@ -641,7 +641,7 @@ function probePlatformSession(
         // late commit must not land after routing decisions were made on
         // the un-synced lockfile. `!isStale()` likewise keeps a
         // superseded probe from committing an out-of-date lockfile.
-        if (isLocalMode()) {
+        if (isLocalClient()) {
           let timedOut = false;
           const syncIsCurrent = (): boolean => !timedOut && !isStale();
           try {
@@ -741,7 +741,7 @@ function probePlatformSessionIfReachable(
   options?: { setUserOnSuccess?: boolean; clearOnFailure?: boolean },
 ): void {
   if (
-    !isLocalMode() ||
+    !isLocalClient() ||
     isGatewayAuthEnabled() ||
     getPlatformAssistants().length > 0
   ) {
@@ -797,7 +797,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       return;
     }
 
-    if (isLocalMode() && !isGatewayAuthEnabled()) {
+    if (isLocalClient() && !isGatewayAuthEnabled()) {
       const hasPlatformAssistants = getPlatformAssistants().length > 0;
       if (hasPlatformAssistants) {
         // Platform assistants require a valid session — await the check
@@ -1004,7 +1004,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         // stale managed-assistant list until the next full boot. Best-effort
         // and local-mode only (platform mode has no lockfile host); the
         // refresh has already succeeded regardless of the sync outcome.
-        if (isLocalMode()) {
+        if (isLocalClient()) {
           try {
             await useOrganizationStore.getState().fetchOrganizations();
             const apiAssistants = await listAssistants();
@@ -1097,7 +1097,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         await window.vellum?.auth?.signOut?.();
       }
       // Web loopback: drop the token the local server's proxy authenticates with.
-      if (isLocalMode() && !isElectron()) {
+      if (isLocalClient() && !isElectron()) {
         await clearLocalPlatformSession();
       }
       void deleteBiometricToken();

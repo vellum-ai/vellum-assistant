@@ -536,7 +536,9 @@ describe("ensureByokDefaultProfiles", () => {
     expectSecondRunNoop();
   });
 
-  test("a re-enabled hatch stub is kept", () => {
+  test("a re-enabled hatch stub is deleted", () => {
+    // The bare key resolves active post-conversion, so deleting the
+    // re-enabled stub preserves the enable.
     writeConfig({
       llm: {
         defaultProvider: { provider: "anthropic" },
@@ -549,11 +551,11 @@ describe("ensureByokDefaultProfiles", () => {
         },
       },
     });
-    const before = readFileSync(configPath(), "utf-8");
 
     ensureByokDefaultProfiles(workspaceDir);
 
-    expect(readFileSync(configPath(), "utf-8")).toBe(before);
+    expect(profiles()["quality-optimized"]).toBeUndefined();
+    expectSecondRunNoop();
   });
 
   test("a label-only hatch stub with no status key is deleted", () => {
@@ -710,17 +712,62 @@ describe("ensureByokDefaultProfiles", () => {
     expect(readFileSync(configPath(), "utf-8")).toBe(before);
   });
 
-  test("no-op when the default provider is vellum", () => {
+  test("a vellum-default install (hatched BYOK, later platform-connected) converts fully", () => {
     const config = uneditedByokConfig();
     (config.llm as Record<string, unknown>).defaultProvider = {
       provider: "vellum",
     };
     writeConfig(config);
-    const before = readFileSync(configPath(), "utf-8");
 
     ensureByokDefaultProfiles(workspaceDir);
 
-    expect(readFileSync(configPath(), "utf-8")).toBe(before);
+    for (const name of [
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+      "custom-balanced",
+      "custom-quality-optimized",
+      "custom-cost-optimized",
+    ]) {
+      expect(profiles()[name]).toBeUndefined();
+    }
+    expect(llm().activeProfile).toBe("balanced");
+    expect(llm().advisorProfile).toBe("quality-optimized");
+    // With the stub gone, the default resolves active from the vellum column.
+    const resolved = resolveDefaultProfileForProvider(
+      profiles() as Record<string, ProfileEntry>,
+      "balanced",
+      { provider: "vellum" },
+    );
+    expect(resolved?.source).toBe("managed");
+    expect(resolved?.status).toBeUndefined();
+    expectSecondRunNoop();
+  });
+
+  test("a vellum-default install keeps a user-edited copy untouched", () => {
+    const config = uneditedByokConfig();
+    const llmConfig = config.llm as Record<string, unknown>;
+    llmConfig.defaultProvider = { provider: "vellum" };
+    const profileMap = llmConfig.profiles as Record<
+      string,
+      Record<string, unknown>
+    >;
+    profileMap["custom-balanced"] = {
+      ...profileMap["custom-balanced"],
+      model: "claude-opus-4-6",
+    };
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-balanced"]).toEqual({
+      ...hatchBody("balanced", "anthropic"),
+      model: "claude-opus-4-6",
+    });
+    expect(llm().activeProfile).toBe("custom-balanced");
+    expect(profiles()["custom-quality-optimized"]).toBeUndefined();
+    expect(profiles()["custom-cost-optimized"]).toBeUndefined();
+    expectSecondRunNoop();
   });
 
   test("no-op when llm.defaultProvider is absent or invalid", () => {
@@ -771,6 +818,104 @@ describe("ensureByokDefaultProfiles", () => {
     expect(readFileSync(configPath(), "utf-8")).toBe(before);
   });
 
+  test("a real vellum-default workspace with re-enabled stubs and mixed connection stamps converts (specimen shape)", () => {
+    // Mirrors a live 2026-07 workspace: hatched BYOK anthropic, later
+    // platform-connected, stubs re-enabled through the UI, the
+    // onboarding-authored copy stamped with the bare "anthropic" connection,
+    // and call sites pinned at custom-balanced.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "vellum", connectionName: "vellum" },
+        activeProfile: "balanced",
+        advisorProfile: "quality-optimized",
+        profileOrder: [
+          "balanced",
+          "os-beta",
+          "quality-optimized",
+          "cost-optimized",
+          "custom-balanced",
+          "custom-quality-optimized",
+          "custom-cost-optimized",
+        ],
+        callSites: {
+          subagentSpawn: { profile: "custom-balanced" },
+          memoryRouter: {
+            profile: "custom-balanced",
+            contextWindow: { maxInputTokens: 1000000 },
+          },
+        },
+        profiles: {
+          balanced: {
+            source: "managed",
+            status: "active",
+            label: "Balanced (Managed)",
+            thinking: { enabled: true, streamThinking: true },
+          },
+          "quality-optimized": {
+            source: "managed",
+            status: "active",
+            label: "Quality (Managed)",
+            thinking: { enabled: true, streamThinking: true },
+          },
+          "cost-optimized": {
+            source: "managed",
+            status: "active",
+            label: "Speed (Managed)",
+          },
+          "custom-balanced": {
+            ...hatchBody("balanced", "anthropic"),
+            provider_connection: "anthropic",
+          },
+          "custom-quality-optimized": hatchBody(
+            "quality-optimized",
+            "anthropic",
+          ),
+          "custom-cost-optimized": hatchBody("cost-optimized", "anthropic"),
+          "os-beta": {
+            source: "managed",
+            status: "active",
+            label: "OS Beta (Managed)",
+          },
+        },
+      },
+    });
+    // The live workspace booted with completion baking the copies first.
+    ensureCompleteCustomProfiles(workspaceDir);
+    const osBetaBefore = { ...profiles()["os-beta"] };
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    for (const name of [
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+      "custom-balanced",
+      "custom-quality-optimized",
+      "custom-cost-optimized",
+    ]) {
+      expect(profiles()[name]).toBeUndefined();
+    }
+    expect(profiles()["os-beta"]).toEqual(osBetaBefore);
+    expect(llm().activeProfile).toBe("balanced");
+    expect(llm().advisorProfile).toBe("quality-optimized");
+    expect(llm().profileOrder).toEqual([
+      "balanced",
+      "os-beta",
+      "quality-optimized",
+      "cost-optimized",
+    ]);
+    const callSites = llm().callSites as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(callSites.subagentSpawn?.profile).toBe("balanced");
+    expect(callSites.memoryRouter?.profile).toBe("balanced");
+    expect(callSites.memoryRouter?.contextWindow).toEqual({
+      maxInputTokens: 1000000,
+    });
+    expectSecondRunNoop();
+  });
+
   test("a managed-source default entry with body keys is left alone", () => {
     writeConfig({
       llm: {
@@ -792,12 +937,152 @@ describe("ensureByokDefaultProfiles", () => {
     expect(readFileSync(configPath(), "utf-8")).toBe(before);
   });
 
-  test("a custom copy for a different provider is kept", () => {
+  test("a custom copy for a different BYOK provider than the current default is kept", () => {
+    // A re-provisioned copy is indistinguishable from a hatch copy for that
+    // provider, so only copies matching the default provider convert.
     writeConfig({
       llm: {
         defaultProvider: { provider: "openai" },
         profiles: {
           "custom-balanced": hatchBody("balanced", "anthropic"),
+        },
+      },
+    });
+    const before = readFileSync(configPath(), "utf-8");
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(readFileSync(configPath(), "utf-8")).toBe(before);
+  });
+
+  test("a vellum default keeps a singleton copy (incomplete set is not hatch provenance)", () => {
+    // A lone surviving copy is trivially uniform; the complete-set
+    // requirement keeps it.
+    const config = uneditedByokConfig();
+    const llmConfig = config.llm as Record<string, unknown>;
+    llmConfig.defaultProvider = { provider: "vellum" };
+    const profileMap = llmConfig.profiles as Record<
+      string,
+      Record<string, unknown>
+    >;
+    delete profileMap["custom-quality-optimized"];
+    delete profileMap["custom-cost-optimized"];
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-balanced"]).toBeDefined();
+    expect(llm().activeProfile).toBe("custom-balanced");
+    // The stubs are hatch residue regardless and still delete.
+    expect(profiles().balanced).toBeUndefined();
+    expectSecondRunNoop();
+  });
+
+  test("a vellum default keeps all copies when one was re-provisioned to another provider", () => {
+    // A re-provisioned copy breaks provider uniformity and keeps the whole
+    // set; the stubs still delete.
+    const config = uneditedByokConfig();
+    const llmConfig = config.llm as Record<string, unknown>;
+    llmConfig.defaultProvider = { provider: "vellum" };
+    const profileMap = llmConfig.profiles as Record<
+      string,
+      Record<string, unknown>
+    >;
+    profileMap["custom-balanced"] = hatchBody("balanced", "openai");
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles().balanced).toBeUndefined();
+    expect(profiles()["quality-optimized"]).toBeUndefined();
+    expect(profiles()["cost-optimized"]).toBeUndefined();
+    expect(profiles()["custom-balanced"]).toBeDefined();
+    expect(profiles()["custom-quality-optimized"]).toBeDefined();
+    expect(profiles()["custom-cost-optimized"]).toBeDefined();
+    expect(llm().activeProfile).toBe("custom-balanced");
+    expectSecondRunNoop();
+  });
+
+  test("the pre-#39516 onboarding bare-provider connection stamp converts", () => {
+    // Pre-#39516 web onboarding stamped the bare connection name.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        activeProfile: "custom-balanced",
+        profiles: {
+          "custom-balanced": {
+            ...hatchBody("balanced", "anthropic"),
+            provider_connection: "anthropic",
+          },
+        },
+      },
+    });
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-balanced"]).toBeUndefined();
+    expect(llm().activeProfile).toBe("balanced");
+    expectSecondRunNoop();
+  });
+
+  test("a copy for an endpoint-supplied provider is kept even when body-identical to the template", () => {
+    // Its connection can carry a base URL the bare key cannot recover.
+    const body = hatchBody("balanced", "anthropic") as Record<string, unknown>;
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: {
+          "custom-balanced": {
+            ...body,
+            provider: "openai-compatible",
+            provider_connection: "openai-compatible-personal",
+          },
+        },
+      },
+    });
+    const before = readFileSync(configPath(), "utf-8");
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(readFileSync(configPath(), "utf-8")).toBe(before);
+  });
+
+  test("a copy disable wins over a re-enabled hatch stub on the same key", () => {
+    const config = uneditedByokConfig();
+    const profileMap = (config.llm as Record<string, unknown>)
+      .profiles as Record<string, Record<string, unknown>>;
+    profileMap["quality-optimized"] = {
+      source: "managed",
+      status: "active",
+      label: "Quality (Managed)",
+    };
+    profileMap["custom-quality-optimized"] = {
+      ...profileMap["custom-quality-optimized"],
+      status: "disabled",
+    };
+    writeConfig(config);
+
+    ensureByokDefaultProfiles(workspaceDir);
+
+    expect(profiles()["custom-quality-optimized"]).toBeUndefined();
+    expect(profiles()["quality-optimized"]).toEqual({
+      source: "managed",
+      status: "disabled",
+    });
+    expectSecondRunNoop();
+  });
+
+  test("a copy pointing at a non-conventional connection is kept", () => {
+    // A non-conventional reference could be an explicit selection among
+    // several keys; retiring it could switch which key gets billed.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic" },
+        profiles: {
+          "custom-balanced": {
+            ...hatchBody("balanced", "anthropic"),
+            provider_connection: "anthropic-work",
+          },
         },
       },
     });

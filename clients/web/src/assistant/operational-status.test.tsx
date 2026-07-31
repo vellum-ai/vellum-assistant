@@ -39,7 +39,7 @@ const sdkMock = mock(
     response: new Response(null, { status: 200 }),
   }),
 );
-const isLocalModeMock = mock(() => false);
+const isLocalClientMock = mock(() => false);
 const isPlatformDisabledMock = mock(() => false);
 let isOrgReadyMock = true;
 const recordLifecycleDiagnosticMock = mock(
@@ -60,7 +60,7 @@ mock.module("@/stores/sse-connected-store", () => ({
 }));
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: isLocalModeMock,
+  isLocalClient: isLocalClientMock,
   isPlatformDisabled: isPlatformDisabledMock,
 }));
 
@@ -110,7 +110,7 @@ beforeEach(() => {
   sdkMock.mockClear();
   recordLifecycleDiagnosticMock.mockClear();
   sseConnectedSnapshotMock = false;
-  isLocalModeMock.mockImplementation(() => false);
+  isLocalClientMock.mockImplementation(() => false);
   isPlatformDisabledMock.mockImplementation(() => false);
   isOrgReadyMock = true;
   useAuthStore.setState(

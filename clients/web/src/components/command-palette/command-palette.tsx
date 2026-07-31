@@ -55,6 +55,8 @@ export interface CommandPaletteItemData {
   icon?: LucideIcon;
   title: string;
   subtitle?: string;
+  /** Longer match excerpt rendered as a second line under the title. */
+  snippet?: string;
   shortcutHint?: ReactNode;
 }
 
@@ -73,6 +75,11 @@ export interface CommandPaletteProps {
   query: string;
   /** Update the search query. */
   onQueryChange: (value: string) => void;
+  /**
+   * Lexical tokens of the term the server matched on, used to highlight
+   * matches inside result snippets.
+   */
+  highlightTokens?: string[];
   /** Currently selected index (flat across all sections). */
   selectedIndex: number;
   /** Sections of results to display. */
@@ -163,6 +170,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   onClose,
   query,
   onQueryChange,
+  highlightTokens,
   selectedIndex,
   sections,
   isSearching = false,
@@ -345,6 +353,8 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
                   icon={item.icon}
                   title={item.title}
                   subtitle={item.subtitle}
+                  snippet={item.snippet}
+                  highlightTokens={highlightTokens}
                   shortcutHint={useMobileLayout ? undefined : item.shortcutHint}
                   isSelected={currentIndex === selectedIndex}
                   onClick={() => onItemSelect?.(item, currentIndex)}
