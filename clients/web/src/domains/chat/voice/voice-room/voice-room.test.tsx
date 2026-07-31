@@ -504,6 +504,18 @@ describe("VoiceRoom: mobile sheet", () => {
     return () => header.remove();
   }
 
+  /** The room's own box, held by the sheet's content wrapper as its child. */
+  function roomBox(): HTMLElement {
+    const inner = document.querySelector(
+      '[data-slot="bottom-sheet-content-inner"]',
+    );
+    const box = inner?.firstElementChild;
+    if (!(box instanceof HTMLElement)) {
+      throw new Error("the sheet rendered no room box");
+    }
+    return box;
+  }
+
   test("rests at the header's bottom edge, not its height", () => {
     // The sheet is `fixed` against the viewport, so the offset has to be the
     // header's bottom in viewport coordinates. Positioning by height alone
@@ -558,6 +570,22 @@ describe("VoiceRoom: mobile sheet", () => {
 
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     expect(screen.getByTestId("voice-avatar")).toBeTruthy();
+    removeHeader();
+  });
+
+  test("opening does not land focus on the exit", () => {
+    // Radix focuses the first focusable child on open, which is the top-right
+    // exit. That lit its focus ring and popped its "End voice session"
+    // tooltip, so the first thing a freshly opened room said was how to leave
+    // it. Focus belongs on the sheet itself.
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    const sheet = screen.getByRole("dialog", { name: "Voice session" });
+    const exit = screen.getByRole("button", { name: "Exit voice session" });
+    expect(document.activeElement).not.toBe(exit);
+    expect(document.activeElement).toBe(sheet);
     removeHeader();
   });
 
@@ -631,6 +659,47 @@ describe("VoiceRoom: mobile sheet", () => {
     expect(
       document.querySelector('[data-slot="bottom-sheet-overlay"]'),
     ).toBeNull();
+    removeHeader();
+  });
+
+  // The sheet slides up, so anything inside it that also animates in is a
+  // second, competing arrival: the sheet lands and only then does its content
+  // assemble itself. The room rides up already painted instead. See
+  // `voice-room-entrance.ts`.
+  test("the room is painted before the sheet has finished sliding", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    // Motion writes `initial` straight into inline style at mount, so a room
+    // that fades in is observable as `opacity: 0` on its first frame.
+    expect(roomBox().style.opacity).not.toBe("0");
+    removeHeader();
+  });
+
+  test("the avatar is on the sheet from the first frame, not popped in after", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    const avatarBox = screen.getByTestId("voice-avatar").parentElement;
+    expect(avatarBox).not.toBeNull();
+    expect(avatarBox?.style.opacity).not.toBe("0");
+    // The grow starts the avatar low and small; presented, it is simply there.
+    expect(avatarBox?.style.transform ?? "").not.toContain("scale");
+    removeHeader();
+  });
+
+  test("Radix keeps the slide-up, Motion does not claim the entrance", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+
+    // The exit is Motion's, but the entrance stays the library's keyframe.
+    // A Motion `initial` here would write a transform that fights it.
+    const sheet = screen.getByRole("dialog", { name: "Voice session" });
+    expect(sheet.className).toContain("bottomSheetIn");
+    expect(sheet.style.transform ?? "").toBe("");
     removeHeader();
   });
 });

@@ -48,9 +48,35 @@ export interface VoiceAudioInterruptionEvent {
   type: "began" | "ended";
 }
 
+/**
+ * Read-only view of the shared `AVAudioSession`, as the system reports it.
+ *
+ * WebKit configures that session on the app's behalf for `getUserMedia`, and
+ * whether it picked a voice-processing mode is the difference between echo
+ * cancellation existing and not. Nothing in the web layer can observe that, so
+ * the answer has to come from the native side.
+ *
+ * Every field is optional: it crosses an untyped bridge, and an older shell
+ * answers `{}`.
+ */
+export interface VoiceAudioSessionDescription {
+  /** `AVAudioSession.category`, e.g. `AVAudioSessionCategoryPlayAndRecord`. */
+  category?: string;
+  /** `AVAudioSession.mode`. `AVAudioSessionModeVoiceChat` is the AEC-bearing one. */
+  mode?: string;
+  categoryOptions?: number;
+  /** Output port types from `currentRoute`, e.g. `Speaker`, `Receiver`. */
+  outputs?: string[];
+  /** Input port types from `currentRoute`, e.g. `MicrophoneBuiltIn`. */
+  inputs?: string[];
+  sampleRate?: number;
+  otherAudioPlaying?: boolean;
+}
+
 interface VoiceAudioSessionPlugin {
   activate(): Promise<{ activated: boolean }>;
   deactivate(): Promise<void>;
+  describe(): Promise<VoiceAudioSessionDescription>;
   addListener(
     eventName: "voiceAudioInterruption",
     handler: (event: VoiceAudioInterruptionEvent) => void,
@@ -80,6 +106,24 @@ export async function activateVoiceAudioSession(): Promise<boolean> {
     // runtime, and a shell that answers `{}` must read as "not activated".
     return activated === true;
   }, false);
+}
+
+/**
+ * Read back how the system has the shared audio session configured. Resolves
+ * `null` off-iOS and on a shell without the method.
+ *
+ * Strictly an observation: it never sets anything. That distinction is the
+ * whole point. Reconfiguring the session underneath WebKit's live capture unit
+ * has broken live voice on a handset twice (see `docs/CAPACITOR.md`
+ * § "Full-duplex TTS must render through a MediaStream track"), so reading the
+ * category back is the only sanctioned way to test a belief about it.
+ */
+export async function describeVoiceAudioSession(): Promise<VoiceAudioSessionDescription | null> {
+  return callNativeVoice(async () => {
+    // Destructured inline for the same reason as `activate` above.
+    const description = await VoiceAudioSession.describe();
+    return description ?? null;
+  }, null);
 }
 
 /**

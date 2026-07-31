@@ -196,9 +196,14 @@ export type AudioContextFactory = () => AudioContextLike;
 const defaultAudioContextFactory: AudioContextFactory = () =>
   createAudioContext() as unknown as AudioContextLike;
 
+/**
+ * `paused` and `readyState` are read for diagnostics only. A route that was
+ * accepted at `play()` and later paused itself is indistinguishable from a
+ * healthy one unless the element is sampled again while audio is flowing.
+ */
 type MediaStreamPlaybackElement = Pick<
   HTMLAudioElement,
-  "pause" | "play" | "srcObject"
+  "pause" | "play" | "srcObject" | "paused" | "readyState"
 >;
 
 type MediaStreamPlaybackElementFactory = () => MediaStreamPlaybackElement;
@@ -209,6 +214,37 @@ const defaultMediaStreamPlaybackElementFactory: MediaStreamPlaybackElementFactor
 interface MediaStreamOutputRoute {
   destination: MediaStreamAudioDestinationNode;
   element: MediaStreamPlaybackElement;
+}
+
+/**
+ * Which sink the scheduled audio ends up in.
+ *
+ * - `unsupported`: this runtime never attempts the MediaStream route.
+ * - `pending`: the route is wanted but no `AudioContext` has been built yet.
+ * - `media-stream`: TTS renders through a MediaStream track, which is the only
+ *   form WebKit offers its capture unit as echo-cancellation reference audio.
+ * - `direct`: `AudioContext.destination`. Playback works and echo cancellation
+ *   does not.
+ */
+export type TtsOutputRoute =
+  "unsupported" | "pending" | "media-stream" | "direct";
+
+/** Observable state of the output path, for support bundles. */
+export interface TtsOutputRouteDiagnostics {
+  route: TtsOutputRoute;
+  /** Whether this runtime asks for the MediaStream route at all. */
+  mediaStreamRouteRequested: boolean;
+  /** Whether the `AudioContext` implementation can build the route. */
+  mediaStreamApiAvailable: boolean;
+  /** `play()` attempts made on the media element, including restarts. */
+  playAttempts: number;
+  /** Error name from the most recent rejected `play()`, else `null`. */
+  playRejectionName: string | null;
+  /** Live element state, sampled at read time. `null` off the route. */
+  elementPaused: boolean | null;
+  elementReadyState: number | null;
+  /** `AudioContext.state`, which reads `suspended` when playback is silently dead. */
+  contextState: string | null;
 }
 
 /**
@@ -244,6 +280,28 @@ export class LiveVoiceAudioPlayer {
   private readonly createMediaStreamPlaybackElement: MediaStreamPlaybackElementFactory;
   private context: AudioContextLike | null = null;
   private mediaStreamOutput: MediaStreamOutputRoute | null = null;
+
+  /**
+   * Whether the MediaStream route was built for the current context. Distinct
+   * from `mediaStreamOutput !== null`, which also goes null on teardown, and
+   * from the requested-vs-available distinction the diagnostics report.
+   */
+  private mediaStreamApiAvailable = false;
+
+  /** `play()` attempts on the media element, including {@link restartOutputRoute}. */
+  private playAttempts = 0;
+
+  /**
+   * Identifies the current `play()` attempt so a superseded one cannot act on
+   * its own rejection. Pausing a media element rejects any `play()` still in
+   * flight with `AbortError`, and {@link restartOutputRoute} pauses
+   * deliberately, so without this the restart's own abort would be read as a
+   * refused route and tear down the path it is re-establishing.
+   */
+  private playEpoch = 0;
+
+  /** Error name from the most recent rejected `play()`. */
+  private playRejectionName: string | null = null;
 
   /** Sources currently scheduled (playing or pending). */
   private activeSources = new Set<AudioBufferSourceNode>();
@@ -547,10 +605,12 @@ export class LiveVoiceAudioPlayer {
     const context = this.context;
     this.context = null;
     this.disposeMediaStreamOutput();
-    // The analyser belongs to the closed context; drop it (and its buffer) so a
-    // reused player rebuilds metering against a fresh context.
+    // The analyser and the mute stage belong to the closed context; drop them
+    // (and the analyser's buffer) so a reused player rebuilds its graph against
+    // a fresh context rather than writing into detached nodes.
     this.analyser = null;
     this.analyserSamples = null;
+    this.outputGain = null;
     this.smoothedOutputAmplitude = 0;
     if (context) {
       await context.close();
@@ -601,7 +661,7 @@ export class LiveVoiceAudioPlayer {
         this.analyser = analyser;
         this.analyserSamples = new Float32Array(analyser.fftSize);
       }
-      this.startMediaStreamOutput(context);
+      void this.startMediaStreamOutput(context);
     }
     return this.context;
   }
@@ -610,6 +670,8 @@ export class LiveVoiceAudioPlayer {
     // WebKit only supplies default-device MediaStream-track playback to its
     // VoiceProcessingIO capture unit as far-end echo-cancellation audio:
     // https://github.com/WebKit/WebKit/blob/41daa01748411a95855d8b6a0f0ffbd54f729a08/Source/WebKit/GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager.cpp#L228-L292
+    this.mediaStreamApiAvailable =
+      context.createMediaStreamDestination !== undefined;
     if (!this.useMediaStreamOutput || !context.createMediaStreamDestination) {
       return context.destination;
     }
@@ -621,33 +683,131 @@ export class LiveVoiceAudioPlayer {
     return destination;
   }
 
-  private startMediaStreamOutput(context: AudioContextLike): void {
+  /**
+   * Begin (or resume) rendering the MediaStream track.
+   *
+   * Resolves once the attempt has settled, including any fallback the rejection
+   * triggers, so a caller can read the resulting route rather than whatever it
+   * happens to be mid-flight. Never rejects.
+   */
+  private startMediaStreamOutput(context: AudioContextLike): Promise<void> {
     const route = this.mediaStreamOutput;
     if (!route) {
-      return;
+      return Promise.resolve();
     }
 
-    void route.element.play().catch((error: unknown) => {
+    this.playAttempts += 1;
+    const epoch = ++this.playEpoch;
+    return route.element.play().catch((error: unknown) => {
+      // A newer attempt has taken over, so this rejection is the pause() that
+      // started it and says nothing about whether playback is allowed. Recording
+      // it would also report a refusal the route never suffered.
+      if (this.playEpoch !== epoch) {
+        return;
+      }
+      this.playRejectionName =
+        error instanceof Error ? error.name : "UnknownError";
       if (this.context !== context || this.mediaStreamOutput !== route) {
         return;
       }
 
       this.disposeMediaStreamOutput();
-      // Rebuild the tail of the graph onto the raw destination, keeping the
-      // mute stage in it so a muted session does not start playing aloud
-      // because its iOS output route fell back.
-      if (this.outputGain) {
-        this.outputGain.disconnect();
-        this.outputGain.connect(context.destination);
-      }
-      if (this.analyser) {
-        this.analyser.disconnect();
-        this.analyser.connect(this.outputGain ?? context.destination);
-      }
+      this.connectOutputTail(context.destination);
       captureError(error, {
         context: "live_voice_ios_media_stream_output",
       });
     });
+  }
+
+  /**
+   * Point the tail of the graph at `destination`, preserving whichever optional
+   * stages exist. Sources feed the analyser, the analyser feeds the mute stage,
+   * and the mute stage feeds the sink, so the mute survives every rewiring: a
+   * silenced assistant must not start playing aloud because its output route
+   * changed underneath it.
+   */
+  private connectOutputTail(destination: AudioNode): void {
+    if (this.outputGain) {
+      this.outputGain.disconnect();
+      this.outputGain.connect(destination);
+    }
+    if (this.analyser) {
+      this.analyser.disconnect();
+      this.analyser.connect(this.outputGain ?? destination);
+    }
+  }
+
+  /**
+   * Re-render the MediaStream track now that microphone capture is running.
+   *
+   * WebKit renders a MediaStream track through whichever capture unit is active
+   * when the renderer starts, and the echo reference is a property of that
+   * unit. The player is deliberately prewarmed from the user gesture that
+   * begins a session, which is *before* `getUserMedia` has created any capture
+   * unit, so the renderer can come up bound to a plain output unit that never
+   * acquires an echo reference. Restarting it once the mic is live rebinds it
+   * against the voice-processing unit.
+   *
+   * It is also the second chance the gesture-less start paths need, which is
+   * why a route that has already fallen back is rebuilt here rather than left
+   * alone. A session begun from Siri, the Action Button, or a Live Activity tap
+   * has no activation to borrow, so its prewarm `play()` is refused and the
+   * fallback tears the route down. That is precisely the session that most
+   * needs another attempt: by now the page holds a live `getUserMedia` stream,
+   * which is grounds for playing a MediaStream element that an unactivated page
+   * could not. Skipping it would strand exactly those sessions on the direct
+   * path forever.
+   *
+   * Safe to call at any point: it no-ops off the route entirely, and it runs
+   * while the queue is silent, so the pause is inaudible. Never throws; a
+   * refused retry degrades exactly like a refused initial start.
+   *
+   * Resolves once the attempt has settled, fallback included. Anything that
+   * reports which route a session ended up on has to await this, or it can
+   * observe a route that the pending rejection is about to tear down.
+   */
+  restartOutputRoute(): Promise<void> {
+    const context = this.context;
+    if (!context) {
+      return Promise.resolve();
+    }
+
+    const route = this.mediaStreamOutput;
+    if (route) {
+      route.element.pause();
+      return this.startMediaStreamOutput(context);
+    }
+
+    if (!this.useMediaStreamOutput || !context.createMediaStreamDestination) {
+      return Promise.resolve();
+    }
+    const destination = this.createOutputNode(context);
+    this.connectOutputTail(destination);
+    return this.startMediaStreamOutput(context);
+  }
+
+  /**
+   * Snapshot the output path for a support bundle. Reads live element state, so
+   * a route that was accepted and later paused itself reports honestly.
+   */
+  getOutputRouteDiagnostics(): TtsOutputRouteDiagnostics {
+    const route = this.mediaStreamOutput;
+    return {
+      route: !this.useMediaStreamOutput
+        ? "unsupported"
+        : route
+          ? "media-stream"
+          : this.context === null
+            ? "pending"
+            : "direct",
+      mediaStreamRouteRequested: this.useMediaStreamOutput,
+      mediaStreamApiAvailable: this.mediaStreamApiAvailable,
+      playAttempts: this.playAttempts,
+      playRejectionName: this.playRejectionName,
+      elementPaused: route?.element.paused ?? null,
+      elementReadyState: route?.element.readyState ?? null,
+      contextState: this.context?.state ?? null,
+    };
   }
 
   private disposeMediaStreamOutput(): void {
@@ -713,6 +873,31 @@ export class LiveVoiceAudioPlayer {
       return this.smoothedOutputAmplitude;
     }
 
+    const scaled = this.readOutputLevel();
+    this.smoothedOutputAmplitude =
+      OUTPUT_AMPLITUDE_SMOOTHING * scaled +
+      (1 - OUTPUT_AMPLITUDE_SMOOTHING) * this.smoothedOutputAmplitude;
+    return this.smoothedOutputAmplitude;
+  }
+
+  /**
+   * Instantaneous mapped output level in [0, 1], leaving the display smoothing
+   * untouched. Returns 0 when nothing is scheduled or there is no analyser.
+   *
+   * Separate from {@link getOutputAmplitude} because that one is a stateful EMA
+   * tuned for a single ~60 Hz rAF consumer: every call advances its smoothing,
+   * so a second caller on a different cadence would both perturb what the
+   * avatar displays and make its own readings depend on whether the avatar
+   * happens to be mounted. A measurement has to be independent of who else is
+   * looking.
+   */
+  readOutputLevel(): number {
+    const analyser = this.analyser;
+    const samples = this.analyserSamples;
+    if (!analyser || !samples || !this.playingState) {
+      return 0;
+    }
+
     analyser.getFloatTimeDomainData(samples);
     let sumSquares = 0;
     for (let i = 0; i < samples.length; i++) {
@@ -720,12 +905,8 @@ export class LiveVoiceAudioPlayer {
       sumSquares += sample * sample;
     }
     const rms = Math.sqrt(sumSquares / samples.length);
-    // Saturating rather than clipping — see the constant's note above.
-    const scaled = 1 - Math.exp(-rms * OUTPUT_AMPLITUDE_GAIN);
-    this.smoothedOutputAmplitude =
-      OUTPUT_AMPLITUDE_SMOOTHING * scaled +
-      (1 - OUTPUT_AMPLITUDE_SMOOTHING) * this.smoothedOutputAmplitude;
-    return this.smoothedOutputAmplitude;
+    // Saturating rather than clipping, per the constant's note above.
+    return 1 - Math.exp(-rms * OUTPUT_AMPLITUDE_GAIN);
   }
 
   /**

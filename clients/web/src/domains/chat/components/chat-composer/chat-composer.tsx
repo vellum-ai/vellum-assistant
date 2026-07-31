@@ -1,5 +1,6 @@
 import { ArrowUp, Square } from "lucide-react";
 import {
+  type CSSProperties,
   type FormEvent,
   type ReactNode,
   type RefObject,
@@ -39,18 +40,23 @@ import {
   dismissLiveVoiceFailure,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
+  getLiveVoiceOutputAmplitude,
   isLiveVoiceSessionActive,
   restoreVoiceRoom,
   setLiveVoiceEntryOrigin,
   setLiveVoiceMuted,
-  stopLiveVoiceResponse,
+  setLiveVoiceOutputMuted,
   useIsLiveVoiceSessionOwnedBy,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { preflightLiveVoice } from "@/domains/chat/voice/live-voice/live-voice-preflight-api";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { VoiceFirstRunCard } from "@/domains/chat/voice/voice-room/voice-first-run-card";
-import { resolveWaveAccentHex } from "@/domains/chat/voice/voice-room/wave-accent";
+import {
+  VOICE_SURFACE_DARK,
+  resolveVoiceRoomLook,
+} from "@/domains/chat/voice/voice-room/voice-room-eyes";
+import { toneForBg } from "@/utils/avatar-tone";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useVoicePrefsStore } from "@/stores/voice-prefs-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -319,25 +325,50 @@ export function ChatComposer({
   // shares the global live-voice store but must never swap its row.
   const ownsLiveVoiceSession = useIsLiveVoiceSessionOwnedBy(conversationId);
   const isLiveVoiceActive = showVoiceInput && ownsLiveVoiceSession;
-  // Wave accent for the voice bar's listening waves — the same avatar-matched
-  // tint the room resolves (see wave-accent.ts), so the minimized session
-  // keeps the room's color language. Fetch-gated to live sessions; the query
-  // is shared with every other avatar consumer.
+  // The session assistant's avatar, which is where the block's fill comes from.
+  // Fetch-gated to live sessions; the query is shared with every other avatar
+  // consumer. The band no longer takes an accent from it: the block is painted
+  // that color, so its ink has to contrast with the fill instead (see
+  // `BAND_VOICE` in voice-composer-bar.tsx).
   const {
     components: avatarComponents,
     traits: avatarTraits,
     customImageUrl: avatarCustomImageUrl,
+    isLoading: avatarLoading,
   } = useAssistantAvatar(isLiveVoiceActive ? assistantId : null);
-  const voiceWaveAccentHex = resolveWaveAccentHex(
-    avatarComponents,
-    avatarTraits,
-    avatarCustomImageUrl,
-  );
-  // Mic mute state (controller-published) for the voice bar's toggle.
+  // The minimized session paints the whole composer card in the room's own
+  // background color, so the two surfaces are one thing at two sizes. The look
+  // resolves to null for assistants with no character color (custom-image /
+  // "none"), which is exactly when the room falls back to its deep ambient
+  // surface, so the card follows it there.
+  //
+  // Gated on the avatar query having settled: `resolveVoiceRoomLook` returns
+  // null both for "no character color" and for "not fetched yet", so painting
+  // on the in-flight read would flash the card to the ambient dark and then
+  // again to the avatar color. Hold the normal card surface until the answer
+  // is real, and the card changes color once.
+  const voiceRoomLook =
+    isLiveVoiceActive && !avatarLoading
+      ? resolveVoiceRoomLook(
+          avatarComponents,
+          avatarTraits,
+          avatarCustomImageUrl,
+        )
+      : null;
+  const voiceCardBg =
+    isLiveVoiceActive && !avatarLoading
+      ? (voiceRoomLook?.bgHex ?? VOICE_SURFACE_DARK)
+      : null;
+  // Foreground tone for that fill. Published as the `--room-*` vars, the same
+  // contract the room uses, so the block's chrome contrasts against whichever
+  // avatar color it landed on. `data-theme` covers the descendants that read
+  // plain theme tokens (the live transcript's body text) by flipping the whole
+  // card's polarity to match the fill.
+  const voiceCardTone = voiceCardBg ? toneForBg(voiceCardBg) : null;
+  // The two mute states (controller-published) behind the block's toggles: one
+  // per direction of the conversation, like the room's.
   const liveVoiceMuted = useLiveVoiceStore.use.muted();
-  // Hands-free sessions get the turn-scoped ■ stop; a manual (version-skew
-  // fallback) session must not — its interrupt ends the whole session.
-  const liveVoiceHandsFree = useLiveVoiceStore.use.handsFree();
+  const liveVoiceOutputMuted = useLiveVoiceStore.use.outputMuted();
   // Whether the session has any speech transcript to show. A boolean
   // *presence* subscription, not the text itself: zustand only re-renders
   // when the selected value changes identity, so per-delta transcript
@@ -365,7 +396,7 @@ export function ChatComposer({
   // Session verbs go through the store seams registered by the layout-owned
   // controller: `starter` (registered for the controller's whole mount) to
   // start, per-session `controls` to end/interrupt — the latter via the shared
-  // module-level `endLiveVoiceSession`/`stopLiveVoiceResponse` helpers, which
+  // module-level `endLiveVoiceSession` helper, which
   // read the store with `getState()` per STATE_MANAGEMENT.md (no subscription
   // needed for callback-only reads).
   // First-run interception: the very first voice-mode entry opens a
@@ -698,9 +729,30 @@ export function ChatComposer({
           <form
             data-slot="chat-composer"
             onSubmit={onSubmit}
-            className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
-              hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"
-            }`}
+            // A live session repaints the card in the room's color (see
+            // `voiceCardBg`); `overflow-hidden` clips that fill to the card's
+            // radius, so the block reads as a solid rounded panel rather than
+            // a strip inside a white card.
+            className={`overflow-hidden shadow-[0px_2px_2px_rgba(0,0,0,0.05)] transition-colors duration-300 ${
+              voiceCardBg ? "" : "bg-[var(--surface-lift)]"
+            } ${hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"}`}
+            data-theme={
+              voiceCardTone
+                ? voiceCardTone.isLight
+                  ? "light"
+                  : "dark"
+                : undefined
+            }
+            style={
+              voiceCardBg && voiceCardTone
+                ? ({
+                    backgroundColor: voiceCardBg,
+                    "--room-fg": voiceCardTone.fg,
+                    "--room-fg-muted": voiceCardTone.fgMuted,
+                    "--room-wash": voiceCardTone.wash,
+                  } as CSSProperties)
+                : undefined
+            }
           >
             <ChatAttachmentsStrip
               attachments={attachments}
@@ -967,17 +1019,19 @@ export function ChatComposer({
               <VoiceComposerBar
                 state={liveVoiceState}
                 getAmplitude={getLiveVoiceInputAmplitude}
+                getOutputAmplitude={getLiveVoiceOutputAmplitude}
                 muted={liveVoiceMuted}
                 onToggleMute={() => setLiveVoiceMuted(!liveVoiceMuted)}
+                fillIsLight={voiceCardTone?.isLight ?? false}
+                outputMuted={liveVoiceOutputMuted}
+                onToggleOutputMute={() =>
+                  setLiveVoiceOutputMuted(!liveVoiceOutputMuted)
+                }
                 onEnd={endLiveVoiceSession}
-                // Turn-scoped stop is hands-free-only; a manual session's
-                // interrupt ends the whole session (✕ owns that).
-                onStop={liveVoiceHandsFree ? stopLiveVoiceResponse : undefined}
                 // Expand back to the full-screen room — omitted in pop-out
                 // windows, where the room never renders (the standalone pill
                 // is their only session surface).
                 onExpand={isPopout ? undefined : restoreVoiceRoom}
-                waveAccentHex={voiceWaveAccentHex}
                 standalone={hideTextareaForLiveVoice}
               />
             ) : (

@@ -30,7 +30,8 @@
  *   ends ({@link useChatHeaderBottom}) rather than inheriting that edge from
  *   the DOM. Non-modal, so the header it rests below stays lit and usable,
  *   which takes suppressing several of Radix's modal reflexes: see
- *   {@link VoiceRoomSheet}.
+ *   {@link VoiceRoomSheet}. Because the slide IS its entrance, the look inside
+ *   is painted rather than grown. See `voice-room-entrance.ts`.
  * - `"fullscreen"`: `fixed inset-0` over the whole viewport, modal, with
  *   safe-area padding for notched iOS shells. No longer mounted by the chat
  *   layout; kept as the variant a surface with no chrome to sit under would
@@ -40,7 +41,8 @@
  * {@link useRoomBox}. As a panel those are different rectangles, so the color
  * look's field, its giant eyes, and the responding rings are all sized to the
  * panel, and the entry origin (published in viewport space by the composer) is
- * converted to room-local space before the entrance grows from it.
+ * converted to room-local space before the entrance grows from it. The sheet
+ * reads no origin: it presents the look rather than growing it.
  *
  * The room is not exit-only. Minimizing (the "show transcript" control or
  * Escape) dismisses the room while the session keeps running, handing the
@@ -68,7 +70,12 @@
  */
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import {
+  AnimatePresence,
+  motion,
+  useReducedMotion,
+  type MotionProps,
+} from "motion/react";
 import { Captions, Mic, MicOff, Volume2, VolumeX, X } from "lucide-react";
 
 import { BottomSheet, Tooltip, cn } from "@vellumai/design-library";
@@ -104,10 +111,13 @@ import {
 } from "./voice-room-layout";
 
 import { toVoiceAvatarVisual } from "./voice-avatar-state";
+import {
+  resolveVoiceRoomChoreography,
+  voidAvatarMotion,
+} from "./voice-room-entrance";
 import { VoiceAmbientTranscript } from "./voice-ambient-transcript";
 import { VoiceAvatar } from "./voice-avatar";
 import { VoiceMeshWaves } from "./voice-mesh-waves";
-import { AVATAR_ENTER_SPRING } from "./voice-motion";
 import { VoiceRoomAmbientBackground } from "./voice-room-ambient-background";
 import {
   VoiceRespondingRings,
@@ -141,6 +151,15 @@ const SESSION_CONTROL_NEUTRAL_CLASS =
 
 /** Placement variant. See the module docstring. */
 export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
+
+/**
+ * `BottomSheet.Content` with Motion attached, so `AnimatePresence` can play the
+ * sheet's exit on the element Radix positions. The primitive forwards its ref
+ * and spreads the rest onto Radix's content element, which is what
+ * `motion.create` needs. Created at module scope: rebuilding it per render
+ * would remount the sheet on every commit.
+ */
+const MotionBottomSheetContent = motion.create(BottomSheet.Content);
 
 export function VoiceRoom({
   variant = "fullscreen",
@@ -180,18 +199,27 @@ export function VoiceRoom({
  *
  * Escape is therefore left to the room's own handler, shared with the other
  * variants, rather than Radix's, so one keypress is one minimize.
+ *
+ * The exit rides this element rather than the room's box inside it. Radix
+ * portals the content out of the layout and positions it `fixed`, so it is the
+ * outermost thing the sheet owns; sliding the room's box instead would travel
+ * the look downward inside a stationary sheet and expose the page behind it.
  */
 function VoiceRoomSheet({
   headerBottom,
+  motionProps,
   children,
 }: {
   /** Where the sheet's top edge rests. See {@link useChatHeaderBottom}. */
   headerBottom: number;
+  /** The slide-down exit. See `voice-room-entrance.ts`. */
+  motionProps: MotionProps;
   children: ReactNode;
 }) {
   return (
     <BottomSheet.Root open modal={false} onOpenChange={minimizeVoiceRoom}>
-      <BottomSheet.Content
+      <MotionBottomSheetContent
+        {...motionProps}
         // The room is a surface in its own right: a full-bleed color fill and
         // bands that must reach the sheet's rounded corners.
         padded={false}
@@ -201,6 +229,19 @@ function VoiceRoomSheet({
         className="top-[var(--voice-sheet-top)] max-h-none min-h-0 overflow-hidden border-t-0 bg-transparent p-0"
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
+        // Radix focuses the first focusable child on open, which here is the
+        // top-right exit. That drew its focus ring and popped its "End voice
+        // session" tooltip over a room the user had only just opened, so the
+        // first thing the room said was how to leave it. Focus goes to the
+        // sheet itself instead (Radix gives the content `tabIndex={-1}`), which
+        // still announces the room and leaves Escape to the window handler
+        // above.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          if (event.currentTarget instanceof HTMLElement) {
+            event.currentTarget.focus();
+          }
+        }}
         style={{ "--voice-sheet-top": `${headerBottom}px` } as CSSProperties}
         aria-label="Voice session"
         // The room narrates itself through its own live region; a description
@@ -208,7 +249,7 @@ function VoiceRoomSheet({
         aria-describedby={undefined}
       >
         {children}
-      </BottomSheet.Content>
+      </MotionBottomSheetContent>
     </BottomSheet.Root>
   );
 }
@@ -312,6 +353,10 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // Radix's own Escape handling and leaves the key to this one handler. One
   // keypress, one minimize, same behavior on every surface.
   const sheet = variant === "sheet";
+  // How this surface comes and goes. The sheet already has an entrance, the
+  // slide up, so its look is presented rather than grown and the slide-down
+  // exit rides the sheet chrome. See `voice-room-entrance.ts`.
+  const choreography = resolveVoiceRoomChoreography(variant, reduce === true);
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape" && !event.defaultPrevented) {
@@ -370,14 +415,13 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
         ...toneVars,
         ...(accentHex ? { [AVATAR_ACCENT_CSS_VAR]: accentHex } : {}),
       }}
-      initial={reduce ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
       // On close the chrome and rectangular backgrounds fade, while the avatar
       // shape itself shrinks back toward the entry origin — the color look's
       // body + eyes and the void look's centered avatar each own that exit — so
-      // the room collapses into the avatar, not a shrinking rectangle.
-      exit={{ opacity: 0 }}
-      transition={{ duration: reduce ? 0 : 0.4 }}
+      // the room collapses into the avatar, not a shrinking rectangle. Under
+      // the sheet none of that applies: the chrome slides the whole room out in
+      // one piece, and this box holds still.
+      {...choreography.shell}
     >
       {/* The color look (body grow entrance + color fade + centered waves +
           centered eyes) is the entire cast; the void look expresses the
@@ -404,6 +448,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
             // state).
             showStateCaption={!showAssistantTranscript}
             entryOrigin={localEntryOrigin}
+            entrance={choreography.entrance}
             viewport={box}
           />
         ) : null
@@ -515,21 +560,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
       {!look ? (
         <motion.div
           className="relative z-0"
-          initial={reduce ? false : { scale: 0.8, y: 24, opacity: 0 }}
-          animate={{ scale: 1, y: 0, opacity: 1 }}
-          // Exit is the inverse of the entry spring: the centered avatar settles
-          // back down and shrinks away rather than fading in place.
-          exit={
-            reduce
-              ? { opacity: 0 }
-              : {
-                  scale: 0.8,
-                  y: 24,
-                  opacity: 0,
-                  transition: { duration: 0.32, ease: "easeIn" },
-                }
-          }
-          transition={reduce ? { duration: 0 } : AVATAR_ENTER_SPRING}
+          {...voidAvatarMotion(choreography.entrance)}
         >
           <VoiceAvatar
             assistantId={assistantId}
@@ -651,8 +682,13 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     </motion.div>
   );
 
-  return sheet ? (
-    <VoiceRoomSheet headerBottom={headerBottom}>{body}</VoiceRoomSheet>
+  return sheet && choreography.sheetChrome ? (
+    <VoiceRoomSheet
+      headerBottom={headerBottom}
+      motionProps={choreography.sheetChrome}
+    >
+      {body}
+    </VoiceRoomSheet>
   ) : (
     body
   );

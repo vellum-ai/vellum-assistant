@@ -372,29 +372,69 @@ island's tap into the production app.
 Three things were deliberately left out. Each is listed with what would have to
 change to revisit it.
 
-### 1. Live Activity updates are local, not push
+### 1. Live Activity updates come from two drivers
 
-The app process issues every `Activity.update`. There is no APNs
-`liveactivity` push involved.
+The app process issues `Activity.update` locally, **and** the platform pushes
+the same content state over APNs. Both drive the same activity; they are not
+alternatives.
 
-*Why:* the platform's device-token API (`DevicePushTokenUpsertRequest`:
-`token` / `platform` / `bundle_id` / `apns_environment`) has no concept of a Live
-Activity push token, so push-to-update needs a platform API change before any
-client work.
+*Why both.* The local path is lower-latency and needs no server round trip, but
+it runs on the JS main thread of a `WKWebView` that iOS throttles and eventually
+suspends once the app is backgrounded — which is the only state in which the
+Lock Screen and the Dynamic Island are visible at all. The push path costs a
+round trip and reaches the activity with no app process involved. Each covers
+the other's blind spot, they carry identical `ContentState`, and ActivityKit
+applies whichever arrives newest.
 
-*To revisit:* extend the platform token model to carry Live Activity push tokens,
-add APNs `liveactivity` push-type support server-side, then have the plugin
-register for `activity.pushTokenUpdates` and forward. The client half is small;
-the platform half is not. Worth doing only if the session needs to update while
-the app is suspended — which is not the case today, because the web layer that
-drives the phase is suspended at the same time.
+The push path, end to end:
 
-That symmetry is also the hazard: a suspended web layer stops pushing, and an
-island frozen on "Listening…" is a claim about a live socket and a live mic that
-nothing is checking. Every push therefore carries a `staleDate`
-(`VoiceLiveActivityPlugin.contentStaleAfter`, two minutes), and the views drop
-the phase label once `context.isStale` goes true. It does not make the island
-correct — only honest about not knowing.
+```
+live-voice-session.ts (daemon)      every phase-bearing frame passes sendFrame
+        │  LiveActivityReporter — maps frame → phase, drops repeats
+        ▼
+POST /v1/assistants/{id}/live-activity/dispatch/     {conversation_id, phase, event}
+        ▼
+app/push (platform)                 looks the phase up in the registered lexicon
+        │  APNsSender.send_live_activity_sync
+        ▼
+APNs      apns-push-type: liveactivity
+          apns-topic: <bundle_id>.push-type.liveactivity
+        ▼
+iOS applies content-state to the activity — no app process involved
+```
+
+and the registration that makes an activity addressable:
+
+```
+VoiceLiveActivityPlugin   Activity.request(pushType: .token)
+        │  activity.pushTokenUpdates → `liveActivityPushToken` event
+        ▼
+live-activity-push-registration.ts   POST .../live-activity/tokens/
+        │  token + conversation id + the phase→label lexicon
+        ▼
+LiveActivityPushToken (platform)     expires on its own; deleted on session end
+```
+
+Three rules fall out of this:
+
+- **The server never invents phase wording.** The reason the native side owns
+  no copy — the shell ships on App Store cadence while the web bundle deploys
+  continuously — applies to the platform too, one layer further out. The client
+  registers a phase→label map and dispatch only ever looks a phase up in it,
+  skipping a phase it has no label for.
+- **`aps.timestamp` is a counter, not wall time.** iOS discards a push whose
+  timestamp is not newer than the state it holds, and `transcribing` →
+  `thinking` is routinely sub-second.
+- **The daemon's reporter mirrors the client's mapping.** `phaseForFrame` and
+  the frame handlers in `use-live-voice.ts` must agree; the client's stay
+  authoritative for anything only it can observe (reconnects, mute, whether TTS
+  audio is actually audible).
+
+Even with both drivers, a push can be missed — so every update still carries a
+`staleDate` (`VoiceLiveActivityPlugin.contentStaleAfter`), and the views drop
+the phase label once `context.isStale` goes true. An island frozen on
+"Listening…" is a claim about a live socket and a live mic that nothing is
+checking; the horizon does not make it correct, only honest about not knowing.
 
 ### 2. No App Group
 
