@@ -88,6 +88,37 @@ describe("EchoMarginProbe", () => {
     expect(probe.summarize()).toBeNull();
   });
 
+  test("keeps the user's own speech out of the noise floor", () => {
+    const probe = new EchoMarginProbe();
+    // Quiet room first, so the floor is established.
+    feed(probe, 40, 0.01, 0);
+    // The user talks. The assistant is silent throughout, so every one of these
+    // samples is a candidate floor reading, and averaging them in would raise
+    // the baseline until the echoing reply below looked clean.
+    feed(probe, 30, 0.35, 0);
+    // The assistant replies and the mic hears it.
+    feed(probe, 20, 0.1, 0.8);
+
+    const summary = probe.summarize();
+
+    expect(summary!.micFloor!).toBeLessThan(0.02);
+    expect(summary!.marginDb!).toBeGreaterThan(15);
+  });
+
+  test("still follows a genuinely noisier room upward", () => {
+    const probe = new EchoMarginProbe();
+    feed(probe, 20, 0.01, 0);
+    // Sustained background noise, not a burst: the floor has to reach it or
+    // every reply in a noisy room reads as echo.
+    feed(probe, 600, 0.08, 0);
+    feed(probe, 20, 0.08, 0.8);
+
+    const summary = probe.summarize();
+
+    expect(summary!.micFloor!).toBeGreaterThan(0.06);
+    expect(Math.abs(summary!.marginDb!)).toBeLessThan(3);
+  });
+
   test("reports an unknown floor rather than a fabricated margin", () => {
     const probe = new EchoMarginProbe();
     // Session that was speaking from the first sample: there is no silent

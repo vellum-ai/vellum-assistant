@@ -3237,6 +3237,23 @@ describe("echo-cancellation diagnostics", () => {
     expect(fingerprint("live_voice_echo_margin")).toBe(before);
   });
 
+  test("skips measurement while the assistant is output-muted", async () => {
+    const h = renderController();
+    await reachListening(h);
+    act(() => liveVoiceControls().setOutputMuted(true));
+    const before = fingerprint("live_voice_echo_margin");
+
+    pushSamples(h, 12, 0.01, 0);
+    pushSamples(h, 30, 0.1, 0.8);
+    pushSamples(h, 30, 0.01, 0);
+
+    // The mute gain sits after the metering tap by design, so the meter still
+    // reads loud while the room is silent. Measuring through it would compare
+    // the mic against a speaker that is not playing and report perfect
+    // cancellation for a path that was never exercised.
+    expect(fingerprint("live_voice_echo_margin")).toBe(before);
+  });
+
   test("flushes the reply still playing when the session ends", async () => {
     const h = renderController();
     await reachListening(h);

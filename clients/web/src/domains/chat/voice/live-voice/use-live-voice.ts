@@ -1458,14 +1458,20 @@ function handleAmplitude(
   // Muted: the server hears silence (see handleChunk), so the UI and the
   // manual-mode amplitude barge-in must too. A hot-looking waveform (or a
   // barge-in) from a muted mic would contradict the substituted stream.
-  const muted = useLiveVoiceStore.getState().muted;
+  const { muted, outputMuted } = useLiveVoiceStore.getState();
   useLiveVoiceStore.getState().setInputAmplitude(muted ? 0 : amplitude);
-  if (!muted) {
+  if (!muted && !outputMuted) {
     // Sampled here rather than on a timer of its own: this fires once per PCM
     // chunk, which is the cadence the microphone actually produces, and the
     // speaker's amplitude is a cheap read off the player's metering tap.
-    // Muted chunks are skipped because the server is hearing a substituted
-    // silent stream, which makes any echo measurement meaningless.
+    //
+    // Both mutes disqualify the sample, for opposite reasons. A muted mic means
+    // the server is hearing a substituted silent stream, so nothing measured
+    // against it describes the session. A muted assistant means the room is
+    // silent while the meter still reads loud: the mute gain sits after the
+    // analyser by design, so the visuals keep moving. Sampling through it would
+    // measure the mic against a speaker that is not playing and report perfect
+    // cancellation for a path that was never tested.
     const summary = session.echoProbe.sample(
       amplitude,
       session.player.readOutputLevel(),

@@ -50,6 +50,35 @@ const SILENT_SAMPLES_TO_CLOSE = 10;
 /** Smallest amplitude treated as a real noise floor, so the ratio stays finite. */
 const MIN_FLOOR_AMPLITUDE = 1e-4;
 
+/**
+ * Noise-floor window, in samples taken while the assistant is silent.
+ *
+ * The floor cannot be a mean of those samples: the user talking *is* a silent
+ * assistant, so their own speech would be averaged into the baseline, and a
+ * loud prompt would then mask the echo in the reply that follows by inflating
+ * what the margin is measured against.
+ *
+ * Nor can it be a slow creep toward them. Speech and a genuinely noisier room
+ * last about as long as each other, so no time constant separates them. What
+ * does separate them is that speech is intermittent (there are gaps between
+ * words and phrases) while room noise is continuous. So the floor is the
+ * minimum over a window long enough to contain a pause: a talking user leaves
+ * the floor where it was, while a room that is simply louder has no quiet block
+ * to offer and the floor follows it within a window.
+ *
+ * Blocks rather than a flat window so the history is a fixed handful of numbers
+ * instead of every sample. At the capture chunk cadence a block is roughly a
+ * second and the window roughly ten.
+ *
+ * A strict minimum does mean one anomalously quiet sample can hold the floor
+ * down for a window, which overstates the margin. That direction is deliberate:
+ * this metric exists to catch echo, so reading high is a visible false alarm
+ * while reading low would quietly hide the thing being looked for, and the
+ * correlation is an independent cross-check either way.
+ */
+const FLOOR_BLOCK_SAMPLES = 20;
+const FLOOR_BLOCK_COUNT = 10;
+
 /** Summary of one spoken utterance's echo behaviour. */
 export interface EchoMarginSummary {
   /** Samples where the assistant was audible. */
@@ -59,8 +88,8 @@ export interface EchoMarginSummary {
   /** Peak mic amplitude while the assistant was audible. */
   micPeakDuringTts: number;
   /**
-   * Mean mic amplitude while the assistant was silent, measured across the
-   * whole session. `null` until at least one silent sample exists.
+   * The room's quiet-end mic level, tracked across the session while the
+   * assistant is silent. `null` until at least one such sample exists.
    */
   micFloor: number | null;
   /**
@@ -94,9 +123,13 @@ function round(value: number, places: number): number {
  * actually hear, while the analyser reads what is rendering right now.
  */
 export class EchoMarginProbe {
-  /** Session-wide floor, measured whenever the assistant is silent. */
-  private floorSamples = 0;
-  private floorSum = 0;
+  /** Rolling per-block minima of the mic while the assistant is silent. */
+  private readonly floorBlocks = new Array<number>(FLOOR_BLOCK_COUNT).fill(
+    Infinity,
+  );
+  private floorBlockIndex = 0;
+  private currentBlockMin = Infinity;
+  private currentBlockSamples = 0;
 
   /** Current utterance, reset by {@link summarize}. */
   private audibleSamples = 0;
@@ -124,8 +157,7 @@ export class EchoMarginProbe {
     const audible = outputAmplitude >= AUDIBLE_OUTPUT_THRESHOLD;
 
     if (!audible) {
-      this.floorSamples += 1;
-      this.floorSum += micAmplitude;
+      this.trackFloor(micAmplitude);
     }
 
     // Only accumulate correlation once the utterance has started, so the
@@ -169,8 +201,7 @@ export class EchoMarginProbe {
     }
 
     const micDuringTts = this.audibleMicSum / this.audibleSamples;
-    const micFloor =
-      this.floorSamples > 0 ? this.floorSum / this.floorSamples : null;
+    const micFloor = this.micFloor;
     const marginDb =
       micFloor === null
         ? null
@@ -190,6 +221,33 @@ export class EchoMarginProbe {
     };
     this.resetUtterance();
     return summary;
+  }
+
+  /** Fold a sample taken while the assistant was silent into the floor window. */
+  private trackFloor(micAmplitude: number): void {
+    this.currentBlockMin = Math.min(this.currentBlockMin, micAmplitude);
+    this.currentBlockSamples += 1;
+    if (this.currentBlockSamples < FLOOR_BLOCK_SAMPLES) {
+      return;
+    }
+    this.floorBlocks[this.floorBlockIndex] = this.currentBlockMin;
+    this.floorBlockIndex = (this.floorBlockIndex + 1) % FLOOR_BLOCK_COUNT;
+    this.currentBlockMin = Infinity;
+    this.currentBlockSamples = 0;
+  }
+
+  /**
+   * Quietest the mic has been over the floor window, or `null` before any
+   * silent sample. The in-progress block counts too, so a session that ends
+   * before its first block closes still reports a floor.
+   */
+  private get micFloor(): number | null {
+    let quietest =
+      this.currentBlockSamples > 0 ? this.currentBlockMin : Infinity;
+    for (const block of this.floorBlocks) {
+      quietest = Math.min(quietest, block);
+    }
+    return Number.isFinite(quietest) ? quietest : null;
   }
 
   private correlation(): number | null {
