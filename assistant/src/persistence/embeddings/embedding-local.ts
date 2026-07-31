@@ -67,14 +67,6 @@ function clearModelCache(): void {
 /** How long a worker gets to exit after each signal before we escalate. */
 const WORKER_TERMINATE_GRACE_MS = 2_000;
 
-/**
- * Worst-case time to tear down one worker: the SIGTERM wait plus the SIGKILL
- * wait. Exported so a caller that bounds its own shutdown (the standalone
- * memory-worker process) can budget above this instead of guessing, which
- * would otherwise exit before disposal could finish on the slow path.
- */
-export const WORKER_TEARDOWN_BUDGET_MS = WORKER_TERMINATE_GRACE_MS * 2;
-
 /** Poll interval while waiting for a worker we hold no handle for to exit. */
 const WORKER_EXIT_POLL_MS = 50;
 
@@ -117,6 +109,15 @@ interface WorkerProcess {
  * - `foreign`: owned by another live process. The memory-worker process runs
  *   its own backend against this same workspace and is entitled to its own
  *   worker; signalling it is what made the two replace each other in a loop.
+ *
+ * PID 1 means different things in different deployments, and getting it wrong
+ * reintroduces exactly the cross-owner interference this exists to remove. In a
+ * container `docker-entrypoint.sh` execs the daemon, so PID 1 IS the daemon and
+ * a worker parented to it is a healthy sibling's. On a host PID 1 is init, so
+ * the same parentage means the owner died. Containerized workers therefore
+ * resolve to `foreign`: the daemon still reclaims its own (they match
+ * `selfPid`), and declining to signal costs at most a delayed reap, where
+ * guessing wrong kills a live worker.
  */
 export type WorkerOwnership = "reclaim" | "orphan" | "foreign";
 
@@ -124,11 +125,15 @@ export function classifyWorkerOwnership(
   worker: WorkerProcess,
   selfPid: number,
   isOwnerAlive: (pid: number) => boolean,
+  isContainerized: boolean,
 ): WorkerOwnership {
   if (worker.ppid === selfPid) {
     return "reclaim";
   }
-  if (worker.ppid <= 1 || !isOwnerAlive(worker.ppid)) {
+  if (worker.ppid <= 1) {
+    return isContainerized ? "foreign" : "orphan";
+  }
+  if (!isOwnerAlive(worker.ppid)) {
     return "orphan";
   }
   return "foreign";
@@ -206,7 +211,10 @@ function listProcessRowsFromPs(): { pid: number; ppid: number; cmd: string }[] {
  * read for matching only, never stored or logged: process arguments can carry
  * secrets (see the redaction note in `util/process-tree.ts`).
  */
-export function listWorkerProcesses(workerPath: string): WorkerProcess[] {
+export function listWorkerProcesses(
+  workerPath: string,
+  model?: string,
+): WorkerProcess[] {
   let rows: { pid: number; ppid: number; cmd: string }[];
   try {
     rows = listProcessRowsFromProc();
@@ -214,7 +222,10 @@ export function listWorkerProcesses(workerPath: string): WorkerProcess[] {
     rows = listProcessRowsFromPs();
   }
   return rows
-    .filter((r) => r.cmd.includes(workerPath))
+    .filter(
+      (r) =>
+        r.cmd.includes(workerPath) && (model == null || r.cmd.includes(model)),
+    )
     .map((r) => ({ pid: r.pid, ppid: r.ppid }));
 }
 
@@ -327,9 +338,8 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       // an escaping EPIPE reaches the daemon's `unhandledRejection` handler,
       // which tears down the whole process (JARVIS-1125).
       //
-      // The guard covers `write`, not just `flush`. Both are synchronous on
-      // Bun's FileSink, and `write` is the call that actually raises the broken
-      // pipe, so wrapping `flush` alone (as this did) never caught it.
+      // The guard covers `write` as well as `flush`: both are synchronous on
+      // Bun's FileSink, and `write` is the call that raises the broken pipe.
       try {
         proc.stdin.write(JSON.stringify({ id, texts }) + "\n");
         proc.stdin.flush();
@@ -481,10 +491,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       await this.waitForReady();
     } catch (err) {
       // Startup failed. Release ownership through the same bounded path every
-      // other teardown uses: a worker wedged in native ONNX ignores SIGTERM,
-      // and the bare `await proc.exited` this used to do would hang here
-      // forever, leaving the init guard holding a promise that never settles
-      // and every later embed waiting on it.
+      // other teardown uses: a worker wedged in native ONNX ignores SIGTERM, so
+      // an unbounded wait here would leave the init guard holding a promise
+      // that never settles and every later embed queued behind it.
       this.workerProc = null;
       this.stdoutReaderActive = false;
       // A partial line from the dead worker would otherwise be prepended to the
@@ -686,7 +695,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       return false;
     }
     const stillListed = this.workerPath
-      ? listWorkerProcesses(this.workerPath).some((w) => w.pid === pid)
+      ? listWorkerProcesses(this.workerPath, this.model).some(
+          (w) => w.pid === pid,
+        )
       : isProcessAlive(pid);
     if (!stillListed) {
       log.info(
@@ -714,12 +725,16 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   ): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      if (!listWorkerProcesses(workerPath).some((w) => w.pid === pid)) {
+      if (
+        !listWorkerProcesses(workerPath, this.model).some((w) => w.pid === pid)
+      ) {
         return true;
       }
       await Bun.sleep(WORKER_EXIT_POLL_MS);
     }
-    return !listWorkerProcesses(workerPath).some((w) => w.pid === pid);
+    return !listWorkerProcesses(workerPath, this.model).some(
+      (w) => w.pid === pid,
+    );
   }
 
   private readyResolve: (() => void) | null = null;
@@ -882,7 +897,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    * generations, not just the single entry a PID file can hold.
    */
   private async reclaimOwnedWorkers(workerPath: string): Promise<void> {
-    for (const worker of listWorkerProcesses(workerPath)) {
+    for (const worker of listWorkerProcesses(workerPath, this.model)) {
       // Never signal ourselves. This should not happen, since the worker is a
       // child process, but guard against logic bugs that would deadlock us.
       if (worker.pid === process.pid) {
@@ -893,6 +908,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         worker,
         process.pid,
         isProcessAlive,
+        getIsContainerized(),
       );
       if (ownership === "foreign") {
         continue;
@@ -1030,7 +1046,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     if (!this.workerPath) {
       return;
     }
-    for (const worker of listWorkerProcesses(this.workerPath)) {
+    for (const worker of listWorkerProcesses(this.workerPath, this.model)) {
       if (worker.ppid !== process.pid || worker.pid === proc?.pid) {
         continue;
       }
