@@ -10,101 +10,82 @@
 
 import type pino from "pino";
 
-import { isToolResultMessage } from "../context/refusal-quarantine.js";
-import { getAttentionStateByConversationIds } from "../persistence/conversation-attention-store.js";
+import { parseChannelId } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfigReadOnly } from "../config/loader.js";
 import {
+  getAttentionStateByConversationIds,
+  hasUnseenLatestAssistantMessage,
+} from "../persistence/conversation-attention-store.js";
+import {
+  type ConversationRow,
   getConversation,
   getMessageById,
-  getMessagesPaginated,
   isEchoSuppressedUserMessage,
   isVoiceSessionUserMessage,
+  type MessageRow,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { resolveConversationKind } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
-import type { ContentBlock } from "../providers/types.js";
 import { emitNotificationSignal } from "./emit-signal.js";
-import { truncate } from "./notification-utils.js";
+import { sanitizeMessagePreview } from "./notification-utils.js";
 
-/** Roughly one notification body's worth of reply text. */
-const PREVIEW_MAX_CHARS = 200;
+const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
 
 /**
- * The channel id a native-app send carries, and `resolveTurnChannel`'s default
- * when a caller supplies none (see `daemon/process-message.ts`).
+ * Kill switch for this producer, on by default. Read through the read-only
+ * config accessor: the resolver ignores the config argument, so the write-side
+ * `getConfig()` would only add disk I/O to a best-effort path.
  */
-const IN_APP_CHANNEL = "vellum";
+function isAssistantReplyPushEnabled(): boolean {
+  return isAssistantFeatureFlagEnabled(
+    ASSISTANT_REPLY_PUSH_FLAG,
+    getConfigReadOnly(),
+  );
+}
 
 /**
  * True when the row that opened the turn arrived over an external messaging
  * surface (Slack, Telegram, WhatsApp, email, a phone call, …) rather than the
  * native app.
  *
- * An absent channel counts as in-app: every external ingress path stamps its
- * channel via buildChannelMetadata, so the rows that omit the field are
- * daemon-internal persists on native-app conversations (for example the
- * deliberate omission in calls/call-pointer-messages.ts).
+ * An absent (or unrecognized) channel counts as in-app: every external ingress
+ * path stamps its channel via buildChannelMetadata, so the rows that omit the
+ * field are daemon-internal persists on native-app conversations (for example
+ * the deliberate omission in calls/call-pointer-messages.ts).
  */
 function isChannelOriginatedUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
-  const channel = metadata?.userMessageChannel;
-  return typeof channel === "string" && channel !== IN_APP_CHANNEL;
-}
-
-/**
- * Same unseen predicate the sidebar renders from (`buildAssistantAttention` in
- * `runtime/services/conversation-serializer.ts`): the latest assistant cursor
- * is ahead of the last-seen cursor. A missing state row reads as seen, matching
- * the serializer's no-attention-state default.
- */
-function isLatestReplyUnseen(conversationId: string): boolean {
-  const state = getAttentionStateByConversationIds([conversationId]).get(
-    conversationId,
-  );
-  if (!state || state.latestAssistantMessageAt == null) {
-    return false;
-  }
-  return (
-    state.lastSeenAssistantMessageAt == null ||
-    state.lastSeenAssistantMessageAt < state.latestAssistantMessageAt
-  );
-}
-
-/**
- * The user-role row that opened this turn, skipping the tool-result rows the
- * agent loop also persists with role `"user"`.
- */
-function findInitiatingUserMessage(
-  conversationId: string,
-  assistantMessageCreatedAt: number,
-) {
-  const { messages } = getMessagesPaginated(
-    conversationId,
-    1,
-    assistantMessageCreatedAt,
-    (row) =>
-      row.role === "user" &&
-      !isToolResultMessage({ role: "user", content: row.content }),
-  );
-  return messages[0];
-}
-
-function buildPreview(content: ContentBlock[]): string {
-  return truncate(
-    stringifyMessageContent(content).replace(/\s+/g, " ").trim(),
-    PREVIEW_MAX_CHARS,
-  );
+  const channel = parseChannelId(metadata?.userMessageChannel);
+  return channel != null && channel !== "vellum";
 }
 
 export async function emitAssistantReplyNotification(params: {
   conversationId: string;
   assistantMessageId: string;
+  /**
+   * The row that opened the turn, threaded from the agent loop. Reading it by
+   * id rather than scanning back from the assistant row keeps a hidden or
+   * queued user message that landed mid-turn from being mistaken for the
+   * prompt this reply answers.
+   */
+  userMessageId: string | undefined;
   rlog: pino.Logger;
+  /** Rows the caller already holds; re-read when omitted. */
+  conversation?: ConversationRow | null;
+  assistantMessage?: MessageRow | null;
 }): Promise<void> {
-  const { conversationId, assistantMessageId, rlog } = params;
+  const { conversationId, assistantMessageId, userMessageId, rlog } = params;
   try {
-    const conversation = getConversation(conversationId);
+    if (!isAssistantReplyPushEnabled()) {
+      return;
+    }
+    if (!userMessageId) {
+      return;
+    }
+    const conversation = params.conversation ?? getConversation(conversationId);
     if (!conversation) {
       return;
     }
@@ -117,51 +98,51 @@ export async function emitAssistantReplyNotification(params: {
     if (kind !== "user") {
       return;
     }
-    if (!isLatestReplyUnseen(conversationId)) {
+    const attention = getAttentionStateByConversationIds([conversationId]).get(
+      conversationId,
+    );
+    if (!hasUnseenLatestAssistantMessage(attention)) {
       return;
     }
 
-    const assistantRow = getMessageById(assistantMessageId, conversationId);
+    const assistantRow =
+      params.assistantMessage ??
+      getMessageById(assistantMessageId, conversationId);
     if (!assistantRow) {
       return;
     }
 
-    // Scheduled/background prompts injected into an ordinary user conversation
-    // are automated turns with their own producers (e.g. `schedule.notify`);
-    // notifying here too would double-notify.
-    const initiatingMessage = findInitiatingUserMessage(
-      conversationId,
-      assistantRow.createdAt,
-    );
+    const initiatingMessage = getMessageById(userMessageId, conversationId);
     if (!initiatingMessage) {
       return;
     }
     const initiatingMetadata = parseMessageMetadata(initiatingMessage.metadata);
+    // Scheduled/background prompts injected into an ordinary user conversation
+    // are automated turns with their own producers (e.g. `schedule.notify`);
+    // notifying here too would double-notify.
     if (initiatingMetadata?.automated === true) {
       return;
     }
-    // Hidden lifecycle rows (subagent/ACP completions, wake triggers, hidden
-    // sends) are persisted with role "user" but are internal scaffolding, so
-    // the turn they open is nobody's prompt awaiting a reply.
+    // A turn opened by internal scaffolding is nobody's prompt awaiting a
+    // reply; see `isEchoSuppressedUserMessage`.
     if (isEchoSuppressedUserMessage(initiatingMetadata)) {
       return;
     }
-    // A phone or in-app voice utterance is answered out loud over the session
-    // the user is still on, so the reply is never unseen in the sense this
-    // producer notifies about; pushing here would fire once per spoken turn.
+    // A spoken reply is delivered over the still-open session; see
+    // `isVoiceSessionUserMessage`.
     if (isVoiceSessionUserMessage(initiatingMetadata)) {
       return;
     }
     // A turn started from a messaging channel has its finished reply delivered
     // back to that channel (`finalizeEventDelivery`), so the sender already has
-    // it; pushing here would duplicate it on their phone. The voice gate above
-    // cannot stand in for this one: an in-app live-voice turn persists as
-    // `vellum`, exactly like a typed send.
+    // it; pushing here would duplicate it on their phone.
     if (isChannelOriginatedUserMessage(initiatingMetadata)) {
       return;
     }
 
-    const preview = buildPreview(assistantRow.content);
+    const preview = sanitizeMessagePreview(
+      stringifyMessageContent(assistantRow.content),
+    );
     if (!preview) {
       return;
     }

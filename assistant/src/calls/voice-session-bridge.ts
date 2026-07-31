@@ -873,9 +873,8 @@ export async function startVoiceTurn(
       content: persistedContent,
       requestId,
       metadata: {
-        // Durable "this turn came from an open voice session" marker. The
-        // channel fields cannot carry it: live voice persists as
-        // `vellum`/`macos`, indistinguishable from a typed desktop send.
+        // Durable "this turn came from an open voice session" marker; see
+        // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
         voiceSessionTurn: true,
         ...(isHiddenSyntheticPrompt ? { hidden: true } : {}),
       },

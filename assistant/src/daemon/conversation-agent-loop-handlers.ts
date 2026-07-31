@@ -36,6 +36,7 @@ import {
   getConversation,
   getMessageById,
   messageMetadataSchema,
+  type MessageRow,
   provenanceFromTrustContext,
   recordConversationPersistedSeq,
   reserveMessage,
@@ -400,7 +401,7 @@ export interface EventHandlerState {
    * individually best-effort. Accumulates across retries/multi-call turns so
    * every produced assistant row is indexed.
    */
-  readonly deferredFinalizeEffects: Array<() => Promise<void>>;
+  readonly deferredFinalizeEffects: Array<() => Promise<MessageRow | null>>;
   /**
    * Credential refs parsed from `credentials reveal` invocations in this
    * turn's shell-style tool commands (see `chat-credential-redaction.ts`).
