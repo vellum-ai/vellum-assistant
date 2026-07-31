@@ -29,7 +29,7 @@ describe("Notice — error tone icon", () => {
   });
 });
 
-describe("Notice — actions layout", () => {
+describe("Notice: actions layout", () => {
   test("actions render inside the message column, after the message", () => {
     const html = renderToStaticMarkup(
       <Notice
@@ -59,8 +59,9 @@ describe("Notice — actions layout", () => {
     );
 
     // A corner-pinned control would need a root padding lane, which `cn()`
-    // drops as soon as the consumer passes its own `p-*` — the button would
-    // then overlap the message. Staying in the flow removes that coupling.
+    // drops as soon as the consumer passes its own `p-*`, and the button
+    // would then overlap the message. Staying in the flow removes that
+    // coupling.
     expect(html).toContain("shrink-0");
     expect(html).not.toContain("absolute");
   });
