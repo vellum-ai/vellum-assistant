@@ -377,24 +377,26 @@ describe("ChatBody — startersSlot rendering", () => {
 });
 
 describe("ChatBody - docked starters hide while the keyboard is open", () => {
-  // The docked (mobile empty-state) suggestions row fades out while the soft
-  // keyboard is up, staying mounted so the centered greeting + composer keep
-  // their layout. Class assertions here are regression pins on the markup,
-  // not proof of the rendered layout.
+  // The docked (mobile empty-state) suggestions row fades out and collapses
+  // its reserved height while the soft keyboard is up, and the greeting +
+  // composer group anchors to the bottom edge instead of centering. The dock
+  // stays mounted so dismissing the keyboard restores it without a remount.
+  // Class assertions here are regression pins on the markup, not proof of
+  // the rendered layout.
   const startersSlot = <div data-testid="starters">STARTER_CHIPS</div>;
 
   const dockedProps = () =>
     withEmptyState({ dockStartersToBottom: true, startersSlot });
 
   const dockWrapper = (container: HTMLElement) =>
-    container.querySelector('[data-slot="docked-starters"]');
+    container.querySelector<HTMLElement>('[data-slot="docked-starters"]');
 
   afterEach(() => {
     keyboardOpen = false;
     cleanup();
   });
 
-  test("keyboard closed: the dock is visible, interactive, and not inert", () => {
+  test("keyboard closed: the dock is expanded, interactive, and the group centers", () => {
     keyboardOpen = false;
     const { container } = render(<ChatBody {...dockedProps()} />);
 
@@ -403,9 +405,12 @@ describe("ChatBody - docked starters hide while the keyboard is open", () => {
     expect(dock?.className).not.toContain("opacity-0");
     expect(dock?.className).not.toContain("pointer-events-none");
     expect(dock?.hasAttribute("inert")).toBe(false);
+    expect(dock?.style.gridTemplateRows).toBe("1fr");
+    expect(container.innerHTML).toContain("[justify-content:safe_center]");
+    expect(container.innerHTML).not.toContain("justify-end");
   });
 
-  test("keyboard open: the dock stays mounted but fades out and goes inert", () => {
+  test("keyboard open: the dock collapses, fades, goes inert, and the group bottom-anchors", () => {
     keyboardOpen = true;
     const { container } = render(<ChatBody {...dockedProps()} />);
 
@@ -415,16 +420,21 @@ describe("ChatBody - docked starters hide while the keyboard is open", () => {
     expect(dock?.className).toContain("opacity-0");
     expect(dock?.className).toContain("pointer-events-none");
     expect(dock?.hasAttribute("inert")).toBe(true);
+    expect(dock?.style.gridTemplateRows).toBe("0fr");
+    expect(container.innerHTML).toContain("justify-end");
+    expect(container.innerHTML).not.toContain("[justify-content:safe_center]");
   });
 
   test("keyboard toggling flips the hidden treatment without unmounting", () => {
     keyboardOpen = true;
     const { container, rerender } = render(<ChatBody {...dockedProps()} />);
     expect(dockWrapper(container)?.className).toContain("opacity-0");
+    expect(dockWrapper(container)?.style.gridTemplateRows).toBe("0fr");
 
     keyboardOpen = false;
     rerender(<ChatBody {...dockedProps()} />);
     expect(dockWrapper(container)?.className).not.toContain("opacity-0");
+    expect(dockWrapper(container)?.style.gridTemplateRows).toBe("1fr");
     expect(container.innerHTML).toContain("STARTER_CHIPS");
   });
 
@@ -435,7 +445,92 @@ describe("ChatBody - docked starters hide while the keyboard is open", () => {
     );
 
     expect(container.innerHTML).toContain("STARTER_CHIPS");
+    expect(container.innerHTML).toContain("[justify-content:safe_center]");
+    expect(container.innerHTML).not.toContain("justify-end");
     expect(dockWrapper(container)).toBeNull();
+  });
+
+  test("transcript branch ignores keyboard state (no dock, no bottom-anchoring)", () => {
+    keyboardOpen = true;
+    const { container } = render(<ChatBody {...baseProps()} />);
+
+    expect(dockWrapper(container)).toBeNull();
+    expect(container.innerHTML).not.toContain("justify-end");
+  });
+});
+
+describe("ChatBody - plugin pills hide while the keyboard is open", () => {
+  // The plugin controls rendered below the composer share the dock's
+  // treatment: while the soft keyboard is up they fade out, collapse their
+  // reserved height, and go inert so the composer (not the plugin row)
+  // docks to the keyboard edge. The slot stays mounted so dismissing the
+  // keyboard restores it without a remount.
+  const pluginPillsSlot = <div data-testid="plugins">PLUGIN_PILLS</div>;
+  const startersSlot = <div data-testid="starters">STARTER_CHIPS</div>;
+
+  const dockedProps = () =>
+    withEmptyState({
+      dockStartersToBottom: true,
+      startersSlot,
+      pluginPillsSlot,
+    });
+
+  const pluginsWrapper = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>('[data-slot="new-chat-plugins"]');
+
+  afterEach(() => {
+    keyboardOpen = false;
+    cleanup();
+  });
+
+  test("keyboard closed: the plugin row is expanded and interactive", () => {
+    keyboardOpen = false;
+    const { container } = render(<ChatBody {...dockedProps()} />);
+
+    const wrapper = pluginsWrapper(container);
+    expect(wrapper).not.toBeNull();
+    expect(wrapper?.className).not.toContain("opacity-0");
+    expect(wrapper?.className).not.toContain("pointer-events-none");
+    expect(wrapper?.hasAttribute("inert")).toBe(false);
+    expect(wrapper?.style.gridTemplateRows).toBe("1fr");
+    expect(container.innerHTML).toContain("PLUGIN_PILLS");
+  });
+
+  test("keyboard open: the plugin row collapses, fades, goes inert, and the composer is the last expanded child of the bottom-anchored group", () => {
+    keyboardOpen = true;
+    const { container } = render(<ChatBody {...dockedProps()} />);
+
+    const wrapper = pluginsWrapper(container);
+    expect(wrapper).not.toBeNull();
+    expect(container.innerHTML).toContain("PLUGIN_PILLS");
+    expect(wrapper?.className).toContain("opacity-0");
+    expect(wrapper?.className).toContain("pointer-events-none");
+    expect(wrapper?.hasAttribute("inert")).toBe(true);
+    expect(wrapper?.style.gridTemplateRows).toBe("0fr");
+
+    // Bottom-anchored group: the only sibling after the composer is the
+    // collapsed plugin wrapper, so the composer reaches the keyboard edge.
+    expect(container.innerHTML).toContain("justify-end");
+    const composer = container.querySelector('[data-testid="composer"]');
+    expect(composer?.nextElementSibling).toBe(wrapper as HTMLElement);
+    expect(composer?.nextElementSibling?.nextElementSibling).toBeNull();
+  });
+
+  test("keyboard toggling flips the hidden treatment without unmounting the slot", () => {
+    keyboardOpen = true;
+    const { container, rerender } = render(<ChatBody {...dockedProps()} />);
+    expect(pluginsWrapper(container)?.style.gridTemplateRows).toBe("0fr");
+    const mounted = container.querySelector('[data-testid="plugins"]');
+    expect(mounted).not.toBeNull();
+
+    keyboardOpen = false;
+    rerender(<ChatBody {...dockedProps()} />);
+    expect(pluginsWrapper(container)?.className).not.toContain("opacity-0");
+    expect(pluginsWrapper(container)?.style.gridTemplateRows).toBe("1fr");
+    // Same DOM node across the toggle proves the slot never remounted.
+    expect(container.querySelector('[data-testid="plugins"]')).toBe(
+      mounted as HTMLElement,
+    );
   });
 });
 
