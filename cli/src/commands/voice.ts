@@ -473,11 +473,9 @@ async function probeReadiness(
       channel.close();
     });
     channel.on("frame", (frame) => {
-      // Session close drains this metric at the server's release boundary.
       if (
-        frame.type === "metrics" &&
-        frame.event === "session_ended" &&
-        (frame.sessionId === undefined || frame.sessionId === readySessionId)
+        frame.type === "session_released" &&
+        frame.sessionId === readySessionId
       ) {
         finish({ status: "ready" });
         channel.close();

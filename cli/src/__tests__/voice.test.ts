@@ -221,7 +221,7 @@ class FakeChannel implements LiveVoiceSessionChannel {
     this.requestEndCount += 1;
     if (this.autoReleaseConfirmation) {
       queueMicrotask(() => {
-        this.emitSessionEnded();
+        this.emitSessionReleased();
       });
     }
   }
@@ -248,17 +248,11 @@ class FakeChannel implements LiveVoiceSessionChannel {
     }
   }
 
-  emitSessionEnded(): void {
+  emitSessionReleased(): void {
     this.emit("frame", {
-      type: "metrics",
+      type: "session_released",
       seq: 2,
-      event: "session_ended",
       sessionId: this.sessionId,
-      turnId: "session",
-      sttMs: null,
-      llmFirstDeltaMs: null,
-      ttsFirstAudioMs: null,
-      totalMs: 0,
     });
   }
 }
@@ -502,7 +496,7 @@ describe("vellum voice", () => {
     expect(stdout.value).toBe("");
     expect(channel.closeCount).toBe(0);
 
-    channel.emitSessionEnded();
+    channel.emitSessionReleased();
     await running;
 
     expect(completed).toBe(true);

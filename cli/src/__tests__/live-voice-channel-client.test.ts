@@ -220,18 +220,12 @@ describe("live-voice channel client", () => {
 
     socket().message(
       JSON.stringify({
-        type: "metrics",
+        type: "session_released",
         seq: 2,
-        event: "session_ended",
         sessionId: "session-123",
-        turnId: "session",
-        sttMs: null,
-        llmFirstDeltaMs: null,
-        ttsFirstAudioMs: null,
-        totalMs: 0,
       }),
     );
-    expect(frames).toEqual(["metrics"]);
+    expect(frames).toEqual(["session_released"]);
     client.close();
   });
 

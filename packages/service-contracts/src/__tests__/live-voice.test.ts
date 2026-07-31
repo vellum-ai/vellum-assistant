@@ -164,8 +164,13 @@ describe("parseLiveVoiceServerFrame", () => {
       warning: { code: "archive_failed", message: "Archive unavailable" },
     },
     {
-      type: "error",
+      type: "session_released",
       seq: 16,
+      sessionId: "session-123",
+    },
+    {
+      type: "error",
+      seq: 17,
       code: "invalid_field",
       message: "Invalid field",
       recoverable: true,

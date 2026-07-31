@@ -189,15 +189,53 @@ describe("createLiveVoiceConnection", () => {
     });
   });
 
-  test("clears the session id on an end frame", async () => {
-    const { sessions } = installFakeManager();
-    const { connection } = createConnection();
+  test("acknowledges end only after the manager releases the session slot", async () => {
+    let finishClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      finishClose = resolve;
+    });
+    const { manager, sessions } = installFakeManager((session) => ({
+      close: mock(async (reason: LiveVoiceSessionCloseReason) => {
+        session.closeReasons.push(reason);
+        await closeGate;
+      }),
+    }));
+    const { connection, frames } = createConnection();
 
     await connection.handleMessage(START_MESSAGE);
-    await connection.handleMessage(JSON.stringify({ type: "end" }));
+    const ending = connection.handleMessage(JSON.stringify({ type: "end" }));
+    await Promise.resolve();
+
+    expect(manager.activeSessionId).toBe("session-1");
+    expect(frames.some((frame) => frame.type === "session_released")).toBe(
+      false,
+    );
+
+    const contender = createConnection();
+    await contender.connection.handleMessage(START_MESSAGE);
+    expect(contender.frames.at(-1)).toMatchObject({
+      type: "busy",
+      activeSessionId: "session-1",
+    });
+
+    finishClose();
+    await ending;
 
     expect(connection.sessionId).toBeUndefined();
+    expect(manager.activeSessionId).toBeNull();
     expect(sessions[0]?.clientFrames).toEqual([{ type: "end" }]);
+    expect(sessions[0]?.closeReasons).toEqual(["client_end"]);
+    expect(frames.at(-1)).toMatchObject({
+      type: "session_released",
+      sessionId: "session-1",
+    });
+
+    const next = createConnection();
+    await next.connection.handleMessage(START_MESSAGE);
+    expect(next.frames.at(-1)).toMatchObject({
+      type: "ready",
+      sessionId: "session-2",
+    });
   });
 
   test("heals a stale binding when the manager dropped the session", async () => {
