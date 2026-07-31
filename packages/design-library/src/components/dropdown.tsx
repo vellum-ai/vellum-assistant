@@ -85,10 +85,11 @@ const CHEVRON_SIZE_CLASSES: Record<DropdownSize, string> = {
  * - Placement flips and shifts to stay on screen, so a trigger near the
  *   bottom of the viewport opens upward rather than below the fold.
  *
- * `value=""` means "nothing selected". Radix reserves the empty string for
- * clearing, so it is mapped to an undefined Radix value and never handed to
- * an item; a caller that wants an explicit "none" row should give it a real
- * sentinel value, or use `placeholder` instead.
+ * `value=""` means "nothing selected" and renders `placeholder`. Radix
+ * reserves the empty string for exactly that, so the value passes through
+ * untouched; what it must never reach is an *option*, since an item claiming
+ * the empty string is what Radix rejects. A caller that wants an explicit
+ * "none" row should give it a real sentinel value, or use `placeholder`.
  */
 export function Dropdown<T extends string>({
   options,
@@ -135,7 +136,13 @@ export function Dropdown<T extends string>({
 
   return (
     <RadixSelect.Root
-      value={value === "" ? undefined : value}
+      // Pass `value` through untouched, empty string included. Radix reads
+      // `prop !== undefined` as "controlled", so mapping "" to `undefined`
+      // would hand control back to Radix the moment a caller cleared the
+      // selection, and the trigger would keep rendering the stale previous
+      // choice. Radix already treats "" as the placeholder state
+      // (`shouldShowPlaceholder`), so nothing is gained by translating it.
+      value={value}
       onValueChange={(next) => onChange(next as T)}
       disabled={disabled}
       name={name}
@@ -145,6 +152,10 @@ export function Dropdown<T extends string>({
           id={id}
           aria-label={ariaLabel}
           aria-labelledby={ariaLabelledBy}
+          // Radix sets the native `disabled` attribute and `data-disabled`,
+          // but not `aria-disabled`. Keep emitting it: the previous
+          // implementation did, and consumers assert on it.
+          aria-disabled={disabled || undefined}
           data-testid={dataTestId}
           data-slot="dropdown-trigger"
           className={cn(

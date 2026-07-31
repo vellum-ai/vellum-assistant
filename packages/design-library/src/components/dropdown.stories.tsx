@@ -223,6 +223,77 @@ export const Compact: Story = {
 };
 
 /**
+ * Regression guard: clearing the selection from the parent must actually
+ * clear the trigger.
+ *
+ * `Dropdown` is a controlled component, and Radix decides controlled versus
+ * uncontrolled by whether the `value` prop is `undefined`. Translating the
+ * documented empty-string "nothing selected" state into `undefined` therefore
+ * hands control back to Radix at exactly the moment a caller resets, and the
+ * trigger keeps rendering the previous choice instead of the placeholder.
+ * Radix already treats `""` as the placeholder state, so the value passes
+ * through untouched.
+ *
+ * Real callers depend on this: the provider/model settings flow clears the
+ * model whenever the provider changes.
+ */
+export const ClearedByParent: Story = {
+  args: {
+    placeholder: "Select a fruit…",
+    "aria-label": "Fruit",
+  },
+  render: function ClearableDropdown(args) {
+    // Starts empty on purpose. The failure needs Radix to have written its own
+    // internal value, which only happens on a real selection; a story that
+    // only ever moves the value through props never reaches the broken path.
+    const [value, setValue] = useState<string>("");
+    return (
+      <div className="flex w-64 flex-col gap-2">
+        <Dropdown
+          {...args}
+          options={fruits}
+          value={value}
+          onChange={setValue}
+        />
+        <button
+          type="button"
+          data-testid="clear"
+          onClick={() => setValue("")}
+        >
+          Clear
+        </button>
+      </div>
+    );
+  },
+  play: async ({ canvasElement, step }) => {
+    const canvas = within(canvasElement);
+    const trigger = canvas.getByRole("combobox", { name: "Fruit" });
+
+    await step("starts on the placeholder", async () => {
+      await expect(trigger.textContent).toContain("Select a fruit…");
+    });
+
+    await step("user picks an option", async () => {
+      await userEvent.click(trigger);
+      const cherry = [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-slot="dropdown-option"]',
+        ),
+      ].find((o) => o.textContent?.includes("Cherry"));
+      await expect(cherry).toBeDefined();
+      await userEvent.click(cherry!);
+      await expect(trigger.textContent).toContain("Cherry");
+    });
+
+    await step("parent clears it back to the placeholder", async () => {
+      await userEvent.click(canvas.getByTestId("clear"));
+      await expect(trigger.textContent).toContain("Select a fruit…");
+      await expect(trigger.textContent).not.toContain("Cherry");
+    });
+  },
+};
+
+/**
  * Regression guard: the menu must stay glued to its trigger even when an
  * ancestor has a `transform`.
  *
@@ -315,7 +386,15 @@ export const InsideModal: Story = {
   render: function ModalDropdown(args) {
     const [value, setValue] = useState("apple");
     return (
-      <Modal.Root defaultOpen>
+      // Opened by the play function rather than `defaultOpen`. An
+      // always-open modal renders over the whole autodocs page, hiding every
+      // other story on it.
+      <Modal.Root>
+        <Modal.Trigger asChild>
+          <button type="button" data-testid="open-modal">
+            Open modal
+          </button>
+        </Modal.Trigger>
         <Modal.Content>
           <Modal.Header>
             <Modal.Title>Pick a fruit</Modal.Title>
@@ -334,7 +413,11 @@ export const InsideModal: Story = {
       </Modal.Root>
     );
   },
-  play: async ({ step }) => {
+  play: async ({ canvasElement, step }) => {
+    await userEvent.click(
+      within(canvasElement).getByTestId("open-modal"),
+    );
+
     // Scoped to the document rather than the canvas: both the dialog and the
     // menu are portaled out of the story's subtree.
     const dialog = document.querySelector('[data-slot="modal-content"]');
