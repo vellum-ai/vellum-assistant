@@ -21,6 +21,7 @@ interface PostCall {
     content: string;
     interface?: string;
     clientOs?: string;
+    hidden?: boolean;
   };
   throwOnError: false;
 }
@@ -127,6 +128,10 @@ describe("sendResearchCorrection", () => {
     // assistant keeps platform context (mirrors the initial research send).
     expect(postCalls[0]?.body.interface).toBe("web");
     expect(postCalls[0]?.body.clientOs).toBe("web");
+    // The correction is a machine signal, not something the user typed: the
+    // daemon's reply-notification producer skips hidden-initiated turns, so
+    // acknowledging it never pushes to the user's phone.
+    expect(postCalls[0]?.body.hidden).toBe(true);
 
     expect(archiveCalls).toHaveLength(1);
     expect(archiveCalls[0]?.path).toEqual({ assistant_id: "a1", id: "c1" });

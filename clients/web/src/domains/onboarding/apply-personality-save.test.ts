@@ -5,6 +5,9 @@
  * left both empty after onboarding (the prose rewrite alone loses the
  * numbers). Kept separate from `apply-personality.test.ts` so the pure
  * message-builder tests stay free of module mocks.
+ *
+ * Also pins the shape of the rewrite send itself, which the daemon's
+ * reply-notification gating reads.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -13,7 +16,11 @@ const conversationsPostMock = mock(async () => ({
   data: { id: "conv-1" },
   response: { ok: true },
 }));
-const messagesPostMock = mock(async () => ({ response: { ok: true } }));
+const messagesPostMock = mock(
+  async (_opts: { body: { hidden?: boolean } }) => ({
+    response: { ok: true },
+  }),
+);
 const messagesGetMock = mock(async () => ({
   data: {
     processing: false,
@@ -51,6 +58,20 @@ beforeEach(() => {
   conversationsPostMock.mockClear();
   messagesPostMock.mockClear();
   saveSlidersMock.mockClear();
+});
+
+describe("applyPersonality rewrite prompt", () => {
+  test("posts the rewrite prompt as a hidden machine signal", async () => {
+    // The prompt is a `<system-message>` the user never typed. Hidden keeps
+    // the daemon's reply-notification producer from pushing the rewrite reply
+    // to the user's phone, deep-linked into a thread archived a moment later.
+    await applyPersonality({
+      awaitAssistantId: async () => "ast-1",
+      values: {},
+    });
+
+    expect(messagesPostMock.mock.calls[0]?.[0].body.hidden).toBe(true);
+  });
 });
 
 describe("applyPersonality slider persistence", () => {

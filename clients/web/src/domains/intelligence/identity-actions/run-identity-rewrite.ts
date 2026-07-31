@@ -66,6 +66,10 @@ export async function runIdentityRewrite({
       content,
       sourceChannel: "vellum",
       interface: "vellum",
+      // A machine signal the user never typed: hidden keeps the daemon from
+      // pushing this turn's reply to the user's phone, deep-linked into a
+      // thread archived a moment later.
+      hidden: true,
       clientMessageId: crypto.randomUUID(),
     };
     const posted = await messagesPost({
