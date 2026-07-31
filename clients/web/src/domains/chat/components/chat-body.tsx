@@ -35,7 +35,9 @@ import { Button, Notice, type NoticeTone } from "@vellumai/design-library";
  * the composer **stays at the same position in the React tree** so its
  * state (focus, draft text, attachments) is preserved across the
  * empty→active transition. `safe center` falls back to start-alignment
- * when the group overflows (e.g. iOS with the soft keyboard open).
+ * when the group overflows; while the soft keyboard is open the empty
+ * state bottom-anchors the group instead so the composer docks to the
+ * keyboard edge.
  *
  * See [React — Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
  * and [MDN — `justify-content: safe center`](https://developer.mozilla.org/en-US/docs/Web/CSS/justify-content).
@@ -253,20 +255,33 @@ export function ChatBody({
 
   // When the empty state is visible, center greeting + composer + starters
   // as one group. `safe center` falls back to start-alignment when the
-  // content overflows the container (e.g. iOS soft keyboard open).
-  // `overflow-y-auto` enables scrolling in that overflow case.
+  // content overflows the container. `overflow-y-auto` enables scrolling
+  // in that overflow case.
   const baseClass =
     variant === "main"
       ? "relative flex min-h-0 flex-1 flex-col"
       : "relative flex h-full min-h-0 flex-col";
 
-  // The docked (suggestions-library) empty state owns its own vertical layout
-  // — a full-height first screen that centers the greeting + composer and
-  // pins the featured row to the bottom — so it does not use `safe center`.
+  // While the soft keyboard is open and nothing renders below the composer
+  // (`startersSlot` absent: starters have not arrived yet), the plain
+  // non-docked empty state bottom-anchors instead of centering so the
+  // composer docks to the keyboard edge, and the flip to the docked branch
+  // when starters arrive keeps that alignment instead of jumping
+  // mid-typing. The app-editing side panel always passes inline starters,
+  // so it keeps its centered layout regardless of keyboard state.
+  const nonDockedAlignmentClass =
+    keyboardOpen && startersSlot == null
+      ? "justify-end"
+      : "[justify-content:safe_center]";
+
+  // The docked (suggestions-library) empty state owns its own vertical
+  // layout (a full-height first screen that centers the greeting + composer
+  // and pins the featured row to the bottom), so it does not use
+  // `safe center`.
   const outerClass = isEmptyState
     ? dockStartersToBottom
       ? `${baseClass} overflow-y-auto`
-      : `${baseClass} overflow-y-auto [justify-content:safe_center]`
+      : `${baseClass} overflow-y-auto ${nonDockedAlignmentClass}`
     : baseClass;
 
   // Suppress the absolutely-positioned overlay on the empty state: its
@@ -305,12 +320,22 @@ export function ChatBody({
   // the reserved height so the bottom-anchored composer reaches the keyboard
   // edge. Each stays mounted so dismissing the keyboard restores it without
   // a remount, and `inert` removes it from the tab order and the
-  // accessibility tree.
-  const keyboardCollapseProps = {
-    inert: keyboardOpen || undefined,
-    className: `grid transition-[grid-template-rows,opacity] duration-150${keyboardOpen ? " pointer-events-none opacity-0" : ""}`,
-    style: { gridTemplateRows: keyboardOpen ? "0fr" : "1fr" },
-  };
+  // accessibility tree. The inner div clips only while the keyboard is
+  // open: the collapse needs the clip, but at rest it would shave the
+  // keyboard-focus rings that paint outside the cards and buttons inside
+  // the slot.
+  const renderKeyboardCollapse = (dataSlot: string, children: ReactNode) => (
+    <div
+      data-slot={dataSlot}
+      inert={keyboardOpen || undefined}
+      className={`grid transition-[grid-template-rows,opacity] duration-150${keyboardOpen ? " pointer-events-none opacity-0" : ""}`}
+      style={{ gridTemplateRows: keyboardOpen ? "0fr" : "1fr" }}
+    >
+      <div className={`min-h-0${keyboardOpen ? " overflow-hidden" : ""}`}>
+        {children}
+      </div>
+    </div>
+  );
 
   // Composer stack — stays at the same tree position across the empty→active
   // transition so React preserves its state (focus, draft text, attachments)
@@ -381,13 +406,11 @@ export function ChatBody({
         {channelFooterSlot}
         <StagedQuotesStrip />
         {composerSlot}
-        {pluginPillsSlot && (
-          <div data-slot="new-chat-plugins" {...keyboardCollapseProps}>
-            <div className="min-h-0 overflow-hidden">
-              <div className="mt-4">{pluginPillsSlot}</div>
-            </div>
-          </div>
-        )}
+        {pluginPillsSlot &&
+          renderKeyboardCollapse(
+            "new-chat-plugins",
+            <div className="mt-4">{pluginPillsSlot}</div>,
+          )}
         {trailingStarters}
       </div>
     </div>
@@ -431,17 +454,15 @@ export function ChatBody({
             />
             {renderComposerStack(null)}
           </div>
-          {startersSlot && (
-            <div data-slot="docked-starters" {...keyboardCollapseProps}>
-              <div className="min-h-0 overflow-hidden">
-                <div className="px-3 pb-3 sm:px-6">
-                  <div className="mx-auto max-w-[var(--chat-max-width)]">
-                    {startersSlot}
-                  </div>
+          {startersSlot &&
+            renderKeyboardCollapse(
+              "docked-starters",
+              <div className="px-3 pb-3 sm:px-6">
+                <div className="mx-auto max-w-[var(--chat-max-width)]">
+                  {startersSlot}
                 </div>
-              </div>
-            </div>
-          )}
+              </div>,
+            )}
         </div>
         {belowFoldSlot && (
           <div className="px-3 pt-2 pb-8 sm:px-6">
