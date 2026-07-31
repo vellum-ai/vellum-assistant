@@ -888,7 +888,6 @@ function buildPassThroughDecision(params: {
   selectedChannels: NotificationChannel[];
   body: string;
   reasoningSummary: string;
-  dedupeKey: string;
 }): NotificationDecision {
   const { availableChannels, body, signal } = params;
   const title =
@@ -911,7 +910,9 @@ function buildPassThroughDecision(params: {
     conversationActions: Object.fromEntries(
       availableChannels.map((ch) => [ch, { action: "start_new" as const }]),
     ) as NotificationDecision["conversationActions"],
-    dedupeKey: params.dedupeKey,
+    // A producer-supplied key names what it wants collapsed; the signal id is
+    // a per-emit fallback that collapses nothing.
+    dedupeKey: signal.dedupeKey ?? signal.signalId,
     confidence: 1.0,
     fallbackUsed: false,
     verbatimCopy: true,
@@ -989,7 +990,6 @@ export async function evaluateSignal(
       selectedChannels,
       body: requestedBody,
       reasoningSummary: "assistant_tool pass-through",
-      dedupeKey: signal.signalId,
     });
   }
 
@@ -1004,7 +1004,6 @@ export async function evaluateSignal(
       ),
       body: requestedBody,
       reasoningSummary: "assistant_reply pass-through",
-      dedupeKey: signal.dedupeKey ?? signal.signalId,
     });
   }
 

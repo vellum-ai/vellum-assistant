@@ -18,6 +18,7 @@ import { eq } from "drizzle-orm";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../../../persistence/auto-analysis-constants.js";
 import { createConversation } from "../../../../persistence/conversation-crud.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../../persistence/conversation-types.js";
 import {
   getDb,
   getMemorySqlite,
@@ -38,7 +39,6 @@ import {
   runRetrospectiveSweep,
   SWEEP_MAX_ENQUEUES_PER_PASS,
 } from "../memory-retrospective-sweep.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../substrate/constants.js";
 
 await initializeDb();
 

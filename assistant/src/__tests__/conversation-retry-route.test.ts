@@ -61,6 +61,12 @@ const getConversationMock = mock((id: string) =>
   id === "conv-retry-test" ? { id } : null,
 );
 
+// The metadata predicates are pure functions of the row's metadata record, and
+// the route's hidden-prompt branch is exactly what they decide, so the mock
+// hands back the real ones rather than a restatement that can drift.
+const { isBackgroundEventMetadata, isEchoSuppressedUserMessage } =
+  await import("../persistence/conversation-crud.js");
+
 mock.module("../persistence/conversation-crud.js", () => ({
   addMessage: async () => ({ id: "unused", deduplicated: false }),
   archiveConversation: () => true,
@@ -70,13 +76,8 @@ mock.module("../persistence/conversation-crud.js", () => ({
   extractImageSourcePaths: () => undefined,
   forkConversation: () => ({ id: "forked" }),
   getConversation: getConversationMock,
-  isBackgroundEventMetadata: (metadata: Record<string, unknown> | undefined) =>
-    typeof metadata?.backgroundEventSource === "string",
-  isEchoSuppressedUserMessage: (
-    metadata: Record<string, unknown> | undefined,
-  ) =>
-    metadata?.hidden === true ||
-    typeof metadata?.backgroundEventSource === "string",
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
   provenanceFromTrustContext: () => ({ provenanceTrustClass: "unknown" }),
   setConversationSurfaced: () => null,
   unarchiveConversation: () => true,

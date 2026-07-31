@@ -255,6 +255,13 @@ export async function runAgentLoopImpl(
      */
     isHiddenPrompt?: boolean;
     /**
+     * Row the end-of-turn reply notification should treat as the prompt this
+     * turn answers. Defaults to `userMessageId`; a coalesced batch overrides it
+     * with its last non-machine-signal member, whose reply the user is actually
+     * waiting on, rather than a hidden marker that merely landed last.
+     */
+    notifyUserMessageId?: string;
+    /**
      * LLM call-site identifier threaded into the per-call provider config.
      * Adapter callers (heartbeat, filing, scheduler, etc.) pass their own
      * call-site id so the resolver picks `llm.callSites.<id>`. When unset,
@@ -1553,7 +1560,7 @@ export async function runAgentLoopImpl(
       rlog,
       generationCompletedAt,
       turnCompleted,
-      userMessageId,
+      userMessageId: options?.notifyUserMessageId ?? userMessageId,
     });
   } catch (err) {
     clearConversationNotices(ctx.conversationId);

@@ -12,7 +12,6 @@ import type pino from "pino";
 
 import { parseChannelId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfigReadOnly } from "../config/loader.js";
 import {
   getAttentionStateByConversationIds,
   hasUnseenLatestAssistantMessage,
@@ -23,27 +22,16 @@ import {
   getMessageById,
   isEchoSuppressedUserMessage,
   isVoiceSessionUserMessage,
-  type MessageRow,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { resolveConversationKind } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
+import { safeParseRecord } from "../util/json.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import { sanitizeMessagePreview } from "./notification-utils.js";
 
+/** Kill switch for this producer, on by default. */
 const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
-
-/**
- * Kill switch for this producer, on by default. Read through the read-only
- * config accessor: the resolver ignores the config argument, so the write-side
- * `getConfig()` would only add disk I/O to a best-effort path.
- */
-function isAssistantReplyPushEnabled(): boolean {
-  return isAssistantFeatureFlagEnabled(
-    ASSISTANT_REPLY_PUSH_FLAG,
-    getConfigReadOnly(),
-  );
-}
 
 /**
  * True when the row that opened the turn arrived over an external messaging
@@ -62,6 +50,26 @@ function isChannelOriginatedUserMessage(
   return channel != null && channel !== "vellum";
 }
 
+/**
+ * Read the markers the gates below consult off a persisted message's metadata
+ * column.
+ *
+ * `parseMessageMetadata` validates the whole column and yields nothing when
+ * any single field fails, so one unrecognized value would otherwise present
+ * here as "no metadata" and open every gate at once. The gates are plain-record
+ * predicates, so a permissive read of the same JSON keeps them answering over
+ * whichever fields are intact.
+ */
+function readSuppressionMarkers(
+  metadataJson: string | null,
+): Record<string, unknown> | undefined {
+  const validated = parseMessageMetadata(metadataJson);
+  if (validated) {
+    return validated;
+  }
+  return metadataJson ? safeParseRecord(metadataJson) : undefined;
+}
+
 export async function emitAssistantReplyNotification(params: {
   conversationId: string;
   assistantMessageId: string;
@@ -73,13 +81,12 @@ export async function emitAssistantReplyNotification(params: {
    */
   userMessageId: string | undefined;
   rlog: pino.Logger;
-  /** Rows the caller already holds; re-read when omitted. */
+  /** Row the caller already holds; re-read when omitted. */
   conversation?: ConversationRow | null;
-  assistantMessage?: MessageRow | null;
 }): Promise<void> {
   const { conversationId, assistantMessageId, userMessageId, rlog } = params;
   try {
-    if (!isAssistantReplyPushEnabled()) {
+    if (!isAssistantFeatureFlagEnabled(ASSISTANT_REPLY_PUSH_FLAG)) {
       return;
     }
     if (!userMessageId) {
@@ -105,9 +112,7 @@ export async function emitAssistantReplyNotification(params: {
       return;
     }
 
-    const assistantRow =
-      params.assistantMessage ??
-      getMessageById(assistantMessageId, conversationId);
+    const assistantRow = getMessageById(assistantMessageId, conversationId);
     if (!assistantRow) {
       return;
     }
@@ -116,7 +121,9 @@ export async function emitAssistantReplyNotification(params: {
     if (!initiatingMessage) {
       return;
     }
-    const initiatingMetadata = parseMessageMetadata(initiatingMessage.metadata);
+    const initiatingMetadata = readSuppressionMarkers(
+      initiatingMessage.metadata,
+    );
     // Scheduled/background prompts injected into an ordinary user conversation
     // are automated turns with their own producers (e.g. `schedule.notify`);
     // notifying here too would double-notify.
@@ -140,8 +147,10 @@ export async function emitAssistantReplyNotification(params: {
       return;
     }
 
+    // Collapse whitespace runs before the sanitizer truncates: blank lines and
+    // list indentation would otherwise eat into the preview's length budget.
     const preview = sanitizeMessagePreview(
-      stringifyMessageContent(assistantRow.content),
+      stringifyMessageContent(assistantRow.content).replace(/\s+/g, " ").trim(),
     );
     if (!preview) {
       return;

@@ -10,8 +10,10 @@ import type {
   ConversationRow,
   MessageRow,
 } from "../../persistence/conversation-crud.js";
-import { resolveConversationKind } from "../../persistence/conversation-types.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/substrate/constants.js";
+import {
+  MEMORY_V2_CONSOLIDATION_SOURCE,
+  resolveConversationKind,
+} from "../../persistence/conversation-types.js";
 import type { ContentBlock } from "../../providers/types.js";
 
 // ── Module mocks ───────────────────────────────────────────────────────
@@ -278,6 +280,20 @@ describe("emitAssistantReplyNotification", () => {
     expect(emitCalls[0].contextPayload.requestedMessage).toBe("Hello there");
   });
 
+  // Blank lines and list indentation would otherwise spend the preview's
+  // length budget on whitespace.
+  test("collapses whitespace runs in the preview", async () => {
+    assistantRow = makeAssistantRow([
+      { type: "text", text: "  Here:\n\n  - item\n  - other  " },
+    ] as ContentBlock[]);
+
+    await run();
+
+    expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+      "Here: - item - other",
+    );
+  });
+
   // Each case asserts the shared classifier's verdict alongside the silence, so
   // the gate is exercised through `resolveConversationKind` rather than through
   // a restatement of its branches.
@@ -336,6 +352,7 @@ describe("emitAssistantReplyNotification", () => {
       name: "ACP notification",
       metadata: { acpNotification: { acpSessionId: "acp-1", agent: "codex" } },
     },
+    { name: "hidden machine signal", metadata: { hidden: true } },
   ];
 
   for (const { name, metadata } of LIFECYCLE_ROW_CASES) {
@@ -422,8 +439,23 @@ describe("emitAssistantReplyNotification", () => {
     expect(emitCalls).toHaveLength(1);
   });
 
-  // Only a value the channel registry recognizes may suppress: a corrupt one
-  // must fail open to notifying rather than silently swallow every reply.
+  // An unrecognized channel fails the whole metadata schema, so these two
+  // cases pin both halves of the permissive fallback: a suppression marker
+  // sharing the row still closes its gate, and a row whose only defect is the
+  // channel still notifies.
+  test("stays silent when a row with an unrecognized channel is also hidden", async () => {
+    initiatingRow = makeMessage({
+      metadata: JSON.stringify({
+        userMessageChannel: "not-a-channel",
+        hidden: true,
+      }),
+    });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+  });
+
   test("still emits when the initiating row carries an unrecognized channel", async () => {
     initiatingRow = makeMessage({
       metadata: JSON.stringify({ userMessageChannel: "not-a-channel" }),
@@ -455,20 +487,13 @@ describe("emitAssistantReplyNotification", () => {
     expect(emitCalls).toHaveLength(0);
   });
 
-  test("uses the caller-supplied rows instead of re-reading them", async () => {
+  test("uses the caller-supplied conversation instead of re-reading it", async () => {
     conversationRow = null;
-    assistantRow = null;
 
-    await run({
-      conversation: makeConversation(),
-      assistantMessage: makeAssistantRow([
-        { type: "text", text: "Handed down." },
-      ] as ContentBlock[]),
-    });
+    await run({ conversation: makeConversation({ title: "Handed down" }) });
 
     expect(emitCalls).toHaveLength(1);
-    expect(emitCalls[0].contextPayload.requestedMessage).toBe("Handed down.");
-    expect(messageLookups).toEqual([USER_MESSAGE_ID]);
+    expect(emitCalls[0].contextPayload.requestedTitle).toBe("Handed down");
   });
 
   test("stays silent when the reply is already seen", async () => {

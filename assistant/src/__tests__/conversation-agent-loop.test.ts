@@ -2322,6 +2322,29 @@ describe("session-agent-loop", () => {
         userMessageId: "msg-user-7",
       });
     });
+
+    test("a caller-supplied notify row overrides the turn's user message id", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-tail", () => {}, {
+        notifyUserMessageId: "msg-user-prompt",
+      });
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [{ userMessageId: string | undefined }];
+      expect(notifyCall[0].userMessageId).toBe("msg-user-prompt");
+    });
   });
 
   describe("B3 pre-allocation: indexing + cleanup", () => {
