@@ -2,12 +2,17 @@
  * The two list-shaped pieces of the sidebar conversation list:
  *
  * - {@link ConversationRowList} — a `SideMenu.SubList` of
- *   {@link ConversationRow}s with optional "Show more / Show less"
- *   pagination. Used directly by Pinned and Recents, and inside every
- *   collapsible section.
+ *   {@link ConversationRow}s, bounded and scrollable. Used directly by
+ *   Pinned and Recents, and inside every collapsible section.
  * - {@link ConversationNavSection} — a `CollapsibleNavSection.Section`
  *   shell (icon + label + trailing + context menu) wrapping a
  *   `ConversationRowList`. Used by channel sections and custom groups.
+ *
+ * Every section scrolls rather than paginating, so all of them behave the way
+ * the All view's flat list does: no "Show more", the rows just keep going.
+ * The cap ({@link SIDEBAR_SECTION_MAX_HEIGHT}) is what makes that safe in a
+ * stack of sections, since an uncapped busy section would push its
+ * neighbours off screen.
  *
  * Row callbacks and state come from {@link useConversationListContext}
  * (via `ConversationRow`), so neither takes them as props.
@@ -18,11 +23,13 @@ import { type ReactNode } from "react";
 import { type LucideIcon } from "lucide-react";
 
 import { ContextMenu, SideMenu } from "@vellumai/design-library";
+import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
 import {
   CollapsibleNavSection,
   type CollapsibleNavSectionDrag,
 } from "@/components/collapsible-nav-section";
+import { SIDEBAR_SECTION_MAX_HEIGHT } from "@/components/sidebar-nav-geometry";
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
 import {
   hasAnyGroupMenuAction,
@@ -30,13 +37,14 @@ import {
   renderGroupMenuItemsAsPanelItems,
   type GroupMenuItemsProps,
 } from "@/domains/chat/components/group-actions-menu";
-import type { PaginatedSection } from "@/domains/chat/use-sidebar-state";
 import type { Conversation } from "@/types/conversation-types";
 
-type PaginationControls = Pick<
-  PaginatedSection,
-  "showMore" | "onShowMore" | "showLess" | "onShowLess"
->;
+/**
+ * Row count past which a section windows its rows instead of mounting all of
+ * them. Below it the rows mount directly, which is the common case and skips
+ * virtuoso's measuring pass.
+ */
+const VIRTUALIZE_THRESHOLD = 30;
 
 export interface ConversationRowListProps {
   items: Conversation[];
@@ -44,45 +52,52 @@ export interface ConversationRowListProps {
   dragSection?: string;
   /**
    * Full ordered list for drag math. Defaults to `items` — pass explicitly
-   * only when the visible `items` are a paginated subset (drag operates on
-   * the whole section).
+   * only when the visible `items` are a subset.
    */
   dragSiblings?: Conversation[];
-  /** Show-more/less controls; omit for non-paginated lists (Pinned, groups). */
-  pagination?: PaginationControls;
 }
 
 export function ConversationRowList({
   items,
   dragSection,
   dragSiblings,
-  pagination,
 }: ConversationRowListProps) {
+  const renderRow = (conversation: Conversation) => (
+    <ConversationRow
+      key={conversation.conversationId}
+      conversation={conversation}
+      dragSection={dragSection}
+      dragSiblings={dragSiblings ?? items}
+    />
+  );
+
+  // Reorderable sections (Pinned, custom groups) always mount every row: the
+  // drag controller resolves a drop target from the rows themselves, so a
+  // windowed list would have nothing to drop onto past the viewport. They
+  // stay bounded and scrollable either way, and they are the curated
+  // sections, so they are the least likely to run long.
+  if (!dragSection && items.length > VIRTUALIZE_THRESHOLD) {
+    return (
+      /* Virtuoso's scroller sizes to 100%, so this branch commits to the full
+         height — which is honest here, since the list is past the cap. */
+      <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>
+        <VirtualList
+          items={items}
+          computeItemKey={(_, conversation) => conversation.conversationId}
+          itemContent={(_, conversation) => renderRow(conversation)}
+          className="h-full bg-transparent"
+        />
+      </div>
+    );
+  }
+
   return (
-    <SideMenu.SubList>
-      {items.map((conversation) => (
-        <ConversationRow
-          key={conversation.conversationId}
-          conversation={conversation}
-          dragSection={dragSection}
-          dragSiblings={dragSiblings ?? items}
-        />
-      ))}
-      {pagination?.showMore ? (
-        <SideMenu.Item
-          label="Show more"
-          emphasized
-          onSelect={pagination.onShowMore}
-        />
-      ) : null}
-      {pagination?.showLess ? (
-        <SideMenu.Item
-          label="Show less"
-          emphasized
-          onSelect={pagination.onShowLess}
-        />
-      ) : null}
-    </SideMenu.SubList>
+    <div
+      className="overflow-y-auto"
+      style={{ maxHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
+    >
+      <SideMenu.SubList>{items.map(renderRow)}</SideMenu.SubList>
+    </div>
   );
 }
 

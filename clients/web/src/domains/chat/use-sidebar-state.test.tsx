@@ -18,8 +18,7 @@ mock.module("@/hooks/conversation-queries", () => ({
   }),
 }));
 
-const { SIDEBAR_CONVERSATION_LIMIT, useSidebarState } =
-  await import("@/domains/chat/use-sidebar-state");
+const { useSidebarState } = await import("@/domains/chat/use-sidebar-state");
 
 function makeConversation(
   index: number,
@@ -56,87 +55,22 @@ function seedGroupedView(assistantId = "asst-1"): void {
   useSidebarLayoutStore.setState({ viewMode: "grouped" });
 }
 
-describe("useSidebarState pagination", () => {
-  test("reveals recents in page-size increments and can reset", () => {
-    const conversations = Array.from({ length: 12 }, (_, index) =>
+describe("useSidebarState grouping", () => {
+  // Sections hand over their whole conversation list; bounding and scrolling
+  // it is the row list's job, so there is no page size or reveal state here.
+  test("Chats carries every conversation, uncapped", () => {
+    const conversations = Array.from({ length: 40 }, (_, index) =>
       makeConversation(index),
     );
 
     const { result } = renderHook(() =>
-      useSidebarState({
-        assistantId: "asst-1",
-        conversations,
-      }),
+      useSidebarState({ assistantId: "asst-1", conversations }),
     );
 
-    expect(result.current.recents.items).toHaveLength(
-      SIDEBAR_CONVERSATION_LIMIT,
-    );
-    expect(result.current.recents.showMore).toBe(true);
-    expect(result.current.recents.showLess).toBe(false);
-
-    act(() => result.current.recents.onShowMore());
-
-    expect(result.current.recents.items).toHaveLength(
-      SIDEBAR_CONVERSATION_LIMIT * 2,
-    );
-    // Mid-expansion offers only "Show more" — "Show less" waits until the
-    // section is fully revealed so the two never render stacked together.
-    expect(result.current.recents.showMore).toBe(true);
-    expect(result.current.recents.showLess).toBe(false);
-
-    act(() => result.current.recents.onShowMore());
-
-    expect(result.current.recents.items).toHaveLength(conversations.length);
-    expect(result.current.recents.showMore).toBe(false);
-    expect(result.current.recents.showLess).toBe(true);
-
-    act(() => result.current.recents.onShowLess());
-
-    expect(result.current.recents.items).toHaveLength(
-      SIDEBAR_CONVERSATION_LIMIT,
-    );
-    expect(result.current.recents.showMore).toBe(true);
-    expect(result.current.recents.showLess).toBe(false);
+    expect(result.current.recents).toHaveLength(40);
   });
 
-  test("uses the same incremental reveal behavior for channel sections", () => {
-    seedGroupedView();
-    const conversations = Array.from({ length: 12 }, (_, index) =>
-      makeConversation(index, {
-        originChannel: "slack",
-      }),
-    );
-
-    const { result } = renderHook(() =>
-      useSidebarState({
-        assistantId: "asst-1",
-        conversations,
-      }),
-    );
-
-    const slackSection = () => {
-      const section = result.current.channelSections.find(
-        (s) => s.channelId === "slack",
-      );
-      if (!section) {
-        throw new Error("expected a slack channel section");
-      }
-      return section;
-    };
-
-    expect(slackSection().items).toHaveLength(SIDEBAR_CONVERSATION_LIMIT);
-    expect(slackSection().showMore).toBe(true);
-    expect(slackSection().showLess).toBe(false);
-
-    act(() => slackSection().onShowMore());
-
-    expect(slackSection().items).toHaveLength(SIDEBAR_CONVERSATION_LIMIT * 2);
-    expect(slackSection().showMore).toBe(true);
-    expect(slackSection().showLess).toBe(false);
-  });
-
-  test("exposes one paginated section per origin channel", () => {
+  test("exposes one section per origin channel", () => {
     seedGroupedView();
     const conversations = [
       makeConversation(0, { originChannel: "slack" }),
@@ -155,9 +89,9 @@ describe("useSidebarState pagination", () => {
     ]);
     expect(
       result.current.channelSections.find((s) => s.channelId === "telegram")
-        ?.totalCount,
-    ).toBe(2);
-    expect(result.current.recents.totalCount).toBe(1);
+        ?.conversations,
+    ).toHaveLength(2);
+    expect(result.current.recents).toHaveLength(1);
   });
 });
 

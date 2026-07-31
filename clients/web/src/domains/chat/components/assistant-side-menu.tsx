@@ -31,7 +31,6 @@ import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item"
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { useSectionDragReorder } from "@/domains/chat/hooks/use-section-drag-reorder";
 import {
-  SIDEBAR_CONVERSATION_LIMIT,
   useSidebarState,
   type SidebarSection,
   type UseSidebarStateParams,
@@ -42,10 +41,6 @@ import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
 import { Button, SideMenu } from "@vellumai/design-library";
-
-/** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
-export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT =
-  SIDEBAR_CONVERSATION_LIMIT;
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;
@@ -156,8 +151,8 @@ function SearchButton() {
  *     • [ All | Grouped ] - the switch for everything below it
  *     • All view: every remaining conversation as one headerless,
  *       virtualized list, newest first
- *     • Grouped view: Chats ▾ (with Show more/less) then one collapsible
- *       section per origin channel (Slack, Telegram, WhatsApp, …)
+ *     • Grouped view: Chats ▾ then one collapsible section per origin
+ *       channel (Slack, Telegram, WhatsApp, …)
  *   Footer
  *     • caller-provided tip card (SidebarTipCard) — hidden on the collapsed rail
  *     • ───────────────

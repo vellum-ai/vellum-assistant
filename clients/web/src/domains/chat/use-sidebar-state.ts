@@ -1,8 +1,8 @@
 /**
  * Data-shaping hook for the assistant sidebar.
  *
- * Owns conversation grouping, pagination ("show more"), collapse/expand
- * state, attention-forced expansion, and the user's section order. Returns a
+ * Owns conversation grouping, collapse/expand state, attention-forced
+ * expansion, and the user's section order. Returns a
  * typed object the presentational `AssistantSideMenu` renders without any
  * inline computation, `useEffect`, or derived state.
  *
@@ -27,13 +27,7 @@
  * @see {@link https://react.dev/reference/react/useMemo}
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  startTransition,
-} from "react";
+import { useCallback, useEffect, useMemo, startTransition } from "react";
 
 import type {
   Conversation,
@@ -70,8 +64,6 @@ import { getChannelLabel } from "@/utils/channel-presentation";
 // Public constants
 // ---------------------------------------------------------------------------
 
-export const SIDEBAR_CONVERSATION_LIMIT = 5;
-
 /**
  * Shared empty array for the "no attention anywhere" case - the common one.
  * Returning a fresh `[]` would give every dependent memo a new identity on
@@ -83,64 +75,10 @@ const EMPTY_KEYS: string[] = [];
 // Types
 // ---------------------------------------------------------------------------
 
-export interface PaginatedSection {
-  all: Conversation[];
-  items: Conversation[];
-  totalCount: number;
-  /**
-   * At most one of `showMore` / `showLess` is true: "Show more" while
-   * items remain hidden, "Show less" only once the section is fully
-   * revealed past the default limit.
-   */
-  showMore: boolean;
-  showLess: boolean;
-  onShowMore: () => void;
-  onShowLess: () => void;
-}
-
-/** A paginated sidebar section bound to a specific origin channel. */
-export interface ChannelSectionState extends PaginatedSection {
+/** A sidebar section bound to a specific origin channel. */
+export interface ChannelSectionState {
   channelId: string;
-}
-
-/**
- * Shape a conversation list into a paginated sidebar section. Shared by the
- * Recents section and every per-channel section so the "show more / show
- * less" and attention-reveal behavior stays identical across them.
- */
-function buildPaginatedSection(
-  all: Conversation[],
-  visibleCount: number,
-  setVisibleCount: (updater: (prev: number) => number) => void,
-  attentionConversationIds?: Set<string>,
-): PaginatedSection {
-  const attentionIndex = attentionConversationIds
-    ? all.findIndex((c) => attentionConversationIds.has(c.conversationId))
-    : -1;
-  // Force enough rows visible to reveal a conversation that needs attention.
-  const effectiveVisibleCount =
-    attentionIndex >= visibleCount ? attentionIndex + 1 : visibleCount;
-  const showMore = effectiveVisibleCount < all.length;
-  return {
-    all,
-    items: all.slice(0, effectiveVisibleCount),
-    totalCount: all.length,
-    showMore,
-    // Never alongside showMore — two stacked, contradictory affordances.
-    // Collapse is offered only once the section is fully revealed.
-    showLess:
-      !showMore &&
-      visibleCount > SIDEBAR_CONVERSATION_LIMIT &&
-      all.length > SIDEBAR_CONVERSATION_LIMIT,
-    onShowMore: () =>
-      setVisibleCount((prev) =>
-        Math.min(
-          all.length,
-          Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
-        ),
-      ),
-    onShowLess: () => setVisibleCount(() => SIDEBAR_CONVERSATION_LIMIT),
-  };
+  conversations: Conversation[];
 }
 
 /**
@@ -179,12 +117,8 @@ interface SidebarSectionBase {
  */
 export type SidebarSection =
   | (SidebarSectionBase & { type: "pinned" })
-  | (SidebarSectionBase & { type: "recents"; pagination: PaginatedSection })
-  | (SidebarSectionBase & {
-      type: "channel";
-      channelId: string;
-      pagination: ChannelSectionState;
-    })
+  | (SidebarSectionBase & { type: "recents" })
+  | (SidebarSectionBase & { type: "channel"; channelId: string })
   | (SidebarSectionBase & { type: "group"; group: CustomGroup });
 
 export interface SidebarState {
@@ -197,7 +131,7 @@ export interface SidebarState {
   /** Empty in `all` view - those conversations live in {@link flatList}. */
   channelSections: ChannelSectionState[];
   /** The `grouped` view's Chats section. */
-  recents: PaginatedSection;
+  recents: Conversation[];
   /**
    * The `all` view's list: every conversation that is neither pinned nor in a
    * custom group, newest first. Windowed at render, so it carries no page
@@ -332,48 +266,6 @@ export function useSidebarState({
     [allConversations, conversationGroups, viewMode],
   );
 
-  // --- Pagination ("show more") ---
-
-  const [visibleRecentsCount, setVisibleRecentsCount] = useState(
-    SIDEBAR_CONVERSATION_LIMIT,
-  );
-  // Per-channel "show more" counts, keyed by channel id. Channels absent from
-  // the map default to SIDEBAR_CONVERSATION_LIMIT.
-  const [visibleChannelCounts, setVisibleChannelCounts] = useState<
-    Record<string, number>
-  >({});
-
-  const recentsSection = useMemo(
-    (): PaginatedSection =>
-      buildPaginatedSection(
-        grouped.recents,
-        visibleRecentsCount,
-        setVisibleRecentsCount,
-        attentionConversationIds,
-      ),
-    [grouped.recents, visibleRecentsCount, attentionConversationIds],
-  );
-
-  const channelSections = useMemo(
-    (): ChannelSectionState[] =>
-      grouped.channelSections.map((section) => ({
-        channelId: section.channelId,
-        ...buildPaginatedSection(
-          section.conversations,
-          visibleChannelCounts[section.channelId] ?? SIDEBAR_CONVERSATION_LIMIT,
-          (updater) =>
-            setVisibleChannelCounts((prev) => ({
-              ...prev,
-              [section.channelId]: updater(
-                prev[section.channelId] ?? SIDEBAR_CONVERSATION_LIMIT,
-              ),
-            })),
-          attentionConversationIds,
-        ),
-      })),
-    [grouped.channelSections, visibleChannelCounts, attentionConversationIds],
-  );
-
   // --- Section order ---
 
   // Default layout: Pinned, then the user's custom groups, then - in the
@@ -406,17 +298,15 @@ export function useSidebarState({
         type: "recents",
         key: "recents",
         label: "Chats",
-        all: recentsSection.all,
-        pagination: recentsSection,
+        all: grouped.recents,
       });
-      for (const section of channelSections) {
+      for (const section of grouped.channelSections) {
         list.push({
           type: "channel",
           key: channelSectionKey(section.channelId),
           label: getChannelLabel(section.channelId),
-          all: section.all,
+          all: section.conversations,
           channelId: section.channelId,
-          pagination: section,
         });
       }
     }
@@ -425,8 +315,8 @@ export function useSidebarState({
     viewMode,
     grouped.pinned,
     grouped.customGroups,
-    recentsSection,
-    channelSections,
+    grouped.recents,
+    grouped.channelSections,
   ]);
 
   const sections = useMemo((): SidebarSection[] => {
@@ -552,8 +442,8 @@ export function useSidebarState({
     viewMode,
     onViewModeChange: setViewMode,
     pinned: grouped.pinned,
-    channelSections,
-    recents: recentsSection,
+    channelSections: grouped.channelSections,
+    recents: grouped.recents,
     flatList: grouped.recents,
     customGroups: grouped.customGroups,
     sections,

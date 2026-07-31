@@ -53,11 +53,7 @@ import type {
   Conversation,
   ConversationGroup,
 } from "@/types/conversation-types";
-import {
-  ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
-  AssistantSideMenu,
-} from "@/domains/chat/components/assistant-side-menu";
-import { SIDEBAR_CONVERSATION_LIMIT } from "@/domains/chat/use-sidebar-state";
+import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 
 // Most of what follows describes the Grouped view's composition: the Chats
@@ -320,41 +316,40 @@ describe("AssistantSideMenu · All view", () => {
   });
 });
 
-describe("AssistantSideMenu · Show more affordance", () => {
-  test("hides 'Show more' when the recent count is at or below the limit", () => {
-    const conversations = Array.from(
-      { length: ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT },
-      (_, index) =>
+describe("AssistantSideMenu · section scrolling", () => {
+  // Every section behaves like the flat list: no "Show more", the rows just
+  // keep going inside a bounded, scrollable area. Without the cap one busy
+  // section would push the ones under it off the screen.
+  test("no section offers a Show more affordance", () => {
+    const html = renderMenu({
+      conversations: Array.from({ length: 40 }, (_, index) =>
         makeConversation({
-          conversationId: `k-${index}`,
-          title: `Thread ${index}`,
+          conversationId: `r${index}`,
+          title: `Recent ${index}`,
         }),
-    );
+      ),
+    });
 
-    const html = renderMenu({ conversations });
-
-    expect(html).not.toContain("Show more");
+    expect(html).not.toContain(">Show more<");
+    expect(html).not.toContain(">Show less<");
   });
 
-  test("renders 'Show more' when the recent count exceeds the limit", () => {
-    const conversations = Array.from(
-      { length: ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT + 1 },
-      (_, index) =>
-        makeConversation({
-          conversationId: `k-${index}`,
-          title: `Thread ${index}`,
-        }),
+  test("a long section scrolls within its own cap", () => {
+    const container = parse(
+      renderMenu({
+        conversations: Array.from({ length: 40 }, (_, index) =>
+          makeConversation({
+            conversationId: `r${index}`,
+            title: `Recent ${index}`,
+          }),
+        ),
+      }),
     );
 
-    const html = renderMenu({ conversations });
-
-    expect(html).toContain("Show more");
-  });
-
-  test("shares the sidebar conversation page size constant", () => {
-    expect(SIDEBAR_CONVERSATION_LIMIT).toBe(
-      ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
+    const scrollport = container.querySelector<HTMLElement>(
+      '[data-slot="collapsible"] .overflow-y-auto, [data-slot="collapsible"] [data-slot="virtual-list"]',
     );
+    expect(scrollport).not.toBeNull();
   });
 });
 

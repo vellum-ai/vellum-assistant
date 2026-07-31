@@ -73,9 +73,10 @@ const CONVERSATIONS: Conversation[] = [
 ];
 
 /**
- * Enough conversations that the flat list is many screens tall, which is what
- * exercises its windowing: only the rows near the viewport are ever mounted,
- * and the sidebar keeps a single scrollbar while they cycle.
+ * Enough conversations to run a list well past a screen. In the All view that
+ * exercises the flat list's windowing against the sidebar's own scrollport;
+ * in the Grouped view it exercises a single section hitting its height cap
+ * and scrolling within itself.
  */
 const LONG_CONVERSATIONS: Conversation[] = [
   ...CONVERSATIONS,
@@ -171,6 +172,16 @@ export const AllViewLongList: Story = {
   args: {
     ...SHARED_ARGS,
     assistantId: "asst-all-long",
+    conversations: LONG_CONVERSATIONS,
+  },
+};
+
+export const GroupedLongSection: Story = {
+  name: "Grouped view · long section",
+  beforeEach: () => seedViewMode("asst-grouped-long", "grouped"),
+  args: {
+    ...SHARED_ARGS,
+    assistantId: "asst-grouped-long",
     conversations: LONG_CONVERSATIONS,
   },
 };
