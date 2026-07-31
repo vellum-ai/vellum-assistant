@@ -162,21 +162,59 @@ class MockMediaStreamPlaybackElement {
   pauseCount = 0;
   paused = true;
   readyState = 0;
+  /** Leave `play()` unsettled, as it is on a real element until playback starts. */
+  deferPlay = false;
+
+  private pendingResolve: (() => void) | null = null;
+  private pendingReject: ((error: Error) => void) | null = null;
 
   constructor(private readonly playError?: Error) {}
 
-  async play(): Promise<void> {
+  play(): Promise<void> {
     this.playCount += 1;
     if (this.playError) {
-      throw this.playError;
+      return Promise.reject(this.playError);
     }
-    this.paused = false;
-    this.readyState = 4;
+    if (this.deferPlay) {
+      return new Promise<void>((resolve, reject) => {
+        this.pendingResolve = resolve;
+        this.pendingReject = reject;
+      });
+    }
+    this.startedPlaying();
+    return Promise.resolve();
   }
 
   pause(): void {
     this.pauseCount += 1;
     this.paused = true;
+    // Pausing rejects a `play()` still in flight with `AbortError`, which is
+    // what makes a deliberate restart look like a refused route unless the
+    // player tracks which attempt a rejection belongs to.
+    const reject = this.pendingReject;
+    this.pendingResolve = null;
+    this.pendingReject = null;
+    if (reject) {
+      const aborted = new Error(
+        "The play() request was interrupted by pause()",
+      );
+      aborted.name = "AbortError";
+      reject(aborted);
+    }
+  }
+
+  /** Settle a deferred `play()` as the element beginning playback. */
+  settlePlay(): void {
+    const resolve = this.pendingResolve;
+    this.pendingResolve = null;
+    this.pendingReject = null;
+    this.startedPlaying();
+    resolve?.();
+  }
+
+  private startedPlaying(): void {
+    this.paused = false;
+    this.readyState = 4;
   }
 }
 
@@ -404,6 +442,28 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(mediaStreamPlayer.getOutputRouteDiagnostics().route).toBe(
       "media-stream",
     );
+  });
+
+  test("a restart's own abort does not tear down the route", async () => {
+    const { player: mediaStreamPlayer, mediaElement } = makeMediaStreamPlayer();
+    // A real `play()` stays unsettled until playback actually starts, so the
+    // prewarm attempt is still in flight when capture comes up.
+    mediaElement.deferPlay = true;
+
+    mediaStreamPlayer.prewarm();
+    mediaStreamPlayer.restartOutputRoute();
+    mediaElement.settlePlay();
+    await flushMicrotasks();
+
+    // The pause rejected the prewarm's `play()` with AbortError. Treating that
+    // as a refusal would drop the MediaStream route, removing echo cancellation
+    // on exactly the sessions this rebind exists to fix.
+    expect(mediaStreamPlayer.getOutputRouteDiagnostics()).toMatchObject({
+      route: "media-stream",
+      playRejectionName: null,
+      elementPaused: false,
+    });
+    expect(mediaElement.srcObject).not.toBeNull();
   });
 
   test("restarting the route is a no-op once it has fallen back", async () => {

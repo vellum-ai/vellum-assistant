@@ -291,6 +291,15 @@ export class LiveVoiceAudioPlayer {
   /** `play()` attempts on the media element, including {@link restartOutputRoute}. */
   private playAttempts = 0;
 
+  /**
+   * Identifies the current `play()` attempt so a superseded one cannot act on
+   * its own rejection. Pausing a media element rejects any `play()` still in
+   * flight with `AbortError`, and {@link restartOutputRoute} pauses
+   * deliberately, so without this the restart's own abort would be read as a
+   * refused route and tear down the path it is re-establishing.
+   */
+  private playEpoch = 0;
+
   /** Error name from the most recent rejected `play()`. */
   private playRejectionName: string | null = null;
 
@@ -681,7 +690,14 @@ export class LiveVoiceAudioPlayer {
     }
 
     this.playAttempts += 1;
+    const epoch = ++this.playEpoch;
     void route.element.play().catch((error: unknown) => {
+      // A newer attempt has taken over, so this rejection is the pause() that
+      // started it and says nothing about whether playback is allowed. Recording
+      // it would also report a refusal the route never suffered.
+      if (this.playEpoch !== epoch) {
+        return;
+      }
       this.playRejectionName =
         error instanceof Error ? error.name : "UnknownError";
       if (this.context !== context || this.mediaStreamOutput !== route) {
