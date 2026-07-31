@@ -61,11 +61,11 @@ export function PrivacyScreen() {
   }, []);
 
   useEffect(() => {
-    if (!isNative) {
+    if (!isNative && !electron) {
       initMetaPixel();
       trackCompleteRegistration();
     }
-  }, [isNative]);
+  }, [isNative, electron]);
 
   const isPreview = searchParams.get("preview") === "true";
   const noop = useCallback((_next: boolean) => {}, []);

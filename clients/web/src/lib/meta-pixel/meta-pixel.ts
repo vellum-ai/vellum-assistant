@@ -46,10 +46,21 @@ export function initMetaPixel(): void {
   window.fbq("init", PIXEL_ID);
 }
 
-/** Fires a CompleteRegistration standard event if the pixel is initialized. */
+const REGISTRATION_FIRED_KEY = "meta_pixel_complete_registration";
+
+/** Fires a CompleteRegistration standard event once per session. */
 export function trackCompleteRegistration(): void {
   if (!initialized) {
     return;
+  }
+  try {
+    if (sessionStorage.getItem(REGISTRATION_FIRED_KEY)) {
+      return;
+    }
+    sessionStorage.setItem(REGISTRATION_FIRED_KEY, "1");
+  } catch {
+    // Private browsing or storage full — fire anyway, accept the small
+    // duplicate risk over silently dropping the conversion.
   }
   window.fbq!("track", "CompleteRegistration");
 }
