@@ -4,6 +4,7 @@ import { useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 
 import { Dropdown, type DropdownOption, type DropdownProps } from "./dropdown";
+import { Modal } from "./modal";
 import { Tag } from "./tag";
 
 const fruits: DropdownOption<string>[] = [
@@ -285,6 +286,91 @@ export const InsideTransformedAncestor: Story = {
       await expect(Math.abs(menuRect.left - triggerRect.left)).toBeLessThan(1);
       await expect(menuRect.top).toBeGreaterThanOrEqual(triggerRect.bottom);
       await expect(menuRect.top - triggerRect.bottom).toBeLessThan(8);
+    });
+  },
+};
+
+/**
+ * Regression guard for the riskiest consequence of portaling the menu to
+ * `document.body`: inside a modal, the menu is no longer a DOM descendant of
+ * the dialog it belongs to.
+ *
+ * Two things could break as a result, and this story pins both.
+ *
+ * 1. Dismissal. Radix's `DismissableLayer` decides what counts as an outside
+ *    click from a React `onPointerDownCapture` on the layer. `createPortal`
+ *    preserves React-tree parentage even though DOM parentage moves, so an
+ *    option click still reads as inside the dialog. If that ever stopped
+ *    holding, selecting an option would close the modal out from under the
+ *    user.
+ * 2. Clickability. Radix marks `body` with `pointer-events: none` in modal
+ *    mode, so a menu parented to `body` inherits it. The menu carries
+ *    `pointer-events-auto` for exactly this reason, and losing that class
+ *    would make every option silently unclickable.
+ */
+export const InsideModal: Story = {
+  args: {
+    "aria-label": "Fruit",
+  },
+  render: function ModalDropdown(args) {
+    const [value, setValue] = useState("apple");
+    return (
+      <Modal.Root defaultOpen>
+        <Modal.Content>
+          <Modal.Header>
+            <Modal.Title>Pick a fruit</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <div className="w-64">
+              <Dropdown
+                {...args}
+                options={fruits}
+                value={value}
+                onChange={setValue}
+              />
+            </div>
+          </Modal.Body>
+        </Modal.Content>
+      </Modal.Root>
+    );
+  },
+  play: async ({ step }) => {
+    // Scoped to the document rather than the canvas: both the dialog and the
+    // menu are portaled out of the story's subtree.
+    const dialog = document.querySelector('[data-slot="modal-content"]');
+    await expect(dialog).not.toBeNull();
+
+    const trigger = document.querySelector<HTMLElement>(
+      '[data-slot="dropdown-trigger"]',
+    );
+    await expect(trigger).not.toBeNull();
+
+    await step("menu opens and escapes the dialog in the DOM", async () => {
+      await userEvent.click(trigger!);
+      const menu = document.querySelector('[data-slot="dropdown-menu"]');
+      await expect(menu).not.toBeNull();
+      await expect(dialog!.contains(menu)).toBe(false);
+    });
+
+    await step("options stay clickable under modal pointer-events", async () => {
+      const menu = document.querySelector<HTMLElement>(
+        '[data-slot="dropdown-menu"]',
+      );
+      await expect(getComputedStyle(menu!).pointerEvents).toBe("auto");
+    });
+
+    await step("selecting an option does not dismiss the modal", async () => {
+      const options = document.querySelectorAll<HTMLElement>(
+        '[data-slot="dropdown-option"]',
+      );
+      const cherry = [...options].find((o) => o.textContent?.includes("Cherry"));
+      await expect(cherry).toBeDefined();
+      await userEvent.click(cherry!);
+
+      await expect(trigger!.textContent).toContain("Cherry");
+      await expect(
+        document.querySelector('[data-slot="modal-content"]'),
+      ).not.toBeNull();
     });
   },
 };
