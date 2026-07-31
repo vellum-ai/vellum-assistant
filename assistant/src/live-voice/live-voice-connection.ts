@@ -196,6 +196,11 @@ class LiveVoiceConnectionImpl implements LiveVoiceConnection {
 
     if (frame.type === "end") {
       this.activeSessionId = undefined;
+      this.sendFrame({
+        type: "session_released",
+        seq: this.lastSeq + 1,
+        sessionId,
+      });
     }
   }
 

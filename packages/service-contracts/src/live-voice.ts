@@ -85,6 +85,7 @@ export const LIVE_VOICE_SERVER_FRAME_TYPES = [
   "minimize_room",
   "metrics",
   "archived",
+  "session_released",
   "error",
 ] as const;
 
@@ -219,6 +220,12 @@ export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {
   readonly warning?: LiveVoiceArchiveWarning;
 }
 
+/** Confirms that an ended session no longer owns the process-wide voice slot. */
+export interface LiveVoiceSessionReleasedServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "session_released";
+  readonly sessionId: string;
+}
+
 export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "error";
   readonly code: string;
@@ -242,6 +249,7 @@ export type LiveVoiceServerFrame =
   | LiveVoiceMinimizeRoomServerFrame
   | LiveVoiceMetricsServerFrame
   | LiveVoiceArchivedServerFrame
+  | LiveVoiceSessionReleasedServerFrame
   | LiveVoiceErrorServerFrame;
 
 type WithoutSeq<T> = T extends LiveVoiceServerFrameBase

@@ -422,6 +422,7 @@ export type LiveVoiceServerFrame =
       totalMs?: number;
     }
   | { type: "archived"; conversationId: string; sessionId: string }
+  | { type: "session_released"; sessionId: string }
   | { type: "error"; code: string; message: string };
 ```
 

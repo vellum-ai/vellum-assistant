@@ -194,6 +194,41 @@ describe("live-voice channel client", () => {
     ]);
   });
 
+  test("can request end while keeping the socket open for release confirmation", () => {
+    const { client, socket } = makeClient();
+    const frames: string[] = [];
+    client.on("frame", (frame) => {
+      frames.push(frame.type);
+    });
+    client.connect();
+    socket().open();
+    socket().message(readyFrame());
+
+    client.requestEnd();
+    client.requestEnd();
+
+    expect(JSON.parse(String(socket().sent.at(-1)))).toEqual({
+      type: "end",
+    });
+    expect(
+      socket().sent.filter(
+        (frame) =>
+          typeof frame === "string" && JSON.parse(frame).type === "end",
+      ),
+    ).toHaveLength(1);
+    expect(socket().closeCalls).toBe(0);
+
+    socket().message(
+      JSON.stringify({
+        type: "session_released",
+        seq: 2,
+        sessionId: "session-123",
+      }),
+    );
+    expect(frames).toEqual(["session_released"]);
+    client.close();
+  });
+
   test("does not send audio or controls before ready", () => {
     const { client, socket } = makeClient();
     client.connect();
