@@ -10,6 +10,7 @@ import {
   getMessages,
 } from "../../persistence/conversation-crud.js";
 import type { ContentBlock, Message } from "../../providers/types.js";
+import { buildAdvisorContext } from "../../subagent/consult-context.js";
 import {
   advisorRequestText,
   buildAdvisorSystem,
@@ -293,6 +294,21 @@ async function runAdvisorConsult(args: {
     );
     const sanitizedMessages = sanitizeConsultTranscript(withInFlight);
 
+    // Situational awareness for the advisor: the parent's live tool set, the
+    // full skill catalog, and its workspace. Assembled off the per-turn
+    // ToolContext snapshot (trust, channel) so the personal-memory sections
+    // are gated exactly like the runtime injectors. Best-effort: a null pack
+    // just means the consult runs on transcript + system prompt alone.
+    const situationalContext = await buildAdvisorContext({
+      conversationId: context.conversationId,
+      workingDir: context.workingDir,
+      allowedToolNames: context.allowedToolNames,
+      trustClass: context.trustClass,
+      sourceChannel: context.executionChannel,
+      transcript: sanitizedMessages,
+      signal: context.signal,
+    });
+
     // Default to the stronger advisor profile when the caller did not pin one;
     // an explicit `inference_profile` wins (already forced upstream).
     const advisorProfile = getConfig().llm.advisorProfile;
@@ -328,7 +344,10 @@ async function runAdvisorConsult(args: {
           role: "advisor",
           fork: true,
           parentMessages: sanitizedMessages,
-          systemPromptOverride: buildAdvisorSystem(parentSystemPrompt),
+          systemPromptOverride: buildAdvisorSystem(
+            parentSystemPrompt,
+            situationalContext,
+          ),
           ...(overrideProfile ? { overrideProfile } : {}),
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
           ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
