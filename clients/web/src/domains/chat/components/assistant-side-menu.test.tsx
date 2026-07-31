@@ -68,7 +68,6 @@ beforeEach(() => {
   localStorage.setItem("vellum:sidebar-view-mode:asst-1", "grouped");
   useSidebarLayoutStore.setState({
     assistantId: null,
-    viewMode: "grouped",
     sectionOrder: [],
     openCategories: [],
     openCustomGroups: [],
@@ -215,7 +214,7 @@ describe("AssistantSideMenu · Chats category rows", () => {
 describe("AssistantSideMenu · All view", () => {
   beforeEach(() => {
     localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
-    useSidebarLayoutStore.setState({ assistantId: null, viewMode: "all" });
+    useSidebarLayoutStore.setState({ assistantId: null });
   });
 
   const conversations = [
@@ -265,7 +264,7 @@ describe("AssistantSideMenu · All view", () => {
       "vellum:sidebar-section-order:asst-1",
       JSON.stringify(["recents", "grp-a", "channel:slack"]),
     );
-    useSidebarLayoutStore.setState({ assistantId: null, viewMode: "grouped" });
+    useSidebarLayoutStore.setState({ assistantId: null });
 
     const container = parse(
       renderMenu({

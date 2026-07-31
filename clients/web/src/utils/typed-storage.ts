@@ -14,7 +14,7 @@
  * - {@link https://zustand.docs.pmnd.rs/integrations/persisting-store-data}
  */
 
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 import {
   removeLocalSetting,
@@ -60,12 +60,7 @@ export interface StorageAccessor<T> {
   useValue: () => T;
 }
 
-/**
- * Config for per-entity keyed storage. Intentionally has no `useValue`
- * hook — if you need React subscription for per-entity data, prefer
- * `createRecordStorageAccessor` or compose with `useSyncExternalStore`
- * at the call site.
- */
+/** Config for per-entity keyed storage. */
 export interface KeyedStorageAccessorConfig<T> {
   /** Builds the localStorage key from an entity ID (e.g., assistantId). */
   keyFn: (id: string) => string;
@@ -90,6 +85,13 @@ export interface KeyedStorageAccessor<T> {
   keyFn: (id: string) => string;
   /** The declared scope. */
   scope: StorageScope;
+  /**
+   * React hook that subscribes to changes for one entity's key.
+   * Concurrent-rendering-safe, and reads during render rather than in an
+   * effect — so the first paint already carries the stored value instead of
+   * the fallback.
+   */
+  useValue: (id: string) => T;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +107,37 @@ function readRaw(key: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Per-entity snapshot cache for `useValue`, keyed by entity ID.
+ *
+ * `useSyncExternalStore` calls `getSnapshot` on every render and bails out
+ * only when the result is reference-equal, so a non-primitive `T` reparsed
+ * each call would re-render forever. Caching on the raw string keeps the
+ * reference stable while the stored text is unchanged, and self-heals when
+ * it isn't — the same contract `createStorageAccessor` implements for the
+ * static case.
+ *
+ * Deliberately not shared with `load`. `load` returns a freshly parsed value
+ * that callers may mutate; handing them the cached instance would corrupt
+ * every subscriber's snapshot.
+ */
+function createSnapshotCache<T>(
+  read: (id: string) => string | null,
+  parseOrFallback: (raw: string | null) => T,
+) {
+  const cache = new Map<string, { raw: string | null; value: T }>();
+  return function snapshot(id: string): T {
+    const raw = read(id);
+    const cached = cache.get(id);
+    if (cached !== undefined && cached.raw === raw) {
+      return cached.value;
+    }
+    const value = parseOrFallback(raw);
+    cache.set(id, { raw, value });
+    return value;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -243,8 +276,7 @@ export function createKeyedStorageAccessor<T>(
 ): KeyedStorageAccessor<T> {
   const { keyFn, scope, parse, serialize, fallback } = config;
 
-  function load(id: string): T {
-    const raw = readRaw(keyFn(id));
+  function parseOrFallback(raw: string | null): T {
     if (raw === null) {
       return fallback;
     }
@@ -256,6 +288,10 @@ export function createKeyedStorageAccessor<T>(
     }
   }
 
+  function load(id: string): T {
+    return parseOrFallback(readRaw(keyFn(id)));
+  }
+
   function save(id: string, value: T): void {
     setLocalSetting(keyFn(id), serialize(value));
   }
@@ -264,7 +300,23 @@ export function createKeyedStorageAccessor<T>(
     removeLocalSetting(keyFn(id));
   }
 
-  return { load, save, remove, keyFn, scope };
+  const snapshot = createSnapshotCache<T>(
+    (id) => readRaw(keyFn(id)),
+    parseOrFallback,
+  );
+
+  function useValue(id: string): T {
+    // Both callbacks are keyed on `id`: a changed entity must resubscribe to
+    // the new key, or the hook would keep watching the previous one.
+    const subscribe = useCallback(
+      (onStoreChange: () => void) => watchSetting(keyFn(id), onStoreChange),
+      [id],
+    );
+    const getSnapshot = useCallback(() => snapshot(id), [id]);
+    return useSyncExternalStore(subscribe, getSnapshot, () => fallback);
+  }
+
+  return { load, save, remove, keyFn, scope, useValue };
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +355,13 @@ export interface RecordStorageAccessor<V> {
   keyFn: (id: string) => string;
   /** The declared scope. */
   scope: StorageScope;
+  /**
+   * React hook that subscribes to one entity's record. Returns the same
+   * reference while the stored text is unchanged, so it is safe to depend on
+   * — but for that reason the result must be treated as read-only. Use
+   * {@link RecordStorageAccessor.load} when you need a mutable copy.
+   */
+  useValue: (id: string) => Record<string, V>;
 }
 
 /**
@@ -391,5 +450,19 @@ export function createRecordStorageAccessor<V>(
     removeLocalSetting(keyFn(id));
   }
 
-  return { load, get, set, deleteEntry, remove, keyFn, scope };
+  const snapshot = createSnapshotCache<Record<string, V>>(
+    (id) => readRaw(keyFn(id)),
+    (raw) => (raw === null ? fallback : (parseRecord(raw) ?? fallback)),
+  );
+
+  function useValue(id: string): Record<string, V> {
+    const subscribe = useCallback(
+      (onStoreChange: () => void) => watchSetting(keyFn(id), onStoreChange),
+      [id],
+    );
+    const getSnapshot = useCallback(() => snapshot(id), [id]);
+    return useSyncExternalStore(subscribe, getSnapshot, () => fallback);
+  }
+
+  return { load, get, set, deleteEntry, remove, keyFn, scope, useValue };
 }

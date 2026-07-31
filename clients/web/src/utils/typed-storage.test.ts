@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { act, renderHook } from "@testing-library/react";
 
 import {
   createKeyedStorageAccessor,
@@ -162,6 +163,56 @@ describe("createKeyedStorageAccessor", () => {
     expect(keyed.keyFn("asst-1")).toBe("vellum:lastConvo:asst-1");
     expect(keyed.scope).toBe("user");
   });
+
+  describe("useValue", () => {
+    const list = createKeyedStorageAccessor<string[]>({
+      keyFn: (id) => `vellum:list:${id}`,
+      scope: "user",
+      parse: (raw) => JSON.parse(raw) as string[],
+      serialize: JSON.stringify,
+      fallback: [],
+    });
+
+    test("reads stored state on the first render, not after an effect", () => {
+      keyed.save("asst-1", "conv-abc");
+
+      const { result } = renderHook(() => keyed.useValue("asst-1"));
+
+      expect(result.current).toBe("conv-abc");
+    });
+
+    test("re-renders on a write from outside the hook", () => {
+      const { result } = renderHook(() => keyed.useValue("asst-1"));
+      expect(result.current).toBe("");
+
+      act(() => keyed.save("asst-1", "conv-abc"));
+
+      expect(result.current).toBe("conv-abc");
+    });
+
+    // The reason the snapshot cache exists: useSyncExternalStore bails out of
+    // re-rendering only on reference equality, so a re-parse per render would
+    // spin forever for an object or array value.
+    test("returns a stable reference while the stored text is unchanged", () => {
+      list.save("asst-1", ["a", "b"]);
+
+      const { result, rerender } = renderHook(() => list.useValue("asst-1"));
+      const first = result.current;
+      rerender();
+
+      expect(result.current).toBe(first);
+      expect(result.current).toEqual(["a", "b"]);
+    });
+
+    test("a mutated load() result does not corrupt the snapshot", () => {
+      list.save("asst-1", ["a"]);
+      const { result } = renderHook(() => list.useValue("asst-1"));
+
+      list.load("asst-1").push("mutated");
+
+      expect(result.current).toEqual(["a"]);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -281,6 +332,37 @@ describe("createRecordStorageAccessor", () => {
         unbounded.set("entity-1", `k${i}`, { value: i, label: `item-${i}` });
       }
       expect(Object.keys(unbounded.load("entity-1")).length).toBe(10);
+    });
+  });
+
+  describe("useValue", () => {
+    test("reads the stored record on the first render", () => {
+      record.set("entity-1", "k1", { value: 1, label: "one" });
+
+      const { result } = renderHook(() => record.useValue("entity-1"));
+
+      expect(result.current).toEqual({ k1: { value: 1, label: "one" } });
+    });
+
+    test("re-renders when an entry is written from outside the hook", () => {
+      const { result } = renderHook(() => record.useValue("entity-1"));
+      expect(result.current).toEqual({});
+
+      act(() => record.set("entity-1", "k1", { value: 1, label: "one" }));
+
+      expect(result.current).toEqual({ k1: { value: 1, label: "one" } });
+    });
+
+    test("returns a stable reference while the stored text is unchanged", () => {
+      record.set("entity-1", "k1", { value: 1, label: "one" });
+
+      const { result, rerender } = renderHook(() =>
+        record.useValue("entity-1"),
+      );
+      const first = result.current;
+      rerender();
+
+      expect(result.current).toBe(first);
     });
   });
 });
