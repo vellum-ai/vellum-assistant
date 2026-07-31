@@ -169,6 +169,18 @@ describe("buildExcerpt", () => {
     expect(excerpt.startsWith("…")).toBe(true);
   });
 
+  test("keeps the match near the front of the display excerpt", () => {
+    const prefix = "p".repeat(200);
+    const excerpt = buildExcerpt(
+      JSON.stringify([{ type: "text", text: `${prefix} alpha trailing text` }]),
+      "alpha",
+    );
+
+    const alphaIndex = excerpt.indexOf("alpha");
+    expect(alphaIndex).toBeGreaterThan(0);
+    expect(alphaIndex).toBeLessThanOrEqual(32);
+  });
+
   test("whole-query matches also respect tokenizer boundaries", () => {
     const filler = "party planning notes ".repeat(10);
     const excerpt = buildExcerpt(
@@ -335,6 +347,16 @@ describe("buildRecallEvidenceExcerpt", () => {
     expect(excerpt).toBe(
       '<external_content source="slack">\nSearchable Slack text\n</external_content>',
     );
+  });
+
+  test("keeps the wide leading window for recall evidence", () => {
+    const prefix = "p".repeat(200);
+    const excerpt = buildRecallEvidenceExcerpt(
+      JSON.stringify([{ type: "text", text: `${prefix} alpha trailing text` }]),
+      "alpha",
+    );
+
+    expect(excerpt.indexOf("alpha")).toBeGreaterThan(50);
   });
 
   test("keeps the raw fallback for messages with no legible text", () => {

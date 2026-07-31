@@ -1010,14 +1010,25 @@ export function ChatLayout({
       ) : null}
 
       {isMobile ? (
-        <main
-          className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
-        >
-          {chatContent}
-          {/* A popout narrowed below the mobile breakpoint lands in this
-              branch — still headerless, so it still needs the floating
-              session surface (see the desktop popout branch below). */}
-          {isPopout ? <VoiceSessionPillHost variant="standalone" /> : null}
+        <>
+          <main
+            className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+          >
+            {chatContent}
+            {/* A popout narrowed below the mobile breakpoint lands in this
+                branch, still headerless, so it still needs the floating
+                session surface (see the desktop popout branch below). */}
+            {isPopout ? <VoiceSessionPillHost variant="standalone" /> : null}
+          </main>
+          {/* The drawer is a sibling of `<main>`, not a child of it, even
+              though it is the chat body's own navigation. `mainRoomClass`
+              puts a `filter` + `opacity` on `<main>` while the voice room is
+              up, and both make it a stacking context AND (for the filter) the
+              containing block for `position: fixed` descendants. Nested,
+              the drawer would come up blurred at 40% opacity, offset to
+              `<main>`'s box instead of the viewport, and sealed below the
+              room by its parent's tier: the menu button read as dead. Out
+              here its z-40 sorts against the room directly. */}
           {drawerVisible || drawerDragging ? (
             <div
               ref={drawerRef}
@@ -1066,7 +1077,7 @@ export function ChatLayout({
               </aside>
             </div>
           ) : null}
-        </main>
+        </>
       ) : isPopout ? (
         <main
           className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4 ${mainRoomClass}`}

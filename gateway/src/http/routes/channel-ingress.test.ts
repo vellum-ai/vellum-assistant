@@ -33,6 +33,7 @@ const ROUTES = [
     path: "realtime",
     kind: "websocket" as const,
     signer: "plugin" as const,
+    handshake: "signed-headers" as const,
     description: "events",
   },
 ];

@@ -902,16 +902,16 @@ function buildExcerptWithExternalContentMode(
 
   if (externalContentMode === "display") {
     text = unwrapExternalContentForDisplay(text);
-  } else {
-    const envelope = parseExternalContentEnvelope(text);
-    if (envelope) {
-      const innerExcerpt = buildExcerptFromText(envelope.content, query);
-      return wrapRecallEvidenceExcerpt(
-        innerExcerpt,
-        envelope.source,
-        envelope.origin,
-      );
-    }
+    return buildExcerptFromText(text, query, DISPLAY_EXCERPT_LEADING_CHARS);
+  }
+  const envelope = parseExternalContentEnvelope(text);
+  if (envelope) {
+    const innerExcerpt = buildExcerptFromText(envelope.content, query);
+    return wrapRecallEvidenceExcerpt(
+      innerExcerpt,
+      envelope.source,
+      envelope.origin,
+    );
   }
 
   return buildExcerptFromText(text, query);
@@ -985,19 +985,34 @@ function findEarliestMatch(
   return match ? { index: match.index, length: match[0].length } : null;
 }
 
-function buildExcerptFromText(text: string, query: string): string {
-  const WINDOW = 100;
+const EXCERPT_WINDOW = 100;
+
+/**
+ * Leading context for palette display excerpts. The result row truncates
+ * from the right, so a wide leading window can push the match past the
+ * visible cutoff; recall evidence keeps the full window.
+ */
+const DISPLAY_EXCERPT_LEADING_CHARS = 30;
+
+function buildExcerptFromText(
+  text: string,
+  query: string,
+  leadingChars: number = EXCERPT_WINDOW,
+): string {
   const match = findEarliestMatch(text, query);
   if (!match) {
     // Neither the query nor any of its tokens is present (e.g. the lexical
     // index matched JSON structure instead); fall back to the text start.
     return text
-      .slice(0, WINDOW * 2)
+      .slice(0, EXCERPT_WINDOW * 2)
       .replace(/\s+/g, " ")
       .trim();
   }
-  const start = Math.max(0, match.index - WINDOW);
-  const end = Math.min(text.length, match.index + match.length + WINDOW);
+  const start = Math.max(0, match.index - leadingChars);
+  const end = Math.min(
+    text.length,
+    match.index + match.length + EXCERPT_WINDOW,
+  );
   const excerpt =
     (start > 0 ? "\u2026" : "") +
     text.slice(start, end).replace(/\s+/g, " ").trim() +

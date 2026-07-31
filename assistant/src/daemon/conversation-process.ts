@@ -435,6 +435,51 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
 // ── drainQueue ───────────────────────────────────────────────────────
 
 /**
+ * Tell this message's sender it left the queue for a turn, and remember that
+ * we did. The flag is what makes the requeue paths able to distinguish a
+ * message clients still believe is running from one they never stopped
+ * showing as queued. See {@link requeueDrainedMessages}.
+ */
+function announceDequeue(
+  conversation: Conversation,
+  message: QueuedMessage,
+): void {
+  message.onEvent({
+    type: "message_dequeued",
+    conversationId: conversation.conversationId,
+    requestId: message.requestId,
+    ...(message.clientMessageId
+      ? { clientMessageId: message.clientMessageId }
+      : {}),
+  });
+  message.dequeueAnnounced = true;
+}
+
+/**
+ * 1-based position of `requestId` among the queue's VISIBLE items, or
+ * undefined when the queue holds no such message. Mirrors the accounting the
+ * `message_queued` ack uses (and the list-messages queued snapshot filter),
+ * so a corrective requeue event places the row exactly where a cold reload
+ * would render it.
+ */
+function visibleQueuePosition(
+  conversation: Conversation,
+  requestId: string,
+): number | undefined {
+  let position = 0;
+  for (const item of conversation.queue.snapshot()) {
+    if (isHiddenMessageMetadata(item.metadata)) {
+      continue;
+    }
+    position += 1;
+    if (item.requestId === requestId) {
+      return position;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Restore drained messages to the front of the queue, in their original
  * order, when the drain cannot run them: another turn (e.g. a barged-in
  * voice turn woken by the idle transition) owns the processing lock, or the
@@ -443,6 +488,14 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
  * up. A steered drain also re-arms `pendingSteerRepair` so the re-drain
  * promotes the steered head on its own instead of batching it with tails;
  * the tool-use repair it re-triggers is idempotent.
+ *
+ * Any message whose dequeue was already announced gets the corrective
+ * `message_requeued`: its sender cleared the pending indicator on the
+ * `message_dequeued` and would otherwise see the row vanish until a later
+ * drain. Messages requeued before the announcement (the pre-flight
+ * processing-lock checks) get nothing, because clients never stopped showing
+ * them as queued and an event there would be noise. Hidden sends are suppressed
+ * for the same reason they get no queued ack: they have no client row.
  */
 function requeueDrainedMessages(
   conversation: Conversation,
@@ -463,6 +516,28 @@ function requeueDrainedMessages(
   }
   if (steered) {
     conversation.pendingSteerRepair = true;
+  }
+  for (const message of messages) {
+    if (!message.dequeueAnnounced) {
+      continue;
+    }
+    message.dequeueAnnounced = false;
+    if (isHiddenMessageMetadata(message.metadata)) {
+      continue;
+    }
+    const position = visibleQueuePosition(conversation, message.requestId);
+    if (position === undefined) {
+      continue;
+    }
+    message.onEvent({
+      type: "message_requeued",
+      conversationId: conversation.conversationId,
+      requestId: message.requestId,
+      position,
+      ...(message.clientMessageId
+        ? { clientMessageId: message.clientMessageId }
+        : {}),
+    });
   }
 }
 
@@ -660,12 +735,7 @@ async function drainSingleMessage(
     },
     "Dequeuing message",
   );
-  next.onEvent({
-    type: "message_dequeued",
-    conversationId: conversation.conversationId,
-    requestId: next.requestId,
-    ...(next.clientMessageId ? { clientMessageId: next.clientMessageId } : {}),
-  });
+  announceDequeue(conversation, next);
   conversation.emitActivityState("thinking", "message_dequeued", {
     requestId: next.requestId,
   });
@@ -1334,12 +1404,7 @@ async function drainBatch(
   const persistedMessageIds: string[] = [];
   for (let i = 0; i < batch.length; i++) {
     const qm = batch[i];
-    qm.onEvent({
-      type: "message_dequeued",
-      conversationId: conversation.conversationId,
-      requestId: qm.requestId,
-      ...(qm.clientMessageId ? { clientMessageId: qm.clientMessageId } : {}),
-    });
+    announceDequeue(conversation, qm);
 
     const qmSlash = await resolveSlash(
       qm.content,
