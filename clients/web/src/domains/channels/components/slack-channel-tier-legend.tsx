@@ -28,8 +28,8 @@ import type { RiskThreshold } from "@/utils/threshold-presets";
  * capability floor.
  *
  * The capability floor (code, the owner's computer or accounts, unvetted
- * skills always escalate) needs no inventory here — "asks before anything
- * beyond …" already covers everything the exception does not name.
+ * skills always escalate) needs no inventory here: "asks before anything
+ * beyond ..." already covers everything the exception does not name.
  */
 function tierDescription(tier: RiskThreshold): string {
   return tier === "none"
