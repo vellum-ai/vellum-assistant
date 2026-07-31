@@ -69,11 +69,15 @@ const CONFIG = {
 };
 
 let configPatchBodies: unknown[] = [];
+// The config the mocked `configGet` serves. Tests that need a different
+// persisted shape reassign this, because seeding the query cache alone is
+// not enough: `staleTime: 0` refetches and the mock's value wins.
+let servedConfig: unknown = CONFIG;
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   configLlmCallsitesGet: mock(async () => ({ data: CATALOG })),
-  configGet: mock(async () => ({ data: CONFIG })),
+  configGet: mock(async () => ({ data: servedConfig })),
   configPatch: async (options?: { body?: unknown }) => {
     configPatchBodies.push(options?.body);
     return { data: CONFIG };
@@ -123,6 +127,7 @@ function pickOption(trigger: HTMLElement, optionLabel: string): void {
 
 beforeEach(() => {
   configPatchBodies = [];
+  servedConfig = CONFIG;
 });
 
 afterEach(() => {
@@ -290,5 +295,101 @@ describe("OverridesDetailPanel - advisor", () => {
     // entry from the picker's three fields and drop any tuning field
     // (effort, thinking, maxTokens) a persisted entry carries.
     expect("callSites" in body.llm).toBe(false);
+  });
+});
+
+describe("OverridesDetailPanel - tuning-only entries (LUM-2949)", () => {
+  // `isDraftActive` reads only profile/provider/model, so a persisted entry
+  // holding nothing but tuning reads as "off". Serializing it to `null`
+  // would delete it: see `config-callsite-patch-merge.test.ts`, which pins
+  // that a `null` erases the whole entry while an omitted key is preserved.
+  const TUNING_ONLY_CONFIG = {
+    ...CONFIG,
+    llm: {
+      ...CONFIG.llm,
+      callSites: {
+        heartbeatAgent: { effort: "low", thinking: { enabled: false } },
+      },
+    },
+  };
+
+  function renderWith(config: unknown) {
+    servedConfig = config;
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    client.setQueryData([{ _id: "configLlmCallsitesGet" }], CATALOG);
+    client.setQueryData([{ _id: "configGet" }], config);
+    return render(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(OverridesDetailPanel, {
+          assistantId: "asst-1",
+          onClose: () => {},
+        }),
+      ),
+    );
+  }
+
+  function toggleFor(displayName: string): HTMLElement {
+    const match = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[role="switch"], input[type="checkbox"]',
+      ),
+    ).find((el) =>
+      (el.getAttribute("aria-label") ?? "").includes(displayName),
+    );
+    if (!match) {
+      throw new Error(`expected a toggle for ${displayName}`);
+    }
+    return match;
+  }
+
+  test("a tuning-only entry the user never touched is omitted, not nulled", async () => {
+    renderWith(TUNING_ONLY_CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+
+    // Turn on an override for a different row, then save.
+    fireEvent.click(toggleFor("Workflow Leaf"));
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as {
+      llm: { callSites: Record<string, unknown> };
+    };
+    // Absent, so the merge leaves the persisted tuning in place. `null`
+    // here would delete settings the user never asked to remove.
+    expect("heartbeatAgent" in body.llm.callSites).toBe(false);
+    expect(body.llm.callSites.workflowLeaf).toBeTruthy();
+  });
+
+  test("switching a row off still sends null so the entry is deleted", async () => {
+    const ACTIVE_CONFIG = {
+      ...CONFIG,
+      llm: {
+        ...CONFIG.llm,
+        callSites: { heartbeatAgent: { profile: "quality", effort: "low" } },
+      },
+    };
+    renderWith(ACTIVE_CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Heartbeat Agent");
+    });
+
+    fireEvent.click(toggleFor("Heartbeat Agent"));
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as {
+      llm: { callSites: Record<string, unknown> };
+    };
+    expect(body.llm.callSites.heartbeatAgent).toBe(null);
   });
 });
