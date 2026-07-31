@@ -35,9 +35,7 @@ function setOrigin(origin: string): void {
   });
 }
 
-function nativeError(code: string): Error & { code: string } {
-  return Object.assign(new Error(code), { code });
-}
+const nativeError = (code: string) => Object.assign(new Error(code), { code });
 
 beforeEach(() => {
   native = true;

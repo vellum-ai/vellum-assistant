@@ -5,11 +5,6 @@ import { getNativeUrlSchemeForHost } from "@/runtime/native-deep-link";
 import { APEX_DOMAIN } from "@/utils/domains";
 import { getDeviceBool, setDeviceBool } from "@/utils/device-settings";
 
-/**
- * Biometric login is enabled by default on devices that support it. Users
- * can opt out via Settings → Privacy. The preference is stored in
- * localStorage under the `device:biometric_enabled` key.
- */
 export type BiometricType =
   | "faceId"
   | "touchId"
@@ -88,6 +83,10 @@ function biometricRetrievalServers(origin: string): string[] {
     : [origin];
 }
 
+/**
+ * Check whether biometric authentication is available on this device.
+ * Returns an unavailable capability on non-native platforms without throwing.
+ */
 export async function getBiometricCapability(): Promise<BiometricCapability> {
   if (!isNativePlatform()) {
     return UNAVAILABLE_CAPABILITY;
@@ -105,6 +104,12 @@ export async function getBiometricCapability(): Promise<BiometricCapability> {
   }
 }
 
+/**
+ * Store a session token in native secure storage protected by biometrics.
+ * Returns `true` on success, `false` if biometrics are unavailable or
+ * the native write fails. Callers should only persist the biometric
+ * preference when this returns `true`.
+ */
 export async function storeBiometricToken(token: string): Promise<boolean> {
   if (!isNativePlatform()) {
     return false;
@@ -133,8 +138,7 @@ async function retrieveTokenForServer(server: string): Promise<string> {
 
 /**
  * Attempt to retrieve a session token via biometric authentication.
- * iOS presents the Face ID / Touch ID prompt automatically when the
- * Keychain item is accessed.
+ * The native shell presents its biometric prompt when protected storage is accessed.
  *
  * Returns `null` if no token is stored, biometrics fail, or the user
  * cancels the prompt.
@@ -193,6 +197,10 @@ export async function deleteBiometricToken(): Promise<void> {
 // Preference helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether biometric session recovery is enabled. Defaults to `true` on
+ * native platforms. Users must explicitly opt out via Settings → Privacy.
+ */
 export function isBiometricEnabled(): boolean {
   return getDeviceBool("biometricEnabled", true);
 }
