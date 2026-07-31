@@ -87,10 +87,7 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
-import {
-  useVoiceSessionPillPresence,
-  VoiceSessionPillHost,
-} from "@/domains/chat/components/voice-session-pill-host";
+import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
@@ -630,13 +627,6 @@ export function ChatLayout({
       isAssistantActive,
     ) ?? null;
 
-  // Drives the header's right-cluster collapse: while the voice pill occupies
-  // the row, the remaining controls fold behind a ⋯ so the centre title keeps
-  // a readable width. Same hook the host itself uses, so the two agree.
-  const { visible: voicePillVisible, showFailure: voicePillFailure } =
-    useVoiceSessionPillPresence();
-  const voicePillPresent = voicePillVisible || voicePillFailure;
-
   const topBarCenter =
     topBarCenterSlot ??
     (headerSupplements ? (
@@ -964,6 +954,12 @@ export function ChatLayout({
 
   return (
     <>
+      {/* An off-conversation session on a phone rides above the thread header
+          as its own full-width row, in flow: it pushes the page down instead of
+          overlaying it, so nothing is ever hidden behind a live session. The
+          host renders null when there is no session to show. */}
+      {!isPopout && isMobile ? <VoiceSessionPillHost variant="row" /> : null}
+
       {!isPopout && (
         <ChatLayoutHeader
           isMobile={isMobile}
@@ -983,13 +979,12 @@ export function ChatLayout({
           // per-route hooks that unmount on navigation, exactly when the pill
           // must persist. The host renders null when no session is active (or
           // while viewing the owning thread's composer), so the header is
-          // unaffected otherwise. It leads the cluster (ahead of the mobile
-          // search button) rather than sitting between search and the
-          // notification bell.
-          topBarRightLeading={<VoiceSessionPillHost />}
-          // Only phones need the collapse — desktop headers have the width for
-          // the full cluster, and the pill renders its expanded form there.
-          collapseRightCluster={isMobile && voicePillPresent}
+          // unaffected otherwise. It leads the cluster rather than sitting
+          // between search and the notification bell.
+          //
+          // Desktop only: a phone-width header cannot seat a pill next to the
+          // centre title, so there the session takes the row above instead.
+          topBarRightLeading={isMobile ? null : <VoiceSessionPillHost />}
           topBarRightSlot={
             <>
               {topBarRightSlot}

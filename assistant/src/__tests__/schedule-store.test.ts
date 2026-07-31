@@ -37,6 +37,7 @@ import {
   listSchedules,
   updateSchedule,
 } from "../schedule/schedule-store.js";
+import { UserError } from "../util/errors.js";
 
 await initializeDb();
 
@@ -1445,6 +1446,11 @@ describe("owner-defer provenance", () => {
 
   test("a trusted row refuses a trigger-text rewrite", async () => {
     const job = await trustedDefer();
+    // UserError specifically: transport surfaces map it to a 4xx that carries
+    // the actionable message, rather than a generic 500.
+    await expect(
+      updateSchedule(job.id, { message: "do something else" }),
+    ).rejects.toThrow(UserError);
     await expect(
       updateSchedule(job.id, { message: "do something else" }),
     ).rejects.toThrow(/fixed at creation/);

@@ -66,6 +66,18 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// branch on it without matching against a localized message.
     private static let failureCode = "LIVE_ACTIVITY_FAILED"
 
+    /// Event carrying an ActivityKit push token to JS. Must match the listener
+    /// name in `clients/web/src/runtime/native-live-activity.ts`.
+    private static let pushTokenEvent = "liveActivityPushToken"
+
+    /// Watches ``Activity/pushTokenUpdates`` for the running activity.
+    ///
+    /// Cancelled and replaced whenever the activity is, so a token from a
+    /// previous session can never be reported as the current one — the
+    /// platform addresses activities by conversation, and a stale token there
+    /// would push a live session's phase at an island that no longer exists.
+    private var pushTokenTask: Task<Void, Never>?
+
     /// How long a pushed content state stays trustworthy before ActivityKit
     /// marks it stale.
     ///
@@ -115,6 +127,7 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     deinit {
+        pushTokenTask?.cancel()
         guard let activity else { return }
         Task { await activity.end(nil, dismissalPolicy: .immediate) }
     }
@@ -153,13 +166,26 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             do {
-                self.activity = try Activity.request(
+                let requested = try Activity.request(
                     attributes: VoiceSessionAttributes(
                         assistantName: assistantName,
                         avatarImageData: Self.avatarImageData(from: call)
                     ),
-                    content: Self.content(state)
+                    content: Self.content(state),
+                    // `.token` is what makes this activity addressable from the
+                    // server. Local updates keep working exactly as before; the
+                    // token is the path that survives the web layer being
+                    // suspended, which is the only state the island is ever
+                    // seen in. Asking for it costs nothing when unused — a
+                    // token nobody registers is simply never pushed to.
+                    pushType: .token
                 )
+                self.activity = requested
+                self.observePushToken(of: requested)
+                // TEMPORARY (JARVIS-1377 device bring-up): pairs with the token
+                // log below, so a run that starts an activity but never mints a
+                // token is distinguishable from one that never started it.
+                NSLog("[VoiceLiveActivity] activity requested; awaiting push token")
                 call.resolve(["started": true])
             } catch {
                 call.reject(
@@ -207,9 +233,51 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             // Cleared before awaiting so a `start` that lands during teardown
             // requests a fresh activity instead of updating a dying one.
             self.activity = nil
+            self.cancelPushTokenObservation()
             await running.end(nil, dismissalPolicy: .immediate)
             call.resolve()
         }
+    }
+
+    // MARK: - Push token
+
+    /// Report every push token *activity* is issued, until it ends.
+    ///
+    /// The sequence yields more than once: iOS may rotate a token mid-activity,
+    /// and each value invalidates the last. Every one is forwarded, and the web
+    /// side re-registers — a rotation the platform never hears about leaves it
+    /// pushing at a token APNs has stopped honouring, which fails as
+    /// `BadDeviceToken` and looks exactly like a session that ended.
+    ///
+    /// Emitted as an event rather than resolved from `start`, because the first
+    /// token arrives some time after the request returns and there may be more
+    /// later; a promise could carry neither.
+    @MainActor
+    private func observePushToken(of activity: Activity<VoiceSessionAttributes>) {
+        pushTokenTask?.cancel()
+        pushTokenTask = Task { [weak self] in
+            for await tokenData in activity.pushTokenUpdates {
+                // APNs addresses devices by the hex string, not the bytes.
+                let token = tokenData.map { String(format: "%02x", $0) }.joined()
+                guard !Task.isCancelled else { return }
+                // TEMPORARY (JARVIS-1377 device bring-up): `WKWebView` console
+                // output never reaches the system log, so this is the only way
+                // to see whether ActivityKit issues a token on hardware at all
+                // — the one question the Simulator cannot answer. The token is
+                // a routing address, not a credential, and printing it lets a
+                // push be aimed at this activity by hand before the rest of the
+                // pipeline is deployed. Remove once verified.
+                NSLog("[VoiceLiveActivity] push token (%d chars): %@", token.count, token)
+                self?.notifyListeners(Self.pushTokenEvent, data: ["token": token])
+            }
+        }
+    }
+
+    /// Stop watching for tokens. The activity is going away, so any token it
+    /// issues from here is one nothing should register.
+    private func cancelPushTokenObservation() {
+        pushTokenTask?.cancel()
+        pushTokenTask = nil
     }
 
     // MARK: - Teardown
@@ -235,6 +303,7 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         // Cleared so the `deinit` that follows during teardown does not fire a
         // second end at an activity already on its way out.
         registered?.activity = nil
+        registered?.cancelPushTokenObservation()
         // Detached so the end runs on the global executor rather than behind
         // whatever the terminating main thread is still doing.
         Task.detached(priority: .userInitiated) {

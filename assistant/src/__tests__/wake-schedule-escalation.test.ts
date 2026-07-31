@@ -60,6 +60,7 @@ import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { createConversation } from "../persistence/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { BadRequestError } from "../runtime/routes/errors.js";
 import { ROUTES as SCHEDULE_ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 import { LEGACY_DEFER_CREATED_BY } from "../schedule/defer-provenance.js";
@@ -229,6 +230,46 @@ describe("a non-owner cannot retarget a schedule onto a guardian conversation", 
         (c) => (c[0] as Record<string, unknown>).conversationId === TARGET,
       ),
     ).toHaveLength(0);
+  });
+});
+
+describe("a locked-field edit is refused as a caller error, not a daemon fault", () => {
+  beforeEach(resetAll);
+
+  test("an owner PATCHing a locked field gets a 400 with the actionable refusal", async () => {
+    const defer = await seedOwnerDefer();
+
+    const err = await callRoute("updateSchedule", {
+      pathParams: { id: defer.id },
+      body: { message: "do something else" },
+      headers: LOCAL_CALLER,
+    }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    // The refusal itself is correct; what matters here is the shape: a
+    // BadRequestError (HTTP 400) whose message names the invariant and the
+    // cancel-and-recreate workaround, not a generic InternalError (500).
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect((err as BadRequestError).statusCode).toBe(400);
+    expect((err as BadRequestError).message).toMatch(
+      /fixed at creation; cancel and re-create it/,
+    );
+    expect(getSchedule(defer.id)?.message).toBe("check the build");
+  });
+
+  test("same-value and unrelated edits still succeed for the owner", async () => {
+    const defer = await seedOwnerDefer();
+
+    await callRoute("updateSchedule", {
+      pathParams: { id: defer.id },
+      body: { message: "check the build", name: "renamed" },
+      headers: LOCAL_CALLER,
+    });
+
+    expect(getSchedule(defer.id)?.name).toBe("renamed");
+    expect(getSchedule(defer.id)?.message).toBe("check the build");
   });
 });
 
