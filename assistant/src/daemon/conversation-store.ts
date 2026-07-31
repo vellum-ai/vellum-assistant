@@ -86,6 +86,7 @@ function applyTransportMetadata(
   conversation.applyHostEnvFromTransport(transport);
   conversation.applyClientTimezoneFromTransport(transport);
   conversation.applyClientOsFromTransport(transport);
+  conversation.applyActiveAppFromTransport(transport);
 }
 
 /**

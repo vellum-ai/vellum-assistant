@@ -153,6 +153,18 @@ export interface TurnContext {
    * transport interface.
    */
   readonly clientOs?: string;
+  /**
+   * The app the client has open on screen, resolved from the id the client
+   * reports with each message. Rendered as the `active_app:` line so the
+   * assistant can resolve "the app" to what the user is looking at instead of
+   * guessing or asking. Absent when no app is in view.
+   */
+  readonly activeApp?: {
+    appId: string;
+    name: string;
+    /** Absolute path of the app's source directory. */
+    sourceDir: string;
+  } | null;
   /** Channel label gating response-discretion guidance in `<turn_context>`. */
   readonly channelName?: string;
   /**

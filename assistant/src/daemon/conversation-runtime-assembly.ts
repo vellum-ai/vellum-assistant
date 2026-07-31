@@ -433,6 +433,34 @@ export function buildActiveDocuments(conversationId: string): Array<{
     : null;
 }
 
+/**
+ * Resolves the app the client reported as on-screen into the summary the
+ * `unified-turn-context` injector renders as the `active_app:` line. Returns
+ * `null` when no app is in view or the id no longer resolves to an app (e.g.
+ * it was deleted while open).
+ */
+export function buildActiveAppContext(
+  appId: string | undefined,
+): { appId: string; name: string; sourceDir: string } | null {
+  if (!appId) {
+    return null;
+  }
+  try {
+    const app = getApp(appId);
+    if (!app) {
+      return null;
+    }
+    return {
+      appId: app.id,
+      name: app.name,
+      sourceDir: getAppDirPath(app.id),
+    };
+  } catch {
+    // Malformed id (traversal-shaped, empty): treat as no app in view.
+    return null;
+  }
+}
+
 const MAX_CONTEXT_LENGTH = 100_000;
 
 function truncateHtml(html: string, budget: number): string {
@@ -2195,6 +2223,13 @@ export async function applyRuntimeInjections(
   // `clientOs`) so a queued message from another surface can't perturb the
   // in-flight turn — same anti-race pattern as `clientTimezone`.
   const clientOs = liveConversation?.currentTurnClientOs ?? undefined;
+  // The app the client has on screen (app viewer or the app-editing split),
+  // resolved to its name and source directory so the assistant can act on it
+  // without asking the user which app they mean. Frozen per turn like
+  // `clientOs` for the same anti-race reason.
+  const activeApp = buildActiveAppContext(
+    liveConversation?.currentTurnActiveAppId,
+  );
   const channelName = liveConversation
     ? (liveConversation.currentTurnChannelContext?.userMessageChannel ??
       liveConversation.originChannel ??
@@ -2304,6 +2339,7 @@ export async function applyRuntimeInjections(
     timestamp,
     interfaceName,
     clientOs,
+    activeApp,
     channelName,
     actorContext: options.actorContext,
     configuredUserTimezone,

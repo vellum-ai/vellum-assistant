@@ -1,5 +1,6 @@
 import {
   ChevronUp,
+  Expand,
   Globe,
   Loader2,
   Maximize2,
@@ -23,7 +24,8 @@ export interface AppNavBarProps {
   appName: string;
   onEdit?: () => void;
   /**
-   * Desktop: flips the left button label to "Close chat".
+   * Desktop: swaps the left "Edit" button for an expand icon that drops the
+   * chat panel and gives the app the full width.
    * Mobile: swaps the right-side edit icon to a chevron-up + active state,
    * marking the bar as the slide-up affordance for the minimized app strip.
    */
@@ -63,9 +65,17 @@ export function AppNavBar({
   return (
     <div className="flex items-center justify-between rounded-t-xl bg-[var(--surface-lift)] px-4 py-3">
       <div className="hidden md:flex items-center min-w-[72px]">
-        {onEdit != null && (
-          <Button onClick={onEdit}>{isEditing ? "Close chat" : "Edit"}</Button>
-        )}
+        {onEdit != null &&
+          (isEditing ? (
+            <Button
+              variant="outlined"
+              iconOnly={<Expand />}
+              onClick={onEdit}
+              tooltip="Expand app"
+            />
+          ) : (
+            <Button onClick={onEdit}>Edit</Button>
+          ))}
       </div>
 
       <Typography

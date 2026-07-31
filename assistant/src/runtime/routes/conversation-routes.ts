@@ -339,6 +339,26 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
   );
 }
 
+/** Upper bound on the reported active-app id, matching app id generation. */
+const ACTIVE_APP_ID_MAX_LENGTH = 128;
+
+/**
+ * True when the client-reported active-app id is safe to carry as view state:
+ * non-empty, trimmed, bounded, and free of path separators or traversal.
+ * Mirrors the app store's own id validation so a malformed id is dropped at
+ * ingress instead of reaching a filesystem lookup.
+ */
+function isSafeActiveAppId(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= ACTIVE_APP_ID_MAX_LENGTH &&
+    value === value.trim() &&
+    !value.includes("/") &&
+    !value.includes("\\") &&
+    !value.includes("..")
+  );
+}
+
 /**
  * True when a message's persisted metadata explicitly flags it as hidden.
  * Used to suppress internal scaffolding messages from UI history while
@@ -1392,6 +1412,7 @@ export async function handleSendMessage(
     hostUsername?: string;
     clientTimezone?: unknown;
     clientOs?: unknown;
+    activeAppId?: unknown;
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
@@ -1518,6 +1539,15 @@ export async function handleSendMessage(
   const clientOs =
     typeof body.clientOs === "string"
       ? (parseClientOs(body.clientOs) ?? undefined)
+      : undefined;
+  // App the client has open on screen. Purely view state: it drives the
+  // per-turn `active_app:` context line and nothing else, so an id that no
+  // longer resolves (deleted app) is dropped silently during assembly rather
+  // than failing the send. Traversal-shaped ids are rejected here so nothing
+  // downstream has to treat the value as a path segment.
+  const activeAppId =
+    typeof body.activeAppId === "string" && isSafeActiveAppId(body.activeAppId)
+      ? body.activeAppId
       : undefined;
 
   // Reject non-string content values (numbers, objects, etc.)
@@ -1679,12 +1709,14 @@ export async function handleSendMessage(
         hostUsername: body.hostUsername,
         ...(clientTimezone ? { clientTimezone } : {}),
         ...(clientOs ? { clientOs } : {}),
+        ...(activeAppId ? { activeAppId } : {}),
       } satisfies HostProxyTransportMetadata)
     : ({
         channelId: sourceChannel,
         interfaceId: sourceInterface,
         ...(clientTimezone ? { clientTimezone } : {}),
         ...(clientOs ? { clientOs } : {}),
+        ...(activeAppId ? { activeAppId } : {}),
       } satisfies NonHostProxyTransportMetadata);
 
   const conversation = await smDeps.getOrCreateConversation(
@@ -3003,6 +3035,12 @@ export const ROUTES: RouteDefinition[] = [
         .optional()
         .describe(
           'Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.',
+        ),
+      activeAppId: z
+        .string()
+        .optional()
+        .describe(
+          'Id of the app the client currently has open on screen (app viewer or the app-editing split). Drives the per-turn `active_app:` context line so the assistant can resolve "the app" to what the user is looking at. View state only: it never affects transport, routing, or tool gating, and is omitted whenever no app is in view.',
         ),
       clientMessageId: z
         .string()

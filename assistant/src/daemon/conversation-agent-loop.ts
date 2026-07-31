@@ -914,6 +914,10 @@ export async function runAgentLoopImpl(
     // `client_os` into the in-flight turn.
     ctx.currentTurnClientOs = ctx.clientOs ?? undefined;
 
+    // Freeze the app the client had in view at turn start, for the same
+    // anti-race reason as `client_os` above.
+    ctx.currentTurnActiveAppId = ctx.activeAppId ?? undefined;
+
     // Resolve the effective profile key for this turn and detect changes.
     // `modelProfileKey` is the actual profile used for this turn. The
     // notice key is narrower: it only marks turns where runtime context should

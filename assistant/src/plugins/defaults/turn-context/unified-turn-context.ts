@@ -19,6 +19,15 @@ export interface UnifiedTurnContextOptions {
   timestamp: string;
   interfaceName?: string;
   clientOs?: string;
+  /**
+   * App the user currently has open on screen. Rendered as the `active_app:`
+   * line so unqualified references to "the app" resolve without a lookup.
+   */
+  activeApp?: {
+    appId: string;
+    name: string;
+    sourceDir: string;
+  } | null;
   channelName?: string;
   actorContext?: InboundActorContext | null;
   configuredUserTimezone?: string | null;
@@ -103,6 +112,12 @@ export function buildUnifiedTurnContextBlock(
   }
   if (options.clientOs) {
     lines.push(`client_os: ${options.clientOs}`);
+  }
+  if (options.activeApp) {
+    const app = options.activeApp;
+    lines.push(
+      `active_app: "${sanitizeInlineContextValue(app.name)}" (app_id: "${sanitizeInlineContextValue(app.appId)}", source: "${sanitizeInlineContextValue(app.sourceDir)}"). The user has this app open on screen; unqualified references to "the app" mean this one.`,
+    );
   }
 
   // Actor identity and trust fields — only for non-guardian turns.

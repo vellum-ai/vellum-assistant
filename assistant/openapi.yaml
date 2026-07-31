@@ -19709,6 +19709,13 @@ paths:
                     Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the
                     per-turn `client_os` context only; does not affect transport/host-proxy capabilities.
                   type: string
+                activeAppId:
+                  description:
+                    'Id of the app the client currently has open on screen (app viewer or the app-editing split). Drives the
+                    per-turn `active_app:` context line so the assistant can resolve "the app" to what the user is
+                    looking at. View state only: it never affects transport, routing, or tool gating, and is omitted
+                    whenever no app is in view.'
+                  type: string
                 clientMessageId:
                   type: string
                   description:

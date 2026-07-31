@@ -172,6 +172,36 @@ describe("AppNavBar fullscreen toggle", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Desktop left-hand edit affordance
+// ---------------------------------------------------------------------------
+
+describe("AppNavBar desktop edit affordance", () => {
+  test("renders the Edit label when the chat panel is closed", () => {
+    const html = renderToStaticMarkup(
+      <AppNavBar appName="My App" onClose={() => {}} onEdit={() => {}} />,
+    );
+    expect(html).toContain(">Edit<");
+    expect(html).not.toContain("lucide-expand");
+  });
+
+  test("swaps to an expand icon while the chat panel is open", () => {
+    const onEdit = mock(() => {});
+    render(
+      <AppNavBar appName="My App" onClose={() => {}} onEdit={onEdit} isEditing />,
+    );
+
+    expect(document.body.textContent).not.toContain("Close chat");
+    const expandButton = document
+      .querySelector("svg.lucide-expand")
+      ?.closest("button");
+    expect(expandButton).not.toBeNull();
+
+    fireEvent.click(expandButton as HTMLButtonElement);
+    expect(onEdit).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Share + Deploy surfaces — static markup
 //
 // We render to static markup so the Radix Menu.Content (a portal that needs

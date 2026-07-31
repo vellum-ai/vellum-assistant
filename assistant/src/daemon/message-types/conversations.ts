@@ -38,6 +38,14 @@ interface BaseTransportMetadata {
    * inference, which keys off `interfaceId`.
    */
   clientOs?: string;
+  /**
+   * Id of the app the client currently has open on screen (the app viewer or
+   * the app-editing split). Rendered as the `active_app:` line in the per-turn
+   * context so the assistant knows which app "the app" refers to without the
+   * user naming it. View state only: it never affects transport or tool
+   * gating, and is absent whenever no app is in view.
+   */
+  activeAppId?: string;
 }
 
 /**

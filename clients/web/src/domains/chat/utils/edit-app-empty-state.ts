@@ -15,7 +15,7 @@ export interface EditAppContext {
 }
 
 export function buildEditAppGreeting(app: EditAppContext): string {
-  return `Editing ${app.name} — what should we change?`;
+  return `Editing ${app.name}. What should we change?`;
 }
 
 function appReference(app: EditAppContext): string {
@@ -37,7 +37,7 @@ export function buildEditAppStarters(
     {
       id: "edit-app:add-feature",
       label: "Add a feature",
-      prompt: `Open ${ref} — I want to add a new feature.`,
+      prompt: `Open ${ref}. I want to add a new feature.`,
       category: "edit-app",
       batch: 0,
     },
@@ -51,7 +51,7 @@ export function buildEditAppStarters(
     {
       id: "edit-app:fix-bug",
       label: "Fix a bug",
-      prompt: `Open ${ref} — there's something I want to fix.`,
+      prompt: `Open ${ref}. There's something I want to fix.`,
       category: "edit-app",
       batch: 0,
     },

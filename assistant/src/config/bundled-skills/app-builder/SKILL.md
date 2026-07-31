@@ -44,6 +44,7 @@ Triage on intent, not artifact type. A simple landing page is a personal build b
 
 `app_open` takes an `app_id`, not a name:
 
+0. If the `<turn_context>` block carries an `active_app:` line, that app is on the user's screen right now. It wins over anything you infer from the conversation: "the app", "this", "make the header bigger" all mean that app, and the line already gives you its `app_id` and source directory.
 1. If the `app_id` is already in your context, use it.
 2. Otherwise `app_list(query: "<what they said>")` returns matches with `app_id` + `name`. `app_list()` with no query lists everything.
 3. One match → open it. Multiple → list them and ask which. None → say so, show what exists, offer to build it.

@@ -15,7 +15,7 @@ export interface AppViewerContainerProps {
   assistantId: string;
   onClose: () => void;
   onEdit?: () => void;
-  /** When true, the nav bar Edit button shows "Close chat" instead. */
+  /** When true, the nav bar Edit button becomes the expand-app affordance. */
   isEditing?: boolean;
   onShare?: () => void;
   isSharing?: boolean;

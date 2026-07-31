@@ -623,6 +623,23 @@ export class Conversation {
    */
   currentTurnClientOs?: string;
   /**
+   * @internal
+   * Id of the app the client currently has open on screen, reported by the
+   * client on each message. Drives the per-turn `active_app:` context line so
+   * the assistant can resolve "the app" to what the user is looking at. This
+   * is the LIVE value; the assembly reads the frozen
+   * {@link currentTurnActiveAppId}.
+   */
+  activeAppId?: string;
+  /**
+   * Per-turn frozen copy of {@link activeAppId}, captured by the agent loop at
+   * turn start for the same reason as {@link currentTurnClientOs}: a queued
+   * message sent from a different view re-applies transport metadata before it
+   * is enqueued, and must not swap the app under the in-flight turn.
+   * @internal
+   */
+  currentTurnActiveAppId?: string;
+  /**
    * Per-turn temporal snapshot frozen by the agent loop and read by
    * `applyRuntimeInjections` to build the `<turn_context>` timezone-mismatch
    * affordance and `time_since_last_message` line. Holds the client-reported
@@ -2396,6 +2413,10 @@ export class Conversation {
 
   applyClientOsFromTransport(transport: ConversationTransportMetadata): void {
     this.clientOs = transport.clientOs ?? undefined;
+  }
+
+  applyActiveAppFromTransport(transport: ConversationTransportMetadata): void {
+    this.activeAppId = transport.activeAppId ?? undefined;
   }
 
   setAssistantId(assistantId: string | null): void {

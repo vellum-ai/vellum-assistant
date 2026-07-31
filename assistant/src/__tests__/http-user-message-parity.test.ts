@@ -442,6 +442,59 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
   });
 });
 
+describe("HTTP POST /v1/messages activeAppId transport metadata", () => {
+  beforeEach(() => {
+    routeGuardianReplyMock.mockClear();
+    addMessageMock.mockClear();
+  });
+
+  async function captureTransport(
+    body: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | undefined> {
+    const conversation = makeConversation({
+      persistUserMessage: mock(async () => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      })),
+      runAgentLoop: mock(async () => undefined),
+    });
+    let capturedOptions: Record<string, unknown> | undefined;
+
+    const res = await sendMessage("hello", conversation, body, {
+      onGetOrCreateConversation: (_conversationId, opts) => {
+        capturedOptions = opts;
+      },
+    });
+
+    expect(res.status).toBe(202);
+    return capturedOptions?.transport as Record<string, unknown> | undefined;
+  }
+
+  test("carries the reported active app onto the transport", async () => {
+    expect(await captureTransport({ activeAppId: "app-abc" })).toEqual({
+      channelId: "vellum",
+      interfaceId: "macos",
+      activeAppId: "app-abc",
+    });
+  });
+
+  test("omits activeAppId when no app is in view", async () => {
+    expect(await captureTransport({})).toEqual({
+      channelId: "vellum",
+      interfaceId: "macos",
+    });
+  });
+
+  test("drops a traversal-shaped activeAppId without rejecting the message", async () => {
+    expect(await captureTransport({ activeAppId: "../../etc/passwd" })).toEqual(
+      {
+        channelId: "vellum",
+        interfaceId: "macos",
+      },
+    );
+  });
+});
+
 // ============================================================================
 // CLIENT METADATA — sanitized x-vellum-* headers persisted under
 // metadata.client for turn analytics
