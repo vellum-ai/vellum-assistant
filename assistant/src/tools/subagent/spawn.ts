@@ -340,16 +340,15 @@ async function runAdvisorConsult(args: {
           parentConversationId: context.conversationId,
           label,
           // Carry the agent's own objective into the consult request — the
-          // agent states the task here, and the inherited transcript can be thin.
-          objective: advisorRequestText(objective),
+          // agent states the task here, and the inherited transcript can be
+          // thin. The situational pack rides in this request turn too, keeping
+          // the system prompt minimal.
+          objective: advisorRequestText(objective, situationalContext),
           sendResultToUser: false,
           role: "advisor",
           fork: true,
           parentMessages: sanitizedMessages,
-          systemPromptOverride: buildAdvisorSystem(
-            parentSystemPrompt,
-            situationalContext,
-          ),
+          systemPromptOverride: buildAdvisorSystem(parentSystemPrompt),
           ...(overrideProfile ? { overrideProfile } : {}),
           ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
           ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),

@@ -369,6 +369,13 @@ async function buildWorkspaceSection(
  */
 const SECTION_TIMEOUT_MS = 2_000;
 
+/**
+ * Aggregate ceiling for the assembled pack. The skill catalog scales with the
+ * installation, so without a total bound a skill-heavy install could crowd the
+ * inherited conversation out of the provider context window.
+ */
+const TOTAL_CONTEXT_MAX_CHARS = 24_000;
+
 function withSectionTimeout(
   section: Promise<string | null>,
   timeoutMs: number,
@@ -397,5 +404,7 @@ export async function buildAdvisorContext(
     ].map((section) => withSectionTimeout(section, sectionTimeoutMs)),
   );
   const present = sections.filter((s): s is string => s !== null);
-  return present.length > 0 ? present.join("\n\n") : null;
+  return present.length > 0
+    ? truncate(present.join("\n\n"), TOTAL_CONTEXT_MAX_CHARS)
+    : null;
 }
