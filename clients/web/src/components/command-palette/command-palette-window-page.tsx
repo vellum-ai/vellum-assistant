@@ -94,15 +94,20 @@ export function CommandPaletteWindowPage() {
     useOrganizationStore.use.currentOrganizationId();
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
+  const assistantSwitcherEnabled =
+    useClientFeatureFlagStore.use.assistantSwitcher();
   // Mirror use-lifecycle's gating: only resolve the selection when the
-  // multi-assistant flag is on; otherwise track the lifecycle's active id, so
-  // the palette never binds to a stale selection the lifecycle ignored. The
-  // resolver reads selectedAssistantId via getState() (non-reactive), so that
-  // slice stays in the dep array as the recompute signal.
+  // multi-assistant or assistant-switcher flag is on; otherwise track the
+  // lifecycle's active id, so the palette never binds to a stale selection
+  // the lifecycle ignored. The resolver reads selectedAssistantId via
+  // getState() (non-reactive), so that slice stays in the dep array as the
+  // recompute signal.
   const selectedAssistant = useMemo(
     () => {
       const selectedId =
-        multiAssistantEnabled && !isGatewayAuthMode() && currentOrganizationId
+        (multiAssistantEnabled || assistantSwitcherEnabled) &&
+        !isGatewayAuthMode() &&
+        currentOrganizationId
           ? resolveSelectedAssistantId(currentOrganizationId)
           : activeAssistantId;
       if (!selectedId) {
@@ -114,6 +119,7 @@ export function CommandPaletteWindowPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       multiAssistantEnabled,
+      assistantSwitcherEnabled,
       activeAssistantId,
       assistants,
       currentOrganizationId,

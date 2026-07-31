@@ -76,7 +76,10 @@ mock.module("@/lib/auth/gateway-session", () => ({
 
 mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
-    use: { multiPlatformAssistant: () => true },
+    use: {
+      multiPlatformAssistant: () => true,
+      assistantSwitcher: () => false,
+    },
   },
 }));
 

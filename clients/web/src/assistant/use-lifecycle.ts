@@ -51,14 +51,17 @@ export function useAssistantLifecycle({
     isOrgReady;
 
   // Which platform assistant the user has selected, gated by the
-  // multi-platform-assistant flag. When the flag is off this stays null,
-  // so the resolution falls back to the default first-listed assistant —
-  // identical to the pre-multi-assistant behavior. Subscribe to the selection
-  // and resolved list so the hook re-renders when either changes, then
-  // resolve through the unified resolver (selected id → validate for org
-  // → lockfile activeAssistant → first valid).
+  // multi-platform-assistant flag OR the assistant-switcher flag (whose
+  // Switch Assistant chooser stores the same selection). When both flags are
+  // off this stays null, so the resolution falls back to the default
+  // first-listed assistant — identical to the pre-multi-assistant behavior.
+  // Subscribe to the selection and resolved list so the hook re-renders when
+  // either changes, then resolve through the unified resolver (selected id →
+  // validate for org → lockfile activeAssistant → first valid).
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
+  const assistantSwitcherEnabled =
+    useClientFeatureFlagStore.use.assistantSwitcher();
   useResolvedAssistantsStore.use.selectedAssistantId();
   // Subscribe so the hook re-renders (and the lockfile-local check below
   // re-evaluates) when the resolved list / lockfile change.
@@ -69,7 +72,9 @@ export function useAssistantLifecycle({
   // and project the default assistant.
   const activeOrganizationId = useRequestOrganizationId();
   const resolvedSelectionId =
-    multiAssistantEnabled && !isGatewayAuthMode() && activeOrganizationId
+    (multiAssistantEnabled || assistantSwitcherEnabled) &&
+    !isGatewayAuthMode() &&
+    activeOrganizationId
       ? resolveSelectedAssistantId(activeOrganizationId)
       : null;
   // Keep only lockfile-only LOCAL assistants off the platform retrieve path:
