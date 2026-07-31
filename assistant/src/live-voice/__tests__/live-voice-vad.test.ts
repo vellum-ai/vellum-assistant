@@ -128,7 +128,17 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 
   flushStopEvents(): void {
-    for (const event of this.stopEvents) {
+    // A stream that was never sent audio has nothing to transcribe, so a real
+    // provider closes without a final. Scripting one anyway let a cycle that
+    // armed and tore down in the same breath — a client interrupt racing the
+    // post-cancel re-arm — hand the session a transcript it never heard, which
+    // launched a turn nothing would ever finalize and wedged the
+    // one-turn-at-a-time gate for every later utterance.
+    const events =
+      this.received.length > 0
+        ? this.stopEvents
+        : this.stopEvents.filter((event) => event.type !== "final");
+    for (const event of events) {
       this.onEvent?.(event);
     }
   }
