@@ -206,13 +206,15 @@ describe("connect", () => {
     expect(ws.sentBinary).toHaveLength(0);
   });
 
-  test("omits conversationId and turnDetection from the start frame when not provided", async () => {
+  test("omits optional fields, including sourceInterface, from the start frame", async () => {
     const ws = await connectAndGetSocket(makeClient());
     ws.open();
-    expect(ws.sentJson[0]).toEqual({
+    const frame = ws.sentJson[0]!;
+    expect(frame).toEqual({
       type: "start",
       audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
     });
+    expect(frame).not.toHaveProperty("sourceInterface");
   });
 
   test("includes turnDetection in the start frame when provided", async () => {

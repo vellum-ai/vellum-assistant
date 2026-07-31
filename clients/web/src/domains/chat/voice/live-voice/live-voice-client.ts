@@ -7,10 +7,9 @@
  * the WebSocket, sends the `start` frame on open, streams microphone PCM as
  * binary frames, and dispatches parsed server frames as typed events.
  *
- * Wire contract (see `protocol.ts`, ported from
- * `assistant/src/live-voice/protocol.ts`):
+ * Wire contract (see the compatibility exports in `protocol.ts`):
  * - `start` / `ptt_release` / `interrupt` / `end` go out as JSON **text** frames.
- * - Audio chunks go out as raw **binary** frames (PCM bytes) — there is no
+ * - Audio chunks go out as raw **binary** frames (PCM bytes). There is no
  *   `audio` client frame on the web side.
  * - Every inbound server frame is JSON text and is parsed via
  *   {@link parseServerFrame}.
@@ -99,11 +98,11 @@ export interface LiveVoiceClientClosed {
  */
 export interface LiveVoiceClientEventMap {
   ready: LiveVoiceReadyServerFrame;
-  /** Server VAD detected user speech — stop local TTS playback immediately. */
+  /** Server VAD detected user speech. Stop local TTS playback immediately. */
   speechStarted: LiveVoiceSpeechStartedServerFrame;
   /** Server VAD closed the utterance; transcription begins. */
   utteranceEnd: LiveVoiceUtteranceEndServerFrame;
-  /** The closed utterance had no usable speech — return to listening. */
+  /** The closed utterance had no usable speech. Return to listening. */
   utteranceDiscarded: LiveVoiceUtteranceDiscardedServerFrame;
   sttPartial: LiveVoiceSttPartialServerFrame;
   sttFinal: LiveVoiceSttFinalServerFrame;
@@ -111,7 +110,7 @@ export interface LiveVoiceClientEventMap {
   assistantTextDelta: LiveVoiceAssistantTextDeltaServerFrame;
   ttsAudio: LiveVoiceTtsAudioServerFrame;
   ttsDone: LiveVoiceTtsDoneServerFrame;
-  /** Barge-in aborted the turn — drop buffered tts_audio; no tts_done follows. */
+  /** Barge-in aborted the turn. Drop buffered tts_audio; no tts_done follows. */
   turnCancelled: LiveVoiceTurnCancelledServerFrame;
   /** The completed turn asked the client to dismiss the full-screen room. */
   minimizeRoom: LiveVoiceMinimizeRoomServerFrame;

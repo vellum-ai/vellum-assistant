@@ -1,11 +1,21 @@
 import { describe, expect, test } from "bun:test";
+import {
+  LIVE_VOICE_AUDIO_FORMAT as SHARED_LIVE_VOICE_AUDIO_FORMAT,
+  parseLiveVoiceServerFrame,
+} from "@vellumai/service-contracts/live-voice";
 
 import {
+  LIVE_VOICE_AUDIO_FORMAT,
   parseServerFrame,
   type LiveVoiceServerFrame,
 } from "@/domains/chat/voice/live-voice/protocol";
 
 describe("parseServerFrame", () => {
+  test("is the shared tolerant parser", () => {
+    expect(parseServerFrame).toBe(parseLiveVoiceServerFrame);
+    expect(LIVE_VOICE_AUDIO_FORMAT).toBe(SHARED_LIVE_VOICE_AUDIO_FORMAT);
+  });
+
   const frames: LiveVoiceServerFrame[] = [
     { type: "ready", seq: 1, sessionId: "s1", conversationId: "c1" },
     {
