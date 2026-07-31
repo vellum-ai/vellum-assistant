@@ -39,6 +39,8 @@ describe("LoginPage sign-up cross-link", () => {
 
   const signUpLink = () => screen.getByText("Sign up").getAttribute("href");
 
+  // Allowlist filtering and organic/bare behavior are covered by the
+  // withPreservedAttribution unit tests; this exercises the page wiring.
   test("carries attribution from the current URL alongside returnTo", () => {
     renderAuthEntry(
       LoginPage,
@@ -49,26 +51,6 @@ describe("LoginPage sign-up cross-link", () => {
     expect(signUpLink()).toBe(
       `/account/signup?returnTo=${encodeURIComponent(CHECKOUT)}&utm_source=ig&fbclid=abc123`,
     );
-  });
-
-  test("stays returnTo-only for an organic arrival", () => {
-    renderAuthEntry(LoginPage, ROUTE, entryUrl(ROUTE, CHECKOUT));
-
-    expect(signUpLink()).toBe(
-      `/account/signup?returnTo=${encodeURIComponent(CHECKOUT)}`,
-    );
-  });
-
-  test("stays bare without returnTo or attribution", () => {
-    renderAuthEntry(LoginPage, ROUTE, ROUTE);
-
-    expect(signUpLink()).toBe("/account/signup");
-  });
-
-  test("does not carry non-allowlisted params", () => {
-    renderAuthEntry(LoginPage, ROUTE, `${ROUTE}?debug=1&utm_source=ig`);
-
-    expect(signUpLink()).toBe("/account/signup?utm_source=ig");
   });
 });
 

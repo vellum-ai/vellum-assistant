@@ -108,8 +108,7 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const callbackUrl = buildProviderCallbackUrl(returnTo);
-  // Keep URL-borne attribution alive across the pivot — the signup screen's
-  // provider click reads it off its own location.
+  // Keep URL-borne attribution alive across the pivot to signup.
   const { search } = useLocation();
   const signUpHref = withPreservedAttribution(
     returnTo
