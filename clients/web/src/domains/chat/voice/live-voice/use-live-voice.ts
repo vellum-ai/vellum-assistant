@@ -94,6 +94,13 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import {
+  EchoMarginProbe,
+  recordLiveVoiceEchoMargin,
+  recordLiveVoiceOutputRoute,
+  recordLiveVoiceSessionStart,
+} from "@/domains/chat/voice/live-voice/live-voice-diagnostics";
+import { describeVoiceAudioSession } from "@/runtime/native-audio-session";
+import {
   isLiveVoiceSessionActive,
   minimizeVoiceRoom,
   useLiveVoiceStore,
@@ -300,6 +307,12 @@ interface SessionContext {
    */
   clientHeardLatencyMs: number | null;
   /**
+   * Correlates microphone and speaker amplitude so a support bundle can show
+   * whether echo cancellation engaged, instead of leaving it to be inferred
+   * from transcripts. Fed from {@link handleAmplitude}; flushed at session end.
+   */
+  echoProbe: EchoMarginProbe;
+  /**
    * Pending idle-check timer for the store's `assistantAudioActive` flag. Armed
    * on each `tts_audio` frame and re-armed while the player is still draining;
    * fires once audio has stopped flowing to mark the assistant silent (so a
@@ -475,6 +488,7 @@ export function useLiveVoice(
     sessionRef.current = null;
     session.generation += 1;
     clearAssistantAudioActive(session);
+    flushEchoMargin(session);
     useLiveVoiceStore.getState().setState("ending");
     for (const unsubscribe of session.unsubscribes) {
       unsubscribe();
@@ -681,8 +695,17 @@ export function useLiveVoice(
       const client = (
         opts.createClient ?? (() => new LiveVoiceChannelClient())
       )();
-      const player = standbyPlayerRef.current ?? createPlayer();
+      const prewarmedPlayer = standbyPlayerRef.current;
+      const player = prewarmedPlayer ?? createPlayer();
       standbyPlayerRef.current = null;
+      // Whether this session inherited a player unlocked inside a user gesture
+      // is the fact that decides if its echo-cancelling output route could be
+      // started at all, so it is recorded before anything can obscure it.
+      recordLiveVoiceSessionStart({
+        playerSource: prewarmedPlayer ? "prewarmed" : "created",
+        isReconnect,
+        handsFree: startOptions.handsFree === true,
+      });
       // The composer reserves and prewarms this player before its async
       // readiness check. Reconnects reuse it too; this repeated call is a no-op
       // while its AudioContext is running. Direct callers without a reservation
@@ -723,6 +746,7 @@ export function useLiveVoice(
         speechEndedAtMs: null,
         turnHeardStampMs: null,
         clientHeardLatencyMs: null,
+        echoProbe: new EchoMarginProbe(),
         assistantAudioIdleTimer: null,
       };
 
@@ -1282,6 +1306,7 @@ function disposeSessionPrimitives(
 ): void {
   session.generation += 1;
   clearAssistantAudioActive(session);
+  flushEchoMargin(session);
   for (const unsubscribe of session.unsubscribes) {
     unsubscribe();
   }
@@ -1293,6 +1318,21 @@ function disposeSessionPrimitives(
     void session.player.dispose();
   }
   void session.capture.shutdown();
+}
+
+/**
+ * Emit the measurement for a reply that was still playing when the session
+ * ended, so a user who reports the problem mid-sentence still ships the number
+ * that describes it. No-op when the assistant never became audible.
+ */
+function flushEchoMargin(session: SessionContext): void {
+  const summary = session.echoProbe.summarize();
+  if (summary) {
+    recordLiveVoiceEchoMargin(
+      summary,
+      session.player.getOutputRouteDiagnostics().route,
+    );
+  }
 }
 
 /**
@@ -1345,6 +1385,35 @@ async function finishCaptureStartup(
   if (s.state === "connecting") {
     s.setState("listening");
   }
+  rebindOutputRouteToCapture(session);
+}
+
+/**
+ * Re-render the TTS output route against the now-live capture unit, then record
+ * where playback actually ended up.
+ *
+ * Runs at the one moment both halves of the full-duplex path exist: the player
+ * was unlocked back in the entry gesture, and the microphone has just come up.
+ * WebKit binds a MediaStream renderer to whichever capture unit is active when
+ * it starts, and the echo reference belongs to that unit, so a renderer started
+ * before `getUserMedia` may hold no reference at all.
+ *
+ * The restart is synchronous and inaudible (nothing is queued yet). The record
+ * that follows is fire-and-forget: it waits on a native bridge call, and a
+ * session must never be gated on diagnostics.
+ */
+function rebindOutputRouteToCapture(session: SessionContext): void {
+  session.player.restartOutputRoute();
+  const generation = session.generation;
+  void describeVoiceAudioSession().then((audioSession) => {
+    if (session.generation !== generation) {
+      return;
+    }
+    recordLiveVoiceOutputRoute({
+      ...session.player.getOutputRouteDiagnostics(),
+      audioSession,
+    });
+  });
 }
 
 /**
@@ -1387,10 +1456,27 @@ function handleAmplitude(
     return;
   }
   // Muted: the server hears silence (see handleChunk), so the UI and the
-  // manual-mode amplitude barge-in must too — a hot-looking waveform (or a
+  // manual-mode amplitude barge-in must too. A hot-looking waveform (or a
   // barge-in) from a muted mic would contradict the substituted stream.
   const muted = useLiveVoiceStore.getState().muted;
   useLiveVoiceStore.getState().setInputAmplitude(muted ? 0 : amplitude);
+  if (!muted) {
+    // Sampled here rather than on a timer of its own: this fires once per PCM
+    // chunk, which is the cadence the microphone actually produces, and the
+    // speaker's amplitude is a cheap read off the player's metering tap.
+    // Muted chunks are skipped because the server is hearing a substituted
+    // silent stream, which makes any echo measurement meaningless.
+    const summary = session.echoProbe.sample(
+      amplitude,
+      session.player.getOutputAmplitude(),
+    );
+    if (summary) {
+      recordLiveVoiceEchoMargin(
+        summary,
+        session.player.getOutputRouteDiagnostics().route,
+      );
+    }
+  }
   if (
     !muted &&
     !session.handsFree &&

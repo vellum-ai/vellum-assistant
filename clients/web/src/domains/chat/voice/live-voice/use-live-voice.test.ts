@@ -41,6 +41,7 @@ import {
   FakePlayer,
   pcmChunk,
 } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
+import { getLifecycleDiagnosticsEvents } from "@/lib/diagnostics";
 
 // Import the controller + store *after* the connection mock is registered, so
 // the real connection.ts (which imports the generated SDK) never enters the
@@ -3094,5 +3095,167 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     });
     expect(h.view.result.current.state).toBe("idle");
     expect(h.client.connectArgs).toBe(connectArgsBeforeStop);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Echo-cancellation diagnostics
+// ---------------------------------------------------------------------------
+
+describe("echo-cancellation diagnostics", () => {
+  /**
+   * Most recent lifecycle event of a kind, or `null`.
+   *
+   * Deliberately not an index offset taken before the action: the ring holds
+   * 200 events and the tests above it fill and evict continuously, so absolute
+   * positions shift underneath a slice. The newest event of a kind is always
+   * the one the test just caused.
+   */
+  function lastEvent(kind: string) {
+    const matching = getLifecycleDiagnosticsEvents().filter(
+      (event) => event.kind === kind,
+    );
+    return matching[matching.length - 1] ?? null;
+  }
+
+  /** Serialized newest event of a kind, for asserting nothing new arrived. */
+  function fingerprint(kind: string): string {
+    return JSON.stringify(lastEvent(kind));
+  }
+
+  function liveVoiceControls() {
+    const controls = useLiveVoiceStore.getState().controls;
+    expect(controls).not.toBeNull();
+    return controls!;
+  }
+
+  async function reachListening(h: ReturnType<typeof renderController>) {
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+      });
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      });
+      await Promise.resolve();
+    });
+  }
+
+  /** Push `count` amplitude readings at a given speaker level. */
+  function pushSamples(
+    h: ReturnType<typeof renderController>,
+    count: number,
+    mic: number,
+    output: number,
+  ) {
+    act(() => {
+      h.player.outputAmplitude = output;
+      for (let i = 0; i < count; i++) {
+        h.getCapture().pushAmplitude(mic);
+      }
+    });
+  }
+
+  test("re-renders the output route once the microphone is live", async () => {
+    const h = renderController();
+    expect(h.player.restartOutputRouteCount).toBe(0);
+
+    await reachListening(h);
+
+    // The player is unlocked in the entry gesture, before getUserMedia exists.
+    // WebKit binds a MediaStream renderer to whichever capture unit is running
+    // when it starts, so the rebind has to happen after capture comes up or the
+    // renderer can hold no echo reference at all.
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.player.restartOutputRouteCount).toBe(1);
+  });
+
+  test("records the player's gesture provenance at session start", async () => {
+    const h = renderController();
+
+    await act(async () => {
+      h.view.result.current.prewarmPlayback();
+    });
+    await reachListening(h);
+
+    expect(lastEvent("live_voice_session_start")?.details).toMatchObject({
+      playerSource: "prewarmed",
+      isReconnect: false,
+      handsFree: true,
+    });
+  });
+
+  test("records a session that built its own player outside any gesture", async () => {
+    const h = renderController();
+
+    // No prewarm: the shape of a Siri / Action Button / Live Activity start,
+    // which has no user activation to borrow for `play()`.
+    await reachListening(h);
+
+    expect(lastEvent("live_voice_session_start")?.details).toMatchObject({
+      playerSource: "created",
+    });
+  });
+
+  test("measures the mic against the speaker across an utterance", async () => {
+    const h = renderController();
+    h.player.outputRoute = "direct";
+    await reachListening(h);
+
+    // Quiet room, then the assistant speaks and the mic rises tenfold with it,
+    // then long enough silence to close the utterance: uncancelled echo.
+    pushSamples(h, 12, 0.01, 0);
+    pushSamples(h, 12, 0.1, 0.8);
+    pushSamples(h, 12, 0.01, 0);
+
+    const measured = lastEvent("live_voice_echo_margin");
+    expect(measured?.details).toMatchObject({
+      route: "direct",
+      micDuringTts: 0.1,
+      micFloor: 0.01,
+    });
+    expect(measured?.details.marginDb as number).toBeGreaterThan(15);
+  });
+
+  test("skips measurement while the mic is muted", async () => {
+    const h = renderController();
+    await reachListening(h);
+    act(() => liveVoiceControls().setMuted(true));
+    const before = fingerprint("live_voice_echo_margin");
+
+    pushSamples(h, 30, 0.1, 0.8);
+    pushSamples(h, 30, 0.1, 0);
+
+    // A muted session sends the server a substituted silent stream, so any
+    // echo number measured against it would describe nothing.
+    expect(fingerprint("live_voice_echo_margin")).toBe(before);
+  });
+
+  test("flushes the reply still playing when the session ends", async () => {
+    const h = renderController();
+    await reachListening(h);
+    const before = fingerprint("live_voice_echo_margin");
+
+    pushSamples(h, 12, 0.01, 0);
+    pushSamples(h, 12, 0.2, 0.8);
+    // Still mid-utterance: nothing has closed it.
+    expect(fingerprint("live_voice_echo_margin")).toBe(before);
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+
+    // A user who reports the problem mid-sentence still ships the measurement.
+    expect(fingerprint("live_voice_echo_margin")).not.toBe(before);
+    expect(lastEvent("live_voice_echo_margin")?.details).toMatchObject({
+      micDuringTts: 0.2,
+      micFloor: 0.01,
+    });
   });
 });

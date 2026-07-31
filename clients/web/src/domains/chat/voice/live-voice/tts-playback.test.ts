@@ -160,6 +160,8 @@ class MockMediaStreamPlaybackElement {
   srcObject: HTMLMediaElement["srcObject"] = null;
   playCount = 0;
   pauseCount = 0;
+  paused = true;
+  readyState = 0;
 
   constructor(private readonly playError?: Error) {}
 
@@ -168,10 +170,13 @@ class MockMediaStreamPlaybackElement {
     if (this.playError) {
       throw this.playError;
     }
+    this.paused = false;
+    this.readyState = 4;
   }
 
   pause(): void {
     this.pauseCount += 1;
+    this.paused = true;
   }
 }
 
@@ -348,6 +353,96 @@ describe("LiveVoiceAudioPlayer", () => {
     }
   });
 
+  test("restarting the route re-renders the MediaStream track", () => {
+    const { player: mediaStreamPlayer, mediaElement } = makeMediaStreamPlayer();
+
+    mediaStreamPlayer.prewarm();
+    expect(mediaElement.playCount).toBe(1);
+
+    // Rebinding after getUserMedia has to actually stop and restart the
+    // renderer: WebKit attaches the echo reference when a renderer starts, so a
+    // no-op "already playing" check would leave it bound to whatever unit
+    // existed before the microphone came up.
+    mediaStreamPlayer.restartOutputRoute();
+
+    expect(mediaElement.pauseCount).toBe(1);
+    expect(mediaElement.playCount).toBe(2);
+    expect(mediaElement.paused).toBe(false);
+    expect(mediaStreamPlayer.getOutputRouteDiagnostics().route).toBe(
+      "media-stream",
+    );
+  });
+
+  test("restarting the route is a no-op once it has fallen back", async () => {
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { player: mediaStreamPlayer, mediaElement } = makeMediaStreamPlayer(
+        new Error("playback rejected"),
+      );
+
+      mediaStreamPlayer.prewarm();
+      await flushMicrotasks();
+      const attemptsAfterFallback = mediaElement.playCount;
+
+      mediaStreamPlayer.restartOutputRoute();
+
+      expect(mediaElement.playCount).toBe(attemptsAfterFallback);
+      expect(mediaStreamPlayer.getOutputRouteDiagnostics().route).toBe(
+        "direct",
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  test("route diagnostics name the rejection that dropped echo cancellation", async () => {
+    const consoleError = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const rejection = new Error("playback rejected");
+      rejection.name = "NotAllowedError";
+      const { player: mediaStreamPlayer } = makeMediaStreamPlayer(rejection);
+
+      mediaStreamPlayer.prewarm();
+      await flushMicrotasks();
+
+      expect(mediaStreamPlayer.getOutputRouteDiagnostics()).toMatchObject({
+        route: "direct",
+        mediaStreamRouteRequested: true,
+        mediaStreamApiAvailable: true,
+        playAttempts: 1,
+        playRejectionName: "NotAllowedError",
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  test("route diagnostics distinguish unresolved from unsupported", () => {
+    const { player: mediaStreamPlayer } = makeMediaStreamPlayer();
+    // Wanted, but no context built yet: reporting "direct" here would read as a
+    // failed route rather than one that has not been attempted.
+    expect(mediaStreamPlayer.getOutputRouteDiagnostics().route).toBe("pending");
+
+    expect(player.getOutputRouteDiagnostics()).toMatchObject({
+      route: "unsupported",
+      mediaStreamRouteRequested: false,
+    });
+  });
+
+  test("route diagnostics report a route that paused itself after starting", () => {
+    const { player: mediaStreamPlayer, mediaElement } = makeMediaStreamPlayer();
+
+    mediaStreamPlayer.prewarm();
+    // A route accepted at play() and later stopped by the platform still
+    // reports "media-stream"; only the live element state reveals it.
+    mediaElement.pause();
+
+    expect(mediaStreamPlayer.getOutputRouteDiagnostics()).toMatchObject({
+      route: "media-stream",
+      elementPaused: true,
+    });
+  });
+
   test("schedules chunks in order, gaplessly, at the frame sample rate", () => {
     // Two 24 kHz frames of 24000 samples each => 1.0s buffers.
     player.enqueue(chunk(new Array(24000).fill(100)));
@@ -360,9 +455,7 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(ctx.sources[1]!.startedAt).toBeCloseTo(1.0, 6);
     // Buffers were built at the frame's own 24 kHz rate, not the 48 kHz ctx.
     expect(ctx.sources[0]!.buffer!.sampleRate).toBe(24000);
-    expect(ctx.sources[0]!.connectedTo).toBe(
-      ctx.gain as unknown as AudioNode,
-    );
+    expect(ctx.sources[0]!.connectedTo).toBe(ctx.gain as unknown as AudioNode);
     expect(ctx.gain?.connectedTo).toBe(ctx.destination);
 
     expect(player.isPlaying).toBe(true);

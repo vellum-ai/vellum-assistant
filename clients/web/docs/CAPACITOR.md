@@ -267,6 +267,30 @@ the destination stream. Automatic reconnects must reuse the already-started
 player and MediaStream element: creating a replacement from a backoff timer
 loses the original user activation and can make `play()` fail.
 
+**Re-render the track once the microphone is live.** WebKit binds a MediaStream
+renderer to whichever capture unit is active when the renderer starts, and the
+echo reference belongs to that unit. Starting the element in the entry gesture
+is therefore necessary but not sufficient: at that moment `getUserMedia` has not
+run, so the renderer can come up bound to a plain output unit and never acquire
+a reference. `LiveVoiceAudioPlayer.restartOutputRoute()` pauses and replays the
+element, and the session calls it once capture reports running. The queue is
+silent at that point, so the restart is inaudible. It is also the second chance
+the gesture-less entry points need, since a page holding a live `getUserMedia`
+stream may play a MediaStream element that an unactivated page could not.
+
+**The route degrades silently, so it must be reported.** A refused `play()`
+falls back to `AudioContext.destination`: audio still plays and echo
+cancellation is simply gone, which surfaces only as the assistant transcribing
+fragments of its own speech. `getOutputRouteDiagnostics()` exposes the resolved
+route, the `play()` rejection, and live element state, and the live-voice
+session writes it (with a read-only `describeVoiceAudioSession()` of the native
+session) to the lifecycle diagnostics ring so support bundles carry it. Alongside
+it, `EchoMarginProbe` correlates microphone against speaker amplitude per
+utterance: a margin near 0 dB over the room's noise floor means cancellation is
+working, and a large positive margin with high correlation means the microphone
+is hearing the loudspeaker. Diagnostics go in the *lifecycle* ring, never the
+main one, which ordinary chat traffic fills and evicts within a minute.
+
 References:
 
 - WebKit — [`MediaSessionManagerCocoa` selects the capture audio-session category and mode](https://github.com/WebKit/WebKit/blob/41daa01748411a95855d8b6a0f0ffbd54f729a08/Source/WebCore/platform/audio/cocoa/MediaSessionManagerCocoa.mm#L174-L218)

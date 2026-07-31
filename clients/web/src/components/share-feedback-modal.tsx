@@ -239,6 +239,31 @@ async function fetchPlatformLogs(
   }
 }
 
+/**
+ * Native shell identity, or `null` off a Capacitor shell.
+ *
+ * Pins which store/TestFlight build hosted this report. It also settles native
+ * shell versus home-screen PWA, which the user agent cannot: `WKWebView` drops
+ * the `Version/` and `Safari/` tokens in both cases, so the two are
+ * indistinguishable from the UA string alone.
+ *
+ * `@capacitor/app` is a plugin Proxy, so it is destructured inline per
+ * `docs/CAPACITOR.md` § "Capacitor plugins must be destructured inline".
+ */
+async function collectNativeAppInfo(): Promise<Record<string, unknown> | null> {
+  if (!Capacitor.isNativePlatform()) {
+    return null;
+  }
+  try {
+    const { App } = await import("@capacitor/app");
+    const { id, name, version, build } = await App.getInfo();
+    return { id, name, version, build };
+  } catch {
+    // Diagnostics are best-effort and must never block a support submission.
+    return null;
+  }
+}
+
 async function buildClientLogsFile(
   timeRange: TimeRange,
   assistantId: string | null,
@@ -276,6 +301,14 @@ async function buildClientLogsFile(
     assistant_id: assistantId,
     active_conversation_id: activeConversationId,
     doctor_session_id: doctorSessionId ?? null,
+    // Which web bundle produced this report. The archive already carries the
+    // assistant's version, but the two ship on entirely separate cadences: the
+    // native shells load this bundle over the network at runtime, so a report
+    // can pair an arbitrarily new assistant with an arbitrarily old (or cached)
+    // client, and without this there is no way to tell which client fix was
+    // actually present.
+    client_version: import.meta.env.VITE_APP_VERSION ?? null,
+    native_app: await collectNativeAppInfo(),
     user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     language: typeof navigator !== "undefined" ? navigator.language : "",
     platform: typeof navigator !== "undefined" ? navigator.platform : "",

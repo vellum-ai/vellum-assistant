@@ -196,9 +196,14 @@ export type AudioContextFactory = () => AudioContextLike;
 const defaultAudioContextFactory: AudioContextFactory = () =>
   createAudioContext() as unknown as AudioContextLike;
 
+/**
+ * `paused` and `readyState` are read for diagnostics only. A route that was
+ * accepted at `play()` and later paused itself is indistinguishable from a
+ * healthy one unless the element is sampled again while audio is flowing.
+ */
 type MediaStreamPlaybackElement = Pick<
   HTMLAudioElement,
-  "pause" | "play" | "srcObject"
+  "pause" | "play" | "srcObject" | "paused" | "readyState"
 >;
 
 type MediaStreamPlaybackElementFactory = () => MediaStreamPlaybackElement;
@@ -209,6 +214,37 @@ const defaultMediaStreamPlaybackElementFactory: MediaStreamPlaybackElementFactor
 interface MediaStreamOutputRoute {
   destination: MediaStreamAudioDestinationNode;
   element: MediaStreamPlaybackElement;
+}
+
+/**
+ * Which sink the scheduled audio ends up in.
+ *
+ * - `unsupported`: this runtime never attempts the MediaStream route.
+ * - `pending`: the route is wanted but no `AudioContext` has been built yet.
+ * - `media-stream`: TTS renders through a MediaStream track, which is the only
+ *   form WebKit offers its capture unit as echo-cancellation reference audio.
+ * - `direct`: `AudioContext.destination`. Playback works and echo cancellation
+ *   does not.
+ */
+export type TtsOutputRoute =
+  "unsupported" | "pending" | "media-stream" | "direct";
+
+/** Observable state of the output path, for support bundles. */
+export interface TtsOutputRouteDiagnostics {
+  route: TtsOutputRoute;
+  /** Whether this runtime asks for the MediaStream route at all. */
+  mediaStreamRouteRequested: boolean;
+  /** Whether the `AudioContext` implementation can build the route. */
+  mediaStreamApiAvailable: boolean;
+  /** `play()` attempts made on the media element, including restarts. */
+  playAttempts: number;
+  /** Error name from the most recent rejected `play()`, else `null`. */
+  playRejectionName: string | null;
+  /** Live element state, sampled at read time. `null` off the route. */
+  elementPaused: boolean | null;
+  elementReadyState: number | null;
+  /** `AudioContext.state`, which reads `suspended` when playback is silently dead. */
+  contextState: string | null;
 }
 
 /**
@@ -244,6 +280,19 @@ export class LiveVoiceAudioPlayer {
   private readonly createMediaStreamPlaybackElement: MediaStreamPlaybackElementFactory;
   private context: AudioContextLike | null = null;
   private mediaStreamOutput: MediaStreamOutputRoute | null = null;
+
+  /**
+   * Whether the MediaStream route was built for the current context. Distinct
+   * from `mediaStreamOutput !== null`, which also goes null on teardown, and
+   * from the requested-vs-available distinction the diagnostics report.
+   */
+  private mediaStreamApiAvailable = false;
+
+  /** `play()` attempts on the media element, including {@link restartOutputRoute}. */
+  private playAttempts = 0;
+
+  /** Error name from the most recent rejected `play()`. */
+  private playRejectionName: string | null = null;
 
   /** Sources currently scheduled (playing or pending). */
   private activeSources = new Set<AudioBufferSourceNode>();
@@ -547,10 +596,12 @@ export class LiveVoiceAudioPlayer {
     const context = this.context;
     this.context = null;
     this.disposeMediaStreamOutput();
-    // The analyser belongs to the closed context; drop it (and its buffer) so a
-    // reused player rebuilds metering against a fresh context.
+    // The analyser and the mute stage belong to the closed context; drop them
+    // (and the analyser's buffer) so a reused player rebuilds its graph against
+    // a fresh context rather than writing into detached nodes.
     this.analyser = null;
     this.analyserSamples = null;
+    this.outputGain = null;
     this.smoothedOutputAmplitude = 0;
     if (context) {
       await context.close();
@@ -610,6 +661,8 @@ export class LiveVoiceAudioPlayer {
     // WebKit only supplies default-device MediaStream-track playback to its
     // VoiceProcessingIO capture unit as far-end echo-cancellation audio:
     // https://github.com/WebKit/WebKit/blob/41daa01748411a95855d8b6a0f0ffbd54f729a08/Source/WebKit/GPUProcess/webrtc/RemoteAudioMediaStreamTrackRendererInternalUnitManager.cpp#L228-L292
+    this.mediaStreamApiAvailable =
+      context.createMediaStreamDestination !== undefined;
     if (!this.useMediaStreamOutput || !context.createMediaStreamDestination) {
       return context.destination;
     }
@@ -627,7 +680,10 @@ export class LiveVoiceAudioPlayer {
       return;
     }
 
+    this.playAttempts += 1;
     void route.element.play().catch((error: unknown) => {
+      this.playRejectionName =
+        error instanceof Error ? error.name : "UnknownError";
       if (this.context !== context || this.mediaStreamOutput !== route) {
         return;
       }
@@ -648,6 +704,62 @@ export class LiveVoiceAudioPlayer {
         context: "live_voice_ios_media_stream_output",
       });
     });
+  }
+
+  /**
+   * Re-render the MediaStream track now that microphone capture is running.
+   *
+   * WebKit renders a MediaStream track through whichever capture unit is active
+   * when the renderer starts, and the echo reference is a property of that
+   * unit. The player is deliberately prewarmed from the user gesture that
+   * begins a session, which is *before* `getUserMedia` has created any capture
+   * unit, so the renderer can come up bound to a plain output unit that never
+   * acquires an echo reference. Restarting it once the mic is live rebinds it
+   * against the voice-processing unit.
+   *
+   * It is also the second chance the gesture-less start paths need. A session
+   * begun from Siri, the Action Button, or a Live Activity tap has no
+   * activation to borrow, so its first `play()` can be refused outright, while
+   * a page holding a live `getUserMedia` stream is allowed to play a
+   * MediaStream element.
+   *
+   * Safe to call at any point: it no-ops when the route was never taken or has
+   * already fallen back, and it runs while the queue is silent, so the pause is
+   * inaudible. Never throws; a refused restart degrades exactly like a refused
+   * initial start.
+   */
+  restartOutputRoute(): void {
+    const context = this.context;
+    const route = this.mediaStreamOutput;
+    if (!context || !route) {
+      return;
+    }
+    route.element.pause();
+    this.startMediaStreamOutput(context);
+  }
+
+  /**
+   * Snapshot the output path for a support bundle. Reads live element state, so
+   * a route that was accepted and later paused itself reports honestly.
+   */
+  getOutputRouteDiagnostics(): TtsOutputRouteDiagnostics {
+    const route = this.mediaStreamOutput;
+    return {
+      route: !this.useMediaStreamOutput
+        ? "unsupported"
+        : route
+          ? "media-stream"
+          : this.context === null
+            ? "pending"
+            : "direct",
+      mediaStreamRouteRequested: this.useMediaStreamOutput,
+      mediaStreamApiAvailable: this.mediaStreamApiAvailable,
+      playAttempts: this.playAttempts,
+      playRejectionName: this.playRejectionName,
+      elementPaused: route?.element.paused ?? null,
+      elementReadyState: route?.element.readyState ?? null,
+      contextState: this.context?.state ?? null,
+    };
   }
 
   private disposeMediaStreamOutput(): void {
