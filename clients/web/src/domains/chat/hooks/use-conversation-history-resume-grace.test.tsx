@@ -8,13 +8,9 @@ import { __resetForTesting, publish } from "@/lib/event-bus";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
-// ---------------------------------------------------------------------------
-// Module mock: `@/domains/chat/transcript/use-history-pagination`.
-//
 // Stub the TanStack Query layer so the test drives the initial-page error
 // state directly. `isSuccess: false` marks it as an initial-page (not
 // older-page) failure and keeps the data-apply effect dormant.
-// ---------------------------------------------------------------------------
 const realPaginationModule = await import(
   "@/domains/chat/transcript/use-history-pagination"
 );
@@ -97,12 +93,6 @@ afterEach(() => {
 
 describe("useConversationHistory resume grace on history errors", () => {
   test("holds back the initial-page error within the resume grace window", () => {
-    /**
-     * The first `/messages` request after returning to a backgrounded client
-     * frequently fails against a still-waking pod, so the blocking "Failed to
-     * load conversation history" error must not flash for that one cycle.
-     */
-
     // GIVEN a mounted history hook for an active conversation
     const { rerender } = renderHistory();
 
@@ -120,11 +110,6 @@ describe("useConversationHistory resume grace on history errors", () => {
   });
 
   test("surfaces the initial-page error once the resume grace window expires", async () => {
-    /**
-     * A genuinely failing history load must still surface its error (and the
-     * retry affordance it carries) after the grace window elapses.
-     */
-
     // GIVEN a very short resume grace window
     __setResumeGraceMsForTesting(20);
 
@@ -147,11 +132,6 @@ describe("useConversationHistory resume grace on history errors", () => {
   });
 
   test("surfaces the initial-page error immediately without a resume", () => {
-    /**
-     * The grace window is armed only by a resume, so an ordinary load failure
-     * is reported on the first error cycle exactly as before.
-     */
-
     // GIVEN a mounted history hook with no resume signal
     const { rerender } = renderHistory();
 

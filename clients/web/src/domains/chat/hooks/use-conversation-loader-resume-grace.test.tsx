@@ -11,13 +11,9 @@ import { ApiError } from "@/utils/api-errors";
 const CONVERSATION_LIST_LOAD_FAILED_CODE = "CONVERSATION_LIST_LOAD_FAILED";
 const DEFAULT_RESUME_GRACE_MS = 15_000;
 
-// ---------------------------------------------------------------------------
-// Module mocks: the loader's collaborators.
-//
 // The conversation-list query is stubbed so the test drives its error state
 // directly; history loading, routing, and toasts are stubbed out so only the
 // banner-consumer wiring is under test.
-// ---------------------------------------------------------------------------
 let listError: Error | null = null;
 
 mock.module("@/hooks/conversation-queries", () => ({
@@ -104,13 +100,6 @@ afterEach(() => {
 
 describe("useConversationLoader resume grace on list-load errors", () => {
   test("holds back the load-failed banner within the resume grace window", () => {
-    /**
-     * The conversation-list refetch that fires on return from a backgrounded
-     * client often fails transiently against a still-waking pod, so the
-     * "We couldn't load your conversations" banner must not flash for that
-     * one fetch cycle.
-     */
-
     // GIVEN a mounted loader with no cached conversation list
     const { rerender } = renderLoader();
 
@@ -128,11 +117,6 @@ describe("useConversationLoader resume grace on list-load errors", () => {
   });
 
   test("raises the load-failed banner once the resume grace window expires", async () => {
-    /**
-     * A list load that keeps failing is a real failure, so the banner (and its
-     * refresh prompt) must surface once the grace window elapses.
-     */
-
     // GIVEN a very short resume grace window
     __setResumeGraceMsForTesting(20);
 
@@ -152,35 +136,7 @@ describe("useConversationLoader resume grace on list-load errors", () => {
     });
   });
 
-  test("holds back the load-failed banner on a network-back resume", () => {
-    /**
-     * The list query carries TanStack Query's default reconnect refetch, so a
-     * network-back resume triggers the same first-request-against-a-waking-pod
-     * failure as a foreground resume and must be held back too.
-     */
-
-    // GIVEN a mounted loader with no cached conversation list
-    const { rerender } = renderLoader();
-
-    // AND the browser reports the network came back
-    act(() => {
-      publish("app.resume", { signal: "online" });
-    });
-
-    // WHEN the reconnect refetch errors transiently
-    listError = new ApiError(503, "boom");
-    rerender();
-
-    // THEN no load-failed banner is raised
-    expect(currentErrorCode()).toBeNull();
-  });
-
   test("raises the load-failed banner immediately without a resume", () => {
-    /**
-     * The grace window is armed only by a resume, so an ordinary bootstrap
-     * failure is reported on the first error cycle exactly as before.
-     */
-
     // GIVEN a mounted loader with no resume signal
     const { rerender } = renderLoader();
 
@@ -192,13 +148,9 @@ describe("useConversationLoader resume grace on list-load errors", () => {
     expect(currentErrorCode()).toBe(CONVERSATION_LIST_LOAD_FAILED_CODE);
   });
 
+  // A 401 is never transient: the session is gone and the user has to
+  // re-authenticate, so the toast fires regardless of the grace window.
   test("still toasts an auth failure inside the resume grace window", () => {
-    /**
-     * A 401 is never transient: the session is gone and the user has to
-     * re-authenticate, so its toast fires regardless of the grace window (and
-     * the banner stays suppressed, as the toast already says it).
-     */
-
     // GIVEN a mounted loader that just resumed from the background
     const { rerender } = renderLoader();
     act(() => {

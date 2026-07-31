@@ -510,10 +510,9 @@ export function useConversationHistory({
   // Surface TanStack Query errors.
   //
   // An initial-page failure inside the resume grace window is held back: the
-  // focus manager refetches history the moment the client returns to the
-  // foreground, and that first request often fails transiently against a
-  // still-waking pod. It is still reported as a warning, and the blocking
-  // error surfaces once the window expires and the query is still in error.
+  // refetch that fires when the client returns from the background often
+  // fails transiently against a still-waking pod. It is still reported, and
+  // the blocking error surfaces once the window expires.
   // -------------------------------------------------------------------------
   const isResumeGraceActive = useResumeGrace();
   useEffect(() => {
@@ -522,17 +521,15 @@ export function useConversationHistory({
     }
 
     const isOlderPageError = pagination.isSuccess;
-    const isHeldBack = !isOlderPageError && isResumeGraceActive;
     captureError(pagination.error, {
       context: isOlderPageError
         ? "conversation_history_older_page"
         : "conversation_history_initial",
-      level: isHeldBack ? "warning" : undefined,
     });
 
     if (!isOlderPageError) {
       setIsLoadingHistory(false);
-      if (!isHeldBack) {
+      if (!isResumeGraceActive) {
         setError({
           message: "Failed to load conversation history. Please try again.",
         });

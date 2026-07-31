@@ -606,9 +606,8 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // client. On resume the first status probe often reads `unreachable`
   // before settling, and because background poll timers were throttled the
   // `wasRecentlyActive` / `wasRecentlySleeping` suppression never observed
-  // the preceding reading. The status query also refetches when the network
-  // comes back, so the window covers the `"online"` signal too.
-  const isResumeGraceActive = useResumeGrace({ includeOnlineSignal: true });
+  // the preceding reading.
+  const isResumeGraceActive = useResumeGrace();
 
   // Suppress the brief "crash_loop" flash during a restart. The pod bounce
   // bumps the container restart counter, which the platform can briefly
