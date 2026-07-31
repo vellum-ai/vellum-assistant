@@ -285,18 +285,33 @@ that an unactivated page could not. Treating a fallen-back route as nothing to
 retry would strand exactly those sessions on the direct path for their whole
 lifetime.
 
-**The route degrades silently, so it must be reported.** A refused `play()`
-falls back to `AudioContext.destination`: audio still plays and echo
-cancellation is simply gone, which surfaces only as the assistant transcribing
-fragments of its own speech. `getOutputRouteDiagnostics()` exposes the resolved
-route, the `play()` rejection, and live element state, and the live-voice
-session writes it (with a read-only `describeVoiceAudioSession()` of the native
-session) to the lifecycle diagnostics ring so support bundles carry it. Alongside
-it, `EchoMarginProbe` correlates microphone against speaker amplitude per
-utterance: a margin near 0 dB over the room's noise floor means cancellation is
-working, and a large positive margin with high correlation means the microphone
-is hearing the loudspeaker. Diagnostics go in the *lifecycle* ring, never the
-main one, which ordinary chat traffic fills and evicts within a minute.
+**The route degrades silently.** A refused `play()` falls back to
+`AudioContext.destination`: audio still plays and echo cancellation is simply
+gone, which surfaces only as the assistant transcribing fragments of its own
+speech. `getOutputRouteDiagnostics()` reports the resolved route, the `play()`
+rejection, and live element state. It exists so the fallback path is testable
+(`tts-playback.test.ts`), and nothing in production consumes it.
+
+**The live-voice path writes nothing to the diagnostics rings, deliberately.** A
+voice session is the most private surface the app has, and the rings are carried
+off the device inside support bundles. Anything derived from the microphone is
+out of bounds outright: not only speech, but aggregates over it, such as an
+amplitude envelope, a correlation, or a room noise floor. Those characterise a
+user's home. This was instrumented once, in #39687, to prove the rebind above
+engaged; it did, on device and on the web, and the instrumentation was removed
+with the question it answered.
+
+Console output is held to the same intent but is not yet the same rule. The
+session's own logging is error-path `console.warn`s carrying codes and reasons,
+never content. The one exception is a per-turn
+`console.debug("[live-voice] turn latency", ...)` in `use-live-voice.ts`,
+carrying a turn id and timings (added in #37710, awaiting a debug panel). It
+predates this section and is listed here so the paragraph stays honest, not as a
+precedent: new per-turn logging does not belong on this path.
+
+If echo returns, that is a device-debugging session with a build that carries a
+probe, not a reason to reinstate one in the shipped bundle. Prefer a temporary
+branch over a permanent field, and delete it the same way.
 
 References:
 

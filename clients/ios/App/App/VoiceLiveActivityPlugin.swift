@@ -182,10 +182,6 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 )
                 self.activity = requested
                 self.observePushToken(of: requested)
-                // TEMPORARY (JARVIS-1377 device bring-up): pairs with the token
-                // log below, so a run that starts an activity but never mints a
-                // token is distinguishable from one that never started it.
-                NSLog("[VoiceLiveActivity] activity requested; awaiting push token")
                 call.resolve(["started": true])
             } catch {
                 call.reject(
@@ -260,14 +256,6 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 // APNs addresses devices by the hex string, not the bytes.
                 let token = tokenData.map { String(format: "%02x", $0) }.joined()
                 guard !Task.isCancelled else { return }
-                // TEMPORARY (JARVIS-1377 device bring-up): `WKWebView` console
-                // output never reaches the system log, so this is the only way
-                // to see whether ActivityKit issues a token on hardware at all
-                // — the one question the Simulator cannot answer. The token is
-                // a routing address, not a credential, and printing it lets a
-                // push be aimed at this activity by hand before the rest of the
-                // pipeline is deployed. Remove once verified.
-                NSLog("[VoiceLiveActivity] push token (%d chars): %@", token.count, token)
                 self?.notifyListeners(Self.pushTokenEvent, data: ["token": token])
             }
         }
