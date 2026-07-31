@@ -113,6 +113,19 @@ const config: CapacitorConfig = {
       // No `style` value expresses "follow the in-app theme"; that needs a
       // runtime `Keyboard.setStyle()` call.
       style: KeyboardStyle.Default,
+      // The iOS 26 keyboard is a transparent inset panel with rounded
+      // corners. Under `resize: native` the shrunk web view is the view
+      // controller's root view, so the unpainted UIWindow composites black
+      // through the panel's margins and corners. `"dom"` paints the window
+      // from the body's computed background (`--surface-base` on the iOS
+      // shell, via the gated rule in `index.css`) at plugin load and on
+      // every `keyboardWillShow`.
+      // Caution: the plugin's DOM color parser handles `rgb()`/hex/
+      // `transparent` and falls back to white for anything else. Today's
+      // tokens compute to `rgb()`, but a token migration to `oklch()` or
+      // `color()` would flash white behind the keyboard and must revisit
+      // this setting.
+      autoBackdropColor: "dom",
     },
   },
 };
