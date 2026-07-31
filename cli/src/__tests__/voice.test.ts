@@ -156,6 +156,7 @@ class FakeChannel implements LiveVoiceSessionChannel {
   pttReleaseCount = 0;
   interruptCount = 0;
   endCount = 0;
+  requestEndCount = 0;
   closeCount = 0;
 
   private readonly listeners: {
@@ -173,6 +174,7 @@ class FakeChannel implements LiveVoiceSessionChannel {
   constructor(
     private readonly sessionId = "session-1",
     private readonly conversationId = "conversation-1",
+    private readonly autoReleaseConfirmation = true,
   ) {}
 
   on<EventName extends LiveVoiceChannelClientEventName>(
@@ -215,6 +217,15 @@ class FakeChannel implements LiveVoiceSessionChannel {
     this.interruptCount += 1;
   }
 
+  requestEnd(): void {
+    this.requestEndCount += 1;
+    if (this.autoReleaseConfirmation) {
+      queueMicrotask(() => {
+        this.emitSessionEnded();
+      });
+    }
+  }
+
   end(): void {
     this.endCount += 1;
     this.emit("closed", {
@@ -235,6 +246,20 @@ class FakeChannel implements LiveVoiceSessionChannel {
     for (const listener of this.listeners[event]) {
       listener(payload);
     }
+  }
+
+  emitSessionEnded(): void {
+    this.emit("frame", {
+      type: "metrics",
+      seq: 2,
+      event: "session_ended",
+      sessionId: this.sessionId,
+      turnId: "session",
+      sttMs: null,
+      llmFirstDeltaMs: null,
+      ttsFirstAudioMs: null,
+      totalMs: 0,
+    });
   }
 }
 
@@ -441,8 +466,51 @@ describe("vellum voice", () => {
     });
     expect(stdout.value).not.toContain("never-print-me");
     expect(audio.captureSessions).toHaveLength(0);
-    expect(channels[0].endCount).toBe(1);
+    expect(channels[0].requestEndCount).toBe(1);
+    expect(channels[0].closeCount).toBe(1);
     expect(signalHost.exitCode).toBeUndefined();
+  });
+
+  test("doctor waits for server session release confirmation before returning", async () => {
+    const stdout = new FakeOutput(false);
+    const signalHost = new FakeSignalHost();
+    const audio = new FakeAudio();
+    const channel = new FakeChannel(
+      "doctor-session",
+      "doctor-conversation",
+      false,
+    );
+    let completed = false;
+
+    const running = voice({
+      args: ["doctor", "assistant-123", "--json"],
+      stdout,
+      signalHost,
+      audio,
+      resolveConnection: async () => directConnection(),
+      createChannel: () => channel,
+    }).then(() => {
+      completed = true;
+    });
+
+    await waitFor(
+      () => channel.requestEndCount === 1,
+      "the doctor end request",
+    );
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    expect(stdout.value).toBe("");
+    expect(channel.closeCount).toBe(0);
+
+    channel.emitSessionEnded();
+    await running;
+
+    expect(completed).toBe(true);
+    expect(channel.closeCount).toBe(1);
+    expect(JSON.parse(stdout.value)).toMatchObject({
+      ok: true,
+      target: { status: "ready" },
+    });
   });
 
   test("uses stored Vellum login routing and refreshes the managed endpoint for each turn", async () => {

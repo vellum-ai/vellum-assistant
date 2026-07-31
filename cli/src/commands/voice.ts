@@ -40,8 +40,11 @@ const VALUE_FLAGS = [
   "--token",
   "-t",
 ] as const;
+const DOCTOR_SESSION_RELEASE_TIMEOUT_MS = 2_000;
 
 type VoiceSubcommand = "session" | "devices" | "doctor";
+type VoiceCommandChannel = LiveVoiceSessionChannel &
+  Pick<LiveVoiceChannelClient, "requestEnd">;
 
 interface ParsedVoiceArgs {
   subcommand: VoiceSubcommand;
@@ -91,7 +94,7 @@ export interface VoiceCommandDependencies {
   readonly resolveConnection?: typeof resolveLiveVoiceConnection;
   readonly createChannel?: (
     options: LiveVoiceChannelClientOptions,
-  ) => LiveVoiceSessionChannel;
+  ) => VoiceCommandChannel;
   readonly stdin?: VoiceInput;
   readonly stdout?: VoiceOutput;
   readonly stderr?: VoiceOutput;
@@ -377,7 +380,7 @@ async function runDoctor(input: {
   resolveConnection: typeof resolveLiveVoiceConnection;
   createChannel: (
     options: LiveVoiceChannelClientOptions,
-  ) => LiveVoiceSessionChannel;
+  ) => VoiceCommandChannel;
   connectionOptions: Parameters<typeof resolveLiveVoiceConnection>[0];
   signalHost: VoiceSignalHost;
 }): Promise<void> {
@@ -427,7 +430,7 @@ async function probeReadiness(
   endpoint: LiveVoiceSessionEndpoint,
   createChannel: (
     options: LiveVoiceChannelClientOptions,
-  ) => LiveVoiceSessionChannel,
+  ) => VoiceCommandChannel,
 ): Promise<VoiceTargetReport> {
   const channel = createChannel({
     url: endpoint.url,
@@ -435,16 +438,29 @@ async function probeReadiness(
   });
   return new Promise<VoiceTargetReport>((resolve) => {
     let settled = false;
+    let readySessionId: string | null = null;
+    let releaseTimer: ReturnType<typeof setTimeout> | null = null;
     const finish = (result: VoiceTargetReport): void => {
       if (settled) {
         return;
       }
       settled = true;
+      if (releaseTimer !== null) {
+        clearTimeout(releaseTimer);
+        releaseTimer = null;
+      }
       resolve(result);
     };
-    channel.on("ready", () => {
-      finish({ status: "ready" });
-      channel.end();
+    channel.on("ready", (frame) => {
+      readySessionId = frame.sessionId;
+      channel.requestEnd();
+      releaseTimer = setTimeout(() => {
+        finish({
+          status: "fail",
+          message: `The readiness session did not confirm release within ${DOCTOR_SESSION_RELEASE_TIMEOUT_MS}ms.`,
+        });
+        channel.close();
+      }, DOCTOR_SESSION_RELEASE_TIMEOUT_MS);
     });
     channel.on("busy", (frame) => {
       finish({
@@ -454,6 +470,18 @@ async function probeReadiness(
     });
     channel.on("error", (event) => {
       finish({ status: "fail", message: event.message });
+      channel.close();
+    });
+    channel.on("frame", (frame) => {
+      // Session close drains this metric at the server's release boundary.
+      if (
+        frame.type === "metrics" &&
+        frame.event === "session_ended" &&
+        (frame.sessionId === undefined || frame.sessionId === readySessionId)
+      ) {
+        finish({ status: "ready" });
+        channel.close();
+      }
     });
     channel.on("closed", (event) => {
       finish({

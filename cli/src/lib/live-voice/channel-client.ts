@@ -132,6 +132,7 @@ export class LiveVoiceChannelClient {
   private closeEmitted = false;
   private configUpdatesUnsupported = false;
   private sentConfigUpdate = false;
+  private endRequested = false;
   private pendingConnectOptions: LiveVoiceChannelConnectOptions = {};
 
   private readonly listeners: {
@@ -229,17 +230,26 @@ export class LiveVoiceChannelClient {
     this.trySend(JSON.stringify(frame));
   }
 
-  end(): void {
-    if (this.state === "closed") {
-      return;
-    }
-    if (this.state === "connecting" || this.state === "active") {
+  /** Send the end request while keeping the transport open for server frames. */
+  requestEnd(): void {
+    if (
+      !this.endRequested &&
+      (this.state === "connecting" || this.state === "active")
+    ) {
+      this.endRequested = true;
       this.trySend(
         JSON.stringify({
           type: "end",
         } satisfies LiveVoiceClientControlFrame),
       );
     }
+  }
+
+  end(): void {
+    if (this.state === "closed") {
+      return;
+    }
+    this.requestEnd();
     this.close();
   }
 
