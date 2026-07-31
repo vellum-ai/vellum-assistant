@@ -230,8 +230,6 @@ export class OpenAIResponsesProvider implements Provider {
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
-    const mutableLatestUserMessage =
-      configObj?.mutableLatestUserMessage === true;
     const disableCache = configObj?.disableCache === true;
     const disableTurnStartCache = configObj?.disableTurnStartCache === true;
     const promptCacheKey =
@@ -272,8 +270,8 @@ export class OpenAIResponsesProvider implements Provider {
 
       // Explicit prompt-cache mode (GPT-5.6+ semantics, direct API only).
       // Explicit mode disables the implicit latest-message breakpoint — under
-      // implicit mode a volatile latest user message (mutableLatestUserMessage)
-      // makes every cached entry end at content that never recurs: zero reads
+      // implicit mode a volatile latest user message makes every cached entry
+      // end at content that never recurs across turns: zero reads
       // plus a full-prompt 1.25x write per turn. With explicit markers we
       // choose the stable boundaries ourselves. Under `disableCache` we still
       // send explicit mode but stamp no markers: a request with no explicit
@@ -287,10 +285,7 @@ export class OpenAIResponsesProvider implements Provider {
       ) {
         params.prompt_cache_options = { mode: "explicit" };
         if (!disableCache) {
-          this.applyPromptCacheBreakpoints(input, {
-            mutableLatestUserMessage,
-            disableTurnStartCache,
-          });
+          this.applyPromptCacheBreakpoints(input, { disableTurnStartCache });
         }
       }
 
@@ -782,8 +777,11 @@ export class OpenAIResponsesProvider implements Provider {
    * historical user-message boundaries makes the newest still-matching one
    * the read point; in the volatile-latest-message flow that is typically
    * the previous turn's user message once it re-renders without its
-   * injected block. Marking the volatile latest item itself prepays its
-   * write so in-turn tool-loop iterations read it back. The ladder is
+   * injected block. Every markable item is marked, including a volatile
+   * latest user message that is the only one on a first turn: a volatile
+   * message is still fixed within its own turn, so marking it prepays one
+   * write that every in-turn tool-loop iteration reads back, and cross-turn
+   * the ladder re-marks whichever boundaries recur. The ladder is
    * cost-safe: OpenAI writes at most the latest four unmatched marked
    * boundaries per request and considers up to the latest 50 markers for
    * reads. All breakpoints share the fixed 30m TTL (no `ttl` field is
@@ -805,7 +803,7 @@ export class OpenAIResponsesProvider implements Provider {
    */
   private applyPromptCacheBreakpoints(
     input: unknown[],
-    opts: { mutableLatestUserMessage: boolean; disableTurnStartCache: boolean },
+    opts: { disableTurnStartCache: boolean },
   ): void {
     const items = input as ResponsesMessageItem[];
 
@@ -857,17 +855,6 @@ export class OpenAIResponsesProvider implements Provider {
       }
     }
     if (candidates.length === 0) {
-      return;
-    }
-
-    // A volatile latest user message with no prior user message to anchor
-    // on: every marker would be a write whose prefix never recurs across
-    // turns — skip caching entirely for this request.
-    if (
-      opts.mutableLatestUserMessage &&
-      candidates.length === 1 &&
-      candidates[0] === items.length - 1
-    ) {
       return;
     }
 

@@ -136,6 +136,37 @@ export function stripSpotlightInjections(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, [MEMORY_SPOTLIGHT_MATCHER]);
 }
 
+/**
+ * Whether the latest user message carries a memory-v3 `<memory_spotlight>`
+ * block.
+ *
+ * The spotlight is the only injected block that is strip-and-replaced on the
+ * tail every turn, so its presence is exactly what makes the latest user
+ * message volatile across turns. Every other injected block (turn context,
+ * workspace, `<info>`, `<memory>` cards, NOW.md) is frozen into history and
+ * re-renders byte-identically, so a message without a spotlight is a stable
+ * cache anchor. Providers consume this through the `mutableLatestUserMessage`
+ * config field when placing cache breakpoints.
+ *
+ * Detection uses {@link MEMORY_SPOTLIGHT_MATCHER}, the same full-wrapper
+ * matcher {@link stripSpotlightInjections} strips with, so the two can never
+ * disagree about which blocks are ephemeral.
+ */
+export function latestUserMessageHasSpotlight(messages: Message[]): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "user") {
+      continue;
+    }
+    return message.content.some(
+      (block) =>
+        block.type === "text" &&
+        textBlockMatchesInjection(block.text, [MEMORY_SPOTLIGHT_MATCHER]),
+    );
+  }
+  return false;
+}
+
 /** `<NOW.md>` scratchpad prefixes (current tag, pre-line-limit variant, legacy `<now_scratchpad>`) — shared with `stripNowScratchpad` so the two strip paths can't drift. */
 export const NOW_SCRATCHPAD_STRIP_PREFIXES: InjectionMatcher[] = [
   "<NOW.md Always keep this up to date",

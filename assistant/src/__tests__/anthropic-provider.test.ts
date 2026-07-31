@@ -811,7 +811,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(turn2Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
-  test("mutableLatestUserMessage: first turn with no previous user message does not throw and applies no long-TTL anchor", async () => {
+  test("mutableLatestUserMessage: volatile first turn carries the 5m tail but no long-TTL anchor", async () => {
     await provider.sendMessage([userMsg("First ever turn (volatile)")], {
       config: { mutableLatestUserMessage: true },
     });
@@ -823,9 +823,28 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
         cache_control?: { type: string; ttl?: string };
       }>;
     }>;
-    // Only user message is volatile and there is no prior stable one, so no
-    // 1h anchor and no 5m tail bridge land on any user message — there is no
-    // previous-turn anchor to bridge to. Graceful, no throw.
+    // The only user message is volatile, so it gets no 1h anchor: those bytes
+    // do not recur next turn. It does get the 5m tail; the message is fixed
+    // within its own turn, so the tool-loop calls that follow read the system
+    // prompt, tools, and opening message back instead of re-writing them.
+    const lastBlock = sent[0].content[sent[0].content.length - 1];
+    expect(lastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
+  });
+
+  test("mutableLatestUserMessage: volatile first turn with disableTurnStartCache places no message breakpoint", async () => {
+    // One-shot call sites opt out of paying for a turn-start write; the 5m
+    // bridge lands on that same block, so it honors the same opt-out.
+    await provider.sendMessage([userMsg("One-shot (volatile)")], {
+      config: { mutableLatestUserMessage: true, disableTurnStartCache: true },
+    });
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
     const lastBlock = sent[0].content[sent[0].content.length - 1];
     expect(lastBlock.cache_control).toBeUndefined();
   });
