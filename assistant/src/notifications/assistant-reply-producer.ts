@@ -30,6 +30,27 @@ import { truncate } from "./notification-utils.js";
 const PREVIEW_MAX_CHARS = 200;
 
 /**
+ * The channel id a native-app send carries, and `resolveTurnChannel`'s default
+ * when a caller supplies none (see `daemon/process-message.ts`).
+ */
+const IN_APP_CHANNEL = "vellum";
+
+/**
+ * True when the row that opened the turn arrived over an external messaging
+ * surface (Slack, Telegram, WhatsApp, email, a phone call, …) rather than the
+ * native app.
+ *
+ * An absent channel counts as in-app: rows persisted before the stamp existed,
+ * and the daemon-side paths that omit it, are all native-app turns.
+ */
+function isChannelOriginatedUserMessage(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  const channel = metadata?.userMessageChannel;
+  return typeof channel === "string" && channel !== IN_APP_CHANNEL;
+}
+
+/**
  * Same unseen predicate the sidebar renders from (`buildAssistantAttention` in
  * `runtime/services/conversation-serializer.ts`): the latest assistant cursor
  * is ahead of the last-seen cursor. A missing state row reads as seen, matching
@@ -127,6 +148,14 @@ export async function emitAssistantReplyNotification(params: {
     // the user is still on, so the reply is never unseen in the sense this
     // producer notifies about; pushing here would fire once per spoken turn.
     if (isVoiceSessionUserMessage(initiatingMetadata)) {
+      return;
+    }
+    // A turn started from a messaging channel has its finished reply delivered
+    // back to that channel (`finalizeEventDelivery`), so the sender already has
+    // it; pushing here would duplicate it on their phone. The voice gate above
+    // cannot stand in for this one: an in-app live-voice turn persists as
+    // `vellum`, exactly like a typed send.
+    if (isChannelOriginatedUserMessage(initiatingMetadata)) {
       return;
     }
 

@@ -10,6 +10,8 @@
  *   - A hidden lifecycle row (subagent / ACP notification) opening the turn is
  *     silent.
  *   - A live phone / in-app voice utterance opening the turn is silent.
+ *   - A turn opened from a messaging channel (Slack, Telegram, …) is silent,
+ *     while the in-app `vellum` channel and an unstamped row still emit.
  *   - An already-seen reply is silent.
  *   - A tool-only reply (empty text preview) is silent.
  *   - A throwing dependency is swallowed, not propagated.
@@ -339,7 +341,8 @@ describe("emitAssistantReplyNotification", () => {
   // conversation, so only the `voiceSessionTurn` marker the bridge stamps keeps
   // every spoken reply from also pushing. The phone case carries a `phone`
   // channel; the in-app live-voice case is `vellum`/`macos`, identical to a
-  // typed desktop send, which is why the channel fields cannot be the gate.
+  // typed desktop send, which is why the channel field cannot stand in for the
+  // marker.
   const VOICE_ROW_CASES: Array<{ name: string; metadata: unknown }> = [
     {
       name: "phone call",
@@ -376,6 +379,39 @@ describe("emitAssistantReplyNotification", () => {
           userMessageChannel: "vellum",
           userMessageInterface: "macos",
         }),
+      }),
+    ];
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+  });
+
+  // A channel turn's reply is delivered back to the originating surface, so the
+  // sender already has it in Slack/Telegram; a push would be a second copy.
+  for (const channel of ["slack", "telegram"] as const) {
+    test(`stays silent for a turn opened from ${channel}`, async () => {
+      userRows = [
+        makeMessage({
+          metadata: JSON.stringify({
+            userMessageChannel: channel,
+            assistantMessageChannel: channel,
+          }),
+        }),
+      ];
+
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+    });
+  }
+
+  // Rows predating the channel stamp (and the daemon paths that omit it) are
+  // in-app turns, so an absent channel must not suppress the push.
+  test("still emits when the initiating row carries no channel", async () => {
+    userRows = [
+      makeMessage({
+        metadata: JSON.stringify({ userMessageInterface: "web" }),
       }),
     ];
 
