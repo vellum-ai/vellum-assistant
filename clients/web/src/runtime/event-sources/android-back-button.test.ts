@@ -192,6 +192,31 @@ describe("subscribeAndroidBackButtonSource", () => {
     historyBackSpy.mockRestore();
   });
 
+  test("stops after a focused control handles Escape", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    const input = document.createElement("input");
+    const escapeHandler = mock((event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+      }
+    });
+    input.addEventListener("keydown", escapeHandler);
+    document.body.append(input);
+    input.focus();
+
+    subscribeAndroidBackButtonSource();
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(escapeHandler).toHaveBeenCalledTimes(1);
+    expect(historyBackSpy).not.toHaveBeenCalled();
+    expect(minimizeAppMock).not.toHaveBeenCalled();
+
+    historyBackSpy.mockRestore();
+  });
+
   test("does not close a lower global surface behind a claimed layer", async () => {
     const dialog = document.createElement("div");
     dialog.setAttribute("role", "dialog");
