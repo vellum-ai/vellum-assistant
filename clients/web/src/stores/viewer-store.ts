@@ -199,8 +199,22 @@ export interface OpenedWorkspaceFileDocumentState {
   content: string;
 }
 
-/** Workspace file formats the drawer renders read-only, without an editor. */
-export type WorkspaceFilePreviewKind = "csv" | "docx" | "pptx";
+/**
+ * Workspace file formats the drawer renders read-only, without an editor.
+ * `unsupported` is the catch-all: the drawer opens for every file type, and a
+ * format no reader covers shows the file's identity plus the two ways out
+ * (open in the workspace, download) rather than refusing to open at all.
+ */
+export type WorkspaceFilePreviewKind =
+  | "csv"
+  | "docx"
+  | "pptx"
+  | "text"
+  | "pdf"
+  | "image"
+  | "audio"
+  | "video"
+  | "unsupported";
 
 /**
  * A workspace file shown read-only in the drawer, because the markdown editor
@@ -533,9 +547,9 @@ export interface ViewerActions {
   ) => Promise<void>;
   /**
    * Open a workspace file the editor cannot round-trip (a spreadsheet, a Word
-   * or PowerPoint package) read-only in the document drawer. Synchronous: the
-   * preview owns its own bytes through the query cache, so the store records
-   * only which file is on show.
+   * or PowerPoint package, media, or a format with no reader at all) read-only
+   * in the document drawer. Synchronous: the preview owns its own bytes through
+   * the query cache, so the store records only which file is on show.
    */
   openWorkspaceFilePreview: (
     workspacePath: string,

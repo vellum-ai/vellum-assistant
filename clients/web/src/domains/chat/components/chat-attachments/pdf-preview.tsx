@@ -14,7 +14,23 @@ import { dataUriToUint8Array } from "@/domains/chat/components/chat-attachments/
  * @see https://bugs.webkit.org/show_bug.cgi?id=118859 — WebKit sandbox+PDF
  */
 
-const SCALE = 1.5;
+/**
+ * Backing-store scale used when the canvas has not been laid out yet (no
+ * measurable width, as in a headless DOM). Otherwise the scale is derived from
+ * the size the canvas actually renders at (see {@link renderPage}), so a page
+ * is neither upscaled into blur where the canvas is capped narrow (the chat
+ * column, the drawer) nor rendered short of the device's pixels.
+ */
+const FALLBACK_SCALE = 1.5;
+
+/**
+ * Ceiling on the derived scale. Every rendered page keeps its canvas mounted,
+ * so the backing store is paid for the life of the preview and a 3x display on
+ * a wide viewport would spend hundreds of megabytes to sharpen text that is
+ * already past what the eye resolves.
+ */
+const MAX_SCALE = 2;
+
 const MAX_PAGES = 20;
 
 let pdfJsConfigured = false;
@@ -115,7 +131,21 @@ export function PdfPreview({ url, className }: PdfPreviewProps) {
 
       try {
         const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: SCALE });
+        // Match the backing store to the size the canvas is actually rendered
+        // at: callers cap its CSS width (the chat column, the drawer) and a
+        // fixed scale would either blur on a retina display or waste memory.
+        const cssWidth = canvas.clientWidth;
+        const reportedDpr =
+          typeof window === "undefined" ? 1 : window.devicePixelRatio;
+        const dpr = reportedDpr > 0 ? reportedDpr : 1;
+        const scale =
+          cssWidth > 0
+            ? Math.min(
+                (cssWidth * dpr) / page.getViewport({ scale: 1 }).width,
+                MAX_SCALE,
+              )
+            : FALLBACK_SCALE;
+        const viewport = page.getViewport({ scale });
 
         canvas.width = viewport.width;
         canvas.height = viewport.height;

@@ -91,10 +91,30 @@ describe("previewKindFor", () => {
     expect(previewKindFor("deck.pptx")).toBe("pptx");
   });
 
-  test("everything else has no preview", () => {
+  test("plain-text formats share one reader", () => {
+    expect(previewKindFor("run.log")).toBe("text");
+    expect(previewKindFor("notes.txt")).toBe("text");
+    expect(previewKindFor("config.json")).toBe("text");
+    expect(previewKindFor("deploy.yaml")).toBe("text");
+    expect(previewKindFor("deploy.yml")).toBe("text");
+    expect(previewKindFor("feed.xml")).toBe("text");
+  });
+
+  test("media and pdf read through their own players", () => {
+    expect(previewKindFor("report.pdf")).toBe("pdf");
+    expect(previewKindFor("shot.png")).toBe("image");
+    expect(previewKindFor("shot.JPEG")).toBe("image");
+    expect(previewKindFor("logo.svg")).toBe("image");
+    expect(previewKindFor("take.mp3")).toBe("audio");
+    expect(previewKindFor("take.flac")).toBe("audio");
+    expect(previewKindFor("demo.mp4")).toBe("video");
+    expect(previewKindFor("demo.mov")).toBe("video");
+  });
+
+  test("formats with no reader of their own report none", () => {
     expect(previewKindFor("notes.md")).toBeNull();
-    expect(previewKindFor("notes.txt")).toBeNull();
     expect(previewKindFor("report.doc")).toBeNull();
+    expect(previewKindFor("bundle.zip")).toBeNull();
     expect(previewKindFor("Makefile")).toBeNull();
     expect(previewKindFor(".csv")).toBeNull();
   });
@@ -134,13 +154,41 @@ describe("openLocalFile", () => {
     ]);
   });
 
-  test("any other file opens in the workspace browser", () => {
-    openLocalFile("logs/run.txt", "run.txt", "asst-1");
+  test("every other extension lands in the drawer, in its own reader", () => {
+    const cases: [string, WorkspaceFilePreviewKind][] = [
+      ["run.txt", "text"],
+      ["run.log", "text"],
+      ["config.json", "text"],
+      ["report.pdf", "pdf"],
+      ["shot.png", "image"],
+      ["logo.svg", "image"],
+      ["take.mp3", "audio"],
+      ["demo.mp4", "video"],
+    ];
 
+    for (const [filename] of cases) {
+      openLocalFile(`files/${filename}`, filename, "asst-1");
+    }
+
+    expect(openWorkspaceFilePreview.mock.calls).toEqual(
+      cases.map(([filename, previewKind]) => [
+        `files/${filename}`,
+        previewKind,
+      ]),
+    );
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  test("a file with no reader still opens, as the unsupported preview", () => {
+    openLocalFile("archives/bundle.zip", "bundle.zip", "asst-1");
+    openLocalFile("bin/tool", "tool", "asst-1");
+
+    expect(openWorkspaceFilePreview.mock.calls).toEqual([
+      ["archives/bundle.zip", "unsupported"],
+      ["bin/tool", "unsupported"],
+    ]);
     expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
-    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
-    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
-    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("logs/run.txt");
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
   test("without an assistant, markdown falls back to the workspace browser", () => {
@@ -158,25 +206,37 @@ describe("openLocalFile", () => {
     expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
     expect(openWorkspaceFile.mock.calls[0]![0]).toBe("data/rows.csv");
   });
+
+  test("without an assistant, a file with no reader does too", () => {
+    openLocalFile("archives/bundle.zip", "bundle.zip");
+
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
+    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("archives/bundle.zip");
+  });
 });
 
 describe("usesDocumentDrawer", () => {
-  test("markdown with an assistant opens the drawer", () => {
-    expect(usesDocumentDrawer("notes.md", "asst-1")).toBe(true);
+  test("every file type opens the drawer when there is an assistant", () => {
+    for (const filename of [
+      "notes.md",
+      "rows.csv",
+      "report.docx",
+      "run.txt",
+      "report.pdf",
+      "shot.png",
+      "demo.mp4",
+      "bundle.zip",
+      "Makefile",
+    ]) {
+      expect(usesDocumentDrawer(filename, "asst-1")).toBe(true);
+    }
   });
 
-  test("markdown without an assistant navigates instead", () => {
-    expect(usesDocumentDrawer("notes.md")).toBe(false);
-  });
-
-  test("a previewable file with an assistant opens the drawer too", () => {
-    expect(usesDocumentDrawer("rows.csv", "asst-1")).toBe(true);
-    expect(usesDocumentDrawer("report.docx", "asst-1")).toBe(true);
-  });
-
-  test("other formats navigate whatever the assistant", () => {
-    expect(usesDocumentDrawer("run.txt", "asst-1")).toBe(false);
-    expect(usesDocumentDrawer("rows.csv")).toBe(false);
+  test("without an assistant every file navigates instead", () => {
+    for (const filename of ["notes.md", "rows.csv", "run.txt", "bundle.zip"]) {
+      expect(usesDocumentDrawer(filename)).toBe(false);
+    }
   });
 });
 
@@ -262,10 +322,27 @@ describe("toggleLocalFile", () => {
   test("a navigating file has nothing to toggle", () => {
     useViewerStore.setState(openDrawerState("logs/run.txt"));
 
-    toggleLocalFile("logs/run.txt", "run.txt", "asst-1");
+    toggleLocalFile("logs/run.txt", "run.txt");
 
     expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
     expect(closeDocument).not.toHaveBeenCalled();
+  });
+
+  test("an open file with no reader closes the drawer like any other", () => {
+    useViewerStore.setState({
+      mainView: "document",
+      openedDocumentState: {
+        source: "workspace-file-preview",
+        workspacePath: "archives/bundle.zip",
+        documentName: "bundle.zip",
+        previewKind: "unsupported",
+      },
+    });
+
+    toggleLocalFile("archives/bundle.zip", "bundle.zip", "asst-1");
+
+    expect(closeDocument).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
   });
 
   test("a closed previewable file opens the preview", () => {

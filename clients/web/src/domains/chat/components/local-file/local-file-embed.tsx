@@ -24,6 +24,7 @@ import {
   LocalFileIcon,
   localFileKindFromFilename,
 } from "@/domains/chat/components/local-file/local-file-icon";
+import { MAX_INLINE_MEDIA_BYTES } from "@/domains/chat/components/local-file/local-file-limits";
 import { LocalFileMenu } from "@/domains/chat/components/local-file/local-file-menu";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
 import {
@@ -31,9 +32,6 @@ import {
   useLocalFileObjectUrl,
 } from "@/domains/chat/components/local-file/use-local-file-info";
 import type { LocalFileKind } from "@/domains/chat/utils/mime-sniff";
-
-/** The object-URL fetch buffers the whole file in memory, so cap what we load. */
-const MAX_INLINE_MEDIA_BYTES = 100 * 1024 * 1024;
 
 const MEDIA_CLASSES =
   "max-h-[400px] max-w-full rounded-lg border border-[var(--border-element)] object-contain";
@@ -92,6 +90,10 @@ interface PdfFrameProps {
  *
  * The menu sits in the header rather than hovering over the pages, where it is
  * both hard to find and easy to mistake for part of the document.
+ *
+ * Capped narrower than the message column, in the same left-aligned rhythm as
+ * the file cards: a page blown up to the full column reads as an attempt to be
+ * the document rather than a preview of it, and buys no legibility.
  */
 function PdfFrame({
   displayName,
@@ -104,7 +106,7 @@ function PdfFrame({
   const secondary = filename !== displayName ? filename : null;
 
   return (
-    <span className="my-2 flex w-full flex-col overflow-hidden rounded-lg border border-[var(--border-element)]">
+    <span className="my-2 flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-[var(--border-element)]">
       <span
         title={filename}
         className="flex items-center gap-2.5 border-b border-[var(--border-element)] bg-[var(--surface-lift)] p-2"

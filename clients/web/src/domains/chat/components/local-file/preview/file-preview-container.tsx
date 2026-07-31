@@ -1,6 +1,8 @@
 /**
  * Read-only counterpart to the document viewer: the chat drawer showing a
- * workspace file the markdown editor cannot round-trip.
+ * workspace file the markdown editor cannot round-trip. Every non-markdown file
+ * lands here, so the panel dispatches to a reader when the format has one and
+ * names the file plus its way out when it does not.
  *
  * Mirrors `DocumentViewerContainer`'s shell (same panel frame, same navbar
  * rhythm, same close affordance) so switching between an editable markdown
@@ -22,14 +24,21 @@ import {
   LocalFileIcon,
   localFileKindFromFilename,
 } from "@/domains/chat/components/local-file/local-file-icon";
+import { previewByteCapFor } from "@/domains/chat/components/local-file/local-file-limits";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
-import { workspaceFileBlobQuery } from "@/domains/chat/components/local-file/use-local-file-info";
+import { PreviewUnsupported } from "@/domains/chat/components/local-file/preview/preview-unsupported";
+import {
+  useLocalFileInfo,
+  workspaceFileBlobQuery,
+} from "@/domains/chat/components/local-file/use-local-file-info";
 import type { WorkspaceFilePreviewKind } from "@/stores/viewer-store";
 import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
+import { openWorkspaceFile } from "@/utils/open-workspace-file";
 
-// Each reader is a chunk of its own: the CSV grid pulls in the virtualizer and
-// the OOXML readers pull in a zip reader plus their own parsers, none of which
-// belong in the chat bundle for the sessions that never open one.
+// Each reader is a chunk of its own: the CSV grid pulls in the virtualizer, the
+// OOXML readers pull in a zip reader plus their own parsers, and the PDF reader
+// pulls in pdf.js, none of which belong in the chat bundle for the sessions
+// that never open one.
 const CsvPreview = lazy(() =>
   import("./csv-preview").then((m) => ({ default: m.CsvPreview })),
 );
@@ -39,13 +48,15 @@ const DocxPreview = lazy(() =>
 const PptxPreview = lazy(() =>
   import("./pptx-preview").then((m) => ({ default: m.PptxPreview })),
 );
-
-/**
- * Above this the preview is refused. Parsing a file this size holds the whole
- * thing plus its parsed form in memory, and the reader is better served by
- * downloading it and opening it in the app that owns the format.
- */
-const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
+const TextPreview = lazy(() =>
+  import("./text-preview").then((m) => ({ default: m.TextPreview })),
+);
+const PdfFilePreview = lazy(() =>
+  import("./pdf-file-preview").then((m) => ({ default: m.PdfFilePreview })),
+);
+const MediaPreview = lazy(() =>
+  import("./media-preview").then((m) => ({ default: m.MediaPreview })),
+);
 
 const NOTICE_CLASSES =
   "flex flex-col items-start gap-2 rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] p-3";
@@ -70,6 +81,19 @@ function previewFor(
       return <DocxPreview blob={blob} filename={filename} />;
     case "pptx":
       return <PptxPreview blob={blob} filename={filename} />;
+    case "text":
+      return <TextPreview blob={blob} filename={filename} />;
+    case "pdf":
+      return <PdfFilePreview blob={blob} />;
+    case "image":
+    case "audio":
+    case "video":
+      return (
+        <MediaPreview blob={blob} filename={filename} kind={previewKind} />
+      );
+    // Handled before the bytes are ever requested; see the container below.
+    case "unsupported":
+      return null;
     default: {
       const _exhaustive: never = previewKind;
       void _exhaustive;
@@ -85,12 +109,29 @@ export function FilePreviewContainer({
   previewKind,
   onClose,
 }: FilePreviewContainerProps): ReactNode {
+  // A file with no reader is never read: the state below needs its size and
+  // nothing else, and the ranged probe answers that in 512 bytes rather than
+  // pulling an archive across the wire to show its name. Passing a null path
+  // for every other kind leaves the probe idle there.
+  const isUnsupported = previewKind === "unsupported";
+  const probe = useLocalFileInfo(
+    isUnsupported ? workspacePath : null,
+    assistantId,
+  );
+
   const {
     data: blob,
     isPending,
     isError,
     refetch,
-  } = useQuery(workspaceFileBlobQuery(workspacePath, assistantId));
+  } = useQuery({
+    ...workspaceFileBlobQuery(workspacePath, assistantId),
+    enabled: !isUnsupported,
+  });
+
+  const handleOpenInWorkspace = useCallback(() => {
+    void openWorkspaceFile(workspacePath);
+  }, [workspacePath]);
 
   const handleDownload = useCallback(() => {
     void downloadWorkspaceFile({
@@ -102,14 +143,24 @@ export function FilePreviewContainer({
     });
   }, [assistantId, documentName, workspacePath]);
 
-  const isTooLarge = blob !== undefined && blob.size > MAX_PREVIEW_BYTES;
+  const maxPreviewBytes = previewByteCapFor(previewKind);
+  const isTooLarge = blob !== undefined && blob.size > maxPreviewBytes;
   // The CSV grid virtualizes its own rows, so it owns the vertical scroll and
   // the panel must not wrap it in a second scroller.
   const showsCsvGrid =
     previewKind === "csv" && !isError && !isPending && !isTooLarge;
 
   let body: ReactNode;
-  if (isError) {
+  if (isUnsupported) {
+    body = (
+      <PreviewUnsupported
+        filename={documentName}
+        sizeBytes={probe.status === "ready" ? probe.sizeBytes : null}
+        onOpenInWorkspace={handleOpenInWorkspace}
+        onDownload={handleDownload}
+      />
+    );
+  } else if (isError) {
     body = (
       <div role="alert" className={NOTICE_CLASSES}>
         <Typography
@@ -145,7 +196,7 @@ export function FilePreviewContainer({
           variant="label-small-default"
           className="text-[var(--content-tertiary)]"
         >
-          {`${formatAttachmentSize(blob.size)}, over the ${formatAttachmentSize(MAX_PREVIEW_BYTES)} preview limit`}
+          {`${formatAttachmentSize(blob.size)}, over the ${formatAttachmentSize(maxPreviewBytes)} preview limit`}
         </Typography>
         <Button
           variant="outlined"

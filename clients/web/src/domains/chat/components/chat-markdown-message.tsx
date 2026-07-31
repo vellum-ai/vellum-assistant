@@ -289,11 +289,13 @@ export interface ChatMarkdownMessageProps extends Omit<
   "linkComponent" | "imageComponent"
 > {
   /**
-   * Callback invoked when a file link is clicked. Receives the full
-   * `vellum://` href (e.g. `vellum://workspace/scratch/report.pdf`, converted
-   * from an absolute or relative workspace path when the markdown used one)
-   * and the visible link text (e.g. `report.pdf`). Without it, a file link
-   * opens the workspace file viewer directly.
+   * Fallback for file links the document drawer cannot open: a reference with
+   * no assistant to read it through, or a `vellum://host/` link with no
+   * workspace route to its bytes. Everything else opens in the drawer, so this
+   * is not called for it. Receives the full `vellum://` href (e.g.
+   * `vellum://workspace/scratch/report.pdf`, converted from an absolute or
+   * relative workspace path when the markdown used one) and the visible link
+   * text (e.g. `report.pdf`).
    *
    * Pass a stable reference (useCallback) to avoid rebuilding the markdown
    * component tree on every render.
@@ -326,7 +328,7 @@ export interface ChatMarkdownMessageProps extends Omit<
   /**
    * Resolve inline code spans that hold a workspace file path into file links
    * (see `rehypeWorkspacePath`). Requires `onVellumLinkClick` — the resolved
-   * link opens the same file-action modal as an explicit `vellum://` link.
+   * link behaves exactly like an explicit `vellum://` link.
    *
    * Enable only for assistant-authored content. The affordance is a claim
    * that the assistant is referring to a file it worked with; a path the user
@@ -360,13 +362,18 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         // A `vellum://host/` link has no workspace route to its bytes, so it
         // resolves to a null path and only the modal can act on it.
         const { workspacePath } = resolveLocalFileTarget(href);
+        // The drawer opens every file type now, so it is where a click on a
+        // file link belongs. The modal is the fallback for the references the
+        // drawer cannot reach: no assistant to read the file through, or no
+        // workspace route to its bytes.
+        const drawerCanOpen = !!assistantId && workspacePath !== null;
         return (
           <LocalFileLink
             href={href}
             workspacePath={workspacePath}
             assistantId={assistantId ?? undefined}
             onActivate={
-              onVellumLinkClick
+              onVellumLinkClick && !drawerCanOpen
                 ? () => onVellumLinkClick(href, markdownChildrenText(children))
                 : undefined
             }
@@ -385,7 +392,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
             workspacePath={workspacePath}
             assistantId={assistantId ?? undefined}
             onActivate={
-              onVellumLinkClick && workspacePath !== null
+              onVellumLinkClick && workspacePath !== null && !assistantId
                 ? () =>
                     onVellumLinkClick(
                       toVellumWorkspaceHref(workspacePath),

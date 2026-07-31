@@ -150,12 +150,28 @@ function descendantsNamed(root: Element, name: string): Element[] {
 }
 
 /**
- * Whitespace-normalized text of a subtree. `textContent` is a DOM primitive
- * rather than a walk of our own, so it stays safe on trees too deep to recurse
- * through, which is exactly where this is used.
+ * Whitespace-normalized text of a subtree, collected with an explicit stack.
+ * This is used exactly where the tree is too deep to recurse through, and that
+ * rules out `textContent` too: happy-dom implements it recursively, so it
+ * overflows on the same trees this function exists to survive.
  */
+const TEXT_NODE = 3;
+
 function flattenedText(element: Element): string {
-  return (element.textContent ?? "").replace(/\s+/g, " ").trim();
+  const parts: string[] = [];
+  const stack: Node[] = [element];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (node.nodeType === TEXT_NODE) {
+      parts.push(node.nodeValue ?? "");
+      continue;
+    }
+    const children = node.childNodes;
+    for (let i = children.length - 1; i >= 0; i -= 1) {
+      stack.push(children[i]!);
+    }
+  }
+  return parts.join("").replace(/\s+/g, " ").trim();
 }
 
 /** Attribute lookup by local name, so `w:val` and `val` both match `val`. */

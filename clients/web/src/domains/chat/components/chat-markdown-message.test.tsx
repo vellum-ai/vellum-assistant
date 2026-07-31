@@ -105,6 +105,7 @@ mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
 const { ChatMarkdownMessage, isVellumLink } = await import(
   "@/domains/chat/components/chat-markdown-message"
 );
+const { useViewerStore } = await import("@/stores/viewer-store");
 
 function makeAttachment(
   overrides: Pick<DisplayAttachment, "filename" | "mimeType"> &
@@ -129,6 +130,8 @@ beforeEach(() => {
   attachmentsByIdContentGet.mockClear();
   openWorkspaceFile.mockClear();
   serve = serveFile({ bytes: PNG_BYTES, contentType: "image/png" });
+  // File links open the real drawer, so each test starts from a closed one.
+  useViewerStore.setState({ mainView: "chat", openedDocumentState: null });
 });
 
 afterEach(() => {
@@ -209,7 +212,64 @@ describe("isVellumLink", () => {
 });
 
 describe("ChatMarkdownMessage (file link dispatch)", () => {
-  test("a vellum:// link opens the file-action modal with its label", () => {
+  test("with an assistant a file link opens the drawer, not the modal", () => {
+    const onVellumLinkClick = mock((_href: string, _text: string) => {});
+    const { container } = renderMarkdown({
+      content: "[Open](vellum://workspace/scratch/report.pdf)",
+      onVellumLinkClick,
+      assistantId: "asst-1",
+    });
+
+    fireEvent.click(container.querySelector("a")!);
+
+    expect(onVellumLinkClick).not.toHaveBeenCalled();
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
+    const opened = useViewerStore.getState().openedDocumentState;
+    expect(opened).toEqual({
+      source: "workspace-file-preview",
+      workspacePath: "scratch/report.pdf",
+      documentName: "report.pdf",
+      previewKind: "pdf",
+    });
+  });
+
+  test("a workspace path link opens the drawer the same way", () => {
+    const onVellumLinkClick = mock((_href: string, _text: string) => {});
+    const { container } = renderMarkdown({
+      content: "[Open](/workspace/archives/bundle.zip)",
+      onVellumLinkClick,
+      assistantId: "asst-1",
+    });
+
+    fireEvent.click(container.querySelector("a")!);
+
+    expect(onVellumLinkClick).not.toHaveBeenCalled();
+    expect(useViewerStore.getState().openedDocumentState).toEqual({
+      source: "workspace-file-preview",
+      workspacePath: "archives/bundle.zip",
+      documentName: "bundle.zip",
+      previewKind: "unsupported",
+    });
+  });
+
+  test("a host link keeps the modal: the drawer has no route to its bytes", () => {
+    const onVellumLinkClick = mock((_href: string, _text: string) => {});
+    const { container } = renderMarkdown({
+      content: "[Open](vellum://host/Users/me/report.pdf)",
+      onVellumLinkClick,
+      assistantId: "asst-1",
+    });
+
+    fireEvent.click(container.querySelector("a")!);
+
+    expect(onVellumLinkClick.mock.calls[0]).toEqual([
+      "vellum://host/Users/me/report.pdf",
+      "Open",
+    ]);
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
+  });
+
+  test("without an assistant a vellum:// link falls back to the modal", () => {
     const onVellumLinkClick = mock((_href: string, _text: string) => {});
     const { container } = renderMarkdown({
       content: "[Open](vellum://workspace/scratch/report.pdf)",
@@ -231,7 +291,7 @@ describe("ChatMarkdownMessage (file link dispatch)", () => {
     ]);
   });
 
-  test("a workspace path link routes through the same modal as vellum://", () => {
+  test("a workspace path link falls back to the same modal as vellum://", () => {
     const onVellumLinkClick = mock((_href: string, _text: string) => {});
     const { container } = renderMarkdown({
       content: "[Open](/workspace/scratch/report.pdf)",

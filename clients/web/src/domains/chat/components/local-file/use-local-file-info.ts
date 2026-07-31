@@ -220,24 +220,15 @@ export function workspaceFileBlobQuery(
 }
 
 /**
- * Full bytes of a workspace file as an object URL, re-wrapped so the URL
- * carries the classified MIME type rather than the server's extension guess.
- * Revoked on unmount and whenever the underlying blob changes.
+ * Object URL for bytes already in hand, re-wrapped so the URL carries the
+ * classified MIME type rather than the server's extension guess. Revoked on
+ * unmount and whenever the blob or the type changes, so a surface that swaps
+ * files never leaks the previous one.
  */
-export function useLocalFileObjectUrl(args: {
-  workspacePath: string | null;
-  mime: string | null;
-  enabled: boolean;
-  assistantId?: string;
-}): { url: string | null; isError: boolean } {
-  const { workspacePath, mime, enabled, assistantId } = args;
-  const canFetch = enabled && workspacePath !== null && !!assistantId;
-
-  const { data: blob, isError } = useQuery({
-    ...workspaceFileBlobQuery(workspacePath, assistantId),
-    enabled: canFetch,
-  });
-
+export function useBlobObjectUrl(
+  blob: Blob | undefined,
+  mime: string | null,
+): string | null {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -254,5 +245,27 @@ export function useLocalFileObjectUrl(args: {
     };
   }, [blob, mime]);
 
-  return { url, isError };
+  return url;
+}
+
+/**
+ * Full bytes of a workspace file as an object URL, for surfaces that fetch the
+ * file themselves. Surfaces that already hold the bytes use
+ * {@link useBlobObjectUrl} directly.
+ */
+export function useLocalFileObjectUrl(args: {
+  workspacePath: string | null;
+  mime: string | null;
+  enabled: boolean;
+  assistantId?: string;
+}): { url: string | null; isError: boolean } {
+  const { workspacePath, mime, enabled, assistantId } = args;
+  const canFetch = enabled && workspacePath !== null && !!assistantId;
+
+  const { data: blob, isError } = useQuery({
+    ...workspaceFileBlobQuery(workspacePath, assistantId),
+    enabled: canFetch,
+  });
+
+  return { url: useBlobObjectUrl(blob, mime), isError };
 }

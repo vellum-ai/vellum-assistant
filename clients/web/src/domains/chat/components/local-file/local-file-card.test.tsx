@@ -134,7 +134,7 @@ describe("LocalFileCard", () => {
     expect(screen.queryByText(/\d+ (B|KB|MB|GB)/)).toBeNull();
   });
 
-  test("clicking a ready card opens the workspace file", () => {
+  test("clicking a ready card without an assistant opens the workspace file", () => {
     render(
       <LocalFileCard
         displayName="run.txt"
@@ -143,7 +143,6 @@ describe("LocalFileCard", () => {
         kind="file"
         state="ready"
         workspacePath="logs/run.txt"
-        assistantId="asst-1"
       />,
     );
 
@@ -154,7 +153,7 @@ describe("LocalFileCard", () => {
     expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
   });
 
-  test("Enter on a ready card opens the workspace file", () => {
+  test("Enter on a ready card opens it the same way a click does", () => {
     render(
       <LocalFileCard
         displayName="run.txt"
@@ -171,7 +170,34 @@ describe("LocalFileCard", () => {
       key: "Enter",
     });
 
-    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview.mock.calls[0]).toEqual([
+      "logs/run.txt",
+      "text",
+    ]);
+  });
+
+  test("clicking a card with no reader opens the unsupported preview", () => {
+    render(
+      <LocalFileCard
+        displayName="bundle.zip"
+        filename="bundle.zip"
+        sizeBytes={12}
+        kind="file"
+        state="ready"
+        workspacePath="archives/bundle.zip"
+        assistantId="asst-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open bundle.zip" }));
+
+    expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview.mock.calls[0]).toEqual([
+      "archives/bundle.zip",
+      "unsupported",
+    ]);
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
   test("clicking a markdown card opens it in the document drawer", () => {
@@ -314,7 +340,6 @@ describe("LocalFileCard click hint", () => {
         kind="file"
         state="ready"
         workspacePath="logs/run.txt"
-        assistantId="asst-1"
       />,
     );
 
@@ -322,7 +347,16 @@ describe("LocalFileCard click hint", () => {
   });
 
   test("a previewable card says the click opens a preview", () => {
-    for (const filename of ["rows.csv", "report.docx", "deck.pptx"]) {
+    for (const filename of [
+      "rows.csv",
+      "report.docx",
+      "deck.pptx",
+      "run.txt",
+      "report.pdf",
+      "shot.png",
+      "demo.mp4",
+      "bundle.zip",
+    ]) {
       render(
         <LocalFileCard
           displayName={filename}
@@ -531,7 +565,6 @@ describe("LocalFileCard open state", () => {
         kind="file"
         state="ready"
         workspacePath="logs/run.txt"
-        assistantId="asst-1"
       />,
     );
 

@@ -18,7 +18,7 @@ import {
 import { LocalFileIcon } from "@/domains/chat/components/local-file/local-file-icon";
 import { LocalFileMenu } from "@/domains/chat/components/local-file/local-file-menu";
 import {
-  previewKindFor,
+  opensInDocumentDrawer,
   toggleLocalFile,
   useIsWorkspaceFileOpen,
   usesDocumentDrawer,
@@ -62,7 +62,7 @@ function clickTargetFor(filename: string, assistantId?: string): ClickTarget {
   if (!usesDocumentDrawer(filename, assistantId)) {
     return "workspace";
   }
-  return previewKindFor(filename) !== null ? "preview" : "editor";
+  return opensInDocumentDrawer(filename) ? "editor" : "preview";
 }
 
 function clickHintFor(target: ClickTarget): ClickHint {

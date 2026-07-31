@@ -222,6 +222,11 @@ describe("LocalFileEmbed media", () => {
     expect(preview.parentElement?.getAttribute("class")).toContain(
       "max-h-[420px]",
     );
+    // The frame is capped well under the message column: a page blown up to the
+    // full width reads as the document rather than a preview of it.
+    expect(
+      preview.parentElement?.parentElement?.getAttribute("class"),
+    ).toContain("max-w-lg");
   });
 
   test("a pdf embed frames the preview with a header naming the file", async () => {

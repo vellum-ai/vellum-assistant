@@ -1,12 +1,14 @@
 /**
  * Where a click on a local file reference in the transcript takes the user.
  *
- * Markdown files open in the document drawer beside the chat, where they are
- * editable in place. Formats the editor cannot round-trip but the drawer can
- * render (spreadsheets, Word and PowerPoint packages) open in the same drawer
- * as a read-only preview. Everything else opens in the workspace browser: the
- * drawer hosts a markdown editor, so any other text format would come back
- * rewritten by the markdown round-trip.
+ * With an assistant to read the file through, every reference opens in the
+ * document drawer beside the chat: markdown in the editor, where it is editable
+ * in place, and every other format as a read-only preview, rendered by its own
+ * reader where one exists and by an identity-plus-actions state where none
+ * does. Reading a file the assistant just mentioned should never cost the
+ * reader their place in the conversation. Without an assistant id there is
+ * nothing to read the file through, so those references still navigate to the
+ * workspace browser, which resolves the assistant itself.
  *
  * The drawer is a toggle for the surfaces that show whether the file is open
  * (the file card), so the open/closed question is answered here too — once, as
@@ -25,14 +27,41 @@ import { openWorkspaceFile } from "@/utils/open-workspace-file";
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 
 /**
- * Extensions the drawer renders read-only. Tab-separated values parse with the
- * same reader as comma-separated ones, so they share the `csv` preview.
+ * Extensions with a reader of their own. Formats that share a reader map to the
+ * same kind: tab-separated values parse with the comma-separated reader, and
+ * every plain-text format renders through one monospace view.
+ *
+ * Anything absent here still opens in the drawer, through the `unsupported`
+ * state (see {@link drawerPreviewKindFor}).
  */
 const PREVIEW_EXTENSIONS = new Map<string, WorkspaceFilePreviewKind>([
   ["csv", "csv"],
   ["tsv", "csv"],
   ["docx", "docx"],
   ["pptx", "pptx"],
+  ["txt", "text"],
+  ["log", "text"],
+  ["json", "text"],
+  ["yaml", "text"],
+  ["yml", "text"],
+  ["xml", "text"],
+  ["pdf", "pdf"],
+  ["png", "image"],
+  ["jpg", "image"],
+  ["jpeg", "image"],
+  ["gif", "image"],
+  ["webp", "image"],
+  ["svg", "image"],
+  ["avif", "image"],
+  ["mp3", "audio"],
+  ["wav", "audio"],
+  ["m4a", "audio"],
+  ["ogg", "audio"],
+  ["flac", "audio"],
+  ["mp4", "video"],
+  ["mov", "video"],
+  ["webm", "video"],
+  ["m4v", "video"],
 ]);
 
 /** Lowercased extension of `filename`, or `null` when it has none. */
@@ -65,18 +94,27 @@ export function previewKindFor(
 }
 
 /**
+ * The preview a non-markdown `filename` opens in: its own reader when one
+ * exists, and the unsupported state otherwise. The drawer opens either way, so
+ * this never returns null.
+ */
+function drawerPreviewKindFor(filename: string): WorkspaceFilePreviewKind {
+  return previewKindFor(filename) ?? "unsupported";
+}
+
+/**
  * Whether a click on this reference lands in the document drawer rather than
- * navigating away to the workspace page. Without an assistant id there is
- * nothing to read the file through, so those references always navigate.
+ * navigating away to the workspace page. The drawer has a mode for every file
+ * type, so the only thing that decides this is whether there is an assistant to
+ * read the file through. The filename stays in the signature because callers
+ * ask this about a specific reference, and because it decides which drawer mode
+ * they land in.
  */
 export function usesDocumentDrawer(
-  filename: string,
+  _filename: string,
   assistantId?: string,
 ): boolean {
-  return (
-    Boolean(assistantId) &&
-    (opensInDocumentDrawer(filename) || previewKindFor(filename) !== null)
-  );
+  return Boolean(assistantId);
 }
 
 /**
@@ -113,8 +151,7 @@ export function useIsWorkspaceFileOpen(workspacePath: string | null): boolean {
 
 /**
  * Open a workspace file the assistant referenced: the document drawer's editor
- * for markdown, the drawer's read-only preview for the formats it can render,
- * the workspace browser otherwise.
+ * for markdown, the drawer's read-only preview for everything else.
  *
  * Without an assistant id there is nothing to read the file through, so those
  * callers fall back to the workspace browser, which resolves the assistant
@@ -132,13 +169,10 @@ export function openLocalFile(
         .loadWorkspaceFileDocument(assistantId, workspacePath);
       return;
     }
-    const previewKind = previewKindFor(filename);
-    if (previewKind !== null) {
-      useViewerStore
-        .getState()
-        .openWorkspaceFilePreview(workspacePath, previewKind);
-      return;
-    }
+    useViewerStore
+      .getState()
+      .openWorkspaceFilePreview(workspacePath, drawerPreviewKindFor(filename));
+    return;
   }
   void openWorkspaceFile(workspacePath);
 }

@@ -79,7 +79,7 @@ describe("LocalFileLink", () => {
     expect(className).toContain("underline");
   });
 
-  test("clicking opens the workspace file instead of navigating", () => {
+  test("clicking opens the file in the drawer instead of navigating", () => {
     render(
       <LocalFileLink
         href="/workspace/logs/run.txt"
@@ -97,9 +97,33 @@ describe("LocalFileLink", () => {
     fireEvent(screen.getByRole("link"), event);
 
     expect(event.defaultPrevented).toBe(true);
-    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
-    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("logs/run.txt");
+    expect(openWorkspaceFilePreview).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFilePreview.mock.calls[0]).toEqual([
+      "logs/run.txt",
+      "text",
+    ]);
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
     expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+  });
+
+  test("a file with no reader opens the drawer's unsupported state", () => {
+    render(
+      <LocalFileLink
+        href="/workspace/archives/bundle.zip"
+        workspacePath="archives/bundle.zip"
+        assistantId="asst-1"
+      >
+        the bundle
+      </LocalFileLink>,
+    );
+
+    fireEvent.click(screen.getByRole("link"));
+
+    expect(openWorkspaceFilePreview.mock.calls[0]).toEqual([
+      "archives/bundle.zip",
+      "unsupported",
+    ]);
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
   test("clicking a previewable file opens the read-only drawer", () => {
