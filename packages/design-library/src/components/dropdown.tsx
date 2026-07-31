@@ -87,7 +87,7 @@ export interface DropdownProps<T extends string> {
  * at viewport coordinates read off the trigger's `getBoundingClientRect()`,
  * which only lands correctly when the viewport is its containing block. Any
  * ancestor with a `transform`, `filter`, or `will-change` becomes that
- * containing block instead and shifts the menu by that ancestor's origin —
+ * containing block instead and shifts the menu by that ancestor's origin,
  * usually clear off-screen, which reads as "the dropdown won't open". The web
  * app's detail drawer does exactly this: its slide-in animation uses
  * `animation-fill-mode: both`, so the final keyframe's identity matrix stays
