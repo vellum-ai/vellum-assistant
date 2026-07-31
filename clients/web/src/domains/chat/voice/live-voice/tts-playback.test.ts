@@ -206,6 +206,39 @@ function makePlayer(): {
   return { player, ctx };
 }
 
+/**
+ * Context that also meters, so amplitude paths run for real. Kept separate from
+ * {@link MockAudioContext} because adding an analyser moves where sources
+ * connect, which the graph-wiring assertions above pin deliberately.
+ */
+class MeteringMockAudioContext extends MockAudioContext {
+  /** Constant sample value the fake analyser reports. */
+  level = 0;
+
+  createAnalyser(): AnalyserNode {
+    const read = () => this.level;
+    return {
+      fftSize: 256,
+      connect() {},
+      disconnect() {},
+      getFloatTimeDomainData(target: Float32Array) {
+        target.fill(read());
+      },
+    } as unknown as AnalyserNode;
+  }
+}
+
+function makeMeteringPlayer(): {
+  player: LiveVoiceAudioPlayer;
+  ctx: MeteringMockAudioContext;
+} {
+  const ctx = new MeteringMockAudioContext();
+  const player = new LiveVoiceAudioPlayer({
+    audioContextFactory: () => ctx as unknown as AudioContextLike,
+  });
+  return { player, ctx };
+}
+
 function makeMediaStreamPlayer(playError?: Error): {
   player: LiveVoiceAudioPlayer;
   ctx: MockAudioContext;
@@ -441,6 +474,32 @@ describe("LiveVoiceAudioPlayer", () => {
       route: "media-stream",
       elementPaused: true,
     });
+  });
+
+  test("reading the output level leaves the avatar's meter untouched", () => {
+    const { player: metered, ctx: meteredCtx } = makeMeteringPlayer();
+    meteredCtx.level = 0.05;
+    metered.enqueue(chunk(new Array(24000).fill(8000)));
+
+    // Non-zero, so what follows is about real metering rather than 0 === 0.
+    const instant = metered.readOutputLevel();
+    expect(instant).toBeGreaterThan(0);
+
+    // Two consumers on different cadences share this player. The avatar's
+    // meter is a stateful EMA advanced by every call, so the measurement path
+    // must not read through it: otherwise the probe would drag the avatar's
+    // level around, and its own numbers would depend on whether the avatar is
+    // mounted at all.
+    const first = metered.getOutputAmplitude();
+    metered.readOutputLevel();
+    metered.readOutputLevel();
+    metered.readOutputLevel();
+    const second = metered.getOutputAmplitude();
+
+    // One EMA step on from `first`, exactly as if the probe had never read.
+    expect(second).toBeCloseTo(0.5 * instant + 0.5 * first, 10);
+    // And the pure read is genuinely stateless: same input, same answer.
+    expect(metered.readOutputLevel()).toBeCloseTo(instant, 10);
   });
 
   test("schedules chunks in order, gaplessly, at the frame sample rate", () => {

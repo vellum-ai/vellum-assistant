@@ -825,6 +825,31 @@ export class LiveVoiceAudioPlayer {
       return this.smoothedOutputAmplitude;
     }
 
+    const scaled = this.readOutputLevel();
+    this.smoothedOutputAmplitude =
+      OUTPUT_AMPLITUDE_SMOOTHING * scaled +
+      (1 - OUTPUT_AMPLITUDE_SMOOTHING) * this.smoothedOutputAmplitude;
+    return this.smoothedOutputAmplitude;
+  }
+
+  /**
+   * Instantaneous mapped output level in [0, 1], leaving the display smoothing
+   * untouched. Returns 0 when nothing is scheduled or there is no analyser.
+   *
+   * Separate from {@link getOutputAmplitude} because that one is a stateful EMA
+   * tuned for a single ~60 Hz rAF consumer: every call advances its smoothing,
+   * so a second caller on a different cadence would both perturb what the
+   * avatar displays and make its own readings depend on whether the avatar
+   * happens to be mounted. A measurement has to be independent of who else is
+   * looking.
+   */
+  readOutputLevel(): number {
+    const analyser = this.analyser;
+    const samples = this.analyserSamples;
+    if (!analyser || !samples || !this.playingState) {
+      return 0;
+    }
+
     analyser.getFloatTimeDomainData(samples);
     let sumSquares = 0;
     for (let i = 0; i < samples.length; i++) {
@@ -832,12 +857,8 @@ export class LiveVoiceAudioPlayer {
       sumSquares += sample * sample;
     }
     const rms = Math.sqrt(sumSquares / samples.length);
-    // Saturating rather than clipping — see the constant's note above.
-    const scaled = 1 - Math.exp(-rms * OUTPUT_AMPLITUDE_GAIN);
-    this.smoothedOutputAmplitude =
-      OUTPUT_AMPLITUDE_SMOOTHING * scaled +
-      (1 - OUTPUT_AMPLITUDE_SMOOTHING) * this.smoothedOutputAmplitude;
-    return this.smoothedOutputAmplitude;
+    // Saturating rather than clipping, per the constant's note above.
+    return 1 - Math.exp(-rms * OUTPUT_AMPLITUDE_GAIN);
   }
 
   /**

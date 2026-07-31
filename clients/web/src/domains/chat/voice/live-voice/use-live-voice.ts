@@ -1468,7 +1468,7 @@ function handleAmplitude(
     // silent stream, which makes any echo measurement meaningless.
     const summary = session.echoProbe.sample(
       amplitude,
-      session.player.getOutputAmplitude(),
+      session.player.readOutputLevel(),
     );
     if (summary) {
       recordLiveVoiceEchoMargin(

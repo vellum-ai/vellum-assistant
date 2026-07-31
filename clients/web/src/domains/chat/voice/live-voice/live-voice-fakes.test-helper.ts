@@ -207,6 +207,9 @@ export class FakePlayer {
   getOutputAmplitude(): number {
     return this.outputAmplitude;
   }
+  readOutputLevel(): number {
+    return this.outputAmplitude;
+  }
   restartOutputRoute(): void {
     this.restartOutputRouteCount++;
   }
