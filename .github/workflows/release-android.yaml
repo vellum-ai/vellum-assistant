@@ -87,23 +87,6 @@ jobs:
         working-directory: clients/web
         run: bun install --frozen-lockfile --filter=@vellumai/web
 
-      - name: Restore Firebase configuration
-        env:
-          ANDROID_FIREBASE_CONFIG_B64: ${{ secrets.ANDROID_FIREBASE_CONFIG_B64 }}
-          EXPECTED_PACKAGE_ID: ${{ steps.config.outputs.package_id }}
-        run: |
-          if [ -z "$ANDROID_FIREBASE_CONFIG_B64" ]; then
-            echo "::error::ANDROID_FIREBASE_CONFIG_B64 is empty"
-            exit 1
-          fi
-          printf '%s' "$ANDROID_FIREBASE_CONFIG_B64" | base64 --decode > clients/android/app/google-services.json
-          if ! jq -e --arg package_id "$EXPECTED_PACKAGE_ID" \
-            'any(.client[]?; .client_info.android_client_info.package_name == $package_id)' \
-            clients/android/app/google-services.json >/dev/null; then
-            echo "::error::Firebase configuration does not contain $EXPECTED_PACKAGE_ID"
-            exit 1
-          fi
-
       - name: Sync Android project
         working-directory: clients/web
         env:
@@ -152,6 +135,4 @@ jobs:
 
       - name: Remove signing material
         if: ${{ always() }}
-        run: |
-          rm -f /tmp/vellum-android-upload.jks
-          rm -f clients/android/app/google-services.json
+        run: rm -f /tmp/vellum-android-upload.jks

@@ -169,11 +169,10 @@ annotations and methods are retained by `app/proguard-rules.pro`.
 ## Google Play Internal Releases
 
 `.github/workflows/release-android.yaml` is the reusable Android release
-workflow. It selects the flavor and package from its environment input, checks
-that the injected Firebase file names the expected package, restores the upload
-key in a temporary path, builds a signed AAB, and retains the AAB as an
-artifact. When `upload_to_play` is enabled, it uploads only to that app's Play
-`internal` track.
+workflow. It selects the flavor and package from its environment input,
+restores the upload key in a temporary path, builds a signed AAB, and retains
+the AAB as an artifact. When `upload_to_play` is enabled, it uploads only to
+that app's Play `internal` track.
 
 The dev and standard release orchestrators call this workflow. A production
 flavor build still lands on the internal track. Promoting it to a production
@@ -184,21 +183,20 @@ Configure these environment-scoped GitHub secrets independently for `dev`,
 
 | Secret | Format |
 |--------|--------|
-| `ANDROID_FIREBASE_CONFIG_B64` | Base64-encoded `google-services.json` for the environment's package |
 | `ANDROID_UPLOAD_KEYSTORE_B64` | Base64-encoded Play upload keystore |
 | `ANDROID_UPLOAD_KEYSTORE_PASSWORD` | Upload keystore password |
 | `ANDROID_UPLOAD_KEY_ALIAS` | Upload key alias |
 | `ANDROID_UPLOAD_KEY_PASSWORD` | Upload key password |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | Raw Play service account JSON |
 
-Never commit the Firebase files, keystore, credentials, or decoded secret
-material. The workflow removes restored files even when a build fails.
+Never commit the keystore, credentials, or decoded secret material. The
+workflow removes restored signing files even when a build fails.
 
 After all prerequisites and environment secrets are ready, set the repository
 variable `ANDROID_RELEASE_ENABLED` to `true`. Until then, both orchestrators
 skip Android distribution so existing releases remain unaffected.
 
-### Manual Play and Firebase Prerequisites
+### Manual Play Prerequisites
 
 Complete the following setup before enabling internal-track uploads:
 
@@ -208,20 +206,18 @@ Complete the following setup before enabling internal-track uploads:
 2. Enable Play App Signing for each app and create one controlled upload key.
 3. Grant the release service account permission to publish to each app's
    internal track, then configure the environment-scoped secrets above.
-4. Create matching Firebase Android apps and download a separate
-   `google-services.json` for every package ID.
-5. Record each Play signing SHA-256 certificate fingerprint for the Digital
+4. Record each Play signing SHA-256 certificate fingerprint for the Digital
    Asset Links rollout. The upload key fingerprint is not interchangeable with
    the Play signing fingerprint.
-6. Create internal tester groups and verify that testers can install all three
+5. Create internal tester groups and verify that testers can install all three
    package IDs side by side.
-7. Complete each Play listing, privacy policy, Data Safety form, content rating,
-   and the declarations required for microphone and notification permissions.
-8. Review app access instructions and release notes before any wider rollout.
+6. Complete each Play listing, privacy policy, Data Safety form, content rating,
+   and the declarations required for microphone permissions.
+7. Review app access instructions and release notes before any wider rollout.
 
 After setup, verify an internal-track install on a physical device. Confirm the
 package ID, display name, icon color, splash color, web origin, authentication
-callback, Firebase project, version name, and version code all match the chosen
-environment. On Android 11 through 14, rotate the device and open the keyboard
-to confirm that the composer remains visible. Smoke-test authentication, push
-registration, file sharing, and the file provider from the shrunk release AAB.
+callback, version name, and version code all match the chosen environment. On
+Android 11 through 14, rotate the device and open the keyboard to confirm that
+the composer remains visible. Smoke-test authentication, file sharing, and the
+file provider from the shrunk release AAB.
