@@ -106,6 +106,10 @@ export const ChannelDeliveryPayloadSchema = z.object({
    *  broadcaster so channel adapters render it without re-parsing
    *  `contextPayload`. */
   toolApprovalSource: ToolApprovalSourceViewSchema.optional(),
+  /** True when the decision also selected the platform (APNs) channel.
+   *  Set only on the vellum channel's payload so clients can avoid
+   *  double-bannering. */
+  remotePushDispatched: z.boolean().optional(),
 });
 export type ChannelDeliveryPayload = z.infer<
   typeof ChannelDeliveryPayloadSchema

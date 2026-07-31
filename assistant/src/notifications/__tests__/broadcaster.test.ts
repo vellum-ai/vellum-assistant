@@ -293,6 +293,52 @@ describe("NotificationBroadcaster platform deep-link from contextPayload", () =>
   });
 });
 
+describe("NotificationBroadcaster remotePushDispatched flag", () => {
+  test("vellum payload carries true when platform is also selected; platform payload omits it", async () => {
+    composeFallbackReturn = {
+      vellum: { title: "Reminder", body: "Hello" },
+      platform: { title: "Reminder", body: "Hello" },
+    };
+
+    const vellum = makeCapturingAdapter("vellum");
+    const platform = makeCapturingAdapter("platform");
+    const broadcaster = new NotificationBroadcaster([
+      vellum.adapter,
+      platform.adapter,
+    ]);
+
+    await broadcaster.broadcastDecision(
+      makeSignal(),
+      makeDecision({
+        selectedChannels: ["vellum", "platform"],
+        renderedCopy: {},
+      }),
+    );
+
+    expect(vellum.sends.length).toBe(1);
+    expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(true);
+    expect(platform.sends.length).toBe(1);
+    expect(platform.sends[0]?.payload.remotePushDispatched).toBeUndefined();
+  });
+
+  test("vellum payload carries false when platform is not selected", async () => {
+    composeFallbackReturn = {
+      vellum: { title: "Reminder", body: "Hello" },
+    };
+
+    const { adapter, sends } = makeCapturingAdapter("vellum");
+    const broadcaster = new NotificationBroadcaster([adapter]);
+
+    await broadcaster.broadcastDecision(
+      makeSignal(),
+      makeDecision({ selectedChannels: ["vellum"], renderedCopy: {} }),
+    );
+
+    expect(sends.length).toBe(1);
+    expect(sends[0]?.payload.remotePushDispatched).toBe(false);
+  });
+});
+
 // The card context is built once per broadcast (adapters render only); an
 // answer-mode pending_question with structured options renders them as
 // tappable card actions in the answer-token scheme the reply router

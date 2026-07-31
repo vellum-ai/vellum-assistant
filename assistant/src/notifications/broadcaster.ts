@@ -555,6 +555,12 @@ export class NotificationBroadcaster {
         approvalContext,
         accessRequestContext,
         toolApprovalSource,
+        ...(channel === "vellum"
+          ? {
+              remotePushDispatched:
+                decision.selectedChannels.includes("platform"),
+            }
+          : {}),
       };
 
       // Compute conversation decision audit fields for the delivery record
