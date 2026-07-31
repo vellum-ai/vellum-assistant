@@ -614,6 +614,24 @@ describe("VoiceRoom: mobile sheet", () => {
     removeHeader();
   });
 
+  test("does not minimize when a higher layer already claimed Escape", () => {
+    const removeHeader = mountHeader();
+    startOwnedSession("listening");
+    render(<VoiceRoom variant="sheet" />);
+    const event = new KeyboardEvent("keydown", {
+      key: "Escape",
+      cancelable: true,
+    });
+    event.preventDefault();
+
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    expect(useLiveVoiceStore.getState().roomMinimized).toBe(false);
+    removeHeader();
+  });
+
   // The sheet rests below the thread header so that header stays usable. All
   // three of Radix's modal reflexes would contradict that: the dim greys the
   // header out, the focus trap makes it inert while still looking available,

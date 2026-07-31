@@ -1569,6 +1569,7 @@ export function ConceptGraphView({
                         // bubble so Escape still closes the drawer from the
                         // field.
                         if (search || searchOpen) {
+                          e.preventDefault();
                           e.stopPropagation();
                           setSearch("");
                           setSearchOpen(false);

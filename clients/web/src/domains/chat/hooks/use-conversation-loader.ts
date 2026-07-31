@@ -25,7 +25,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
-import { isNativeIOS } from "@/runtime/platform-detection";
+import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
@@ -304,12 +304,12 @@ export function useConversationLoader({
     const currentConversationId =
       useConversationStore.getState().activeConversationId;
 
-    // The Capacitor iOS shell cold-launches into a fresh draft instead of
+    // Native mobile shells cold-launch into a fresh draft instead of
     // resuming a conversation. A draft is minted only while nothing is selected
     // in the URL or the store, and the minting pass writes the key to the store
     // in the same body, so the gate closes for the rest of the session.
     const newChatDraftConversationId = shouldMintNewChatDraft({
-      platformStartsInNewChat: isNativeIOS(),
+      platformStartsInNewChat: isNativeMobile(),
       urlConversationId: explicitConversationId,
       currentConversationId,
     })
