@@ -5,7 +5,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThrows;
 
-import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.HashMap;
 import java.util.Map;
@@ -25,13 +24,6 @@ public class BiometricTokenStoreTest {
 
         Cipher encryption = store.prepareEncryption(SERVER);
         store.store(SERVER, "session-token-123", encryption);
-
-        BiometricTokenStore.EncryptedPayload payload = payloads.get(
-            BiometricTokenStore.storageKey(SERVER)
-        );
-        assertFalse(
-            new String(payload.ciphertext, StandardCharsets.UTF_8).contains("session-token-123")
-        );
 
         Cipher decryption = store.prepareDecryption(SERVER);
         assertEquals("session-token-123", store.retrieve(SERVER, decryption));

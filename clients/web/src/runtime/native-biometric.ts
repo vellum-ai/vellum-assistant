@@ -1,4 +1,4 @@
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { registerPlugin } from "@capacitor/core";
 
 import { isNativePlatform } from "@/runtime/native-auth";
 import { getDeviceBool, setDeviceBool } from "@/utils/device-settings";
@@ -61,7 +61,7 @@ export async function isBiometricAvailable(): Promise<boolean> {
  * preference when this returns `true`.
  */
 export async function storeBiometricToken(token: string): Promise<boolean> {
-  if (!(await isBiometricAvailable())) {
+  if (!isNativePlatform()) {
     return false;
   }
   try {
@@ -140,10 +140,6 @@ export function setBiometricEnabled(enabled: boolean): void {
   setDeviceBool("biometricEnabled", enabled);
 }
 
-export function supportsDevicePasscodeFallback(): boolean {
-  return Capacitor.getPlatform() === "ios";
-}
-
 /** Returns the biometric type label (e.g. "Face ID", "Touch ID"). */
 export async function getBiometricTypeLabel(): Promise<string> {
   if (!isNativePlatform()) {
@@ -158,8 +154,6 @@ export async function getBiometricTypeLabel(): Promise<string> {
         return "Touch ID";
       case "opticId":
         return "Optic ID";
-      case "biometric":
-        return "Biometrics";
       default:
         return "Biometrics";
     }

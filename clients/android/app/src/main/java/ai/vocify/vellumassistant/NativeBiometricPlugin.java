@@ -12,7 +12,6 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.security.GeneralSecurityException;
-import java.util.concurrent.Executor;
 import javax.crypto.Cipher;
 
 @CapacitorPlugin(name = "NativeBiometric")
@@ -37,7 +36,7 @@ public class NativeBiometricPlugin extends Plugin {
     }
 
     private interface AuthenticatedOperation {
-        void run(Cipher cipher) throws GeneralSecurityException;
+        JSObject run(Cipher cipher) throws GeneralSecurityException;
     }
 
     @Override
@@ -57,9 +56,6 @@ public class NativeBiometricPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("available", available);
         result.put("biometryType", available ? "biometric" : "none");
-        if (!available) {
-            result.put("errorCode", availabilityCode(status));
-        }
         call.resolve(result);
     }
 
@@ -67,7 +63,7 @@ public class NativeBiometricPlugin extends Plugin {
     public void storeToken(PluginCall call) {
         String token = requiredString(call, "token");
         String server = requiredString(call, "server");
-        if (token == null || server == null) {
+        if (token == null || server == null || !requireStore(call)) {
             return;
         }
 
@@ -76,7 +72,10 @@ public class NativeBiometricPlugin extends Plugin {
             "Enable biometric sign-in",
             call.getString("reason", "Confirm your identity to enable biometric sign-in"),
             () -> tokenStore.prepareEncryption(server),
-            cipher -> tokenStore.store(server, token, cipher)
+            cipher -> {
+                tokenStore.store(server, token, cipher);
+                return null;
+            }
         );
     }
 
@@ -108,7 +107,7 @@ public class NativeBiometricPlugin extends Plugin {
             cipher -> {
                 JSObject result = new JSObject();
                 result.put("token", tokenStore.retrieve(server, cipher));
-                finishResolve(call, result);
+                return result;
             }
         );
     }
@@ -156,10 +155,6 @@ public class NativeBiometricPlugin extends Plugin {
         CipherFactory cipherFactory,
         AuthenticatedOperation operation
     ) {
-        if (!requireStore(call)) {
-            return;
-        }
-
         int status = biometricStatus();
         if (status != BiometricManager.BIOMETRIC_SUCCESS) {
             rejectUnavailable(call, status);
@@ -174,14 +169,12 @@ public class NativeBiometricPlugin extends Plugin {
             activeCall = call;
         }
 
-        Cipher cipher = null;
-        if (cipherFactory != null) {
-            try {
-                cipher = cipherFactory.create();
-            } catch (GeneralSecurityException e) {
-                rejectActiveStorageFailure(call, e);
-                return;
-            }
+        final Cipher cipher;
+        try {
+            cipher = cipherFactory.create();
+        } catch (GeneralSecurityException e) {
+            rejectActiveStorageFailure(call, e);
+            return;
         }
 
         Activity activity = getActivity();
@@ -191,8 +184,7 @@ public class NativeBiometricPlugin extends Plugin {
         }
 
         FragmentActivity fragmentActivity = (FragmentActivity) activity;
-        Cipher preparedCipher = cipher;
-        activity.runOnUiThread(() -> showPrompt(fragmentActivity, call, title, reason, preparedCipher, operation));
+        activity.runOnUiThread(() -> showPrompt(fragmentActivity, call, title, reason, cipher, operation));
     }
 
     private void showPrompt(
@@ -207,10 +199,9 @@ public class NativeBiometricPlugin extends Plugin {
             return;
         }
 
-        Executor executor = ContextCompat.getMainExecutor(activity);
         BiometricPrompt prompt = new BiometricPrompt(
             activity,
-            executor,
+            ContextCompat.getMainExecutor(activity),
             new BiometricPrompt.AuthenticationCallback() {
                 @Override
                 public void onAuthenticationError(int errorCode, CharSequence errorMessage) {
@@ -219,20 +210,16 @@ public class NativeBiometricPlugin extends Plugin {
 
                 @Override
                 public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
-                    Cipher authenticatedCipher = cipher;
-                    if (result.getCryptoObject() != null) {
-                        authenticatedCipher = result.getCryptoObject().getCipher();
-                    }
-                    if (cipher != null && authenticatedCipher == null) {
+                    Cipher authenticatedCipher = result.getCryptoObject() == null
+                        ? null
+                        : result.getCryptoObject().getCipher();
+                    if (authenticatedCipher == null) {
                         finishReject(call, "Biometric authentication returned no cryptographic result", AUTH_FAILED, null);
                         return;
                     }
 
                     try {
-                        operation.run(authenticatedCipher);
-                        if (isActive(call)) {
-                            finishResolve(call, null);
-                        }
+                        finishResolve(call, operation.run(authenticatedCipher));
                     } catch (GeneralSecurityException e) {
                         rejectActiveStorageFailure(call, e);
                     }
@@ -254,11 +241,7 @@ public class NativeBiometricPlugin extends Plugin {
             .setNegativeButtonText("Cancel")
             .build();
 
-        if (cipher == null) {
-            prompt.authenticate(promptInfo);
-        } else {
-            prompt.authenticate(promptInfo, new BiometricPrompt.CryptoObject(cipher));
-        }
+        prompt.authenticate(promptInfo, new BiometricPrompt.CryptoObject(cipher));
     }
 
     private boolean requireStore(PluginCall call) {

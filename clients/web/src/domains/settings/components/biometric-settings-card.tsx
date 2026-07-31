@@ -12,12 +12,13 @@ import {
   isBiometricEnabled,
   setBiometricEnabled,
   storeBiometricToken,
-  supportsDevicePasscodeFallback,
 } from "@/runtime/native-biometric";
+import { useIsNativeIOS } from "@/runtime/platform-detection";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 export function BiometricSettingsCard() {
   const isNative = useIsNativePlatform();
+  const isNativeIOS = useIsNativeIOS();
   const [enabled, setEnabled] = useState(() => isBiometricEnabled());
   const [available, setAvailable] = useState(false);
   const [biometricLabel, setBiometricLabel] = useState("Face ID");
@@ -67,7 +68,7 @@ export function BiometricSettingsCard() {
           </div>
           <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
             When your session expires, verify with {biometricLabel}
-            {supportsDevicePasscodeFallback() && " or your device passcode"}
+            {isNativeIOS && " or your device passcode"}
             {" instead of signing in again."}
           </p>
         </div>
