@@ -101,7 +101,28 @@ describe("DocxPreview", () => {
     );
 
     expect(
-      await screen.findByText("This document has no readable content."),
+      await screen.findByText("Nothing to preview in this file"),
+    ).toBeTruthy();
+  });
+
+  // Files whose text lives only in headers and footers reach this state: the
+  // body is a single empty paragraph, which yields no block at all.
+  test("a body of empty paragraphs falls back to the empty state", async () => {
+    const zip = new JSZip();
+    zip.file(
+      "word/document.xml",
+      `<w:document ${WORD_NS}><w:body><w:p/><w:p><w:r><w:t></w:t></w:r></w:p></w:body></w:document>`,
+    );
+
+    render(
+      <DocxPreview
+        blob={await zip.generateAsync({ type: "blob" })}
+        filename="headers-only.docx"
+      />,
+    );
+
+    expect(
+      await screen.findByText("Nothing to preview in this file"),
     ).toBeTruthy();
   });
 

@@ -81,6 +81,14 @@ const MAX_SLIDES = 200;
 /** Deepest list/outline indent the previews render. */
 const MAX_LEVEL = 8;
 
+/**
+ * Deepest element nesting the content walkers recurse through. Real documents
+ * nest a handful of levels, but a generated file can nest thousands of tables
+ * and overflow the call stack, so past this depth a subtree is flattened to
+ * its plain text instead of walked.
+ */
+const MAX_NESTING_DEPTH = 16;
+
 /** Toggle-property values that mean "off" rather than "present". */
 const OFF_VALUES = new Set(["0", "false", "off"]);
 
@@ -126,16 +134,28 @@ function firstChildNamed(element: Element, name: string): Element | null {
 
 function descendantsNamed(root: Element, name: string): Element[] {
   const found: Element[] = [];
-  const visit = (element: Element): void => {
+  const visit = (element: Element, depth: number): void => {
+    if (depth >= MAX_NESTING_DEPTH) {
+      return;
+    }
     for (const child of childElements(element)) {
       if (localNameOf(child) === name) {
         found.push(child);
       }
-      visit(child);
+      visit(child, depth + 1);
     }
   };
-  visit(root);
+  visit(root, 0);
   return found;
+}
+
+/**
+ * Whitespace-normalized text of a subtree. `textContent` is a DOM primitive
+ * rather than a walk of our own, so it stays safe on trees too deep to recurse
+ * through, which is exactly where this is used.
+ */
+function flattenedText(element: Element): string {
+  return (element.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
 /** Attribute lookup by local name, so `w:val` and `val` both match `val`. */
@@ -372,7 +392,7 @@ function readWordRun(run: Element, budget: TextBudget): string {
 
 function collectWordRuns(scope: Element, budget: TextBudget): TextRun[] {
   const runs: TextRun[] = [];
-  const visit = (element: Element): void => {
+  const visit = (element: Element, depth: number): void => {
     for (const child of childElements(element)) {
       const name = localNameOf(child);
       if (DOCX_RUN_SKIP.has(name)) {
@@ -390,11 +410,54 @@ function collectWordRuns(scope: Element, budget: TextBudget): TextRun[] {
         }
         continue;
       }
-      visit(child);
+      if (depth >= MAX_NESTING_DEPTH) {
+        const text = flattenedText(child);
+        if (text.length > 0) {
+          spend(budget, text);
+          runs.push({ text, bold: false, italic: false });
+        }
+        continue;
+      }
+      visit(child, depth + 1);
     }
   };
-  visit(scope);
+  visit(scope, 0);
   return runs;
+}
+
+/**
+ * The text-box bodies anchored in a paragraph, each one once. Word writes a
+ * floating shape twice inside `mc:AlternateContent`: the DrawingML form under
+ * `mc:Choice` and a VML copy of the same text under `mc:Fallback`. Only the
+ * choice is read, so nothing is emitted twice. A `w:pict` outside any alternate
+ * content is a legacy VML-only shape and is read directly.
+ */
+function textBoxContentsOf(scope: Element): Element[] {
+  const found: Element[] = [];
+  const visit = (element: Element, depth: number): void => {
+    if (depth >= MAX_NESTING_DEPTH) {
+      return;
+    }
+    for (const child of childElements(element)) {
+      const name = localNameOf(child);
+      if (name === "txbxContent") {
+        found.push(child);
+        continue;
+      }
+      if (name === "AlternateContent") {
+        const branch =
+          firstChildNamed(child, "Choice") ??
+          firstChildNamed(child, "Fallback");
+        if (branch !== null) {
+          visit(branch, depth + 1);
+        }
+        continue;
+      }
+      visit(child, depth + 1);
+    }
+  };
+  visit(scope, 0);
+  return found;
 }
 
 function headingLevelOf(properties: Element | null): number | null {
@@ -521,7 +584,11 @@ async function readNumbering(zip: JSZip): Promise<Map<string, boolean>> {
   return numbering;
 }
 
-function appendParagraphBlock(paragraph: Element, context: DocxContext): void {
+function appendParagraphBlock(
+  paragraph: Element,
+  context: DocxContext,
+  depth: number,
+): void {
   const properties = firstChildNamed(paragraph, "pPr");
   const runs = collectWordRuns(paragraph, context.budget);
 
@@ -554,6 +621,12 @@ function appendParagraphBlock(paragraph: Element, context: DocxContext): void {
       context.blocks.push({ type: "image", mediaPath });
     }
   }
+
+  // A floating shape carries paragraphs of its own, which read after the text
+  // of the paragraph the shape is anchored to.
+  for (const content of textBoxContentsOf(paragraph)) {
+    collectDocxBlocks(content, context, depth + 1);
+  }
 }
 
 function appendTableBlock(table: Element, context: DocxContext): void {
@@ -570,17 +643,24 @@ function appendTableBlock(table: Element, context: DocxContext): void {
   }
 }
 
-function collectDocxBlocks(container: Element, context: DocxContext): void {
+function collectDocxBlocks(
+  container: Element,
+  context: DocxContext,
+  depth: number,
+): void {
+  if (depth >= MAX_NESTING_DEPTH) {
+    return;
+  }
   for (const child of childElements(container)) {
     const name = localNameOf(child);
     if (name === "p") {
-      appendParagraphBlock(child, context);
+      appendParagraphBlock(child, context, depth);
     } else if (name === "tbl") {
       appendTableBlock(child, context);
     } else if (name === "sdt") {
       const content = firstChildNamed(child, "sdtContent");
       if (content !== null) {
-        collectDocxBlocks(content, context);
+        collectDocxBlocks(content, context, depth + 1);
       }
     }
   }
@@ -615,7 +695,7 @@ export async function parseDocx(blob: Blob): Promise<DocxDocument> {
     mediaPaths: [],
     blocks: [],
   };
-  collectDocxBlocks(body, context);
+  collectDocxBlocks(body, context, 0);
 
   return {
     blocks: context.blocks,
@@ -732,6 +812,56 @@ function readSlide(
   return { index, title, paragraphs, imageMediaPaths };
 }
 
+/**
+ * Package paths of the diagram data parts a slide's SmartArt frames point at.
+ * A frame holds no text of its own: `dgm:relIds` carries the relationship id of
+ * the data part (`r:dm`), which is where the node text lives.
+ */
+function diagramDataPaths(
+  root: Element,
+  relationships: Map<string, string>,
+): string[] {
+  const paths: string[] = [];
+  for (const relIds of descendantsNamed(root, "relIds")) {
+    const id = attrNamed(relIds, "dm");
+    if (id === null) {
+      continue;
+    }
+    const path = relationships.get(id);
+    if (path !== undefined && !paths.includes(path)) {
+      paths.push(path);
+    }
+  }
+  return paths;
+}
+
+/** SmartArt node text, in the order the diagram data part lists it. */
+async function readDiagramParagraphs(
+  zip: JSZip,
+  path: string,
+  budget: TextBudget,
+): Promise<PptxParagraph[]> {
+  const xml = await readText(zip, path);
+  if (xml === null) {
+    return [];
+  }
+  let root: Element;
+  try {
+    root = parseXml(xml, path);
+  } catch {
+    return [];
+  }
+  const paragraphs: PptxParagraph[] = [];
+  for (const point of descendantsNamed(root, "pt")) {
+    const body = firstChildNamed(point, "t");
+    if (body === null) {
+      continue;
+    }
+    paragraphs.push(...readTextBody(body, budget));
+  }
+  return paragraphs;
+}
+
 /** Slide parts in deck order, which is the numeric order of their filenames. */
 function slideEntryPaths(zip: JSZip): string[] {
   const entries: Array<{ path: string; position: number }> = [];
@@ -773,13 +903,18 @@ export async function parsePptx(blob: Blob): Promise<PptxDeck> {
       path.replace(/^ppt\/slides\/(.+)$/, "ppt/slides/_rels/$1.rels"),
       "ppt/slides",
     );
-    slides.push(
-      readSlide(parseXml(xml, path), position + 1, {
-        relationships,
-        budget,
-        mediaPaths,
-      }),
-    );
+    const root = parseXml(xml, path);
+    const slide = readSlide(root, position + 1, {
+      relationships,
+      budget,
+      mediaPaths,
+    });
+    for (const dataPath of diagramDataPaths(root, relationships)) {
+      slide.paragraphs.push(
+        ...(await readDiagramParagraphs(zip, dataPath, budget)),
+      );
+    }
+    slides.push(slide);
   }
 
   return { slides, media: await readMedia(zip, mediaPaths) };

@@ -88,6 +88,22 @@ describe("PptxPreview", () => {
     expect(screen.getByText("deck.pptx")).toBeTruthy();
   });
 
+  test("a deck whose slides hold nothing renders the empty state", async () => {
+    const zip = new JSZip();
+    zip.file("ppt/slides/slide1.xml", slideXml(""));
+
+    render(
+      <PptxPreview
+        blob={await zip.generateAsync({ type: "blob" })}
+        filename="blank.pptx"
+      />,
+    );
+
+    expect(
+      await screen.findByText("Nothing to preview in this file"),
+    ).toBeTruthy();
+  });
+
   test("image object URLs are revoked on unmount", async () => {
     const revoke = spyOn(URL, "revokeObjectURL");
     revoke.mockClear();

@@ -19,6 +19,7 @@ import {
 import { DocxTable } from "@/domains/chat/components/local-file/preview/docx-table";
 import type { DocxBlock } from "@/domains/chat/components/local-file/preview/ooxml";
 import { parseDocx } from "@/domains/chat/components/local-file/preview/ooxml";
+import { PreviewEmpty } from "@/domains/chat/components/local-file/preview/preview-empty";
 import { PreviewError } from "@/domains/chat/components/local-file/preview/preview-error";
 import { PreviewRuns } from "@/domains/chat/components/local-file/preview/preview-runs";
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
@@ -81,6 +82,17 @@ function groupBlocks(blocks: DocxBlock[]): DocxRenderItem[] {
   return items;
 }
 
+function hasRenderableContent(block: DocxBlock): boolean {
+  switch (block.type) {
+    case "image":
+      return true;
+    case "table":
+      return block.rows.some((row) => row.some((cell) => cell.length > 0));
+    default:
+      return block.runs.length > 0;
+  }
+}
+
 function renderBlock(
   block: DocxBlock,
   mediaUrls: Map<string, string>,
@@ -126,12 +138,8 @@ export function DocxPreview({ blob, filename }: DocxPreviewProps): ReactNode {
   if (state.status === "error") {
     return <PreviewError filename={filename} />;
   }
-  if (state.content.blocks.length === 0) {
-    return (
-      <p className="p-1 text-body-medium-lighter text-[var(--content-tertiary)]">
-        This document has no readable content.
-      </p>
-    );
+  if (!state.content.blocks.some(hasRenderableContent)) {
+    return <PreviewEmpty />;
   }
 
   return (

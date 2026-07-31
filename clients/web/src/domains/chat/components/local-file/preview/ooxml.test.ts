@@ -9,7 +9,7 @@ import {
 } from "@/domains/chat/components/local-file/preview/ooxml";
 
 const WORD_NS =
-  'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"';
+  'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:v="urn:schemas-microsoft-com:vml"';
 
 const SLIDE_NS =
   'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
@@ -524,6 +524,175 @@ describe("parsePptx", () => {
     const blob = await zipBlob({ "ppt/slides/slide1.xml": "<p:sld>" });
 
     await expect(parsePptx(blob)).rejects.toBeInstanceOf(ParseError);
+  });
+});
+
+describe("parseDocx: text boxes", () => {
+  /** The DrawingML shape Word writes, wrapped in its VML fallback copy. */
+  function alternateContentTextBox(text: string): string {
+    const content = `<w:txbxContent>${paragraph(text)}</w:txbxContent>`;
+    return (
+      `<w:p><w:r><mc:AlternateContent>` +
+      `<mc:Choice Requires="wps"><w:drawing><wp:anchor><a:graphic><a:graphicData>` +
+      `<wps:wsp><wps:txbx>${content}</wps:txbx></wps:wsp>` +
+      `</a:graphicData></a:graphic></wp:anchor></w:drawing></mc:Choice>` +
+      `<mc:Fallback><w:pict><v:shape><v:textbox>${content}</v:textbox></v:shape></w:pict></mc:Fallback>` +
+      `</mc:AlternateContent></w:r></w:p>`
+    );
+  }
+
+  test("an alternate-content text box yields its text exactly once", async () => {
+    const blob = await docxBlob(
+      paragraph("Before.") +
+        alternateContentTextBox("Floating text box") +
+        paragraph("After."),
+    );
+
+    const { blocks } = await parseDocx(blob);
+
+    expect(blocks.map((block) => [block.type, textOf(block)])).toEqual([
+      ["paragraph", "Before."],
+      ["paragraph", "Floating text box"],
+      ["paragraph", "After."],
+    ]);
+  });
+
+  test("a legacy VML-only text box outside alternate content is read", async () => {
+    const blob = await docxBlob(
+      `<w:p><w:r><w:pict><v:shape><v:textbox><w:txbxContent>` +
+        paragraph("Legacy shape text") +
+        `</w:txbxContent></v:textbox></v:shape></w:pict></w:r></w:p>`,
+    );
+
+    expect((await parseDocx(blob)).blocks.map(textOf)).toEqual([
+      "Legacy shape text",
+    ]);
+  });
+
+  test("text box structure beyond paragraphs carries through", async () => {
+    const blob = await docxBlob(
+      `<w:p><w:r><w:pict><v:shape><v:textbox><w:txbxContent>` +
+        `<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr>${run("Callout")}</w:p>` +
+        `</w:txbxContent></v:textbox></v:shape></w:pict></w:r></w:p>`,
+    );
+
+    expect((await parseDocx(blob)).blocks[0]).toMatchObject({
+      type: "heading",
+      level: 2,
+    });
+  });
+});
+
+describe("parseDocx: pathological nesting", () => {
+  /** A table whose single cell holds a labelled paragraph and the next table. */
+  function nestedTables(depth: number): string {
+    let body = "";
+    for (let level = depth - 1; level >= 0; level -= 1) {
+      body = `<w:tbl><w:tr><w:tc>${paragraph(`Level ${level}`)}${body}</w:tc></w:tr></w:tbl>`;
+    }
+    return body;
+  }
+
+  test("tables nested past the cap parse without overflowing the stack", async () => {
+    const blob = await docxBlob(
+      paragraph("Before the table.") +
+        nestedTables(5000) +
+        paragraph("After the table."),
+    );
+
+    const { blocks } = await parseDocx(blob);
+
+    expect(blocks.map((block) => block.type)).toEqual([
+      "paragraph",
+      "table",
+      "paragraph",
+    ]);
+    expect(textOf(blocks[0]!)).toBe("Before the table.");
+    expect(textOf(blocks[2]!)).toBe("After the table.");
+  });
+
+  test("text past the cap is flattened rather than dropped", async () => {
+    const blob = await docxBlob(nestedTables(400));
+
+    const [block] = (await parseDocx(blob)).blocks;
+
+    if (block?.type !== "table") {
+      throw new Error("expected a table block");
+    }
+    const cellText = block.rows[0]![0]!.map((cellRun) => cellRun.text).join(" ");
+    expect(cellText).toContain("Level 0");
+    expect(cellText).toContain("Level 399");
+  });
+
+  test("structured document tags nested past the cap do not recurse forever", async () => {
+    let body = paragraph("Buried");
+    for (let level = 0; level < 200; level += 1) {
+      body = `<w:sdt><w:sdtContent>${body}</w:sdtContent></w:sdt>`;
+    }
+    const blob = await docxBlob(paragraph("Visible") + body);
+
+    const { blocks } = await parseDocx(blob);
+
+    expect(blocks.map(textOf)).toEqual(["Visible"]);
+  });
+});
+
+describe("parsePptx: SmartArt", () => {
+  const DIAGRAM_NS =
+    'xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"';
+
+  const GRAPHIC_FRAME =
+    `<p:graphicFrame><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram">` +
+    `<dgm:relIds xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" r:dm="rId2" r:lo="rId3"/>` +
+    `</a:graphicData></a:graphic></p:graphicFrame>`;
+
+  function diagramPoint(text: string | null): string {
+    const body =
+      text === null
+        ? `<a:p><a:endParaRPr/></a:p>`
+        : `<a:p><a:r><a:t>${text}</a:t></a:r></a:p>`;
+    return `<dgm:pt modelId="{${text ?? "empty"}}"><dgm:t><a:bodyPr/>${body}</dgm:t></dgm:pt>`;
+  }
+
+  const DIAGRAM_DATA =
+    `<?xml version="1.0"?><dgm:dataModel ${DIAGRAM_NS}><dgm:ptLst>` +
+    diagramPoint("Discover") +
+    diagramPoint(null) +
+    diagramPoint("Design") +
+    diagramPoint("Deliver") +
+    `</dgm:ptLst></dgm:dataModel>`;
+
+  test("diagram node text is read through the slide relationships", async () => {
+    const blob = await zipBlob({
+      "ppt/slides/slide1.xml": slideXml(GRAPHIC_FRAME),
+      "ppt/slides/_rels/slide1.xml.rels": relationshipsXml([
+        { id: "rId2", target: "../diagrams/data1.xml" },
+      ]),
+      "ppt/diagrams/data1.xml": DIAGRAM_DATA,
+    });
+
+    const [slide] = (await parsePptx(blob)).slides;
+
+    expect(
+      slide?.paragraphs.map((diagramParagraph) =>
+        diagramParagraph.runs.map((textRun) => textRun.text).join(""),
+      ),
+    ).toEqual(["Discover", "Design", "Deliver"]);
+  });
+
+  test("a diagram whose data part is missing leaves the slide readable", async () => {
+    const blob = await zipBlob({
+      "ppt/slides/slide1.xml": slideXml(
+        `<p:sp><p:nvSpPr><p:nvPr/></p:nvSpPr><p:txBody><a:p><a:r><a:t>Process</a:t></a:r></a:p></p:txBody></p:sp>${GRAPHIC_FRAME}`,
+      ),
+      "ppt/slides/_rels/slide1.xml.rels": relationshipsXml([
+        { id: "rId2", target: "../diagrams/data1.xml" },
+      ]),
+    });
+
+    const [slide] = (await parsePptx(blob)).slides;
+
+    expect(slide?.paragraphs).toHaveLength(1);
   });
 });
 
