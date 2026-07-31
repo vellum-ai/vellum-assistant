@@ -11,6 +11,7 @@ export const LIVE_VOICE_PCM_FRAME_BYTES =
 export const LIVE_VOICE_PCM_MIME_TYPE = "audio/pcm";
 
 export type LiveVoiceAudioDirection = "input" | "output";
+export type LiveVoiceMode = "push-to-talk" | "open-mic";
 
 export interface LiveVoiceAudioDevice {
   direction: LiveVoiceAudioDirection;
@@ -43,12 +44,20 @@ export interface LiveVoiceAudioDoctorOptions {
   inputDevice?: string;
   outputDevice?: string;
   probeDurationMs?: number;
+  mode?: LiveVoiceMode;
+}
+
+export interface LiveVoiceEchoCancelPair {
+  input: LiveVoiceAudioDevice;
+  output: LiveVoiceAudioDevice;
+  moduleId: number;
 }
 
 export interface LiveVoiceAudioDoctorReport {
   ok: boolean;
   checks: LiveVoiceAudioDoctorCheck[];
   devices: LiveVoiceAudioDevices;
+  echoCancelPair?: LiveVoiceEchoCancelPair;
 }
 
 export interface LiveVoiceAudioDiagnostics {

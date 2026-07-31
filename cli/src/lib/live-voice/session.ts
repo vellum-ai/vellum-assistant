@@ -4,9 +4,16 @@ import type {
 } from "@vellumai/service-contracts/live-voice";
 
 import type {
+  EchoMeasurementSummary,
+  LiveVoiceMode,
   LiveVoicePcmCapture,
   LiveVoicePcmCaptureSession,
   LiveVoicePcmPlayback,
+} from "./audio.js";
+import {
+  EchoMeasurement,
+  LIVE_VOICE_PCM_FRAME_BYTES,
+  pcm16Rms,
 } from "./audio.js";
 import type {
   LiveVoiceChannelClientEventMap,
@@ -15,8 +22,10 @@ import type {
 
 export const LIVE_VOICE_BUSY_RETRY_DELAYS_MS = [100, 250, 500, 1_000] as const;
 const LIVE_VOICE_BUSY_RETRY_BUDGET_MS = 2_000;
+const MAX_ECHO_AMPLITUDE_SAMPLES = 1_200;
 
 export type LiveVoiceCaptionMode = "off" | "user" | "assistant" | "both";
+export type { LiveVoiceMode } from "./audio.js";
 
 export const LIVE_VOICE_CAPTION_MODES = [
   "off",
@@ -50,13 +59,14 @@ export interface LiveVoiceSessionEndpoint {
   readonly headers?: Readonly<Record<string, string>>;
 }
 
-export interface LiveVoicePushToTalkSessionOptions {
+export interface LiveVoiceForegroundSessionOptions {
   readonly resolveEndpoint: () => Promise<LiveVoiceSessionEndpoint>;
   readonly createChannel: (
     endpoint: LiveVoiceSessionEndpoint,
   ) => LiveVoiceSessionChannel;
   readonly capture: LiveVoicePcmCapture;
   readonly playback: LiveVoicePcmPlayback;
+  readonly mode?: LiveVoiceMode;
   readonly inputDevice?: string;
   readonly conversationId?: string;
   readonly captions?: LiveVoiceCaptionMode;
@@ -65,6 +75,9 @@ export interface LiveVoicePushToTalkSessionOptions {
   readonly onState?: (state: LiveVoiceForegroundState) => void;
   readonly onCaption?: (role: "user" | "assistant", text: string) => void;
   readonly onCaptionMode?: (mode: LiveVoiceCaptionMode) => void;
+  readonly onModeChange?: (mode: LiveVoiceMode, reason: string) => void;
+  readonly onMicrophoneState?: (muted: boolean) => void;
+  readonly onEchoSummary?: (summary: EchoMeasurementSummary) => void;
   readonly onTiming?: (metric: LiveVoiceTimingMetric) => void;
   readonly onError?: (error: Error) => void;
 }
@@ -73,7 +86,7 @@ type HandshakeResult =
   | { readonly type: "ready"; readonly frame: LiveVoiceReadyServerFrame }
   | { readonly type: "busy"; readonly frame: LiveVoiceBusyServerFrame };
 
-export class LiveVoicePushToTalkSession {
+export class LiveVoiceForegroundSession {
   private readonly now: () => number;
   private readonly sleep: (
     milliseconds: number,
@@ -85,6 +98,8 @@ export class LiveVoicePushToTalkSession {
 
   private state: LiveVoiceForegroundState = "ended";
   private captionMode: LiveVoiceCaptionMode;
+  private mode: LiveVoiceMode;
+  private muted = false;
   private channel: LiveVoiceSessionChannel | null = null;
   private captureSession: LiveVoicePcmCaptureSession | null = null;
   private conversationId: string | undefined;
@@ -97,11 +112,19 @@ export class LiveVoicePushToTalkSession {
   private failure: Error | null = null;
   private keyOperations: Promise<void> = Promise.resolve();
   private frameOperations: Promise<void> = Promise.resolve();
+  private reconnecting = false;
+  private playbackGeneration = 0;
+  private acceptingTts = true;
+  private readonly echoMeasurement = new EchoMeasurement();
+  private readonly playbackAmplitudes: number[] = [];
+  private playbackAmplitudeIndex = 0;
+  private lastMicrophoneAmplitude = 0;
 
-  constructor(private readonly options: LiveVoicePushToTalkSessionOptions) {
+  constructor(private readonly options: LiveVoiceForegroundSessionOptions) {
     this.now = options.now ?? (() => performance.now());
     this.sleep = options.sleep ?? abortableDelay;
     this.captionMode = options.captions ?? "off";
+    this.mode = options.mode ?? "push-to-talk";
     this.conversationId = options.conversationId;
     this.closedPromise = new Promise<void>((resolve) => {
       this.resolveClosed = resolve;
@@ -116,20 +139,32 @@ export class LiveVoicePushToTalkSession {
     return this.failure;
   }
 
+  get currentMode(): LiveVoiceMode {
+    return this.mode;
+  }
+
   async start(): Promise<void> {
     if (this.shuttingDown || this.channel !== null) {
       return;
     }
     try {
       await this.openChannel();
-      this.setState("ready");
+      if (this.reconnecting) {
+        return;
+      }
+      if (this.mode === "open-mic") {
+        await this.beginCapture();
+        this.options.onMicrophoneState?.(this.muted);
+      } else {
+        this.setState("ready");
+      }
     } catch (error) {
       await this.fail(toError(error));
       throw this.failure ?? new Error("Live voice failed to start.");
     }
   }
 
-  handleKey(key: "enter" | "interrupt" | "captions"): Promise<void> {
+  handleKey(key: "enter" | "interrupt" | "captions" | "mute"): Promise<void> {
     const operation = this.keyOperations.then(async () => {
       if (this.shuttingDown) {
         return;
@@ -140,6 +175,13 @@ export class LiveVoicePushToTalkSession {
       }
       if (key === "interrupt") {
         await this.interruptReply();
+        return;
+      }
+      if (key === "mute") {
+        this.toggleMute();
+        return;
+      }
+      if (this.mode === "open-mic") {
         return;
       }
       if (this.state === "ready") {
@@ -178,13 +220,15 @@ export class LiveVoicePushToTalkSession {
     this.setState("listening");
     const captureSession = await this.options.capture.startCapture({
       target: this.options.inputDevice,
-      onFrame: (frame) => {
+      onFrame: (frame, rmsAmplitude) => {
+        const microphoneAmplitude = this.muted ? 0 : rmsAmplitude;
+        this.recordEchoSample(microphoneAmplitude);
         if (
           generation === this.captureGeneration &&
-          this.state === "listening" &&
+          (this.mode === "open-mic" || this.state === "listening") &&
           this.channel === channel
         ) {
-          channel.sendAudio(frame);
+          channel.sendAudio(this.muted ? Buffer.alloc(frame.length) : frame);
         }
       },
     });
@@ -192,6 +236,7 @@ export class LiveVoicePushToTalkSession {
       await captureSession.stop();
       return;
     }
+    captureSession.setMuted(this.muted);
     this.captureSession = captureSession;
     void captureSession.closed.catch((error) => {
       if (!this.shuttingDown && this.captureSession === captureSession) {
@@ -230,8 +275,22 @@ export class LiveVoicePushToTalkSession {
     ) {
       return;
     }
+    this.cancelPlaybackGeneration();
     this.channel.interrupt();
     await this.options.playback.flush();
+    this.finishEchoMeasurement();
+    if (this.mode === "open-mic") {
+      this.setState("listening");
+    }
+  }
+
+  private toggleMute(): void {
+    if (this.mode !== "open-mic" || this.captureSession === null) {
+      return;
+    }
+    this.muted = !this.muted;
+    this.captureSession.setMuted(this.muted);
+    this.options.onMicrophoneState?.(this.muted);
   }
 
   private cycleCaptions(): void {
@@ -253,11 +312,31 @@ export class LiveVoicePushToTalkSession {
       const channel = this.options.createChannel(endpoint);
       this.channel = channel;
       const openedAt = this.now();
-      const result = await this.connectChannel(channel);
+      let result: HandshakeResult;
+      try {
+        result = await this.connectChannel(channel);
+      } catch (error) {
+        if (this.channel === channel) {
+          this.channel = null;
+        }
+        channel.close();
+        throw error;
+      }
 
       if (result.type === "ready") {
         this.previousSessionId = result.frame.sessionId;
         this.conversationId = result.frame.conversationId;
+        if (
+          this.mode === "open-mic" &&
+          result.frame.turnDetection !== "server_vad"
+        ) {
+          this.mode = "push-to-talk";
+          this.muted = false;
+          this.options.onModeChange?.(
+            this.mode,
+            "The assistant did not confirm server voice activity detection. Falling back to push-to-talk.",
+          );
+        }
         this.options.onTiming?.({
           name: "socket_ready",
           durationMs: nonNegativeDuration(this.now() - openedAt),
@@ -349,17 +428,22 @@ export class LiveVoicePushToTalkSession {
             ),
           );
         } else if (isActiveReadyChannel()) {
-          void this.fail(
-            new Error(
-              event.reason || "The live-voice connection closed unexpectedly.",
-            ),
-          );
+          if (event.retryable) {
+            void this.reconnectChannel(channel, event.reason);
+          } else {
+            void this.fail(
+              new Error(
+                event.reason ||
+                  "The live-voice connection closed unexpectedly.",
+              ),
+            );
+          }
         }
       });
 
       channel.connect({
         conversationId: this.conversationId,
-        turnDetection: "manual",
+        turnDetection: this.mode === "open-mic" ? "server_vad" : "manual",
       });
     });
   }
@@ -368,12 +452,25 @@ export class LiveVoicePushToTalkSession {
     channel: LiveVoiceSessionChannel,
     frame: LiveVoiceChannelClientEventMap["frame"],
   ): void {
+    const playbackGeneration = this.playbackGeneration;
+    const acceptingTts = this.acceptingTts;
+    if (frame.type === "speech_started" || frame.type === "turn_cancelled") {
+      this.cancelPlaybackGeneration();
+      void this.options.playback.flush();
+    } else if (frame.type === "thinking") {
+      this.acceptingTts = true;
+    }
     this.frameOperations = this.frameOperations
       .then(async () => {
         if (this.shuttingDown || this.channel !== channel) {
           return;
         }
-        await this.handleFrame(channel, frame);
+        await this.handleFrame(
+          channel,
+          frame,
+          playbackGeneration,
+          acceptingTts,
+        );
       })
       .catch(async (error) => {
         if (!this.shuttingDown) {
@@ -385,8 +482,20 @@ export class LiveVoicePushToTalkSession {
   private async handleFrame(
     channel: LiveVoiceSessionChannel,
     frame: LiveVoiceChannelClientEventMap["frame"],
+    playbackGeneration: number,
+    acceptingTts: boolean,
   ): Promise<void> {
     switch (frame.type) {
+      case "speech_started":
+        await this.options.playback.flush();
+        this.finishEchoMeasurement();
+        this.setState("listening");
+        return;
+      case "utterance_end":
+        this.inputEndedAt = this.now();
+        this.firstTtsRecorded = false;
+        this.setState("transcribing");
+        return;
       case "stt_partial":
       case "stt_final":
         this.setState("transcribing");
@@ -395,6 +504,7 @@ export class LiveVoicePushToTalkSession {
         }
         return;
       case "thinking":
+        this.acceptingTts = true;
         this.setState("thinking");
         return;
       case "assistant_text_delta":
@@ -403,6 +513,9 @@ export class LiveVoicePushToTalkSession {
         }
         return;
       case "tts_audio":
+        if (!acceptingTts || playbackGeneration !== this.playbackGeneration) {
+          return;
+        }
         if (!this.firstTtsRecorded && this.inputEndedAt !== null) {
           this.firstTtsRecorded = true;
           this.options.onTiming?.({
@@ -411,8 +524,10 @@ export class LiveVoicePushToTalkSession {
           });
         }
         this.setState("speaking");
+        const audio = Buffer.from(frame.dataBase64, "base64");
+        this.queuePlaybackAmplitudes(audio);
         await this.options.playback.write({
-          audio: Buffer.from(frame.dataBase64, "base64"),
+          audio,
           mimeType: frame.mimeType,
           sampleRate: frame.sampleRate,
         });
@@ -421,6 +536,8 @@ export class LiveVoicePushToTalkSession {
         await this.completeTurn(channel, true);
         return;
       case "utterance_discarded":
+        await this.completeTurn(channel, false);
+        return;
       case "turn_cancelled":
         await this.completeTurn(channel, false);
         return;
@@ -442,10 +559,17 @@ export class LiveVoicePushToTalkSession {
       return;
     }
 
-    this.channel = null;
-    channel.end();
+    this.finishEchoMeasurement();
     this.inputEndedAt = null;
     this.firstTtsRecorded = false;
+    if (this.mode === "open-mic") {
+      this.acceptingTts = false;
+      this.setState("listening");
+      return;
+    }
+
+    this.channel = null;
+    channel.end();
     await this.openChannel();
     if (!this.shuttingDown) {
       this.setState("ready");
@@ -458,6 +582,130 @@ export class LiveVoicePushToTalkSession {
     }
     this.state = state;
     this.options.onState?.(state);
+  }
+
+  private cancelPlaybackGeneration(): void {
+    this.playbackGeneration += 1;
+    this.acceptingTts = false;
+    this.playbackAmplitudes.length = 0;
+    this.playbackAmplitudeIndex = 0;
+  }
+
+  private queuePlaybackAmplitudes(audio: Buffer): void {
+    for (
+      let offset = 0;
+      offset < audio.length;
+      offset += LIVE_VOICE_PCM_FRAME_BYTES
+    ) {
+      if (
+        this.playbackAmplitudes.length - this.playbackAmplitudeIndex <
+        MAX_ECHO_AMPLITUDE_SAMPLES
+      ) {
+        this.playbackAmplitudes.push(
+          pcm16Rms(
+            audio.subarray(
+              offset,
+              Math.min(offset + LIVE_VOICE_PCM_FRAME_BYTES, audio.length),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  private recordEchoSample(microphoneAmplitude: number): void {
+    this.lastMicrophoneAmplitude = microphoneAmplitude;
+    const playback = this.playbackAmplitudes[this.playbackAmplitudeIndex] ?? 0;
+    if (this.playbackAmplitudeIndex < this.playbackAmplitudes.length) {
+      this.playbackAmplitudeIndex += 1;
+      if (this.playbackAmplitudeIndex === this.playbackAmplitudes.length) {
+        this.playbackAmplitudes.length = 0;
+        this.playbackAmplitudeIndex = 0;
+      } else if (this.playbackAmplitudeIndex >= 256) {
+        this.playbackAmplitudes.splice(0, this.playbackAmplitudeIndex);
+        this.playbackAmplitudeIndex = 0;
+      }
+    }
+    const summary = this.echoMeasurement.addSample({
+      microphone: microphoneAmplitude,
+      playback,
+    });
+    if (summary !== null) {
+      this.options.onEchoSummary?.(summary);
+    }
+  }
+
+  private finishEchoMeasurement(): void {
+    this.playbackAmplitudes.length = 0;
+    this.playbackAmplitudeIndex = 0;
+    const summary = this.echoMeasurement.addSample({
+      microphone: this.lastMicrophoneAmplitude,
+      playback: 0,
+    });
+    if (summary !== null) {
+      this.options.onEchoSummary?.(summary);
+    }
+  }
+
+  private async reconnectChannel(
+    closedChannel: LiveVoiceSessionChannel,
+    reason: string,
+  ): Promise<void> {
+    if (
+      this.reconnecting ||
+      this.shuttingDown ||
+      this.channel !== closedChannel
+    ) {
+      return;
+    }
+    this.reconnecting = true;
+    this.channel = null;
+    this.captureGeneration += 1;
+    const captureSession = this.captureSession;
+    this.captureSession = null;
+    if (captureSession !== null) {
+      await captureSession.stop().catch(() => null);
+    }
+    this.cancelPlaybackGeneration();
+    await this.options.playback.flush().catch(() => {});
+    this.finishEchoMeasurement();
+
+    let lastError = new Error(
+      reason || "The live-voice connection is restarting.",
+    );
+    const reconnectDelays = [0, ...LIVE_VOICE_BUSY_RETRY_DELAYS_MS] as const;
+    try {
+      for (const delay of reconnectDelays) {
+        if (delay > 0) {
+          await this.sleep(delay, this.abortController.signal);
+        }
+        if (this.shuttingDown) {
+          return;
+        }
+        try {
+          await this.openChannel();
+          if (this.mode === "open-mic") {
+            await this.beginCapture();
+            this.options.onMicrophoneState?.(this.muted);
+          } else {
+            this.setState("ready");
+          }
+          return;
+        } catch (error) {
+          lastError = toError(error);
+        }
+      }
+    } catch (error) {
+      if (this.shuttingDown) {
+        return;
+      }
+      lastError = toError(error);
+    } finally {
+      this.reconnecting = false;
+    }
+    if (!this.shuttingDown) {
+      await this.fail(lastError);
+    }
   }
 
   private async fail(error: Error): Promise<void> {
@@ -475,6 +723,7 @@ export class LiveVoicePushToTalkSession {
     this.shuttingDown = true;
     this.abortController.abort();
     this.captureGeneration += 1;
+    this.cancelPlaybackGeneration();
 
     const captureSession = this.captureSession;
     this.captureSession = null;

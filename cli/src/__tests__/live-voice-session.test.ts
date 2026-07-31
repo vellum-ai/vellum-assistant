@@ -13,8 +13,9 @@ import type {
 } from "../lib/live-voice/audio.js";
 import {
   LIVE_VOICE_BUSY_RETRY_DELAYS_MS,
-  LiveVoicePushToTalkSession,
+  LiveVoiceForegroundSession,
   type LiveVoiceForegroundState,
+  type LiveVoiceMode,
   type LiveVoiceSessionChannel,
   type LiveVoiceTimingMetric,
 } from "../lib/live-voice/session.js";
@@ -81,6 +82,7 @@ type ConnectBehavior =
       type: "ready";
       sessionId: string;
       conversationId: string;
+      turnDetection?: "manual" | "server_vad";
     }
   | { type: "busy"; activeSessionId: string };
 
@@ -131,7 +133,7 @@ class FakeChannel implements LiveVoiceSessionChannel {
           seq: 1,
           sessionId: this.behavior.sessionId,
           conversationId: this.behavior.conversationId,
-          turnDetection: "manual",
+          turnDetection: this.behavior.turnDetection ?? "manual",
         });
       } else {
         this.emit("busy", {
@@ -191,6 +193,8 @@ function makeHarness(
   options: {
     captions?: "off" | "user" | "assistant" | "both";
     conversationId?: string;
+    mode?: LiveVoiceMode;
+    sleep?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   } = {},
 ) {
   const capture = new FakeCapture();
@@ -202,9 +206,12 @@ function makeHarness(
   const timings: LiveVoiceTimingMetric[] = [];
   const errors: Error[] = [];
   const sleeps: number[] = [];
+  const microphoneStates: boolean[] = [];
+  const modeChanges: Array<{ mode: LiveVoiceMode; reason: string }> = [];
+  const echoSummaries: unknown[] = [];
   let now = 100;
 
-  const session = new LiveVoicePushToTalkSession({
+  const session = new LiveVoiceForegroundSession({
     resolveEndpoint: async () => ({
       url: "wss://voice.example.com/v1/live-voice?token=secret-value",
     }),
@@ -219,20 +226,26 @@ function makeHarness(
     },
     capture,
     playback,
+    ...(options.mode ? { mode: options.mode } : {}),
     ...(options.conversationId
       ? { conversationId: options.conversationId }
       : {}),
     ...(options.captions ? { captions: options.captions } : {}),
     now: () => now,
-    sleep: async (milliseconds) => {
-      sleeps.push(milliseconds);
-      now += milliseconds;
-    },
+    sleep:
+      options.sleep ??
+      (async (milliseconds) => {
+        sleeps.push(milliseconds);
+        now += milliseconds;
+      }),
     onState: (state) => states.push(state),
     onCaption: (role, text) => captions.push({ role, text }),
     onCaptionMode: (mode) => captionModes.push(mode),
     onTiming: (metric) => timings.push(metric),
     onError: (error) => errors.push(error),
+    onMicrophoneState: (muted) => microphoneStates.push(muted),
+    onModeChange: (mode, reason) => modeChanges.push({ mode, reason }),
+    onEchoSummary: (summary) => echoSummaries.push(summary),
   });
 
   return {
@@ -246,6 +259,9 @@ function makeHarness(
     timings,
     errors,
     sleeps,
+    microphoneStates,
+    modeChanges,
+    echoSummaries,
     advance(milliseconds: number) {
       now += milliseconds;
     },
@@ -265,7 +281,7 @@ async function waitFor(
   throw new Error(`Timed out waiting for ${message}.`);
 }
 
-describe("LiveVoicePushToTalkSession", () => {
+describe("LiveVoiceForegroundSession", () => {
   test("retains the conversation and opens a fresh manual session after playback drains", async () => {
     const harness = makeHarness(
       [
@@ -501,6 +517,320 @@ describe("LiveVoicePushToTalkSession", () => {
     await harness.session.handleKey("interrupt");
     expect(harness.channels[0].interruptCount).toBe(1);
     expect(harness.playback.flushCount).toBe(1);
+    await harness.session.shutdown();
+  });
+
+  test("keeps two server-VAD turns on one socket with continuous capture", async () => {
+    const harness = makeHarness(
+      [
+        {
+          type: "ready",
+          sessionId: "session-open",
+          conversationId: "conversation-open",
+          turnDetection: "server_vad",
+        },
+      ],
+      { mode: "open-mic" },
+    );
+
+    await harness.session.start();
+    expect(harness.channels[0].connectOptions).toEqual([
+      { turnDetection: "server_vad" },
+    ]);
+    expect(harness.capture.sessions).toHaveLength(1);
+    expect(harness.session.currentState).toBe("listening");
+    expect(harness.microphoneStates).toEqual([false]);
+
+    for (let turn = 1; turn <= 2; turn += 1) {
+      harness.capture.emit(Buffer.from([turn, turn]));
+      harness.channels[0].emit("frame", {
+        type: "speech_started",
+        seq: turn * 10,
+      });
+      harness.channels[0].emit("frame", {
+        type: "utterance_end",
+        seq: turn * 10 + 1,
+        reason: "silence",
+      });
+      harness.channels[0].emit("frame", {
+        type: "thinking",
+        seq: turn * 10 + 2,
+        turnId: `turn-${turn}`,
+      });
+      harness.channels[0].emit("frame", {
+        type: "tts_audio",
+        seq: turn * 10 + 3,
+        mimeType: "audio/pcm",
+        sampleRate: 16_000,
+        dataBase64: Buffer.from([turn, turn]).toString("base64"),
+      });
+      harness.channels[0].emit("frame", {
+        type: "tts_done",
+        seq: turn * 10 + 4,
+        turnId: `turn-${turn}`,
+      });
+      await waitFor(
+        () => harness.playback.drainCount === turn,
+        `turn ${turn} playback drain`,
+      );
+    }
+
+    expect(harness.channels).toHaveLength(1);
+    expect(harness.channels[0].endCount).toBe(0);
+    expect(harness.capture.sessions).toHaveLength(1);
+    expect(harness.capture.sessions[0].stopCount).toBe(0);
+    expect(harness.session.currentState).toBe("listening");
+    await harness.session.shutdown();
+  });
+
+  test("mutes with equal-duration zeros while preserving capture during TTS", async () => {
+    const harness = makeHarness(
+      [
+        {
+          type: "ready",
+          sessionId: "session-open",
+          conversationId: "conversation-open",
+          turnDetection: "server_vad",
+        },
+      ],
+      { mode: "open-mic" },
+    );
+    await harness.session.start();
+
+    await harness.session.handleKey("mute");
+    harness.capture.emit(Buffer.from([1, 2, 3, 4]));
+    expect(harness.channels[0].audio[0]).toEqual(Buffer.alloc(4));
+    expect(harness.capture.sessions[0].muted).toBe(true);
+    expect(harness.microphoneStates.at(-1)).toBe(true);
+
+    harness.channels[0].emit("frame", {
+      type: "thinking",
+      seq: 2,
+      turnId: "turn-1",
+    });
+    harness.channels[0].emit("frame", {
+      type: "tts_audio",
+      seq: 3,
+      mimeType: "audio/pcm",
+      sampleRate: 16_000,
+      dataBase64: Buffer.from([5, 6]).toString("base64"),
+    });
+    await waitFor(() => harness.playback.chunks.length === 1);
+    await harness.session.handleKey("mute");
+    harness.capture.emit(Buffer.from([7, 8, 9, 10]));
+
+    expect(harness.channels[0].audio[1]).toEqual(Buffer.from([7, 8, 9, 10]));
+    expect(harness.capture.sessions[0].stopCount).toBe(0);
+    await harness.session.shutdown();
+  });
+
+  test("drops late TTS after cancellation and reports scalar echo evidence", async () => {
+    const harness = makeHarness(
+      [
+        {
+          type: "ready",
+          sessionId: "session-open",
+          conversationId: "conversation-open",
+          turnDetection: "server_vad",
+        },
+      ],
+      { mode: "open-mic" },
+    );
+    await harness.session.start();
+    harness.capture.emit(Buffer.alloc(1_600));
+
+    harness.channels[0].emit("frame", {
+      type: "thinking",
+      seq: 2,
+      turnId: "turn-1",
+    });
+    const audiblePcm = Buffer.alloc(1_600);
+    for (let offset = 0; offset < audiblePcm.length; offset += 2) {
+      audiblePcm.writeInt16LE(8_000, offset);
+    }
+    harness.channels[0].emit("frame", {
+      type: "tts_audio",
+      seq: 3,
+      mimeType: "audio/pcm",
+      sampleRate: 16_000,
+      dataBase64: audiblePcm.toString("base64"),
+    });
+    await waitFor(() => harness.playback.chunks.length === 1);
+    harness.capture.emit(Buffer.alloc(1_600));
+    harness.channels[0].emit("frame", {
+      type: "tts_done",
+      seq: 4,
+      turnId: "turn-1",
+    });
+    await waitFor(() => harness.echoSummaries.length === 1);
+
+    harness.channels[0].emit("frame", {
+      type: "turn_cancelled",
+      seq: 5,
+      turnId: "turn-1",
+    });
+    harness.channels[0].emit("frame", {
+      type: "tts_audio",
+      seq: 6,
+      mimeType: "audio/pcm",
+      sampleRate: 16_000,
+      dataBase64: Buffer.from([9, 10]).toString("base64"),
+    });
+    await waitFor(() => harness.playback.flushCount >= 1);
+
+    expect(harness.playback.chunks).toHaveLength(1);
+    expect(harness.echoSummaries[0]).toMatchObject({ sampleCount: 1 });
+    await harness.session.shutdown();
+  });
+
+  test("reconnects bounded retryable closes with mode, mute, and conversation", async () => {
+    const harness = makeHarness(
+      [
+        {
+          type: "ready",
+          sessionId: "session-1",
+          conversationId: "conversation-open",
+          turnDetection: "server_vad",
+        },
+        {
+          type: "ready",
+          sessionId: "session-2",
+          conversationId: "conversation-open",
+          turnDetection: "server_vad",
+        },
+      ],
+      { mode: "open-mic", captions: "both" },
+    );
+    await harness.session.start();
+    await harness.session.handleKey("mute");
+
+    harness.channels[0].emit("closed", {
+      code: 1012,
+      reason: "service restart",
+      retryable: true,
+    });
+    await waitFor(
+      () =>
+        harness.channels.length === 2 && harness.capture.sessions.length === 2,
+      "open-mic reconnect",
+    );
+
+    expect(harness.channels[1].connectOptions).toEqual([
+      {
+        conversationId: "conversation-open",
+        turnDetection: "server_vad",
+      },
+    ]);
+    expect(harness.capture.sessions[0].stopCount).toBe(1);
+    expect(harness.capture.sessions[1].muted).toBe(true);
+    expect(harness.playback.flushCount).toBeGreaterThanOrEqual(1);
+    expect(harness.session.currentMode).toBe("open-mic");
+    harness.channels[1].emit("frame", {
+      type: "stt_final",
+      seq: 2,
+      text: "reconnected user caption",
+    });
+    harness.channels[1].emit("frame", {
+      type: "assistant_text_delta",
+      seq: 3,
+      text: "reconnected assistant caption",
+    });
+    await waitFor(() => harness.captions.length === 2);
+    expect(harness.captions).toEqual([
+      { role: "user", text: "reconnected user caption" },
+      { role: "assistant", text: "reconnected assistant caption" },
+    ]);
+    await harness.session.shutdown();
+  });
+
+  test("bounds reconnect attempts and fails after the retry schedule", async () => {
+    const harness = makeHarness(
+      [
+        {
+          type: "ready",
+          sessionId: "session-1",
+          conversationId: "conversation-open",
+          turnDetection: "server_vad",
+        },
+      ],
+      { mode: "open-mic" },
+    );
+    await harness.session.start();
+
+    harness.channels[0].emit("closed", {
+      code: 1013,
+      reason: "try again later",
+      retryable: true,
+    });
+    await harness.session.waitUntilClosed();
+
+    expect(harness.sleeps).toEqual([...LIVE_VOICE_BUSY_RETRY_DELAYS_MS]);
+    expect(harness.session.currentState).toBe("failed");
+    expect(harness.errors[0]?.message).toContain(
+      "No fake channel behavior remains",
+    );
+  });
+
+  test("tears down cleanly while a reconnect delay is pending", async () => {
+    let resolveSleepStarted: (() => void) | undefined;
+    const sleepStarted = new Promise<void>((resolve) => {
+      resolveSleepStarted = resolve;
+    });
+    const harness = makeHarness(
+      [
+        {
+          type: "ready",
+          sessionId: "session-1",
+          conversationId: "conversation-open",
+          turnDetection: "server_vad",
+        },
+      ],
+      {
+        mode: "open-mic",
+        sleep: async (_milliseconds, signal) =>
+          await new Promise<void>((resolve, reject) => {
+            resolveSleepStarted?.();
+            const handleAbort = (): void => {
+              reject(new Error("aborted"));
+            };
+            signal.addEventListener("abort", handleAbort, { once: true });
+          }),
+      },
+    );
+    await harness.session.start();
+    harness.channels[0].emit("closed", {
+      code: 1012,
+      reason: "service restart",
+      retryable: true,
+    });
+    await sleepStarted;
+
+    await harness.session.shutdown();
+
+    expect(harness.session.currentState).toBe("ended");
+    expect(harness.playback.closeCount).toBe(1);
+    expect(harness.errors).toEqual([]);
+  });
+
+  test("falls back to push-to-talk when ready does not confirm server VAD", async () => {
+    const harness = makeHarness(
+      [
+        {
+          type: "ready",
+          sessionId: "session-old",
+          conversationId: "conversation-old",
+          turnDetection: "manual",
+        },
+      ],
+      { mode: "open-mic" },
+    );
+
+    await harness.session.start();
+
+    expect(harness.session.currentMode).toBe("push-to-talk");
+    expect(harness.capture.sessions).toHaveLength(0);
+    expect(harness.modeChanges[0]).toMatchObject({ mode: "push-to-talk" });
+    expect(harness.modeChanges[0]?.reason).toContain("Falling back");
     await harness.session.shutdown();
   });
 

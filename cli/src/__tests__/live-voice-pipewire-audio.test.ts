@@ -10,9 +10,12 @@ import {
   pcm16Rms,
 } from "../lib/live-voice/audio.js";
 import {
+  LIVE_VOICE_ECHO_CANCEL_SINK,
+  LIVE_VOICE_ECHO_CANCEL_SOURCE,
   PipeWireAudio,
   buildPipeWirePcmArgs,
   parsePipeWireDevices,
+  parsePipeWireEchoCancelPair,
   parsePipeWireVersion,
 } from "../lib/live-voice/pipewire-audio.js";
 import type {
@@ -165,6 +168,58 @@ const PIPEWIRE_DUMP = JSON.stringify([
   },
 ]);
 
+function echoCancelDump(
+  options: {
+    sourceModuleId?: number;
+    sinkModuleId?: number | string;
+    moduleName?: string;
+    sourceName?: string;
+    sinkName?: string;
+    sourceMediaClass?: string;
+    sinkMediaClass?: string;
+  } = {},
+): string {
+  const sourceModuleId = options.sourceModuleId ?? 41;
+  const sinkModuleId = options.sinkModuleId ?? sourceModuleId;
+  return JSON.stringify([
+    {
+      id: 41,
+      type: "PipeWire:Interface:Module",
+      info: {
+        props: {
+          "module.name": options.moduleName ?? "libpipewire-module-echo-cancel",
+        },
+      },
+    },
+    {
+      id: 51,
+      type: "PipeWire:Interface:Node",
+      info: {
+        props: {
+          "object.serial": 2001,
+          "node.name": options.sourceName ?? LIVE_VOICE_ECHO_CANCEL_SOURCE,
+          "node.description": "Echo-cancel capture",
+          "media.class": options.sourceMediaClass ?? "Audio/Source",
+          "module.id": sourceModuleId,
+        },
+      },
+    },
+    {
+      id: 52,
+      type: "PipeWire:Interface:Node",
+      info: {
+        props: {
+          "object.serial": 2002,
+          "node.name": options.sinkName ?? LIVE_VOICE_ECHO_CANCEL_SINK,
+          "node.description": "Echo-cancel playback",
+          "media.class": options.sinkMediaClass ?? "Audio/Sink",
+          "module.id": sinkModuleId,
+        },
+      },
+    },
+  ]);
+}
+
 describe("PCM framing", () => {
   test("uses exact 50 ms PCM16 frames and preserves odd chunk boundaries", () => {
     expect(LIVE_VOICE_PCM_FRAME_BYTES).toBe(1_600);
@@ -205,6 +260,41 @@ describe("PCM framing", () => {
 });
 
 describe("PipeWire device discovery and capture", () => {
+  test("accepts only the exact pair owned by one echo-cancel module", () => {
+    expect(parsePipeWireEchoCancelPair(echoCancelDump())).toMatchObject({
+      input: { nodeName: LIVE_VOICE_ECHO_CANCEL_SOURCE },
+      output: { nodeName: LIVE_VOICE_ECHO_CANCEL_SINK },
+      moduleId: 41,
+    });
+    expect(
+      parsePipeWireEchoCancelPair(echoCancelDump({ sinkModuleId: "41" })),
+    ).toMatchObject({ moduleId: 41 });
+    expect(
+      parsePipeWireEchoCancelPair(echoCancelDump({ sinkModuleId: 42 })),
+    ).toBeNull();
+    expect(
+      parsePipeWireEchoCancelPair(
+        echoCancelDump({ moduleName: "libpipewire-module-loopback" }),
+      ),
+    ).toBeNull();
+    expect(
+      parsePipeWireEchoCancelPair(
+        echoCancelDump({ sourceMediaClass: "Audio/Source/Virtual" }),
+      ),
+    ).toBeNull();
+  });
+
+  test("does not accept descriptive echo or headset labels as AEC proof", () => {
+    expect(
+      parsePipeWireEchoCancelPair(
+        echoCancelDump({
+          sourceName: "echo-cancel-headset-source",
+          sinkName: "echo-cancel-headset-sink",
+        }),
+      ),
+    ).toBeNull();
+  });
+
   test("preserves stable node names, serials, classes, and module ownership", () => {
     const devices = parsePipeWireDevices(PIPEWIRE_DUMP);
     expect(devices).toEqual({
@@ -479,6 +569,83 @@ describe("PipeWire playback", () => {
 });
 
 describe("PipeWire doctor", () => {
+  test("routes open-mic probes through the verified exact pair", async () => {
+    const probeTargets: string[][] = [];
+    const runCommand: AudioCommandRunner = async (_executable, args) => {
+      if (args.includes("--version")) {
+        return { code: 0, stdout: "pw-record 1.4.2", stderr: "" };
+      }
+      if (args.includes("is-active")) {
+        return { code: 0, stdout: "active", stderr: "" };
+      }
+      if (args.includes("show-user")) {
+        return { code: 0, stdout: "Linger=yes", stderr: "" };
+      }
+      return { code: 0, stdout: echoCancelDump(), stderr: "" };
+    };
+    const audio = new PipeWireAudio({
+      findExecutable: async (name) => `/usr/bin/${name}`,
+      runCommand,
+      probeProcess: async (_executable, args) => {
+        probeTargets.push([...args]);
+        return { ok: true };
+      },
+      platform: "linux",
+      architecture: "arm64",
+      username: "user1",
+    });
+
+    const report = await audio.doctor({ mode: "open-mic" });
+
+    expect(report.ok).toBe(true);
+    expect(report.echoCancelPair?.moduleId).toBe(41);
+    expect(probeTargets[0]).toContain(
+      `--target=${LIVE_VOICE_ECHO_CANCEL_SOURCE}`,
+    );
+    expect(probeTargets[1]).toContain(
+      `--target=${LIVE_VOICE_ECHO_CANCEL_SINK}`,
+    );
+  });
+
+  test("fails open-mic diagnostics for mismatched module ownership", async () => {
+    const runCommand: AudioCommandRunner = async (_executable, args) => {
+      if (args.includes("--version")) {
+        return { code: 0, stdout: "pw-record 1.4.2", stderr: "" };
+      }
+      if (args.includes("is-active")) {
+        return { code: 0, stdout: "active", stderr: "" };
+      }
+      if (args.includes("show-user")) {
+        return { code: 0, stdout: "Linger=yes", stderr: "" };
+      }
+      return {
+        code: 0,
+        stdout: echoCancelDump({ sinkModuleId: 42 }),
+        stderr: "",
+      };
+    };
+    const audio = new PipeWireAudio({
+      findExecutable: async (name) => `/usr/bin/${name}`,
+      runCommand,
+      probeProcess: async () => ({ ok: true }),
+      platform: "linux",
+      architecture: "arm64",
+      username: "user1",
+    });
+
+    const report = await audio.doctor({ mode: "open-mic" });
+
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.find((check) => check.id === "aec.module"),
+    ).toMatchObject({
+      status: "fail",
+    });
+    expect(
+      report.checks.find((check) => check.id === "aec.module")?.message,
+    ).toContain("--mode push-to-talk");
+  });
+
   test("parses PipeWire versions", () => {
     expect(parsePipeWireVersion("Compiled with libpipewire 1.4.2")).toEqual({
       major: 1,

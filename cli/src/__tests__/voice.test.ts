@@ -64,8 +64,11 @@ class FakeSignalHost extends EventEmitter {
 class FakeCaptureSession implements LiveVoicePcmCaptureSession {
   readonly closed = new Promise<void>(() => {});
   stopCount = 0;
+  muted = false;
 
-  setMuted(): void {}
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+  }
 
   async stop(): Promise<Buffer | null> {
     this.stopCount += 1;
@@ -91,6 +94,14 @@ const PASSING_AUDIO_REPORT: LiveVoiceAudioDoctorReport = {
         description: "Input",
         mediaClass: "Audio/Source",
       },
+      {
+        direction: "input",
+        nodeName: "vellum_echo_cancel_source",
+        objectSerial: "301",
+        description: "Vellum echo-cancel source",
+        mediaClass: "Audio/Source",
+        moduleId: 41,
+      },
     ],
     outputs: [
       {
@@ -100,7 +111,34 @@ const PASSING_AUDIO_REPORT: LiveVoiceAudioDoctorReport = {
         description: "Output",
         mediaClass: "Audio/Sink",
       },
+      {
+        direction: "output",
+        nodeName: "vellum_echo_cancel_sink",
+        objectSerial: "302",
+        description: "Vellum echo-cancel sink",
+        mediaClass: "Audio/Sink",
+        moduleId: 41,
+      },
     ],
+  },
+  echoCancelPair: {
+    input: {
+      direction: "input",
+      nodeName: "vellum_echo_cancel_source",
+      objectSerial: "301",
+      description: "Vellum echo-cancel source",
+      mediaClass: "Audio/Source",
+      moduleId: 41,
+    },
+    output: {
+      direction: "output",
+      nodeName: "vellum_echo_cancel_sink",
+      objectSerial: "302",
+      description: "Vellum echo-cancel sink",
+      mediaClass: "Audio/Sink",
+      moduleId: 41,
+    },
+    moduleId: 41,
   },
 };
 
@@ -109,6 +147,8 @@ class FakeAudio {
   readonly captureOptions: LiveVoicePcmCaptureOptions[] = [];
   readonly captureSessions: FakeCaptureSession[] = [];
   readonly playbackTargets: Array<string | undefined> = [];
+  readonly playbackChunks: LiveVoicePlaybackChunk[] = [];
+  readonly events: string[] = [];
   playbackDrainCount = 0;
   playbackFlushCount = 0;
   playbackCloseCount = 0;
@@ -120,6 +160,7 @@ class FakeAudio {
   async doctor(options?: {
     inputDevice?: string;
     outputDevice?: string;
+    mode?: "push-to-talk" | "open-mic";
   }): Promise<LiveVoiceAudioDoctorReport> {
     this.doctorOptions.push(options);
     return PASSING_AUDIO_REPORT;
@@ -129,6 +170,7 @@ class FakeAudio {
     options: LiveVoicePcmCaptureOptions,
   ): Promise<LiveVoicePcmCaptureSession> {
     const session = new FakeCaptureSession();
+    this.events.push("capture");
     this.captureOptions.push(options);
     this.captureSessions.push(session);
     return session;
@@ -137,7 +179,10 @@ class FakeAudio {
   createPlayback(target?: string) {
     this.playbackTargets.push(target);
     return {
-      write: async (_chunk: LiveVoicePlaybackChunk) => {},
+      write: async (chunk: LiveVoicePlaybackChunk) => {
+        this.events.push("playback");
+        this.playbackChunks.push(chunk);
+      },
       drain: async () => {
         this.playbackDrainCount += 1;
       },
@@ -176,6 +221,7 @@ class FakeChannel implements LiveVoiceSessionChannel {
     private readonly sessionId = "session-1",
     private readonly conversationId = "conversation-1",
     private readonly autoReleaseConfirmation = true,
+    private readonly turnDetection: "manual" | "server_vad" = "manual",
   ) {}
 
   on<EventName extends LiveVoiceChannelClientEventName>(
@@ -199,7 +245,7 @@ class FakeChannel implements LiveVoiceSessionChannel {
         seq: 1,
         sessionId: this.sessionId,
         conversationId: this.conversationId,
-        turnDetection: "manual",
+        turnDetection: this.turnDetection,
       });
     });
   }
@@ -297,6 +343,7 @@ describe("vellum voice", () => {
     expect(stdout.value).toContain("vellum voice devices [--json]");
     expect(stdout.value).toContain("--input-device <node>");
     expect(stdout.value).toContain("--captions <mode>");
+    expect(stdout.value).toContain("--mode <mode>");
     expect(stdout.value).toContain(
       `--url http://127.0.0.1:${GATEWAY_PORT} --assistant-id assistant-123`,
     );
@@ -508,6 +555,153 @@ describe("vellum voice", () => {
       ok: true,
       target: { status: "ready" },
     });
+  });
+
+  test("validates and routes persistent open mic through the exact AEC pair", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    const stderr = new FakeOutput();
+    const signalHost = new FakeSignalHost();
+    const audio = new FakeAudio();
+    const channel = new FakeChannel(
+      "session-open",
+      "conversation-open",
+      true,
+      "server_vad",
+    );
+
+    const running = voice({
+      args: ["assistant-123", "--mode", "open-mic"],
+      stdin,
+      stdout,
+      stderr,
+      signalHost,
+      audio,
+      debug: true,
+      resolveConnection: async () => directConnection("never-print-me"),
+      createChannel: () => channel,
+    });
+
+    await waitFor(
+      () => stdin.isRaw && audio.captureSessions.length === 1,
+      "open-mic capture",
+    );
+    expect(audio.doctorOptions).toEqual([
+      {
+        inputDevice: undefined,
+        outputDevice: undefined,
+        mode: "open-mic",
+      },
+    ]);
+    expect(channel.connectOptions).toEqual([{ turnDetection: "server_vad" }]);
+    expect(audio.captureOptions[0].target).toBe("vellum_echo_cancel_source");
+    expect(audio.playbackTargets).toEqual(["vellum_echo_cancel_sink"]);
+    expect(stdout.value).toContain("[MIC LIVE]");
+
+    stdin.emit("data", Buffer.from("m"));
+    await waitFor(() => audio.captureSessions[0].muted);
+    audio.captureOptions[0].onFrame(Buffer.from([1, 2, 3, 4]), 0.2);
+    expect(channel.audio[0]).toEqual(Buffer.alloc(4));
+    stdin.emit("data", Buffer.from("m"));
+    await waitFor(() => !audio.captureSessions[0].muted);
+
+    channel.emit("frame", {
+      type: "thinking",
+      seq: 2,
+      turnId: "turn-1",
+    });
+    channel.emit("frame", {
+      type: "tts_audio",
+      seq: 3,
+      mimeType: "audio/pcm",
+      sampleRate: 16_000,
+      dataBase64: Buffer.from([5, 6]).toString("base64"),
+    });
+    await waitFor(() => audio.playbackChunks.length === 1);
+    audio.captureOptions[0].onFrame(Buffer.from([7, 8]), 0.1);
+    channel.emit("frame", {
+      type: "tts_done",
+      seq: 4,
+      turnId: "turn-1",
+    });
+    await waitFor(() => stderr.value.includes("[voice:echo]"));
+    expect(audio.events).toEqual(["capture", "playback"]);
+    expect(stderr.value).toContain("source=vellum_echo_cancel_source");
+    expect(stderr.value).toContain("sink=vellum_echo_cancel_sink");
+    expect(stderr.value).not.toContain("never-print-me");
+
+    stdin.emit("data", Buffer.from("q"));
+    await running;
+  });
+
+  test("rejects custom audio routes for open mic before resolving a target", async () => {
+    let resolutionCount = 0;
+    await expect(
+      voice({
+        args: [
+          "assistant-123",
+          "--mode",
+          "open-mic",
+          "--input-device",
+          "headset-with-echo-label",
+        ],
+        resolveConnection: async () => {
+          resolutionCount += 1;
+          return directConnection();
+        },
+      }),
+    ).rejects.toThrow("always uses the verified Vellum echo-cancel");
+    expect(resolutionCount).toBe(0);
+  });
+
+  test("falls back to push-to-talk when an older assistant does not confirm server VAD", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    const stderr = new FakeOutput();
+    const audio = new FakeAudio();
+
+    const running = voice({
+      args: ["assistant-123", "--mode", "open-mic"],
+      stdin,
+      stdout,
+      stderr,
+      audio,
+      resolveConnection: async () => directConnection(),
+      createChannel: () => new FakeChannel(),
+    });
+
+    await waitFor(() => stdin.isRaw);
+    expect(audio.captureSessions).toHaveLength(0);
+    expect(stderr.value).toContain("Falling back to push-to-talk");
+    expect(stdout.value).toContain("Enter: talk or release");
+
+    stdin.emit("data", Buffer.from("q"));
+    await running;
+  });
+
+  test("open-mic doctor requires server-VAD confirmation without opening capture", async () => {
+    const stdout = new FakeOutput(false);
+    const signalHost = new FakeSignalHost();
+    const audio = new FakeAudio();
+
+    await voice({
+      args: ["doctor", "assistant-123", "--mode", "open-mic", "--json"],
+      stdout,
+      signalHost,
+      audio,
+      resolveConnection: async () => directConnection(),
+      createChannel: () => new FakeChannel(),
+    });
+
+    expect(JSON.parse(stdout.value)).toMatchObject({
+      ok: false,
+      target: {
+        status: "fail",
+      },
+    });
+    expect(stdout.value).toContain("server voice activity detection");
+    expect(audio.captureSessions).toHaveLength(0);
+    expect(signalHost.exitCode).toBe(1);
   });
 
   test("uses stored Vellum login routing and refreshes the managed endpoint for each turn", async () => {
