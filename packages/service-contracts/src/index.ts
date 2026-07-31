@@ -8,6 +8,7 @@
  *   - `@vellumai/service-contracts/trust-rules`     — trust-rule types and parsing helpers
  *   - `@vellumai/service-contracts/twilio-ingress`  — shared Twilio ingress config constants
  *   - `@vellumai/service-contracts/ingress`         — shared public ingress URL helpers
+ *   - `@vellumai/service-contracts/live-voice`: shared live-voice wire contract
  *
  * Fine-grained subpaths are also available for low-friction migration:
  *   `./rpc`, `./handles`, `./error`, `./trust-rules`, `./ingress`, `./twilio-ingress`
@@ -27,5 +28,6 @@ export * from "./handles.js";
 export * from "./rpc.js";
 export * from "./trust-rules.js";
 export * from "./ingress.js";
+export * from "./live-voice.js";
 export * from "./remote-web-pairing.js";
 export * from "./twilio-ingress.js";
