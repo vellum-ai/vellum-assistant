@@ -1,17 +1,14 @@
-import { useState } from "react";
-
 import { useNavigate } from "react-router";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { BillingErrorBanner } from "@/domains/chat/components/billing-error-banner";
-import { LazyAddCreditsModal } from "@/domains/chat/components/lazy-add-credits-modal";
-import { resolveCreditPaywallCta } from "@/domains/chat/utils/credit-paywall-cta";
 import {
   isBillingCtaUpgradeArm,
   useBillingCtaExperimentArm,
 } from "@/hooks/use-billing-cta-experiment";
 import { useIsFreePlan } from "@/hooks/use-is-free-plan";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { useAddCreditsModalStore } from "@/stores/add-credits-modal-store";
 import { routes } from "@/utils/routes";
 
 const UPGRADE_COPY = {
@@ -30,13 +27,12 @@ const ADD_CREDITS_COPY = {
  * Friendly credits upsell card: a single-CTA credit wall built on
  * {@link BillingErrorBanner}, rendered in the transcript in place of a
  * persisted credits-exhausted provider-error row. Self-contained (it resolves
- * its own CTA mode and mounts its own {@link LazyAddCreditsModal} instance),
- * so it can also be mounted outside the transcript with no transcript-specific
- * props.
+ * its own CTA mode; the Add Credits CTA opens the shared modal mounted in
+ * `ActiveChatView` via {@link useAddCreditsModalStore}), so it can also be
+ * mounted outside the transcript with no transcript-specific props.
  */
 export function CreditsUpsellCard() {
   const navigate = useNavigate();
-  const [showAddCredits, setShowAddCredits] = useState(false);
 
   // Managed credits are platform-hosted billing, so the card follows the
   // platform-hosted gate (like `MaintenanceModeBanner` and the billing
@@ -47,11 +43,11 @@ export function CreditsUpsellCard() {
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const billingCtaArm = useBillingCtaExperimentArm();
   const isFreePlan = useIsFreePlan(platformGate === "full");
-  const mode = resolveCreditPaywallCta({
-    isUpgradeArm: isBillingCtaUpgradeArm(billingCtaArm),
-    isFreePlan,
-  });
-  const copy = mode === "upgrade" ? UPGRADE_COPY : ADD_CREDITS_COPY;
+  // Upgrade CTA shows ONLY in the experiment upgrade arm AND for a free-plan
+  // org; an unknown/unresolved plan / unhydrated flags count as paid.
+  const isUpgrade =
+    isBillingCtaUpgradeArm(billingCtaArm) && isFreePlan === true;
+  const copy = isUpgrade ? UPGRADE_COPY : ADD_CREDITS_COPY;
 
   if (platformGate === "gated") {
     // Self-hosted active assistant: every recovery action the card could
@@ -75,24 +71,18 @@ export function CreditsUpsellCard() {
   }
 
   return (
-    <>
-      <BillingErrorBanner
-        ariaLabel={`${copy.title}. ${copy.subtitle}`}
-        icon={<span className="text-lg opacity-80">💰</span>}
-        title={copy.title}
-        subtitle={copy.subtitle}
-        ctaLabel={copy.ctaLabel}
-        onAction={
-          mode === "upgrade"
-            ? () => void navigate(routes.plans)
-            : () => setShowAddCredits(true)
-        }
-        detached={true}
-      />
-      <LazyAddCreditsModal
-        open={showAddCredits}
-        onOpenChange={setShowAddCredits}
-      />
-    </>
+    <BillingErrorBanner
+      ariaLabel={`${copy.title}. ${copy.subtitle}`}
+      icon={<span className="text-lg opacity-80">💰</span>}
+      title={copy.title}
+      subtitle={copy.subtitle}
+      ctaLabel={copy.ctaLabel}
+      onAction={
+        isUpgrade
+          ? () => void navigate(routes.plans)
+          : () => useAddCreditsModalStore.getState().setOpen(true)
+      }
+      detached={true}
+    />
   );
 }

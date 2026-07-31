@@ -67,6 +67,7 @@ const DeployDialogs = lazy(() =>
   })),
 );
 
+import { LazyAddCreditsModal } from "@/domains/chat/components/lazy-add-credits-modal";
 import { MobileChatOverlays } from "@/domains/chat/components/mobile-chat-overlays";
 import { useChatHeaderRegistration } from "@/domains/chat/hooks/use-chat-header-registration";
 import { useConversationChangeEffects } from "@/domains/chat/hooks/use-conversation-change-effects";
@@ -605,6 +606,9 @@ export function ActiveChatView() {
         onCancel={handleCancelRetry}
       />
       <MobileChatOverlays />
+      {/* Stable mount for the Add Credits checkout, so it outlives the
+          billing-state-conditional CTAs that open it. */}
+      <LazyAddCreditsModal />
     </>
   );
 }
