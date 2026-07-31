@@ -138,7 +138,7 @@ function printHelp(): void {
   );
   console.log("  upgrade  Upgrade an assistant to a newer version");
   console.log("  use      Set the active assistant for commands");
-  console.log("  voice    Talk to an assistant with foreground push-to-talk");
+  console.log("  voice    Talk to an assistant with foreground voice controls");
   console.log("  wake     Start the assistant and gateway");
   console.log("  whoami   Show current logged-in user");
   console.log("  workflows Inspect and control workflow runs");

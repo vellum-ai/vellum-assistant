@@ -10,17 +10,23 @@ import {
   resolveLiveVoiceConnection,
   type LiveVoiceResolvedConnection,
 } from "../lib/live-voice/connection.js";
-import { PipeWireAudio } from "../lib/live-voice/pipewire-audio.js";
+import {
+  LIVE_VOICE_ECHO_CANCEL_SINK,
+  LIVE_VOICE_ECHO_CANCEL_SOURCE,
+  PipeWireAudio,
+} from "../lib/live-voice/pipewire-audio.js";
 import {
   LIVE_VOICE_CAPTION_MODES,
-  LiveVoicePushToTalkSession,
+  LiveVoiceForegroundSession,
   type LiveVoiceCaptionMode,
   type LiveVoiceForegroundState,
+  type LiveVoiceMode,
   type LiveVoiceSessionChannel,
   type LiveVoiceSessionEndpoint,
   type LiveVoiceTimingMetric,
 } from "../lib/live-voice/session.js";
 import type {
+  EchoMeasurementSummary,
   LiveVoiceAudioDeviceDiscovery,
   LiveVoiceAudioDevices,
   LiveVoiceAudioDiagnostics,
@@ -34,6 +40,7 @@ const VALUE_FLAGS = [
   "--output-device",
   "--conversation",
   "--captions",
+  "--mode",
   "--url",
   "-u",
   "--assistant-id",
@@ -54,6 +61,7 @@ interface ParsedVoiceArgs {
   outputDevice?: string;
   conversationId?: string;
   captions: LiveVoiceCaptionMode;
+  mode: LiveVoiceMode;
   url?: string;
   assistantId?: string;
   guardianToken?: string;
@@ -164,7 +172,7 @@ export async function voice(
   const stdin = dependencyOverrides.stdin ?? (process.stdin as ReadStream);
   if (!stdin.isTTY || !stdout.isTTY) {
     throw new Error(
-      "Live voice requires an interactive terminal for push-to-talk controls.",
+      "Live voice requires an interactive terminal for foreground controls.",
     );
   }
 
@@ -172,6 +180,7 @@ export async function voice(
   const audioReport = await audio.doctor({
     inputDevice: args.inputDevice,
     outputDevice: args.outputDevice,
+    ...(args.mode === "open-mic" ? { mode: args.mode } : {}),
   });
   if (!audioReport.ok) {
     throw new Error(formatAudioDoctorFailure(audioReport));
@@ -182,19 +191,43 @@ export async function voice(
     connectionOptions,
     resolveConnection,
   );
-  const playback = audio.createPlayback(args.outputDevice);
+  const inputDevice =
+    args.mode === "open-mic"
+      ? audioReport.echoCancelPair?.input.nodeName
+      : args.inputDevice;
+  const outputDevice =
+    args.mode === "open-mic"
+      ? audioReport.echoCancelPair?.output.nodeName
+      : args.outputDevice;
+  if (
+    args.mode === "open-mic" &&
+    (inputDevice !== LIVE_VOICE_ECHO_CANCEL_SOURCE ||
+      outputDevice !== LIVE_VOICE_ECHO_CANCEL_SINK)
+  ) {
+    throw new Error(
+      "Open mic requires the verified Vellum PipeWire echo-cancel pair. Run 'vellum voice doctor --mode open-mic' and use --mode push-to-talk until it passes.",
+    );
+  }
+  const playback = audio.createPlayback(outputDevice);
   const writeLine = (value: string): void => {
     stdout.write(`${value}\n`);
   };
   const writeError = (value: string): void => {
     stderr.write(`${value}\n`);
   };
+  let microphoneIndicator =
+    args.mode === "open-mic" ? formatMicrophoneIndicator(false) : null;
+  const writeSessionLine = (value: string): void => {
+    writeLine(
+      microphoneIndicator === null ? value : `${microphoneIndicator} ${value}`,
+    );
+  };
   const debug =
     dependencyOverrides.debug ??
     ["1", "true", "yes", "on"].includes(
       (process.env.VELLUM_DEBUG ?? "").toLowerCase(),
     );
-  const session = new LiveVoicePushToTalkSession({
+  const session = new LiveVoiceForegroundSession({
     resolveEndpoint: endpointResolver,
     createChannel: (endpoint) =>
       createChannel({
@@ -203,21 +236,37 @@ export async function voice(
       }),
     capture: audio,
     playback,
-    ...(args.inputDevice ? { inputDevice: args.inputDevice } : {}),
+    mode: args.mode,
+    ...(inputDevice ? { inputDevice } : {}),
     ...(args.conversationId ? { conversationId: args.conversationId } : {}),
     captions: args.captions,
     onState: (state) => {
-      writeLine(formatVoiceState(state));
+      writeSessionLine(formatVoiceState(state));
     },
     onCaptionMode: (mode) => {
-      writeLine(`captions: ${mode}`);
+      writeSessionLine(`captions: ${mode}`);
     },
     onCaption: (role, text) => {
-      writeLine(`${role}: ${text}`);
+      writeSessionLine(`${role}: ${text}`);
     },
     onTiming: (metric) => {
       if (debug) {
         writeError(formatTimingMetric(metric));
+      }
+    },
+    onModeChange: (mode, reason) => {
+      if (mode === "push-to-talk") {
+        microphoneIndicator = null;
+      }
+      writeError(`voice mode: ${reason}`);
+    },
+    onMicrophoneState: (muted) => {
+      microphoneIndicator = formatMicrophoneIndicator(muted);
+      writeLine(microphoneIndicator);
+    },
+    onEchoSummary: (summary) => {
+      if (debug) {
+        writeError(formatEchoSummary(summary));
       }
     },
     onError: (error) => {
@@ -227,7 +276,20 @@ export async function voice(
 
   try {
     await session.start();
-    writeLine("Enter: talk or release | s: interrupt | c: captions | q: quit");
+    if (
+      debug &&
+      session.currentMode === "open-mic" &&
+      audioReport.echoCancelPair
+    ) {
+      writeError(
+        `[voice:aec] source=${audioReport.echoCancelPair.input.nodeName} sourceSerial=${audioReport.echoCancelPair.input.objectSerial} sink=${audioReport.echoCancelPair.output.nodeName} sinkSerial=${audioReport.echoCancelPair.output.objectSerial} module=${audioReport.echoCancelPair.moduleId}`,
+      );
+    }
+    writeSessionLine(
+      session.currentMode === "open-mic"
+        ? "m: mute | s: interrupt | c: captions | q: quit"
+        : "Enter: talk or release | s: interrupt | c: captions | q: quit",
+    );
     await runRawTerminal({
       session,
       stdin,
@@ -251,6 +313,7 @@ function parseVoiceArgs(rawArgs: readonly string[]): ParsedVoiceArgs {
   const parsed: ParsedVoiceArgs = {
     subcommand,
     captions: "off",
+    mode: "push-to-talk",
     json: false,
     help: false,
   };
@@ -301,7 +364,8 @@ function parseVoiceArgs(rawArgs: readonly string[]): ParsedVoiceArgs {
       parsed.url ||
       parsed.assistantId ||
       parsed.guardianToken ||
-      parsed.captions !== "off")
+      parsed.captions !== "off" ||
+      parsed.mode !== "push-to-talk")
   ) {
     throw new Error("voice devices accepts only --json and --help.");
   }
@@ -311,6 +375,14 @@ function parseVoiceArgs(rawArgs: readonly string[]): ParsedVoiceArgs {
   ) {
     throw new Error(
       "voice doctor does not accept --conversation or --captions.",
+    );
+  }
+  if (
+    parsed.mode === "open-mic" &&
+    (parsed.inputDevice !== undefined || parsed.outputDevice !== undefined)
+  ) {
+    throw new Error(
+      "Open mic always uses the verified Vellum echo-cancel source and sink. Remove --input-device and --output-device.",
     );
   }
   return parsed;
@@ -334,6 +406,13 @@ function assignValueFlag(
       );
     }
     parsed.captions = value as LiveVoiceCaptionMode;
+  } else if (flag === "--mode") {
+    if (value !== "push-to-talk" && value !== "open-mic") {
+      throw new Error(
+        `Invalid voice mode '${value}'. Expected push-to-talk or open-mic.`,
+      );
+    }
+    parsed.mode = value;
   } else if (flag === "--url" || flag === "-u") {
     parsed.url = value;
   } else if (flag === "--assistant-id" || flag === "-a") {
@@ -405,8 +484,9 @@ async function runDoctor(input: {
     input.audio.doctor({
       inputDevice: input.args.inputDevice,
       outputDevice: input.args.outputDevice,
+      ...(input.args.mode === "open-mic" ? { mode: input.args.mode } : {}),
     }),
-    probeReadiness(connection.webSocket, input.createChannel),
+    probeReadiness(connection.webSocket, input.createChannel, input.args.mode),
   ]);
   const target: VoiceTargetReport = {
     ...readiness,
@@ -432,6 +512,7 @@ async function probeReadiness(
   createChannel: (
     options: LiveVoiceChannelClientOptions,
   ) => VoiceCommandChannel,
+  mode: LiveVoiceMode,
 ): Promise<VoiceTargetReport> {
   const channel = createChannel({
     url: endpoint.url,
@@ -440,6 +521,7 @@ async function probeReadiness(
   return new Promise<VoiceTargetReport>((resolve) => {
     let settled = false;
     let readySessionId: string | null = null;
+    let readyResult: VoiceTargetReport = { status: "ready" };
     let releaseTimer: ReturnType<typeof setTimeout> | null = null;
     const finish = (result: VoiceTargetReport): void => {
       if (settled) {
@@ -453,6 +535,13 @@ async function probeReadiness(
       resolve(result);
     };
     channel.on("ready", (frame) => {
+      if (mode === "open-mic" && frame.turnDetection !== "server_vad") {
+        readyResult = {
+          status: "fail",
+          message:
+            "The assistant did not confirm server voice activity detection. Use --mode push-to-talk or update the assistant.",
+        };
+      }
       readySessionId = frame.sessionId;
       channel.requestEnd();
       releaseTimer = setTimeout(() => {
@@ -478,7 +567,7 @@ async function probeReadiness(
         frame.type === "session_released" &&
         frame.sessionId === readySessionId
       ) {
-        finish({ status: "ready" });
+        finish(readyResult);
         channel.close();
       }
     });
@@ -488,7 +577,9 @@ async function probeReadiness(
         message: event.reason || "The readiness connection closed.",
       });
     });
-    channel.connect({ turnDetection: "manual" });
+    channel.connect({
+      turnDetection: mode === "open-mic" ? "server_vad" : "manual",
+    });
   });
 }
 
@@ -544,7 +635,7 @@ function createEndpointResolver(
 }
 
 async function runRawTerminal(input: {
-  session: LiveVoicePushToTalkSession;
+  session: LiveVoiceForegroundSession;
   stdin: VoiceInput;
   signalHost: VoiceSignalHost;
 }): Promise<void> {
@@ -570,6 +661,8 @@ async function runRawTerminal(input: {
         const key = String.fromCharCode(byte).toLowerCase();
         if (key === "s") {
           void input.session.handleKey("interrupt");
+        } else if (key === "m") {
+          void input.session.handleKey("mute");
         } else if (key === "c") {
           void input.session.handleKey("captions");
         } else if (key === "q") {
@@ -627,7 +720,7 @@ function printVoiceHelp(stdout: VoiceOutput): void {
   stdout.write("       vellum voice doctor [<name-or-id>] [options]\n");
   stdout.write("\n");
   stdout.write(
-    "Talk to a local or Vellum-managed assistant with foreground push-to-talk.\n",
+    "Talk to a local or Vellum-managed assistant with foreground voice controls.\n",
   );
   stdout.write("\n");
   stdout.write("Arguments:\n");
@@ -649,6 +742,9 @@ function printVoiceHelp(stdout: VoiceOutput): void {
     "  --captions <mode>            off, user, assistant, or both. Default: off.\n",
   );
   stdout.write(
+    "  --mode <mode>                push-to-talk or open-mic. Default: push-to-talk.\n",
+  );
+  stdout.write(
     "  -u, --url <url>              Direct gateway URL. Requires an assistant ID.\n",
   );
   stdout.write(
@@ -666,11 +762,12 @@ function printVoiceHelp(stdout: VoiceOutput): void {
     "Vellum-managed assistants use the stored login from 'vellum login'.\n",
   );
   stdout.write(
-    "During a session, Enter starts or releases capture, s interrupts, c cycles captions, and q exits.\n",
+    "Push-to-talk uses Enter to start or release capture. Open mic uses m to mute. Both modes use s to interrupt, c to cycle captions, and q to exit.\n",
   );
   stdout.write("\n");
   stdout.write("Examples:\n");
   stdout.write("  vellum voice assistant-123\n");
+  stdout.write("  vellum voice doctor assistant-123 --mode open-mic\n");
   stdout.write(
     `  vellum voice --url http://127.0.0.1:${GATEWAY_PORT} --assistant-id assistant-123\n`,
   );
@@ -702,6 +799,16 @@ function formatVoiceState(state: LiveVoiceForegroundState): string {
 
 function formatTimingMetric(metric: LiveVoiceTimingMetric): string {
   return `[voice:timing] ${metric.name}=${metric.durationMs}ms`;
+}
+
+function formatMicrophoneIndicator(muted: boolean): string {
+  return muted ? "[MUTED]" : "[MIC LIVE]";
+}
+
+function formatEchoSummary(summary: EchoMeasurementSummary): string {
+  const format = (value: number | null): string =>
+    value === null ? "n/a" : value.toFixed(4);
+  return `[voice:echo] samples=${summary.sampleCount} floor=${format(summary.microphoneFloor)} mean=${format(summary.meanMicrophoneDuringPlayback)} peak=${format(summary.peakMicrophoneDuringPlayback)} dbAboveFloor=${format(summary.decibelsAboveFloor)} correlation=${format(summary.playbackMicrophoneCorrelation)}`;
 }
 
 function safeErrorMessage(error: unknown): string {

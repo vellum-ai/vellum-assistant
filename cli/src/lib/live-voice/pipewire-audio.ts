@@ -24,6 +24,7 @@ import type {
   LiveVoiceAudioDoctorCheck,
   LiveVoiceAudioDoctorOptions,
   LiveVoiceAudioDoctorReport,
+  LiveVoiceEchoCancelPair,
   LiveVoicePcmCaptureOptions,
   LiveVoicePcmCaptureSession,
   LiveVoicePcmPlayback,
@@ -39,6 +40,9 @@ const REQUIRED_EXECUTABLES = [
 ] as const;
 const MINIMUM_PIPEWIRE_VERSION = "1.4.0";
 const AUDIO_COMMAND_TIMEOUT_MS = 5_000;
+export const LIVE_VOICE_ECHO_CANCEL_SOURCE = "vellum_echo_cancel_source";
+export const LIVE_VOICE_ECHO_CANCEL_SINK = "vellum_echo_cancel_sink";
+const PIPEWIRE_ECHO_CANCEL_MODULE = "libpipewire-module-echo-cancel";
 
 export type AudioProcessFactory = (
   executable: string,
@@ -106,6 +110,12 @@ interface PipeWireDumpObject {
   info?: {
     props?: Record<string, unknown>;
   };
+}
+
+interface PipeWireDumpTopology {
+  devices: LiveVoiceAudioDevices;
+  echoCancelPair?: LiveVoiceEchoCancelPair;
+  echoCancelFailure?: string;
 }
 
 export class PipeWireAudio {
@@ -305,6 +315,8 @@ export class PipeWireAudio {
     }
 
     let devices: LiveVoiceAudioDevices = { inputs: [], outputs: [] };
+    let echoCancelPair: LiveVoiceEchoCancelPair | undefined;
+    let echoCancelFailure: string | undefined;
     const pwDump = executables.get("pw-dump");
     if (!pipewireSessionActive || pwDump === undefined) {
       addCheck(
@@ -325,7 +337,10 @@ export class PipeWireAudio {
         if (result.code !== 0) {
           throw new Error(result.stderr.trim() || "pw-dump failed");
         }
-        devices = parsePipeWireDevices(result.stdout);
+        const topology = parsePipeWireTopology(result.stdout);
+        devices = topology.devices;
+        echoCancelPair = topology.echoCancelPair;
+        echoCancelFailure = topology.echoCancelFailure;
         addCheck(
           "devices.input",
           devices.inputs.length > 0 ? "pass" : "fail",
@@ -355,8 +370,46 @@ export class PipeWireAudio {
       }
     }
 
-    const input = resolveExplicitDevice(devices.inputs, options.inputDevice);
-    const output = resolveExplicitDevice(devices.outputs, options.outputDevice);
+    if (options.mode === "open-mic") {
+      const source = devices.inputs.find(
+        (device) => device.nodeName === LIVE_VOICE_ECHO_CANCEL_SOURCE,
+      );
+      const sink = devices.outputs.find(
+        (device) => device.nodeName === LIVE_VOICE_ECHO_CANCEL_SINK,
+      );
+      addCheck(
+        "aec.source",
+        source?.mediaClass === "Audio/Source" ? "pass" : "fail",
+        source?.mediaClass === "Audio/Source"
+          ? `Found echo-cancel source ${LIVE_VOICE_ECHO_CANCEL_SOURCE}.`
+          : `Open mic requires an Audio/Source node named ${LIVE_VOICE_ECHO_CANCEL_SOURCE}.`,
+      );
+      addCheck(
+        "aec.sink",
+        sink?.mediaClass === "Audio/Sink" ? "pass" : "fail",
+        sink?.mediaClass === "Audio/Sink"
+          ? `Found echo-cancel sink ${LIVE_VOICE_ECHO_CANCEL_SINK}.`
+          : `Open mic requires an Audio/Sink node named ${LIVE_VOICE_ECHO_CANCEL_SINK}.`,
+      );
+      addCheck(
+        "aec.module",
+        echoCancelPair === undefined ? "fail" : "pass",
+        echoCancelPair === undefined
+          ? `${echoCancelFailure ?? "The required nodes do not share a verified echo-cancel module."} Configure one ${PIPEWIRE_ECHO_CANCEL_MODULE} instance with capture node ${LIVE_VOICE_ECHO_CANCEL_SOURCE} and playback node ${LIVE_VOICE_ECHO_CANCEL_SINK}. Use --mode push-to-talk until this check passes.`
+          : `The echo-cancel nodes share ${PIPEWIRE_ECHO_CANCEL_MODULE} module ${echoCancelPair.moduleId}.`,
+      );
+    }
+
+    const selectedInput =
+      options.mode === "open-mic"
+        ? LIVE_VOICE_ECHO_CANCEL_SOURCE
+        : options.inputDevice;
+    const selectedOutput =
+      options.mode === "open-mic"
+        ? LIVE_VOICE_ECHO_CANCEL_SINK
+        : options.outputDevice;
+    const input = resolveExplicitDevice(devices.inputs, selectedInput);
+    const output = resolveExplicitDevice(devices.outputs, selectedOutput);
     addExplicitDeviceCheck(checks, "input", options.inputDevice, input);
     addExplicitDeviceCheck(checks, "output", options.outputDevice, output);
 
@@ -366,7 +419,7 @@ export class PipeWireAudio {
       id: "probe.input",
       executable: pwRecord,
       deviceAvailable:
-        options.inputDevice === undefined
+        selectedInput === undefined
           ? devices.inputs.length > 0
           : input !== null,
       args: buildPipeWirePcmArgs(input?.nodeName),
@@ -380,7 +433,7 @@ export class PipeWireAudio {
       id: "probe.output",
       executable: executables.get("pw-play"),
       deviceAvailable:
-        options.outputDevice === undefined
+        selectedOutput === undefined
           ? devices.outputs.length > 0
           : output !== null,
       args: buildPipeWirePcmArgs(output?.nodeName),
@@ -399,6 +452,7 @@ export class PipeWireAudio {
       ),
       checks,
       devices,
+      ...(echoCancelPair ? { echoCancelPair } : {}),
     };
   }
 
@@ -470,6 +524,16 @@ export class PipeWireAudio {
 }
 
 export function parsePipeWireDevices(json: string): LiveVoiceAudioDevices {
+  return parsePipeWireTopology(json).devices;
+}
+
+export function parsePipeWireEchoCancelPair(
+  json: string,
+): LiveVoiceEchoCancelPair | null {
+  return parsePipeWireTopology(json).echoCancelPair ?? null;
+}
+
+function parsePipeWireTopology(json: string): PipeWireDumpTopology {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
@@ -482,16 +546,27 @@ export function parsePipeWireDevices(json: string): LiveVoiceAudioDevices {
 
   const inputs: LiveVoiceAudioDevice[] = [];
   const outputs: LiveVoiceAudioDevice[] = [];
+  const echoCancelModuleIds = new Set<number>();
   for (const value of parsed as PipeWireDumpObject[]) {
-    if (
-      value === null ||
-      typeof value !== "object" ||
-      value.type !== "PipeWire:Interface:Node"
-    ) {
+    if (value === null || typeof value !== "object") {
       continue;
     }
     const properties = value.info?.props;
     if (properties === undefined) {
+      continue;
+    }
+    if (value.type === "PipeWire:Interface:Module") {
+      if (
+        typeof value.id === "number" &&
+        Number.isInteger(value.id) &&
+        readStringProperty(properties, "module.name") ===
+          PIPEWIRE_ECHO_CANCEL_MODULE
+      ) {
+        echoCancelModuleIds.add(value.id);
+      }
+      continue;
+    }
+    if (value.type !== "PipeWire:Interface:Node") {
       continue;
     }
     const nodeName = readStringProperty(properties, "node.name");
@@ -533,7 +608,52 @@ export function parsePipeWireDevices(json: string): LiveVoiceAudioDevices {
     }
   }
 
-  return { inputs, outputs };
+  const devices = { inputs, outputs };
+  const input = inputs.find(
+    (device) => device.nodeName === LIVE_VOICE_ECHO_CANCEL_SOURCE,
+  );
+  const output = outputs.find(
+    (device) => device.nodeName === LIVE_VOICE_ECHO_CANCEL_SINK,
+  );
+  if (input === undefined || output === undefined) {
+    return {
+      devices,
+      echoCancelFailure:
+        "The exact Vellum echo-cancel node pair was not found.",
+    };
+  }
+  if (
+    input.mediaClass !== "Audio/Source" ||
+    output.mediaClass !== "Audio/Sink"
+  ) {
+    return {
+      devices,
+      echoCancelFailure:
+        "The exact Vellum echo-cancel nodes have invalid media classes.",
+    };
+  }
+  if (input.moduleId === undefined || input.moduleId !== output.moduleId) {
+    return {
+      devices,
+      echoCancelFailure:
+        "The exact Vellum echo-cancel nodes are not owned by the same module instance.",
+    };
+  }
+  if (!echoCancelModuleIds.has(input.moduleId)) {
+    return {
+      devices,
+      echoCancelFailure:
+        "The exact Vellum echo-cancel nodes are not owned by libpipewire-module-echo-cancel.",
+    };
+  }
+  return {
+    devices,
+    echoCancelPair: {
+      input,
+      output,
+      moduleId: input.moduleId,
+    },
+  };
 }
 
 export function parsePipeWireVersion(output: string): PipeWireVersion | null {
@@ -854,7 +974,14 @@ function readIntegerProperty(
   key: string,
 ): number | null {
   const value = properties[key];
-  return typeof value === "number" && Number.isInteger(value) ? value : null;
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return value;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function formatPipeWireVersion(version: PipeWireVersion): string {
