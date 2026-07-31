@@ -17,10 +17,18 @@ public class SelfHostedServerTest {
     }
 
     @Test
-    public void preservesEscapedReservedCharactersAndDotSegments() {
-        URI server = SelfHostedServer.validate("https://example.com/tenant%2fabc/%2e%2E/");
+    public void preservesEscapedReservedCharacters() {
+        URI server = SelfHostedServer.validate("https://example.com/tenant%2fabc/");
 
-        assertEquals("https://example.com/tenant%2Fabc/%2E%2E", server.toASCIIString());
+        assertEquals("https://example.com/tenant%2Fabc", server.toASCIIString());
+    }
+
+    @Test
+    public void rejectsEncodedDotSegments() {
+        assertNull(SelfHostedServer.validate("https://example.com/tenant/%2e"));
+        assertNull(SelfHostedServer.validate("https://example.com/tenant/%2E%2e"));
+        assertNull(SelfHostedServer.validate("https://example.com/tenant/.%2e"));
+        assertNull(SelfHostedServer.validate("https://example.com/tenant/%2e."));
     }
 
     @Test

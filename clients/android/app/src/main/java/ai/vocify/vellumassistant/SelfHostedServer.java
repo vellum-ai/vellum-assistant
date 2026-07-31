@@ -88,6 +88,9 @@ final class SelfHostedServer {
             return null;
         }
 
+        if (containsEncodedDotSegment(parsed.getRawPath())) {
+            return null;
+        }
         String path = normalizePath(parsed.normalize().getRawPath());
         try {
             return new URI(scheme + "://" + formatAuthority(host, parsed.getPort()) + path);
@@ -198,6 +201,34 @@ final class SelfHostedServer {
             }
         }
         return canonical.toString();
+    }
+
+    private static boolean containsEncodedDotSegment(String rawPath) {
+        if (rawPath == null) {
+            return false;
+        }
+        for (String segment : rawPath.split("/", -1)) {
+            StringBuilder decoded = new StringBuilder(segment.length());
+            boolean encodedDot = false;
+            for (int index = 0; index < segment.length(); index++) {
+                if (
+                    segment.charAt(index) == '%'
+                        && index + 2 < segment.length()
+                        && segment.charAt(index + 1) == '2'
+                        && Character.toLowerCase(segment.charAt(index + 2)) == 'e'
+                ) {
+                    decoded.append('.');
+                    encodedDot = true;
+                    index += 2;
+                } else {
+                    decoded.append(segment.charAt(index));
+                }
+            }
+            if (encodedDot && (".".contentEquals(decoded) || "..".contentEquals(decoded))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String formatAuthority(String host, int port) {
