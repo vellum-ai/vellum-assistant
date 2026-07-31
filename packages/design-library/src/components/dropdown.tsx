@@ -68,6 +68,21 @@ export interface DropdownProps<T extends string> {
   readonly "data-testid"?: string;
 }
 
+const TRIGGER_SIZE_CLASSES: Record<DropdownSize, string> = {
+  regular: "h-9 px-3 text-body-medium-lighter",
+  compact: "h-7 px-2.5 text-body-small-default",
+};
+
+const OPTION_SIZE_CLASSES: Record<DropdownSize, string> = {
+  regular: "px-3 py-2 text-body-medium-default",
+  compact: "px-2.5 py-1.5 text-body-small-default",
+};
+
+const CHEVRON_SIZE_CLASSES: Record<DropdownSize, string> = {
+  regular: "h-3.5 w-3.5",
+  compact: "h-3 w-3",
+};
+
 /**
  * Single-select dropdown for choosing a text item.
  *
@@ -117,21 +132,6 @@ export interface DropdownProps<T extends string> {
  * `animation-fill-mode: both`, so the final keyframe's identity matrix stays
  * applied for the life of the drawer.
  */
-const TRIGGER_SIZE_CLASSES: Record<DropdownSize, string> = {
-  regular: "h-9 px-3 text-body-medium-lighter",
-  compact: "h-7 px-2.5 text-body-small-default",
-};
-
-const OPTION_SIZE_CLASSES: Record<DropdownSize, string> = {
-  regular: "px-3 py-2 text-body-medium-default",
-  compact: "px-2.5 py-1.5 text-body-small-default",
-};
-
-const CHEVRON_SIZE_CLASSES: Record<DropdownSize, string> = {
-  regular: "h-3.5 w-3.5",
-  compact: "h-3 w-3",
-};
-
 export function Dropdown<T extends string>({
   options,
   value,
