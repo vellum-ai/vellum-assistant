@@ -2324,7 +2324,9 @@ async function main() {
               // Throttled like the Telegram and WhatsApp paths: a repeated
               // /new against an unavailable runtime must not produce one
               // outbound Slack message per inbound event.
-              if (!slackNoticeLimiter.shouldSend(channel)) return;
+              if (!slackNoticeLimiter.shouldSend(channel)) {
+                return;
+              }
               void postToSlack(text).catch((err) => {
                 log.error({ err, channel }, "Failed to send /new notice");
               });
