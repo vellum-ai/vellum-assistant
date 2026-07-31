@@ -37,3 +37,14 @@ export const SIDEBAR_CHIP_GAP = 6;
  * truncating. This nests the rows while leaving them close to the left edge.
  */
 export const SIDEBAR_SECTION_INDENT = 12;
+
+/**
+ * Tallest a single section's row list grows before it scrolls within itself.
+ *
+ * Without a cap, one busy section pushes every section under it off the
+ * screen, and the user has to collapse it to reach anything else. About nine
+ * desktop rows (30px each plus their 4px gap), which is enough to read a
+ * section as a list rather than a preview while still leaving room for its
+ * neighbours.
+ */
+export const SIDEBAR_SECTION_MAX_HEIGHT = 300;

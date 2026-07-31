@@ -106,7 +106,13 @@ export interface CollapsedGroupIconProps {
    * Popover content. Accepts a render function that receives a `close` callback
    * to programmatically dismiss the popover (e.g. after selecting a conversation).
    */
-  children?: ReactNode | ((close: () => void) => ReactNode);
+  /**
+   * Popover body. Receives a close callback and the popover's own scrollport,
+   * so a long list can window against it rather than opening a second one.
+   */
+  children?:
+    | ReactNode
+    | ((close: () => void, scrollParent: HTMLElement | null) => ReactNode);
 }
 
 export function CollapsedGroupIcon({
@@ -118,6 +124,7 @@ export function CollapsedGroupIcon({
   children,
 }: CollapsedGroupIconProps) {
   const [open, setOpen] = useState(false);
+  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
   const handleOpenChange = useCallback(
     (next: boolean) => {
       setOpen(next);
@@ -156,13 +163,14 @@ export function CollapsedGroupIcon({
         </IconTile>
       </Popover.Trigger>
       <Popover.Content
+        ref={setContentEl}
         side="right"
         align="start"
         sideOffset={8}
         onOpenAutoFocus={(e) => e.preventDefault()}
         className="max-h-[500px] w-72 overflow-y-auto rounded-lg py-2 px-0"
       >
-        {typeof children === "function" ? children(close) : children}
+        {typeof children === "function" ? children(close, contentEl) : children}
       </Popover.Content>
     </Popover.Root>
   );

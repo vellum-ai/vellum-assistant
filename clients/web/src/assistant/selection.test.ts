@@ -38,7 +38,14 @@ mock.module("@/stores/resolved-assistants-store", () => ({
 const setActiveLockfileAssistantMock = mock(async (_id: string) => {});
 mock.module("@/lib/local-mode", () => ({
   getActiveAssistant: () => activeLocal,
+  isLocalClient: () => false,
   setActiveLockfileAssistant: setActiveLockfileAssistantMock,
+}));
+// Cut the real organization-store off the module graph: it drags in the
+// auth store and the lifecycle service, which subscribe to stores this file
+// replaces with minimal getState()-only mocks.
+mock.module("@/stores/organization-store", () => ({
+  useRequestOrganizationId: () => null,
 }));
 
 const { resolveSelectedAssistantId, setSelectedAssistant } =
