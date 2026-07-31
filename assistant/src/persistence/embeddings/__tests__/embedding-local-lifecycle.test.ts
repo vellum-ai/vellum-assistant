@@ -21,7 +21,7 @@ import {
   LocalEmbeddingBackend,
 } from "../embedding-local.js";
 
-/** Reach past `private` — compile-time only, so tests can drive real state. */
+/** Reach past `private`, which is compile-time only, so tests drive real state. */
 type Internals = any;
 
 /**
@@ -102,7 +102,7 @@ describe("worker ownership classification", () => {
    * The daemon and the memory-worker process each legitimately own one worker
    * for the same workspace. Before the fix both sides matched purely on the
    * worker script path, so each killed the other's healthy worker on every
-   * spawn — the ping-pong in the incident timeline.
+   * spawn, which is the ping-pong in the incident timeline.
    */
   test("a worker owned by another live process is left alone", () => {
     expect(classifyWorkerOwnership({ pid: 100, ppid: 999 }, 42, alive)).toBe(
@@ -152,7 +152,7 @@ describe("PID file ownership", () => {
   /**
    * The PID file is one workspace-scoped slot shared by every backend instance.
    * An unconditional unlink on teardown deletes whichever worker is currently
-   * published — which is how a live worker became invisible to every later
+   * published, which is how a live worker became invisible to every later
    * reclaim and survived until reboot.
    */
   test("releasePidFile leaves an entry that names someone else's worker", () => {
@@ -230,7 +230,7 @@ describe("broken worker pipe", () => {
 
 describe("releasing ownership of a worker", () => {
   /**
-   * The stdout stream ending does not prove the child exited — a read error
+   * The stdout stream ending does not prove the child exited: a read error
    * ends the reader loop just the same. Forgetting a still-running child
    * strands it: no handle, no PID entry, invisible to every later reclaim.
    */
@@ -268,5 +268,160 @@ describe("releasing ownership of a worker", () => {
     await expect(inFlight).resolves.toMatchObject({
       error: expect.stringContaining("shutting down"),
     });
+  });
+
+  /**
+   * A worker wedged in native ONNX code can ignore SIGTERM. An unbounded wait
+   * would hang every in-flight embed and block re-initialization forever, since
+   * pending requests are only settled after the wait.
+   */
+  test("a worker that ignores SIGTERM is escalated to SIGKILL, not waited on forever", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.terminateGraceMs = 50;
+    const signals: (string | undefined)[] = [];
+    const wedged = {
+      pid: 4321,
+      // Never settles: the child is not going away on its own.
+      exited: new Promise<number>(() => {}),
+      kill(signal?: string) {
+        signals.push(signal);
+      },
+    };
+
+    await backend.terminateWorker(wedged);
+
+    expect(signals).toEqual([undefined, "SIGKILL"]);
+  });
+});
+
+describe("reclaiming before spawning a replacement", () => {
+  /**
+   * Reclaim must confirm the old worker is gone before the caller spawns its
+   * replacement. Signalling and returning immediately leaves two same-owner
+   * workers briefly alive and unpublishes a child not yet confirmed dead.
+   */
+  test("terminates a worker parented to us and waits for it to disappear", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "embed-worker-reclaim-"));
+    const scriptPath = join(dir, "embed-worker.mjs");
+    writeFileSync(scriptPath, "setTimeout(() => {}, 60_000);\n");
+
+    const proc = Bun.spawn({
+      cmd: [process.execPath, scriptPath],
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    spawned.push(proc);
+    await Bun.sleep(400);
+    writeFileSync(getEmbedWorkerPidPath(), String(proc.pid));
+
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    await backend.reclaimOwnedWorkers(scriptPath);
+
+    // Confirmed gone by the time reclaim returns, not merely signalled.
+    expect(listWorkerProcesses(scriptPath)).toEqual([]);
+    expect(existsSync(getEmbedWorkerPidPath())).toBe(false);
+  });
+
+  test("escalates to SIGKILL for a worker that ignores SIGTERM", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "embed-worker-stubborn-"));
+    const scriptPath = join(dir, "embed-worker.mjs");
+    writeFileSync(
+      scriptPath,
+      "process.on('SIGTERM', () => {});\nsetTimeout(() => {}, 60_000);\n",
+    );
+
+    const proc = Bun.spawn({
+      cmd: [process.execPath, scriptPath],
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    spawned.push(proc);
+    await Bun.sleep(400);
+
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.terminateGraceMs = 300;
+    await backend.reclaimOwnedWorkers(scriptPath);
+
+    expect(listWorkerProcesses(scriptPath)).toEqual([]);
+  });
+
+  test("leaves a worker owned by another live process running", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "embed-worker-foreign-"));
+    const scriptPath = join(dir, "embed-worker.mjs");
+    writeFileSync(scriptPath, "setTimeout(() => {}, 60_000);\n");
+
+    // Spawn via an intermediate process so the worker's parent is neither us
+    // nor init, standing in for the memory-worker process owning its own.
+    const launcher = join(dir, "launcher.mjs");
+    writeFileSync(
+      launcher,
+      `import { spawn } from "node:child_process";
+spawn(process.execPath, [${JSON.stringify(scriptPath)}], { stdio: "ignore" });
+setTimeout(() => {}, 60_000);\n`,
+    );
+    const parent = Bun.spawn({
+      cmd: [process.execPath, launcher],
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    spawned.push(parent);
+    await Bun.sleep(600);
+
+    const workers = listWorkerProcesses(scriptPath);
+    expect(workers.length).toBe(1);
+    expect(workers[0].ppid).toBe(parent.pid);
+
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.terminateGraceMs = 300;
+    await backend.reclaimOwnedWorkers(scriptPath);
+
+    // Still alive: this is the daemon-vs-memory-worker case that used to
+    // ping-pong, with each side killing the other's healthy worker.
+    expect(listWorkerProcesses(scriptPath).map((w) => w.pid)).toEqual([
+      workers[0].pid,
+    ]);
+    try {
+      process.kill(workers[0].pid, "SIGKILL");
+    } catch {
+      /* cleanup */
+    }
+  });
+});
+
+describe("shutdown versus in-flight initialization", () => {
+  /**
+   * Shutting down while `initialize()` is still running (downloading the
+   * runtime, loading the model) sees `workerProc === null`. Returning there
+   * lets the initializer spawn a worker afterwards, with nobody left to reap it.
+   */
+  test("shutdown waits for an in-flight init and reaps the worker it creates", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    const proc = liveProc(600);
+
+    let finishInit: () => void = () => {};
+    backend.initialize = () =>
+      new Promise<void>((resolve) => {
+        finishInit = () => {
+          backend.workerProc = proc;
+          resolve();
+        };
+      });
+
+    const initDone = backend.ensureInitialized();
+    const shutdownDone = backend.shutdown();
+
+    let shutdownSettled = false;
+    void shutdownDone.then(() => {
+      shutdownSettled = true;
+    });
+    await Bun.sleep(50);
+    expect(shutdownSettled).toBe(false);
+
+    finishInit();
+    await initDone;
+    await shutdownDone;
+
+    expect(proc.killed).toBe(true);
+    expect(backend.workerProc).toBeNull();
   });
 });

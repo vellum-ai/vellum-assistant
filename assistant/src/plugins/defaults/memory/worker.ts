@@ -80,7 +80,17 @@ async function main(): Promise<void> {
   let worker: ReturnType<typeof startMemoryJobsWorkerLoop> | null = null;
   let keepAlive: ReturnType<typeof setInterval> | null = null;
   let disposePidGuard: (() => void) | null = null;
+  // Set synchronously by shutdown() so startup below can tell it has been
+  // superseded. The exit itself is deferred (see shutdown), and without this
+  // flag an evicted worker would fall through to the jobs worker loop, whose
+  // resetRunningJobsToPending() resets the LIVE successor's in-progress jobs
+  // and fires the startup orphan sweeps against its data.
+  let shuttingDown = false;
   const shutdown = (signal: string) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
     log.info({ signal }, "Memory worker process shutting down");
     worker?.stop();
     if (keepAlive != null) {
@@ -91,8 +101,9 @@ async function main(): Promise<void> {
 
     // This process runs its own embedding backend, so it owns an ONNX worker
     // subprocess the daemon must not touch. Reap it here rather than leaving an
-    // orphan for a later spawn's sweep to find (JARVIS-1125). Bounded: exiting
-    // promptly matters more than a clean reap, and the sweep is the backstop.
+    // orphan for a later spawn's sweep to find (JARVIS-1125). Bounded, because
+    // exiting promptly matters more than a clean reap and the sweep is the
+    // backstop.
     void Promise.race([
       shutdownEmbeddingBackends().catch((err: unknown) => {
         log.warn({ err }, "Embedding backend shutdown failed (non-fatal)");
@@ -104,18 +115,21 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
-  // Arm the identity guard before the worker loop starts. Its on-arm check
-  // runs synchronously, so a worker superseded during startup runs shutdown()
-  // — which calls process.exit — here, before it dispatches any jobs.
+  // Arm the identity guard before the worker loop starts. Its on-arm check runs
+  // synchronously, so a worker superseded during startup calls shutdown() here,
+  // before it dispatches any jobs.
   disposePidGuard = startWorkerPidFileGuard(pidPath, {
     onEvicted: (reason) => {
-      log.warn(
-        { reason },
-        "Evicted — the PID file no longer names this worker",
-      );
+      log.warn({ reason }, "Evicted: the PID file no longer names this worker");
       shutdown("pid-file-eviction");
     },
   });
+
+  // shutdown() defers the exit to reap the embedding backend, so startup must
+  // stop itself rather than relying on process.exit having already fired.
+  if (shuttingDown) {
+    return;
+  }
 
   worker = startMemoryJobsWorkerLoop();
 

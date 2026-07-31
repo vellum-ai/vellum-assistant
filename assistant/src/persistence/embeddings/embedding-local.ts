@@ -64,6 +64,25 @@ function clearModelCache(): void {
   }
 }
 
+/** How long a worker gets to exit after each signal before we escalate. */
+const WORKER_TERMINATE_GRACE_MS = 2_000;
+
+/** Poll interval while waiting for a worker we hold no handle for to exit. */
+const WORKER_EXIT_POLL_MS = 50;
+
+/** Whether `promise` settles within `timeoutMs`. */
+async function didSettle(
+  promise: Promise<unknown>,
+  timeoutMs: number,
+): Promise<boolean> {
+  const timeout = Symbol("timeout");
+  const result = await Promise.race([
+    promise.then(() => undefined),
+    Bun.sleep(timeoutMs).then(() => timeout),
+  ]);
+  return result !== timeout;
+}
+
 /** Whether a PID names a live process. */
 function isProcessAlive(pid: number): boolean {
   try {
@@ -83,11 +102,11 @@ interface WorkerProcess {
 /**
  * What this process may do with an embed worker it found in the process table.
  *
- * - `reclaim` — parented to us: a worker we started and lost track of. Reaping
+ * - `reclaim`: parented to us, a worker we started and lost track of. Reaping
  *   it is what enforces one live worker per owning process.
- * - `orphan` — reparented to init, or its owner is gone. Nobody else will ever
+ * - `orphan`: reparented to init, or its owner is gone. Nobody else will ever
  *   clean it up.
- * - `foreign` — owned by another live process. The memory-worker process runs
+ * - `foreign`: owned by another live process. The memory-worker process runs
  *   its own backend against this same workspace and is entitled to its own
  *   worker; signalling it is what made the two replace each other in a loop.
  */
@@ -121,7 +140,7 @@ function listProcessRowsFromProc(): {
     }
     try {
       // `stat` field 4 is ppid, but `comm` (field 2) may contain spaces or
-      // parens — parse from the last ')' so a weird comm cannot shift fields.
+      // parens, so parse from the last ')' and a weird comm cannot shift fields.
       const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
       const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
       const ppid = Number(after[1]);
@@ -133,7 +152,7 @@ function listProcessRowsFromProc(): {
         rows.push({ pid, ppid, cmd });
       }
     } catch {
-      // Process exited between readdir and read — skip.
+      // Process exited between readdir and read, so skip it.
     }
   }
   return rows;
@@ -175,7 +194,7 @@ function listProcessRowsFromPs(): { pid: number; ppid: number; cmd: string }[] {
  *
  * Matches on the absolute worker script path, which lives under THIS
  * workspace's embedding-models directory and is therefore unique per assistant
- * instance — a sibling instance's workers never match. Raw command lines are
+ * instance, so a sibling instance's workers never match. Raw command lines are
  * read for matching only, never stored or logged: process arguments can carry
  * secrets (see the redaction note in `util/process-tree.ts`).
  */
@@ -224,6 +243,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   private disposeRequested = false;
 
   private readonly initGuard = new PromiseGuard<void>();
+  private initInFlight: Promise<void> | null = null;
+  /** Overridable so tests can exercise the escalation path without the wait. */
+  private terminateGraceMs = WORKER_TERMINATE_GRACE_MS;
 
   constructor(model: string) {
     this.model = model;
@@ -289,7 +311,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       this.pendingRequests.set(id, { resolve });
 
       // Writing to a worker that has already exited raises EPIPE. That must
-      // surface as an ordinary embed failure the caller can fall back from —
+      // surface as an ordinary embed failure the caller can fall back from:
       // an escaping EPIPE reaches the daemon's `unhandledRejection` handler,
       // which tears down the whole process (JARVIS-1125). `flush()` may also
       // report the broken pipe asynchronously, so its promise is caught too.
@@ -328,7 +350,18 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     if (this.workerProc) {
       return;
     }
-    await this.initGuard.run(() => this.initialize());
+    // Tracked so `shutdown()` can wait for an initialization that has not yet
+    // assigned `workerProc`. Without it, shutting down mid-download returns
+    // with nothing to reap and the initializer spawns an orphan afterwards.
+    const inFlight = this.initGuard.run(() => this.initialize());
+    this.initInFlight = inFlight;
+    try {
+      await inFlight;
+    } finally {
+      if (this.initInFlight === inFlight) {
+        this.initInFlight = null;
+      }
+    }
   }
 
   dispose(): void {
@@ -388,9 +421,9 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     const modelCacheDir = `${embeddingModelsDir}/model-cache`;
 
     // Singleton guard: a worker this process already owns (or one orphaned by
-    // a crashed owner) may still be running. Reclaim it before spawning so we
-    // never leave duplicate workers eating CPU/memory.
-    this.reclaimOwnedWorkers(workerPath);
+    // a crashed owner) may still be running. Reclaim it, and wait for it to be
+    // gone, before spawning so two same-owner workers never overlap.
+    await this.reclaimOwnedWorkers(workerPath);
 
     log.info(
       { bunPath, workerPath, model: this.model },
@@ -505,7 +538,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         return;
       }
 
-      // The stream ending does NOT prove the child exited — a read error ends
+      // The stream ending does NOT prove the child exited: a read error ends
       // this loop just the same. Releasing ownership of a still-running child
       // strands it: nothing holds its handle any more and, once its PID file
       // entry is gone, no later reclaim can find it, so it lives until reboot
@@ -534,26 +567,74 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   }
 
   /**
-   * Terminate a worker and wait for the OS to confirm it is gone.
+   * Terminate a worker and wait for the OS to confirm it is gone, escalating to
+   * SIGKILL if it does not go quietly.
    *
    * Every path that gives up ownership of a worker goes through here, so the
    * invariant "we never forget a child we have not confirmed dead" holds even
    * when the trigger was a stream error rather than an exit.
+   *
+   * The wait is bounded. A worker wedged in native ONNX code can ignore SIGTERM,
+   * and an unbounded wait here would hang every in-flight embed and block
+   * re-initialization forever, since the caller only resolves pending requests
+   * afterwards. SIGKILL cannot be ignored, so reaching the second timeout means
+   * the process is already unkillable (uninterruptible I/O), where proceeding is
+   * strictly better than hanging: the reclaim sweep on the next spawn is the
+   * backstop.
    */
   private async terminateWorker(proc: {
-    kill: () => void;
+    kill: (signal?: number | NodeJS.Signals) => void;
     exited: Promise<unknown>;
   }): Promise<void> {
+    const settled = proc.exited.catch(() => undefined);
+
     try {
       proc.kill();
     } catch {
       // Already exiting or already reaped.
     }
-    try {
-      await proc.exited;
-    } catch {
-      // Bun resolves `exited` on normal termination; ignore probe failures.
+    if (await didSettle(settled, this.terminateGraceMs)) {
+      return;
     }
+
+    log.warn(
+      { model: this.model },
+      "Embedding worker ignored SIGTERM, escalating to SIGKILL",
+    );
+    try {
+      proc.kill("SIGKILL");
+    } catch {
+      // Already gone.
+    }
+    if (!(await didSettle(settled, this.terminateGraceMs))) {
+      log.error(
+        { model: this.model },
+        "Embedding worker survived SIGKILL; leaving it to the next reclaim sweep",
+      );
+    }
+  }
+
+  /**
+   * Wait for a PID that this process does not hold a handle for to disappear.
+   *
+   * Liveness is probed by re-enumerating workers rather than with `kill(pid, 0)`,
+   * which succeeds for a zombie and would stall this wait for the full timeout
+   * on every reclaim. A zombie has no command line, so it stops matching
+   * `workerPath` as soon as it dies.
+   */
+  private async waitForWorkerExit(
+    pid: number,
+    workerPath: string,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!listWorkerProcesses(workerPath).some((w) => w.pid === pid)) {
+        return true;
+      }
+      await Bun.sleep(WORKER_EXIT_POLL_MS);
+    }
+    return !listWorkerProcesses(workerPath).some((w) => w.pid === pid);
   }
 
   private readyResolve: (() => void) | null = null;
@@ -647,7 +728,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
           }
         })
         .catch(() => {
-          // Exit status unavailable — the ready timeout is the backstop.
+          // Exit status unavailable, so the ready timeout is the backstop.
         });
     });
   }
@@ -675,7 +756,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    *
    * The file is a single workspace-scoped slot shared by every backend instance
    * and by the memory-worker process, so an unconditional unlink here deletes
-   * whichever worker happens to be published — including a live one belonging
+   * whichever worker happens to be published, including a live one belonging
    * to somebody else. Compare-and-delete keeps a teardown from unpublishing a
    * worker it does not own (JARVIS-1125).
    */
@@ -710,15 +791,15 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    *
    * Responsibility is read off the process tree rather than the PID file. A
    * worker's parent is its owner, which makes ownership survive a crash and
-   * immune to a second owner overwriting the shared PID file — the two failure
+   * immune to a second owner overwriting the shared PID file. Those are the two failure
    * modes behind JARVIS-1125. See {@link classifyWorkerOwnership} for the
    * per-worker decision; this also recovers workers stranded by earlier daemon
    * generations, not just the single entry a PID file can hold.
    */
-  private reclaimOwnedWorkers(workerPath: string): void {
+  private async reclaimOwnedWorkers(workerPath: string): Promise<void> {
     for (const worker of listWorkerProcesses(workerPath)) {
-      // Never signal ourselves — should not happen since the worker is a child
-      // process, but guard against logic bugs that would deadlock the daemon.
+      // Never signal ourselves. This should not happen, since the worker is a
+      // child process, but guard against logic bugs that would deadlock us.
       if (worker.pid === process.pid) {
         continue;
       }
@@ -741,8 +822,32 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       try {
         process.kill(worker.pid, "SIGTERM");
       } catch {
-        // Race: it exited between enumeration and the kill — fine.
+        // Race: it exited between enumeration and the kill, which is fine.
       }
+
+      // Wait for the exit before publishing a replacement. Returning early
+      // would leave two same-owner workers briefly alive and would unpublish a
+      // child not yet confirmed dead, which are the exact invariants this is
+      // meant to hold.
+      if (
+        !(await this.waitForWorkerExit(
+          worker.pid,
+          workerPath,
+          this.terminateGraceMs,
+        ))
+      ) {
+        try {
+          process.kill(worker.pid, "SIGKILL");
+        } catch {
+          // Already gone.
+        }
+        await this.waitForWorkerExit(
+          worker.pid,
+          workerPath,
+          this.terminateGraceMs,
+        );
+      }
+
       this.releasePidFile(worker.pid);
     }
 
@@ -775,7 +880,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     this.initGuard.reset();
 
     // An instance whose worker already exited owns nothing. Unlinking the PID
-    // file here would unpublish whichever worker is currently registered —
+    // file here would unpublish whichever worker is currently registered,
     // typically a live one belonging to another instance, which then becomes
     // invisible to every later reclaim. Only release what we actually hold.
     if (!proc) {
@@ -796,6 +901,16 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    */
   async shutdown(): Promise<void> {
     this.disposeRequested = true;
+
+    // An initialization already in flight has not necessarily assigned
+    // `workerProc` yet: it may still be downloading the runtime or waiting for
+    // the model to load. Returning now would sweep the cache and let that
+    // initializer spawn a worker afterwards, with nobody left to reap it. Wait
+    // for it to settle so there is a handle to tear down.
+    const inFlight = this.initInFlight;
+    if (inFlight) {
+      await inFlight.catch(() => undefined);
+    }
 
     const proc = this.workerProc;
     this.workerProc = null;
