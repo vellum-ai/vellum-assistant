@@ -71,6 +71,7 @@ function useNativeAudioSessionLifecycle(): void {
     let hasAudioFocus = false;
     let reconcilingAudioFocus = false;
     let reconcileRequested = false;
+    let activationAttempts = 0;
     let lastSettledState = useLiveVoiceStore.getState().state;
 
     const reconcileAudioFocus = async (): Promise<void> => {
@@ -83,6 +84,10 @@ function useNativeAudioSessionLifecycle(): void {
       try {
         while (wantsAudioFocus !== hasAudioFocus) {
           if (wantsAudioFocus) {
+            if (activationAttempts >= 2) {
+              return;
+            }
+            activationAttempts += 1;
             hasAudioFocus = await activateVoiceAudioSession();
             if (!hasAudioFocus) {
               return;
@@ -107,6 +112,7 @@ function useNativeAudioSessionLifecycle(): void {
       const nextWantsAudioFocus = isLiveVoiceSessionActive(
         settledState,
       );
+      activationAttempts = nextWantsAudioFocus ? activationAttempts : 0;
       if (
         nextWantsAudioFocus === wantsAudioFocus &&
         (!stateChanged || hasAudioFocus)

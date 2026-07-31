@@ -184,7 +184,7 @@ That history is the reason this is device-only territory. A change here that loo
 
 Android's `useNativeAudioSessionLifecycle` calls `activateVoiceAudioSession()` to request transient audio focus for the foreground WebView. It does not move capture into native code or claim screen-lock or app-switching support.
 
-The `VoiceAudioSession` plugin stays in the shell: its interruption reporting listens to `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri taking the input from WebKit's session, which is unrelated to owning a session ourselves.
+The iOS `VoiceAudioSession` plugin stays in the shell: its interruption reporting listens to `AVAudioSession.sharedInstance()`, so it still hears a phone call or Siri taking the input from WebKit's session, which is unrelated to owning a session ourselves.
 
 What is genuinely still open on iOS is **background audio**. The list below describes what an active iOS session *would* buy. None of it is in effect today because iOS never activates one. `UIBackgroundModes: audio` in `clients/ios/App/App/Info.plist`, plus an active `.playAndRecord` / `.voiceChat` session, would buy:
 

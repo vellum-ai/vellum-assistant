@@ -15,6 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import type { VoiceAudioInterruptionEvent } from "@/runtime/native-audio-session";
 
 // The default client factory in use-live-voice statically imports the real
 // LiveVoiceChannelClient, which pulls in connection.ts -> the generated SDK.
@@ -30,10 +31,7 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
 // faking `isNativeIOS`) so the controller's lifecycle wiring is asserted
 // directly; the bridge's own off-native/skew behavior is pinned by
 // `runtime/native-audio-session.test.ts`.
-type InterruptionEvent = {
-  type: "began" | "ended";
-  reason?: "interruption" | "focus-loss" | "route-change" | "resume";
-};
+type InterruptionEvent = VoiceAudioInterruptionEvent;
 let onNativeAndroid = false;
 let onNativeIOS = false;
 const activateVoiceAudioSession = mock(async () => true);
@@ -400,47 +398,50 @@ describe("native audio session", () => {
     onNativeAndroid = true;
     const h = renderPersistentController();
     await startListeningViaStarter(h);
-
     expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
-
     await act(async () => {
       useLiveVoiceStore.getState().controls?.stop();
       await Promise.resolve();
       await Promise.resolve();
     });
-
     expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
   });
 
-  test("Android retries denied focus on a later active phase", async () => {
+  test("Android caps denied focus retries per session", async () => {
     onNativeAndroid = true;
-    activateVoiceAudioSession
-      .mockImplementationOnce(async () => false)
-      .mockImplementation(async () => true);
+    const outcomes = [false, false, false, true];
+    activateVoiceAudioSession.mockImplementation(
+      async () => outcomes.shift() ?? true,
+    );
     renderPersistentController();
-
     await act(async () => {
       useLiveVoiceStore.getState().starter?.start("assistant-1", "conv-1");
       await Promise.resolve();
     });
     expect(activateVoiceAudioSession).toHaveBeenCalledTimes(1);
-
-    await act(async () => {
-      useLiveVoiceStore.getState().setState("listening");
-      await Promise.resolve();
-    });
+    for (const phase of ["listening", "thinking", "speaking"] as const) {
+      await act(async () => {
+        useLiveVoiceStore.getState().setState(phase);
+        await Promise.resolve();
+      });
+    }
     expect(activateVoiceAudioSession).toHaveBeenCalledTimes(2);
+    for (const phase of ["idle", "connecting", "listening"] as const) {
+      await act(async () => {
+        useLiveVoiceStore.getState().setState(phase);
+        await Promise.resolve();
+      });
+    }
+    expect(activateVoiceAudioSession).toHaveBeenCalledTimes(4);
   });
 
   test("Android route changes do not end the session", async () => {
     onNativeAndroid = true;
     const h = renderPersistentController();
     await startListeningViaStarter(h);
-
     act(() => {
       emitInterruption({ type: "began", reason: "route-change" });
     });
-
     expect(useLiveVoiceStore.getState().state).toBe("listening");
     expect(h.lastClient().closed).toBe(false);
   });
@@ -449,13 +450,11 @@ describe("native audio session", () => {
     onNativeAndroid = true;
     const h = renderPersistentController();
     await startListeningViaStarter(h);
-
     await act(async () => {
       emitInterruption({ type: "began" });
       await Promise.resolve();
       await Promise.resolve();
     });
-
     expect(h.lastClient().ended).toBe(true);
     expect(deactivateVoiceAudioSession).toHaveBeenCalledTimes(1);
   });
