@@ -82,6 +82,10 @@ export function clearPlatformToken(): void {
 
 const VAK_PREFIX = "vak_";
 
+export function isPlatformApiKey(token: string): boolean {
+  return token.startsWith(VAK_PREFIX);
+}
+
 /**
  * Sync helper – returns only the token-based auth header.
  *
@@ -90,7 +94,7 @@ const VAK_PREFIX = "vak_";
  * that already have an org ID in hand.
  */
 function tokenAuthHeader(token: string): Record<string, string> {
-  if (token.startsWith(VAK_PREFIX)) {
+  if (isPlatformApiKey(token)) {
     return { Authorization: `Bearer ${token}` };
   }
   return { "X-Session-Token": token };
@@ -104,7 +108,7 @@ export function authHeadersForKnownOrganization(
     "Content-Type": "application/json",
     ...tokenAuthHeader(token),
   };
-  if (!token.startsWith(VAK_PREFIX)) {
+  if (!isPlatformApiKey(token)) {
     headers["Vellum-Organization-Id"] = organizationId;
   }
   return headers;
@@ -160,7 +164,7 @@ export async function authHeaders(
     ...tokenAuthHeader(token),
   };
 
-  if (token.startsWith(VAK_PREFIX)) {
+  if (isPlatformApiKey(token)) {
     // API keys are org-scoped – no need to fetch the org ID.
     return base;
   }

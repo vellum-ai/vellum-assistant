@@ -123,15 +123,18 @@ describe("platform-client token path is env-scoped", () => {
 describe("getPlatformUrl resolution order", () => {
   let tempLockDir: string;
   let savedLockDir: string | undefined;
+  let savedXdg: string | undefined;
   let savedEnv: string | undefined;
   let savedPlatformUrl: string | undefined;
 
   beforeEach(() => {
     savedLockDir = process.env.VELLUM_LOCKFILE_DIR;
+    savedXdg = process.env.XDG_CONFIG_HOME;
     savedEnv = process.env.VELLUM_ENVIRONMENT;
     savedPlatformUrl = process.env.VELLUM_PLATFORM_URL;
     tempLockDir = mkdtempSync(join(tmpdir(), "cli-platform-url-test-"));
     process.env.VELLUM_LOCKFILE_DIR = tempLockDir;
+    process.env.XDG_CONFIG_HOME = tempLockDir;
     delete process.env.VELLUM_ENVIRONMENT;
     delete process.env.VELLUM_PLATFORM_URL;
   });
@@ -141,6 +144,11 @@ describe("getPlatformUrl resolution order", () => {
       delete process.env.VELLUM_LOCKFILE_DIR;
     } else {
       process.env.VELLUM_LOCKFILE_DIR = savedLockDir;
+    }
+    if (savedXdg === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = savedXdg;
     }
     if (savedEnv === undefined) {
       delete process.env.VELLUM_ENVIRONMENT;

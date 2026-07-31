@@ -15,7 +15,9 @@ import { join } from "node:path";
 // assistant-config module reads/writes the lockfile here instead of ~/.
 const testDir = mkdtempSync(join(tmpdir(), "sleep-command-test-"));
 const assistantRootDir = join(testDir, ".vellum");
+const originalEnvironment = process.env.VELLUM_ENVIRONMENT;
 process.env.VELLUM_LOCKFILE_DIR = testDir;
+process.env.VELLUM_ENVIRONMENT = "production";
 
 const stopProcessByPidFileMock = mock(async () => true);
 const isProcessAliveMock = mock((): { alive: boolean; pid: number | null } => ({
@@ -56,9 +58,8 @@ mock.module("../lib/guardian-token.js", () => ({
   loadGuardianToken: loadGuardianTokenMock,
 }));
 
-// Stub the token-refresh helper without importing the real client module
-// (it drags in the interactive chat client's dependency graph). Pass-through
-// by default: the stored token is returned as-is.
+// Stub the shared token-refresh helper. Pass-through by default: the stored
+// token is returned as-is.
 const resolveFreshBearerTokenMock = mock(
   async (
     _runtimeUrl: string,
@@ -67,7 +68,11 @@ const resolveFreshBearerTokenMock = mock(
     _cloud: string | undefined,
   ) => bearerToken,
 );
-mock.module("../commands/client.js", () => ({
+const realGuardianSessionAuth = {
+  ...(await import("../lib/guardian-session-auth.js")),
+};
+mock.module("../lib/guardian-session-auth.js", () => ({
+  ...realGuardianSessionAuth,
   resolveFreshBearerToken: resolveFreshBearerTokenMock,
 }));
 
@@ -77,6 +82,7 @@ afterAll(() => {
   mock.module("../lib/process.js", () => realProcess);
   mock.module("../lib/drain.js", () => realDrain);
   mock.module("../lib/guardian-token.js", () => realGuardianToken);
+  mock.module("../lib/guardian-session-auth.js", () => realGuardianSessionAuth);
 });
 
 import { sleep } from "../commands/sleep.js";
@@ -161,6 +167,11 @@ describe("sleep command", () => {
     process.argv = originalArgv;
     rmSync(testDir, { recursive: true, force: true });
     delete process.env.VELLUM_LOCKFILE_DIR;
+    if (originalEnvironment === undefined) {
+      delete process.env.VELLUM_ENVIRONMENT;
+    } else {
+      process.env.VELLUM_ENVIRONMENT = originalEnvironment;
+    }
   });
 
   test("refuses normal sleep while an active call lease exists", async () => {

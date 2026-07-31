@@ -13,8 +13,8 @@ const ORIGINAL_ENV = process.env.VELLUM_ENVIRONMENT;
 const ORIGINAL_LOCKFILE_DIR = process.env.VELLUM_LOCKFILE_DIR;
 const ORIGINAL_FETCH = globalThis.fetch;
 
-import { resolveFreshBearerToken } from "../commands/client.js";
 import { saveAssistantEntry } from "../lib/assistant-config.js";
+import { resolveFreshBearerToken } from "../lib/guardian-session-auth.js";
 import { saveGuardianToken } from "../lib/guardian-token.js";
 
 const RUNTIME = "https://gw.example.com";

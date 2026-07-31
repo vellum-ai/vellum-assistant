@@ -12,10 +12,10 @@ import {
   type DrainOutcome,
   parseWaitDuration,
 } from "../lib/drain.js";
+import { resolveFreshBearerToken } from "../lib/guardian-session-auth.js";
 import { loadGuardianToken } from "../lib/guardian-token.js";
 import { stopIngressNginx } from "../lib/nginx-ingress.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
-import { resolveFreshBearerToken } from "./client.js";
 
 const ACTIVE_CALL_LEASES_FILE = "active-call-leases.json";
 
