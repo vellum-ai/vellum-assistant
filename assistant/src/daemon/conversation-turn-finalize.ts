@@ -28,7 +28,6 @@ import {
   type ConversationRow,
   getConversation,
   getMessageById,
-  type MessageRow,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
@@ -51,9 +50,7 @@ interface TurnTailContext {
 
 /** Minimal per-run handler state the deferred tail consumes. */
 interface TurnTailState {
-  readonly deferredFinalizeEffects: ReadonlyArray<
-    () => Promise<MessageRow | null>
-  >;
+  readonly deferredFinalizeEffects: ReadonlyArray<() => Promise<void>>;
   readonly lastAssistantMessageId: string | undefined;
   /** In-flight content writers the turn left behind (see EventHandlerState). */
   readonly inflightWriters: Map<string, InflightContentWriter>;
@@ -70,20 +67,19 @@ interface TurnTailState {
  * The returned closure captures the row id and its already-persisted content
  * JSON, and is drained by {@link runDeferredTurnTail} after the terminal SSE.
  * Each step is best-effort: a memory hiccup must not escalate a delivered reply
- * into a turn-level throw. It returns the finalized row it read so the tail can
- * hand it to the notification producer instead of re-reading it.
+ * into a turn-level throw.
  */
 export function buildDeferredFinalizeEffect(params: {
   conversationId: string;
   assistantMessageId: string;
   contentJson: string;
   rlog: pino.Logger;
-}): () => Promise<MessageRow | null> {
+}): () => Promise<void> {
   const { conversationId, assistantMessageId, contentJson, rlog } = params;
   return async () => {
     const finalizedRow = getMessageById(assistantMessageId, conversationId);
     if (!finalizedRow) {
-      return null;
+      return;
     }
     // Provenance/automation flags for the memory write-gate come off the
     // persisted metadata via the shared `parseMessageMetadata` (the single
@@ -129,7 +125,6 @@ export function buildDeferredFinalizeEffect(params: {
         "Failed to project assistant message for attention tracking (non-fatal)",
       );
     }
-    return finalizedRow;
   };
 }
 
@@ -181,17 +176,11 @@ export async function runDeferredTurnTail(params: {
   }
 
   // Per-message memory/attention finalize side-effects deferred from
-  // `handleMessageComplete` — one closure per assistant row produced this turn,
+  // `handleMessageComplete`: one closure per assistant row produced this turn,
   // in production order.
-  // Effects accumulate across a multi-call turn, so keep only the row the
-  // notification below is about rather than whichever ran last.
-  let finalizedAssistantRow: MessageRow | null = null;
   for (const effect of state.deferredFinalizeEffects) {
     try {
-      const finalizedRow = await effect();
-      if (finalizedRow && finalizedRow.id === state.lastAssistantMessageId) {
-        finalizedAssistantRow = finalizedRow;
-      }
+      await effect();
     } catch (err) {
       rlog.warn({ err }, "Deferred finalize side-effect failed (non-fatal)");
     }
@@ -209,7 +198,6 @@ export async function runDeferredTurnTail(params: {
       userMessageId,
       rlog,
       conversation,
-      assistantMessage: finalizedAssistantRow,
     });
   }
 

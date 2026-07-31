@@ -27,6 +27,7 @@ import {
   getConversation,
   getConversationSource,
 } from "../../../persistence/conversation-crud.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../persistence/conversation-types.js";
 import {
   isMemoryEnabled,
   upsertMemoryRetrospectiveJob,
@@ -35,7 +36,6 @@ import { type TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import { getLogger } from "./logging.js";
 import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./substrate/constants.js";
 
 const log = getLogger("memory-retrospective-enqueue");
 

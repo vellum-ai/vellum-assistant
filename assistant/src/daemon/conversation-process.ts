@@ -1351,6 +1351,11 @@ async function drainBatch(
   let lastSuccessfulCurrentPage: string | undefined;
   let lastSuccessfulContent: string | undefined;
   let lastUserMessageId: string | undefined;
+  // `messages.id` of the last member that is a person's prompt rather than a
+  // machine signal. The reply-notification producer reads this row to decide
+  // whether the finished reply answers something a user is waiting on, so a
+  // trailing hidden marker must not stand in for the prompt ahead of it.
+  let lastVisibleUserMessageId: string | undefined;
   // Members whose persist succeeded. `fanOutOnEvent` below must only
   // broadcast agent-loop events to these — clients whose persist failed
   // already received an error event and must not also receive the
@@ -1519,6 +1524,7 @@ async function drainBatch(
     // Broadcast the user message to all hub subscribers so passive devices
     // see each batched user turn before the assistant reply starts streaming.
     if (!isEchoSuppressedUserMessage(qm.metadata)) {
+      lastVisibleUserMessageId = lastUserMessageId;
       qm.onEvent({
         type: "user_message_echo",
         text: qmContent,
@@ -1652,7 +1658,13 @@ async function drainBatch(
     isUserMessage?: boolean;
     titleText?: string;
     isHiddenPrompt?: boolean;
-  } = { isUserMessage: true };
+    notifyUserMessageId?: string;
+  } = {
+    isUserMessage: true,
+    // A batch of only machine signals falls back to the last row, which the
+    // producer's own suppression gates then read and stay silent on.
+    notifyUserMessageId: lastVisibleUserMessageId ?? lastUserMessageId,
+  };
   // Source interactive flag from the last successfully-persisted sibling so
   // a trailing failed tail doesn't flip the agent loop's interactivity.
   const lastSuccessfulBatchEntry =

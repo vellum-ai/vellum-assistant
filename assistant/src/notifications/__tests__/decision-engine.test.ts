@@ -153,6 +153,19 @@ describe("assistant_tool pass-through in notification decision engine", () => {
     expect(decision.dedupeKey).toBe(signal.signalId);
   });
 
+  // `notify --dedupe-key` reaches the signal, so the decision has to carry it
+  // through; falling back to the per-emit signal id would collapse nothing.
+  test("uses the producer-supplied dedupeKey", async () => {
+    const signal = makeAssistantToolSignal({
+      dedupeKey: "deploy-status:prod",
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+    ] as NotificationChannel[]);
+
+    expect(decision.dedupeKey).toBe("deploy-status:prod");
+  });
+
   test("derives title from body when requestedTitle is not supplied", async () => {
     const signal = makeAssistantToolSignal({
       contextPayload: {

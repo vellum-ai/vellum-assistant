@@ -184,6 +184,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../persistence/checkpoints.js",
     "../../../persistence/cleanup-schedule-state.js",
     "../../../persistence/conversation-crud.js",
+    "../../../persistence/conversation-types.js",
     "../../../persistence/db-connection.js",
     "../../../persistence/db-maintenance.js",
     "../../../persistence/embeddings/embedding-backend.js",
