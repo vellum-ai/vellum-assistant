@@ -78,8 +78,20 @@ export interface DropdownProps<T extends string> {
  *
  * The menu is portaled into the element provided by the nearest
  * `<PortalContainerProvider>` so it escapes ancestor `overflow: hidden` and
- * design tokens resolve correctly. Falls back to inline rendering when no
- * provider is mounted.
+ * design tokens resolve correctly. Falls back to `document.body` when no
+ * provider is mounted, matching every other overlay in this package
+ * (`Popover`, `Tooltip`, `Menu`, `Modal`, `ContextMenu`, `BottomSheet`, which
+ * all hand `container ?? undefined` to a Radix `Portal`).
+ *
+ * Portaling is not optional. The menu positions itself with `position: fixed`
+ * at viewport coordinates read off the trigger's `getBoundingClientRect()`,
+ * which only lands correctly when the viewport is its containing block. Any
+ * ancestor with a `transform`, `filter`, or `will-change` becomes that
+ * containing block instead and shifts the menu by that ancestor's origin,
+ * usually clear off-screen, which reads as "the dropdown won't open". The web
+ * app's detail drawer does exactly this: its slide-in animation uses
+ * `animation-fill-mode: both`, so the final keyframe's identity matrix stays
+ * applied for the life of the drawer.
  */
 const TRIGGER_SIZE_CLASSES: Record<DropdownSize, string> = {
   regular: "h-9 px-3 text-body-medium-lighter",
@@ -474,9 +486,9 @@ export function Dropdown<T extends string>({
         />
       </button>
 
-      {menuNode && portalContainer
-        ? createPortal(menuNode, portalContainer)
-        : menuNode}
+      {menuNode
+        ? createPortal(menuNode, portalContainer ?? document.body)
+        : null}
     </div>
   );
 }

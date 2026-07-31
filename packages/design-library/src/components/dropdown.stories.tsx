@@ -1,8 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Globe, Lock, Users } from "lucide-react";
 import { useState } from "react";
+import { expect, userEvent, within } from "storybook/test";
 
 import { Dropdown, type DropdownOption, type DropdownProps } from "./dropdown";
+import { Modal } from "./modal";
 import { Tag } from "./tag";
 
 const fruits: DropdownOption<string>[] = [
@@ -217,5 +219,158 @@ export const Compact: Story = {
         />
       </div>
     );
+  },
+};
+
+/**
+ * Regression guard: the menu must stay glued to its trigger even when an
+ * ancestor has a `transform`.
+ *
+ * A transformed ancestor becomes the containing block for `position: fixed`
+ * descendants, so a menu rendered inline under one resolves its viewport
+ * coordinates against that ancestor's box instead, shifting it by the
+ * ancestor's origin, usually far enough to leave the viewport entirely. The
+ * trigger still reports `data-state="open"`, which is why the failure reads to
+ * users as "the dropdown won't open" rather than "the menu is in the wrong
+ * place". Portaling the menu out of the transformed subtree is what keeps the
+ * viewport as its containing block.
+ *
+ * The web app hits this with its detail drawer, whose slide-in animation uses
+ * `animation-fill-mode: both`, so the final keyframe's identity matrix stays
+ * applied for the life of the drawer.
+ */
+export const InsideTransformedAncestor: Story = {
+  args: {
+    "aria-label": "Fruit",
+  },
+  render: function TransformedAncestorDropdown(args) {
+    const [value, setValue] = useState("apple");
+    return (
+      // `translate(80px, 40px)` stands in for the drawer's leftover matrix. A
+      // non-zero offset is deliberate: an identity transform triggers the same
+      // containing-block switch but hides the resulting drift behind a zero
+      // delta, so the assertion below would pass even on the broken build.
+      <div style={{ transform: "translate(80px, 40px)" }}>
+        <div className="w-64">
+          <Dropdown
+            {...args}
+            options={fruits}
+            value={value}
+            onChange={setValue}
+          />
+        </div>
+      </div>
+    );
+  },
+  play: async ({ canvasElement, step }) => {
+    const canvas = within(canvasElement);
+    const trigger = canvas.getByRole("combobox", { name: "Fruit" });
+
+    await step("open the menu", async () => {
+      await userEvent.click(trigger);
+      await expect(trigger).toHaveAttribute("data-state", "open");
+    });
+
+    await step("menu is positioned against the viewport", async () => {
+      // Scoped to the document, not the canvas: the menu is portaled out of
+      // the story's subtree, which is the whole point of this story.
+      const menu = document.querySelector('[data-slot="dropdown-menu"]');
+      await expect(menu).not.toBeNull();
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const menuRect = menu!.getBoundingClientRect();
+
+      // Left-aligned (the default) and directly below the trigger. Sub-pixel
+      // layout rounding is the only slack; the transformed-ancestor bug
+      // offsets these by the ancestor's translate (80px / 40px).
+      await expect(Math.abs(menuRect.left - triggerRect.left)).toBeLessThan(1);
+      await expect(menuRect.top).toBeGreaterThanOrEqual(triggerRect.bottom);
+      await expect(menuRect.top - triggerRect.bottom).toBeLessThan(8);
+    });
+  },
+};
+
+/**
+ * Regression guard for the riskiest consequence of portaling the menu to
+ * `document.body`: inside a modal, the menu is no longer a DOM descendant of
+ * the dialog it belongs to.
+ *
+ * Two things could break as a result, and this story pins both.
+ *
+ * 1. Dismissal. Radix's `DismissableLayer` decides what counts as an outside
+ *    click from a React `onPointerDownCapture` on the layer. `createPortal`
+ *    preserves React-tree parentage even though DOM parentage moves, so an
+ *    option click still reads as inside the dialog. If that ever stopped
+ *    holding, selecting an option would close the modal out from under the
+ *    user.
+ * 2. Clickability. Radix marks `body` with `pointer-events: none` in modal
+ *    mode, so a menu parented to `body` inherits it. The menu carries
+ *    `pointer-events-auto` for exactly this reason, and losing that class
+ *    would make every option silently unclickable.
+ */
+export const InsideModal: Story = {
+  args: {
+    "aria-label": "Fruit",
+  },
+  render: function ModalDropdown(args) {
+    const [value, setValue] = useState("apple");
+    return (
+      <Modal.Root defaultOpen>
+        <Modal.Content>
+          <Modal.Header>
+            <Modal.Title>Pick a fruit</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <div className="w-64">
+              <Dropdown
+                {...args}
+                options={fruits}
+                value={value}
+                onChange={setValue}
+              />
+            </div>
+          </Modal.Body>
+        </Modal.Content>
+      </Modal.Root>
+    );
+  },
+  play: async ({ step }) => {
+    // Scoped to the document rather than the canvas: both the dialog and the
+    // menu are portaled out of the story's subtree.
+    const dialog = document.querySelector('[data-slot="modal-content"]');
+    await expect(dialog).not.toBeNull();
+
+    const trigger = document.querySelector<HTMLElement>(
+      '[data-slot="dropdown-trigger"]',
+    );
+    await expect(trigger).not.toBeNull();
+
+    await step("menu opens and escapes the dialog in the DOM", async () => {
+      await userEvent.click(trigger!);
+      const menu = document.querySelector('[data-slot="dropdown-menu"]');
+      await expect(menu).not.toBeNull();
+      await expect(dialog!.contains(menu)).toBe(false);
+    });
+
+    await step("options stay clickable under modal pointer-events", async () => {
+      const menu = document.querySelector<HTMLElement>(
+        '[data-slot="dropdown-menu"]',
+      );
+      await expect(getComputedStyle(menu!).pointerEvents).toBe("auto");
+    });
+
+    await step("selecting an option does not dismiss the modal", async () => {
+      const options = document.querySelectorAll<HTMLElement>(
+        '[data-slot="dropdown-option"]',
+      );
+      const cherry = [...options].find((o) => o.textContent?.includes("Cherry"));
+      await expect(cherry).toBeDefined();
+      await userEvent.click(cherry!);
+
+      await expect(trigger!.textContent).toContain("Cherry");
+      await expect(
+        document.querySelector('[data-slot="modal-content"]'),
+      ).not.toBeNull();
+    });
   },
 };
