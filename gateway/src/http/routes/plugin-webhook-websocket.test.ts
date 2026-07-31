@@ -2,12 +2,11 @@ import { createHmac } from "node:crypto";
 
 import { describe, expect, it } from "bun:test";
 
-import { signHandshakeUrl } from "@vellumai/service-contracts/plugin-ingress-handshake";
-
 import "../../__tests__/test-preload.js";
 import { initSigningKey } from "../../auth/token-service.js";
 import type { PluginIngressResolution } from "../../channels/plugin-ingress-approvals.js";
 import type { GatewayConfig } from "../../config.js";
+import { signHandshakeUrl } from "../plugin-ingress-handshake.js";
 import {
   createPluginWebhookWebsocketHandler,
   getPluginWebhookWebsocketHandlers,

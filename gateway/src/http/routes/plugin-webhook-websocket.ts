@@ -34,8 +34,7 @@ import {
   type IpcCallOptions,
 } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
-import { verifySignedQueryHandshake } from "@vellumai/service-contracts/plugin-ingress-handshake";
-
+import { verifySignedQueryHandshake } from "../plugin-ingress-handshake.js";
 import {
   VELLUM_TIMESTAMP_HEADER,
   handshakeSignedPayload,

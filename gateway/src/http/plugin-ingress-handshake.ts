@@ -4,11 +4,11 @@
  * ## Why a second handshake scheme
  *
  * The header scheme (`Vellum-Signature` / `Vellum-Timestamp`, see
- * `gateway/src/http/vellum-signature.ts`) assumes the caller controls its
- * request headers. Some callers cannot: a third-party service is handed a
- * single URL and dials it, with no place to put a header. Recall.ai's realtime
- * endpoint is the case that forced this. For those routes the whole
- * credential has to live in the URL.
+ * `./vellum-signature.ts`) assumes the caller controls its request headers.
+ * Some callers cannot: a third-party service is handed a single URL and dials
+ * it, with no place to put a header. Recall.ai's realtime endpoint is the case
+ * that forced this. For those routes the whole credential has to live in the
+ * URL.
  *
  * ## What it signs, and why not a timestamp
  *
@@ -25,12 +25,14 @@
  * MAX_HANDSHAKE_TTL_SECONDS} bounds how far out that can be, so a minter
  * cannot issue a URL that never expires.
  *
- * ## Shared on purpose
+ * ## Both halves, one owner
  *
- * Both ends live in this package because they must agree exactly: the
- * assistant mints these URLs for plugins and the gateway verifies them, and a
- * drift between the two is a silent authentication failure rather than a
- * compile error.
+ * Minting and verification sit together because they must agree exactly, and
+ * both belong to the gateway: it is what Velay hands the public base URL to,
+ * what reads the plugin's `webhook_secret`, and what owns the
+ * `/webhooks/plugins/` prefix. A plugin that needs one of these URLs asks the
+ * gateway for it rather than assembling one, so the secret and the scheme
+ * never leave this process.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";

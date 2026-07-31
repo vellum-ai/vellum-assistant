@@ -15,7 +15,7 @@ import {
   MAX_HANDSHAKE_TTL_SECONDS,
   signHandshakeUrl,
   verifySignedQueryHandshake,
-} from "../plugin-ingress-handshake.js";
+} from "./plugin-ingress-handshake.js";
 
 const SECRET = "s3cret-webhook-key";
 const NOW_MS = 1_760_000_000_000;

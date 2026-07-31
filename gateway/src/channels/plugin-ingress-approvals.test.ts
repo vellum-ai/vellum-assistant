@@ -152,6 +152,33 @@ describe("ingressDeclarationDigest", () => {
     );
   });
 
+  it("keeps the digest a default-scheme route had before handshake existed", () => {
+    // Golden values from the `kind signer path` encoding that shipped before
+    // this field. Approvals are persisted digests, so if these move, every
+    // already-approved plugin silently drops back to pending and 404s until a
+    // guardian approves it again. Adding a field must not do that.
+    expect(
+      ingressDeclarationDigest([
+        {
+          kind: "websocket",
+          signer: "plugin",
+          handshake: "signed-headers",
+          path: "realtime",
+        },
+      ]),
+    ).toBe("a32e2511180b489c31e147ebb926e72b");
+    expect(
+      ingressDeclarationDigest([
+        {
+          kind: "http",
+          signer: "vellum",
+          handshake: "signed-headers",
+          path: "hook",
+        },
+      ]),
+    ).toBe("db809d978434fd3804c8faad82851069");
+  });
+
   it("changes when the handshake scheme changes", () => {
     // signed-query makes the URL itself the credential. A guardian who
     // approved the header scheme has not approved that.

@@ -10,7 +10,6 @@
     "./client-metadata": "./src/client-metadata.ts",
     "./credential-rpc": "./src/credential-rpc.ts",
     "./ingress": "./src/ingress.ts",
-    "./plugin-ingress-handshake": "./src/plugin-ingress-handshake.ts",
     "./remote-web-pairing": "./src/remote-web-pairing.ts",
     "./twilio-ingress": "./src/twilio-ingress.ts",
     "./trust-rules": "./src/trust-rules.ts",
