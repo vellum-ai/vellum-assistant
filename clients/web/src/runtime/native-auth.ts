@@ -200,7 +200,7 @@ async function completeNativeLogin(
   // a no-op if biometrics are unavailable on the device.
   if (isBiometricEnabled()) {
     const stored = await storeBiometricToken(sessionToken);
-    if (!stored) {
+    if (!stored && Capacitor.getPlatform() === "android") {
       setBiometricEnabled(false);
     }
   }
