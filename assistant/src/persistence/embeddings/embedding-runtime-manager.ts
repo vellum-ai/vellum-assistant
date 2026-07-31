@@ -43,8 +43,13 @@ const JINJA_VERSION = "0.5.5";
  * `_workers-vN` suffix forces existing installs to regenerate the worker
  * scripts when the worker IPC contract or spawn-args list changes (without
  * requiring an `@huggingface/transformers` version bump).
+ *
+ * v4: workers read `VELLUM_ONNX_INTRA_OP_THREADS` and pass
+ * `session_options.intraOpNumThreads` (JARVIS-1398). The environment the host
+ * spawns them with counts as part of the contract, so an install that keeps
+ * the v3 scripts would silently ignore the cap.
  */
-const RUNTIME_VERSION = `ort-${ONNXRUNTIME_NODE_VERSION}_hf-${TRANSFORMERS_VERSION}_jinja-${JINJA_VERSION}_workers-v3`;
+export const RUNTIME_VERSION = `ort-${ONNXRUNTIME_NODE_VERSION}_hf-${TRANSFORMERS_VERSION}_jinja-${JINJA_VERSION}_workers-v4`;
 
 const WORKER_FILENAME = "embed-worker.mjs";
 const RERANK_WORKER_FILENAME = "rerank-worker.mjs";
@@ -116,7 +121,7 @@ async function downloadAndExtract(
 
 // ── Worker script content ───────────────────────────────────────────
 
-function generateWorkerScript(): string {
+export function generateWorkerScript(): string {
   // This script is run by a standalone bun process (not the compiled daemon).
   // Because it runs in a real bun runtime, bare specifier resolution works
   // normally — node_modules/ in the same directory is found automatically.
@@ -187,7 +192,7 @@ process.stdin.on('end', () => process.exit(0));
 `;
 }
 
-function generateRerankWorkerScript(): string {
+export function generateRerankWorkerScript(): string {
   // Cross-encoder rerank worker. Loads a sequence-classification model and
   // scores paired (queries[i], passages[i]) tuples in one batched ONNX
   // inference call. Mirrors the embed worker's lifecycle (ready signal,
