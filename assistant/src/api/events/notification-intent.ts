@@ -27,8 +27,8 @@ export const NotificationIntentEventSchema = z.object({
   targetGuardianPrincipalId: z.string().optional(),
   silent: z.boolean().optional(),
   /**
-   * True when the same decision also dispatched the platform (APNs)
-   * channel, so native clients can avoid double-bannering.
+   * True when the platform (APNs) channel accepted a remote push for
+   * this delivery, so native clients can avoid double-bannering.
    */
   remotePushDispatched: z.boolean().optional(),
 });

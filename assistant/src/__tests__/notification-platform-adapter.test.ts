@@ -62,6 +62,7 @@ mock.module("../platform/client.js", () => ({
             ok: response.ok,
             status: response.status,
             text: async () => response.body ?? "",
+            json: async () => JSON.parse(response.body ?? "") as unknown,
           };
         },
       };
@@ -210,6 +211,72 @@ describe("PlatformPushAdapter", () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain("400");
     expect(fetchCalls).toHaveLength(1);
+  });
+
+  test("reports remotePushAccepted: true on 200 with tokens_sent > 0", async () => {
+    fetchResponses.push({
+      ok: true,
+      status: 200,
+      body: '{"idempotent": false, "tokens_sent": 2}',
+    });
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(result.remotePushAccepted).toBe(true);
+  });
+
+  test("reports remotePushAccepted: false on 202 skipped (flag off)", async () => {
+    fetchResponses.push({
+      ok: true,
+      status: 202,
+      body: '{"skipped": "flag_off"}',
+    });
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(result.remotePushAccepted).toBe(false);
+  });
+
+  test("reports remotePushAccepted: false on 200 with tokens_sent 0", async () => {
+    fetchResponses.push({
+      ok: true,
+      status: 200,
+      body: '{"idempotent": true, "tokens_sent": 0}',
+    });
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(result.remotePushAccepted).toBe(false);
+  });
+
+  test("reports remotePushAccepted: false when the success body is unparseable", async () => {
+    fetchResponses.push({ ok: true, status: 200, body: "not json" });
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(true);
+    expect(result.remotePushAccepted).toBe(false);
+  });
+
+  test("leaves remotePushAccepted unset on non-2xx failure", async () => {
+    fetchResponses.push({ ok: false, status: 400, body: "bad request" });
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(false);
+    expect(result.remotePushAccepted).toBeUndefined();
+  });
+
+  test("leaves remotePushAccepted unset when the platform client is unavailable", async () => {
+    clientAvailable = false;
+    const adapter = new PlatformPushAdapter();
+    const result = await adapter.send(makePayload(), makeDestination());
+
+    expect(result.success).toBe(false);
+    expect(result.remotePushAccepted).toBeUndefined();
   });
 
   test("omits optional fields when absent from payload", async () => {

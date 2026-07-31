@@ -121,16 +121,33 @@ export class PlatformPushAdapter implements ChannelAdapter {
       }
 
       if (response.ok) {
+        // A 2xx does not mean a push went out: the server returns
+        // 202 {"skipped": ...} when the feature flag is off or no tokens
+        // are registered, and 200 with tokens_sent: 0 on idempotent
+        // replays. Only report acceptance when the body confirms at least
+        // one device push was dispatched; an unparseable or ambiguous body
+        // counts as not accepted (a duplicate client banner beats a lost
+        // notification).
+        const responseBody = (await response.json().catch(() => null)) as {
+          skipped?: unknown;
+          tokens_sent?: unknown;
+        } | null;
+        const remotePushAccepted =
+          responseBody != null &&
+          !responseBody.skipped &&
+          typeof responseBody.tokens_sent === "number" &&
+          responseBody.tokens_sent > 0;
         log.info(
           {
             sourceEventName: payload.sourceEventName,
             title: payload.copy.title,
             guardianScoped: targetGuardianPrincipalId != null,
             status: response.status,
+            remotePushAccepted,
           },
           "Platform push dispatched",
         );
-        return { success: true };
+        return { success: true, remotePushAccepted };
       }
 
       if (
