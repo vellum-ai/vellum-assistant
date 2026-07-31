@@ -569,3 +569,34 @@ describe("parent exit orderings", () => {
     await expect(backend.embed(["hello"])).rejects.toThrow(/shutting down/);
   });
 });
+
+/**
+ * `embedding-backend.ts` marks the local backend permanently broken when an
+ * error message contains "Local embedding backend unavailable", which is how a
+ * compiled binary missing onnxruntime-node stops auto mode retrying local
+ * forever. Only genuinely permanent conditions may use that wording: a
+ * transient failure carrying it would disable local embeddings for the rest of
+ * the process over something that resolves on its own.
+ */
+describe("transient failures stay transient", () => {
+  const PERMANENT_FAILURE_SENTINEL = "Local embedding backend unavailable";
+
+  test("an unconfirmed termination does not claim permanent unavailability", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.unconfirmedWorker = process.pid;
+
+    const err = await backend.ensureInitialized().catch((e: Error) => e);
+
+    expect(err.message).toContain("could not be confirmed terminated");
+    expect(err.message).not.toContain(PERMANENT_FAILURE_SENTINEL);
+  });
+
+  test("shutting down does not claim permanent unavailability", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.disposeRequested = true;
+
+    const err = await backend.embed(["hello"]).catch((e: Error) => e);
+
+    expect(err.message).not.toContain(PERMANENT_FAILURE_SENTINEL);
+  });
+});

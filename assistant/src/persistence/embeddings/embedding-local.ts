@@ -363,8 +363,14 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     // Fail closed: a child we could not confirm dead may still be running, so
     // starting a replacement here would recreate the duplicate-worker bug.
     if (this.unconfirmedWorkerStillAlive()) {
+      // Deliberately NOT phrased "Local embedding backend unavailable": that
+      // wording is the sentinel `embedding-backend.ts` matches to mark the
+      // local backend PERMANENTLY broken (a compiled binary missing
+      // onnxruntime-node). This condition is transient and self-healing, so
+      // tripping that latch would disable local embeddings for the rest of the
+      // process over a worker that is about to disappear.
       throw new Error(
-        `Local embedding backend unavailable: worker ${this.unconfirmedWorker} could not be confirmed terminated`,
+        `Local embedding worker ${this.unconfirmedWorker} could not be confirmed terminated; refusing to spawn a replacement`,
       );
     }
     // Tracked so `shutdown()` can wait for an initialization that has not yet
@@ -924,8 +930,10 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
           // running unowned beside it, which is the duplicate-worker class
           // being fixed. Abort the spawn instead and keep the publication.
           this.retainUnconfirmedWorker(worker.pid);
+          // Transient, so it must not carry the permanent-failure sentinel
+          // (see the note in `ensureInitialized`).
           throw new Error(
-            `Local embedding backend unavailable: worker ${worker.pid} survived SIGKILL and could not be confirmed terminated`,
+            `Local embedding worker ${worker.pid} survived SIGKILL and could not be confirmed terminated`,
           );
         }
       }
