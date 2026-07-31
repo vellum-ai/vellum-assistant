@@ -43,6 +43,30 @@ const log = getLogger("memory-embeddings");
 let localBackendBroken = false;
 
 /**
+ * Set once {@link shutdownEmbeddingBackends} starts, and never cleared: the
+ * process is exiting.
+ *
+ * Emptying the backend cache is not enough on its own. A background turn that
+ * was already past its last await can call {@link selectEmbeddingBackend}
+ * afterwards, build a fresh backend with its own `disposeRequested` still
+ * false, and spawn a worker milliseconds before the process exits, which is
+ * precisely the orphan this is all here to prevent.
+ */
+let embeddingBackendsShutDown = false;
+
+/**
+ * Ceiling on {@link shutdownEmbeddingBackends}.
+ *
+ * The work it bounds is variable: an in-flight-initialization race, then a
+ * SIGTERM and SIGKILL wait per backend, then a reclaim sweep that pays the same
+ * two waits for every worker it finds. Callers that bound their own shutdown
+ * (the daemon's force-exit timer, the memory-worker process) budget against
+ * this single number rather than trying to model those parts, and it is
+ * enforced here rather than merely documented.
+ */
+export const EMBEDDING_SHUTDOWN_BUDGET_MS = 8_000;
+
+/**
  * Lazy wrapper around LocalEmbeddingBackend that dynamically imports the
  * module on first use. This avoids eagerly loading @huggingface/transformers
  * (which statically imports onnxruntime-node) at module evaluation time.
@@ -251,13 +275,14 @@ export function clearEmbeddingBackendCache(): void {
  * each worker to actually exit (JARVIS-1125).
  */
 export async function shutdownEmbeddingBackends(): Promise<void> {
+  embeddingBackendsShutDown = true;
   const backends = new Set(backendCache.values());
   backendCache.clear();
   vectorCache.clear();
   vectorCacheBytes = 0;
   backendDimCache.clear();
 
-  await Promise.all(
+  const teardown = Promise.all(
     [...backends].map(async (backend) => {
       try {
         await backend.shutdown?.();
@@ -270,6 +295,18 @@ export async function shutdownEmbeddingBackends(): Promise<void> {
       }
     }),
   );
+
+  const timedOut = Symbol("timeout");
+  const outcome = await Promise.race([
+    teardown.then(() => undefined),
+    Bun.sleep(EMBEDDING_SHUTDOWN_BUDGET_MS).then(() => timedOut),
+  ]);
+  if (outcome === timedOut) {
+    log.warn(
+      { budgetMs: EMBEDDING_SHUTDOWN_BUDGET_MS },
+      "Embedding backend shutdown exceeded its budget; a worker may outlive this process",
+    );
+  }
 }
 
 /**
@@ -451,6 +488,9 @@ export interface EmbeddingBackendSelection {
 export async function selectEmbeddingBackend(
   config: AssistantConfig,
 ): Promise<EmbeddingBackendSelection> {
+  if (embeddingBackendsShutDown) {
+    return { backend: null, reason: "Embedding backends are shutting down" };
+  }
   const requested = config.memory.embeddings.provider;
   if (requested === "local") {
     return {

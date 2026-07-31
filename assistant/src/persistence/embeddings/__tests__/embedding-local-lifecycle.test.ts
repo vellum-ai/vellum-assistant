@@ -600,3 +600,96 @@ describe("transient failures stay transient", () => {
     expect(err.message).not.toContain(PERMANENT_FAILURE_SENTINEL);
   });
 });
+
+/**
+ * Defects found by a self-audit of this change, each of which strands a worker
+ * or wedges the backend permanently.
+ */
+describe("audit regressions", () => {
+  /**
+   * A worker that wedges during model load never exits on SIGTERM. The startup
+   * failure path used a bare `await proc.exited`, so it hung there forever,
+   * leaving the init guard holding a promise that never settles and every later
+   * embed queued behind it.
+   */
+  test("a startup failure against a wedged worker does not hang", async () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.terminateGraceMs = 30;
+    const signals: (string | undefined)[] = [];
+    backend.workerProc = {
+      pid: 7001,
+      exitCode: null,
+      exited: new Promise<number>(() => {}),
+      kill(signal?: string) {
+        signals.push(signal);
+      },
+      stdin: { write() {}, flush() {} },
+      stderr: new ReadableStream(),
+    };
+
+    const started = Date.now();
+    const confirmed = await backend.terminateWorker(backend.workerProc);
+
+    expect(confirmed).toBe(false);
+    expect(signals).toEqual([undefined, "SIGKILL"]);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  /**
+   * A partial line left by a killed worker would otherwise be prepended to the
+   * replacement's first line, destroying its `ready` signal and stalling
+   * startup for the full two-minute timeout.
+   */
+  test("terminateNow clears the stdout buffer so a retry can parse ready", () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.stdoutBuffer = '{"id":5,"vect';
+    backend.workerProc = null;
+
+    backend.terminateNow();
+
+    expect(backend.stdoutBuffer).toBe("");
+  });
+
+  /**
+   * `terminateNow` runs immediately before `process.exit`, so anything it fails
+   * to see is orphaned outright. A worker spawned but not yet adopted into
+   * `workerProc` is invisible to the handle, but not to parentage.
+   */
+  test("terminateNow reaps a child it holds no handle for", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "embed-worker-nohandle-"));
+    const scriptPath = join(dir, "embed-worker.mjs");
+    writeFileSync(scriptPath, "setTimeout(() => {}, 60_000);\n");
+
+    const proc = Bun.spawn({
+      cmd: [process.execPath, scriptPath],
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    spawned.push(proc);
+    await Bun.sleep(400);
+
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.workerPath = scriptPath;
+    backend.workerProc = null; // spawned, never adopted
+
+    backend.terminateNow();
+    await Bun.sleep(300);
+
+    expect(listWorkerProcesses(scriptPath)).toEqual([]);
+  });
+
+  /**
+   * `terminateNow` is on the public backend interface with no exit-only
+   * contract, so it must leave the instance able to start a replacement.
+   */
+  test("terminateNow leaves the instance reusable", () => {
+    const backend = new LocalEmbeddingBackend("test-model") as Internals;
+    backend.workerProc = null;
+    backend.stdoutReaderActive = true;
+
+    backend.terminateNow();
+
+    expect(backend.stdoutReaderActive).toBe(false);
+    expect(backend.initGuard.active).toBe(false);
+  });
+});

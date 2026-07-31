@@ -480,16 +480,23 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       // Wait for the worker to signal it's ready (model loaded)
       await this.waitForReady();
     } catch (err) {
-      // Worker failed to start — kill it to avoid deadlock, then collect stderr
+      // Startup failed. Release ownership through the same bounded path every
+      // other teardown uses: a worker wedged in native ONNX ignores SIGTERM,
+      // and the bare `await proc.exited` this used to do would hang here
+      // forever, leaving the init guard holding a promise that never settles
+      // and every later embed waiting on it.
       this.workerProc = null;
       this.stdoutReaderActive = false;
-      try {
-        proc.kill();
-      } catch {
-        /* may already be dead */
-      }
-      const exitCode = await proc.exited.catch(() => undefined);
-      const stderr = await new Response(proc.stderr).text().catch(() => "");
+      // A partial line from the dead worker would otherwise be prepended to the
+      // next worker's first line, corrupting its `ready` signal.
+      this.stdoutBuffer = "";
+      const confirmed = await this.terminateWorker(proc);
+      const exitCode = confirmed ? proc.exitCode : undefined;
+      // Bounded for the same reason: a live child never closes stderr.
+      const stderr = await Promise.race([
+        new Response(proc.stderr).text().catch(() => ""),
+        Bun.sleep(this.terminateGraceMs).then(() => ""),
+      ]);
       if (stderr.trim()) {
         log.warn(
           { stderr: stderr.trim(), exitCode, bunPath },
@@ -977,13 +984,17 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       return;
     }
 
-    void this.terminateWorker(proc).then((confirmed) => {
-      if (confirmed) {
-        this.releasePidFile(proc.pid);
-      } else {
-        this.retainUnconfirmedWorker(proc.pid);
-      }
-    });
+    void this.terminateWorker(proc)
+      .then((confirmed) => {
+        if (confirmed) {
+          this.releasePidFile(proc.pid);
+        } else {
+          this.retainUnconfirmedWorker(proc.pid);
+        }
+      })
+      .catch((err: unknown) => {
+        log.warn({ err, model: this.model }, "Deferred worker teardown failed");
+      });
   }
 
   /**
@@ -998,16 +1009,38 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
    */
   terminateNow(): void {
     const proc = this.workerProc;
-    if (!proc) {
+    this.workerProc = null;
+    this.stdoutReaderActive = false;
+    this.stdoutBuffer = "";
+    this.initGuard.reset();
+
+    if (proc) {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        // Already gone.
+      }
+      this.releasePidFile(proc.pid);
+    }
+
+    // A worker spawned but not yet adopted (startup still in flight) is not in
+    // `workerProc`, so the handle alone would miss it and it would outlive this
+    // process as an orphan. Parentage finds it; both calls are synchronous, so
+    // this still costs the caller nothing it cannot afford before exiting.
+    if (!this.workerPath) {
       return;
     }
-    this.workerProc = null;
-    try {
-      proc.kill("SIGKILL");
-    } catch {
-      // Already gone.
+    for (const worker of listWorkerProcesses(this.workerPath)) {
+      if (worker.ppid !== process.pid || worker.pid === proc?.pid) {
+        continue;
+      }
+      try {
+        process.kill(worker.pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+      this.releasePidFile(worker.pid);
     }
-    this.releasePidFile(proc.pid);
   }
 
   /**

@@ -71,12 +71,15 @@ async function shutdown(): Promise<void> {
   // Set this BEFORE awaiting heartbeat stop so it covers all
   // potentially-blocking async shutdown work.
   //
-  // 20s budget: 15s reserved for Meet session teardown
-  // (`MeetSessionManager.shutdownAll`), plus ~5s for the remaining
-  // daemon work (workspace commits, server drain, enrichment, telemetry,
-  // mcp, qdrant, sqlite checkpoint). Without a live Meet session the
-  // rest of the shutdown routinely completes in under a second, so this
-  // bump only changes behavior for the stuck-shutdown path.
+  // 30s budget: 15s reserved for Meet session teardown
+  // (`MeetSessionManager.shutdownAll`), up to
+  // `EMBEDDING_SHUTDOWN_BUDGET_MS` for reaping the embedding worker
+  // subprocesses, plus ~5s for the remaining daemon work (workspace commits,
+  // server drain, enrichment, telemetry, mcp, qdrant, sqlite checkpoint).
+  // Without a live Meet session the rest of the shutdown routinely completes
+  // in under a second, so this only changes behavior for the stuck-shutdown
+  // path. Forcing the exit before the embedding reap finishes would orphan the
+  // worker this shutdown exists to collect.
   const forceTimer = setTimeout(() => {
     log.warn("Graceful shutdown timed out, forcing exit");
     // A stuck shutdown may never reach the graceful WAL checkpoint below —
@@ -91,7 +94,7 @@ async function shutdown(): Promise<void> {
     }
     stopBackgroundServicesAndCleanupPidFile();
     process.exit(1);
-  }, 20_000);
+  }, 30_000);
   forceTimer.unref();
 
   await stopWorkspaceHeartbeatService();

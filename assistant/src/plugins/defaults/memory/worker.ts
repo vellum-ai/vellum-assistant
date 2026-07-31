@@ -17,6 +17,7 @@ import { isMemoryEnabled } from "../../../config/memory-v3-gate.js";
 import { rehydratePlatformCredentials } from "../../../config/platform-rehydration.js";
 import { resetDb } from "../../../persistence/db-connection.js";
 import {
+  EMBEDDING_SHUTDOWN_BUDGET_MS,
   shutdownEmbeddingBackends,
   terminateEmbeddingWorkersNow,
 } from "../../../persistence/embeddings/embedding-backend.js";
@@ -30,7 +31,6 @@ import { registerMemoryPluginJobHandlers } from "./job-handler-registration.js";
 import { startMemoryJobsWorkerLoop } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
 import { getMemoryWorkerPidPath } from "./paths.js";
-import { SHUTDOWN_REAP_BUDGET_MS } from "./shutdown-budget.js";
 
 const log = getLogger("memory-worker-process");
 
@@ -120,13 +120,14 @@ async function main(): Promise<void> {
 
     // Signal shutdown: no successor exists, so take the time to reap the ONNX
     // worker subprocess this process owns rather than leaving an orphan
-    // (JARVIS-1125). The budget clears one full worker teardown (SIGTERM wait
-    // plus SIGKILL wait) so disposal can finish on the slow path.
+    // (JARVIS-1125). `shutdownEmbeddingBackends` enforces its own ceiling, so
+    // this outer race only has to sit above it to stay a backstop rather than
+    // the thing that cuts the reap short.
     void Promise.race([
       shutdownEmbeddingBackends().catch((err: unknown) => {
         log.warn({ err }, "Embedding backend shutdown failed (non-fatal)");
       }),
-      Bun.sleep(SHUTDOWN_REAP_BUDGET_MS),
+      Bun.sleep(EMBEDDING_SHUTDOWN_BUDGET_MS + 1_000),
     ]).finally(() => process.exit(0));
   };
 
