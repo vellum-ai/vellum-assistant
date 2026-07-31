@@ -63,6 +63,20 @@ mock.module("../../persistence/conversation-crud.js", () => ({
   },
 }));
 
+// Attachments the assistant row carries. Linked by the agent loop before the
+// producer runs, and exposed separately from the row's content blocks.
+let assistantAttachments: Array<{ originalFilename: string }> = [];
+const attachmentLookups: string[] = [];
+const realAttachmentsStore =
+  await import("../../persistence/attachments-store.js");
+mock.module("../../persistence/attachments-store.js", () => ({
+  ...realAttachmentsStore,
+  getAttachmentMetadataForMessage: (messageId: string) => {
+    attachmentLookups.push(messageId);
+    return assistantAttachments;
+  },
+}));
+
 const realAttentionStore =
   await import("../../persistence/conversation-attention-store.js");
 mock.module("../../persistence/conversation-attention-store.js", () => ({
@@ -198,6 +212,8 @@ beforeEach(() => {
   emitCalls.length = 0;
   warnCalls.length = 0;
   messageLookups.length = 0;
+  attachmentLookups.length = 0;
+  assistantAttachments = [];
   getConversationShouldThrow = false;
   conversationRow = makeConversation();
   assistantRow = makeAssistantRow([
@@ -630,6 +646,79 @@ describe("emitAssistantReplyNotification", () => {
     await run();
 
     expect(emitCalls).toHaveLength(0);
+  });
+
+  // A file- or image-generation reply carries its output as linked attachments
+  // rather than text blocks, so the empty-text branch would otherwise swallow
+  // the push for a user who left while the assistant was producing the file.
+  describe("attachment-only replies", () => {
+    beforeEach(() => {
+      assistantRow = makeAssistantRow([
+        { type: "tool_use", id: "t1", name: "write_file", input: {} },
+      ] as ContentBlock[]);
+    });
+
+    test("names the single attachment it generated", async () => {
+      assistantAttachments = [{ originalFilename: "quarterly-report.pdf" }];
+
+      await run();
+
+      expect(emitCalls).toHaveLength(1);
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent quarterly-report.pdf",
+      );
+      expect(attachmentLookups).toEqual([ASSISTANT_MESSAGE_ID]);
+    });
+
+    test("counts the attachments when the reply generated several", async () => {
+      assistantAttachments = [
+        { originalFilename: "one.png" },
+        { originalFilename: "two.png" },
+        { originalFilename: "three.png" },
+      ];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent 3 attachments",
+      );
+    });
+
+    test("falls back to generic copy when the filename sanitizes to nothing", async () => {
+      assistantAttachments = [{ originalFilename: "\u0000\u0007" }];
+
+      await run();
+
+      expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+        "Sent an attachment",
+      );
+    });
+
+    test("keeps the fallback body inside the preview budget", async () => {
+      assistantAttachments = [{ originalFilename: `${"f".repeat(300)}.png` }];
+
+      await run();
+
+      const preview = emitCalls[0].contextPayload.requestedMessage as string;
+      expect(preview).toHaveLength(200);
+      expect(preview.endsWith("…")).toBe(true);
+    });
+
+    test("stays silent when the reply has neither text nor attachments", async () => {
+      await run();
+
+      expect(emitCalls).toHaveLength(0);
+      expect(attachmentLookups).toEqual([ASSISTANT_MESSAGE_ID]);
+    });
+  });
+
+  // The attachment read is the empty-text branch's fallback, so a reply that
+  // already has text must not pay for it.
+  test("skips the attachment lookup when the reply has text", async () => {
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+    expect(attachmentLookups).toEqual([]);
   });
 
   test("stays silent when the assistant row is missing", async () => {

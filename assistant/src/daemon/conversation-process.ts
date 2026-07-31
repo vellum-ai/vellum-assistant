@@ -1736,6 +1736,13 @@ export interface ProcessMessageOptions {
   displayContent?: string;
   /** JWT-verified committer principal for turn-scoped host-proxy authorization. */
   sourceActorPrincipalId?: string;
+  /**
+   * Extra metadata stamped onto the persisted user row alongside the channel
+   * and provenance fields the turn derives. Callers that drive a turn on
+   * someone's behalf use it to mark the row's provenance (e.g. the plugin-api
+   * facade stamps `automated`).
+   */
+  metadata?: Record<string, unknown>;
 }
 
 // ── processMessage ───────────────────────────────────────────────────
@@ -1760,6 +1767,7 @@ export async function processMessage(
     overrideProfile,
     displayContent,
     sourceActorPrincipalId,
+    metadata: callerMetadata,
   } = options;
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -2171,6 +2179,7 @@ export async function processMessage(
       attachments,
       requestId,
       displayContent,
+      ...(callerMetadata ? { metadata: callerMetadata } : {}),
     });
     publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {

@@ -11,6 +11,7 @@
 import type pino from "pino";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getAttentionStateByConversationIds,
   hasUnseenLatestAssistantMessage,
@@ -42,6 +43,34 @@ const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
  */
 function collapseWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Body for a reply whose only user-visible output is attachments. Generated
+ * files and images are linked to the assistant row by
+ * `resolveAssistantAttachments` before the turn's terminal SSE, and are
+ * exposed separately from the row's content blocks, so a file-generation reply
+ * reaches this producer with no text to preview. Reads attachment metadata
+ * only (no base64), and only once the text preview has already come up empty.
+ *
+ * Returns an empty string when the row has no attachments either, which is the
+ * genuinely-empty reply the caller suppresses.
+ */
+function describeAttachmentOnlyReply(assistantMessageId: string): string {
+  const attachments = getAttachmentMetadataForMessage(assistantMessageId);
+  if (attachments.length === 0) {
+    return "";
+  }
+  if (attachments.length > 1) {
+    return `Sent ${attachments.length} attachments`;
+  }
+  // Filenames are model- and tool-authored, so one is sanitized before it can
+  // reach the lock screen. A filename that sanitizes away leaves generic copy
+  // rather than a dangling "Sent ".
+  const filename = sanitizeMessagePreview(
+    collapseWhitespace(attachments[0].originalFilename),
+  );
+  return filename ? `Sent ${filename}` : "Sent an attachment";
 }
 
 /**
@@ -132,9 +161,14 @@ export async function emitAssistantReplyNotification(params: {
       return;
     }
 
-    const preview = sanitizeMessagePreview(
-      collapseWhitespace(stringifyMessageContent(assistantRow.content)),
-    );
+    // A reply whose output is entirely attachments has no text to preview, so
+    // fall back to naming them rather than suppressing a real reply. A reply
+    // with neither text nor attachments stays silent.
+    const preview =
+      sanitizeMessagePreview(
+        collapseWhitespace(stringifyMessageContent(assistantRow.content)),
+      ) ||
+      sanitizeMessagePreview(describeAttachmentOnlyReply(assistantMessageId));
     if (!preview) {
       return;
     }
