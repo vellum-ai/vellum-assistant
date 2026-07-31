@@ -119,10 +119,10 @@ describe("with the plugin present", () => {
       expect.any(Function),
     );
 
-    handlers[0]?.({ type: "began", reason: "route-change" });
+    handlers[0]?.({ type: "began", reason: "interruption" });
     expect(handler).toHaveBeenCalledWith({
       type: "began",
-      reason: "route-change",
+      reason: "interruption",
     });
 
     // Let the registration settle so the handle is held, then release it.

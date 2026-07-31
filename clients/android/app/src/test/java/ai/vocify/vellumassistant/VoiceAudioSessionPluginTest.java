@@ -17,7 +17,7 @@ public class VoiceAudioSessionPluginTest {
     }
 
     @Test
-    public void transientFocusLossAndDuckingBeginInterruption() {
+    public void transientFocusLossBeginsInterruptionButDuckingIsIgnored() {
         VoiceAudioSessionPlugin.FocusEvent transientEvent =
             VoiceAudioSessionPlugin.FocusEvent.fromFocusChange(
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
@@ -29,8 +29,7 @@ public class VoiceAudioSessionPluginTest {
 
         assertEquals("began", transientEvent.type);
         assertEquals("interruption", transientEvent.reason);
-        assertEquals("began", duckingEvent.type);
-        assertEquals("interruption", duckingEvent.reason);
+        assertNull(duckingEvent);
     }
 
     @Test

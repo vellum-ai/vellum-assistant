@@ -31,7 +31,7 @@ import {
  */
 export interface VoiceAudioInterruptionEvent {
   type: "began" | "ended";
-  reason?: "interruption" | "focus-loss" | "route-change" | "resume";
+  reason?: "interruption" | "focus-loss" | "resume";
 }
 
 interface VoiceAudioSessionPlugin {
@@ -78,7 +78,7 @@ export async function deactivateVoiceAudioSession(): Promise<void> {
 }
 
 /**
- * Subscribe to native interruption, focus, route, and resume events.
+ * Subscribe to native interruption, focus, and resume events.
  *
  * Consumers should end the voice session on `type: "began"` — the mic is gone,
  * and a session that silently keeps "listening" into a dead input is worse than

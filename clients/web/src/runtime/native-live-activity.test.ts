@@ -15,12 +15,13 @@ import type {
   VoiceLiveActivityStart,
 } from "@/runtime/native-live-activity";
 
-let onNativeMobile = false;
+let onNativeAndroid = false;
+let onNativeIOS = false;
 
 mock.module("@/runtime/platform-detection", () => ({
-  isNativeAndroid: () => false,
-  isNativeIOS: () => onNativeMobile,
-  isNativeMobile: () => onNativeMobile,
+  isNativeAndroid: () => onNativeAndroid,
+  isNativeIOS: () => onNativeIOS,
+  isNativeMobile: () => onNativeAndroid || onNativeIOS,
 }));
 
 const start = mock(async () => ({ started: true }));
@@ -38,6 +39,7 @@ const {
   startVoiceLiveActivity,
   updateVoiceLiveActivity,
   endVoiceLiveActivity,
+  subscribeVoiceLiveActivityPushToken,
 } = await import("@/runtime/native-live-activity");
 
 const content: VoiceLiveActivityContent = {
@@ -54,13 +56,15 @@ const startOptions: VoiceLiveActivityStart = {
 };
 
 beforeEach(() => {
-  onNativeMobile = true;
+  onNativeAndroid = false;
+  onNativeIOS = true;
   start.mockClear();
   start.mockImplementation(async () => ({ started: true }));
   update.mockClear();
   update.mockImplementation(async () => undefined);
   end.mockClear();
   end.mockImplementation(async () => undefined);
+  addListener.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -69,7 +73,7 @@ beforeEach(() => {
 
 describe("outside a native mobile shell", () => {
   beforeEach(() => {
-    onNativeMobile = false;
+    onNativeIOS = false;
   });
 
   test("start resolves false without touching the bridge", async () => {
@@ -86,6 +90,17 @@ describe("outside a native mobile shell", () => {
     expect(await endVoiceLiveActivity()).toBeUndefined();
     expect(end).not.toHaveBeenCalled();
   });
+});
+
+test("Android does not dispatch to the ActivityKit bridge", async () => {
+  onNativeAndroid = true;
+  onNativeIOS = false;
+
+  expect(await startVoiceLiveActivity(startOptions)).toBe(false);
+  expect(start).not.toHaveBeenCalled();
+  const unsubscribe = subscribeVoiceLiveActivityPushToken(() => undefined);
+  expect(addListener).not.toHaveBeenCalled();
+  unsubscribe();
 });
 
 // ---------------------------------------------------------------------------
