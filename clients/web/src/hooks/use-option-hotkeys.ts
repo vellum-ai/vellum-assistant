@@ -105,7 +105,7 @@ export function useOptionHotkeys(
         onSkip();
         return;
       }
-      if (onClose && event.key === "Escape") {
+      if (onClose && event.key === "Escape" && !event.defaultPrevented) {
         event.preventDefault();
         onClose();
         return;

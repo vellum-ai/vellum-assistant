@@ -122,7 +122,9 @@ describe("PreferencesMenu", () => {
     expect(html).toBe("");
   });
 
-  test("labels the trigger with the account's full name when present", () => {
+  // A platform account with every identity field populated is the case most
+  // able to leak one into the trigger, so it is the one asserted against.
+  test("labels the trigger 'Preferences', never the account identity", () => {
     authRef.user = {
       kind: "platform",
       id: "u1",
@@ -133,54 +135,13 @@ describe("PreferencesMenu", () => {
       lastName: "Doe",
     };
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
-    expect(html).toContain("Jane Doe");
+    expect(html).toContain("Preferences");
+    expect(html).not.toContain("Jane Doe");
+    expect(html).not.toContain("jdoe");
+    expect(html).not.toContain("user@example.com");
   });
 
-  test("falls back to username, then email, then the generic label", () => {
-    // username fallback (no name)
-    authRef.user = {
-      kind: "platform",
-      id: "u1",
-      email: "user@example.com",
-      isStaff: false,
-      username: "jdoe",
-      firstName: "",
-      lastName: "",
-    };
-    expect(renderToStaticMarkup(createElement(PreferencesMenu))).toContain(
-      "jdoe",
-    );
-
-    // email fallback (no name, no username)
-    authRef.user = {
-      kind: "platform",
-      id: "u1",
-      email: "user@example.com",
-      isStaff: false,
-      username: null,
-      firstName: "",
-      lastName: "",
-    };
-    expect(renderToStaticMarkup(createElement(PreferencesMenu))).toContain(
-      "user@example.com",
-    );
-
-    // generic label (nothing identifying)
-    authRef.user = {
-      kind: "platform",
-      id: "u1",
-      email: null,
-      isStaff: false,
-      username: null,
-      firstName: "",
-      lastName: "",
-    };
-    expect(renderToStaticMarkup(createElement(PreferencesMenu))).toContain(
-      "Preferences",
-    );
-  });
-
-  test("shows the generic label for the synthetic local gateway user", () => {
+  test("labels the trigger 'Preferences' for the local gateway user", () => {
     // Mirrors GATEWAY_LOCAL_USER: name fields are populated but identify no
     // real account, so they must not surface as a profile.
     authRef.user = {
@@ -200,12 +161,12 @@ describe("PreferencesMenu", () => {
   test("desktop renders trigger (Popover surface)", () => {
     isMobileRef.value = false;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
-    expect(html).toContain("user@example.com");
+    expect(html).toContain("Preferences");
   });
 
   test("mobile renders trigger (BottomSheet surface)", () => {
     isMobileRef.value = true;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
-    expect(html).toContain("user@example.com");
+    expect(html).toContain("Preferences");
   });
 });
