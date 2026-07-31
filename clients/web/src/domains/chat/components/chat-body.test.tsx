@@ -377,24 +377,26 @@ describe("ChatBody — startersSlot rendering", () => {
 });
 
 describe("ChatBody - docked starters hide while the keyboard is open", () => {
-  // The docked (mobile empty-state) suggestions row fades out while the soft
-  // keyboard is up, staying mounted so the centered greeting + composer keep
-  // their layout. Class assertions here are regression pins on the markup,
-  // not proof of the rendered layout.
+  // The docked (mobile empty-state) suggestions row fades out and collapses
+  // its reserved height while the soft keyboard is up, and the greeting +
+  // composer group anchors to the bottom edge instead of centering. The dock
+  // stays mounted so dismissing the keyboard restores it without a remount.
+  // Class assertions here are regression pins on the markup, not proof of
+  // the rendered layout.
   const startersSlot = <div data-testid="starters">STARTER_CHIPS</div>;
 
   const dockedProps = () =>
     withEmptyState({ dockStartersToBottom: true, startersSlot });
 
   const dockWrapper = (container: HTMLElement) =>
-    container.querySelector('[data-slot="docked-starters"]');
+    container.querySelector<HTMLElement>('[data-slot="docked-starters"]');
 
   afterEach(() => {
     keyboardOpen = false;
     cleanup();
   });
 
-  test("keyboard closed: the dock is visible, interactive, and not inert", () => {
+  test("keyboard closed: the dock is expanded, interactive, and the group centers", () => {
     keyboardOpen = false;
     const { container } = render(<ChatBody {...dockedProps()} />);
 
@@ -403,9 +405,12 @@ describe("ChatBody - docked starters hide while the keyboard is open", () => {
     expect(dock?.className).not.toContain("opacity-0");
     expect(dock?.className).not.toContain("pointer-events-none");
     expect(dock?.hasAttribute("inert")).toBe(false);
+    expect(dock?.style.gridTemplateRows).toBe("1fr");
+    expect(container.innerHTML).toContain("[justify-content:safe_center]");
+    expect(container.innerHTML).not.toContain("justify-end");
   });
 
-  test("keyboard open: the dock stays mounted but fades out and goes inert", () => {
+  test("keyboard open: the dock collapses, fades, goes inert, and the group bottom-anchors", () => {
     keyboardOpen = true;
     const { container } = render(<ChatBody {...dockedProps()} />);
 
@@ -415,16 +420,21 @@ describe("ChatBody - docked starters hide while the keyboard is open", () => {
     expect(dock?.className).toContain("opacity-0");
     expect(dock?.className).toContain("pointer-events-none");
     expect(dock?.hasAttribute("inert")).toBe(true);
+    expect(dock?.style.gridTemplateRows).toBe("0fr");
+    expect(container.innerHTML).toContain("justify-end");
+    expect(container.innerHTML).not.toContain("[justify-content:safe_center]");
   });
 
   test("keyboard toggling flips the hidden treatment without unmounting", () => {
     keyboardOpen = true;
     const { container, rerender } = render(<ChatBody {...dockedProps()} />);
     expect(dockWrapper(container)?.className).toContain("opacity-0");
+    expect(dockWrapper(container)?.style.gridTemplateRows).toBe("0fr");
 
     keyboardOpen = false;
     rerender(<ChatBody {...dockedProps()} />);
     expect(dockWrapper(container)?.className).not.toContain("opacity-0");
+    expect(dockWrapper(container)?.style.gridTemplateRows).toBe("1fr");
     expect(container.innerHTML).toContain("STARTER_CHIPS");
   });
 
@@ -435,7 +445,17 @@ describe("ChatBody - docked starters hide while the keyboard is open", () => {
     );
 
     expect(container.innerHTML).toContain("STARTER_CHIPS");
+    expect(container.innerHTML).toContain("[justify-content:safe_center]");
+    expect(container.innerHTML).not.toContain("justify-end");
     expect(dockWrapper(container)).toBeNull();
+  });
+
+  test("transcript branch ignores keyboard state (no dock, no bottom-anchoring)", () => {
+    keyboardOpen = true;
+    const { container } = render(<ChatBody {...baseProps()} />);
+
+    expect(dockWrapper(container)).toBeNull();
+    expect(container.innerHTML).not.toContain("justify-end");
   });
 });
 

@@ -173,8 +173,9 @@ export interface ChatBodyProps {
    * that viewport, and {@link belowFoldSlot} is placed below the fold. Used by
    * the new-thread suggestions library. When false, the empty state keeps the
    * default layout where the starters sit directly below the composer.
-   * While the soft keyboard is open the dock fades out (kept mounted so the
-   * centered group does not jump).
+   * While the soft keyboard is open the greeting + composer anchor to the
+   * bottom edge and the dock fades out and collapses its reserved height
+   * (kept mounted so dismissing the keyboard restores it without a remount).
    */
   dockStartersToBottom?: boolean;
 
@@ -397,7 +398,12 @@ export function ChatBody({
         onDrop={dragHandlers.onDrop}
       >
         <div className="flex min-h-full flex-col">
-          <div className="flex flex-1 flex-col [justify-content:safe_center]">
+          {/* While the keyboard is open the group anchors to the bottom edge
+              (the shell bottom is the keyboard top), matching the transcript
+              layout; otherwise it centers in the first screen. */}
+          <div
+            className={`flex flex-1 flex-col ${keyboardOpen ? "justify-end" : "[justify-content:safe_center]"}`}
+          >
             <ChatScrollArea
               {...scrollAreaProps}
               bottomOverlayReservePx={bottomOverlayReservePx}
@@ -405,17 +411,23 @@ export function ChatBody({
             {renderComposerStack(null)}
           </div>
           {startersSlot && (
-            // Faded rather than unmounted while the keyboard is open:
-            // unmounting would recenter the greeting + composer and jump the
-            // layout. `inert` (not just opacity/pointer-events) so the hidden
-            // dock also leaves the tab order and accessibility tree.
+            // While the keyboard is open the dock fades and collapses its
+            // reserved height so the bottom-anchored composer reaches the
+            // keyboard edge. It stays mounted so it restores without a
+            // remount, and `inert` removes it from the tab order and the
+            // accessibility tree.
             <div
               data-slot="docked-starters"
               inert={keyboardOpen || undefined}
-              className={`px-3 pb-3 sm:px-6 transition-opacity duration-150${keyboardOpen ? " pointer-events-none opacity-0" : ""}`}
+              className={`grid transition-[grid-template-rows,opacity] duration-150${keyboardOpen ? " pointer-events-none opacity-0" : ""}`}
+              style={{ gridTemplateRows: keyboardOpen ? "0fr" : "1fr" }}
             >
-              <div className="mx-auto max-w-[var(--chat-max-width)]">
-                {startersSlot}
+              <div className="min-h-0 overflow-hidden">
+                <div className="px-3 pb-3 sm:px-6">
+                  <div className="mx-auto max-w-[var(--chat-max-width)]">
+                    {startersSlot}
+                  </div>
+                </div>
               </div>
             </div>
           )}
