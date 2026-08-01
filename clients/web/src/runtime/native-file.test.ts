@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 /**
  * The intent split is the contract under test: `saveFile` ("Download") must
  * never present the macOS Share Sheet, while `shareFile` ("send elsewhere")
- * must. A regression here is the user-visible bug where the desktop app's
- * Download button opened a list of apps instead of saving the file.
+ * must. Breaking that leaves a user who clicked Download looking at a list of
+ * apps with no file saved.
  */
 
 let isNative = false;
@@ -79,7 +79,7 @@ beforeEach(() => {
   fetchMock.mockResolvedValue(new Response("bytes", { status: 200 }));
 });
 
-describe("saveFile — the Download intent", () => {
+describe("saveFile, the Download intent", () => {
   test("never presents the macOS Share Sheet on Electron", async () => {
     await saveFile(blob, "report.pdf");
 
@@ -137,7 +137,7 @@ describe("saveFile — the Download intent", () => {
   });
 });
 
-describe("shareFile — the Share intent", () => {
+describe("shareFile, the Share intent", () => {
   test("presents the macOS Share Sheet on Electron", async () => {
     await shareFile(blob, "App.vellum");
 

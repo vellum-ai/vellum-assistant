@@ -428,7 +428,7 @@ app
     installDock();
     installShare();
     // Files renderer downloads into ~/Downloads instead of prompting a Save
-    // panel. Distinct from `installShare` — that's the "send elsewhere" intent.
+    // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
     installDownloads();
     installPowerEvents();
     installNotifications();

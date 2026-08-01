@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import path from "node:path";
 
-// `node:fs` is mocked so the save-path resolution is asserted structurally —
-// no real disk access. `node:path` stays real (pure helper), so the asserted
-// paths match what production builds. Mirrors `share.test.ts`.
+// `node:fs` is mocked so the save-path resolution is asserted structurally,
+// with no real disk access. `node:path` stays real (pure helper), so the
+// asserted paths match what production builds. Mirrors `share.test.ts`.
 const existsSyncMock = mock((_p: string) => false);
 const mkdirSyncMock = mock((_p: string, _opts: unknown) => undefined);
 mock.module("node:fs", () => ({
@@ -25,7 +25,9 @@ mock.module("electron", () => ({
   session: {
     defaultSession: {
       on: (channel: string, listener: DownloadListener) => {
-        if (channel === "will-download") willDownloadListeners.push(listener);
+        if (channel === "will-download") {
+          willDownloadListeners.push(listener);
+        }
       },
     },
   },
@@ -44,28 +46,41 @@ class FakeItem {
     this.savePaths.push(p);
   }
   once(event: string, handler: (event: unknown, state: string) => void): void {
-    if (event === "done") this.doneHandlers.push(handler);
+    if (event === "done") {
+      this.doneHandlers.push(handler);
+    }
   }
   finish(state: string): void {
-    for (const handler of this.doneHandlers) handler({}, state);
+    for (const handler of this.doneHandlers) {
+      handler({}, state);
+    }
+  }
+  /** The single path this item was told to save to, or null if none. */
+  savePath(): string | null {
+    return this.savePaths[0] ?? null;
   }
 }
 
-const { installDownloads, uniqueDownloadPath } = await import("./downloads");
+const { installDownloads, uniqueDownloadPath, __resetForTesting } =
+  await import("./downloads");
 
-// Idempotent — a second call must not double-register (module-level flag).
+// Idempotent: a second call must not double-register (module-level flag).
 installDownloads();
 installDownloads();
 
 const DOWNLOADS = "/Users/tester/Downloads";
+const inDownloads = (name: string): string => path.join(DOWNLOADS, name);
 const fire = (item: FakeItem): void => {
   willDownloadListeners[0]!({}, item);
 };
+const free = (): boolean => false;
 
 beforeEach(() => {
+  __resetForTesting();
   existsSyncMock.mockReset();
   existsSyncMock.mockReturnValue(false);
   mkdirSyncMock.mockClear();
+  mkdirSyncMock.mockImplementation(() => undefined);
   downloadFinishedMock.mockClear();
   getPathMock.mockClear();
   getPathMock.mockReturnValue(DOWNLOADS);
@@ -79,42 +94,39 @@ describe("installDownloads wiring", () => {
 
 describe("uniqueDownloadPath", () => {
   test("uses the plain name when nothing collides", () => {
-    expect(uniqueDownloadPath(DOWNLOADS, "report.pdf", () => false)).toBe(
-      path.join(DOWNLOADS, "report.pdf"),
+    expect(uniqueDownloadPath(DOWNLOADS, "report.pdf", free)).toBe(
+      inDownloads("report.pdf"),
     );
   });
 
   test("suffixes ' (n)' before the extension on collision, Finder-style", () => {
     const taken = new Set([
-      path.join(DOWNLOADS, "report.pdf"),
-      path.join(DOWNLOADS, "report (1).pdf"),
+      inDownloads("report.pdf"),
+      inDownloads("report (1).pdf"),
     ]);
 
-    expect(uniqueDownloadPath(DOWNLOADS, "report.pdf", (c) => taken.has(c))).toBe(
-      path.join(DOWNLOADS, "report (2).pdf"),
-    );
+    expect(
+      uniqueDownloadPath(DOWNLOADS, "report.pdf", (c) => taken.has(c)),
+    ).toBe(inDownloads("report (2).pdf"));
   });
 
   test("handles extensionless and dotfile names without mangling them", () => {
-    const taken = new Set([
-      path.join(DOWNLOADS, "LICENSE"),
-      path.join(DOWNLOADS, ".env"),
-    ]);
-    const exists = (c: string): boolean => taken.has(c);
+    const taken = new Set([inDownloads("LICENSE"), inDownloads(".env")]);
+    const isTaken = (c: string): boolean => taken.has(c);
 
-    expect(uniqueDownloadPath(DOWNLOADS, "LICENSE", exists)).toBe(
-      path.join(DOWNLOADS, "LICENSE (1)"),
+    expect(uniqueDownloadPath(DOWNLOADS, "LICENSE", isTaken)).toBe(
+      inDownloads("LICENSE (1)"),
     );
     // `.env` is all "extension" to path.extname; the stem must not go empty.
-    expect(uniqueDownloadPath(DOWNLOADS, ".env", exists)).toBe(
-      path.join(DOWNLOADS, ".env (1)"),
+    expect(uniqueDownloadPath(DOWNLOADS, ".env", isTaken)).toBe(
+      inDownloads(".env (1)"),
     );
   });
 
   test("strips path components so a download can't escape the directory", () => {
-    expect(
-      uniqueDownloadPath(DOWNLOADS, "../../etc/passwd", () => false),
-    ).toBe(path.join(DOWNLOADS, "passwd"));
+    expect(uniqueDownloadPath(DOWNLOADS, "../../etc/passwd", free)).toBe(
+      inDownloads("passwd"),
+    );
   });
 
   test("returns null rather than looping forever when every name is taken", () => {
@@ -128,19 +140,19 @@ describe("will-download handling", () => {
 
     fire(item);
 
-    expect(item.savePaths).toEqual([path.join(DOWNLOADS, "report.pdf")]);
+    expect(item.savePaths).toEqual([inDownloads("report.pdf")]);
     expect(mkdirSyncMock).toHaveBeenCalledTimes(1);
   });
 
   test("uniquifies against an existing file rather than clobbering it", () => {
     existsSyncMock.mockImplementation(
-      (c: string) => c === path.join(DOWNLOADS, "report.pdf"),
+      (c: string) => c === inDownloads("report.pdf"),
     );
 
     const item = new FakeItem("report.pdf");
     fire(item);
 
-    expect(item.savePaths).toEqual([path.join(DOWNLOADS, "report (1).pdf")]);
+    expect(item.savePaths).toEqual([inDownloads("report (1).pdf")]);
   });
 
   test("bounces the Dock's Downloads stack once the download completes", () => {
@@ -150,7 +162,7 @@ describe("will-download handling", () => {
     item.finish("completed");
 
     expect(downloadFinishedMock).toHaveBeenCalledWith(
-      path.join(DOWNLOADS, "report.pdf"),
+      inDownloads("report.pdf"),
     );
   });
 
@@ -172,5 +184,51 @@ describe("will-download handling", () => {
     const item = new FakeItem("report.pdf");
     expect(() => fire(item)).not.toThrow();
     expect(item.savePaths).toEqual([]);
+  });
+});
+
+describe("concurrent downloads of the same filename", () => {
+  // Neither file exists yet at `will-download` time: Chromium creates the
+  // destination as bytes arrive, so `existsSync` sees nothing for a transfer
+  // that is already in flight.
+  test("gives each in-flight download its own destination", () => {
+    const first = new FakeItem("report.pdf");
+    const second = new FakeItem("report.pdf");
+    const third = new FakeItem("report.pdf");
+
+    fire(first);
+    fire(second);
+    fire(third);
+
+    expect(first.savePath()).toBe(inDownloads("report.pdf"));
+    expect(second.savePath()).toBe(inDownloads("report (1).pdf"));
+    expect(third.savePath()).toBe(inDownloads("report (2).pdf"));
+  });
+
+  test("frees the name once a download finishes", () => {
+    const first = new FakeItem("report.pdf");
+    fire(first);
+    first.finish("completed");
+
+    // The completed file is on disk now, so the reservation is redundant and
+    // the next download uniquifies against the filesystem instead.
+    existsSyncMock.mockImplementation(
+      (c: string) => c === inDownloads("report.pdf"),
+    );
+    const second = new FakeItem("report.pdf");
+    fire(second);
+
+    expect(second.savePath()).toBe(inDownloads("report (1).pdf"));
+  });
+
+  test("frees the name when a download is cancelled and leaves nothing on disk", () => {
+    const first = new FakeItem("report.pdf");
+    fire(first);
+    first.finish("cancelled");
+
+    const second = new FakeItem("report.pdf");
+    fire(second);
+
+    expect(second.savePath()).toBe(inDownloads("report.pdf"));
   });
 });

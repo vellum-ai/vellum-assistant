@@ -148,7 +148,7 @@ whichever Swift channel you have around.
   (`clients/web/src/runtime/native-file.ts`) hands file bytes over the
   `vellum:share:file` channel; the main process writes them to a temp file and
   presents the native `NSSharingServicePicker` via Electron's `ShareMenu`.
-  Only the *share* intent routes here — a "Download" action goes through
+  Only the *share* intent routes here. A "Download" action goes through
   `saveFile` and the download handler below, never this sheet. Two
   gotchas here were verified against the pinned `electron@42` source and types,
   **not** the published API docs (which are wrong):
@@ -177,7 +177,7 @@ whichever Swift channel you have around.
   `~/Downloads`, uniquified Finder-style (`report.pdf`, `report (1).pdf`) so a
   repeat download never clobbers an existing file, then a Dock Downloads-stack
   bounce via `app.dock.downloadFinished` on completion. `setSavePath` is only
-  honored while the `will-download` listener is on the stack — hence the
+  honored while the `will-download` listener is on the stack, hence the
   synchronous `existsSync` collision check rather than the `node:fs/promises`
   style used elsewhere in the main process. Any failure (unwritable directory,
   no free name) simply skips `setSavePath` and lets Electron's Save panel take

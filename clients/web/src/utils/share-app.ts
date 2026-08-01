@@ -3,7 +3,7 @@
  *
  * 1. Calls the share-cloud endpoint to package the app server-side.
  * 2. Downloads the binary bundle using the returned share token.
- * 3. Hands the file to the cross-platform `shareFile` helper — this is the
+ * 3. Hands the file to the cross-platform `shareFile` helper. This is the
  *    "send it somewhere" intent, so it presents the native Share Sheet on the
  *    hosts that have one and falls back to a download elsewhere.
  */

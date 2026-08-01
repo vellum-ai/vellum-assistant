@@ -6,37 +6,34 @@ import { shareFileViaMacSheet } from "@/runtime/native-share";
 /**
  * Cross-platform file save / share utility.
  *
- * Two *intents* live here, and they are deliberately separate entry points:
+ * Two *intents* live here as deliberately separate entry points:
  *
- * - **`saveFile` — "Download".** The user asked for the file on their device.
- *   It must land somewhere without further choices: `~/Downloads` on the
- *   desktop, the browser's download location on web.
- * - **`shareFile` — "Share / send elsewhere".** The user asked to hand the file
- *   to another app (Messages, Mail, AirDrop, Slack, …), so the native Share
- *   Sheet is the point.
- *
- * A share sheet is not a download. Routing a Download button into
- * `NSSharingServicePicker` leaves the user staring at a list of apps with no
- * file saved, which is exactly the macOS bug this split fixes — `saveFile` no
- * longer presents the sheet on Electron.
+ * - **`saveFile` ("Download").** The user asked for the file on their device.
+ *   It lands somewhere without further choices: `~/Downloads` on the desktop,
+ *   the browser's download location on web. It never presents a share sheet on
+ *   a host that can download, because a list of apps to send the file to is not
+ *   a saved file.
+ * - **`shareFile` ("Share", send elsewhere).** The user asked to hand the file
+ *   to another app (Messages, Mail, AirDrop, Slack), so the native Share Sheet
+ *   is the point.
  *
  * Per-host behavior:
  *
  * - **Electron (macOS):** `saveFile` uses the standard `<a download>` path
- *   (against a blob URL — see the note in `saveFile`); Chromium's download
+ *   against a blob URL (see the note in `saveFile`); Chromium's download
  *   manager fires `will-download` in the main process, which files the download
  *   into `~/Downloads` (`clients/macos/src/main/downloads.ts`). `shareFile`
- *   presents the native
- *   Share Sheet over the `window.vellum.share` bridge, falling through to a
- *   download when the desktop bridge is unavailable (older preload).
- * - **Capacitor iOS/Android:** the one host where a *download* still has to go
- *   through the share sheet — WKWebView does not support the `download`
+ *   presents the native Share Sheet over the `window.vellum.share` bridge,
+ *   falling through to a download when the desktop bridge is unavailable
+ *   (older preload).
+ * - **Capacitor iOS/Android:** the one host where a *download* also goes
+ *   through the share sheet. WKWebView does not support the `download`
  *   attribute on anchors with `blob:` URLs (WebKit bug 216918), so the blob is
  *   written to a temp file via `@capacitor/filesystem` and presented via
  *   `@capacitor/share` (`UIActivityViewController`), where "Save to Files" is
- *   the download. That's a platform limitation, not the intent split above.
- * - **Web (plain browser):** the `<a download>` pattern for both intents —
- *   there is no reliable cross-browser file-share surface to prefer.
+ *   the download. That is a platform limitation, not the intent split above.
+ * - **Web (plain browser):** the `<a download>` pattern for both intents, since
+ *   no reliable cross-browser file-share surface exists to prefer.
  *
  * The Capacitor plugins are lazy-imported so they are never loaded in SSR or
  * plain-browser contexts.
@@ -49,12 +46,12 @@ import { shareFileViaMacSheet } from "@/runtime/native-share";
  */
 
 /**
- * Download a file to the user's device — the "Download" intent.
+ * Download a file to the user's device: the "Download" intent.
  *
- * Never presents the macOS Share Sheet: on Electron this is a real download
+ * Never presents the macOS Share Sheet. On Electron this is a real download
  * that the main process files into `~/Downloads`. On Capacitor the iOS share
- * sheet is still the only way to hand a blob to the filesystem (see the module
- * docstring), so that host keeps its sheet.
+ * sheet is the only way to hand a blob to the filesystem (see the module
+ * docstring), so that host uses the sheet.
  *
  * Accepts either a `Blob` or a URL string.
  */
@@ -69,15 +66,14 @@ export async function saveFile(
   // Electron: resolve a URL source to a blob before the anchor click. Chromium
   // ignores the `download` attribute on a cross-origin URL and treats the click
   // as a navigation, which the shell's deny-all navigation policy
-  // (`clients/macos/src/main/windows.ts`) then blocks — the file would simply
-  // never arrive. A blob URL is same-origin, so both the download and the
-  // filename survive. This is the same fetch the share path already paid for.
+  // (`clients/macos/src/main/windows.ts`) blocks, so the file never arrives. A
+  // blob URL is same-origin, so both the download and the filename survive.
   if (isElectron() && typeof source === "string") {
     try {
       saveFileWeb(await toBlob(source), filename);
       return;
     } catch {
-      // Unreachable for same-origin sources; fall through to the plain anchor
+      // Unreachable for same-origin sources. Fall through to the plain anchor
       // rather than dropping the download entirely.
     }
   }
@@ -85,8 +81,8 @@ export async function saveFile(
 }
 
 /**
- * Share a file with another app — the "Share" intent (Messages, Mail, AirDrop,
- * Slack, Save to Files, …).
+ * Share a file with another app: the "Share" intent (Messages, Mail, AirDrop,
+ * Slack, Save to Files).
  *
  * Presents the native Share Sheet where one exists (Electron/macOS, Capacitor)
  * and falls back to a plain download on hosts that have none, so the user still
