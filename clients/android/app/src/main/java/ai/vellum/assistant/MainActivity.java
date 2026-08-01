@@ -29,7 +29,15 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        VoiceLiveActivityPlugin.clearRecoveredStatus(this);
+        boolean recoveredProcess = VoiceLiveActivityPlugin.clearRecoveredStatus(this);
+        if (
+            VoiceDeepLink.shouldSuppressRecoveredStatusLaunch(
+                recoveredProcess,
+                VoiceDeepLink.isStatusNotificationIntent(getIntent())
+            )
+        ) {
+            setIntent(VoiceDeepLink.clearedCommandIntent(getIntent()));
+        }
         prepareVoiceLaunch(getIntent());
         pendingConnect = takeRecreationConnect();
         if (pendingConnect == null) {

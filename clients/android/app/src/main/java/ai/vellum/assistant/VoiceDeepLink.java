@@ -13,6 +13,7 @@ final class VoiceDeepLink {
     static final String ACTION_RESUME_VOICE = "ai.vellum.assistant.action.RESUME_VOICE";
     static final String ACTION_START_VOICE = "ai.vellum.assistant.action.START_VOICE";
     static final String EXTRA_FEATURE = "feature";
+    static final String EXTRA_STATUS_NOTIFICATION = "voice_status_notification";
     static final String FEATURE_NEW_CHAT = "new_chat";
     static final String FEATURE_VOICE_MODE = "voice_mode";
 
@@ -70,6 +71,14 @@ final class VoiceDeepLink {
         return command == Command.START_VOICE || command == Command.RESUME_VOICE;
     }
 
+    static boolean shouldSuppressRecoveredStatusLaunch(boolean recoveredProcess, boolean statusNotification) {
+        return recoveredProcess && statusNotification;
+    }
+
+    static boolean isStatusNotificationIntent(Intent intent) {
+        return intent != null && intent.getBooleanExtra(EXTRA_STATUS_NOTIFICATION, false);
+    }
+
     static Intent normalizedVoiceIntent(Intent source, String scheme, Command command) {
         Intent normalized = new Intent(source == null ? new Intent() : source);
         normalized.setAction(Intent.ACTION_VIEW);
@@ -83,6 +92,7 @@ final class VoiceDeepLink {
         cleared.setAction(Intent.ACTION_MAIN);
         cleared.setData(null);
         cleared.removeExtra(EXTRA_FEATURE);
+        cleared.removeExtra(EXTRA_STATUS_NOTIFICATION);
         return cleared;
     }
 
@@ -91,7 +101,7 @@ final class VoiceDeepLink {
     }
 
     static PendingIntent resumePendingIntent(Context context) {
-        Intent intent = commandIntent(context, ACTION_RESUME_VOICE);
+        Intent intent = commandIntent(context, ACTION_RESUME_VOICE).putExtra(EXTRA_STATUS_NOTIFICATION, true);
         return PendingIntent.getActivity(
             context,
             RESUME_REQUEST_CODE,

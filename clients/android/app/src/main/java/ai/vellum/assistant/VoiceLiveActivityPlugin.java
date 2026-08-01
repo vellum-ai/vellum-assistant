@@ -129,12 +129,13 @@ public class VoiceLiveActivityPlugin extends Plugin {
         stopStatus();
     }
 
-    static synchronized void clearRecoveredStatus(Context context) {
+    static synchronized boolean clearRecoveredStatus(Context context) {
         if (processInitialized) {
-            return;
+            return false;
         }
         processInitialized = true;
         clearStatus(context);
+        return true;
     }
 
     static void clearStatus(Context context) {

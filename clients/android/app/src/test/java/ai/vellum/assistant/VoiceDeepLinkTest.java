@@ -89,4 +89,11 @@ public class VoiceDeepLinkTest {
             VoiceDeepLink.voiceUrl(SCHEME, VoiceDeepLink.Command.RESUME_VOICE)
         );
     }
+
+    @Test
+    public void suppressesOnlyRecoveredStatusNotificationLaunches() {
+        assertTrue(VoiceDeepLink.shouldSuppressRecoveredStatusLaunch(true, true));
+        assertFalse(VoiceDeepLink.shouldSuppressRecoveredStatusLaunch(false, true));
+        assertFalse(VoiceDeepLink.shouldSuppressRecoveredStatusLaunch(true, false));
+    }
 }
