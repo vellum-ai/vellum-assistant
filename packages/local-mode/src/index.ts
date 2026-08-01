@@ -18,6 +18,7 @@ export {
   resolveLocalConfigFromEnv,
   resolveLockfilePaths,
   resolveConfigDir,
+  resolveConfigDirPaths,
   resolveRuntimeDir,
   resolveLogDir,
   resolveAssistantsDir,

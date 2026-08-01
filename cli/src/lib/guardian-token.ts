@@ -19,7 +19,7 @@ import { dirname, join } from "path";
 import { SEEDS } from "@vellumai/environments";
 import { guardianTokenPath, resolveConfigDir } from "@vellumai/local-mode";
 
-import { getConfigDir } from "./environments/paths.js";
+import { getConfigDir, getConfigDirs } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
 
@@ -165,13 +165,15 @@ export function computeDeviceId(): string {
 export function loadGuardianToken(
   assistantId: string,
 ): GuardianTokenData | null {
-  const tokenPath = getGuardianTokenPath(assistantId);
-  try {
-    const raw = readFileSync(tokenPath, "utf-8");
-    return JSON.parse(raw) as GuardianTokenData;
-  } catch {
-    return null;
+  for (const dir of getConfigDirs(getCurrentEnvironment())) {
+    try {
+      const raw = readFileSync(guardianTokenPath(dir, assistantId), "utf-8");
+      return JSON.parse(raw) as GuardianTokenData;
+    } catch {
+      // Try the next compatible location.
+    }
   }
+  return null;
 }
 
 export function saveGuardianToken(

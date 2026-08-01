@@ -4,7 +4,7 @@ import { join } from "path";
 import type { EnvironmentDefinition, PortMap } from "@vellumai/environments";
 import {
   resolveAssistantsDir,
-  resolveConfigDir,
+  resolveConfigDirPaths,
   resolveLockfilePaths,
   resolveLogDir,
   resolveRuntimeDir,
@@ -26,7 +26,11 @@ const DEFAULT_PORTS: Readonly<PortMap> = {
  * non-production environments use `$XDG_CONFIG_HOME/vellum-<env>/`.
  */
 export function getConfigDir(env: EnvironmentDefinition): string {
-  return resolveConfigDir(process.env, localPathOptions(env));
+  return getConfigDirs(env)[0]!;
+}
+
+export function getConfigDirs(env: EnvironmentDefinition): string[] {
+  return resolveConfigDirPaths(process.env, localPathOptions(env));
 }
 
 /**

@@ -1,9 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
-import os from "node:os";
 
 import {
   joinLocalPath,
-  resolveConfigHome,
+  resolveConfigHomes,
   type LocalPathOptions,
 } from "./paths";
 
@@ -19,23 +18,9 @@ export function defaultEnvironmentFilePaths(
   env: Record<string, string | undefined>,
   options: LocalPathOptions = {},
 ): string[] {
-  const canonical = joinLocalPath(
-    options,
-    resolveConfigHome(env, options),
-    "vellum",
-    "environment",
+  return resolveConfigHomes(env, options).map((home) =>
+    joinLocalPath(options, home, "vellum", "environment"),
   );
-  if ((options.platform ?? process.platform) !== "win32") {
-    return [canonical];
-  }
-  const legacy = joinLocalPath(
-    options,
-    env.XDG_CONFIG_HOME?.trim() ||
-      joinLocalPath(options, options.homeDir ?? os.homedir(), ".config"),
-    "vellum",
-    "environment",
-  );
-  return canonical === legacy ? [canonical] : [canonical, legacy];
 }
 
 export function defaultEnvironmentFilePath(

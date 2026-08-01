@@ -9,7 +9,7 @@ import {
 import { join, dirname } from "path";
 
 import { getLockfilePlatformBaseUrl } from "./assistant-config.js";
-import { getConfigDir } from "./environments/paths.js";
+import { getConfigDir, getConfigDirs } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
 
@@ -55,11 +55,14 @@ export function getWebUrl(): string {
 }
 
 export function readPlatformToken(): string | null {
-  try {
-    return readFileSync(getPlatformTokenPath(), "utf-8").trim();
-  } catch {
-    return null;
+  for (const dir of getConfigDirs(getCurrentEnvironment())) {
+    try {
+      return readFileSync(join(dir, "platform-token"), "utf-8").trim();
+    } catch {
+      // Try the next compatible location.
+    }
   }
+  return null;
 }
 
 export function savePlatformToken(token: string): void {

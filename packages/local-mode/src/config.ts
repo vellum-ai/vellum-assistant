@@ -6,7 +6,7 @@ import { resolveEnvironmentName } from "./environment";
 import {
   assertSafePathSegment,
   joinLocalPath,
-  resolveConfigHome,
+  resolveConfigHomes,
   resolveDataHome,
   type LocalPathOptions,
 } from "./paths";
@@ -98,21 +98,9 @@ export function resolveConfigDirPaths(
     return [options.configDirOverride];
   }
   const vellumEnv = resolveEnvironmentName(env, options);
-  const canonical = joinLocalPath(
-    options,
-    resolveConfigHome(env, options),
-    environmentDirectoryName(vellumEnv, options),
+  return resolveConfigHomes(env, options).map((home) =>
+    joinLocalPath(options, home, environmentDirectoryName(vellumEnv, options)),
   );
-  if ((options.platform ?? process.platform) !== "win32") {
-    return [canonical];
-  }
-  const legacy = joinLocalPath(
-    options,
-    env.XDG_CONFIG_HOME?.trim() ||
-      joinLocalPath(options, options.homeDir ?? os.homedir(), ".config"),
-    environmentDirectoryName(vellumEnv, options),
-  );
-  return canonical === legacy ? [canonical] : [canonical, legacy];
 }
 
 function environmentDirectoryName(

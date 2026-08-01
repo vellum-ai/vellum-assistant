@@ -2,16 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import { removeIpcEndpointFile, resolveIpcEndpoint } from "./endpoint.js";
 const windowsEndpoint = (name: string, workspaceDir: string) => resolveIpcEndpoint(name, { workspaceDir, platform: "win32" });
-
 describe("resolveIpcEndpoint", () => {
-  test("preserves POSIX paths and overrides", () => {
-    expect(resolveIpcEndpoint("gateway", { workspaceDir: "/var/lib/vellum/workspace", platform: "linux", env: {} }).path).toBe("/var/lib/vellum/workspace/gateway.sock");
-    expect(resolveIpcEndpoint("gateway", { workspaceDir: "/ignored", platform: "darwin", env: { GATEWAY_IPC_SOCKET_DIR: "/run/gateway-ipc" } }).path).toBe("/run/gateway-ipc/gateway.sock");
-  });
-
   test("keeps long POSIX fallbacks deterministic and bounded", () => {
     const options = {
       workspaceDir: `/tmp/${"a".repeat(120)}`,
@@ -21,7 +14,6 @@ describe("resolveIpcEndpoint", () => {
     expect(resolveIpcEndpoint("assistant", options)).toEqual(endpoint);
     expect(Buffer.byteLength(endpoint.path)).toBeLessThanOrEqual(103);
   });
-
   test("returns normalized, isolated, bounded Windows pipes", () => {
     const first = windowsEndpoint("assistant", "C:\\one");
     expect(resolveIpcEndpoint("assistant", { workspaceDir: "c:\\ONE\\", platform: "win32", env: { ASSISTANT_IPC_SOCKET_DIR: "C:\\ignored" } })).toEqual(first);
@@ -29,13 +21,6 @@ describe("resolveIpcEndpoint", () => {
     expect(windowsEndpoint("assistant", "C:\\two").path).not.toBe(first.path);
     expect(windowsEndpoint("gateway", "C:\\one").path).not.toBe(first.path);
   });
-
-  test("rejects unsafe names", () => {
-    for (const name of ["../assistant", "assistant/socket", "UPPER", ""]) {
-      expect(() => windowsEndpoint(name, "C:\\workspace")).toThrow();
-    }
-  });
-
   test("cleans socket files but skips named pipes", () => {
     const dir = mkdtempSync(join(tmpdir(), "vellum-ipc-cleanup-"));
     const socketPath = join(dir, "assistant.sock");

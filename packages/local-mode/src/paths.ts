@@ -1,6 +1,5 @@
 import os from "node:os";
 import path from "node:path";
-
 export interface LocalPathOptions {
   platform?: NodeJS.Platform;
   homeDir?: string;
@@ -8,37 +7,33 @@ export interface LocalPathOptions {
   configDirOverride?: string;
   lockfileDirOverride?: string;
 }
-
-function isWindows(options: LocalPathOptions): boolean {
-  return (options.platform ?? process.platform) === "win32";
-}
-
-function paths(options: LocalPathOptions): typeof path.posix {
-  return isWindows(options) ? path.win32 : path.posix;
-}
-
-function home(options: LocalPathOptions): string {
-  return options.homeDir ?? os.homedir();
-}
-
+const isWindows = (options: LocalPathOptions) => (options.platform ?? process.platform) === "win32";
+const paths = (options: LocalPathOptions) =>
+  isWindows(options) ? path.win32 : path.posix;
+const home = (options: LocalPathOptions) => options.homeDir ?? os.homedir();
 export function resolveConfigHome(env: Record<string, string | undefined>, options: LocalPathOptions = {}): string {
   if (isWindows(options)) {
     return env.APPDATA?.trim() || paths(options).join(home(options), "AppData", "Roaming");
   }
   return env.XDG_CONFIG_HOME?.trim() || paths(options).join(home(options), ".config");
 }
-
+export function resolveConfigHomes(env: Record<string, string | undefined>, options: LocalPathOptions = {}): string[] {
+  const canonical = resolveConfigHome(env, options);
+  if (!isWindows(options)) {
+    return [canonical];
+  }
+  const legacy =
+    env.XDG_CONFIG_HOME?.trim() || paths(options).join(home(options), ".config");
+  return canonical === legacy ? [canonical] : [canonical, legacy];
+}
 export function resolveDataHome(env: Record<string, string | undefined>, options: LocalPathOptions = {}): string {
   if (isWindows(options)) {
     return env.LOCALAPPDATA?.trim() || paths(options).join(home(options), "AppData", "Local");
   }
   return env.XDG_DATA_HOME?.trim() || paths(options).join(home(options), ".local", "share");
 }
-
-export function joinLocalPath(options: LocalPathOptions, ...segments: string[]): string {
-  return paths(options).join(...segments);
-}
-
+export const joinLocalPath = (options: LocalPathOptions, ...segments: string[]) =>
+  paths(options).join(...segments);
 export function assertSafePathSegment(value: string, label: string, options: LocalPathOptions = {}): void {
   const unsafe =
     !value ||

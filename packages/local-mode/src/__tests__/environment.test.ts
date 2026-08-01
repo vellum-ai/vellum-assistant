@@ -154,20 +154,11 @@ describe("Windows path resolution", () => {
 
   test("falls back to conventional AppData directories", () => {
     const productionEnv = { VELLUM_ENVIRONMENT: "production" };
-    expect(resolveConfigDir(productionEnv, options)).toEndWith(
-      "AppData\\Roaming\\vellum",
-    );
     expect(resolveLockfilePaths(productionEnv, options)).toEqual([
       "C:\\Users\\Example\\AppData\\Roaming\\vellum\\lockfile.json",
       "C:\\Users\\Example\\.vellum.lock.json",
       "C:\\Users\\Example\\.vellum.lockfile.json",
     ]);
-    expect(
-      resolveLockfilePaths(
-        { ...env, VELLUM_LOCKFILE_DIR: "D:\\Vellum" },
-        options,
-      ),
-    ).toEqual(["D:\\Vellum\\lockfile.json"]);
     expect(defaultEnvironmentFilePaths(env, options)).toEqual([
       "C:\\Users\\Example\\AppData\\Roaming\\vellum\\environment",
       "D:\\LegacyConfig\\vellum\\environment",

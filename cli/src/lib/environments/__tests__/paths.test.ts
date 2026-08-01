@@ -37,6 +37,7 @@ afterAll(() => {
 // mock.module() calls above.
 const {
   getConfigDir,
+  getConfigDirs,
   getDefaultPorts,
   getLockfilePath,
   getLockfilePaths,
@@ -57,7 +58,7 @@ const dev: EnvironmentDefinition = {
   webUrl: "https://dev-assistant.vellum.ai",
 };
 
-const XDG_ENV_VARS = ["XDG_DATA_HOME", "XDG_CONFIG_HOME"] as const;
+const XDG_ENV_VARS = ["XDG_DATA_HOME", "XDG_CONFIG_HOME", "APPDATA"] as const;
 
 describe("path helpers", () => {
   let savedEnv: Record<string, string | undefined>;
@@ -81,6 +82,24 @@ describe("path helpers", () => {
   });
 
   describe("getConfigDir", () => {
+    test("Windows keeps XDG config as a legacy read location", () => {
+      const descriptor = Object.getOwnPropertyDescriptor(process, "platform")!;
+      try {
+        Object.defineProperty(process, "platform", {
+          ...descriptor,
+          value: "win32",
+        });
+        process.env.APPDATA = "C:\\AppData";
+        process.env.XDG_CONFIG_HOME = "D:\\Legacy";
+        expect(getConfigDirs(dev)).toEqual([
+          "C:\\AppData\\vellum-dev",
+          "D:\\Legacy\\vellum-dev",
+        ]);
+      } finally {
+        Object.defineProperty(process, "platform", descriptor);
+      }
+    });
+
     test("production returns ~/.config/vellum/", () => {
       expect(getConfigDir(prod)).toBe(join(TEST_HOME, ".config", "vellum"));
     });
