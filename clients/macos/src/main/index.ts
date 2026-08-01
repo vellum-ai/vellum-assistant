@@ -38,6 +38,7 @@ import { installAvatarIpc } from "./avatar";
 import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
+import { installDownloads } from "./downloads";
 import { installShare } from "./share";
 import {
   installEscapeMonitor,
@@ -426,6 +427,9 @@ app
     installAvatarIpc();
     installDock();
     installShare();
+    // Files renderer downloads into ~/Downloads instead of prompting a Save
+    // panel. Distinct from `installShare` — that's the "send elsewhere" intent.
+    installDownloads();
     installPowerEvents();
     installNotifications();
     // Register the status channel before the tray installs so the tray's
