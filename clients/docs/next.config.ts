@@ -30,6 +30,28 @@ const nextConfig: NextConfig = {
   // prefetches and every landing would emit a burst of phantom page_view
   // rows (see FLIGHT_HEADERS in next/dist/server/web/adapter.js).
   skipMiddlewareUrlNormalize: true,
+  // Legacy /docs URLs that predate the docs migration. These lived in the
+  // platform next.config until the ingress cutover moved the paths here;
+  // external links to them must keep resolving.
+  async redirects() {
+    return [
+      {
+        source: "/docs/data-sharing",
+        destination: "/docs/privacy-policy",
+        permanent: true,
+      },
+      {
+        source: "/docs/affiliate-program-rules",
+        destination: "/docs",
+        permanent: true,
+      },
+      {
+        source: "/docs/vellum-survey-giveaway-official-rules",
+        destination: "/docs",
+        permanent: true,
+      },
+    ];
+  },
   async rewrites() {
     return {
       beforeFiles: [
