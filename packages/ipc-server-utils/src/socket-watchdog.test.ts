@@ -190,6 +190,27 @@ describe("SocketWatchdog", () => {
     expect(harness.rebinds).toHaveLength(0);
   });
 
+  test("named pipes skip filesystem watchdog behavior", async () => {
+    let createCalls = 0;
+    const watchdog = new SocketWatchdog({
+      socketPath: "\\\\.\\pipe\\vellum-assistant-test",
+      intervalMs: 1,
+      getServer: () => createServer(),
+      createServer: () => {
+        createCalls++;
+        return createServer();
+      },
+      onRebind: () => {},
+      log: { info: () => {}, warn: () => {}, error: () => {} },
+    });
+
+    watchdog.start();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(await watchdog.rebindIfMissing()).toBe(false);
+    expect(createCalls).toBe(0);
+    watchdog.stop();
+  });
+
   test("rebindIfMissing recreates the listener when the path is gone", async () => {
     harness = buildHarness({});
     const initial = await startInitialServer(harness);

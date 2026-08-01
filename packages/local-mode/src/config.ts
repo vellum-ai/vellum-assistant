@@ -1,9 +1,15 @@
 import os from "node:os";
-import path from "node:path";
 
 import { SEEDS } from "@vellumai/environments";
 
 import { resolveEnvironmentName } from "./environment";
+import {
+  assertSafePathSegment,
+  joinLocalPath,
+  resolveConfigHome,
+  resolveDataHome,
+  type LocalPathOptions,
+} from "./paths";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 
@@ -21,13 +27,14 @@ export interface LocalEndpointConfig {
  */
 export function resolveLocalConfigFromEnv(
   env: Record<string, string | undefined>,
+  options: LocalPathOptions = {},
 ): LocalEndpointConfig {
-  const vellumEnv = resolveEnvironmentName(env);
+  const vellumEnv = resolveEnvironmentName(env, options);
   const seed = SEEDS[vellumEnv] ?? SEEDS[PRODUCTION_ENVIRONMENT_NAME]!;
 
   return {
-    lockfilePaths: resolveLockfilePaths(env),
-    configDir: resolveConfigDir(env),
+    lockfilePaths: resolveLockfilePaths(env, options),
+    configDir: resolveConfigDir(env, options),
     webUrl: env.VELLUM_WEB_URL || seed.webUrl,
     platformUrl: env.VELLUM_PLATFORM_URL || seed.platformUrl,
   };
@@ -35,34 +42,88 @@ export function resolveLocalConfigFromEnv(
 
 export function resolveLockfilePaths(
   env: Record<string, string | undefined>,
+  options: LocalPathOptions = {},
 ): string[] {
-  const vellumEnv = resolveEnvironmentName(env);
+  const vellumEnv = resolveEnvironmentName(env, options);
   const lockfileDir = env.VELLUM_LOCKFILE_DIR;
 
+  if ((options.platform ?? process.platform) === "win32") {
+    const dir = lockfileDir ?? resolveConfigDir(env, options);
+    return [joinLocalPath(options, dir, "lockfile.json")];
+  }
+
   if (vellumEnv === PRODUCTION_ENVIRONMENT_NAME) {
-    const dir = lockfileDir ?? os.homedir();
+    const dir = lockfileDir ?? options.homeDir ?? os.homedir();
     return [
-      path.join(dir, ".vellum.lock.json"),
-      path.join(dir, ".vellum.lockfile.json"),
+      joinLocalPath(options, dir, ".vellum.lock.json"),
+      joinLocalPath(options, dir, ".vellum.lockfile.json"),
     ];
   }
 
-  const xdgConfigHome =
-    env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
-  const dir = lockfileDir ?? path.join(xdgConfigHome, `vellum-${vellumEnv}`);
-  return [path.join(dir, "lockfile.json")];
+  const dir = lockfileDir ?? resolveConfigDir(env, options);
+  return [joinLocalPath(options, dir, "lockfile.json")];
 }
 
 export function resolveConfigDir(
   env: Record<string, string | undefined>,
+  options: LocalPathOptions = {},
 ): string {
-  const vellumEnv = resolveEnvironmentName(env);
-  const xdgConfigHome =
-    env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
-  if (vellumEnv === PRODUCTION_ENVIRONMENT_NAME) {
-    return path.join(xdgConfigHome, "vellum");
-  }
-  return path.join(xdgConfigHome, `vellum-${vellumEnv}`);
+  const vellumEnv = resolveEnvironmentName(env, options);
+  return joinLocalPath(
+    options,
+    resolveConfigHome(env, options),
+    environmentDirectoryName(vellumEnv, options),
+  );
+}
+
+function environmentDirectoryName(
+  vellumEnv: string,
+  options: LocalPathOptions,
+): string {
+  assertSafePathSegment(vellumEnv, "environment name", options);
+  return vellumEnv === PRODUCTION_ENVIRONMENT_NAME
+    ? "vellum"
+    : `vellum-${vellumEnv}`;
+}
+
+function resolveDataDir(
+  env: Record<string, string | undefined>,
+  options: LocalPathOptions,
+): string {
+  const vellumEnv = resolveEnvironmentName(env, options);
+  return joinLocalPath(
+    options,
+    resolveDataHome(env, options),
+    environmentDirectoryName(vellumEnv, options),
+  );
+}
+
+export function resolveRuntimeDir(
+  env: Record<string, string | undefined>,
+  options: LocalPathOptions = {},
+): string {
+  return joinLocalPath(options, resolveDataDir(env, options), "runtime");
+}
+
+export function resolveLogDir(
+  env: Record<string, string | undefined>,
+  options: LocalPathOptions = {},
+): string {
+  return joinLocalPath(options, resolveDataDir(env, options), "logs");
+}
+
+export function resolveInstanceDir(
+  env: Record<string, string | undefined>,
+  assistantId: string,
+  options: LocalPathOptions = {},
+): string {
+  assertSafePathSegment(assistantId, "assistant ID", options);
+  return joinLocalPath(
+    options,
+    resolveDataDir(env, options),
+    "assistants",
+    assistantId,
+  );
 }
 
 /**
@@ -74,6 +135,14 @@ export function resolveConfigDir(
 export function guardianTokenPath(
   configDir: string,
   assistantId: string,
+  options: LocalPathOptions = {},
 ): string {
-  return path.join(configDir, "assistants", assistantId, "guardian-token.json");
+  assertSafePathSegment(assistantId, "assistant ID", options);
+  return joinLocalPath(
+    options,
+    configDir,
+    "assistants",
+    assistantId,
+    "guardian-token.json",
+  );
 }

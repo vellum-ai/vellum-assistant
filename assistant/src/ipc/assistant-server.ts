@@ -28,13 +28,13 @@
  * back to a shorter deterministic path so CLI commands can still connect.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 
 import {
   ensureSocketDir,
   type IpcEnvelope,
   IpcFrameReader,
+  removeIpcEndpointFile,
   SocketWatchdog,
   writeLegacyMessage,
   writeMessage,
@@ -290,13 +290,7 @@ export class AssistantIpcServer {
       this.server = null;
     }
 
-    if (existsSync(this.socketPath)) {
-      try {
-        unlinkSync(this.socketPath);
-      } catch {
-        // Ignore
-      }
-    }
+    removeIpcEndpointFile(this.socketPath);
   }
 
   /** Get the socket path (for diagnostics). */

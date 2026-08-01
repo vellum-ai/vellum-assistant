@@ -8,9 +8,15 @@ import {
   writeFileSync,
 } from "fs";
 import { createRequire } from "module";
+import { Socket } from "net";
 import { homedir, networkInterfaces, platform, tmpdir } from "os";
 import { basename, dirname, join } from "path";
 
+import {
+  isNamedPipePath,
+  removeIpcEndpointFile,
+  resolveIpcEndpoint,
+} from "@vellumai/ipc-server-utils";
 import { isValidReleaseVersion } from "@vellumai/local-mode";
 
 import {
@@ -855,26 +861,55 @@ function resolveCesDir(resources?: LocalInstanceResources): string {
 }
 
 /**
- * Resolve the Unix socket path the CLI-launched CES sibling binds and the
- * daemon connects to. Both sides read `CES_LOCAL_SOCKET`, which the CLI sets to
- * this exact path so they agree. On macOS, long workspace paths are relocated
- * to a short tmpdir override (the same one the IPC sockets use) to stay under
- * the AF_UNIX path limit.
+ * Resolve the local IPC endpoint shared by the CLI-launched CES sibling and
+ * assistant. Windows uses a named pipe. POSIX uses a Unix socket, including
+ * the existing short macOS fallback.
  */
-function resolveCesSocketPath(resources?: LocalInstanceResources): string {
+export function resolveCesSocketPath(
+  resources?: LocalInstanceResources,
+  hostPlatform: NodeJS.Platform = platform(),
+): string {
   const workspaceDir = resources
     ? join(resources.instanceDir, ".vellum", "workspace")
     : join(homedir(), ".vellum", "workspace");
+  if (hostPlatform === "win32") {
+    return resolveIpcEndpoint("ces", {
+      workspaceDir,
+      platform: hostPlatform,
+    }).path;
+  }
   const override = computeIpcSocketDirOverride(workspaceDir);
   const socketDir = override ?? workspaceDir;
   mkdirSync(socketDir, { recursive: true });
   return join(socketDir, "ces.sock");
 }
 
+async function isIpcEndpointReady(endpointPath: string): Promise<boolean> {
+  if (!isNamedPipePath(endpointPath)) {
+    return existsSync(endpointPath);
+  }
+  return new Promise((resolve) => {
+    const socket = new Socket();
+    let settled = false;
+    const finish = (ready: boolean): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(ready);
+    };
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+    const timer = setTimeout(() => finish(false), 100);
+    socket.connect(endpointPath);
+  });
+}
+
 /**
- * Launch the local CES sibling over a Unix socket. The sibling model is now
- * the default topology for local (non-containerized) instances, matching how
- * containerized homes already run CES.
+ * Launch the local CES sibling over a local IPC endpoint. This is the default
+ * topology for local instances and matches the containerized CES layout.
  *
  * The sibling runs as an independent process with its lifecycle anchored to
  * SIGTERM, mirroring the gateway: a CLI-owned process with a PID file under
@@ -898,11 +933,7 @@ export async function startCes(
   const socketPath = resolveCesSocketPath(resources);
   // A stale socket file from an unclean shutdown blocks re-bind; CES unlinks it
   // on startup, but remove it here too so a leftover never masks a launch bug.
-  try {
-    unlinkSync(socketPath);
-  } catch {
-    /* no stale socket — fine */
-  }
+  removeIpcEndpointFile(socketPath);
 
   const securityDir = resources
     ? join(resources.instanceDir, ".vellum", "protected")
@@ -957,14 +988,18 @@ export async function startCes(
     writeFileSync(cesPidFile, String(ces.pid), "utf-8");
   }
 
-  // Wait for the socket to appear so the daemon's discovery finds it on the
+  // Wait for the endpoint so the daemon's discovery finds it on the
   // first probe rather than burning its retry budget.
   const deadline = Date.now() + 10_000;
+  let endpointReady = false;
   while (Date.now() < deadline) {
-    if (existsSync(socketPath)) break;
+    endpointReady = await isIpcEndpointReady(socketPath);
+    if (endpointReady) {
+      break;
+    }
     await new Promise((r) => setTimeout(r, 50));
   }
-  if (!existsSync(socketPath)) {
+  if (!endpointReady) {
     console.warn(
       "⚠ credential-executor started but its socket did not appear within 10s",
     );

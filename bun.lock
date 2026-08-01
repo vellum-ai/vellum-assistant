@@ -98,6 +98,7 @@
       },
       "dependencies": {
         "@vellumai/environments": "workspace:*",
+        "@vellumai/ipc-server-utils": "workspace:*",
         "@vellumai/local-mode": "workspace:*",
         "@vellumai/service-contracts": "workspace:*",
         "chalk": "5.6.2",
@@ -320,6 +321,7 @@
       "dependencies": {
         "@vellumai/credential-storage": "workspace:*",
         "@vellumai/egress-proxy": "workspace:*",
+        "@vellumai/ipc-server-utils": "workspace:*",
         "@vellumai/service-contracts": "workspace:*",
         "pino": "9.14.0",
         "pino-pretty": "13.1.3",

@@ -21,8 +21,8 @@
 import {
   SocketWatchdog,
   ensureSocketDir,
+  removeIpcEndpointFile,
 } from "@vellumai/ipc-server-utils";
-import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 
 import type { z } from "zod";
@@ -153,13 +153,7 @@ export class GatewayIpcServer {
     ensureSocketDir(this.socketPath);
 
     // Clean up stale socket file from a previous run
-    if (existsSync(this.socketPath)) {
-      try {
-        unlinkSync(this.socketPath);
-      } catch {
-        // Ignore — may already be gone
-      }
-    }
+    removeIpcEndpointFile(this.socketPath);
 
     this.server = this.createListeningServer();
     this.server.listen(this.socketPath, () => {
@@ -191,13 +185,7 @@ export class GatewayIpcServer {
     }
 
     // Clean up socket file
-    if (existsSync(this.socketPath)) {
-      try {
-        unlinkSync(this.socketPath);
-      } catch {
-        // Ignore
-      }
-    }
+    removeIpcEndpointFile(this.socketPath);
   }
 
   /** Push an event to all connected clients. */
@@ -278,7 +266,12 @@ export class GatewayIpcServer {
     } catch {
       this.sendResponse(
         socket,
-        buildProtocolErrorResponse("unknown", "Invalid JSON", 400, "BAD_REQUEST"),
+        buildProtocolErrorResponse(
+          "unknown",
+          "Invalid JSON",
+          400,
+          "BAD_REQUEST",
+        ),
       );
       return;
     }
@@ -411,7 +404,11 @@ export function buildProtocolErrorResponse(
 export function buildErrorResponse(id: string, err: unknown): IpcResponse {
   const response: IpcResponse = { id, error: String(err) };
   if (err && typeof err === "object") {
-    const e = err as { statusCode?: unknown; code?: unknown; details?: unknown };
+    const e = err as {
+      statusCode?: unknown;
+      code?: unknown;
+      details?: unknown;
+    };
     if (typeof e.statusCode === "number") response.statusCode = e.statusCode;
     if (typeof e.code === "string") response.errorCode = e.code;
     if (e.details !== undefined) response.errorDetails = e.details;

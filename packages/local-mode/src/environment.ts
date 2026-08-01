@@ -1,21 +1,29 @@
 import { existsSync, readFileSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
+
+import {
+  joinLocalPath,
+  resolveConfigHome,
+  type LocalPathOptions,
+} from "./paths";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 
 /**
  * Location of the persisted default-environment file, written by
  * `vellum env set`. It lives at a fixed, environment-agnostic path so it can
- * be read before the environment is known. Honors `XDG_CONFIG_HOME`, falling
- * back to `~/.config`.
+ * be read before the environment is known. Uses AppData on Windows and the
+ * XDG config home on macOS and Linux.
  */
 export function defaultEnvironmentFilePath(
   env: Record<string, string | undefined>,
+  options: LocalPathOptions = {},
 ): string {
-  const xdgConfigHome =
-    env.XDG_CONFIG_HOME?.trim() || path.join(os.homedir(), ".config");
-  return path.join(xdgConfigHome, "vellum", "environment");
+  return joinLocalPath(
+    options,
+    resolveConfigHome(env, options),
+    "vellum",
+    "environment",
+  );
 }
 
 /**
@@ -24,8 +32,9 @@ export function defaultEnvironmentFilePath(
  */
 export function readDefaultEnvironment(
   env: Record<string, string | undefined>,
+  options: LocalPathOptions = {},
 ): string | undefined {
-  const filePath = defaultEnvironmentFilePath(env);
+  const filePath = defaultEnvironmentFilePath(env, options);
   try {
     if (!existsSync(filePath)) return undefined;
     const content = readFileSync(filePath, "utf-8").trim();
@@ -53,10 +62,11 @@ export function readDefaultEnvironment(
  */
 export function resolveEnvironmentName(
   env: Record<string, string | undefined>,
+  options: LocalPathOptions = {},
 ): string {
   return (
     env.VELLUM_ENVIRONMENT?.trim() ||
-    readDefaultEnvironment(env) ||
+    readDefaultEnvironment(env, options) ||
     PRODUCTION_ENVIRONMENT_NAME
   );
 }

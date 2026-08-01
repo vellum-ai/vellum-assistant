@@ -17,7 +17,7 @@
  * optional credential CRUD routes) for Kubernetes liveness/readiness probes.
  */
 
-import { mkdirSync, unlinkSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { createServer as createNetServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -27,6 +27,10 @@ import {
   CesRpcMethod,
 } from "@vellumai/service-contracts/credential-rpc";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
+import {
+  isNamedPipePath,
+  removeIpcEndpointFile,
+} from "@vellumai/ipc-server-utils";
 
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import { initLogger, getLogger } from "./logger.js";
@@ -154,12 +158,10 @@ function serveStandaloneSocket(opts: {
     onApiKeyUpdate,
   } = opts;
 
-  mkdirSync(dirname(socketPath), { recursive: true });
-  try {
-    unlinkSync(socketPath);
-  } catch {
-    // stale or absent — fine
+  if (!isNamedPipePath(socketPath)) {
+    mkdirSync(dirname(socketPath), { recursive: true });
   }
+  removeIpcEndpointFile(socketPath);
 
   const netServer = createNetServer();
 
@@ -216,11 +218,7 @@ function serveStandaloneSocket(opts: {
     "abort",
     () => {
       netServer.close();
-      try {
-        unlinkSync(socketPath);
-      } catch {
-        // already removed
-      }
+      removeIpcEndpointFile(socketPath);
     },
     { once: true },
   );

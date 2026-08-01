@@ -10,6 +10,8 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { connect } from "node:net";
 
+import { isNamedPipePath } from "@vellumai/ipc-server-utils";
+
 /**
  * Maximum time to wait for the probe `connect()` to settle before declaring
  * the path occupied. Without a bound, a hung process holding the socket would
@@ -44,6 +46,9 @@ function makeAddrInUseError(message: string): NodeJS.ErrnoException {
  *   - Any other socket error → propagate.
  */
 export async function ensureSocketPathFree(socketPath: string): Promise<void> {
+  if (isNamedPipePath(socketPath)) {
+    return;
+  }
   if (!existsSync(socketPath)) {
     return;
   }

@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import os from "node:os";
 import http from "node:http";
 import path from "node:path";
 
 import { SEEDS } from "@vellumai/environments";
 
+import { resolveInstanceDir } from "./config";
 import type { LockfileAssistant } from "./lockfile-contract";
 import { getLockfileData } from "./lockfile";
 
@@ -221,12 +221,7 @@ function defaultInstanceDir(
   env: Record<string, string | undefined>,
   assistantId: string,
 ): string {
-  const envName = env.VELLUM_ENVIRONMENT?.trim() || PRODUCTION_ENVIRONMENT_NAME;
-  const xdgDataHome =
-    env.XDG_DATA_HOME?.trim() || path.join(os.homedir(), ".local", "share");
-  const dataRoot =
-    envName === PRODUCTION_ENVIRONMENT_NAME ? "vellum" : `vellum-${envName}`;
-  return path.join(xdgDataHome, dataRoot, "assistants", assistantId);
+  return resolveInstanceDir(env, assistantId);
 }
 
 function firstString(...values: unknown[]): string | undefined {
