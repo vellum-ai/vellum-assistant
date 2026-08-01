@@ -4,12 +4,12 @@ Every app must work across phone (~360px) to desktop (~1400px+).
 
 ## Mode selection
 
-The conversation context's `<turn_context>` block carries a `client_os:` field — the OS the user is on. (Key layout off this, not the sibling `interface:` field: `interface:` is the transport surface and is always `web` for the web/iOS/macOS apps.)
+The conversation context's `<turn_context>` block carries a `client_os:` field, the OS the user is on. (Key layout off this, not the sibling `interface:` field: `interface:` is the transport surface and is always `web` for the web/iOS/macOS/Windows apps.)
 
 **If `client_os: ios` or `android`** (any mobile-web surface):
 → Mobile-first build. Design the narrow viewport first, enhance upward.
 
-**If `client_os: macos` or `web`**:
+**If `client_os: macos`, `windows`, or `web`**:
 → Desktop-first build. Design larger composition first; narrow fallback still meets the universal baseline below.
 
 **If field is absent or ambiguous**:
@@ -52,6 +52,6 @@ The conversation context's `<turn_context>` block carries a `client_os:` field �
 - Bottom-anchor the primary action: `position: sticky; bottom: env(safe-area-inset-bottom)`.
 - Replace side modals and popovers with bottom sheets.
 
-## Desktop-first priorities (`client_os: macos` / `web`)
+## Desktop-first priorities (`client_os: macos` / `windows` / `web`)
 
 Multi-column composition, hover-rich affordances, denser information, side modals, inline primary actions. The universal baseline above is still the floor — narrow view must still work.
