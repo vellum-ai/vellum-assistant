@@ -168,7 +168,9 @@ const installAppInfoIpc = (): void => {
     appName: app.getName(),
     version: app.getVersion(),
     commitSha:
-      typeof __VELLUM_BUILD_SHA__ === "string" ? __VELLUM_BUILD_SHA__ : "unknown",
+      typeof __VELLUM_BUILD_SHA__ === "string"
+        ? __VELLUM_BUILD_SHA__
+        : "unknown",
     copyright: `© ${new Date().getFullYear()} Vellum AI`,
     website: WEBSITE,
   }));
@@ -192,8 +194,8 @@ app
       registerAppProtocol();
     }
     installAppInfoIpc();
-    installMainWindow();
     installMainFeatures();
+    installMainWindow();
   })
   .catch((err: unknown) => {
     log.error("[app] whenReady setup failed:", err);
