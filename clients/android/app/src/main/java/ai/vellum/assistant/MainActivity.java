@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
     private URI effectiveServer;
     private ConnectDeepLink pendingConnect;
     private boolean pendingNewChat;
+    private Intent pendingVoiceLaunch;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -40,6 +41,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(VoiceAudioSessionPlugin.class);
         registerPlugin(VoiceLiveActivityPlugin.class);
         super.onCreate(savedInstanceState);
+        deliverPendingVoiceLaunch();
         if (bridge != null) {
             bridge.setWebViewClient(new SelfHostedWebViewClient(bridge, this));
         }
@@ -59,14 +61,16 @@ public class MainActivity extends BridgeActivity {
             deliverPendingNewChat();
             return;
         }
-        if (VoiceDeepLink.isVoiceCommand(voiceCommand) && VoiceDeepLink.needsNormalization(intent)) {
-            super.onNewIntent(
-                VoiceDeepLink.normalizedVoiceIntent(
+        if (VoiceDeepLink.isVoiceCommand(voiceCommand)) {
+            Intent delivered = VoiceDeepLink.needsNormalization(intent)
+                ? VoiceDeepLink.normalizedVoiceIntent(
                     intent,
                     getString(R.string.vellum_auth_scheme),
                     voiceCommand
                 )
-            );
+                : intent;
+            super.onNewIntent(delivered);
+            setIntent(VoiceDeepLink.clearedCommandIntent(delivered));
             return;
         }
 
@@ -201,15 +205,26 @@ public class MainActivity extends BridgeActivity {
             setIntent(VoiceDeepLink.clearedCommandIntent(intent));
             return;
         }
-        if (VoiceDeepLink.isVoiceCommand(command) && VoiceDeepLink.needsNormalization(intent)) {
-            setIntent(
-                VoiceDeepLink.normalizedVoiceIntent(
-                    intent,
-                    getString(R.string.vellum_auth_scheme),
-                    command
-                )
-            );
+        if (!VoiceDeepLink.isVoiceCommand(command)) {
+            return;
         }
+        pendingVoiceLaunch = VoiceDeepLink.needsNormalization(intent)
+            ? VoiceDeepLink.normalizedVoiceIntent(
+                intent,
+                getString(R.string.vellum_auth_scheme),
+                command
+            )
+            : new Intent(intent);
+        setIntent(VoiceDeepLink.clearedCommandIntent(intent));
+    }
+
+    private void deliverPendingVoiceLaunch() {
+        if (pendingVoiceLaunch == null) {
+            return;
+        }
+        Intent launch = pendingVoiceLaunch;
+        pendingVoiceLaunch = null;
+        super.onNewIntent(launch);
     }
 
     private void deliverPendingNewChat() {

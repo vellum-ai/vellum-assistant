@@ -134,6 +134,8 @@ The launcher exposes New chat and Start voice shortcuts. Users may also add the
 Start voice Quick Settings tile. The tile exists only while Android invokes its
 `TileService`; tapping it opens the app and hands the same start command to the
 web layer. It does not capture audio or retain a background process.
+Gradle renders `app/src/main/shortcuts.xml` with an explicit target for each
+flavor, so side-by-side installations cannot receive one another's shortcuts.
 
 The only registered Google Assistant App Action is the official
 `OPEN_APP_FEATURE` built-in intent, with New chat and Voice mode as its inline

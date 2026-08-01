@@ -21,6 +21,14 @@ public class VoiceQuickSettingsTileService extends TileService {
     @Override
     public void onClick() {
         super.onClick();
+        if (isLocked()) {
+            unlockAndRun(this::launchVoice);
+            return;
+        }
+        launchVoice();
+    }
+
+    private void launchVoice() {
         TileServiceCompat.startActivityAndCollapse(
             this,
             new PendingIntentActivityWrapper(

@@ -22,6 +22,7 @@ public class VoiceLiveActivityPlugin extends Plugin {
     private static boolean processInitialized;
 
     private NotificationManager notificationManager;
+    private String assistantName;
     private boolean running;
 
     enum Status {
@@ -75,18 +76,20 @@ public class VoiceLiveActivityPlugin extends Plugin {
             return;
         }
         if (status.terminal || !canPostNotifications()) {
-            clearStatus(getContext());
-            running = false;
+            stopStatus();
             resolveStarted(call, false);
             return;
         }
+        assistantName = trimmedOrDefault(
+            call.getString("assistantName"),
+            getContext().getString(R.string.voice_notification_title)
+        );
         try {
             notificationManager.notify(NOTIFICATION_ID, buildNotification(call, status));
             running = true;
             resolveStarted(call, true);
         } catch (RuntimeException exception) {
-            clearStatus(getContext());
-            running = false;
+            stopStatus();
             resolveStarted(call, false);
         }
     }
@@ -99,8 +102,7 @@ public class VoiceLiveActivityPlugin extends Plugin {
             return;
         }
         if (status.terminal) {
-            clearStatus(getContext());
-            running = false;
+            stopStatus();
             call.resolve();
             return;
         }
@@ -111,23 +113,20 @@ public class VoiceLiveActivityPlugin extends Plugin {
         try {
             notificationManager.notify(NOTIFICATION_ID, buildNotification(call, status));
         } catch (RuntimeException exception) {
-            clearStatus(getContext());
-            running = false;
+            stopStatus();
         }
         call.resolve();
     }
 
     @PluginMethod
     public void end(PluginCall call) {
-        clearStatus(getContext());
-        running = false;
+        stopStatus();
         call.resolve();
     }
 
     @Override
     protected void handleOnDestroy() {
-        clearStatus(getContext());
-        running = false;
+        stopStatus();
     }
 
     static synchronized void clearRecoveredStatus(Context context) {
@@ -160,10 +159,6 @@ public class VoiceLiveActivityPlugin extends Plugin {
     }
 
     private NotificationCompat.Builder notificationBuilder(PluginCall call, Status status, boolean requestPromotion) {
-        String assistantName = trimmedOrDefault(
-            call.getString("assistantName"),
-            getContext().getString(R.string.voice_notification_title)
-        );
         String label = trimmedOrDefault(call.getString("label"), labelFor(status));
         return new NotificationCompat.Builder(getContext(), CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_voice)
@@ -223,6 +218,12 @@ public class VoiceLiveActivityPlugin extends Plugin {
             return fallback;
         }
         return value.trim();
+    }
+
+    private void stopStatus() {
+        clearStatus(getContext());
+        assistantName = null;
+        running = false;
     }
 
     private static void resolveStarted(PluginCall call, boolean started) {
