@@ -6,6 +6,7 @@
  * without going through the HTTP layer.
  */
 import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
+import { writeWorkspaceFile } from "../runtime/routes/workspace-utils.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("document-store");
@@ -23,6 +24,22 @@ export interface DocumentRecord {
   wordCount: number;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Workspace-relative path of the markdown file this document is bound to,
+   * or `null` when the document has no file behind it.
+   */
+  workspacePath: string | null;
+}
+
+/**
+ * The listing projection: neither the body nor the file binding, which the
+ * list and search queries deliberately leave out of their SELECTs.
+ */
+export type DocumentSummary = Omit<DocumentRecord, "content" | "workspacePath">;
+
+/** Words in a markdown body, the count the `word_count` column stores. */
+function countWords(content: string): number {
+  return content.split(/\s+/).filter((word) => word.length > 0).length;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,9 +72,10 @@ interface DocumentRow {
   word_count: number;
   created_at: number;
   updated_at: number;
+  workspace_path: string | null;
 }
 
-type DocumentListRow = Omit<DocumentRow, "content">;
+type DocumentListRow = Omit<DocumentRow, "content" | "workspace_path">;
 
 function escapeSqlLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
@@ -72,6 +90,7 @@ function mapRowToRecord(row: DocumentRow): DocumentRecord {
     wordCount: row.word_count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    workspacePath: row.workspace_path,
   };
 }
 
@@ -80,7 +99,7 @@ export function getDocumentById(surfaceId: string): DocumentRecord | null {
   try {
     const row = rawGet<DocumentRow>(
       "documents:getDocumentById",
-      /*sql*/ `SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at
+      /*sql*/ `SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at, workspace_path
        FROM documents
        WHERE surface_id = ?`,
       surfaceId,
@@ -95,6 +114,29 @@ export function getDocumentById(surfaceId: string): DocumentRecord | null {
     return mapRowToRecord(row);
   } catch (error) {
     log.error({ err: error, surfaceId }, "Load error");
+    return null;
+  }
+}
+
+/**
+ * Look up the document bound to a workspace file. `workspacePath` must be the
+ * normalized workspace-relative path stored on the row. Returns `null` when no
+ * document is bound to that file.
+ */
+export function getDocumentByWorkspacePath(
+  workspacePath: string,
+): DocumentRecord | null {
+  try {
+    const row = rawGet<DocumentRow>(
+      "documents:getDocumentByWorkspacePath",
+      /*sql*/ `SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at, workspace_path
+       FROM documents
+       WHERE workspace_path = ?`,
+      workspacePath,
+    );
+    return row ? mapRowToRecord(row) : null;
+  } catch (error) {
+    log.error({ err: error, workspacePath }, "Load-by-workspace-path error");
     return null;
   }
 }
@@ -132,7 +174,7 @@ export function isDocumentAssociatedWithConversation(
  */
 export function getDocumentsForConversation(
   conversationId: string,
-): Omit<DocumentRecord, "content">[] {
+): DocumentSummary[] {
   try {
     const rows = rawAll<DocumentListRow>(
       "documents:getDocumentsForConversation",
@@ -174,7 +216,7 @@ export function getDocumentsForConversation(
 export function searchDocumentsByTitle(
   query: string,
   options: { conversationId?: string } = {},
-): Omit<DocumentRecord, "content">[] {
+): DocumentSummary[] {
   try {
     const pattern = `%${escapeSqlLikePattern(query)}%`;
     const rows = options.conversationId
@@ -388,6 +430,124 @@ export function findInDocument(
 }
 
 // ---------------------------------------------------------------------------
+// Workspace file binding
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirror `content` onto the workspace file a document is bound to.
+ *
+ * This is the single write-through choke point: every path that persists
+ * document content — {@link saveDocument} (client save and `document_create`),
+ * {@link updateDocumentContent} (`document_update`), and
+ * {@link replaceInDocument} (`document_replace_text`) — calls it immediately
+ * before its own row write, so a file-backed document's markdown on disk always
+ * matches the stored row.
+ *
+ * The file is written first and a failure throws: a rejected write aborts the
+ * update before the row changes rather than leaving the two silently diverged.
+ * Documents with no file behind them are a no-op.
+ */
+function writeThroughToWorkspaceFile(surfaceId: string, content: string): void {
+  const row = rawGet<{ workspace_path: string | null }>(
+    "documents:writeThroughToWorkspaceFile:getPath",
+    /*sql*/ `SELECT workspace_path FROM documents WHERE surface_id = ?`,
+    surfaceId,
+  );
+  const workspacePath = row?.workspace_path;
+  if (!workspacePath) {
+    return;
+  }
+
+  try {
+    writeWorkspaceFile(workspacePath, Buffer.from(content, "utf-8"));
+    log.info({ surfaceId, workspacePath }, "Wrote document through to file");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to write file-backed document to ${workspacePath}: ${message}`,
+    );
+  }
+}
+
+/**
+ * Create a document seeded from a workspace markdown file and bind it to that
+ * file. The returned surface ID is the file's document identity — comments,
+ * assistant iteration, and PDF export all key off it.
+ *
+ * The partial unique index on `workspace_path` makes a concurrent second
+ * create fail rather than produce a duplicate binding; callers re-read by path
+ * on failure.
+ */
+export function createFileBackedDocument(params: {
+  surfaceId: string;
+  conversationId: string;
+  title: string;
+  content: string;
+  workspacePath: string;
+}): { success: true } | { success: false; error: string } {
+  try {
+    const now = Date.now();
+    rawRun(
+      "documents:createFileBackedDocument",
+      /*sql*/ `INSERT INTO documents (surface_id, conversation_id, title, content, word_count, created_at, updated_at, workspace_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      params.surfaceId,
+      params.conversationId,
+      params.title,
+      params.content,
+      countWords(params.content),
+      now,
+      now,
+      params.workspacePath,
+    );
+    addDocumentConversation(params.surfaceId, params.conversationId);
+    log.info(
+      { surfaceId: params.surfaceId, workspacePath: params.workspacePath },
+      "Created file-backed document",
+    );
+    return { success: true };
+  } catch (error) {
+    log.error(
+      { err: error, workspacePath: params.workspacePath },
+      "File-backed document create error",
+    );
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+/**
+ * Replace a document's stored content with the current text of the file it is
+ * bound to. The file is the source of truth when a document is opened, so this
+ * deliberately skips the write-through step — disk and row already agree.
+ */
+export function refreshDocumentContentFromFile(
+  surfaceId: string,
+  content: string,
+): { success: true } | { success: false; error: string } {
+  try {
+    rawRun(
+      "documents:refreshDocumentContentFromFile",
+      /*sql*/ `UPDATE documents SET content = ?, word_count = ?, updated_at = ? WHERE surface_id = ?`,
+      content,
+      countWords(content),
+      Date.now(),
+      surfaceId,
+    );
+    log.info({ surfaceId }, "Refreshed document content from file");
+    return { success: true };
+  } catch (error) {
+    log.error({ err: error, surfaceId }, "Document refresh error");
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Document persistence
 // ---------------------------------------------------------------------------
 
@@ -399,6 +559,7 @@ export function saveDocument(params: {
   wordCount: number;
 }): { success: true; surfaceId: string } | { success: false; error: string } {
   try {
+    writeThroughToWorkspaceFile(params.surfaceId, params.content);
     const now = Date.now();
     rawRun(
       "documents:saveDocument",
@@ -534,9 +695,8 @@ export function replaceInDocument(
       replacementsMade = totalMatches;
     }
 
-    const wordCount = newContent
-      .split(/\s+/)
-      .filter((w) => w.length > 0).length;
+    writeThroughToWorkspaceFile(surfaceId, newContent);
+    const wordCount = countWords(newContent);
     rawRun(
       "documents:replaceInDocument:update",
       /*sql*/ `UPDATE documents SET content = ?, word_count = ?, updated_at = ? WHERE surface_id = ?`,
@@ -579,9 +739,8 @@ export function updateDocumentContent(
     const sep = mode === "append" && existing.content.length > 0 ? "\n\n" : "";
     const newContent =
       mode === "append" ? existing.content + sep + markdown : markdown;
-    const wordCount = newContent
-      .split(/\s+/)
-      .filter((w) => w.length > 0).length;
+    writeThroughToWorkspaceFile(surfaceId, newContent);
+    const wordCount = countWords(newContent);
     rawRun(
       "documents:updateDocumentContent:update",
       /*sql*/ `UPDATE documents SET content = ?, word_count = ?, updated_at = ? WHERE surface_id = ?`,

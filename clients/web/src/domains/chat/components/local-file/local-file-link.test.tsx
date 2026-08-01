@@ -16,12 +16,18 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { ...toastModule.toast, error: toastError },
 }));
 
-const { LocalFileLink } =
-  await import("@/domains/chat/components/local-file/local-file-link");
+const { LocalFileLink } = await import(
+  "@/domains/chat/components/local-file/local-file-link"
+);
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
 
 const loadWorkspaceFileDocument = mock(
-  async (_assistantId: string, _workspacePath: string) => {},
+  async (
+    _assistantId: string,
+    _workspacePath: string,
+    _conversationId: string,
+  ) => {},
 );
 const openWorkspaceFilePreview = mock(
   (_workspacePath: string, _previewKind: WorkspaceFilePreviewKind) => {},
@@ -32,7 +38,12 @@ beforeEach(() => {
   toastError.mockClear();
   loadWorkspaceFileDocument.mockClear();
   openWorkspaceFilePreview.mockClear();
+  // Markdown opens as a document bound to the open conversation, so the link
+  // needs one to reach the drawer at all.
+  useConversationStore.setState({ activeConversationId: "conv-1" });
   useViewerStore.setState({
+    mainView: "chat",
+    openedDocumentState: null,
     loadWorkspaceFileDocument,
     openWorkspaceFilePreview,
   });
@@ -175,7 +186,7 @@ describe("LocalFileLink", () => {
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
-  test("clicking a markdown file opens it in the document drawer", () => {
+  test("clicking a markdown file opens the document bound to it", () => {
     render(
       <LocalFileLink
         href="/workspace/drafts/notes.md"
@@ -192,8 +203,60 @@ describe("LocalFileLink", () => {
     expect(loadWorkspaceFileDocument.mock.calls[0]).toEqual([
       "asst-1",
       "drafts/notes.md",
+      "conv-1",
     ]);
     expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  test("clicking the file-backed document already open closes it", () => {
+    const closeDocument = mock(() => {});
+    useViewerStore.setState({
+      closeDocument,
+      mainView: "document",
+      openedDocumentState: {
+        source: "document",
+        surfaceId: "surf-file",
+        conversationId: "conv-1",
+        workspacePath: "drafts/notes.md",
+        documentName: "notes.md",
+        content: "# notes",
+      },
+    });
+    render(
+      <LocalFileLink
+        href="/workspace/drafts/notes.md"
+        workspacePath="drafts/notes.md"
+        assistantId="asst-1"
+      >
+        my notes
+      </LocalFileLink>,
+    );
+
+    fireEvent.click(screen.getByRole("link"));
+
+    expect(closeDocument).toHaveBeenCalledTimes(1);
+    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+  });
+
+  test("a markdown file with no open conversation falls back to the workspace", () => {
+    useConversationStore.setState({ activeConversationId: null });
+
+    render(
+      <LocalFileLink
+        href="/workspace/drafts/notes.md"
+        workspacePath="drafts/notes.md"
+        assistantId="asst-1"
+      >
+        my notes
+      </LocalFileLink>,
+    );
+
+    fireEvent.click(screen.getByRole("link"));
+
+    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
+    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("drafts/notes.md");
   });
 
   test("a markdown file without an assistant falls back to the workspace", () => {

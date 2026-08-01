@@ -10,10 +10,7 @@ interface MobileDocumentOverlayProps {
   assistantId: string | null;
   /** Closes the overlay (resets `openedDocumentState` upstream). */
   onClose: () => void;
-  /**
-   * Called when the user clicks "Submit Feedback" in the comment panel. Ignored
-   * for a file-backed document, which has no comments.
-   */
+  /** Called when the user clicks "Submit Feedback" in the comment panel. */
   onSubmitFeedback?: () => void;
 }
 
@@ -59,29 +56,18 @@ export function MobileDocumentOverlay({
         new document into the mounted editor emits a Tiptap update, which the
         autosave would write straight into whichever target is now current.
       */}
-      {openedDocumentState.source === "workspace-file" ? (
-        <DocumentViewerContainer
-          key={`file:${openedDocumentState.workspacePath}`}
-          source="workspace-file"
-          workspacePath={openedDocumentState.workspacePath}
-          documentName={openedDocumentState.documentName}
-          content={openedDocumentState.content}
-          onClose={onClose}
-          assistantId={assistantId}
-        />
-      ) : (
-        <DocumentViewerContainer
-          key={`document:${openedDocumentState.surfaceId}`}
-          source="document"
-          documentName={openedDocumentState.documentName}
-          content={openedDocumentState.content}
-          onClose={onClose}
-          assistantId={assistantId}
-          surfaceId={openedDocumentState.surfaceId}
-          conversationId={openedDocumentState.conversationId}
-          onSubmitFeedback={onSubmitFeedback}
-        />
-      )}
+      <DocumentViewerContainer
+        key={`document:${openedDocumentState.surfaceId}`}
+        source="document"
+        documentName={openedDocumentState.documentName}
+        content={openedDocumentState.content}
+        onClose={onClose}
+        assistantId={assistantId}
+        surfaceId={openedDocumentState.surfaceId}
+        conversationId={openedDocumentState.conversationId}
+        workspacePath={openedDocumentState.workspacePath}
+        onSubmitFeedback={onSubmitFeedback}
+      />
     </div>
   );
 }

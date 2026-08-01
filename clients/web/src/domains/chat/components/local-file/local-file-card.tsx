@@ -18,12 +18,13 @@ import {
 import { LocalFileIcon } from "@/domains/chat/components/local-file/local-file-icon";
 import { LocalFileMenu } from "@/domains/chat/components/local-file/local-file-menu";
 import {
-  opensInDocumentDrawer,
+  localFileDestination,
   toggleLocalFile,
   useIsWorkspaceFileOpen,
-  usesDocumentDrawer,
+  type LocalFileDestination,
 } from "@/domains/chat/components/local-file/open-local-file";
 import type { LocalFileKind } from "@/domains/chat/utils/mime-sniff";
+import { useConversationStore } from "@/stores/conversation-store";
 
 export interface LocalFileCardProps {
   /** Markdown alt/label text, which may equal the filename. */
@@ -56,24 +57,24 @@ interface ClickHint {
 }
 
 /** Where a click lands: away in the workspace, or in one of the drawer's two modes. */
-type ClickTarget = "workspace" | "editor" | "preview";
+type ClickMode = LocalFileDestination["mode"];
 
-function clickTargetFor(filename: string, assistantId?: string): ClickTarget {
-  if (!usesDocumentDrawer(filename, assistantId)) {
-    return "workspace";
-  }
-  return opensInDocumentDrawer(filename) ? "editor" : "preview";
-}
-
-function clickHintFor(target: ClickTarget): ClickHint {
-  if (target === "workspace") {
+function clickHintFor(mode: ClickMode): ClickHint {
+  if (mode === "workspace") {
     return { label: "Open in workspace", Icon: ExternalLink };
   }
-  if (target === "preview") {
+  if (mode === "preview") {
     return { label: "Open preview", Icon: PanelRight };
   }
   return { label: "Open in editor", Icon: PanelRight };
 }
+
+/** How the card names the mode in its close label. */
+const CLOSE_LABELS: Record<ClickMode, string> = {
+  workspace: "workspace",
+  document: "editor",
+  preview: "preview",
+};
 
 function secondaryLineFor(
   state: LocalFileCardProps["state"],
@@ -98,21 +99,24 @@ export function LocalFileCard({
   workspacePath,
   assistantId,
 }: LocalFileCardProps): ReactNode {
+  // Markdown opens as a document bound to the conversation it was opened from,
+  // so the active conversation decides where a click on it lands.
+  const conversationId = useConversationStore.use.activeConversationId();
   const isReady = state === "ready";
   const canOpen = isReady && workspacePath !== null;
-  const clickTarget = clickTargetFor(filename, assistantId);
-  const opensDrawer = clickTarget !== "workspace";
+  const { mode } = localFileDestination(filename, assistantId, conversationId);
+  const opensDrawer = mode !== "workspace";
   const isOpenInDrawer =
     useIsWorkspaceFileOpen(canOpen ? workspacePath : null) && opensDrawer;
   const secondary = secondaryLineFor(state, displayName, filename);
-  const { label: hintLabel, Icon: HintIcon } = clickHintFor(clickTarget);
+  const { label: hintLabel, Icon: HintIcon } = clickHintFor(mode);
   const actionLabel = isOpenInDrawer
-    ? `Close ${clickTarget} for ${filename}`
+    ? `Close ${CLOSE_LABELS[mode]} for ${filename}`
     : `Open ${filename}`;
 
   const activate = () => {
     if (canOpen) {
-      toggleLocalFile(workspacePath, filename, assistantId);
+      toggleLocalFile(workspacePath, filename, assistantId, conversationId);
     }
   };
 

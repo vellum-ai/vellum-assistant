@@ -15,6 +15,7 @@ import {
 import { filenameFromHref } from "@/domains/chat/components/local-file/local-file-target";
 import { toggleLocalFile } from "@/domains/chat/components/local-file/open-local-file";
 import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
+import { useConversationStore } from "@/stores/conversation-store";
 
 export interface LocalFileLinkProps {
   href: string;
@@ -38,6 +39,9 @@ export function LocalFileLink({
   children,
   onActivate,
 }: LocalFileLinkProps): ReactNode {
+  // Markdown opens as a document bound to the conversation it was opened from,
+  // so the active conversation decides where a click on it lands.
+  const conversationId = useConversationStore.use.activeConversationId();
   const filename =
     workspacePath !== null
       ? workspaceBasenameOf(workspacePath)
@@ -53,7 +57,7 @@ export function LocalFileLink({
       toast.error("This file isn't available here");
       return;
     }
-    toggleLocalFile(workspacePath, filename, assistantId);
+    toggleLocalFile(workspacePath, filename, assistantId, conversationId);
   };
 
   return (

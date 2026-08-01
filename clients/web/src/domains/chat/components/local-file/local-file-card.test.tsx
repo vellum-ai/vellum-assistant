@@ -11,9 +11,14 @@ const { LocalFileCard } = await import(
   "@/domains/chat/components/local-file/local-file-card"
 );
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
 
 const loadWorkspaceFileDocument = mock(
-  async (_assistantId: string, _workspacePath: string) => {},
+  async (
+    _assistantId: string,
+    _workspacePath: string,
+    _conversationId: string,
+  ) => {},
 );
 const openWorkspaceFilePreview = mock(
   (_workspacePath: string, _previewKind: WorkspaceFilePreviewKind) => {},
@@ -25,7 +30,9 @@ function openDrawerWith(workspacePath: string) {
   useViewerStore.setState({
     mainView: "document",
     openedDocumentState: {
-      source: "workspace-file",
+      source: "document",
+      surfaceId: "surf-file",
+      conversationId: "conv-1",
       workspacePath,
       documentName: "notes.md",
       content: "# notes",
@@ -51,6 +58,9 @@ beforeEach(() => {
   loadWorkspaceFileDocument.mockClear();
   openWorkspaceFilePreview.mockClear();
   closeDocument.mockClear();
+  // Markdown opens as a document bound to the open conversation, so the card
+  // needs one to reach the drawer at all.
+  useConversationStore.setState({ activeConversationId: "conv-1" });
   useViewerStore.setState({
     mainView: "chat",
     openedDocumentState: null,
@@ -219,6 +229,7 @@ describe("LocalFileCard", () => {
     expect(loadWorkspaceFileDocument.mock.calls[0]).toEqual([
       "asst-1",
       "drafts/notes.md",
+      "conv-1",
     ]);
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
@@ -244,6 +255,30 @@ describe("LocalFileCard", () => {
       "csv",
     ]);
     expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  test("a markdown card with no open conversation falls back to the workspace", () => {
+    useConversationStore.setState({ activeConversationId: null });
+
+    render(
+      <LocalFileCard
+        displayName="notes.md"
+        filename="notes.md"
+        sizeBytes={12}
+        kind="file"
+        state="ready"
+        workspacePath="drafts/notes.md"
+        assistantId="asst-1"
+      />,
+    );
+
+    expect(screen.getByText("Open in workspace")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open notes.md" }));
+
+    expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
+    expect(openWorkspaceFilePreview).not.toHaveBeenCalled();
+    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
   });
 
   test("a markdown card without an assistant falls back to the workspace", () => {
@@ -635,6 +670,7 @@ describe("LocalFileCard open state", () => {
     expect(loadWorkspaceFileDocument.mock.calls[0]).toEqual([
       "asst-1",
       "drafts/notes.md",
+      "conv-1",
     ]);
     expect(closeDocument).not.toHaveBeenCalled();
   });

@@ -48,7 +48,8 @@ function bootstrapDocumentTables(): void {
       content TEXT NOT NULL,
       word_count INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      workspace_path TEXT
     );
 
     CREATE TABLE document_conversations (

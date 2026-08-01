@@ -4,25 +4,27 @@ import type {
   ActivityStepsPayload,
   ToolDetailPayload,
 } from "@/stores/viewer-store";
-import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
+import type { DocumentsForworkspacefilePostResponse } from "@/generated/daemon/types.gen";
+import { ApiError } from "@/utils/api-errors";
 
-// The store reads workspace files through the daemon SDK. Spread the real
-// module so the actions this file does not exercise keep their real bindings.
+// The store opens file-backed documents through the daemon SDK. Spread the
+// real module so the actions this file does not exercise keep their real
+// bindings.
 const daemonSdk = await import("@/generated/daemon/sdk.gen");
 
-type WorkspaceFileGetResult = {
-  data: (Omit<WorkspaceFileGetResponse, "content"> & { content: unknown }) | null;
+type FileDocumentResult = {
+  data: DocumentsForworkspacefilePostResponse | null;
 };
 
-let workspaceFileGetResult: () => Promise<WorkspaceFileGetResult> = () =>
+let fileDocumentResult: () => Promise<FileDocumentResult> = () =>
   Promise.reject(new Error("not stubbed"));
-const workspaceFileGetCalls: unknown[] = [];
+const fileDocumentCalls: unknown[] = [];
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
-  workspaceFileGet: (options: unknown) => {
-    workspaceFileGetCalls.push(options);
-    return workspaceFileGetResult();
+  documentsForworkspacefilePost: (options: unknown) => {
+    fileDocumentCalls.push(options);
+    return fileDocumentResult();
   },
 }));
 
@@ -47,7 +49,7 @@ function getState() {
 
 beforeEach(() => {
   getState().reset();
-  workspaceFileGetCalls.length = 0;
+  fileDocumentCalls.length = 0;
   toastError.mockClear();
 });
 
@@ -65,7 +67,9 @@ const SAMPLE_DOC = {
   content: "# Hello",
 } as const;
 const SAMPLE_FILE_DOC = {
-  source: "workspace-file",
+  source: "document",
+  surfaceId: "surf-file",
+  conversationId: "conv-1",
   workspacePath: "drafts/notes.md",
   documentName: "notes.md",
   content: "# Notes",
@@ -900,7 +904,7 @@ describe("updateDocumentContent", () => {
     });
   });
 
-  it("leaves a file-backed document alone", () => {
+  it("leaves a document with a different surface id alone", () => {
     useViewerStore.setState({ openedDocumentState: SAMPLE_FILE_DOC });
     getState().updateDocumentContent("surf-1", "# Replaced", "replace");
     expect(getState().openedDocumentState).toBe(SAMPLE_FILE_DOC);
@@ -963,27 +967,21 @@ describe("openWorkspaceFilePreview", () => {
   });
 
   it("makes an in-flight file load for the same path stale", async () => {
-    let resolveLoad: (value: WorkspaceFileGetResult) => void = () => {};
-    workspaceFileGetResult = () =>
-      new Promise<WorkspaceFileGetResult>((resolve) => {
+    let resolveLoad: (value: FileDocumentResult) => void = () => {};
+    fileDocumentResult = () =>
+      new Promise<FileDocumentResult>((resolve) => {
         resolveLoad = resolve;
       });
 
-    const load = getState().loadWorkspaceFileDocument("asst-1", "rows.csv");
+    const load = getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "rows.csv",
+      "conv-1",
+    );
     // The same path, but opened as a preview: a different target.
     getState().openWorkspaceFilePreview("rows.csv", "csv");
 
-    resolveLoad({
-      data: {
-        path: "rows.csv",
-        name: "rows.csv",
-        size: 2,
-        mimeType: "text/csv",
-        modifiedAt: "2026-07-29T00:00:00.000Z",
-        content: "a,b",
-        isBinary: false,
-      },
-    });
+    resolveLoad({ data: fileDocument({ workspacePath: "rows.csv" }) });
     await load;
 
     expect(getState().openedDocumentState).toMatchObject({
@@ -996,139 +994,157 @@ describe("openWorkspaceFilePreview", () => {
 // Document viewer: workspace files
 // ---------------------------------------------------------------------------
 
-describe("loadWorkspaceFileDocument", () => {
-  it("opens the fetched file as a file-backed document", async () => {
-    workspaceFileGetResult = () =>
-      Promise.resolve({
-        data: {
-          path: "drafts/notes.md",
-          name: "notes.md",
-          size: 7,
-          mimeType: "text/markdown",
-          modifiedAt: "2026-07-29T00:00:00.000Z",
-          content: "# Notes",
-          isBinary: false,
-        },
-      });
+/** The daemon's answer for the document bound to a workspace markdown file. */
+function fileDocument(
+  overrides: Partial<DocumentsForworkspacefilePostResponse> = {},
+): DocumentsForworkspacefilePostResponse {
+  return {
+    success: true,
+    surfaceId: "surf-file",
+    conversationId: "conv-1",
+    title: "notes.md",
+    content: "# Notes",
+    wordCount: 2,
+    createdAt: 1,
+    updatedAt: 2,
+    workspacePath: "drafts/notes.md",
+    ...overrides,
+  };
+}
 
-    await getState().loadWorkspaceFileDocument("asst-1", "drafts/notes.md");
+describe("loadWorkspaceFileDocument", () => {
+  it("opens the file's document as a full document surface", async () => {
+    fileDocumentResult = () => Promise.resolve({ data: fileDocument() });
+
+    await getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "drafts/notes.md",
+      "conv-1",
+    );
 
     const state = getState();
     expect(state.mainView).toBe("document");
     expect(state.openedDocumentState).toEqual({
-      source: "workspace-file",
-      workspacePath: "drafts/notes.md",
+      source: "document",
+      surfaceId: "surf-file",
+      conversationId: "conv-1",
       documentName: "notes.md",
       content: "# Notes",
+      workspacePath: "drafts/notes.md",
     });
-    expect(workspaceFileGetCalls.length).toBe(1);
-    expect(workspaceFileGetCalls[0]).toMatchObject({
+    // The surface id exists once the daemon has answered, so the in-flight
+    // path target gives way to the document target.
+    expect(state.activeDocumentTarget).toEqual({
+      source: "document",
+      surfaceId: "surf-file",
+    });
+    expect(fileDocumentCalls.length).toBe(1);
+    expect(fileDocumentCalls[0]).toMatchObject({
       path: { assistant_id: "asst-1" },
-      query: { path: "drafts/notes.md" },
+      body: { path: "drafts/notes.md", conversationId: "conv-1" },
     });
     expect(toastError).not.toHaveBeenCalled();
   });
 
+  it("names an untitled document rather than showing an empty navbar", async () => {
+    fileDocumentResult = () =>
+      Promise.resolve({ data: fileDocument({ title: "" }) });
+
+    await getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "drafts/notes.md",
+      "conv-1",
+    );
+
+    expect(getState().openedDocumentState).toMatchObject({
+      documentName: "Untitled",
+    });
+  });
+
   it("saves the prior view so closing restores it", async () => {
     useViewerStore.setState({ mainView: "app" });
-    workspaceFileGetResult = () =>
-      Promise.resolve({
-        data: {
-          path: "notes.md",
-          name: "notes.md",
-          size: 1,
-          mimeType: "text/markdown",
-          modifiedAt: "2026-07-29T00:00:00.000Z",
-          content: "hi",
-          isBinary: false,
-        },
-      });
+    fileDocumentResult = () => Promise.resolve({ data: fileDocument() });
 
-    await getState().loadWorkspaceFileDocument("asst-1", "notes.md");
+    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
     expect(getState().viewBeforeDocument).toBe("app");
 
     getState().closeDocument();
     expect(getState().mainView).toBe("app");
   });
 
-  it("restores the prior view and reports a failed fetch", async () => {
+  it("repeats the daemon's own message when it refuses the open", async () => {
     useViewerStore.setState({ mainView: "app" });
-    workspaceFileGetResult = () => Promise.reject(new Error("404"));
+    fileDocumentResult = () =>
+      Promise.reject(new ApiError(404, "This file was deleted."));
 
-    await getState().loadWorkspaceFileDocument("asst-1", "gone.md");
+    await getState().loadWorkspaceFileDocument("asst-1", "gone.md", "conv-1");
 
     const state = getState();
     expect(state.mainView).toBe("app");
     expect(state.openedDocumentState).toBeNull();
     expect(state.activeDocumentTarget).toBeNull();
     expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError.mock.calls[0]![0]).toBe("This file was deleted.");
   });
 
-  it("refuses a file whose content the daemon did not inline", async () => {
-    workspaceFileGetResult = () =>
-      Promise.resolve({
-        data: {
-          path: "huge.md",
-          name: "huge.md",
-          size: 5_000_000,
-          mimeType: "text/markdown",
-          modifiedAt: "2026-07-29T00:00:00.000Z",
-          content: null,
-          isBinary: false,
-        },
-      });
+  it("repeats a rejected file type the same way", async () => {
+    fileDocumentResult = () =>
+      Promise.reject(new ApiError(422, "Only markdown files open here."));
 
-    await getState().loadWorkspaceFileDocument("asst-1", "huge.md");
+    await getState().loadWorkspaceFileDocument("asst-1", "rows.csv", "conv-1");
 
     expect(getState().openedDocumentState).toBeNull();
-    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError.mock.calls[0]![0]).toBe("Only markdown files open here.");
   });
 
-  it("refuses a binary file", async () => {
-    workspaceFileGetResult = () =>
-      Promise.resolve({
-        data: {
-          path: "logo.md",
-          name: "logo.md",
-          size: 12,
-          mimeType: "image/png",
-          modifiedAt: "2026-07-29T00:00:00.000Z",
-          content: null,
-          isBinary: true,
-        },
-      });
+  it("keeps plumbing out of the toast when the request never landed", async () => {
+    fileDocumentResult = () => Promise.reject(new TypeError("Failed to fetch"));
 
-    await getState().loadWorkspaceFileDocument("asst-1", "logo.md");
+    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
 
     expect(getState().openedDocumentState).toBeNull();
+    expect(toastError.mock.calls[0]![0]).toBe("Couldn't open this file");
+  });
+
+  it("does the same for a server fault, which has no message to repeat", async () => {
+    fileDocumentResult = () => Promise.reject(new ApiError(500, "HTTP 500"));
+
+    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
+
+    expect(toastError.mock.calls[0]![0]).toBe("Couldn't open this file");
+  });
+
+  it("treats an empty response as a failed open", async () => {
+    useViewerStore.setState({ mainView: "app" });
+    fileDocumentResult = () => Promise.resolve({ data: null });
+
+    await getState().loadWorkspaceFileDocument("asst-1", "notes.md", "conv-1");
+
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.openedDocumentState).toBeNull();
     expect(toastError).toHaveBeenCalledTimes(1);
   });
 
   it("ignores a response for a file the user already navigated away from", async () => {
-    let resolveFirst: (value: WorkspaceFileGetResult) => void = () => {};
-    workspaceFileGetResult = () =>
-      new Promise<WorkspaceFileGetResult>((resolve) => {
+    let resolveFirst: (value: FileDocumentResult) => void = () => {};
+    fileDocumentResult = () =>
+      new Promise<FileDocumentResult>((resolve) => {
         resolveFirst = resolve;
       });
 
-    const first = getState().loadWorkspaceFileDocument("asst-1", "slow.md");
+    const first = getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "slow.md",
+      "conv-1",
+    );
     // The user opened a document surface while the file was still loading.
     useViewerStore.setState({
       openedDocumentState: SAMPLE_DOC,
       activeDocumentTarget: { source: "document", surfaceId: "surf-1" },
     });
 
-    resolveFirst({
-      data: {
-        path: "slow.md",
-        name: "slow.md",
-        size: 2,
-        mimeType: "text/markdown",
-        modifiedAt: "2026-07-29T00:00:00.000Z",
-        content: "hi",
-        isBinary: false,
-      },
-    });
+    resolveFirst({ data: fileDocument({ workspacePath: "slow.md" }) });
     await first;
 
     expect(getState().openedDocumentState).toBe(SAMPLE_DOC);

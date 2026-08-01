@@ -14,7 +14,6 @@ import {
   renameSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
@@ -35,6 +34,7 @@ import {
   isTextMimeType,
   MAX_INLINE_TEXT_SIZE,
   resolveWorkspacePath,
+  writeWorkspaceFile,
 } from "./workspace-utils.js";
 
 const workspaceTreeEntrySchema = z.object({
@@ -400,22 +400,12 @@ function handleWorkspaceWrite({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError("content must be a string");
   }
 
-  const resolved = resolveWorkspacePath(path);
-  if (resolved === undefined) {
-    throw new BadRequestError("Invalid path");
-  }
-
   const buffer =
     encoding === "base64"
       ? Buffer.from(content ?? "", "base64")
       : Buffer.from(content ?? "", "utf-8");
 
-  if (existsSync(resolved) && statSync(resolved).isDirectory()) {
-    throw new ConflictError("Path is a directory");
-  }
-
-  mkdirSync(dirname(resolved), { recursive: true });
-  writeFileSync(resolved, buffer);
+  writeWorkspaceFile(path, buffer);
   publishSoundsConfigUpdatedForPaths(
     [path],
     headers?.["x-vellum-client-id"]?.trim() || undefined,

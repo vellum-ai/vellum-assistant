@@ -400,7 +400,14 @@ describe("ChatMarkdownMessage (image dispatch)", () => {
       assistantId: "asst-1",
     });
 
-    await waitFor(() => expect(screen.getByTestId("pdf-preview")).toBeTruthy());
+    // A PDF framed inline reads as an attempt to be the document, so the embed
+    // renders the file card and leaves opening it to the drawer.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Open report.pdf" }),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("pdf-preview")).toBeNull();
     expect(workspaceFileContentGet.mock.calls[0]![0].query.path).toBe(
       "report.pdf",
     );

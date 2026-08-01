@@ -10653,6 +10653,11 @@ paths:
                     type: number
                   updatedAt:
                     type: number
+                  workspacePath:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Workspace-relative file this document is bound to, or null
                 required:
                   - success
                   - surfaceId
@@ -10662,6 +10667,7 @@ paths:
                   - wordCount
                   - createdAt
                   - updatedAt
+                  - workspacePath
                 additionalProperties: false
   /v1/documents/{id}/comments:
     get:
@@ -11079,6 +11085,74 @@ paths:
               schema:
                 type: string
                 format: binary
+  /v1/documents/for-workspace-file:
+    post:
+      operationId: documents_forworkspacefile_post
+      summary: Get or create the document for a workspace markdown file
+      description:
+        "Return the document bound to a workspace markdown file, creating it on first open. The file is the source
+        of truth at open time: stored content that has drifted from the file is refreshed from disk before the document
+        is returned."
+      tags:
+        - documents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Workspace-relative path to a .md/.markdown file
+                conversationId:
+                  type: string
+                  description: Conversation the document is opened from
+              required:
+                - path
+                - conversationId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  surfaceId:
+                    type: string
+                  conversationId:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  wordCount:
+                    type: number
+                  createdAt:
+                    type: number
+                  updatedAt:
+                    type: number
+                  workspacePath:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Workspace-relative file this document is bound to, or null
+                required:
+                  - success
+                  - surfaceId
+                  - conversationId
+                  - title
+                  - content
+                  - wordCount
+                  - createdAt
+                  - updatedAt
+                  - workspacePath
+                additionalProperties: false
+        "422":
+          description: Path is not a markdown file
   /v1/domain/register:
     post:
       operationId: domain_register_post

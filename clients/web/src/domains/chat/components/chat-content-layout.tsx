@@ -452,18 +452,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         // Keyed per document so switching targets remounts the editor. Feeding a
         // new document into the mounted editor emits a Tiptap update, which the
         // autosave would write straight into whichever target is now current.
-        rightPanel =
-          openedDocumentState.source === "workspace-file" ? (
-          <DocumentViewerContainer
-            key={`file:${openedDocumentState.workspacePath}`}
-            source="workspace-file"
-            workspacePath={openedDocumentState.workspacePath}
-            documentName={openedDocumentState.documentName}
-            content={openedDocumentState.content}
-            onClose={handleCloseDocument}
-            assistantId={assistantId}
-          />
-        ) : (
+        rightPanel = (
           <DocumentViewerContainer
             key={`document:${openedDocumentState.surfaceId}`}
             source="document"
@@ -473,6 +462,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             assistantId={assistantId}
             surfaceId={openedDocumentState.surfaceId}
             conversationId={openedDocumentState.conversationId}
+            workspacePath={openedDocumentState.workspacePath}
             onSubmitFeedback={() => {
               const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
               navigate(

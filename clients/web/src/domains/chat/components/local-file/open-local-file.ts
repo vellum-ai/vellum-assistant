@@ -2,13 +2,17 @@
  * Where a click on a local file reference in the transcript takes the user.
  *
  * With an assistant to read the file through, every reference opens in the
- * document drawer beside the chat: markdown in the editor, where it is editable
- * in place, and every other format as a read-only preview, rendered by its own
- * reader where one exists and by an identity-plus-actions state where none
- * does. Reading a file the assistant just mentioned should never cost the
- * reader their place in the conversation. Without an assistant id there is
- * nothing to read the file through, so those references still navigate to the
- * workspace browser, which resolves the assistant itself.
+ * document drawer beside the chat: markdown as a real document bound to the
+ * file, where it is editable in place and carries the comment panel and the
+ * rest of the document affordances, and every other format as a read-only
+ * preview, rendered by its own reader where one exists and by an
+ * identity-plus-actions state where none does. Reading a file the assistant
+ * just mentioned should never cost the reader their place in the conversation.
+ *
+ * Two things are needed to reach the drawer, and a reference missing either
+ * navigates to the workspace browser instead, which resolves them itself: an
+ * assistant id, for any file, and additionally for markdown the conversation
+ * the file was opened from, which the document is bound to.
  *
  * The drawer is a toggle for the surfaces that show whether the file is open
  * (the file card), so the open/closed question is answered here too — once, as
@@ -103,25 +107,67 @@ function drawerPreviewKindFor(filename: string): WorkspaceFilePreviewKind {
 }
 
 /**
+ * Where a click on a reference lands, with the ids that destination needs
+ * already resolved. One pure decision, so the click, the toggle, and the hint
+ * a card shows before the click can never disagree.
+ *
+ * The drawer has a mode for every file type, so what decides this is only
+ * whether the inputs that mode needs are on hand: an assistant to read the
+ * file through, plus (for markdown, which opens as a document bound to a
+ * conversation) a conversation to bind it to.
+ */
+export type LocalFileDestination =
+  | { mode: "document"; assistantId: string; conversationId: string }
+  | {
+      mode: "preview";
+      assistantId: string;
+      previewKind: WorkspaceFilePreviewKind;
+    }
+  | { mode: "workspace" };
+
+export function localFileDestination(
+  filename: string,
+  assistantId?: string,
+  conversationId?: string | null,
+): LocalFileDestination {
+  if (!assistantId) {
+    return { mode: "workspace" };
+  }
+  if (opensInDocumentDrawer(filename)) {
+    if (!conversationId) {
+      return { mode: "workspace" };
+    }
+    return { mode: "document", assistantId, conversationId };
+  }
+  return {
+    mode: "preview",
+    assistantId,
+    previewKind: drawerPreviewKindFor(filename),
+  };
+}
+
+/**
  * Whether a click on this reference lands in the document drawer rather than
- * navigating away to the workspace page. The drawer has a mode for every file
- * type, so the only thing that decides this is whether there is an assistant to
- * read the file through. The filename stays in the signature because callers
- * ask this about a specific reference, and because it decides which drawer mode
- * they land in.
+ * navigating away to the workspace page.
  */
 export function usesDocumentDrawer(
-  _filename: string,
+  filename: string,
   assistantId?: string,
+  conversationId?: string | null,
 ): boolean {
-  return Boolean(assistantId);
+  return (
+    localFileDestination(filename, assistantId, conversationId).mode !==
+    "workspace"
+  );
 }
 
 /**
  * Whether the document drawer is currently showing the workspace file at
- * `workspacePath`, editable or as a read-only preview. Pure predicate so the
- * reactive affordance and the imperative toggle below can never disagree about
- * what "open" means.
+ * `workspacePath`, as a file-backed document or as a read-only preview. Pure
+ * predicate so the reactive affordance and the imperative toggle below can
+ * never disagree about what "open" means.
+ *
+ * A document with no file behind it carries no path, so it matches nothing.
  */
 export function isWorkspaceFileOpen(
   mainView: MainView,
@@ -131,7 +177,6 @@ export function isWorkspaceFileOpen(
   return (
     mainView === "document" &&
     openedDocument !== null &&
-    openedDocument.source !== "document" &&
     openedDocument.workspacePath === workspacePath
   );
 }
@@ -150,28 +195,38 @@ export function useIsWorkspaceFileOpen(workspacePath: string | null): boolean {
 }
 
 /**
- * Open a workspace file the assistant referenced: the document drawer's editor
+ * Open a workspace file the assistant referenced: a document bound to the file
  * for markdown, the drawer's read-only preview for everything else.
  *
- * Without an assistant id there is nothing to read the file through, so those
- * callers fall back to the workspace browser, which resolves the assistant
- * itself.
+ * A reference the drawer cannot open (no assistant to read the file through,
+ * or markdown with no conversation to bind the document to) falls back to the
+ * workspace browser, which resolves both itself.
  */
 export function openLocalFile(
   workspacePath: string,
   filename: string,
   assistantId?: string,
+  conversationId?: string | null,
 ): void {
-  if (assistantId) {
-    if (opensInDocumentDrawer(filename)) {
-      void useViewerStore
-        .getState()
-        .loadWorkspaceFileDocument(assistantId, workspacePath);
-      return;
-    }
+  const destination = localFileDestination(
+    filename,
+    assistantId,
+    conversationId,
+  );
+  if (destination.mode === "document") {
+    void useViewerStore
+      .getState()
+      .loadWorkspaceFileDocument(
+        destination.assistantId,
+        workspacePath,
+        destination.conversationId,
+      );
+    return;
+  }
+  if (destination.mode === "preview") {
     useViewerStore
       .getState()
-      .openWorkspaceFilePreview(workspacePath, drawerPreviewKindFor(filename));
+      .openWorkspaceFilePreview(workspacePath, destination.previewKind);
     return;
   }
   void openWorkspaceFile(workspacePath);
@@ -188,10 +243,11 @@ export function toggleLocalFile(
   workspacePath: string,
   filename: string,
   assistantId?: string,
+  conversationId?: string | null,
 ): void {
   const state = useViewerStore.getState();
   if (
-    usesDocumentDrawer(filename, assistantId) &&
+    usesDocumentDrawer(filename, assistantId, conversationId) &&
     isWorkspaceFileOpen(
       state.mainView,
       state.openedDocumentState,
@@ -201,5 +257,5 @@ export function toggleLocalFile(
     state.closeDocument();
     return;
   }
-  openLocalFile(workspacePath, filename, assistantId);
+  openLocalFile(workspacePath, filename, assistantId, conversationId);
 }

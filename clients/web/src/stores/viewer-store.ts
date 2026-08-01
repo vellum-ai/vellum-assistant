@@ -8,8 +8,8 @@
  * - `mainView` — which top-level panel is displayed
  * - `activeAppId` / `openedAppState` — app viewer
  * - `activeDocumentTarget` / `openedDocumentState` — document viewer, holding
- *   a db-backed document surface, a workspace markdown file, or a read-only
- *   preview of a workspace file the editor cannot round-trip
+ *   a document surface (which may be bound to a workspace markdown file) or a
+ *   read-only preview of a workspace file the editor cannot round-trip
  * - `isAppMinimized` — mobile-only: app viewer minimized
  * - `intelligenceTab` — sub-tab inside the intelligence panel
  * - `assetsRefreshKey` — counter bumped to force asset re-fetches
@@ -39,8 +39,9 @@ import { toast } from "@vellumai/design-library";
 import {
   appsByIdOpenPost,
   documentsByIdGet,
-  workspaceFileGet,
+  documentsForworkspacefilePost,
 } from "@/generated/daemon/sdk.gen";
+import { ApiError } from "@/utils/api-errors";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
 
@@ -117,6 +118,22 @@ export function isAppNotFoundError(err: unknown): boolean {
   return typeof message === "string" && message.startsWith("App not found");
 }
 
+/**
+ * What to tell the reader when opening a workspace file as a document fails.
+ *
+ * The daemon refuses these opens with a message written for a reader (the
+ * file was deleted, the path is not markdown), so a client error's message is
+ * repeated verbatim. A server fault or a transport failure carries no such
+ * message, only `HTTP 500` or the fetch layer's own wording, so those get a
+ * generic line instead of leaking plumbing into the toast.
+ */
+function workspaceDocumentErrorMessage(err: unknown): string {
+  if (err instanceof ApiError && err.status < 500 && err.message) {
+    return err.message;
+  }
+  return "Couldn't open this file";
+}
+
 function resolveViewBefore(
   state: ViewerState,
   field:
@@ -185,18 +202,15 @@ export interface OpenedDbDocumentState {
   conversationId: string;
   documentName: string;
   content: string;
-}
-
-/**
- * A markdown file in the assistant workspace, opened in the same editor. Edits
- * are saved by rewriting the file on disk, so this variant carries no document
- * id and none of the document-id affordances exist for it.
- */
-export interface OpenedWorkspaceFileDocumentState {
-  source: "workspace-file";
-  workspacePath: string;
-  documentName: string;
-  content: string;
+  /**
+   * The workspace markdown file this document is bound to, when it has one.
+   * A file-backed document is a full document surface, since the daemon writes
+   * every save through to the file, so it differs from any other document only
+   * in carrying the path, which the transcript's file affordances match on to
+   * show which file is open. Absent or `null` for a document that has no file
+   * behind it.
+   */
+  workspacePath?: string | null;
 }
 
 /**
@@ -230,13 +244,12 @@ export interface OpenedWorkspaceFilePreviewState {
 }
 
 /**
- * What the document viewer is showing. The `source` discriminant decides where
- * saves go, so it is never optional: a file-backed document has no surface id,
- * a db-backed document has no workspace path, and a preview saves nowhere.
+ * What the document viewer is showing. The `source` discriminant decides
+ * whether edits save anywhere: a document surface autosaves through the
+ * documents API, and a preview saves nowhere.
  */
 export type OpenedDocumentState =
   | OpenedDbDocumentState
-  | OpenedWorkspaceFileDocumentState
   | OpenedWorkspaceFilePreviewState;
 
 /**
@@ -244,6 +257,10 @@ export type OpenedDocumentState =
  * resolves after the user moved on can detect that it is stale. One union
  * rather than a surface-id field plus a path field, so "showing a file while a
  * surface id is active" cannot be represented.
+ *
+ * `workspace-file` is the in-flight target of a file-backed document open: the
+ * surface id only exists once the daemon has answered, so until then the
+ * request is addressed by the path the user clicked.
  */
 export type DocumentTarget =
   | { source: "document"; surfaceId: string }
@@ -538,12 +555,18 @@ export interface ViewerActions {
   ) => Promise<void>;
   /**
    * Open a markdown file from the assistant workspace in the document viewer.
-   * The viewer then edits the file itself: saves rewrite it on disk rather than
-   * writing a document row, so the transcript and the workspace never fork.
+   * The daemon finds or creates the document bound to that file and keeps the
+   * two in step: the file wins at open, and every save writes back through to
+   * it. So this opens a full document surface, with the comment panel,
+   * assistant iteration, and PDF export a document carries.
+   *
+   * `conversationId` is the conversation the file was opened from, which the
+   * document is bound to.
    */
   loadWorkspaceFileDocument: (
     assistantId: string,
     workspacePath: string,
+    conversationId: string,
   ) => Promise<void>;
   /**
    * Open a workspace file the editor cannot round-trip (a spreadsheet, a Word
@@ -1011,6 +1034,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
           conversationId: result.conversationId,
           documentName: result.title ?? "Untitled",
           content: result.content ?? "",
+          workspacePath: result.workspacePath,
         },
       });
     } catch {
@@ -1025,7 +1049,11 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     }
   },
 
-  loadWorkspaceFileDocument: async (assistantId, workspacePath) => {
+  loadWorkspaceFileDocument: async (
+    assistantId,
+    workspacePath,
+    conversationId,
+  ) => {
     const viewBeforeDocument = resolveViewBefore(get(), "viewBeforeDocument");
     const target: DocumentTarget = { source: "workspace-file", workspacePath };
     set({
@@ -1035,7 +1063,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       viewBeforeDocument,
     });
 
-    const giveUp = () => {
+    const giveUp = (err: unknown) => {
       if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
         return;
       }
@@ -1044,36 +1072,40 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         activeDocumentTarget: null,
         openedDocumentState: null,
       });
-      toast.error("Couldn't open this file");
+      toast.error(workspaceDocumentErrorMessage(err));
     };
 
     try {
-      const { data: result } = await workspaceFileGet({
+      const { data: result } = await documentsForworkspacefilePost({
         path: { assistant_id: assistantId },
-        query: { path: workspacePath },
+        body: { path: workspacePath, conversationId },
         throwOnError: true,
       });
       if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
         return;
       }
-      // `content` is null for binary files and for text too large to inline.
-      // Editing either would truncate the file on the next save.
-      if (!result || result.isBinary || typeof result.content !== "string") {
-        giveUp();
+      if (!result) {
+        giveUp(null);
         return;
       }
       set({
+        // The surface id exists now, so the target becomes the same one a
+        // document opened from the transcript carries.
+        activeDocumentTarget: {
+          source: "document",
+          surfaceId: result.surfaceId,
+        },
         openedDocumentState: {
-          source: "workspace-file",
-          // The requested path, not the echoed one, so a save writes exactly
-          // the file this content was read from.
-          workspacePath,
-          documentName: result.name,
-          content: result.content,
+          source: "document",
+          surfaceId: result.surfaceId,
+          conversationId: result.conversationId,
+          documentName: result.title || "Untitled",
+          content: result.content ?? "",
+          workspacePath: result.workspacePath,
         },
       });
-    } catch {
-      giveUp();
+    } catch (err) {
+      giveUp(err);
     }
   },
 
@@ -1098,7 +1130,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   updateDocumentContent: (surfaceId, content, mode) => {
     const prev = get().openedDocumentState;
     // Streamed edits address a document surface, so they never apply to a
-    // file-backed document or to a read-only preview.
+    // read-only preview.
     if (!prev || prev.source !== "document" || prev.surfaceId !== surfaceId) {
       return;
     }
