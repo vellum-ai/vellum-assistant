@@ -30,6 +30,26 @@ const nextConfig: NextConfig = {
   // prefetches and every landing would emit a burst of phantom page_view
   // rows (see FLIGHT_HEADERS in next/dist/server/web/adapter.js).
   skipMiddlewareUrlNormalize: true,
+  async redirects() {
+    return [
+      // Legacy /docs URLs that permanently redirect to their successors.
+      {
+        source: "/docs/data-sharing",
+        destination: "/docs/privacy-policy",
+        permanent: true,
+      },
+      {
+        source: "/docs/affiliate-program-rules",
+        destination: "/docs",
+        permanent: true,
+      },
+      {
+        source: "/docs/vellum-survey-giveaway-official-rules",
+        destination: "/docs",
+        permanent: true,
+      },
+    ];
+  },
   async rewrites() {
     return {
       beforeFiles: [
