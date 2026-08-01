@@ -339,8 +339,15 @@ function isValidRiskThreshold(value: unknown): value is RiskThreshold {
   );
 }
 
-/** Upper bound on the reported active-app id, matching app id generation. */
-const ACTIVE_APP_ID_MAX_LENGTH = 128;
+/**
+ * Upper bound on the reported active-app id. Sized so it can never clip an id
+ * the viewer can actually open: a plugin app id is `plugins~<plugin>~<app>`,
+ * and each of those two segments is a filesystem directory name bounded at 255
+ * bytes, so the longest openable id runs to ~519 characters. The cap exists
+ * only to bound what an arbitrary client can park on the conversation, not to
+ * validate the id — `resolveAppSource` decides what resolves.
+ */
+const ACTIVE_APP_ID_MAX_LENGTH = 640;
 
 /**
  * True when the client-reported active-app id is safe to carry as view state:

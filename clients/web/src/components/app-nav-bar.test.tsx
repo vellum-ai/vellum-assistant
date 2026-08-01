@@ -184,6 +184,30 @@ describe("AppNavBar desktop edit affordance", () => {
     expect(html).not.toContain("lucide-expand");
   });
 
+  test("names the expand button for screen readers", () => {
+    // `iconOnly` glyphs render inside an `aria-hidden` span and the tooltip
+    // does not name the trigger, so an icon-only control needs its own label
+    // or it reads as an unnamed button.
+    render(
+      <AppNavBar
+        appName="My App"
+        onClose={() => {}}
+        onEdit={() => {}}
+        isEditing
+      />,
+    );
+
+    const expandButton = document
+      .querySelector("svg.lucide-expand")
+      ?.closest("button");
+    expect(expandButton?.getAttribute("aria-label")).toBe("Expand app");
+    // The always-present close control shares the same affordance.
+    const closeButton = document
+      .querySelector("svg.lucide-x")
+      ?.closest("button");
+    expect(closeButton?.getAttribute("aria-label")).toBe("Close");
+  });
+
   test("swaps to an expand icon while the chat panel is open", () => {
     const onEdit = mock(() => {});
     render(

@@ -72,6 +72,7 @@ export function AppNavBar({
               iconOnly={<Expand />}
               onClick={onEdit}
               tooltip="Expand app"
+              aria-label="Expand app"
             />
           ) : (
             <Button onClick={onEdit}>Edit</Button>
@@ -110,6 +111,7 @@ export function AppNavBar({
                 onClick={onDeploy}
                 disabled={isDeploying}
                 tooltip={isDeploying ? "Deploying…" : "Deploy"}
+                aria-label={isDeploying ? "Deploying…" : "Deploy"}
               />
             )}
             {onShare != null && (
@@ -121,6 +123,7 @@ export function AppNavBar({
                 onClick={onShare}
                 disabled={isSharing}
                 tooltip={isSharing ? "Sharing…" : "Share"}
+                aria-label={isSharing ? "Sharing…" : "Share"}
               />
             )}
           </>
@@ -131,6 +134,7 @@ export function AppNavBar({
             iconOnly={<Maximize2 />}
             onClick={onToggleFullscreen}
             tooltip="Fullscreen"
+            aria-label="Fullscreen"
           />
         )}
         {onEdit != null && (
@@ -139,6 +143,7 @@ export function AppNavBar({
             iconOnly={isEditing ? <ChevronUp /> : <Pencil />}
             onClick={onEdit}
             tooltip={isEditing ? "Open app" : "Edit"}
+            aria-label={isEditing ? "Open app" : "Edit"}
             active={isEditing}
             className="md:hidden"
           />
@@ -148,6 +153,7 @@ export function AppNavBar({
           iconOnly={<X />}
           onClick={onClose}
           tooltip="Close"
+          aria-label="Close"
         />
       </div>
     </div>
@@ -184,8 +190,8 @@ function ShareDeployMenuTrigger({
   const triggerTooltip = isSharing
     ? "Sharing…"
     : isDeploying
-      ? "Deploying…"
-      : "Share & deploy";
+    ? "Deploying…"
+    : "Share & deploy";
 
   if (isMobile) {
     return (
@@ -196,6 +202,7 @@ function ShareDeployMenuTrigger({
             iconOnly={triggerIcon}
             disabled={isBusy}
             tooltip={triggerTooltip}
+            aria-label={triggerTooltip}
           />
         </BottomSheet.Trigger>
         <BottomSheet.Content aria-describedby={undefined}>
@@ -247,6 +254,7 @@ function ShareDeployMenuTrigger({
           iconOnly={triggerIcon}
           disabled={isBusy}
           tooltip={triggerTooltip}
+          aria-label={triggerTooltip}
         />
       </Menu.Trigger>
       <Menu.Content align="end" sideOffset={4}>

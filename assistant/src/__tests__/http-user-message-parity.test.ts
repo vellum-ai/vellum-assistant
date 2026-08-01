@@ -485,6 +485,19 @@ describe("HTTP POST /v1/messages activeAppId transport metadata", () => {
     });
   });
 
+  test("carries a long plugin-bundled app id, which the viewer can open", async () => {
+    // `plugins~<plugin>~<app>`, both segments at the filesystem's 255-byte
+    // ceiling. The open route resolves ids this long, so ingress must not clip
+    // them or the app on screen goes unreported.
+    const longPluginAppId = `plugins~${"p".repeat(255)}~${"a".repeat(255)}`;
+
+    expect(await captureTransport({ activeAppId: longPluginAppId })).toEqual({
+      channelId: "vellum",
+      interfaceId: "macos",
+      activeAppId: longPluginAppId,
+    });
+  });
+
   test("drops a traversal-shaped activeAppId without rejecting the message", async () => {
     expect(await captureTransport({ activeAppId: "../../etc/passwd" })).toEqual(
       {
