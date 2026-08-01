@@ -31,6 +31,7 @@ import {
  */
 export interface VoiceAudioInterruptionEvent {
   type: "began" | "ended";
+  reason?: "interruption" | "focus-loss" | "route-change" | "resume";
 }
 
 interface VoiceAudioSessionPlugin {
@@ -68,8 +69,7 @@ export async function activateVoiceAudioSession(): Promise<boolean> {
 }
 
 /**
- * Release the audio session at the end of a live-voice session. No-op off-iOS
- * and on an older shell. Never throws.
+ * Release native audio ownership. No-op in browsers and older shells.
  */
 export async function deactivateVoiceAudioSession(): Promise<void> {
   return callNativeVoice(async () => {

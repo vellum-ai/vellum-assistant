@@ -37,12 +37,6 @@ import {
   loadSectionOrder,
   saveSectionOrder,
 } from "@/domains/chat/utils/sidebar-section-order";
-import {
-  DEFAULT_SIDEBAR_VIEW_MODE,
-  loadViewMode,
-  saveViewMode,
-  type SidebarViewMode,
-} from "@/domains/chat/utils/sidebar-view-mode";
 
 // ---------------------------------------------------------------------------
 // State + Actions
@@ -64,11 +58,6 @@ export interface SidebarLayoutState {
    * `mergeSectionOrder`.
    */
   sectionOrder: string[];
-  /**
-   * Which conversation-list view the sidebar renders: the flat recency list
-   * (`all`) or the per-channel collapsible sections (`grouped`).
-   */
-  viewMode: SidebarViewMode;
   /**
    * Whether the user has revealed the Background section this session -
    * either by expanding it in the full sidebar or opening its rail flyout.
@@ -92,7 +81,6 @@ export interface SidebarLayoutActions {
   setOpenCustomGroups: (next: string[]) => void;
   setOpenPrimary: (next: string[]) => void;
   setSectionOrder: (next: string[]) => void;
-  setViewMode: (next: SidebarViewMode) => void;
   activateBackground: () => void;
   activateScheduled: () => void;
 }
@@ -112,7 +100,6 @@ const INITIAL_STATE: SidebarLayoutState = {
   // setAssistantId.
   openPrimary: [...PRIMARY_SECTION_KEYS],
   sectionOrder: [],
-  viewMode: DEFAULT_SIDEBAR_VIEW_MODE,
   backgroundActivated: false,
   scheduledActivated: false,
 };
@@ -136,7 +123,6 @@ const useSidebarLayoutStoreBase = create<SidebarLayoutStore>()(
         openCustomGroups: loadOpenCustomGroups(assistantId),
         openPrimary: loadOpenPrimary(assistantId),
         sectionOrder: loadSectionOrder(assistantId),
-        viewMode: loadViewMode(assistantId),
         // A persisted expanded section counts as a reveal, so each lazy
         // fetch resumes for assistants the user already had that section
         // open on - tracked per section so they stay independent.
@@ -180,14 +166,6 @@ const useSidebarLayoutStoreBase = create<SidebarLayoutStore>()(
       const { assistantId } = get();
       if (assistantId) {
         saveSectionOrder(assistantId, next);
-      }
-    },
-
-    setViewMode: (next: SidebarViewMode) => {
-      set({ viewMode: next });
-      const { assistantId } = get();
-      if (assistantId) {
-        saveViewMode(assistantId, next);
       }
     },
 
