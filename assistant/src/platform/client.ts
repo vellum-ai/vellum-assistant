@@ -107,16 +107,21 @@ async function resolvePlatformClientConfig(): Promise<PlatformClientConfig | nul
 const CONFIGURED_PROBE_DEADLINE_MS = 500;
 
 let lastKnownConfigured: boolean | null = null;
-// Single-flight slot with rotation: probes started inside the deadline window
-// share one resolution, while a flight older than the deadline is replaced so
-// a hung credential backend cannot pin the slot (and the cache) stale until a
-// 45s credential timeout finally settles it. Generation fencing keeps an
+// Single-flight slot with rotation: concurrent probes share one resolution,
+// while a flight some caller already gave up on is replaced so a hung
+// credential backend cannot pin the slot (and the cache) stale until a 45s
+// credential timeout finally settles it. Generation fencing keeps an
 // out-of-order settle from a rotated-out flight from overwriting the result a
 // newer flight already wrote.
 interface ConfiguredProbeFlight {
   promise: Promise<boolean>;
-  startedAt: number;
   generation: number;
+  // Set once a caller's deadline elapsed on this flight. Rotation keys off
+  // this observed give-up rather than a wall-clock age, so the decision never
+  // lands on the deadline boundary, where drift between the timer's clock and
+  // Date.now() would decide whether a caller rejoins the flight it just
+  // abandoned.
+  abandoned: boolean;
 }
 let inFlightConfiguredProbe: ConfiguredProbeFlight | null = null;
 let probeGeneration = 0;
@@ -131,13 +136,10 @@ export function _resetConfiguredProbeCacheForTests(): void {
   lastWrittenGeneration = probeGeneration;
 }
 
-function startOrJoinConfiguredProbe(): Promise<boolean> {
+function startOrJoinConfiguredProbe(): ConfiguredProbeFlight {
   const existing = inFlightConfiguredProbe;
-  if (
-    existing !== null &&
-    Date.now() - existing.startedAt < CONFIGURED_PROBE_DEADLINE_MS
-  ) {
-    return existing.promise;
+  if (existing !== null && !existing.abandoned) {
+    return existing;
   }
   probeGeneration += 1;
   const generation = probeGeneration;
@@ -160,8 +162,13 @@ function startOrJoinConfiguredProbe(): Promise<boolean> {
       }
       return value;
     });
-  inFlightConfiguredProbe = { promise, startedAt: Date.now(), generation };
-  return promise;
+  const flight: ConfiguredProbeFlight = {
+    promise,
+    generation,
+    abandoned: false,
+  };
+  inFlightConfiguredProbe = flight;
+  return flight;
 }
 
 /**
@@ -171,14 +178,13 @@ function startOrJoinConfiguredProbe(): Promise<boolean> {
  *
  * Bounded by {@link CONFIGURED_PROBE_DEADLINE_MS}: when config resolution is
  * slower than the deadline, returns the last settled result (or `false` when
- * none exists yet). Calls inside the deadline window share one in-flight
- * resolution; a call that finds a flight older than the deadline starts a
- * fresh one, so a hung backend never pins the cache stale, and generation
- * fencing keeps a rotated-out flight's late settle from overwriting a newer
- * result.
+ * none exists yet) and marks the flight abandoned. Concurrent calls share one
+ * in-flight resolution; the next call after an abandonment starts a fresh one,
+ * so a hung backend never pins the cache stale, and generation fencing keeps a
+ * rotated-out flight's late settle from overwriting a newer result.
  */
 export async function isPlatformClientConfigured(): Promise<boolean> {
-  const probe = startOrJoinConfiguredProbe();
+  const flight = startOrJoinConfiguredProbe();
 
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<"deadline">((resolve) => {
@@ -187,9 +193,10 @@ export async function isPlatformClientConfigured(): Promise<boolean> {
       CONFIGURED_PROBE_DEADLINE_MS,
     );
   });
-  const raced = await Promise.race([probe, deadline]);
+  const raced = await Promise.race([flight.promise, deadline]);
   clearTimeout(deadlineTimer);
   if (raced === "deadline") {
+    flight.abandoned = true;
     return lastKnownConfigured ?? false;
   }
   return raced;
