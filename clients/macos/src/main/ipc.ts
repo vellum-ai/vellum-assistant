@@ -1,6 +1,8 @@
 import { createIpcRegistrar } from "@vellumai/electron-desktop/ipc";
 
-import { resolveAllowedOrigin } from "./app-origin";
+import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin";
 
-export const { handle, handleSync, on } =
-  createIpcRegistrar(resolveAllowedOrigin);
+export const { handle, handleSync, on } = createIpcRegistrar(
+  resolveAllowedOrigin,
+  isAllowedOrigin,
+);

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { isAllowedOrigin, type AllowedOrigin } from "./app-origin";
 
 export type AllowedOriginResolver = () => AllowedOrigin;
+export type OriginValidator = typeof isAllowedOrigin;
 
 /**
  * Registration helpers for the renderer-to-main IPC surface.
@@ -14,9 +15,10 @@ export type AllowedOriginResolver = () => AllowedOrigin;
  */
 export const createIpcRegistrar = (
   resolveAllowedOrigin: AllowedOriginResolver,
+  validateOrigin: OriginValidator = isAllowedOrigin,
 ) => {
   const isAllowedSender = (event: IpcMainEvent | IpcMainInvokeEvent): boolean =>
-    isAllowedOrigin(event.senderFrame?.origin, resolveAllowedOrigin());
+    validateOrigin(event.senderFrame?.origin, resolveAllowedOrigin());
 
   /** Register an invocable handler with sender and argument validation. */
   const handle = <Args extends unknown[], R>(
