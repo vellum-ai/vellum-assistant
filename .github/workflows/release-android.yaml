@@ -113,14 +113,18 @@ jobs:
           path: clients/android/app/build/outputs/bundle/${{ inputs.environment }}Release/*.aab
           if-no-files-found: error
 
-      - name: Upload to Play internal track
-        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: ${{ steps.config.outputs.package_id }}
-          releaseFiles: clients/android/app/build/outputs/bundle/${{ inputs.environment }}Release/*.aab
-          track: internal
-          status: completed
+      # Play upload is temporarily manual: download the signed .aab artifact above
+      # and upload it to the internal track by hand.
+      #
+      # The automated step used r0adkll/upload-google-play, which our org's Actions
+      # allowlist does not permit. A disallowed `uses:` makes this whole reusable
+      # workflow file invalid, so every caller — dev-release.yaml and release.yml —
+      # failed at startup before running a single job. The `if:` gate on those call
+      # sites does not help: GitHub validates called workflows regardless of `if`.
+      #
+      # To restore automated publishing, allowlist the action (or switch to an
+      # already-permitted publisher) and re-add the step. The package id is still
+      # resolved above as steps.config.outputs.package_id for that purpose.
 
       - name: Remove signing material
         if: ${{ always() }}
