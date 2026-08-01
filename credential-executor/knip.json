@@ -4,6 +4,7 @@
   "ignoreDependencies": [
     "@vellumai/service-contracts",
     "@vellumai/credential-storage",
-    "@vellumai/egress-proxy"
+    "@vellumai/egress-proxy",
+    "@vellumai/ipc-server-utils"
   ]
 }
