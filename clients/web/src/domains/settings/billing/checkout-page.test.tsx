@@ -238,6 +238,16 @@ afterEach(() => {
 describe("CheckoutPage", () => {
   test("redirects native Android to billing without creating checkout", async () => {
     nativeAndroid = true;
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: AVATAR_TRAITS,
+    });
     const { getByTestId } = renderCheckout(
       "/assistant/checkout?package=super",
     );
@@ -249,6 +259,31 @@ describe("CheckoutPage", () => {
     );
     expect(upgradeCalls.length).toBe(0);
     expect(openedUrl).toBeNull();
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+    expect(readTakeoverAvatarStash()).toBeNull();
+  });
+
+  test("native Android resumes onboarding without leaving checkout state", async () => {
+    nativeAndroid = true;
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: AVATAR_TRAITS,
+    });
+    const { getByTestId } = renderCheckout(ONBOARDING_ENTRY);
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(ONBOARDING_NEXT),
+    );
+    expect(upgradeCalls.length).toBe(0);
+    expect(openedUrl).toBeNull();
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+    expect(readTakeoverAvatarStash()).toBeNull();
   });
 
   test("valid package + full gate fires the upgrade, stashes intent and avatar, opens Stripe", async () => {

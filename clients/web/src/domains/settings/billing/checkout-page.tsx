@@ -4,7 +4,6 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { AndroidBillingGate } from "@/domains/settings/billing/android-billing-gate";
 import {
   captureTakeoverAvatarStash,
   clearTakeoverAvatarStash,
@@ -21,6 +20,7 @@ import {
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { parseCustomCheckoutSelection } from "@/lib/billing/custom-checkout-params";
 import { openUrl } from "@/runtime/browser";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -386,10 +386,28 @@ function CheckoutPageContent() {
   );
 }
 
+function AndroidCheckoutRedirect() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const target = checkoutContinuation(
+    searchParams,
+    routes.settings.usageBilling,
+  );
+
+  useEffect(() => {
+    abandonCheckout();
+    navigate(target, { replace: true });
+  }, [navigate, target]);
+
+  return null;
+}
+
 export function CheckoutPage() {
-  return (
-    <AndroidBillingGate redirectToBilling>
-      <CheckoutPageContent />
-    </AndroidBillingGate>
+  const isNativeAndroid = useIsNativeAndroid();
+
+  return isNativeAndroid ? (
+    <AndroidCheckoutRedirect />
+  ) : (
+    <CheckoutPageContent />
   );
 }
