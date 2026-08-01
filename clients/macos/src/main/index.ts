@@ -76,7 +76,7 @@ import { installIdentityIpc } from "./identity";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
-import { hardenedWebPreferences } from "./windows";
+import { installWebContentsSecurity } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
 // menu bar's first submenu reads "Vellum Electron", and — more
@@ -496,69 +496,9 @@ app.on("web-contents-created", (_event, contents) => {
   installImageContextMenu(contents);
   installTextContextMenu(contents);
 
-  // Mirror renderer console output (info and up) into the main log file.
-  // The packaged app has no devtools, so without this the renderer's
-  // diagnostics — voice/dictation fallback decisions especially — are
-  // invisible in the field; `vellum.log` is the only artifact a debugging
-  // session can read.
-  contents.on("console-message", (event) => {
-    if (event.level === "debug") return;
-    // wc id disambiguates which window a line came from — dictation partials
-    // route to a single owner window, so cross-window confusion is invisible
-    // without it.
-    const line = `[renderer wc=${contents.id}] ${event.message}`;
-    if (event.level === "error") log.error(line);
-    else if (event.level === "warning") log.warn(line);
-    else log.info(line);
-  });
-
-  contents.setWindowOpenHandler(({ url, disposition }) => {
-    // Programmatic popups (`window.open(url, name, features)` with size
-    // hints) come through as `new-window` disposition. The web app's OAuth /
-    // connect flows open a blank popup synchronously during the click handler
-    // (`window.open("", "_blank", "width=500,height=600")`), then navigate it
-    // to the OAuth URL after the API call resolves. Chromium resolves the
-    // empty string to `about:blank`, which must be allowed here so the popup
-    // handle is returned to the renderer for the subsequent postMessage
-    // callback chain.
-    if (disposition === "new-window" && url === "about:blank") {
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          webPreferences: { ...hardenedWebPreferences(), preload: undefined },
-        },
-      };
-    }
-
-    // Only http(s) is ever opened — file:, javascript:, custom schemes are
-    // denied with no fallback.
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return { action: "deny" };
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      return { action: "deny" };
-    }
-
-    // Programmatic popups with a real URL also come through as `new-window`
-    // disposition and are allowed as in-app child windows.
-    if (disposition === "new-window") {
-      // Child popups inherit the same hardened baseline as every window.
-      // `preload: undefined` explicitly clears the parent's preload so
-      // third-party OAuth pages don't get the Vellum bridge.
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          webPreferences: { ...hardenedWebPreferences(), preload: undefined },
-        },
-      };
-    }
-
-    // Plain target=_blank link clicks → system browser.
-    void shell.openExternal(url);
-    return { action: "deny" };
+  installWebContentsSecurity(contents, {
+    logger: log,
+    openExternal: (url) => shell.openExternal(url),
   });
 });
 

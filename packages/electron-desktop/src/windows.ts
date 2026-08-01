@@ -1,8 +1,8 @@
 import {
   BrowserWindow,
   type BrowserWindowConstructorOptions,
+  type WebContents,
   type WebPreferences,
-  app,
 } from "electron";
 import path from "node:path";
 
@@ -45,11 +45,9 @@ export const hardenedWebPreferences = (): WebPreferences => ({
  *
  * - `"deny-all"` blocks every top-level navigation and every `window.open`
  *   from the window. Use for static auxiliary windows whose content never
- *   legitimately navigates away from its initial route (the About window, and
- *   future palette / HUD windows that load a fixed renderer route).
+ *   legitimately navigates away from its initial route.
  * - `{ installGuard }` delegates to a caller-supplied guard for windows that
- *   need a bespoke policy - the main window relaxes same-origin rules during
- *   the OAuth sign-in chain. `window.open` for these is governed by the global
+ *   need a bespoke policy. `window.open` is governed by the global
  *   `web-contents-created` handler in `index.ts`.
  */
 export type WindowNavigation =
@@ -57,34 +55,21 @@ export type WindowNavigation =
   | { installGuard: (win: BrowserWindow) => void };
 
 export interface CreateWindowOptions {
-  /**
-   * Window construction options *except* `webPreferences`, which the seam owns
-   * so every window inherits the same hardened baseline.
-   */
+  /** Window construction options except `webPreferences`, which this seam owns. */
   browserWindow: Omit<BrowserWindowConstructorOptions, "webPreferences">;
   navigation: WindowNavigation;
 }
 
 const applyDenyAllNavigation = (win: BrowserWindow): void => {
-  // The window only ever shows its initial route; any outbound link routes
-  // through an explicit IPC → `shell.openExternal`. Blocking top-level
-  // navigation and popups keeps the preload-exposed `window.vellum` surface
-  // from being carried into a destination we don't control - via a bare
-  // `<a href>`, a dropped URL/file, or a `window.location` write.
+  // Outbound links route through explicit IPC. The window itself never leaves
+  // its initial route or carries the preload bridge into another destination.
   win.webContents.on("will-navigate", (event) => {
     event.preventDefault();
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 };
 
-/**
- * The single creation path for every BrowserWindow the app opens. Seals the
- * hardened `webPreferences` baseline - no call site can omit a flag - and
- * applies the window's navigation policy. Window-specific lifecycle (sizing,
- * readiness, visibility tracking) stays with each caller, since the main and
- * auxiliary windows legitimately differ there; only the security-critical
- * baseline is centralised.
- */
+/** Create a BrowserWindow with the shared security and navigation baseline. */
 export const createWindow = (opts: CreateWindowOptions): BrowserWindow => {
   const win = new BrowserWindow({
     ...opts.browserWindow,
@@ -102,3 +87,59 @@ export const createWindow = (opts: CreateWindowOptions): BrowserWindow => {
 
   return win;
 };
+
+export interface WebContentsSecurityOptions {
+  logger: Pick<Console, "error" | "info" | "warn">;
+  openExternal: (url: string) => void | Promise<void>;
+}
+
+export const installWebContentsSecurity = (
+  contents: WebContents,
+  options: WebContentsSecurityOptions,
+): void => {
+  contents.on("console-message", (event) => {
+    if (event.level === "debug") {
+      return;
+    }
+    const line = `[renderer wc=${contents.id}] ${event.message}`;
+    if (event.level === "error") {
+      options.logger.error(line);
+    } else if (event.level === "warning") {
+      options.logger.warn(line);
+    } else {
+      options.logger.info(line);
+    }
+  });
+
+  contents.setWindowOpenHandler(({ url, disposition }) => {
+    if (disposition === "new-window" && url === "about:blank") {
+      return allowPreloadFreePopup();
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { action: "deny" };
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return { action: "deny" };
+    }
+    if (disposition === "new-window") {
+      return allowPreloadFreePopup();
+    }
+
+    void options.openExternal(url);
+    return { action: "deny" };
+  });
+};
+
+const allowPreloadFreePopup = () => ({
+  action: "allow" as const,
+  overrideBrowserWindowOptions: {
+    webPreferences: {
+      ...hardenedWebPreferences(),
+      preload: undefined,
+    },
+  },
+});

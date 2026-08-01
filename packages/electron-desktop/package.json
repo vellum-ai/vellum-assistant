@@ -1,0 +1,28 @@
+{
+  "name": "@vellumai/electron-desktop",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./app-origin": "./src/app-origin.ts",
+    "./capability-registry": "./src/capability-registry.ts",
+    "./ipc": "./src/ipc.ts",
+    "./windows": "./src/windows.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test src/capability-registry.test.ts"
+  },
+  "peerDependencies": {
+    "electron": ">=42.2.0",
+    "zod": ">=4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "@types/node": "22.10.5",
+    "electron": "42.2.0",
+    "typescript": "5.9.3",
+    "zod": "4.3.6"
+  }
+}

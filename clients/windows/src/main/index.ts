@@ -10,10 +10,11 @@ import { resolveLocalConfigFromEnv } from "@vellumai/local-mode";
 import { z } from "zod";
 
 import { APP_PROTOCOL } from "./app-config";
-import { handle, handleSync } from "./ipc";
+import { installMainFeatures } from "./features";
+import { handle, handleSync } from "./ipc.client";
 import log from "./logger";
 import { ensureVisible, installMainWindow } from "./main-window";
-import { hardenedWebPreferences } from "./windows";
+import { installWebContentsSecurity } from "./windows.client";
 
 /**
  * Minimal Windows shell for the Vellum Assistant.
@@ -192,6 +193,7 @@ app
     }
     installAppInfoIpc();
     installMainWindow();
+    installMainFeatures();
   })
   .catch((err: unknown) => {
     log.error("[app] whenReady setup failed:", err);
@@ -205,70 +207,9 @@ app.on("second-instance", () => {
 });
 
 app.on("web-contents-created", (_event, contents) => {
-  // Mirror renderer console output (info and up) into the main log file.
-  // The packaged app has no devtools, so without this the renderer's
-  // diagnostics are invisible in the field; `vellum.log` is the only
-  // artifact a debugging session can read.
-  contents.on("console-message", (event) => {
-    if (event.level === "debug") {
-      return;
-    }
-    const line = `[renderer wc=${contents.id}] ${event.message}`;
-    if (event.level === "error") {
-      log.error(line);
-    } else if (event.level === "warning") {
-      log.warn(line);
-    } else {
-      log.info(line);
-    }
-  });
-
-  contents.setWindowOpenHandler(({ url, disposition }) => {
-    if (disposition === "new-window" && url === "about:blank") {
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          webPreferences: {
-            ...hardenedWebPreferences(),
-            preload: undefined,
-          },
-        },
-      };
-    }
-
-    // Only http(s) is ever opened - file:, javascript:, custom schemes are
-    // denied with no fallback.
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return { action: "deny" };
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-      return { action: "deny" };
-    }
-
-    // Programmatic popups (`window.open(url, name, features)` with size
-    // hints) come through as `new-window` disposition. The web app's OAuth /
-    // connect flows rely on the returned popup handle for postMessage
-    // callbacks, so allow these as in-app child windows that inherit the
-    // hardened webPreferences from the parent (preload intentionally
-    // omitted - these are OAuth/connect popups, not Vellum-bridge surfaces).
-    if (disposition === "new-window") {
-      return {
-        action: "allow",
-        overrideBrowserWindowOptions: {
-          webPreferences: {
-            ...hardenedWebPreferences(),
-            preload: undefined,
-          },
-        },
-      };
-    }
-
-    // Plain target=_blank link clicks → system browser.
-    void shell.openExternal(url);
-    return { action: "deny" };
+  installWebContentsSecurity(contents, {
+    logger: log,
+    openExternal: (url) => shell.openExternal(url),
   });
 });
 

@@ -27,6 +27,7 @@ const DEPS_TO_INLINE = [
   "electron-updater",
   "conf",
   "@vellumai/electron-utils",
+  "@vellumai/electron-desktop",
   "@vellumai/ipc-contract",
   "@vellumai/local-mode",
   "@vellumai/environments",

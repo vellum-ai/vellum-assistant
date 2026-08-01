@@ -31,6 +31,7 @@
     "wait-on": "8.0.1"
   },
   "dependencies": {
+    "@vellumai/electron-desktop": "workspace:*",
     "@vellumai/electron-utils": "workspace:*",
     "@vellumai/environments": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",

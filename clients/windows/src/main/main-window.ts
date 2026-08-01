@@ -2,10 +2,10 @@ import { BrowserWindow, app, shell } from "electron";
 import { z } from "zod";
 
 import { getRendererRootUrl } from "./app-config";
-import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin";
-import { handle } from "./ipc";
+import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin.client";
+import { handle } from "./ipc.client";
 import log from "./logger";
-import { createWindow } from "./windows";
+import { createWindow } from "./windows.client";
 
 // Default and minimum bounds mirror the macOS Electron client
 // (`clients/macos/src/main/main-window.ts`). Bounds persistence across
