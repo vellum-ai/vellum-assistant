@@ -11,7 +11,7 @@ import {
 } from "fs";
 import { join } from "path";
 
-import { getConfigDir } from "./environments/paths.js";
+import { getLogDir as getEnvironmentLogDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 
 /** Regex matching pino-pretty's short time prefix, e.g. `[12:07:37.467] `. */
@@ -24,7 +24,7 @@ const PINO_TIME_RE = /^\[\d{2}:\d{2}:\d{2}\.\d{3}\]\s*/;
  * non-production environments use `$XDG_CONFIG_HOME/vellum-<env>/logs`.
  */
 export function getLogDir(): string {
-  return join(getConfigDir(getCurrentEnvironment()), "logs");
+  return getEnvironmentLogDir(getCurrentEnvironment());
 }
 
 /** Open (or create) a log file in append mode, returning the file descriptor.

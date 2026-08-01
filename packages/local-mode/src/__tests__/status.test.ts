@@ -87,6 +87,11 @@ afterEach(() => {
 });
 
 describe("getLocalAssistantStatus", () => {
+  test("returns a structured error for unsafe assistant IDs", async () => {
+    const result = await getLocalAssistantStatus([lockfilePath], "../other");
+    expect(result.ok).toBe(false);
+    expect(result.ok ? 200 : result.status).toBe(400);
+  });
   test("returns sleeping when the assistant PID file is absent", async () => {
     writeLocalLockfile();
 

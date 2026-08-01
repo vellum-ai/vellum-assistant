@@ -34,6 +34,7 @@ import {
   ensureSocketDir,
   type IpcEnvelope,
   IpcFrameReader,
+  ipcListenOptions,
   removeIpcEndpointFile,
   SocketWatchdog,
   writeLegacyMessage,
@@ -257,8 +258,18 @@ export class AssistantIpcServer {
     await ensureSocketPathFree(this.socketPath);
 
     this.server = this.createListeningServer();
-    this.server.listen(this.socketPath, () => {
-      log.info({ path: this.socketPath }, "Assistant IPC server listening");
+    await new Promise<void>((resolve, reject) => {
+      const server = this.server!;
+      const onError = (err: Error): void => {
+        this.server = null;
+        reject(err);
+      };
+      server.once("error", onError);
+      server.listen(ipcListenOptions(this.socketPath), () => {
+        server.off("error", onError);
+        log.info({ path: this.socketPath }, "Assistant IPC server listening");
+        resolve();
+      });
     });
 
     this.watchdog.start();

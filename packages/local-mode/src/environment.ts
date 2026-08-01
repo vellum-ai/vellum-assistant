@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import os from "node:os";
 
 import {
   joinLocalPath,
@@ -14,16 +15,34 @@ const PRODUCTION_ENVIRONMENT_NAME = "production";
  * be read before the environment is known. Uses AppData on Windows and the
  * XDG config home on macOS and Linux.
  */
-export function defaultEnvironmentFilePath(
+export function defaultEnvironmentFilePaths(
   env: Record<string, string | undefined>,
   options: LocalPathOptions = {},
-): string {
-  return joinLocalPath(
+): string[] {
+  const canonical = joinLocalPath(
     options,
     resolveConfigHome(env, options),
     "vellum",
     "environment",
   );
+  if ((options.platform ?? process.platform) !== "win32") {
+    return [canonical];
+  }
+  const legacy = joinLocalPath(
+    options,
+    options.homeDir ?? os.homedir(),
+    ".config",
+    "vellum",
+    "environment",
+  );
+  return canonical === legacy ? [canonical] : [canonical, legacy];
+}
+
+export function defaultEnvironmentFilePath(
+  env: Record<string, string | undefined>,
+  options: LocalPathOptions = {},
+): string {
+  return defaultEnvironmentFilePaths(env, options)[0]!;
 }
 
 /**
@@ -34,14 +53,20 @@ export function readDefaultEnvironment(
   env: Record<string, string | undefined>,
   options: LocalPathOptions = {},
 ): string | undefined {
-  const filePath = defaultEnvironmentFilePath(env, options);
-  try {
-    if (!existsSync(filePath)) return undefined;
-    const content = readFileSync(filePath, "utf-8").trim();
-    return content.length > 0 ? content : undefined;
-  } catch {
-    return undefined;
+  for (const filePath of defaultEnvironmentFilePaths(env, options)) {
+    try {
+      if (!existsSync(filePath)) {
+        continue;
+      }
+      const content = readFileSync(filePath, "utf-8").trim();
+      if (content.length > 0) {
+        return content;
+      }
+    } catch {
+      // Try the next compatible location.
+    }
   }
+  return undefined;
 }
 
 /**
@@ -65,6 +90,7 @@ export function resolveEnvironmentName(
   options: LocalPathOptions = {},
 ): string {
   return (
+    options.environmentName ||
     env.VELLUM_ENVIRONMENT?.trim() ||
     readDefaultEnvironment(env, options) ||
     PRODUCTION_ENVIRONMENT_NAME

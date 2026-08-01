@@ -192,7 +192,7 @@ mock.module("../verification/identity.js", () => ({
   canonicalizeInboundIdentity: (_channel: string, id: string) => id,
 }));
 
-mock.module("../ipc/socket-path.js", () => ({
+mock.module("../ipc/endpoint.js", () => ({
   resolveIpcSocketPath: () => ({ path: TEST_SOCKET_PATH }),
 }));
 
@@ -1067,7 +1067,11 @@ describe("upsertVerifiedContactChannel — mirror reparent tracks gateway repare
 describe("identity lookup failure posture", () => {
   test("soft mode: a thrown identity lookup proceeds gateway-only via the create path", async () => {
     queryRows = [
-      { channelId: "ch-hidden", contactId: "co-hidden", channelStatus: "active" },
+      {
+        channelId: "ch-hidden",
+        contactId: "co-hidden",
+        channelStatus: "active",
+      },
     ];
     lookupThrow = true;
     gwSelectStatus = null;

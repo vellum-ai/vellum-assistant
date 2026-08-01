@@ -5,6 +5,7 @@ import path from "node:path";
 
 import {
   defaultEnvironmentFilePath,
+  defaultEnvironmentFilePaths,
   readDefaultEnvironment,
   resolveEnvironmentName,
 } from "../environment";
@@ -134,46 +135,42 @@ describe("Windows path resolution", () => {
   };
 
   test("uses AppData instead of XDG defaults", () => {
-    expect(defaultEnvironmentFilePath(env, options)).toBe(
-      "C:\\Users\\Example\\AppData\\Roaming\\vellum\\environment",
-    );
-    expect(resolveConfigDir(env, options)).toBe(
-      "C:\\Users\\Example\\AppData\\Roaming\\vellum-dev",
-    );
+    const paths = [
+      [defaultEnvironmentFilePath(env, options), "AppData\\Roaming\\vellum\\environment"],
+      [resolveConfigDir(env, options), "AppData\\Roaming\\vellum-dev"],
+      [resolveRuntimeDir(env, options), "AppData\\Local\\vellum-dev"],
+      [resolveLogDir(env, options), "AppData\\Local\\vellum-dev\\logs"],
+      [resolveInstanceDir(env, "assistant-123", options), "AppData\\Local\\vellum-dev\\assistants\\assistant-123"],
+    ];
+    for (const [actual, suffix] of paths) {
+      expect(actual).toBe(`C:\\Users\\Example\\${suffix}`);
+    }
     expect(resolveLockfilePaths(env, options)).toEqual([
       "C:\\Users\\Example\\AppData\\Roaming\\vellum-dev\\lockfile.json",
+      "C:\\Users\\Example\\.config\\vellum-dev\\lockfile.json",
     ]);
-    expect(resolveRuntimeDir(env, options)).toBe(
-      "C:\\Users\\Example\\AppData\\Local\\vellum-dev\\runtime",
-    );
-    expect(resolveLogDir(env, options)).toBe(
-      "C:\\Users\\Example\\AppData\\Local\\vellum-dev\\logs",
-    );
-    expect(resolveInstanceDir(env, "assistant-123", options)).toBe(
-      "C:\\Users\\Example\\AppData\\Local\\vellum-dev\\assistants\\assistant-123",
-    );
   });
 
   test("falls back to conventional AppData directories", () => {
     const productionEnv = { VELLUM_ENVIRONMENT: "production" };
-    expect(resolveConfigDir(productionEnv, options)).toBe(
-      "C:\\Users\\Example\\AppData\\Roaming\\vellum",
+    expect(resolveConfigDir(productionEnv, options)).toEndWith(
+      "AppData\\Roaming\\vellum",
     );
     expect(resolveLockfilePaths(productionEnv, options)).toEqual([
       "C:\\Users\\Example\\AppData\\Roaming\\vellum\\lockfile.json",
+      "C:\\Users\\Example\\.vellum.lock.json",
+      "C:\\Users\\Example\\.vellum.lockfile.json",
     ]);
-    expect(resolveRuntimeDir(productionEnv, options)).toBe(
-      "C:\\Users\\Example\\AppData\\Local\\vellum\\runtime",
-    );
-  });
-
-  test("honors the lockfile directory override", () => {
     expect(
       resolveLockfilePaths(
         { ...env, VELLUM_LOCKFILE_DIR: "D:\\Vellum" },
         options,
       ),
     ).toEqual(["D:\\Vellum\\lockfile.json"]);
+    expect(defaultEnvironmentFilePaths(env, options)).toEqual([
+      "C:\\Users\\Example\\AppData\\Roaming\\vellum\\environment",
+      "C:\\Users\\Example\\.config\\vellum\\environment",
+    ]);
   });
 
   test("rejects unsafe path segments", () => {

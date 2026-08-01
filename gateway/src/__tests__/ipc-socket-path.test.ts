@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 
-import { resolveIpcSocketPath } from "../ipc/socket-path.js";
+import { resolveIpcSocketPath } from "../ipc/endpoint.js";
 
 let savedWorkspaceDir: string | undefined;
 let savedGatewayIpcSocketDir: string | undefined;

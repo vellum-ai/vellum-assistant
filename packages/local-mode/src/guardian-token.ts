@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 
-import { guardianTokenPath } from "./config";
+import { guardianTokenPath, resolveConfigDirPaths } from "./config";
 import type { CliInvocation } from "./util";
 
 const GUARDIAN_TOKEN_REFRESH_TIMEOUT_MS = 15_000;
@@ -40,12 +40,29 @@ export function getGuardianAccessToken(
     return Promise.resolve({ ok: false, status: 403, error: "Forbidden" });
   }
 
-  const tokenPath = guardianTokenPath(configDir, assistantId);
-
-  let raw: string;
+  let tokenPaths: string[];
   try {
-    raw = fs.readFileSync(tokenPath, "utf-8");
+    const configDirs = [
+      configDir,
+      ...resolveConfigDirPaths({ ...process.env, ...env }),
+    ];
+    tokenPaths = [...new Set(configDirs)].map((dir) =>
+      guardianTokenPath(dir, assistantId),
+    );
   } catch {
+    return Promise.resolve({ ok: false, status: 400, error: "Invalid assistant ID" });
+  }
+
+  let raw: string | undefined;
+  for (const tokenPath of tokenPaths) {
+    try {
+      raw = fs.readFileSync(tokenPath, "utf-8");
+      break;
+    } catch {
+      // Try the next compatible location.
+    }
+  }
+  if (raw === undefined) {
     return Promise.resolve({ ok: false, status: 404, error: "Guardian token not found" });
   }
 

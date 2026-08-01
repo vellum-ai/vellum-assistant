@@ -21,6 +21,7 @@
 import {
   SocketWatchdog,
   ensureSocketDir,
+  ipcListenOptions,
   removeIpcEndpointFile,
 } from "@vellumai/ipc-server-utils";
 import { createServer, type Server, type Socket } from "node:net";
@@ -28,7 +29,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import type { z } from "zod";
 
 import { getLogger } from "../logger.js";
-import { resolveIpcSocketPath } from "./socket-path.js";
+import { resolveIpcSocketPath } from "./endpoint.js";
 
 const log = getLogger("ipc-server");
 
@@ -156,7 +157,7 @@ export class GatewayIpcServer {
     removeIpcEndpointFile(this.socketPath);
 
     this.server = this.createListeningServer();
-    this.server.listen(this.socketPath, () => {
+    this.server.listen(ipcListenOptions(this.socketPath), () => {
       log.info({ path: this.socketPath }, "IPC server listening");
     });
 

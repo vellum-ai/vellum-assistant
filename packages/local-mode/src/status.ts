@@ -5,8 +5,10 @@ import path from "node:path";
 import { SEEDS } from "@vellumai/environments";
 
 import { resolveInstanceDir } from "./config";
+import { resolveEnvironmentName } from "./environment";
 import type { LockfileAssistant } from "./lockfile-contract";
 import { getLockfileData } from "./lockfile";
+import { assertSafePathSegment } from "./paths";
 
 const HEALTH_TIMEOUT_MS = 1_500;
 const STARTING_GRACE_MS = 60_000;
@@ -209,7 +211,7 @@ function defaultPorts(env: Record<string, string | undefined>): {
   daemon: number;
   gateway: number;
 } {
-  const envName = env.VELLUM_ENVIRONMENT?.trim() || PRODUCTION_ENVIRONMENT_NAME;
+  const envName = resolveEnvironmentName(env);
   const seed = SEEDS[envName] ?? SEEDS[PRODUCTION_ENVIRONMENT_NAME];
   return {
     daemon: seed?.portsOverride?.daemon ?? DEFAULT_PORTS.daemon,
@@ -389,6 +391,11 @@ export async function getLocalAssistantStatus(
   assistantId: string,
   env: Record<string, string | undefined> = process.env,
 ): Promise<LocalAssistantStatusResult> {
+  try {
+    assertSafePathSegment(assistantId, "assistant ID");
+  } catch {
+    return { ok: false, status: 400, error: "Invalid assistant ID" };
+  }
   const result = getLockfileData(lockfilePaths);
   if (!result.ok) {
     return {

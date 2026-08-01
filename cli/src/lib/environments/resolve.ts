@@ -4,6 +4,7 @@ import { dirname } from "path";
 import { SEEDS, type EnvironmentDefinition } from "@vellumai/environments";
 import {
   defaultEnvironmentFilePath,
+  defaultEnvironmentFilePaths,
   readDefaultEnvironment as readPersistedDefaultEnvironment,
 } from "@vellumai/local-mode";
 
@@ -30,11 +31,12 @@ export function writeDefaultEnvironment(name: string): void {
  * Remove the persisted default environment file, falling back to production.
  */
 export function clearDefaultEnvironment(): void {
-  const filePath = defaultEnvironmentFilePath(process.env);
-  try {
-    unlinkSync(filePath);
-  } catch {
-    // Already absent — nothing to do.
+  for (const filePath of defaultEnvironmentFilePaths(process.env)) {
+    try {
+      unlinkSync(filePath);
+    } catch {
+      // Already absent.
+    }
   }
 }
 

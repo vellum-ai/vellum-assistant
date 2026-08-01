@@ -45,11 +45,29 @@ export function resolveLockfilePaths(
   options: LocalPathOptions = {},
 ): string[] {
   const vellumEnv = resolveEnvironmentName(env, options);
-  const lockfileDir = env.VELLUM_LOCKFILE_DIR;
+  const lockfileDir =
+    options.lockfileDirOverride ?? env.VELLUM_LOCKFILE_DIR?.trim();
 
   if ((options.platform ?? process.platform) === "win32") {
-    const dir = lockfileDir ?? resolveConfigDir(env, options);
-    return [joinLocalPath(options, dir, "lockfile.json")];
+    const canonicalDir = lockfileDir ?? resolveConfigDir(env, options);
+    const canonical = joinLocalPath(options, canonicalDir, "lockfile.json");
+    const legacyDir = lockfileDir ?? options.homeDir ?? os.homedir();
+    const legacy =
+      vellumEnv === PRODUCTION_ENVIRONMENT_NAME
+        ? [".vellum.lock.json", ".vellum.lockfile.json"].map((name) =>
+            joinLocalPath(options, legacyDir, name),
+          )
+        : [
+            joinLocalPath(
+              options,
+              lockfileDir ?? resolveConfigDirPaths(env, options).at(-1)!,
+              "lockfile.json",
+            ),
+          ];
+    return [
+      canonical,
+      ...legacy.filter((candidate) => candidate !== canonical),
+    ];
   }
 
   if (vellumEnv === PRODUCTION_ENVIRONMENT_NAME) {
@@ -68,12 +86,32 @@ export function resolveConfigDir(
   env: Record<string, string | undefined>,
   options: LocalPathOptions = {},
 ): string {
+  return resolveConfigDirPaths(env, options)[0]!;
+}
+
+export function resolveConfigDirPaths(
+  env: Record<string, string | undefined>,
+  options: LocalPathOptions = {},
+): string[] {
+  if (options.configDirOverride) {
+    return [options.configDirOverride];
+  }
   const vellumEnv = resolveEnvironmentName(env, options);
-  return joinLocalPath(
+  const canonical = joinLocalPath(
     options,
     resolveConfigHome(env, options),
     environmentDirectoryName(vellumEnv, options),
   );
+  if ((options.platform ?? process.platform) !== "win32") {
+    return [canonical];
+  }
+  const legacy = joinLocalPath(
+    options,
+    options.homeDir ?? os.homedir(),
+    ".config",
+    environmentDirectoryName(vellumEnv, options),
+  );
+  return canonical === legacy ? [canonical] : [canonical, legacy];
 }
 
 function environmentDirectoryName(
@@ -102,14 +140,25 @@ export function resolveRuntimeDir(
   env: Record<string, string | undefined>,
   options: LocalPathOptions = {},
 ): string {
-  return joinLocalPath(options, resolveDataDir(env, options), "runtime");
+  return resolveDataDir(env, options);
 }
 
 export function resolveLogDir(
   env: Record<string, string | undefined>,
   options: LocalPathOptions = {},
 ): string {
-  return joinLocalPath(options, resolveDataDir(env, options), "logs");
+  const root =
+    (options.platform ?? process.platform) === "win32"
+      ? resolveDataDir(env, options)
+      : resolveConfigDir(env, options);
+  return joinLocalPath(options, root, "logs");
+}
+
+export function resolveAssistantsDir(
+  env: Record<string, string | undefined>,
+  options: LocalPathOptions = {},
+): string {
+  return joinLocalPath(options, resolveDataDir(env, options), "assistants");
 }
 
 export function resolveInstanceDir(
@@ -120,8 +169,7 @@ export function resolveInstanceDir(
   assertSafePathSegment(assistantId, "assistant ID", options);
   return joinLocalPath(
     options,
-    resolveDataDir(env, options),
-    "assistants",
+    resolveAssistantsDir(env, options),
     assistantId,
   );
 }

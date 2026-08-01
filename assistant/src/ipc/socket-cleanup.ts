@@ -7,10 +7,13 @@
  * inode, leaving two daemons in conflict with no error.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { connect } from "node:net";
 
-import { isNamedPipePath } from "@vellumai/ipc-server-utils";
+import {
+  isNamedPipePath,
+  removeIpcEndpointFile,
+} from "@vellumai/ipc-server-utils";
 
 /**
  * Maximum time to wait for the probe `connect()` to settle before declaring
@@ -46,10 +49,8 @@ function makeAddrInUseError(message: string): NodeJS.ErrnoException {
  *   - Any other socket error → propagate.
  */
 export async function ensureSocketPathFree(socketPath: string): Promise<void> {
-  if (isNamedPipePath(socketPath)) {
-    return;
-  }
-  if (!existsSync(socketPath)) {
+  const namedPipe = isNamedPipePath(socketPath);
+  if (!namedPipe && !existsSync(socketPath)) {
     return;
   }
   await new Promise<void>((resolve, reject) => {
@@ -86,11 +87,7 @@ export async function ensureSocketPathFree(socketPath: string): Promise<void> {
     client.once("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "ECONNREFUSED" || err.code === "ENOENT") {
         settle(() => {
-          try {
-            unlinkSync(socketPath);
-          } catch {
-            // Ignore — may already be gone
-          }
+          removeIpcEndpointFile(socketPath);
           resolve();
         });
       } else {

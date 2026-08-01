@@ -17,6 +17,7 @@ import type { Server } from "node:net";
 import { dirname } from "node:path";
 
 import { isNamedPipePath } from "./endpoint.js";
+import { ipcListenOptions } from "./listen-options.js";
 
 /**
  * Minimal logger surface (pino-compatible). Each method receives a context
@@ -181,7 +182,7 @@ export class SocketWatchdog {
         };
         newServer.once("error", onError);
         newServer.once("listening", onListening);
-        newServer.listen(this.socketPath);
+        newServer.listen(ipcListenOptions(this.socketPath));
       });
     } catch (err) {
       this.log.error(

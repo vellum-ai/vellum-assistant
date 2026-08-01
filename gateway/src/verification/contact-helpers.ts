@@ -28,7 +28,7 @@ import {
   probeContactMirror,
 } from "../ipc/contacts-info-client.js";
 import { getLogger } from "../logger.js";
-import { resolveIpcSocketPath } from "../ipc/socket-path.js";
+import { resolveIpcSocketPath } from "../ipc/endpoint.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
 
 const log = getLogger("verification-contacts");

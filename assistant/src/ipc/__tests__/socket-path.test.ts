@@ -1,6 +1,8 @@
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { ensureSocketPathFree } from "../socket-cleanup.js";
 import { resolveIpcSocketPath } from "../socket-path.js";
 
 let savedWorkspaceDir: string | undefined;
@@ -77,4 +79,23 @@ describe("resolveIpcSocketPath", () => {
 
     delete process.env.EXAMPLE_SERVICE_IPC_SOCKET_DIR;
   });
+
+  test.skipIf(process.platform !== "win32")(
+    "rejects an occupied named pipe",
+    async () => {
+      const pipe = `\\\\.\\pipe\\vellum-ipc-test-${process.pid}`;
+      const server = createServer();
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(pipe, resolve);
+      });
+      try {
+        await expect(ensureSocketPathFree(pipe)).rejects.toMatchObject({
+          code: "EADDRINUSE",
+        });
+      } finally {
+        server.close();
+      }
+    },
+  );
 });

@@ -24,7 +24,7 @@ import { IpcFrameReader, writeMessage } from "@vellumai/ipc-server-utils";
 import type { IpcEnvelope } from "@vellumai/ipc-server-utils";
 
 import type { ScopeOption, DirectoryScopeOption } from "../risk/risk-types.js";
-import { resolveIpcSocketPath } from "./socket-path.js";
+import { resolveIpcSocketPath } from "./endpoint.js";
 
 // ---------------------------------------------------------------------------
 // Constants

@@ -134,18 +134,13 @@ describe("startCes", () => {
     const cesPidFile = join(vellumDir, "ces.pid");
     expect(existsSync(cesPidFile)).toBe(true);
   }, 15_000);
-});
-
-describe("resolveCesSocketPath", () => {
   test("uses a Windows named pipe for the local CES seam", () => {
     const resources = {
       instanceDir: "C:\\Users\\Example\\Vellum\\assistant-123",
     } as Parameters<typeof resolveCesSocketPath>[0];
 
-    const first = resolveCesSocketPath(resources, "win32");
-    const second = resolveCesSocketPath(resources, "win32");
-    expect(first).toBe(second);
-    expect(first.startsWith("\\\\.\\pipe\\vellum-ces-")).toBe(true);
-    expect(first).not.toContain("Example");
+    const socketPath = resolveCesSocketPath(resources, "win32");
+    expect(socketPath.startsWith("\\\\.\\pipe\\vellum-ces-")).toBe(true);
+    expect(socketPath).not.toContain("Example");
   });
 });

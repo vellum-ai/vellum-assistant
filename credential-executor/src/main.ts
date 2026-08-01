@@ -28,6 +28,7 @@ import {
 } from "@vellumai/service-contracts/credential-rpc";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 import {
+  ipcListenOptions,
   isNamedPipePath,
   removeIpcEndpointFile,
 } from "@vellumai/ipc-server-utils";
@@ -210,7 +211,7 @@ function serveStandaloneSocket(opts: {
       });
   });
 
-  netServer.listen(socketPath, () => {
+  netServer.listen(ipcListenOptions(socketPath), () => {
     log.info(`CES socket listening at ${socketPath}`);
   });
 
