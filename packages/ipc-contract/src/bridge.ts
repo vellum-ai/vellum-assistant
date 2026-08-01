@@ -2,11 +2,12 @@
  * The `VellumBridge` interface — the shape of `window.vellum` as
  * implemented by the Electron preload script.
  *
- * All surfaces are required: the preload implements every method, so this
- * interface type-checks completeness at the implementation site. The
- * renderer's `declare global` makes version-skew-tolerant surfaces
- * optional (older preloads may not expose them), which is a separate
- * concern handled at the consumer site.
+ * Capability surfaces are required: the preload implements every method, so
+ * this interface type-checks completeness at the implementation site.
+ * Compatibility discriminators can be optional when an absent field has a
+ * defined fallback. The renderer's `declare global` also makes
+ * version-skew-tolerant capabilities optional because older preloads may not
+ * expose them.
  *
  * This is the single canonical definition of the bridge shape. The
  * preload types its `contextBridge.exposeInMainWorld` value against this
@@ -58,8 +59,11 @@ export interface LocalUpgradeOptions {
   force?: boolean;
 }
 
+export type ElectronHostOS = "macos" | "windows";
+
 export interface VellumBridge {
   platform: "electron";
+  hostOS?: ElectronHostOS;
   app: {
     versionInfo(): Promise<AppVersionInfo>;
     openWebsite(): Promise<void>;

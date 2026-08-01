@@ -12,6 +12,7 @@
 export * from "./types";
 export * from "./schemas";
 export {
+  type ElectronHostOS,
   type LocalUpgradeOptions,
   type LocalWakeOptions,
   type VellumBridge,

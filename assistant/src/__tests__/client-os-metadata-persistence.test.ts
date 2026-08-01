@@ -2,14 +2,14 @@
  * Verifies that `persistQueuedMessageBody` stamps the client-reported OS
  * surface into `metadata.client.os` on persisted user messages.
  *
- * The web, iOS, and macOS apps all run the same web renderer and report
+ * Browser, mobile, and desktop apps all run the same web renderer and report
  * `userMessageInterface: "web"` (the transport surface, which host-proxy
  * capability gating keys off), so `client.os` is the only per-platform
  * attribution available to turn telemetry (`turn-events-store` forwards
  * `$.client` onto `TurnTelemetryEvent.client`). Without the stamp, desktop
  * and mobile usage are indistinguishable from browser usage downstream.
  *
- * Mirrors the mock harness of `dm-persistence.test.ts` — exercises
+ * Mirrors the mock harness of `dm-persistence.test.ts` and exercises
  * `persistQueuedMessageBody` directly with a captured `addMessage`.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -110,7 +110,7 @@ describe("client OS surface metadata persistence", () => {
     addMessageCalls.length = 0;
   });
 
-  test.each(["macos", "ios", "android", "web"])(
+  test.each(["macos", "windows", "ios", "android", "web"])(
     "stamps client.os = %s from the conversation's clientOs",
     async (os) => {
       const ctx = createWebTurnContext(os);
@@ -136,7 +136,7 @@ describe("client OS surface metadata persistence", () => {
   });
 
   test("omits the client bag for values outside the ClientOs vocabulary", async () => {
-    const ctx = createWebTurnContext("windows");
+    const ctx = createWebTurnContext("linux");
     await persistQueuedMessageBody(ctx, {
       content: "hello",
       requestId: "req-invalid",

@@ -252,9 +252,10 @@ export const messageMetadataSchema = z
     /**
      * Optional client-side metadata bag attached to user messages at persist
      * time. `os` carries the client-reported OS surface ("web" | "ios" |
-     * "macos" | "android") from the request body's `clientOs` field, stamped
-     * by `persistQueuedMessageBody` — the transport `userMessageInterface` is
-     * "web" for the web, iOS, and macOS apps alike, so this is the only
+     * "macos" | "windows" | "android") from the request body's `clientOs`
+     * field, stamped by `persistQueuedMessageBody`. The transport
+     * `userMessageInterface` is
+     * "web" for the web, mobile, and desktop apps alike, so this is the only
      * per-platform attribution. `browser_family` / `browser_version` /
      * `interface_version` (and an `os` override) come from the sanitized
      * `x-vellum-*` client-metadata headers read by `handleSendMessage`

@@ -1510,7 +1510,7 @@ export async function handleSendMessage(
     typeof body.clientTimezone === "string"
       ? (canonicalizeTimeZone(body.clientTimezone) ?? undefined)
       : undefined;
-  // Client OS surface ("web" | "ios" | "macos" | "android"), reported
+  // Client OS surface ("web" | "ios" | "macos" | "windows" | "android"), reported
   // separately from the transport `interface`. Validated against the dedicated
   // `ClientOs` value set (NOT the interface vocabulary) and only kept when it
   // resolves — it drives the per-turn `client_os:` context line, never
@@ -3001,7 +3001,7 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .optional()
         .describe(
-          'Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.',
+          'Client OS surface ("web" | "ios" | "macos" | "windows" | "android"), reported separately from `interface`. Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.',
         ),
       clientMessageId: z
         .string()

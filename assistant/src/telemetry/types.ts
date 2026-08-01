@@ -164,10 +164,9 @@ export interface TurnTelemetryClientInfo {
   browser_version?: string;
   /**
    * OS surface reported by the client at message time
-   * ("web" | "ios" | "macos" | "android"). The web, iOS, and macOS apps all
-   * run the same web renderer and report `interface_id: "web"` (the
-   * transport surface, which host-proxy capability gating keys off), so
-   * this field is the only per-platform attribution in turn telemetry.
+   * ("web" | "ios" | "macos" | "windows" | "android"). Browser, mobile, and
+   * desktop apps all run the same renderer and report `interface_id: "web"`.
+   * This field is the only per-platform attribution in turn telemetry.
    */
   os?: string;
   /**

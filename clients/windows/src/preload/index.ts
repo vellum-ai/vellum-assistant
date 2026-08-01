@@ -30,6 +30,7 @@ const noopUnsubscribe = (): (() => void) => () => undefined;
 const bridge: Pick<
   VellumBridge,
   | "platform"
+  | "hostOS"
   | "app"
   | "commands"
   | "power"
@@ -40,6 +41,7 @@ const bridge: Pick<
   | "localMode"
 > = {
   platform: "electron",
+  hostOS: "windows",
   app: {
     versionInfo: (): Promise<AppVersionInfo> =>
       ipcRenderer.invoke("vellum:app:versionInfo") as Promise<AppVersionInfo>,

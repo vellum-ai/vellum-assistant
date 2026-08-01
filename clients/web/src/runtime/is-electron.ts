@@ -26,6 +26,7 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
+  ElectronHostOS,
   FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
@@ -98,6 +99,7 @@ declare global {
   interface Window {
     vellum?: {
       platform: "electron";
+      hostOS?: ElectronHostOS;
       app: {
         versionInfo(): Promise<AppVersionInfo>;
         openWebsite(): Promise<void>;

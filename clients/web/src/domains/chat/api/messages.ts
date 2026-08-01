@@ -509,8 +509,8 @@ export async function postChatMessage(
   const body: MessagesPostData["body"] = {
     content,
     sourceChannel: "vellum",
-    // `interface` is the transport surface, not the OS: the web/iOS/macOS apps
-    // all run this same web renderer, so the transport is always "web". The
+    // `interface` is the transport surface, not the OS: the web, mobile, and
+    // desktop apps run this renderer, so the transport is always "web". The
     // daemon keys host-proxy/transport capability off this value, so it must
     // NOT carry the OS. The real platform travels in `clientOs` below and only
     // feeds the assistant's per-turn `client_os` context.

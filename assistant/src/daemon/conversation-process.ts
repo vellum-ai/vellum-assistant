@@ -285,9 +285,9 @@ async function buildPassthroughBatch(
       break;
     }
     // The batched turn applies only the head's `clientOs`, so messages from a
-    // different OS surface must not coalesce. The web, iOS, and macOS apps all
+    // different OS surface must not coalesce. Browser, mobile, and desktop apps
     // report `interfaceId: "web"`, so the interface check above no longer
-    // separates them — split on the reported OS explicitly.
+    // separates them, so split on the reported OS explicitly.
     if (candidate.transport?.clientOs !== head.transport?.clientOs) {
       break;
     }

@@ -605,7 +605,7 @@ export class Conversation {
   /** @internal */ clientTimezone?: string;
   /**
    * @internal
-   * The client's OS surface ("web" | "ios" | "macos"), reported separately
+   * The client's OS surface, reported separately
    * from the transport `interfaceId` so the assistant's per-turn context can
    * show the real platform without affecting host-proxy/transport gating.
    * This is the LIVE value (re-applied from transport on every inbound

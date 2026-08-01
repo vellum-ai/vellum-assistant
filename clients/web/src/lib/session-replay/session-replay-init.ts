@@ -14,11 +14,8 @@ import { detectClientOs } from "@/runtime/platform-detection";
  * runs the web bundle (mirrors `resolveDsn()` in `sentry-init.ts`).
  */
 function sessionReplaySurface(): SessionReplayConfig["surface"] {
-  if (isElectron()) {
-    return "macos";
-  }
-  if (isNativePlatform()) {
-    return detectClientOs() === "android" ? "android" : "ios";
+  if (isElectron() || isNativePlatform()) {
+    return detectClientOs();
   }
   return "web";
 }

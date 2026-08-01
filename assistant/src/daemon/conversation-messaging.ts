@@ -217,11 +217,11 @@ export interface MessagingConversationContext {
   currentTurnAuthContext?: AuthContext;
   currentTurnSourceActorPrincipalId?: string;
   /**
-   * OS surface reported by the connected client ("web" | "ios" | "macos" |
-   * "android"), re-applied from transport metadata on every inbound message.
+   * OS surface reported by the connected client, re-applied from transport
+   * metadata on every inbound message.
    * Persisted under `metadata.client.os` so turn telemetry can attribute the
-   * real platform — the transport `interfaceId` is "web" for the web, iOS,
-   * and macOS apps alike (they share the web renderer).
+   * real platform. The transport `interfaceId` is "web" for browser, mobile,
+   * and desktop apps because they share the web renderer.
    */
   clientOs?: string;
   getTurnChannelContext(): TurnChannelContext | null;

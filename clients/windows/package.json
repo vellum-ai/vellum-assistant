@@ -14,8 +14,8 @@
     "dev:electron": "wait-on --timeout 30000 http://localhost:5173 && electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test ../../packages/electron-utils/src/app-protocol.test.ts",
-    "test:ci": "bun test ../../packages/electron-utils/src/app-protocol.test.ts",
+    "test": "bun scripts/run-tests.ts",
+    "test:ci": "bun scripts/run-tests.ts",
     "build:web": "cd ../web && bun install && bun run openapi-ts && bun run build && cd ../windows && mkdir -p resources && rm -rf resources/web-dist && cp -R ../web/dist resources/web-dist",
     "pack": "bun run build && electron-builder --win --config electron-builder.config.cjs --publish never"
   },

@@ -87,6 +87,7 @@ const subscribeDictationEvent =
 
 const bridge: VellumBridge = {
   platform: "electron",
+  hostOS: "macos",
   app: {
     versionInfo: (): Promise<AppVersionInfo> =>
       ipcRenderer.invoke("vellum:app:versionInfo") as Promise<AppVersionInfo>,
