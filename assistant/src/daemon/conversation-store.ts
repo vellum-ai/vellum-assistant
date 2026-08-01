@@ -51,6 +51,30 @@ import { buildTransportHints } from "./transport-hints.js";
 
 const conversationOptions = new Map<string, ConversationCreateOptions>();
 
+/**
+ * Drops the transport fields that describe what the client had on screen for a
+ * single message rather than for the conversation as a whole.
+ *
+ * `conversationOptions` is a durable map: a rebuilt conversation (evicted or
+ * gone stale) re-applies whatever transport was stored the last time anyone
+ * touched it. View state must not survive that, or a scheduled wake hours
+ * later would resurrect an app the user has since closed and assert it is on
+ * screen. The current call still applies the full transport to the live
+ * conversation, so only the persisted copy is trimmed.
+ */
+export function withoutTurnScopedTransport(
+  options: ConversationCreateOptions,
+): ConversationCreateOptions {
+  const transport = options.transport;
+  if (!transport || transport.activeAppId === undefined) {
+    return options;
+  }
+  return {
+    ...options,
+    transport: { ...transport, activeAppId: undefined },
+  };
+}
+
 export function mergeConversationOptions(
   conversationId: string,
   patch: Partial<ConversationCreateOptions>,
@@ -111,7 +135,10 @@ export async function getOrCreateConversation(
     ...persistentOptions
   } = options ?? {};
   if (Object.values(persistentOptions).some((v) => v !== undefined)) {
-    mergeConversationOptions(conversationId, persistentOptions);
+    mergeConversationOptions(
+      conversationId,
+      withoutTurnScopedTransport(persistentOptions),
+    );
   }
 
   if (
@@ -222,6 +249,13 @@ export async function getOrCreateConversation(
         await newConversation.ensureActorScopedHistory();
       }
       applyTransportMetadata(newConversation, storedOptions);
+      // The stored transport is stripped of view state, so a rebuild driven by
+      // a live send takes the app on screen from THIS call. A rebuild with no
+      // inbound transport (a scheduled wake, a background follow-up) correctly
+      // leaves it unset rather than inheriting whatever was open last time.
+      if (options?.transport) {
+        newConversation.applyActiveAppFromTransport(options.transport);
+      }
       setConversation(conversationId, newConversation);
       return newConversation;
     })();
