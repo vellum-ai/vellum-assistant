@@ -33,6 +33,7 @@ interface MemoryV2StaticBlock {
 
 const MEMORY_V2_STATIC_BLOCKS: readonly MemoryV2StaticBlock[] = [
   { heading: "## Essentials", file: "memory/essentials.md" },
+  { heading: "## Intent Flags", file: "memory/intent_flags.md" },
   { heading: "## Threads", file: "memory/threads.md" },
   { heading: "## Recent", file: "memory/recent.md" },
   { heading: "## Buffer", file: "memory/buffer.md" },
@@ -63,6 +64,7 @@ export function readMemoryV2StaticContent(
     if (options.excludeBuffer === true && file === "memory/buffer.md") {
       continue;
     }
+    // Intent flags are always-on safety context, never excluded.
     const content = readPromptFile(getWorkspacePromptPath(file));
     if (!content) {
       continue;
