@@ -45,8 +45,9 @@ export function resolveLockfilePaths(
   options: LocalPathOptions = {},
 ): string[] {
   const vellumEnv = resolveEnvironmentName(env, options);
-  const lockfileDir =
-    options.lockfileDirOverride ?? env.VELLUM_LOCKFILE_DIR?.trim();
+  const lockfileDir = Object.hasOwn(options, "lockfileDirOverride")
+    ? options.lockfileDirOverride
+    : env.VELLUM_LOCKFILE_DIR?.trim();
 
   if ((options.platform ?? process.platform) === "win32") {
     const canonicalDir = lockfileDir ?? resolveConfigDir(env, options);
