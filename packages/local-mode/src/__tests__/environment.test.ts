@@ -131,10 +131,11 @@ describe("Windows path resolution", () => {
   const env = {
     APPDATA: "C:\\Users\\Example\\AppData\\Roaming",
     LOCALAPPDATA: "C:\\Users\\Example\\AppData\\Local",
+    XDG_CONFIG_HOME: "D:\\LegacyConfig",
     VELLUM_ENVIRONMENT: "dev",
   };
 
-  test("uses AppData instead of XDG defaults", () => {
+  test("uses AppData with XDG read compatibility", () => {
     const paths = [
       [defaultEnvironmentFilePath(env, options), "AppData\\Roaming\\vellum\\environment"],
       [resolveConfigDir(env, options), "AppData\\Roaming\\vellum-dev"],
@@ -147,7 +148,7 @@ describe("Windows path resolution", () => {
     }
     expect(resolveLockfilePaths(env, options)).toEqual([
       "C:\\Users\\Example\\AppData\\Roaming\\vellum-dev\\lockfile.json",
-      "C:\\Users\\Example\\.config\\vellum-dev\\lockfile.json",
+      "D:\\LegacyConfig\\vellum-dev\\lockfile.json",
     ]);
   });
 
@@ -169,7 +170,7 @@ describe("Windows path resolution", () => {
     ).toEqual(["D:\\Vellum\\lockfile.json"]);
     expect(defaultEnvironmentFilePaths(env, options)).toEqual([
       "C:\\Users\\Example\\AppData\\Roaming\\vellum\\environment",
-      "C:\\Users\\Example\\.config\\vellum\\environment",
+      "D:\\LegacyConfig\\vellum\\environment",
     ]);
   });
 

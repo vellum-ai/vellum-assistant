@@ -108,8 +108,8 @@ export function resolveConfigDirPaths(
   }
   const legacy = joinLocalPath(
     options,
-    options.homeDir ?? os.homedir(),
-    ".config",
+    env.XDG_CONFIG_HOME?.trim() ||
+      joinLocalPath(options, options.homeDir ?? os.homedir(), ".config"),
     environmentDirectoryName(vellumEnv, options),
   );
   return canonical === legacy ? [canonical] : [canonical, legacy];

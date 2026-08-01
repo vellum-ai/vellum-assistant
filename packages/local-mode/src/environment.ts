@@ -30,8 +30,8 @@ export function defaultEnvironmentFilePaths(
   }
   const legacy = joinLocalPath(
     options,
-    options.homeDir ?? os.homedir(),
-    ".config",
+    env.XDG_CONFIG_HOME?.trim() ||
+      joinLocalPath(options, options.homeDir ?? os.homedir(), ".config"),
     "vellum",
     "environment",
   );
