@@ -69,4 +69,20 @@ describe("DiskPressureBanner warning variant", () => {
 
     expect(onUpgradeStorage).toHaveBeenCalledTimes(1);
   });
+
+  test("omits purchase copy and action when storage upgrades are unavailable", () => {
+    render(
+      <DiskPressureBanner
+        status={warningStatus}
+        mode="warning"
+        onAcknowledge={() => {}}
+        onReviewWorkspaceData={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByText("Free up space to avoid interruptions."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Upgrade" })).toBeNull();
+  });
 });

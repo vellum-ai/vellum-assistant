@@ -8,17 +8,32 @@
  * React Testing Library.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { AuthUser } from "@/stores/auth-store";
 
 const isMobileRef = { value: false };
+const nativeAndroidRef = { value: false };
 
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => isMobileRef.value,
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+}));
+
+mock.module("@/runtime/platform-detection", () => ({
+  useIsNativeAndroid: () => nativeAndroidRef.value,
+}));
+
+mock.module("@/hooks/use-platform-gate", () => ({
+  usePlatformGate: () => "full",
+  useActiveAssistantIsPlatformHosted: () => true,
+}));
+
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => true,
 }));
 
 const authRef: {
@@ -56,7 +71,7 @@ const flagsRef = {};
 
 mock.module("@/stores/client-feature-flag-store", () => {
   const store = () => null;
-  store.use = {};
+  store.use = { velvet: () => false };
   store.getState = () => flagsRef;
   return { useClientFeatureFlagStore: store };
 });
@@ -94,14 +109,24 @@ mock.module("@/components/share-feedback-modal", () => ({
 }));
 
 mock.module("@/domains/chat/components/credits-card", () => ({
-  CreditsCard: () =>
-    createElement("div", { "data-testid": "credits-card" }, "Credits"),
+  CreditsCard: ({ onAddCredits }: { onAddCredits?: () => void }) =>
+    createElement(
+      "div",
+      { "data-testid": "credits-card" },
+      "Credits",
+      onAddCredits
+        ? createElement("button", { onClick: onAddCredits }, "Add credits")
+        : null,
+    ),
 }));
 
-import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
+const { PreferencesMenu } = await import(
+  "@/domains/chat/components/preferences-menu"
+);
 
 beforeEach(() => {
   isMobileRef.value = false;
+  nativeAndroidRef.value = false;
   authRef.isAuthenticated = true;
   authRef.user = {
     kind: "platform",
@@ -113,6 +138,10 @@ beforeEach(() => {
     lastName: "",
   };
   billingRef.data = undefined;
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 describe("PreferencesMenu", () => {
@@ -168,5 +197,20 @@ describe("PreferencesMenu", () => {
     isMobileRef.value = true;
     const html = renderToStaticMarkup(createElement(PreferencesMenu));
     expect(html).toContain("Preferences");
+  });
+
+  test("native Android shows the balance without an add-credits action", async () => {
+    nativeAndroidRef.value = true;
+    isMobileRef.value = true;
+    billingRef.data = { effective_balance: "60" };
+    render(<PreferencesMenu />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Preferences/i }));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("credits-card")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add credits" })).toBeNull();
   });
 });

@@ -20,7 +20,9 @@ import {
   assistantsListQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
 import { captureError } from "@/lib/sentry/capture-error";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -43,6 +45,7 @@ export function EmailManagedContent({
 }: EmailManagedContentProps) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const isNativeAndroid = useIsNativeAndroid();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [subdomainDraft, setSubdomainDraft] = useState("");
@@ -291,13 +294,21 @@ export function EmailManagedContent({
         icon={<Mail className="h-4 w-4" aria-hidden />}
         title="Give your assistant its own email address"
         actions={
-          <Button size="compact" onClick={() => navigate(routes.plans)}>
-            Upgrade
-          </Button>
+          isNativeAndroid ? undefined : (
+            <Button size="compact" onClick={() => navigate(routes.plans)}>
+              Upgrade
+            </Button>
+          )
         }
       >
-        Upgrade to a plan that includes an email address for your assistant. No
-        provider setup required.
+        {isNativeAndroid ? (
+          ANDROID_BILLING_MESSAGE
+        ) : (
+          <>
+            Upgrade to a plan that includes an email address for your assistant.
+            No provider setup required.
+          </>
+        )}
       </Notice>
     );
   }
