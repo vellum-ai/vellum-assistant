@@ -1761,6 +1761,14 @@ export interface ProcessMessageOptions {
   displayContent?: string;
   /** JWT-verified committer principal for turn-scoped host-proxy authorization. */
   sourceActorPrincipalId?: string;
+  /**
+   * True when this turn was auto-sent on the user's behalf rather than typed
+   * (see `PersistMessageOptions.scripted`). Forwarded to persistence so the
+   * turn is excluded from activation counts. Defaults to false — a caller
+   * sending machine-authored content into a `standard` conversation must set
+   * it explicitly.
+   */
+  scripted?: boolean;
 }
 
 // ── processMessage ───────────────────────────────────────────────────
@@ -1785,6 +1793,7 @@ export async function processMessage(
     overrideProfile,
     displayContent,
     sourceActorPrincipalId,
+    scripted,
   } = options;
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -2196,6 +2205,7 @@ export async function processMessage(
       attachments,
       requestId,
       displayContent,
+      scripted,
     });
     publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {

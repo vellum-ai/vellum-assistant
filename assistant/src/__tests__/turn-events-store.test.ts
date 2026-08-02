@@ -301,6 +301,32 @@ describe("queryUnreportedTurnEvents", () => {
     expect(byId[final.id].outcome).toBeNull();
   });
 
+  test("projects the scripted flag, keeping false distinct from unknown", async () => {
+    const conv = createConversation({ conversationType: "standard" });
+    const scripted = await addMessage(conv.id, "user", "auto-sent kickoff", {
+      metadata: { scripted: true },
+    });
+    const typed = await addMessage(conv.id, "user", "a real message", {
+      metadata: { scripted: false },
+    });
+    const legacy = await addMessage(conv.id, "user", "row predating the flag");
+
+    const events = queryUnreportedTurnEvents(0, undefined, 100);
+    const byId = Object.fromEntries(events.map((e) => [e.id, e]));
+
+    // sqlite's json_extract yields 1/0 for JSON booleans, so these must come
+    // back as real booleans — a raw 1 would be rejected by the platform's
+    // BooleanField and the event silently dropped at ingest.
+    expect(byId[scripted.id].scripted).toBe(true);
+    expect(byId[typed.id].scripted).toBe(false);
+
+    // The three-state contract: a row persisted before the flag existed is
+    // UNKNOWN, not "the user typed it". Collapsing this to false is exactly
+    // the bug the flag exists to fix, so assert null rather than falsy.
+    expect(byId[legacy.id].scripted).toBeNull();
+    expect(byId[legacy.id].scripted).not.toBe(false);
+  });
+
   test("stampTurnOutcome never throws, even for a nonexistent message id", () => {
     expect(() => stampTurnOutcome("no-such-message", "failed")).not.toThrow();
   });

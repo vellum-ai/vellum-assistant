@@ -98,6 +98,33 @@ import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context-types.js";
 
+/**
+ * Prefix of the synthetic user-message text this module writes when a surface
+ * action has no custom prompt of its own (`[User action on app: ...]`,
+ * `[User action on <surface_type> surface: ...]`).
+ *
+ * Machine-authored, so turns carrying it must be stamped `scripted` and kept
+ * out of activation counts. Deliberately the SAME anchor the analytics
+ * classifier matches on (`stg_telemetry__scripted_turn.sql`, "Synthetic
+ * UI-surface action events"): the two signals are compared against each other
+ * by the `assert_scripted_signals_agree` dbt test, so if this string ever
+ * changes, that model's anchor has to change with it or the test fires.
+ */
+const SYNTHETIC_SURFACE_ACTION_PREFIX = "[User action on ";
+
+/**
+ * True when `content` is the synthetic fallback text above rather than a
+ * custom prompt supplied by the surface.
+ *
+ * Only the synthetic form is scripted. A surface that supplies its own prompt
+ * is treated as a real turn, because that is what the existing analytics
+ * classifier does — widening this to every surface action would silently move
+ * activation beyond the bug being fixed.
+ */
+function isSyntheticSurfaceActionContent(content: string): boolean {
+  return content.startsWith(SYNTHETIC_SURFACE_ACTION_PREFIX);
+}
+
 const log = getLogger("conversation-surfaces");
 
 // Tolerant variant of SurfaceActionSchema for parsing raw model output.
@@ -2012,6 +2039,9 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
+      // Rides the metadata bag rather than a typed option: the queue
+      // round-trips `metadata` but not `PersistMessageOptions`.
+      metadata: { scripted: isSyntheticSurfaceActionContent(content) },
     });
 
     if (result.rejected) {
@@ -2069,6 +2099,7 @@ export async function handleSurfaceAction(
         activeSurfaceId: surfaceId,
         displayContent,
         sourceActorPrincipalId,
+        scripted: isSyntheticSurfaceActionContent(content),
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -2254,6 +2285,9 @@ export async function handleSurfaceAction(
     activeSurfaceId: surfaceId,
     displayContent,
     sourceActorPrincipalId,
+    // Rides the metadata bag rather than a typed option: the queue
+    // round-trips `metadata` but not `PersistMessageOptions`.
+    metadata: { scripted: isSyntheticSurfaceActionContent(content) },
   });
   if (result.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);
@@ -2336,6 +2370,7 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
+      scripted: isSyntheticSurfaceActionContent(content),
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
