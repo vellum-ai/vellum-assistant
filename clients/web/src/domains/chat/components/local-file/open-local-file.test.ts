@@ -92,11 +92,6 @@ describe("previewKindFor", () => {
     expect(previewKindFor("rows.tsv")).toBe("csv");
   });
 
-  test("the office packages read through their own previews", () => {
-    expect(previewKindFor("report.docx")).toBe("docx");
-    expect(previewKindFor("deck.pptx")).toBe("pptx");
-  });
-
   test("plain-text formats share one reader", () => {
     expect(previewKindFor("run.log")).toBe("text");
     expect(previewKindFor("notes.txt")).toBe("text");
@@ -120,6 +115,8 @@ describe("previewKindFor", () => {
   test("formats with no reader of their own report none", () => {
     expect(previewKindFor("notes.md")).toBeNull();
     expect(previewKindFor("report.doc")).toBeNull();
+    expect(previewKindFor("report.docx")).toBeNull();
+    expect(previewKindFor("deck.pptx")).toBeNull();
     expect(previewKindFor("bundle.zip")).toBeNull();
     expect(previewKindFor("Makefile")).toBeNull();
     expect(previewKindFor(".csv")).toBeNull();
@@ -168,16 +165,6 @@ describe("openLocalFile", () => {
     expect(openWorkspaceFile).not.toHaveBeenCalled();
   });
 
-  test("each previewable format carries its own reader", () => {
-    openLocalFile("docs/report.docx", "report.docx", "asst-1");
-    openLocalFile("decks/plan.pptx", "plan.pptx", "asst-1");
-
-    expect(openWorkspaceFilePreview.mock.calls).toEqual([
-      ["docs/report.docx", "docx"],
-      ["decks/plan.pptx", "pptx"],
-    ]);
-  });
-
   test("every other extension lands in the drawer, in its own reader", () => {
     const cases: [string, WorkspaceFilePreviewKind][] = [
       ["run.txt", "text"],
@@ -206,10 +193,14 @@ describe("openLocalFile", () => {
   test("a file with no reader still opens, as the unsupported preview", () => {
     openLocalFile("archives/bundle.zip", "bundle.zip", "asst-1");
     openLocalFile("bin/tool", "tool", "asst-1");
+    openLocalFile("docs/report.docx", "report.docx", "asst-1");
+    openLocalFile("decks/plan.pptx", "plan.pptx", "asst-1");
 
     expect(openWorkspaceFilePreview.mock.calls).toEqual([
       ["archives/bundle.zip", "unsupported"],
       ["bin/tool", "unsupported"],
+      ["docs/report.docx", "unsupported"],
+      ["decks/plan.pptx", "unsupported"],
     ]);
     expect(loadWorkspaceFileDocument).not.toHaveBeenCalled();
     expect(openWorkspaceFile).not.toHaveBeenCalled();

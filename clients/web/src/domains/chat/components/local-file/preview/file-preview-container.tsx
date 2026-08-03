@@ -35,18 +35,11 @@ import type { WorkspaceFilePreviewKind } from "@/stores/viewer-store";
 import { downloadWorkspaceFile } from "@/utils/download-workspace-file";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 
-// Each reader is a chunk of its own: the CSV grid pulls in the virtualizer, the
-// OOXML readers pull in a zip reader plus their own parsers, and the PDF reader
-// pulls in pdf.js, none of which belong in the chat bundle for the sessions
-// that never open one.
+// Each reader is a chunk of its own: the CSV grid pulls in the virtualizer and
+// the PDF reader pulls in pdf.js, neither of which belongs in the chat bundle
+// for the sessions that never open one.
 const CsvPreview = lazy(() =>
   import("./csv-preview").then((m) => ({ default: m.CsvPreview })),
-);
-const DocxPreview = lazy(() =>
-  import("./docx-preview").then((m) => ({ default: m.DocxPreview })),
-);
-const PptxPreview = lazy(() =>
-  import("./pptx-preview").then((m) => ({ default: m.PptxPreview })),
 );
 const TextPreview = lazy(() =>
   import("./text-preview").then((m) => ({ default: m.TextPreview })),
@@ -77,10 +70,6 @@ function previewFor(
   switch (previewKind) {
     case "csv":
       return <CsvPreview blob={blob} filename={filename} />;
-    case "docx":
-      return <DocxPreview blob={blob} filename={filename} />;
-    case "pptx":
-      return <PptxPreview blob={blob} filename={filename} />;
     case "text":
       return <TextPreview blob={blob} filename={filename} />;
     case "pdf":

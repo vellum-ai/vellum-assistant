@@ -221,8 +221,6 @@ export interface OpenedDbDocumentState {
  */
 export type WorkspaceFilePreviewKind =
   | "csv"
-  | "docx"
-  | "pptx"
   | "text"
   | "pdf"
   | "image"

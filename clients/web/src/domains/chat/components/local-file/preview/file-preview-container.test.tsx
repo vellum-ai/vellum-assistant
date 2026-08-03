@@ -33,20 +33,10 @@ const openWorkspaceFile = mock(async (_path: string) => {});
 mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
 
 // The readers are lazy chunks of their own. Stubbing them keeps this test on
-// the container's job — fetch, gate, dispatch — and off the parsers'.
+// the container's job (fetch, gate, dispatch) and off the parsers'.
 mock.module("@/domains/chat/components/local-file/preview/csv-preview", () => ({
   CsvPreview: ({ filename }: { blob: Blob; filename: string }) => (
     <div>{`csv preview of ${filename}`}</div>
-  ),
-}));
-mock.module("@/domains/chat/components/local-file/preview/docx-preview", () => ({
-  DocxPreview: ({ filename }: { blob: Blob; filename: string }) => (
-    <div>{`docx preview of ${filename}`}</div>
-  ),
-}));
-mock.module("@/domains/chat/components/local-file/preview/pptx-preview", () => ({
-  PptxPreview: ({ filename }: { blob: Blob; filename: string }) => (
-    <div>{`pptx preview of ${filename}`}</div>
   ),
 }));
 
@@ -138,29 +128,6 @@ describe("FilePreviewContainer", () => {
     expect(request.path.assistant_id).toBe("asst-1");
     expect(request.query.path).toBe("data/rows.csv");
     expect(request.parseAs).toBe("blob");
-  });
-
-  test("dispatches each kind to its own reader", async () => {
-    renderPreview({
-      workspacePath: "docs/report.docx",
-      documentName: "report.docx",
-      previewKind: "docx",
-    });
-
-    await waitFor(() =>
-      expect(screen.getByText("docx preview of report.docx")).toBeTruthy(),
-    );
-    cleanup();
-
-    renderPreview({
-      workspacePath: "decks/plan.pptx",
-      documentName: "plan.pptx",
-      previewKind: "pptx",
-    });
-
-    await waitFor(() =>
-      expect(screen.getByText("pptx preview of plan.pptx")).toBeTruthy(),
-    );
   });
 
   test("a failed fetch offers a retry that fetches again", async () => {
@@ -259,6 +226,25 @@ describe("FilePreviewContainer", () => {
       path: "archives/bundle.zip",
       filename: "bundle.zip",
     });
+  });
+
+  test("an office package lands in the unsupported state like any archive", async () => {
+    nextResult = probeResult(8192);
+
+    renderPreview({
+      workspacePath: "docs/report.docx",
+      documentName: "report.docx",
+      previewKind: "unsupported",
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("No preview for this file type")).toBeTruthy(),
+    );
+    // Named twice: once in the navbar, once inside the unsupported card.
+    expect(screen.getAllByText("report.docx").length).toBe(2);
+    expect(screen.getByText("8.0 KB")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Go to file" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download file" })).toBeTruthy();
   });
 
   test("media is refused only past the larger inline-media cap", async () => {

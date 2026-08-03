@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { FileWarning } from "lucide-react";
 import { Typography } from "@vellumai/design-library";
 
-/** Shown for any file the OOXML previews cannot read, whatever the reason. */
+/** Shown for any file a preview cannot read, whatever the reason. */
 const PREVIEW_ERROR_MESSAGE = "Can't preview this file";
 
 interface PreviewErrorProps {
@@ -12,8 +12,8 @@ interface PreviewErrorProps {
 
 /**
  * Compact failure state for a document preview. Deliberately says nothing
- * about which part of the package failed: the reader can still open the file
- * with its real application from the surrounding drawer.
+ * about which part of the read failed: the reader can still open the file with
+ * its real application from the surrounding drawer.
  */
 export function PreviewError({ filename }: PreviewErrorProps): ReactNode {
   return (

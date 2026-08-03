@@ -41,8 +41,6 @@ const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 const PREVIEW_EXTENSIONS = new Map<string, WorkspaceFilePreviewKind>([
   ["csv", "csv"],
   ["tsv", "csv"],
-  ["docx", "docx"],
-  ["pptx", "pptx"],
   ["txt", "text"],
   ["log", "text"],
   ["json", "text"],

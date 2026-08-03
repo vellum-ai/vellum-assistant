@@ -931,13 +931,13 @@ describe("openWorkspaceFilePreview", () => {
     useViewerStore.setState({ mainView: "app" });
 
     getState().openWorkspaceFilePreview("rows.csv", "csv");
-    getState().openWorkspaceFilePreview("deck.pptx", "pptx");
+    getState().openWorkspaceFilePreview("run.log", "text");
 
     const state = getState();
     expect(state.viewBeforeDocument).toBe("app");
     expect(state.openedDocumentState).toMatchObject({
-      workspacePath: "deck.pptx",
-      previewKind: "pptx",
+      workspacePath: "run.log",
+      previewKind: "text",
     });
   });
 
