@@ -12,6 +12,7 @@ import type {
 import type { AssistantEvent } from "../api/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // ---------------------------------------------------------------------------
@@ -780,7 +781,7 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
-  test("abort() clears the queue and sends generation_cancelled for each queued message", async () => {
+  test("abort() clears the queue and closes out each queued message", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
@@ -827,6 +828,17 @@ describe("Conversation message queue", () => {
       conversationId: "conv-1",
     });
 
+    // Each discarded row also gets its own terminal event. `generation_cancelled`
+    // closes out the turn they were waiting on; only `message_queued_deleted`
+    // closes out the queued rows themselves, and without it clients keep the
+    // pending indicator up forever — no `message_dequeued` is ever coming.
+    expect(
+      events2.find((e) => e.type === "message_queued_deleted"),
+    ).toMatchObject({ conversationId: "conv-1", requestId: "req-2" });
+    expect(
+      events3.find((e) => e.type === "message_queued_deleted"),
+    ).toMatchObject({ conversationId: "conv-1", requestId: "req-3" });
+
     // abort() must NOT emit conversation_error or generic error for queued discards.
     const err2 = events2.find((e) => e.type === "error");
     expect(err2).toBeUndefined();
@@ -848,6 +860,122 @@ describe("Conversation message queue", () => {
     // later test and drives this stale turn into commitTurnChanges, inflating
     // the shared turnCommitCalls counter that other tests assert against.
     await resolveRun(0);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a user interrupt keeps the queue and the stopped turn's drain sends it", async () => {
+    // GIVEN a turn in flight with a message queued behind it
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events2: AssistantEvent[] = [];
+    conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
+    expect(conversation.getQueueDepth()).toBe(1);
+
+    // WHEN the user hits Stop
+    conversation.abort(
+      createAbortReason("user_cancel", "conversation-queue.test", "conv-1"),
+    );
+
+    // THEN the queued message survives the abort — Stop ends the turn the user
+    // is watching, not the message they queued behind it. Discarding it here is
+    // what left clients showing a dead queued row that vanished unsent.
+    expect(conversation.getQueueDepth()).toBe(1);
+    expect(
+      events2.find((e) => e.type === "generation_cancelled"),
+    ).toBeUndefined();
+    expect(
+      events2.find((e) => e.type === "message_queued_deleted"),
+    ).toBeUndefined();
+
+    // AND once the stopped turn unwinds, its `finally` drains the queue, so the
+    // message is sent instead of needing to be retyped.
+    await resolveRun(0);
+    await waitForPendingRun(2);
+    expect(events2.find((e) => e.type === "message_dequeued")).toMatchObject({
+      conversationId: "conv-1",
+      requestId: "req-2",
+    });
+    expect(conversation.getQueueDepth()).toBe(0);
+    expect(
+      JSON.stringify(
+        pendingRuns[1].messages[pendingRuns[1].messages.length - 1],
+      ),
+    ).toContain("msg-2");
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a user interrupt mid-tool repairs the abandoned tool_use before the queued message runs", async () => {
+    // GIVEN a turn whose history ends with an unanswered tool_use — the shape a
+    // Stop mid-tool-call leaves behind, which providers reject outright
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events2: AssistantEvent[] = [];
+    conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
+
+    // WHEN the user interrupts and the stopped turn unwinds with the tool call
+    // still unanswered, then drains the queue
+    conversation.abort(
+      createAbortReason("user_cancel", "conversation-queue.test", "conv-1"),
+    );
+    const interrupted = pendingRuns[0];
+    await interrupted.onEvent({ type: "llm_call_started" });
+    interrupted.resolve([
+      ...interrupted.messages,
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu-interrupted",
+            name: "bash",
+            input: {},
+          },
+        ],
+      },
+    ]);
+    await waitForPendingRun(2);
+
+    // THEN the drained turn opens with a synthetic result for the abandoned
+    // call rather than a dangling tool_use.
+    const repaired = pendingRuns[1].messages.find(
+      (m) =>
+        m.role === "user" &&
+        m.content.some(
+          (block) =>
+            block.type === "tool_result" &&
+            block.tool_use_id === "toolu-interrupted",
+        ),
+    );
+    expect(repaired).toBeDefined();
+    expect(conversation.pendingInterruptRepair).toBe(false);
+
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 

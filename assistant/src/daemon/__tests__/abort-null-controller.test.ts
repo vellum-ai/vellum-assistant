@@ -37,7 +37,13 @@ mock.module("../../messaging/providers/telegram-bot/render.js", () => ({
 }));
 
 const { abortConversation } = await import("../conversation-lifecycle.js");
+import { createAbortReason } from "../../util/abort-reasons.js";
 import type { AbortContext } from "../conversation-lifecycle.js";
+
+interface QueuedEvent {
+  type: string;
+  requestId?: string;
+}
 
 interface Harness {
   ctx: AbortContext;
@@ -45,17 +51,27 @@ interface Harness {
   prompterDisposed: () => boolean;
   secretPrompterDisposed: () => boolean;
   queueClearedCount: () => number;
+  queuedEvents: QueuedEvent[];
+  drainKicks: string[];
 }
 
 function makeContext(opts: {
   processing: boolean;
   controller: AbortController | null;
+  /** requestIds of messages sitting in the queue behind the aborted turn. */
+  queued?: string[];
 }): Harness {
   let processing = opts.processing;
   const setProcessingCalls: boolean[] = [];
   let prompterDisposed = false;
   let secretPrompterDisposed = false;
   let queueCleared = 0;
+  const queuedEvents: QueuedEvent[] = [];
+  const drainKicks: string[] = [];
+  let queuedItems = (opts.queued ?? []).map((requestId) => ({
+    requestId,
+    onEvent: (event: QueuedEvent) => queuedEvents.push(event),
+  }));
 
   const ctx = {
     conversationId: "abort-null-controller-test",
@@ -82,10 +98,19 @@ function makeContext(opts: {
     queue: {
       clear: () => {
         queueCleared += 1;
+        queuedItems = [];
       },
-      [Symbol.iterator]: function* () {
-        // no queued messages
+      get isEmpty() {
+        return queuedItems.length === 0;
       },
+      get length() {
+        return queuedItems.length;
+      },
+      [Symbol.iterator]: () => queuedItems[Symbol.iterator](),
+    },
+    pendingInterruptRepair: false,
+    kickDrainQueue: async (_reason?: string, origin?: string) => {
+      drainKicks.push(origin ?? "");
     },
   } as unknown as AbortContext;
 
@@ -95,6 +120,8 @@ function makeContext(opts: {
     prompterDisposed: () => prompterDisposed,
     secretPrompterDisposed: () => secretPrompterDisposed,
     queueClearedCount: () => queueCleared,
+    queuedEvents,
+    drainKicks,
   };
 }
 
@@ -150,6 +177,83 @@ describe("abortConversation", () => {
     expect((observedReason as { kind?: string }).kind).toBe(
       "preempted_by_new_message",
     );
+  });
+
+  test("a user interrupt leaves queued messages for the stopped turn's drain", () => {
+    // GIVEN a live turn with two messages queued behind it
+    const controller = new AbortController();
+    const h = makeContext({
+      processing: true,
+      controller,
+      queued: ["req-a", "req-b"],
+    });
+
+    // WHEN the user stops the turn
+    abortConversation(
+      h.ctx,
+      createAbortReason("user_cancel", "test", "abort-null-controller-test"),
+    );
+
+    // THEN the queue is untouched — the agent loop's `finally` will drain it,
+    // so the queued messages are sent rather than silently dropped
+    expect(h.queueClearedCount()).toBe(0);
+    expect(h.ctx.queue.length).toBe(2);
+    expect(h.queuedEvents).toEqual([]);
+    // AND the drain is left to that `finally`, not kicked from here
+    expect(h.drainKicks).toEqual([]);
+    // AND the drain is told to repair tool_use blocks the killed turn abandoned
+    expect(h.ctx.pendingInterruptRepair).toBe(true);
+  });
+
+  test("a user interrupt with no live turn kicks the drain itself", () => {
+    // GIVEN a conversation flagged processing with no controller left to signal
+    // — no agent-loop `finally` is coming to drain the preserved queue
+    const h = makeContext({
+      processing: true,
+      controller: null,
+      queued: ["req-a"],
+    });
+
+    // WHEN the user stops it
+    abortConversation(
+      h.ctx,
+      createAbortReason("user_cancel", "test", "abort-null-controller-test"),
+    );
+
+    // THEN the queued message is still sent, because the abort kicks the drain
+    expect(h.ctx.queue.length).toBe(1);
+    expect(h.drainKicks).toEqual(["abortConversation:no_live_turn"]);
+  });
+
+  test("a non-interrupt abort discards the queue and closes out each row", () => {
+    // GIVEN a live turn with a queued message, torn down by a dispose
+    const controller = new AbortController();
+    const h = makeContext({
+      processing: true,
+      controller,
+      queued: ["req-a"],
+    });
+
+    // WHEN the conversation is disposed rather than interrupted
+    abortConversation(
+      h.ctx,
+      createAbortReason(
+        "conversation_disposed",
+        "test",
+        "abort-null-controller-test",
+      ),
+    );
+
+    // THEN the queue is dropped — there is no turn left for it to run on — and
+    // the sender gets the terminal event that closes the queued row, so no
+    // client is left holding a pending indicator nothing will ever settle
+    expect(h.queueClearedCount()).toBe(1);
+    expect(h.queuedEvents.map((e) => e.type)).toEqual([
+      "generation_cancelled",
+      "message_queued_deleted",
+    ]);
+    expect(h.queuedEvents[1].requestId).toBe("req-a");
+    expect(h.ctx.pendingInterruptRepair).toBe(false);
   });
 
   test("clears the persisted flag when in-memory reads idle (cancel with no live abort)", () => {
