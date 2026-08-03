@@ -185,20 +185,22 @@ const OVER_WINDOW_REJECTION_LOG_MESSAGE =
  * Terminal `agent_loop_exit` reasons under which a no-output run is a
  * legitimate silent no-op: the loop reached a real model reply (or a
  * model-driven stop) and the model simply produced nothing worth emitting.
- * Every other reason on a no-output run (`error`, where the loop's catch
- * swallowed a provider rejection or an unhandled throw into a graceful
- * no-output stop; the `aborted_*` family, cancellation before any output;
- * and the overflow terminals) means the pass never actually ran, so the wake
- * must report `invoked: false` instead of a phantom success. Membership is
- * an allowlist deliberately: a future exit reason defaults to the failure
- * side, which state-advancing callers recover from by retrying, rather than
- * the data-loss side.
+ * Every other reason on a no-output run means the pass never committed
+ * usable output, so the wake must report `invoked: false` instead of a
+ * phantom success: `error` (the loop's catch swallowed a provider rejection
+ * or an unhandled throw into a graceful no-output stop), the `aborted_*`
+ * family (cancellation before any output), the overflow terminals, and
+ * `max_tokens_reached` (the output budget was exhausted, e.g. by hidden
+ * thinking, before any visible text or executable tool call landed; a
+ * truncated response that DID produce output takes the normal path and
+ * never reaches this check). Membership is an allowlist deliberately: a
+ * future exit reason defaults to the failure side, which state-advancing
+ * callers recover from by retrying, rather than the data-loss side.
  */
 const CLEAN_NO_OUTPUT_EXIT_REASONS: ReadonlySet<AgentLoopExitReason> = new Set([
   "no_tool_calls",
   "yield_to_user",
   "checkpoint_handoff",
-  "max_tokens_reached",
 ]);
 
 export interface WakeOptions {
@@ -1517,7 +1519,15 @@ export async function wakeAgentForOpportunity(
         // pass that never ran. Gate on the terminal exit reason: a clean
         // model-driven stop is a real silent no-op; anything else fails the
         // wake so the caller retries.
+        // The went-live guard mirrors the throw path above: once a
+        // checkpoint fired or a tail message was persisted, side effects
+        // have already landed and the run must keep `invoked: true` even if
+        // the returned history's tail slice reads empty (the loop's
+        // deep-repair and recovery-hook paths rebase `history`, which can
+        // misalign the wake's external tail indexes).
         if (
+          mode === "buffering" &&
+          persistedTailIndex === 0 &&
           terminalExitReason !== null &&
           !CLEAN_NO_OUTPUT_EXIT_REASONS.has(terminalExitReason)
         ) {
