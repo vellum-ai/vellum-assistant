@@ -373,8 +373,16 @@ type CliOutputStream = {
  * is handed to the callback, and when no callback is passed it escalates to an
  * `uncaughtException`. Passing the callback is what contains it: a bare
  * `try`/`catch` around the write would not. The `catch` covers stream
- * implementations that raise synchronously instead. Both paths re-raise
- * anything that is not an expected closed-output failure.
+ * implementations that raise synchronously instead.
+ *
+ * Failures outside {@link CLOSED_OUTPUT_WRITE_CODES} are deliberately left
+ * alone rather than swallowed, but "left alone" means different things on the
+ * two paths. A synchronous raise propagates to the caller. A real stream
+ * invokes the completion callback on a later tick, so re-raising there
+ * escalates to an `uncaughtException`, which is precisely what an unhandled
+ * stream `error` event already did before this callback existed. That is the
+ * pre-existing handling of a genuine write fault, not a new one, and it now
+ * reaches CLI processes only: no daemon module logs through this writer.
  *
  * @internal Exported for tests, which model a closed output stream directly.
  */

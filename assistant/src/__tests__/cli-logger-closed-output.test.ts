@@ -16,9 +16,10 @@ import { cliWrite } from "../util/logger.js";
  * turns into a full shutdown. A bare `try`/`catch` around the write does not
  * see it, so these tests exercise the callback path specifically.
  *
- * The stubs below invoke the completion callback synchronously so the
- * assertions stay deterministic; the code under test does not care whether the
- * callback is synchronous or deferred.
+ * Most stubs below invoke the completion callback synchronously so the
+ * assertions stay deterministic. Real streams defer it to a later tick, which
+ * changes what "re-raise" can mean, so the deferred ordering is covered
+ * explicitly by `deferredFailingStream` rather than assumed.
  */
 
 function errnoError(code: string): NodeJS.ErrnoException {
@@ -35,6 +36,22 @@ function callbackFailingStream(err: NodeJS.ErrnoException) {
     write(chunk: string, callback: (e?: Error | null) => void): boolean {
       writes.push(chunk);
       callback(err);
+      return false;
+    },
+  };
+}
+
+/**
+ * Stream stub that reports `err` on a later tick, matching how a real stream
+ * invokes the write completion callback.
+ */
+function deferredFailingStream(err: NodeJS.ErrnoException) {
+  const writes: string[] = [];
+  return {
+    writes,
+    write(chunk: string, callback: (e?: Error | null) => void): boolean {
+      writes.push(chunk);
+      setTimeout(() => callback(err), 0);
       return false;
     },
   };
@@ -95,7 +112,26 @@ describe("cliWrite closed-output containment", () => {
     expect(stream.writes).toHaveLength(25);
   });
 
-  test("re-raises an unrelated failure reported to the callback", () => {
+  test("contains a closed-output failure reported on a later tick", async () => {
+    // The ordering a real stream actually uses. If containment depended on the
+    // callback running synchronously, the raise would escape the write and
+    // land as an unhandled error, which bun:test reports as a file-level
+    // failure rather than a failed assertion.
+    const stream = deferredFailingStream(errnoError("EPIPE"));
+    const write = cliWrite(stream);
+
+    expect(() => write("deferred epipe")).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(stream.writes).toEqual(["deferred epipe\n"]);
+  });
+
+  test("re-raises an unrelated failure reported synchronously to the callback", () => {
+    // Covers the synchronous-callback ordering only. When a real stream defers
+    // the callback, an unexpected failure cannot propagate to this caller: it
+    // escalates to `uncaughtException`, which is the same handling an
+    // unhandled stream `error` event received before the callback existed.
+    // Deliberately not asserted here, because a test that installs its own
+    // `uncaughtException` listener would race bun:test's.
     const write = cliWrite(callbackFailingStream(errnoError("ENOSPC")));
 
     expect(() => write("disk full")).toThrow(/ENOSPC/);
