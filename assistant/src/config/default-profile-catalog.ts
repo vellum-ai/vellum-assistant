@@ -295,6 +295,17 @@ export const OS_BETA_PROFILE_TEMPLATE: DefaultProfileTemplate = {
   topP: 0.95,
 };
 
+/**
+ * Profiles whose body is code-owned outright: no workspace overlay, and no
+ * user-owned shadow. The shadow rule below lets a user replace a default they
+ * can select, but `latency-optimized` fronts every live-voice turn through
+ * `voiceFrontDecision`/`voiceFrontDoor`, where a model outside the latency
+ * envelope is audible dead air rather than a slow reply. A same-named
+ * workspace entry stays on disk and stays listed; it just never governs what
+ * this name resolves to.
+ */
+export const CODE_OWNED_PROFILE_NAMES = new Set<string>(["latency-optimized"]);
+
 // All managed profiles, including the flag-gated os-beta, are invariant:
 // their MANAGED-SOURCE entries are read-only to user-facing writes except
 // re-enabling a disabled one (enforced at commitConfigWrite). A user-owned
@@ -474,6 +485,9 @@ function resolveAgainstBody(
 ): ProfileEntry | undefined {
   if (body == null) {
     return workspace;
+  }
+  if (CODE_OWNED_PROFILE_NAMES.has(name)) {
+    return { ...body };
   }
   if (workspace == null) {
     return name === OS_BETA_PROFILE_KEY ? undefined : { ...body };

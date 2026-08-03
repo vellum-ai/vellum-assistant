@@ -1681,6 +1681,17 @@ describe("config invariant flag enrichment", () => {
     expect(profiles.custom!).not.toHaveProperty("invariant");
   });
 
+  test("every managed default is invariant on the wire, Speed included", async () => {
+    // The clients drive their read-only lock off this flag, so a default that
+    // resolves from the catalog with no workspace stub must still carry it.
+    const body = await configGetRoute.handler({});
+    const profiles = wireProfiles(body);
+
+    for (const name of ["balanced", "quality-optimized", "latency-optimized"]) {
+      expect(profiles[name]!.invariant).toBe(true);
+    }
+  });
+
   test("PATCH /v1/config stamps the flag on the response but never persists it", async () => {
     const body = await configPatchRoute.handler({
       body: { memory: { enabled: true } },
