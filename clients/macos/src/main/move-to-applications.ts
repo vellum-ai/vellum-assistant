@@ -104,9 +104,48 @@ function createInstallSplash(): BrowserWindow {
  *
  * @see https://www.electronjs.org/docs/latest/api/app#appmovetoapplicationsfolderoptions-macos
  */
+/**
+ * Where the running app ended up, and for the negative cases which branch put
+ * it there. A packaged app outside /Applications keeps running from a
+ * read-only location (a mounted DMG, a quarantined ~/Downloads copy), where
+ * `electron-updater` refuses every update with "Cannot update while running on
+ * a read-only volume". The branches are indistinguishable from the error alone,
+ * so `sentry.ts` reports this as the `install_location` tag.
+ */
+export type InstallLocation =
+  | "unpackaged"
+  | "applications"
+  | "relocating"
+  | "skipped-pending-open"
+  | "conflict-exists-and-running"
+  | "declined"
+  | "failed";
+
+let installLocation: InstallLocation = "unpackaged";
+
+export const getInstallLocation = (): InstallLocation => installLocation;
+
+/**
+ * Record that a launch carrying a `.vellum` file or a deep link bypassed the
+ * relocation, so a packaged app left outside /Applications is attributable to
+ * that skip rather than to a failed move.
+ */
+export const markRelocationSkipped = (): void => {
+  if (!app.isPackaged) return;
+  installLocation = app.isInApplicationsFolder()
+    ? "applications"
+    : "skipped-pending-open";
+};
+
 export async function relocateToApplicationsFolder(): Promise<boolean> {
-  if (!app.isPackaged) return false;
-  if (app.isInApplicationsFolder()) return false;
+  if (!app.isPackaged) {
+    installLocation = "unpackaged";
+    return false;
+  }
+  if (app.isInApplicationsFolder()) {
+    installLocation = "applications";
+    return false;
+  }
 
   let splash: BrowserWindow | null = null;
   try {
@@ -136,12 +175,14 @@ export async function relocateToApplicationsFolder(): Promise<boolean> {
   };
 
   try {
+    let conflictedWithRunningCopy = false;
     const moved = app.moveToApplicationsFolder({
       conflictHandler: (conflictType) => {
         if (conflictType === "existsAndRunning") {
           // Another copy is already installed and running. Leave it be and
           // keep running from the current location for this session rather
           // than nagging — the user clearly already has Vellum installed.
+          conflictedWithRunningCopy = true;
           log.info(
             "[move-to-applications] /Applications copy already running; skipping move",
           );
@@ -151,13 +192,27 @@ export async function relocateToApplicationsFolder(): Promise<boolean> {
         return true;
       },
     });
+    // A `false` return is the user's own doing (the conflict handler above, or
+    // a cancelled authorization prompt); anything else throws.
+    installLocation = moved
+      ? "relocating"
+      : conflictedWithRunningCopy
+        ? "conflict-exists-and-running"
+        : "declined";
     // On success the process is already quitting/relaunching, so the splash
     // is torn down with it; only close it if we're staying put.
     if (!moved) closeSplash();
     return moved;
   } catch (err) {
+    installLocation = "failed";
     log.error("[move-to-applications] moveToApplicationsFolder failed:", err);
     closeSplash();
     return false;
   }
 }
+
+// Test seam, exported only for unit-test setup. Production code never
+// resets the recorded location.
+export const __resetForTesting = (): void => {
+  installLocation = "unpackaged";
+};
