@@ -93,6 +93,7 @@ type SocketModeHarness = {
   onEvent: (event: NormalizedSlackEvent) => void;
   store: SlackStore;
   handleMessage(raw: string, originWs: WebSocket): void;
+  resolveBotIdentity(): Promise<void>;
 };
 
 /** An ordinary channel the assistant posts into. Deliberately unsubscribed. */
@@ -743,6 +744,78 @@ describe("LUM-2941: the assistant's own bot_message echoes", () => {
       expect(store.hasThread(BOT_POST_TS)).toBe(false);
       // Unsubscribed, unmentioned, untracked: the ordinary filter drops it.
       expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("keeps retrying auth.test until bot_id lands, so a bad upgrade self-heals", async () => {
+    const { rawDb, store } = createSlackStore();
+    const client = createHarness(store, () => {}, {
+      botUserId: undefined,
+      botId: undefined,
+      botUsername: undefined,
+    });
+
+    try {
+      // The pre-upgrade persisted identity: user id and username, written
+      // before `botId` existed.
+      store.setBotIdentity({
+        userId: "UBOT",
+        username: "assistant",
+        metadata: { teamName: "Example Team" },
+      });
+
+      // First resolution happens during a Slack blip, so it falls back to that
+      // persisted row and comes up without a bot_id.
+      let authCalls = 0;
+      fetchMock = mock(async (input) => {
+        if (String(input).includes("auth.test")) {
+          authCalls++;
+          return new Response(
+            JSON.stringify({ ok: false, error: "internal_error" }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return makeSlackUserResponse();
+      });
+      await client.resolveBotIdentity();
+
+      expect(authCalls).toBe(1);
+      expect(client.config.botUserId).toBe("UBOT");
+      expect(client.config.botId).toBeUndefined();
+
+      // Slack recovers. The next reconnect must retry rather than short-circuit
+      // on the populated user fields, or the bot_message self-filter would stay
+      // disabled until a full restart.
+      fetchMock = mock(async (input) => {
+        if (String(input).includes("auth.test")) {
+          authCalls++;
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              user_id: "UBOT",
+              user: "assistant",
+              team: "Example Team",
+              bot_id: OUR_BOT_ID,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return makeSlackUserResponse();
+      });
+      await client.resolveBotIdentity();
+
+      expect(authCalls).toBe(2);
+      expect(client.config.botId).toBe(OUR_BOT_ID);
+      // Persisted, so the next process starts with it.
+      expect(
+        (store.getBotIdentity("slack")?.metadata as { botId?: string })?.botId,
+      ).toBe(OUR_BOT_ID);
+
+      // Now that the answer is authoritative, further reconnects short-circuit.
+      await client.resolveBotIdentity();
+      expect(authCalls).toBe(2);
     } finally {
       rawDb.close();
     }

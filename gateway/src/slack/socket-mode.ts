@@ -231,6 +231,11 @@ export class SlackSocketModeClient {
   private dedupCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private store: SlackStore;
   private emitQueues: Map<string, Promise<void>> | undefined = new Map();
+  /**
+   * Whether `auth.test` has answered authoritatively in this process. Gates
+   * the identity short-circuit: see `resolveBotIdentity`.
+   */
+  private identityResolvedFromApi = false;
 
   constructor(
     config: SlackSocketModeConfig,
@@ -271,7 +276,17 @@ export class SlackSocketModeClient {
    * are treated as transient and fall through to persistence.
    */
   private async resolveBotIdentity(): Promise<void> {
-    if (this.config.botUserId && this.config.botUsername) {
+    // Short-circuit on having had an authoritative answer, not on the fields
+    // being populated. Those differ exactly once: an install that upgrades
+    // during a Slack blip falls back to a persisted identity written before
+    // `botId` existed, so `botUserId` / `botUsername` are set while `botId` is
+    // not. Keying on presence would return here on every later reconnect and
+    // leave the `bot_message` self-filter disabled until a full restart, which
+    // reopens the echo gap for precisely the installs that hit a bad upgrade.
+    if (this.identityResolvedFromApi) {
+      return;
+    }
+    if (this.config.botUserId && this.config.botUsername && this.config.botId) {
       return;
     }
 
@@ -337,6 +352,13 @@ export class SlackSocketModeClient {
             username: data.user ?? null,
             metadata: Object.keys(metadata).length > 0 ? metadata : null,
           });
+        }
+
+        // Only a resolution that actually yielded an identity counts as
+        // authoritative; an `ok` response without `user_id` taught us nothing
+        // and must not disable the retry.
+        if (data.user_id) {
+          this.identityResolvedFromApi = true;
         }
 
         log.info(
@@ -764,11 +786,14 @@ export class SlackSocketModeClient {
    *
    * Keyed on the echo rather than on the sending code path, so it holds for
    * every outbound route: the Slack skill's raw `chat.postMessage`, the
-   * messaging adapter, and the gateway's own posts alike. The flip side is
-   * that a post Slack attributes to a bot identity rather than to the bot
-   * *user* (subtype `bot_message`, no `user` field) never reaches here,
-   * because the self-filter that calls this matches on `user`. Routing
-   * outbound through the gateway (LUM-2942) removes the inference entirely.
+   * messaging adapter, and the gateway's own posts alike. Both of Slack's
+   * attribution shapes reach here, because `isOwnBotEvent` matches our bot
+   * user *and* our `bot_id`.
+   *
+   * What remains is the inference itself: this reads the gateway's own
+   * outbound echo to decide that the assistant opened a conversation. Routing
+   * outbound through the gateway (LUM-2942) replaces it with registration at
+   * send time and makes this handler deletable.
    */
   private maybeTrackBotOwnPost(event: SlackInboundEvent): void {
     if (this.config.threadMode !== "mention_then_thread") {
