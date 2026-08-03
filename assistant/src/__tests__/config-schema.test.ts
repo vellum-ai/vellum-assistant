@@ -747,6 +747,7 @@ describe("AssistantConfigSchema", () => {
       failureBackoffBaseMs: 2000,
       failureBackoffMaxMs: 60000,
       maxFileSizeBytes: 256000,
+      historyCompaction: { enabled: true },
       interactiveGitTimeoutMs: 10000,
       enrichmentQueueSize: 50,
       enrichmentConcurrency: 1,
