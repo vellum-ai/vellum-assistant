@@ -20,7 +20,7 @@ import { appendFeedItem } from "../home/feed-writer.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { getLogger } from "../util/logger.js";
-import { normalizeTitle } from "../util/short-title.js";
+import { normalizeTitle, stripMarkdown } from "../util/short-title.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { deriveTitle } from "./copy-composer.js";
 import { readPayloadString } from "./notification-utils.js";
@@ -89,12 +89,13 @@ export async function writeHomeFeedItemForSignal(
   }
 
   // Title order: payload, then the rendered copy, then a headline derived
-  // from the summary. The derivation always yields something, so every feed
-  // item lands with a title.
+  // from the summary. `normalizeTitle` returns "" for empty, prose-shaped, and
+  // meta-failure candidates; the derivation always yields something, so every
+  // feed item lands with a title.
   const resolvedTitle =
-    acceptTitle(payloadTitle, resolvedSummary) ??
-    acceptTitle(renderedCopy?.title, resolvedSummary) ??
-    deriveTitle(resolvedSummary);
+    normalizeTitle(payloadTitle ?? "") ||
+    normalizeTitle(renderedCopy?.title ?? "") ||
+    deriveFallbackTitle(resolvedSummary);
 
   const urgency = signal.attentionHints.urgency;
   const now = new Date().toISOString();
@@ -156,31 +157,25 @@ export async function writeHomeFeedItemForSignal(
 }
 
 /**
- * Clean an authored title (producer payload or model-rendered copy) and keep
- * it only when it says something the summary does not.
+ * Derive the terminal fallback headline from the summary.
  *
- * `normalizeTitle` returns "" for empty, prose-shaped, and meta-failure
- * titles. On top of that, a title that is a case-insensitive prefix of the
- * summary, or that matches the summary's first sentence, stutters against the
- * row's own body text. Rejection returns undefined so the caller falls
- * through to the next candidate.
+ * The summary is preferentially a conversation seed, which carries structured
+ * markdown and hard line breaks, so flatten it to plain single-line text
+ * before slicing a headline off the front. A non-empty summary always yields a
+ * non-empty title.
  */
-function acceptTitle(
-  raw: string | undefined,
-  summary: string,
-): string | undefined {
-  const candidate = normalizeTitle(raw ?? "");
-  if (!candidate) {
-    return undefined;
-  }
-  const lowered = candidate.toLowerCase();
-  if (summary.toLowerCase().startsWith(lowered)) {
-    return undefined;
-  }
-  if (lowered === deriveTitle(summary).toLowerCase()) {
-    return undefined;
-  }
-  return candidate;
+function deriveFallbackTitle(summary: string): string {
+  // `stripMarkdown` covers inline syntax and headings; list bullets only read
+  // as markers while the line breaks are still there, so drop them here.
+  const plain = flattenWhitespace(
+    stripMarkdown(summary).replace(/^[ \t]*[-*+][ \t]+/gm, ""),
+  );
+  return deriveTitle(plain || flattenWhitespace(summary));
+}
+
+/** Collapse whitespace runs, including hard line breaks, into single spaces. */
+function flattenWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 // ── Category & detail-panel derivation ────────────────────────────────
