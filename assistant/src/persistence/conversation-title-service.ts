@@ -19,6 +19,11 @@ import { publishConversationTitleChanged } from "../runtime/sync/resource-sync-e
 import { getLogger } from "../util/logger.js";
 import { Mutex } from "../util/mutex.js";
 import {
+  normalizeTitle,
+  stripThinkingTags,
+  truncateTitle,
+} from "../util/short-title.js";
+import {
   getConversation,
   getMessages,
   type MessageRow,
@@ -575,176 +580,6 @@ function logRetryableFallback(
     retryableFallbackLogFields(params, reason),
     "Conversation title generation used retryable fallback",
   );
-}
-
-const META_FAILURE_TITLES = new Set([
-  "missing context",
-  "no context",
-  "insufficient context",
-  "unclear context",
-  "empty context",
-  "no topic",
-  "unclear topic",
-  "unclear request",
-  "unclear message",
-  "empty conversation",
-  "empty message",
-  "no content",
-]);
-
-const MAX_TITLE_LENGTH = 40;
-const MAX_TITLE_WORDS = 7;
-
-function truncateTitle(title: string): string {
-  if (title.length <= MAX_TITLE_LENGTH) {
-    return title;
-  }
-  const words = title.split(/\s+/);
-  if (words.length <= MAX_TITLE_WORDS) {
-    // Long words but few of them — truncate to char limit at word boundary
-    let result = "";
-    for (const word of words) {
-      const candidate = result ? result + " " + word : word;
-      if (candidate.length > MAX_TITLE_LENGTH) {
-        break;
-      }
-      result = candidate;
-    }
-    return result || title.slice(0, MAX_TITLE_LENGTH);
-  }
-  // Too many words — trim to 5 words
-  return words.slice(0, 5).join(" ");
-}
-
-function normalizeTitle(raw: string): string {
-  let title = raw.trim().replace(/^["']|["']$/g, "");
-  title = stripMarkdown(title);
-  title = stripThinkingTags(title).trim();
-  if (!title) {
-    return "";
-  }
-  // Reject outputs that are the model reasoning aloud or continuing the
-  // conversation instead of naming it (e.g. "I need to generate a…", "I'll
-  // work through these files…"). Callers fall back to a deterministic title.
-  if (looksLikeLeakedProse(title)) {
-    return "";
-  }
-  if (META_FAILURE_TITLES.has(title.toLowerCase())) {
-    return "";
-  }
-  return truncateTitle(title);
-}
-
-/** Reasoning/sentence openers that never start a legitimate topic title. */
-const LEAKED_PROSE_PREFIXES = [
-  "i need to",
-  "i needed to",
-  "i should",
-  "i will",
-  "i'll",
-  "i can ",
-  "i can't",
-  "i cannot",
-  "i'm ",
-  "i am ",
-  "i've ",
-  "i have ",
-  "i'd ",
-  "i would",
-  "let me",
-  "looking at",
-  "based on",
-  "given the",
-  "to generate",
-  "to summarize",
-  "to title",
-  // Subject-led reasoning openers. A bare noun phrase ("The User Interface
-  // Redesign", "The Conversation API") is a valid title, so each subject only
-  // counts as leaked prose when a verb or possessive follows it — marking the
-  // output as a sentence rather than a topic.
-  "the user wants",
-  "the user asked",
-  "the user is",
-  "the user wanted",
-  "the user needs",
-  "the user said",
-  "the user has",
-  "the user would",
-  "the user's request",
-  "the conversation is",
-  "this conversation is",
-  "the conversation appears",
-  "the conversation seems",
-  "the conversation covers",
-  "the conversation discusses",
-  "the assistant should",
-  "the assistant is",
-  "the assistant wants",
-  "the assistant needs",
-  "the title should",
-  "the title is",
-  "the title would",
-  "the title for",
-  "here's ",
-  "here is ",
-  "here are ",
-  "sure,",
-  "okay,",
-  "ok,",
-];
-
-/**
- * Heuristic guard for title outputs that are clearly prose — the model
- * reasoning aloud or replying to the conversation rather than naming it. A real
- * title is a single-line short noun phrase, so we reject multi-line output,
- * embedded transcript markers, leading reasoning openers, and sentence-shaped
- * clauses. Deliberately tight: a false reject only costs a deterministic
- * fallback title, while a false accept persists a broken one.
- */
-function looksLikeLeakedProse(title: string): boolean {
-  if (/\n/.test(title)) {
-    return true;
-  }
-  if (/\b(?:user|assistant)\s*:/i.test(title)) {
-    return true;
-  }
-  const lower = title.toLowerCase();
-  if (LEAKED_PROSE_PREFIXES.some((prefix) => lower.startsWith(prefix))) {
-    return true;
-  }
-  // Sentence-shaped: terminal punctuation on a multi-word clause.
-  if (/[.?!]$/.test(title) && title.split(/\s+/).length > 5) {
-    return true;
-  }
-  return false;
-}
-
-/** Strip thinking tags so they don't bleed into generated titles. */
-function stripThinkingTags(text: string): string {
-  return text
-    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
-    .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
-    .replace(/<think>[\s\S]*?<\/think>/gi, "")
-    .replace(/<thought>/gi, "")
-    .replace(/<\/thought>/gi, "")
-    .replace(/<thinking>/gi, "")
-    .replace(/<\/thinking>/gi, "")
-    .replace(/<think>/gi, "")
-    .replace(/<\/think>/gi, "")
-    .replace(/<:[^>]*>/gi, "");
-}
-
-/** Strip common markdown formatting so titles render as plain text. */
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/\*\*(.+?)\*\*/g, "$1") // **bold**
-    .replace(/__(.+?)__/g, "$1") // __bold__
-    .replace(/\*(.+?)\*/g, "$1") // *italic*
-    .replace(/(?<!\w)_(.+?)_(?!\w)/g, "$1") // _italic_ (word-boundary-aware to preserve snake_case)
-    .replace(/~~(.+?)~~/g, "$1") // ~~strikethrough~~
-    .replace(/`(.+?)`/g, "$1") // `code`
-    .replace(/\[(.+?)\]\(.+?\)/g, "$1") // [link](url)
-    .replace(/^#{1,6}\s+/gm, ""); // # headings
 }
 
 function deriveFallbackTitle(context?: TitleContext): string | null {
