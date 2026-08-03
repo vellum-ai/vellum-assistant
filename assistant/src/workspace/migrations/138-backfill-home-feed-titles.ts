@@ -2,15 +2,16 @@
  * Workspace migration `138-backfill-home-feed-titles`.
  *
  * Gives every item in `<workspace>/data/home-feed.json` a non-empty
- * `title`. The wire schema requires the field, and an item on disk that
- * lacks it is dropped when the feed is read, so the title is derived
- * from the item's own `summary` instead.
+ * `title`. The feed writer sets one on every item it appends; stored
+ * items that lack the field get a headline derived from their own
+ * `summary`, so the field is uniformly present across the file.
  *
  * Behaviour:
  *   - Missing file, unparseable JSON, or a non-object root: no-op.
  *   - Item that already has a non-empty `title`: untouched.
- *   - Item without one: title derived from `summary` (first sentence,
- *     capped at 40 characters with an ellipsis).
+ *   - Item without one: title derived from `summary` (markdown and
+ *     newlines flattened, first sentence, capped at 60 characters with
+ *     an ellipsis).
  *   - `version`, `updatedAt`, and every other item field are preserved.
  *
  * Idempotent: a second run finds every item titled, so it writes
@@ -27,7 +28,14 @@ import type { WorkspaceMigration } from "./types.js";
 const log = getLogger("workspace-migration-138-backfill-home-feed-titles");
 
 const HOME_FEED_RELATIVE_PATH = join("data", "home-feed.json");
-const MAX_TITLE_LENGTH = 40;
+
+/**
+ * Matches `NOTIFICATION_TITLE_MAX_LENGTH` in
+ * `notifications/notification-utils.ts`, the cap on the headline the feed
+ * writer derives from a summary, so a backfilled item and a freshly
+ * written one with the same summary carry the same title.
+ */
+const MAX_TITLE_LENGTH = 60;
 
 /**
  * The persisted item fields this migration touches. Inlined rather than
@@ -125,18 +133,45 @@ export const backfillHomeFeedTitlesMigration: WorkspaceMigration = {
 // ---------------------------------------------------------------------------
 
 /**
- * Derive a short headline from a summary: the first sentence when the
- * text has a terminator, capped at `MAX_TITLE_LENGTH` characters with an
- * ellipsis. Mirrors the notification copy composer's derivation, inlined
- * rather than imported so the migration stays self-contained.
+ * Derive a short headline from a summary: the markdown is flattened to a
+ * single line of plain text, the first sentence is taken when the text
+ * has a terminator, and the result is capped at `MAX_TITLE_LENGTH`
+ * characters with an ellipsis. Returns "" when nothing usable survives.
+ *
+ * Inlined rather than imported from the notification pipeline so the
+ * migration stays self-contained per the migrations AGENTS.md.
  */
 function deriveTitle(summary: string): string {
-  const firstSentenceEnd = summary.search(/[.!?](\s|$)/);
+  const text = flattenToPlainText(summary);
+  const firstSentenceEnd = text.search(/[.!?](\s|$)/);
   const candidate =
-    firstSentenceEnd > 0 ? summary.slice(0, firstSentenceEnd + 1) : summary;
+    firstSentenceEnd > 0 ? text.slice(0, firstSentenceEnd + 1) : text;
   return candidate.length > MAX_TITLE_LENGTH
     ? candidate.slice(0, MAX_TITLE_LENGTH).trim() + "…"
     : candidate.trim();
+}
+
+/**
+ * Reduce markdown-rich summary text to a single line of plain prose:
+ * block structure (code fences, headings, blockquotes, list markers) is
+ * dropped, inline formatting is unwrapped, and every run of whitespace,
+ * newlines included, collapses to one space.
+ */
+function flattenToPlainText(text: string): string {
+  return text
+    .replace(/^\s{0,3}(?:```|~~~).*$/gm, "")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/^\s{0,3}(?:[-*+]|\d+[.)])\s+/gm, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/(?<!\w)_(.+?)_(?!\w)/g, "$1")
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/`(.+?)`/g, "$1")
+    .replace(/\[(.+?)\]\(.*?\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

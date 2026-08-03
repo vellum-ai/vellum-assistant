@@ -26,7 +26,6 @@ import {
 } from "../providers/provider-send-message.js";
 import type { Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
-import { normalizeTitle } from "../util/short-title.js";
 import { truncate } from "../util/truncate.js";
 import {
   buildAccessRequestContractText,
@@ -45,7 +44,7 @@ import {
   type ConversationCandidateSet,
   serializeCandidatesForPrompt,
 } from "./conversation-candidates.js";
-import { composeFallbackCopy, deriveTitle } from "./copy-composer.js";
+import { composeFallbackCopy, resolveTitle } from "./copy-composer.js";
 import { createDecision } from "./decisions-store.js";
 import {
   buildGuardianRequestCodeInstruction,
@@ -416,21 +415,6 @@ function buildFallbackDecision(
 // ── Validation ─────────────────────────────────────────────────────────
 
 const VALID_CHANNELS = new Set<string>(getDeliverableChannels());
-
-/**
- * Clean a title authored elsewhere (the decision model, or a producer payload),
- * falling back to one derived from the body when `normalizeTitle` returns its
- * empty-string rejection signal.
- *
- * The two branches carry different budgets. An accepted authored title is
- * bounded by `normalizeTitle` at 40 characters. A rejected one falls through to
- * `deriveTitle`, which never sees the normalizer and applies the composer's own
- * `NOTIFICATION_TITLE_MAX_LENGTH` (60) cap plus a trailing ellipsis, so a
- * derived title can reach 61 characters.
- */
-function resolveTitle(raw: string | undefined, body: string): string {
-  return normalizeTitle(raw ?? "") || deriveTitle(body);
-}
 
 function validateDecisionOutput(
   input: Record<string, unknown>,

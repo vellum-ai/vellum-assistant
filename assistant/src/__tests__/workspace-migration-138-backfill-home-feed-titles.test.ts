@@ -9,9 +9,12 @@
  *   1. Missing file, malformed JSON, and a non-object root are no-ops.
  *   2. Title-less items gain a first-sentence title from the summary.
  *   3. Items that already have a title are untouched.
- *   4. A long summary truncates to 40 characters with an ellipsis.
- *   5. `version`, `updatedAt`, and unrelated item fields are preserved.
- *   6. A second run writes nothing.
+ *   4. A long summary truncates to 60 characters with an ellipsis, the
+ *      same cap the notification pipeline's derivation applies.
+ *   5. Markdown-rich and multi-line summaries yield a single line of
+ *      plain text.
+ *   6. `version`, `updatedAt`, and unrelated item fields are preserved.
+ *   7. A second run writes nothing.
  */
 
 import {
@@ -169,7 +172,7 @@ describe("workspace migration 138-backfill-home-feed-titles", () => {
     expect(items[1]!.title).toBe("Needs a headline.");
   });
 
-  test("truncates a long summary to 40 characters with an ellipsis", () => {
+  test("truncates a long summary to 60 characters with an ellipsis", () => {
     const summary =
       "Bob shared a very long document that keeps going well past the limit";
     writeFeed([makeItem({ id: "long", summary })]);
@@ -177,9 +180,11 @@ describe("workspace migration 138-backfill-home-feed-titles", () => {
     backfillHomeFeedTitlesMigration.run(workspaceDir);
 
     const title = readFeedFile().items[0]!.title as string;
-    expect(title).toBe("Bob shared a very long document that kee…");
-    // The ellipsis sits past the cap, so the retained text is exactly 40.
-    expect(title.slice(0, -1).length).toBe(40);
+    expect(title).toBe(
+      "Bob shared a very long document that keeps going well past t…",
+    );
+    // The ellipsis sits past the cap, so the retained text is exactly 60.
+    expect(title.slice(0, -1).length).toBe(60);
   });
 
   test("truncates a long first sentence rather than the whole summary", () => {
@@ -187,14 +192,64 @@ describe("workspace migration 138-backfill-home-feed-titles", () => {
       makeItem({
         id: "long-sentence",
         summary:
-          "This opening sentence runs well beyond the forty character cap. Then another.",
+          "This opening sentence runs well beyond the sixty character cap on derived titles. Then another.",
       }),
     ]);
 
     backfillHomeFeedTitlesMigration.run(workspaceDir);
 
     const title = readFeedFile().items[0]!.title as string;
-    expect(title).toBe("This opening sentence runs well beyond t…");
+    expect(title).toBe(
+      "This opening sentence runs well beyond the sixty character c…",
+    );
+  });
+
+  test("flattens a markdown-rich multi-line summary into one plain line", () => {
+    writeFeed([
+      makeItem({
+        id: "markdown",
+        summary:
+          "## Nightly run\n\n- **Deploy** finished\n- Tests passed\n\nSee the `report` for details.",
+      }),
+    ]);
+
+    backfillHomeFeedTitlesMigration.run(workspaceDir);
+
+    expect(readFeedFile().items[0]!.title).toBe(
+      "Nightly run Deploy finished Tests passed See the report for…",
+    );
+  });
+
+  test("unwraps inline markdown before taking the first sentence", () => {
+    writeFeed([
+      makeItem({
+        id: "inline",
+        summary:
+          "**Alice** shared the [design doc](https://example.com/doc). Review it soon.",
+      }),
+    ]);
+
+    backfillHomeFeedTitlesMigration.run(workspaceDir);
+
+    expect(readFeedFile().items[0]!.title).toBe("Alice shared the design doc.");
+  });
+
+  test("collapses a newline-only summary run into single spaces", () => {
+    writeFeed([
+      makeItem({ id: "newlines", summary: "Backup complete\n\nNo errors" }),
+    ]);
+
+    backfillHomeFeedTitlesMigration.run(workspaceDir);
+
+    expect(readFeedFile().items[0]!.title).toBe("Backup complete No errors");
+  });
+
+  test("skips an item whose summary is markdown structure only", () => {
+    writeFeed([makeItem({ id: "structure-only", summary: "##\n\n- \n\n> " })]);
+
+    backfillHomeFeedTitlesMigration.run(workspaceDir);
+
+    expect(readFeedFile().items[0]!.title).toBeUndefined();
   });
 
   test("preserves version, updatedAt, and unrelated item fields", () => {
