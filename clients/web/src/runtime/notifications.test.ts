@@ -270,4 +270,24 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
       "vellum-alerts",
     );
   });
+
+  test("a concurrent waiter retries after scheduling fails", async () => {
+    nativeAndroid = true;
+    let rejectFirst!: (error: Error) => void;
+    scheduleMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectFirst = reject;
+        }),
+    );
+
+    const first = postLocalNotification(baseArgs);
+    const waiter = postLocalNotification(baseArgs);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    rejectFirst(new Error("native bridge failed"));
+    await Promise.all([first, waiter]);
+
+    expect(scheduleMock).toHaveBeenCalledTimes(2);
+    expect(ackArgs.map(({ body }) => body.success).sort()).toEqual([false, true]);
+  });
 });

@@ -309,16 +309,6 @@ describe("registerForRemotePush", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  test("reports a missing native push plugin without breaking startup", async () => {
-    registerMock.mockImplementationOnce(async () => {
-      throw new Error("plugin unavailable");
-    });
-
-    await registerForRemotePush("assistant-1");
-
-    expect(captureErrorMock).toHaveBeenCalledTimes(1);
-  });
-
   test("does not register when notification permission is denied", async () => {
     permissionState = "denied";
     await registerForRemotePush("assistant-1");

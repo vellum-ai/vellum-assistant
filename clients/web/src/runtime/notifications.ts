@@ -62,6 +62,7 @@ let permissionPromptIssued = false;
 let tapListenersRegistered = false;
 let tapHandler: ((payload: NotificationTapPayload) => void) | null = null;
 const recentNativeDeliveryIds = new Set<string>();
+const nativeDeliveryPromises = new Map<string, Promise<void>>();
 const MAX_RECENT_DELIVERY_IDS = 128;
 
 /**
@@ -252,18 +253,44 @@ function toNotificationId(seed: string): number {
   return Math.abs(hash) % 0x7fffffff;
 }
 
-function reserveNativeDelivery(deliveryId: string): boolean {
+async function scheduleNativeDelivery(
+  deliveryId: string,
+  notification: LocalNotificationSchema,
+): Promise<void> {
   if (recentNativeDeliveryIds.has(deliveryId)) {
-    return false;
+    return;
   }
-  recentNativeDeliveryIds.add(deliveryId);
-  if (recentNativeDeliveryIds.size > MAX_RECENT_DELIVERY_IDS) {
-    const oldest = recentNativeDeliveryIds.values().next().value;
-    if (oldest) {
-      recentNativeDeliveryIds.delete(oldest);
+  const active = nativeDeliveryPromises.get(deliveryId);
+  if (active) {
+    try {
+      await active;
+      return;
+    } catch {
+      // One waiter may retry a failed native bridge call.
     }
   }
-  return true;
+  const pending = nativeDeliveryPromises.get(deliveryId);
+  if (pending) {
+    return pending;
+  }
+  const attempt = ensureAndroidAlertsChannel().then(async () => {
+    await LocalNotifications.schedule({ notifications: [notification] });
+  });
+  nativeDeliveryPromises.set(deliveryId, attempt);
+  try {
+    await attempt;
+    recentNativeDeliveryIds.add(deliveryId);
+    if (recentNativeDeliveryIds.size > MAX_RECENT_DELIVERY_IDS) {
+      const oldest = recentNativeDeliveryIds.values().next().value;
+      if (oldest) {
+        recentNativeDeliveryIds.delete(oldest);
+      }
+    }
+  } finally {
+    if (nativeDeliveryPromises.get(deliveryId) === attempt) {
+      nativeDeliveryPromises.delete(deliveryId);
+    }
+  }
 }
 
 /**
@@ -456,17 +483,6 @@ export async function postLocalNotification(
       return;
     }
 
-    if (args.deliveryId && !reserveNativeDelivery(args.deliveryId)) {
-      if (args.assistantId) {
-        await sendNotificationIntentAck(
-          args.assistantId,
-          args.deliveryId,
-          true,
-        );
-      }
-      return;
-    }
-
     const seed =
       args.deliveryId ?? `${args.sourceEventName}:${args.title}:${args.body}`;
     const notification: LocalNotificationSchema = {
@@ -477,12 +493,13 @@ export async function postLocalNotification(
       ...(isNativeAndroid() ? { channelId: ANDROID_ALERTS_CHANNEL_ID } : {}),
     };
     try {
-      await ensureAndroidAlertsChannel();
-      await LocalNotifications.schedule({ notifications: [notification] });
-    } catch (err) {
       if (args.deliveryId) {
-        recentNativeDeliveryIds.delete(args.deliveryId);
+        await scheduleNativeDelivery(args.deliveryId, notification);
+      } else {
+        await ensureAndroidAlertsChannel();
+        await LocalNotifications.schedule({ notifications: [notification] });
       }
+    } catch (err) {
       // Never block the SSE loop on notification failures, but record the
       // outcome so the daemon's delivery audit trail reflects reality.
       success = false;
@@ -560,4 +577,5 @@ export function __resetNotificationsStateForTests(): void {
   tapListenersRegistered = false;
   tapHandler = null;
   recentNativeDeliveryIds.clear();
+  nativeDeliveryPromises.clear();
 }
