@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, shell } from "electron";
 
 import {
+  getInstallLocation,
   isStrandedOutsideApplications,
   recordInstallLocation,
 } from "./install-location";
@@ -201,9 +202,21 @@ export async function relocateToApplicationsFolder(): Promise<boolean> {
  * the first time or a copy that has since quit), and fall back to pointing at
  * Finder when even that fails. Declining is remembered so this asks at most
  * once per install for a user who wants to run from where they are.
+ *
+ * Silent on a launch that a `.vellum` file or a deep link triggered: accepting
+ * the offer relaunches, and those events live only in this process's pending
+ * buffers until the renderer drains them, so the relaunch would drop the file
+ * or link the user actually opened. Such a launch is the one case where being
+ * outside /Applications is a deliberate deferral rather than a failure, and
+ * the deferral is only good for this launch. The next plain launch runs the
+ * relocation unguarded, and this prompt follows it if the app is still
+ * stranded afterwards.
  */
 export async function promptToRelocateIfStranded(): Promise<void> {
   if (!isStrandedOutsideApplications()) {
+    return;
+  }
+  if (getInstallLocation() === "skipped-pending-open") {
     return;
   }
   if (readSetting("suppressRelocationPrompt") === true) {

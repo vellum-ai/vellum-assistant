@@ -93,8 +93,12 @@ mock.module("electron", () => ({
 
 const { relocateToApplicationsFolder, promptToRelocateIfStranded } =
   await import("./move-to-applications");
-const { getInstallLocation, markRelocationSkipped, __resetForTesting } =
-  await import("./install-location");
+const {
+  getInstallLocation,
+  markRelocationSkipped,
+  recordInstallLocation,
+  __resetForTesting,
+} = await import("./install-location");
 
 describe("relocateToApplicationsFolder", () => {
   beforeEach(() => {
@@ -220,6 +224,37 @@ describe("promptToRelocateIfStranded", () => {
     await promptToRelocateIfStranded();
 
     expect(dialogCalls).toHaveLength(0);
+  });
+
+  // A `.vellum` file or deep-link launch defers relocation on purpose: the
+  // event lives only in this process's pending buffers, so the relaunch that
+  // accepting the offer triggers would drop it.
+  test("stays quiet on a launch that deferred relocation for a pending open", async () => {
+    markRelocationSkipped();
+    expect(getInstallLocation()).toBe("skipped-pending-open");
+
+    await promptToRelocateIfStranded();
+
+    expect(dialogCalls).toHaveLength(0);
+  });
+
+  test("cannot relaunch a pending-open launch out from under the buffer", async () => {
+    markRelocationSkipped();
+    dialogAnswers = [{ response: 0 }];
+
+    await promptToRelocateIfStranded();
+
+    // Never reached the move, so the buffered file or link survives.
+    expect(getInstallLocation()).toBe("skipped-pending-open");
+  });
+
+  test("still prompts a stranded launch that carried no pending open", async () => {
+    recordInstallLocation("failed");
+    dialogAnswers = [{ response: 1 }];
+
+    await promptToRelocateIfStranded();
+
+    expect(dialogCalls).toHaveLength(1);
   });
 
   test("retries the move when the user accepts", async () => {
