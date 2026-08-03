@@ -14,10 +14,36 @@ import {
 // numbers the advertised `integer` type wouldn't admit.
 export const subagentReadInputSchema = subagentRefInputSchema;
 
+/** Keys that mean the caller wants a file reader, not a subagent's output. */
+const FILE_READER_KEYS = ["path", "file", "filename"] as const;
+
+/** Misspellings of `subagent_id` seen in production traffic. */
+const MISNAMED_ID_KEYS = ["subagentId", "agent_id"] as const;
+
+/**
+ * Name the wrong-tool and wrong-parameter shapes parents actually send, rather
+ * than answering them with the generic '"subagent_id" or "label" is required'.
+ * The input schema is loose, so these keys reach the executor instead of
+ * failing validation, which is what makes the redirect possible.
+ */
+function misuseMessage(input: Record<string, unknown>): string | undefined {
+  if (FILE_READER_KEYS.some((key) => key in input)) {
+    return "subagent_read returns a subagent's output, it does not read files. Use file_read for files. Pass subagent_id or label here.";
+  }
+  if (MISNAMED_ID_KEYS.some((key) => key in input)) {
+    return "Unknown parameter. Use subagent_id (snake_case) or label.";
+  }
+  return undefined;
+}
+
 export async function executeSubagentRead(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  const misuse = misuseMessage(input);
+  if (misuse) {
+    return { content: misuse, isError: true };
+  }
   const parsedInput = subagentReadInputSchema.safeParse(input);
   if (!parsedInput.success) {
     return invalidToolInputResult("subagent_read", parsedInput.error);
@@ -54,8 +80,11 @@ export async function executeSubagentRead(
   }
 
   if (!TERMINAL_STATUSES.has(state.status)) {
+    // A premature read is often the only result a parent ever captures, so the
+    // message has to close the loop itself: the completion notification is
+    // already coming, and re-reading only burns another turn.
     return {
-      content: `Subagent "${state.config.label}" is still ${state.status}. Wait for it to finish.`,
+      content: `Subagent "${state.config.label}" is still ${state.status}. Do not poll: you will receive a message automatically when it completes, including its result.`,
       isError: false,
     };
   }
