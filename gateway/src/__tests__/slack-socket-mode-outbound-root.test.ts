@@ -410,6 +410,32 @@ describe("LUM-2941: arming the assistant's own top-level posts", () => {
     }
   });
 
+  test("arms a root without spending any Slack API call", async () => {
+    const { rawDb, store } = createSlackStore();
+    const client = createHarness(store, () => {});
+    const ws = makeOpenSocket();
+    const calls: string[] = [];
+
+    try {
+      fetchMock = mock(async (input) => {
+        calls.push(String(input));
+        return makeSlackUserResponse();
+      });
+
+      deliver(client, ws, "Ev-bot-post", botTopLevelPost(CHANNEL, "channel"));
+      await flushAsyncEventEmission();
+
+      expect(store.hasThread(BOT_POST_TS)).toBe(true);
+      // The direct-like guard reads the payload's own `channel_type`. Routing
+      // it through the observed-kind cache instead would fire a background
+      // `conversations.info` per channel per cache TTL, on a path whose whole
+      // point is not to spend Slack's rate limit.
+      expect(calls).toEqual([]);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("does not arm a root for a bot-authored system subtype", async () => {
     const { rawDb, store } = createSlackStore();
     const client = createHarness(store, () => {});

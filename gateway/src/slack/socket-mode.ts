@@ -731,10 +731,21 @@ export class SlackSocketModeClient {
 
     // A root buys admission only where admission is otherwise gated. DMs and
     // group DMs already admit every message without a tracked thread, so a
-    // root there would add a row and change nothing. Message echoes carry
-    // `channel_type`, so the direct-like cases resolve from the payload
-    // without a `conversations.info` warm.
-    if (this.isDirectLikeChannel(channel, channelType)) {
+    // root there would add a row and change nothing.
+    //
+    // Read the payload's own discriminators rather than calling
+    // `isDirectLikeChannel`: its observed-kind cache fallback fires a
+    // background `conversations.info` for any channel whose kind is not
+    // cached, and `recordSlackChannelKind` only learns `im` / `mpim`, so an
+    // ordinary channel would warm on every post the assistant makes. Message
+    // events always carry `channel_type`, so the fallback buys nothing on this
+    // path. If one ever arrives without it, the worst case is one useless root
+    // row in a group DM until the TTL lapses, which admits nothing that was
+    // not already admitted there.
+    if (
+      isSlackDmChannel(channel, channelType) ||
+      isSlackMpimChannel(channelType)
+    ) {
       return;
     }
 
