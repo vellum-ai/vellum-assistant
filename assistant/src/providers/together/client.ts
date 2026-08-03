@@ -6,7 +6,7 @@ export interface TogetherProviderOptions {
   streamTimeoutMs?: number;
 }
 
-const DEFAULT_TOGETHER_BASE_URL = "https://api.together.ai/v1";
+export const DEFAULT_TOGETHER_BASE_URL = "https://api.together.ai/v1";
 
 /**
  * Together AI exposes an OpenAI-compatible endpoint. Used as the managed route

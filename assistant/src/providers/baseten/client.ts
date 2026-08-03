@@ -10,7 +10,7 @@ export interface BasetenProviderOptions {
 }
 
 /** Baseten Model APIs expose a single OpenAI-compatible serverless endpoint. */
-const DEFAULT_BASETEN_BASE_URL = "https://inference.baseten.co/v1";
+export const DEFAULT_BASETEN_BASE_URL = "https://inference.baseten.co/v1";
 
 export async function validateBasetenApiKey(
   apiKey: string,

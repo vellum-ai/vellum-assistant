@@ -7,7 +7,8 @@ export interface FireworksProviderOptions {
   streamTimeoutMs?: number;
 }
 
-const DEFAULT_FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1";
+export const DEFAULT_FIREWORKS_BASE_URL =
+  "https://api.fireworks.ai/inference/v1";
 
 const FIREWORKS_MODEL_EFFORT_CEILINGS = modelEffortCeilings("fireworks");
 

@@ -17,6 +17,11 @@ import {
   type CesHttpCredentialClient,
   createCesHttpCredentialClient,
 } from "@vellumai/ces-client/http-credentials";
+import { probeModelAccessOverHttp } from "@vellumai/ces-client/http-model-access-probe";
+import type {
+  ModelAccessProbeRequest,
+  ModelAccessProbeResult,
+} from "@vellumai/credential-storage";
 
 import { getLogger } from "../util/logger.js";
 import type {
@@ -100,6 +105,17 @@ class CesCredentialBackend implements CredentialBackend {
       return { accounts: [], unreachable: true };
     }
     return client.list();
+  }
+
+  async probeModelAccess(
+    request: ModelAccessProbeRequest,
+  ): Promise<ModelAccessProbeResult | null> {
+    const baseUrl = getBaseUrl();
+    const serviceToken = getServiceToken();
+    if (!baseUrl || !serviceToken) {
+      return null;
+    }
+    return probeModelAccessOverHttp({ baseUrl, serviceToken }, log, request);
   }
 }
 

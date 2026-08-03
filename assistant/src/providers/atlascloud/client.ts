@@ -13,7 +13,7 @@ export interface AtlasCloudProviderOptions {
  * Atlas Cloud exposes a single OpenAI-compatible endpoint. Unlike MiniMax it
  * has no regional fallback host, so validation targets this URL only.
  */
-const DEFAULT_ATLASCLOUD_BASE_URL = "https://api.atlascloud.ai/v1";
+export const DEFAULT_ATLASCLOUD_BASE_URL = "https://api.atlascloud.ai/v1";
 
 export async function validateAtlasCloudApiKey(
   apiKey: string,

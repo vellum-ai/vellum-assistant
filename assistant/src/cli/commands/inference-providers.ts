@@ -425,6 +425,82 @@ function attachDeleteSubcommand(parent: Command): void {
 }
 
 // ---------------------------------------------------------------------------
+// Subcommand: probe
+// ---------------------------------------------------------------------------
+
+interface ModelVerdict {
+  model: string;
+  access: "accessible" | "not_accessible" | "unknown";
+  profiles: string[];
+}
+
+interface ProbeResult {
+  connection: string;
+  provider: string;
+  outcome: string;
+  status?: number;
+  detail?: string;
+  accessibleModelCount?: number;
+  models: ModelVerdict[];
+  summary: string;
+}
+
+function formatProbe(result: ProbeResult): string {
+  const lines = [result.summary];
+  for (const verdict of result.models) {
+    const suffix =
+      verdict.profiles.length > 0
+        ? ` (profiles: ${verdict.profiles.join(", ")})`
+        : "";
+    lines.push(`  ${verdict.model}: ${verdict.access}${suffix}`);
+  }
+  if (result.detail && result.outcome !== "unsupported") {
+    lines.push(`  provider said: ${result.detail}`);
+  }
+  return lines.join("\n") + "\n";
+}
+
+function attachProbeSubcommand(parent: Command): void {
+  // `--model` uses an array-accumulating collector, which the declarative
+  // help contract cannot express, so it is registered imperatively here.
+  subcommand(parent, "probe")
+    .option(
+      "--model <id>",
+      "Model id to check (repeatable; defaults to the models this provider's profiles use)",
+      collectRepeatable,
+      [] as string[],
+    )
+    .action(
+      async (name: string, opts: { model?: string[]; json?: boolean }) => {
+        const ipcResult = await cliIpcCall<ProbeResult>(
+          "inference_provider_connection_probe_model_access",
+          {
+            pathParams: { name },
+            body:
+              opts.model && opts.model.length > 0 ? { models: opts.model } : {},
+          },
+        );
+
+        if (!ipcResult.ok) {
+          writeCliError(ipcResult.error ?? "Unknown error", opts.json);
+          return;
+        }
+
+        const result = ipcResult.result!;
+
+        if (opts.json) {
+          process.stdout.write(
+            JSON.stringify({ ok: true, probe: result }) + "\n",
+          );
+          return;
+        }
+
+        process.stdout.write(formatProbe(result));
+      },
+    );
+}
+
+// ---------------------------------------------------------------------------
 // OpenAI Codex OAuth config (PKCE, no client secret)
 // ---------------------------------------------------------------------------
 
@@ -572,6 +648,7 @@ function attachCrudVerbs(parent: Command): void {
 export function attachProvidersSubcommand(inference: Command): void {
   const providers = subcommand(inference, "providers");
   attachCrudVerbs(providers);
+  attachProbeSubcommand(providers);
 
   // Deprecated alias, kept for one release.
   const connections = subcommand(providers, "connections");

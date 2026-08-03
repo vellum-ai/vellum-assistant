@@ -16,6 +16,10 @@
  * - `delete_credential` — Delete a credential by account name
  * - `list_credentials` — List all credential account names
  * - `bulk_set_credentials` — Store multiple credentials at once
+ *
+ * **Credential probes**
+ * - `probe_model_access`: call a provider's model-listing endpoint with a
+ *   stored credential and report which models it can reach
  */
 
 import { z } from "zod";
@@ -38,6 +42,8 @@ export const CesRpcMethod = {
   ListCredentials: "list_credentials",
   /** Bulk-import credentials (set multiple at once). */
   BulkSetCredentials: "bulk_set_credentials",
+  /** Probe a provider's model-listing endpoint with a stored credential. */
+  ProbeModelAccess: "probe_model_access",
 } as const;
 
 export type CesRpcMethod = (typeof CesRpcMethod)[keyof typeof CesRpcMethod];
@@ -169,6 +175,95 @@ export type BulkSetCredentialsResponse = z.infer<
 >;
 
 // ---------------------------------------------------------------------------
+// probe_model_access
+// ---------------------------------------------------------------------------
+
+/**
+ * Where the stored credential is injected into the outbound probe request.
+ * The caller names the slot; the value is read inside CES and never crosses
+ * the wire back to the caller.
+ */
+export const CredentialInjectionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("header"),
+    /** Header name (e.g. `x-api-key`, `authorization`). */
+    name: z.string().min(1),
+    /** Prefix placed before the credential value (e.g. `Bearer `). */
+    prefix: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("query"),
+    /** Query parameter name (e.g. `key` for the Gemini API). */
+    name: z.string().min(1),
+  }),
+]);
+export type CredentialInjection = z.infer<typeof CredentialInjectionSchema>;
+
+export const ProbeModelAccessSchema = z.object({
+  /** Account name of the stored credential to probe with. */
+  account: z.string(),
+  /** The provider's model-listing request, minus the credential. */
+  request: z.object({
+    /** Absolute http(s) URL of the model-listing endpoint. */
+    url: z.string(),
+    /** Static headers to send (never carries credential material). */
+    headers: z.record(z.string(), z.string()).optional(),
+    credentialInjection: CredentialInjectionSchema,
+  }),
+  /** Model ids to check against the listing response. */
+  models: z.array(z.string()),
+});
+export type ProbeModelAccess = z.infer<typeof ProbeModelAccessSchema>;
+
+/**
+ * Whether the stored credential authenticated against the provider.
+ *
+ * - `valid`: the provider accepted the credential and returned a listing.
+ * - `invalid`: the provider rejected the credential (401/403).
+ * - `missing_credential`: no credential is stored under the account.
+ * - `inconclusive`: the probe could not decide (network error, rate limit,
+ *   provider 5xx, unparseable body).
+ */
+export const ProbeOutcomeSchema = z.enum([
+  "valid",
+  "invalid",
+  "missing_credential",
+  "inconclusive",
+]);
+export type ProbeOutcome = z.infer<typeof ProbeOutcomeSchema>;
+
+/**
+ * Per-model verdict. `unknown` whenever the listing itself did not come
+ * back, so a failed probe never reads as "model missing".
+ */
+export const ModelAccessSchema = z.enum([
+  "accessible",
+  "not_accessible",
+  "unknown",
+]);
+export type ModelAccess = z.infer<typeof ModelAccessSchema>;
+
+export const ProbeModelAccessResponseSchema = z.object({
+  outcome: ProbeOutcomeSchema,
+  /** HTTP status returned by the provider, when the request completed. */
+  status: z.number().int().optional(),
+  /** Redacted, truncated provider error text for a failed probe. */
+  detail: z.string().optional(),
+  /** Model ids the credential can reach, as reported by the provider. */
+  accessibleModels: z.array(z.string()),
+  /** Verdict for each model the caller asked about. */
+  models: z.array(
+    z.object({
+      model: z.string(),
+      access: ModelAccessSchema,
+    }),
+  ),
+});
+export type ProbeModelAccessResponse = z.infer<
+  typeof ProbeModelAccessResponseSchema
+>;
+
+// ---------------------------------------------------------------------------
 // Full RPC contract type map
 // ---------------------------------------------------------------------------
 
@@ -201,6 +296,10 @@ export interface CesRpcContract {
     request: BulkSetCredentials;
     response: BulkSetCredentialsResponse;
   };
+  [CesRpcMethod.ProbeModelAccess]: {
+    request: ProbeModelAccess;
+    response: ProbeModelAccessResponse;
+  };
 }
 
 /**
@@ -230,5 +329,9 @@ export const CesRpcSchemas = {
   [CesRpcMethod.BulkSetCredentials]: {
     request: BulkSetCredentialsSchema,
     response: BulkSetCredentialsResponseSchema,
+  },
+  [CesRpcMethod.ProbeModelAccess]: {
+    request: ProbeModelAccessSchema,
+    response: ProbeModelAccessResponseSchema,
   },
 } as const;

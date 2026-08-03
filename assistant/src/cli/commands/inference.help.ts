@@ -295,6 +295,28 @@ a profile that uses it:
           options: [{ flags: "--json", description: "Output as JSON" }],
         },
         {
+          // NOTE: the repeatable `--model` collector and the trailing
+          // `--json` are registered imperatively in
+          // `inference-providers.ts`, as with `create`.
+          name: "probe",
+          args: "<name>",
+          description:
+            "Test the stored credential against the provider's model listing",
+          helpText: `
+Calls the provider's model-listing endpoint with the credential stored for
+this provider and reports whether the credential still authenticates and
+whether each model can be reached with it. The credential is used inside the
+credential executor and never leaves it, so this answers "does the stored key
+work" without revealing the key.
+
+Checks the models this provider's profiles reference unless --model is passed.
+
+Examples:
+  $ assistant inference providers probe gemini-personal
+  $ assistant inference providers probe gemini-personal --model gemini-3.1-flash-lite
+  $ assistant inference providers probe gemini-personal --json`,
+        },
+        {
           name: "connections",
           description:
             "(Deprecated) use `assistant inference providers <verb>` instead",

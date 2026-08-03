@@ -164,11 +164,14 @@ describe("public API surface", () => {
     // Should export the credentialKey utility
     expect(exportedNames).toContain("credentialKey");
 
-    // Should NOT export anything CES-specific or assistant-specific
+    // Should NOT export anything CES-specific or assistant-specific.
+    // `ces` is matched as a whole camelCase word so ordinary English
+    // spellings (`ModelAccess`, `processes`) are not mistaken for it.
+    const CES_WORD = /(^|[^A-Za-z])ces(?![a-z])/i;
     const forbidden = exportedNames.filter(
       (name) =>
         name.toLowerCase().includes("daemon") ||
-        name.toLowerCase().includes("ces") ||
+        CES_WORD.test(name) ||
         name.toLowerCase().includes("agentloop") ||
         name.toLowerCase().includes("toolexecutor"),
     );

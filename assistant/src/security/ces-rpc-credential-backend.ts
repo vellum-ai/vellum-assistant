@@ -7,6 +7,10 @@
  * graceful fallback.
  */
 
+import type {
+  ModelAccessProbeRequest,
+  ModelAccessProbeResult,
+} from "@vellumai/credential-storage";
 import { CesRpcMethod } from "@vellumai/service-contracts/credential-rpc";
 
 import type { CesClient } from "../credential-execution/client.js";
@@ -105,6 +109,20 @@ export class CesRpcCredentialBackend implements CredentialBackend {
     } catch (err) {
       log.warn({ err }, "CES RPC bulk credential set failed");
       return credentials.map((c) => ({ account: c.account, ok: false }));
+    }
+  }
+
+  async probeModelAccess(
+    request: ModelAccessProbeRequest,
+  ): Promise<ModelAccessProbeResult | null> {
+    if (!this.isAvailable()) {
+      return null;
+    }
+    try {
+      return await this.client.call(CesRpcMethod.ProbeModelAccess, request);
+    } catch (err) {
+      log.warn({ err, account: request.account }, "CES RPC model probe failed");
+      return null;
     }
   }
 }

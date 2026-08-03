@@ -146,6 +146,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "inference providers delete",
   "inference providers get",
   "inference providers list",
+  "inference providers probe",
   "inference providers update",
   "inference providers connections",
   "inference providers connections create",

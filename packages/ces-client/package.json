@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./http-credentials": "./src/http-credentials.ts",
     "./http-log-export": "./src/http-log-export.ts",
+    "./http-model-access-probe": "./src/http-model-access-probe.ts",
     "./rpc-client": "./src/rpc-client.ts",
     "./credential-rpc": "./src/credential-rpc.ts"
   },

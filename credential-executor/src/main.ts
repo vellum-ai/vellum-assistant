@@ -25,8 +25,12 @@ import { Readable, Writable } from "node:stream";
 import {
   CES_PROTOCOL_VERSION,
   CesRpcMethod,
+  type ProbeModelAccess,
 } from "@vellumai/service-contracts/credential-rpc";
-import type { SecureKeyBackend } from "@vellumai/credential-storage";
+import {
+  probeModelAccess,
+  type SecureKeyBackend,
+} from "@vellumai/credential-storage";
 
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
 import { initLogger, getLogger } from "./logger.js";
@@ -46,6 +50,7 @@ import {
   type CredentialRouteDeps,
 } from "./http/credential-routes.js";
 import { handleLogExportRoute } from "./http/log-export-routes.js";
+import { handleProbeRoute } from "./http/probe-routes.js";
 import { CES_MIGRATIONS } from "./migrations/registry.js";
 import { runCesMigrations } from "./migrations/runner.js";
 
@@ -69,7 +74,8 @@ function ensureDataDirs(mode: CesMode): void {
 
 /**
  * Build the RPC handler registry. CES serves credential CRUD (get / set /
- * delete / list / bulk-set) backed by the secure key store. The
+ * delete / list / bulk-set) and the stored-credential model-access probe,
+ * both backed by the secure key store. The
  * `update_managed_credential` handler is registered separately by the RPC
  * server when an `onApiKeyUpdate` callback is supplied. Local and managed modes
  * share the same registry — they differ only in where the secure key backend
@@ -115,6 +121,9 @@ function buildCrudHandlers(
     }
     return { results };
   }) as (typeof handlers)[string];
+
+  handlers[CesRpcMethod.ProbeModelAccess] = (async (req: ProbeModelAccess) =>
+    probeModelAccess(req, secureKeyBackend)) as (typeof handlers)[string];
 
   return handlers;
 }
@@ -266,13 +275,16 @@ function startHealthServer(
         );
       }
 
-      // Credential CRUD routes (only if service token is configured)
+      // Credential CRUD and probe routes (only if service token is configured)
       if (credentialDeps) {
         const credentialResponse = await handleCredentialRoute(
           req,
           credentialDeps,
         );
         if (credentialResponse) return credentialResponse;
+
+        const probeResponse = await handleProbeRoute(req, credentialDeps);
+        if (probeResponse) return probeResponse;
       }
 
       // Log export route
@@ -356,7 +368,9 @@ async function main(): Promise<void> {
 
     if (serviceToken) {
       credentialDeps = { backend: secureKeyBackend, serviceToken };
-      log.info("Credential CRUD routes enabled (CES_SERVICE_TOKEN configured)");
+      log.info(
+        "Credential CRUD and probe routes enabled (CES_SERVICE_TOKEN configured)",
+      );
     } else {
       log.warn(
         "CES_SERVICE_TOKEN not set — credential CRUD HTTP routes are disabled. " +
