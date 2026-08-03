@@ -13,7 +13,7 @@
  */
 
 import { lazy, useCallback, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, X } from "lucide-react";
 
 import { Button, toast, Typography } from "@vellumai/design-library";
@@ -28,6 +28,7 @@ import { previewByteCapFor } from "@/domains/chat/components/local-file/local-fi
 import { PreviewSkeleton } from "@/domains/chat/components/local-file/preview/preview-skeleton";
 import { PreviewUnsupported } from "@/domains/chat/components/local-file/preview/preview-unsupported";
 import {
+  localFileInfoQueryKey,
   useLocalFileInfo,
   workspaceFileBlobQuery,
 } from "@/domains/chat/components/local-file/use-local-file-info";
@@ -98,15 +99,21 @@ export function FilePreviewContainer({
   previewKind,
   onClose,
 }: FilePreviewContainerProps): ReactNode {
-  // A file with no reader is never read: the state below needs its size and
-  // nothing else, and the ranged probe answers that in 512 bytes rather than
-  // pulling an archive across the wire to show its name. Passing a null path
-  // for every other kind leaves the probe idle there.
+  // Every preview starts with the ranged probe: 512 bytes answer the file's
+  // size, which decides whether reading the rest of it is worth doing at all.
+  // A file past its cap is refused from the probe alone, so the bytes the
+  // reader is told are too large to show are never pulled across the wire.
   const isUnsupported = previewKind === "unsupported";
-  const probe = useLocalFileInfo(
-    isUnsupported ? workspacePath : null,
-    assistantId,
-  );
+  const probe = useLocalFileInfo(workspacePath, assistantId);
+  const probeSizeBytes = probe.status === "ready" ? probe.sizeBytes : null;
+
+  const maxPreviewBytes = previewByteCapFor(previewKind);
+  // A server that answers the ranged read without a total leaves the size
+  // unknown; the file is read in that case rather than refused on a guess.
+  const oversizeBytes =
+    probeSizeBytes !== null && probeSizeBytes > maxPreviewBytes
+      ? probeSizeBytes
+      : null;
 
   const {
     data: blob,
@@ -115,8 +122,19 @@ export function FilePreviewContainer({
     refetch,
   } = useQuery({
     ...workspaceFileBlobQuery(workspacePath, assistantId),
-    enabled: !isUnsupported,
+    enabled:
+      !isUnsupported && probe.status === "ready" && oversizeBytes === null,
   });
+
+  const queryClient = useQueryClient();
+  const handleRetry = useCallback(() => {
+    // Either read can be the one that failed, and the probe gates the other,
+    // so a retry re-runs both.
+    void queryClient.invalidateQueries({
+      queryKey: localFileInfoQueryKey(workspacePath, assistantId),
+    });
+    void refetch();
+  }, [assistantId, queryClient, refetch, workspacePath]);
 
   const handleOpenInWorkspace = useCallback(() => {
     void openWorkspaceFile(workspacePath);
@@ -132,24 +150,21 @@ export function FilePreviewContainer({
     });
   }, [assistantId, documentName, workspacePath]);
 
-  const maxPreviewBytes = previewByteCapFor(previewKind);
-  const isTooLarge = blob !== undefined && blob.size > maxPreviewBytes;
   // The CSV grid virtualizes its own rows, so it owns the vertical scroll and
   // the panel must not wrap it in a second scroller.
-  const showsCsvGrid =
-    previewKind === "csv" && !isError && !isPending && !isTooLarge;
+  let showsCsvGrid = false;
 
   let body: ReactNode;
   if (isUnsupported) {
     body = (
       <PreviewUnsupported
         filename={documentName}
-        sizeBytes={probe.status === "ready" ? probe.sizeBytes : null}
+        sizeBytes={probeSizeBytes}
         onOpenInWorkspace={handleOpenInWorkspace}
         onDownload={handleDownload}
       />
     );
-  } else if (isError) {
+  } else if (isError || probe.status === "unavailable") {
     body = (
       <div role="alert" className={NOTICE_CLASSES}>
         <Typography
@@ -159,18 +174,12 @@ export function FilePreviewContainer({
         >
           Couldn&apos;t load this file
         </Typography>
-        <Button
-          variant="outlined"
-          size="compact"
-          onClick={() => void refetch()}
-        >
+        <Button variant="outlined" size="compact" onClick={handleRetry}>
           Try again
         </Button>
       </div>
     );
-  } else if (isPending || blob === undefined) {
-    body = <PreviewSkeleton />;
-  } else if (isTooLarge) {
+  } else if (oversizeBytes !== null) {
     body = (
       <div role="status" className={NOTICE_CLASSES}>
         <Typography
@@ -185,7 +194,7 @@ export function FilePreviewContainer({
           variant="label-small-default"
           className="text-[var(--content-tertiary)]"
         >
-          {`${formatAttachmentSize(blob.size)}, over the ${formatAttachmentSize(maxPreviewBytes)} preview limit`}
+          {`${formatAttachmentSize(oversizeBytes)}, over the ${formatAttachmentSize(maxPreviewBytes)} preview limit`}
         </Typography>
         <Button
           variant="outlined"
@@ -197,7 +206,10 @@ export function FilePreviewContainer({
         </Button>
       </div>
     );
+  } else if (probe.status === "loading" || isPending || blob === undefined) {
+    body = <PreviewSkeleton />;
   } else {
+    showsCsvGrid = previewKind === "csv";
     body = (
       <LazyBoundary fallback={<PreviewSkeleton />}>
         {previewFor(previewKind, blob, documentName)}

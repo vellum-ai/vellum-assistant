@@ -28,6 +28,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
+// The route-missing fallback navigates to the workspace browser, which pulls
+// the whole route tree in at call time.
+const openWorkspaceFile = mock(async (_path: string) => {});
+mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
+
 const toastError = mock((_message: string) => {});
 const toastModule = await import("@vellumai/design-library/components/toast");
 mock.module("@vellumai/design-library/components/toast", () => ({
@@ -51,6 +56,7 @@ beforeEach(() => {
   getState().reset();
   fileDocumentCalls.length = 0;
   toastError.mockClear();
+  openWorkspaceFile.mockClear();
 });
 
 const SAMPLE_APP = {
@@ -1050,7 +1056,12 @@ describe("loadWorkspaceFileDocument", () => {
   it("repeats the daemon's own message when it refuses the open", async () => {
     useViewerStore.setState({ mainView: "app" });
     fileDocumentResult = () =>
-      Promise.reject(new ApiError(404, "This file was deleted."));
+      Promise.reject(
+        new ApiError(
+          404,
+          "The file backing this document no longer exists: gone.md",
+        ),
+      );
 
     await getState().loadWorkspaceFileDocument("asst-1", "gone.md", "conv-1");
 
@@ -1059,7 +1070,40 @@ describe("loadWorkspaceFileDocument", () => {
     expect(state.openedDocumentState).toBeNull();
     expect(state.activeDocumentTarget).toBeNull();
     expect(toastError).toHaveBeenCalledTimes(1);
-    expect(toastError.mock.calls[0]![0]).toBe("This file was deleted.");
+    expect(toastError.mock.calls[0]![0]).toBe(
+      "The file backing this document no longer exists: gone.md",
+    );
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps the toast for the route's own 404 about a missing file", async () => {
+    fileDocumentResult = () =>
+      Promise.reject(new ApiError(404, "File not found"));
+
+    await getState().loadWorkspaceFileDocument("asst-1", "gone.md", "conv-1");
+
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the workspace browser when the daemon has no such route", async () => {
+    useViewerStore.setState({ mainView: "app" });
+    // The catch-all an older assistant answers an unknown endpoint with.
+    fileDocumentResult = () => Promise.reject(new ApiError(404, "Not found"));
+
+    await getState().loadWorkspaceFileDocument(
+      "asst-1",
+      "drafts/notes.md",
+      "conv-1",
+    );
+
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.openedDocumentState).toBeNull();
+    expect(state.activeDocumentTarget).toBeNull();
+    expect(toastError).not.toHaveBeenCalled();
+    expect(openWorkspaceFile).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceFile.mock.calls[0]![0]).toBe("drafts/notes.md");
   });
 
   it("repeats a rejected file type the same way", async () => {

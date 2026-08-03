@@ -141,6 +141,26 @@ async function probeWorkspaceFile(
 }
 
 /**
+ * Cache key of the ranged classification probe. Exported so a surface that
+ * knows the file changed underneath it (a save written through to disk) can
+ * invalidate the probe without restating the key shape.
+ */
+export function localFileInfoQueryKey(
+  workspacePath: string | null,
+  assistantId?: string,
+) {
+  return ["local-file-info", assistantId ?? null, workspacePath] as const;
+}
+
+/** Cache key of the full-bytes read, the counterpart to the probe's key. */
+export function localFileBlobQueryKey(
+  workspacePath: string | null,
+  assistantId?: string,
+) {
+  return ["local-file-blob", assistantId ?? null, workspacePath] as const;
+}
+
+/**
  * Classify a workspace file with a single ranged GET (bytes=0-511): existence,
  * size, and MIME (magic bytes with extension fallback).
  */
@@ -151,7 +171,7 @@ export function useLocalFileInfo(
   const canFetch = workspacePath !== null && !!assistantId;
 
   const query = useQuery({
-    queryKey: ["local-file-info", assistantId ?? null, workspacePath],
+    queryKey: localFileInfoQueryKey(workspacePath, assistantId),
     queryFn: () => probeWorkspaceFile(assistantId!, workspacePath!),
     enabled: canFetch,
     staleTime: INFO_STALE_TIME_MS,
@@ -199,7 +219,7 @@ export function workspaceFileBlobQuery(
   assistantId?: string,
 ) {
   return {
-    queryKey: ["local-file-blob", assistantId ?? null, workspacePath] as const,
+    queryKey: localFileBlobQueryKey(workspacePath, assistantId),
     queryFn: async (): Promise<Blob> => {
       const { data, error } = await workspaceFileContentGet({
         path: { assistant_id: assistantId! },

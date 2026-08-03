@@ -23,8 +23,7 @@ interface PreviewUnsupportedProps {
  * Drawer state for a format with no reader. The drawer still opens: naming the
  * file and offering the two ways on from it keeps the reader in the
  * conversation, where being sent to the workspace browser for an archive would
- * have cost them their place. These are the same two actions the file-action
- * modal used to offer.
+ * have cost them their place.
  */
 export function PreviewUnsupported({
   filename,

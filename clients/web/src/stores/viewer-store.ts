@@ -43,6 +43,7 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import { ApiError } from "@/utils/api-errors";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
+import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { workspaceBasenameOf } from "@/domains/chat/utils/workspace-path-links";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
@@ -132,6 +133,41 @@ function workspaceDocumentErrorMessage(err: unknown): string {
     return err.message;
   }
   return "Couldn't open this file";
+}
+
+/**
+ * The daemon messages the file-backed document route answers a 404 with
+ * (`assistant/src/runtime/routes/documents-routes.ts`). Both are written for a
+ * reader, and both mean the route ran and the file is genuinely gone.
+ */
+const WORKSPACE_FILE_404_MARKERS = [
+  "File not found",
+  "The file backing this document no longer exists",
+];
+
+/**
+ * Whether a 404 means the daemon does not serve this route at all, rather than
+ * the route answering that the file is gone.
+ *
+ * A web bundle can be newer than the assistant installed beside it, and an
+ * unknown endpoint comes back through the daemon's catch-all as a bare
+ * `{ error: { code: "NOT_FOUND", message: "Not found" } }`. Closing the drawer
+ * and blaming the file for that would strand every markdown link on the older
+ * assistant, so a 404 carrying neither of the route's own messages is read as
+ * route-missing and the click falls back to the workspace browser, which every
+ * assistant version serves.
+ *
+ * The marker check is the only signal available: the status code is identical
+ * either way, so a genuine 404 whose wording changes daemon-side degrades to
+ * the fallback navigation rather than to a broken link.
+ */
+function isWorkspaceFileRouteMissing(err: unknown): boolean {
+  if (!(err instanceof ApiError) || err.status !== 404) {
+    return false;
+  }
+  return !WORKSPACE_FILE_404_MARKERS.some((marker) =>
+    err.message.startsWith(marker),
+  );
 }
 
 function resolveViewBefore(
@@ -1079,6 +1115,13 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         activeDocumentTarget: null,
         openedDocumentState: null,
       });
+      if (isWorkspaceFileRouteMissing(err)) {
+        // The assistant beside this bundle has no file-backed document route,
+        // so the file opens where every version can show it. No toast: nothing
+        // went wrong from the reader's side.
+        void openWorkspaceFile(workspacePath);
+        return;
+      }
       toast.error(workspaceDocumentErrorMessage(err));
     };
 

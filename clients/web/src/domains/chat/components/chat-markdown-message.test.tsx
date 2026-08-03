@@ -21,6 +21,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import { shouldOpenMarkdownLinkInOAuthPopup } from "@/domains/chat/utils/oauth-popup-links";
+import { workspaceTreeQueryOptions } from "@/lib/workspace-tree-query";
 import type { ChatMarkdownMessageProps } from "@/domains/chat/components/chat-markdown-message";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
@@ -340,6 +341,64 @@ describe("ChatMarkdownMessage (file link dispatch)", () => {
     expect(container.querySelectorAll("ul").length).toBe(1);
     expect(items[0]!.querySelector("a")).not.toBeNull();
     expect(items[1]!.querySelector("a")).not.toBeNull();
+  });
+
+  test("a backticked path opens the drawer, like an explicit link", () => {
+    const onVellumLinkClick = mock((_href: string, _text: string) => {});
+    // The span becomes a link only once a listing confirms the file, so the
+    // listing is seeded rather than fetched.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(
+      workspaceTreeQueryOptions({ assistantId: "asst-1", path: "scratch" })
+        .queryKey,
+      {
+        path: "scratch",
+        entries: [
+          {
+            name: "report.pdf",
+            path: "scratch/report.pdf",
+            type: "file",
+            size: 128,
+            mimeType: "application/pdf",
+            modifiedAt: "2026-07-24T02:18:49Z",
+          },
+        ],
+      },
+    );
+    render(
+      <ChatMarkdownMessage
+        content="See `/workspace/scratch/report.pdf`."
+        assistantId="asst-1"
+        workspacePathLinks
+        onVellumLinkClick={onVellumLinkClick}
+      />,
+      {
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={queryClient}>
+            {children}
+          </QueryClientProvider>
+        ),
+      },
+    );
+
+    const span = screen.getByRole("button", {
+      name: "/workspace/scratch/report.pdf",
+    });
+    fireEvent.click(span);
+
+    expect(onVellumLinkClick).not.toHaveBeenCalled();
+    expect(useViewerStore.getState().openedDocumentState).toEqual({
+      source: "workspace-file-preview",
+      workspacePath: "scratch/report.pdf",
+      documentName: "report.pdf",
+      previewKind: "pdf",
+    });
+
+    // The same toggle an explicit link uses: a second click closes it.
+    fireEvent.click(span);
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
   });
 });
 

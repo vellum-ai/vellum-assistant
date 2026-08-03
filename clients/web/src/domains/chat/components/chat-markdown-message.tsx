@@ -51,6 +51,8 @@ import { classifyMarkdownHref } from "@/domains/chat/utils/local-file-links";
 import { LocalFileEmbed } from "@/domains/chat/components/local-file/local-file-embed";
 import { LocalFileLink } from "@/domains/chat/components/local-file/local-file-link";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
+import { toggleLocalFile } from "@/domains/chat/components/local-file/open-local-file";
+import { useConversationStore } from "@/stores/conversation-store";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {
@@ -284,10 +286,8 @@ function WorkspaceInlineImage({
   );
 }
 
-export interface ChatMarkdownMessageProps extends Omit<
-  MarkdownMessageProps,
-  "linkComponent" | "imageComponent"
-> {
+export interface ChatMarkdownMessageProps
+  extends Omit<MarkdownMessageProps, "linkComponent" | "imageComponent"> {
   /**
    * Fallback for file links the document drawer cannot open: a reference with
    * no assistant to read it through, or a `vellum://host/` link with no
@@ -327,8 +327,11 @@ export interface ChatMarkdownMessageProps extends Omit<
   redactedCredentialChips?: boolean;
   /**
    * Resolve inline code spans that hold a workspace file path into file links
-   * (see `rehypeWorkspacePath`). Requires `onVellumLinkClick` — the resolved
-   * link behaves exactly like an explicit `vellum://` link.
+   * (see `rehypeWorkspacePath`). The resolved link behaves exactly like an
+   * explicit `vellum://` link: a click opens the file in the document drawer,
+   * and falls back to `onVellumLinkClick` for the references the drawer cannot
+   * reach. That fallback is also what enables the affordance, so this needs
+   * `onVellumLinkClick` to have any effect.
    *
    * Enable only for assistant-authored content. The affordance is a claim
    * that the assistant is referring to a file it worked with; a path the user
@@ -351,6 +354,27 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,
     attachments,
+  );
+  // Markdown opens as a document bound to the conversation it was opened from,
+  // so the active conversation decides where a click on a code-span path lands.
+  const conversationId = useConversationStore.use.activeConversationId();
+
+  /**
+   * Click handler for a code span that resolved to a real workspace file. The
+   * affordance is a file link, so it lands where an explicit file link lands:
+   * the document drawer, through the same toggle. The modal is the fallback
+   * for the references the drawer cannot reach.
+   */
+  const handleWorkspacePathOpen = useCallback(
+    (href: string, linkText: string) => {
+      const { workspacePath, filename } = resolveLocalFileTarget(href);
+      if (assistantId && workspacePath !== null) {
+        toggleLocalFile(workspacePath, filename, assistantId, conversationId);
+        return;
+      }
+      onVellumLinkClick?.(href, linkText);
+    },
+    [assistantId, conversationId, onVellumLinkClick],
   );
 
   const linkComponent = useCallback(
@@ -513,11 +537,11 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         <WorkspacePathLink
           {...props}
           assistantId={assistantId}
-          onOpen={onVellumLinkClick}
+          onOpen={onVellumLinkClick ? handleWorkspacePathOpen : undefined}
         />
       ),
     }),
-    [assistantId, onVellumLinkClick],
+    [assistantId, onVellumLinkClick, handleWorkspacePathOpen],
   );
 
   // Both tags are registered together: each is only ever emitted by its own

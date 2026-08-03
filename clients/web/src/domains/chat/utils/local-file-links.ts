@@ -35,9 +35,24 @@ function percentDecode(raw: string): string | null {
   }
 }
 
+/**
+ * Drop a URL fragment and query string, leaving the path.
+ *
+ * `[the guide](docs/guide.md#intro)` names a file plus a place to scroll to
+ * inside it, and only the file part addresses anything on disk. The split runs
+ * on the raw href, before percent-decoding, so a `#` or `?` that is part of a
+ * filename (written `%23` / `%3F`, as any correct link generator writes it)
+ * survives to be decoded into the path. Fragment first, since `#` terminates
+ * the URL and a `?` after it belongs to the fragment.
+ */
+function stripFragmentAndQuery(href: string): string {
+  const path = href.split("#", 1)[0] ?? "";
+  return path.split("?", 1)[0] ?? "";
+}
+
 /** Map a markdown link destination to a workspace-relative path, or null. */
 export function toWorkspacePathFromHref(href: string): string | null {
-  const decoded = percentDecode(href);
+  const decoded = percentDecode(stripFragmentAndQuery(href));
   if (decoded === null) {
     return null;
   }
@@ -70,7 +85,7 @@ export function toWorkspacePathFromHref(href: string): string | null {
 
 /** Trailing path segment, decoded, for display when a path is unservable. */
 function filenameFromHref(href: string): string {
-  const raw = href.trim().split("/").pop() ?? "";
+  const raw = stripFragmentAndQuery(href.trim()).split("/").pop() ?? "";
   return percentDecode(raw) ?? raw;
 }
 

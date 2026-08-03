@@ -7,7 +7,12 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { getDocumentById } from "../documents/document-store.js";
+import {
+  createFileBackedDocument,
+  getDocumentById,
+  getDocumentByWorkspacePath,
+  rebindDocumentsToRenamedPath,
+} from "../documents/document-store.js";
 import { getDb, getSqlite } from "../persistence/db-connection.js";
 import { migrateAddDocumentWorkspacePath } from "../persistence/migrations/360-add-document-workspace-path.js";
 import { ROUTES as DOCUMENT_ROUTES } from "../runtime/routes/documents-routes.js";
@@ -17,6 +22,7 @@ import {
   UnprocessableEntityError,
 } from "../runtime/routes/errors.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
+import { ROUTES as WORKSPACE_ROUTES } from "../runtime/routes/workspace-routes.js";
 import {
   executeDocumentReplaceText,
   executeDocumentUpdate,
@@ -323,5 +329,139 @@ describe("write-through to the backing file", () => {
     const stored = getDocumentById("doc-plain");
     expect(stored?.content).toBe("db only");
     expect(stored?.workspacePath).toBeNull();
+  });
+});
+
+// ===========================================================================
+// Rename rebinding
+// ===========================================================================
+
+/** Bind a surface ID to a workspace-relative path with throwaway content. */
+function bindDocument(surfaceId: string, workspacePath: string): void {
+  const created = createFileBackedDocument({
+    surfaceId,
+    conversationId: CONVERSATION_ID,
+    title: workspacePath,
+    content: "body",
+    workspacePath,
+  });
+  expect(created.success).toBe(true);
+}
+
+describe("rebindDocumentsToRenamedPath", () => {
+  test("moves the document bound to a renamed file", () => {
+    bindDocument("doc-renamed", "notes/plan.md");
+
+    rebindDocumentsToRenamedPath({
+      oldPath: "notes/plan.md",
+      newPath: "notes/roadmap.md",
+    });
+
+    expect(getDocumentById("doc-renamed")?.workspacePath).toBe(
+      "notes/roadmap.md",
+    );
+    expect(getDocumentByWorkspacePath("notes/plan.md")).toBeNull();
+    expect(getDocumentByWorkspacePath("notes/roadmap.md")?.surfaceId).toBe(
+      "doc-renamed",
+    );
+  });
+
+  test("moves documents nested under a renamed directory", () => {
+    bindDocument("doc-top", "notes/plan.md");
+    bindDocument("doc-nested", "notes/deep/spec.md");
+
+    rebindDocumentsToRenamedPath({ oldPath: "notes", newPath: "archive" });
+
+    expect(getDocumentById("doc-top")?.workspacePath).toBe("archive/plan.md");
+    expect(getDocumentById("doc-nested")?.workspacePath).toBe(
+      "archive/deep/spec.md",
+    );
+  });
+
+  test("leaves documents outside the renamed subtree alone", () => {
+    bindDocument("doc-moved", "notes/plan.md");
+    bindDocument("doc-sibling", "notes-archive/plan.md");
+    bindDocument("doc-unrelated", "other/plan.md");
+
+    rebindDocumentsToRenamedPath({ oldPath: "notes", newPath: "archive" });
+
+    expect(getDocumentById("doc-moved")?.workspacePath).toBe("archive/plan.md");
+    expect(getDocumentById("doc-sibling")?.workspacePath).toBe(
+      "notes-archive/plan.md",
+    );
+    expect(getDocumentById("doc-unrelated")?.workspacePath).toBe(
+      "other/plan.md",
+    );
+  });
+
+  test("keeps both bindings when the destination is already bound", () => {
+    bindDocument("doc-source", "notes/plan.md");
+    bindDocument("doc-destination", "notes/roadmap.md");
+
+    expect(() =>
+      rebindDocumentsToRenamedPath({
+        oldPath: "notes/plan.md",
+        newPath: "notes/roadmap.md",
+      }),
+    ).not.toThrow();
+
+    expect(getDocumentById("doc-source")?.workspacePath).toBe("notes/plan.md");
+    expect(getDocumentById("doc-destination")?.workspacePath).toBe(
+      "notes/roadmap.md",
+    );
+  });
+
+  test("one blocked row does not strand the rest of a directory rename", () => {
+    bindDocument("doc-blocked", "notes/plan.md");
+    bindDocument("doc-occupier", "archive/plan.md");
+    bindDocument("doc-free", "notes/spec.md");
+
+    rebindDocumentsToRenamedPath({ oldPath: "notes", newPath: "archive" });
+
+    expect(getDocumentById("doc-blocked")?.workspacePath).toBe("notes/plan.md");
+    expect(getDocumentById("doc-occupier")?.workspacePath).toBe(
+      "archive/plan.md",
+    );
+    expect(getDocumentById("doc-free")?.workspacePath).toBe("archive/spec.md");
+  });
+});
+
+describe("POST workspace/rename keeps documents bound", () => {
+  const renameRoute = WORKSPACE_ROUTES.find(
+    (r) => r.operationId === "workspace_rename",
+  )!;
+
+  test("a renamed file carries its document to the new path", async () => {
+    writeFileSync(join(notesDir, "plan.md"), "# Plan");
+    const doc = await openWorkspaceFile("notes/plan.md");
+    expect(doc.workspacePath).toBe("notes/plan.md");
+
+    await renameRoute.handler({
+      body: { oldPath: "notes/plan.md", newPath: "notes/roadmap.md" },
+    });
+
+    expect(getDocumentById(doc.surfaceId)?.workspacePath).toBe(
+      "notes/roadmap.md",
+    );
+
+    // Reopening the file at its new name yields the same document identity,
+    // so comments and history survive the rename.
+    const reopened = await openWorkspaceFile("notes/roadmap.md");
+    expect(reopened.surfaceId).toBe(doc.surfaceId);
+  });
+
+  test("a renamed directory carries the documents beneath it", async () => {
+    writeFileSync(join(notesDir, "plan.md"), "# Plan");
+    const doc = await openWorkspaceFile("notes/plan.md");
+
+    await renameRoute.handler({
+      body: { oldPath: "notes", newPath: "archive" },
+    });
+
+    expect(getDocumentById(doc.surfaceId)?.workspacePath).toBe(
+      "archive/plan.md",
+    );
+
+    rmSync(join(workspaceDir, "archive"), { recursive: true, force: true });
   });
 });

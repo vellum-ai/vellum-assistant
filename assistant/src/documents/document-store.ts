@@ -519,6 +519,84 @@ export function createFileBackedDocument(params: {
 }
 
 /**
+ * Move file-backed documents onto the path a workspace rename moved their file
+ * to. `oldPath` and `newPath` are canonical workspace-relative paths, the same
+ * form {@link createFileBackedDocument} stores.
+ *
+ * A document bound to `oldPath` itself moves, and so does every document nested
+ * under it (`oldPath + "/"` prefix), which is what a directory rename produces.
+ *
+ * The rename on disk has already happened by the time this runs, so it is best
+ * effort and never throws: the caller has no way to undo the rename, and a
+ * document left on a stale path is recoverable while a failed rename response
+ * is not. Rows move one statement at a time so a single row that cannot move
+ * does not strand its siblings.
+ *
+ * A row whose destination is already taken by another binding is one such case:
+ * the partial unique index on `workspace_path` rejects the update, and the
+ * losing row keeps pointing at the old path. That is deliberate. Overwriting
+ * the winner would drop a binding that a client may have open, whereas the
+ * stale binding self-heals: opening the file refreshes the row's content from
+ * disk, and a document whose file is gone is reported as gone rather than
+ * rewritten from the row.
+ */
+export function rebindDocumentsToRenamedPath(params: {
+  oldPath: string;
+  newPath: string;
+}): void {
+  const { oldPath, newPath } = params;
+  if (!oldPath || !newPath || oldPath === newPath) {
+    return;
+  }
+
+  try {
+    const rows = rawAll<{ surface_id: string; workspace_path: string }>(
+      "documents:rebindRenamedPath:select",
+      /*sql*/ `SELECT surface_id, workspace_path
+       FROM documents
+       WHERE workspace_path = ? OR workspace_path LIKE ? ESCAPE '\\'`,
+      oldPath,
+      `${escapeSqlLikePattern(oldPath)}/%`,
+    );
+
+    for (const row of rows) {
+      const rebound =
+        row.workspace_path === oldPath
+          ? newPath
+          : newPath + row.workspace_path.slice(oldPath.length);
+      try {
+        rawRun(
+          "documents:rebindRenamedPath:update",
+          /*sql*/ `UPDATE documents SET workspace_path = ? WHERE surface_id = ?`,
+          rebound,
+          row.surface_id,
+        );
+        log.info(
+          {
+            surfaceId: row.surface_id,
+            from: row.workspace_path,
+            to: rebound,
+          },
+          "Rebound file-backed document to renamed path",
+        );
+      } catch (error) {
+        log.warn(
+          {
+            err: error,
+            surfaceId: row.surface_id,
+            from: row.workspace_path,
+            to: rebound,
+          },
+          "Left file-backed document on its old path after a rename",
+        );
+      }
+    }
+  } catch (error) {
+    log.error({ err: error, oldPath, newPath }, "Path rebind error");
+  }
+}
+
+/**
  * Replace a document's stored content with the current text of the file it is
  * bound to. The file is the source of truth when a document is opened, so this
  * deliberately skips the write-through step — disk and row already agree.

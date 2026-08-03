@@ -116,10 +116,9 @@ export function LocalFileEmbed({
   const kind = ready?.kind ?? localFileKindFromFilename(filename);
   const sizeBytes = ready?.sizeBytes ?? null;
   const isOversized = sizeBytes !== null && sizeBytes > MAX_INLINE_MEDIA_BYTES;
-  // Only playable media embeds inline. A PDF used to render as an inline
-  // frame, but a page preview inside the transcript reads as an attempt to be
-  // the document; PDFs fall through to the card, and their link opens the
-  // drawer preview.
+  // Only playable media embeds inline: a page preview inside the transcript
+  // reads as an attempt to be the document, so PDFs fall through to the card
+  // and their link opens the drawer preview.
   const wantsMedia =
     ready !== null &&
     (kind === "image" || kind === "video" || kind === "audio") &&

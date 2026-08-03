@@ -13,11 +13,24 @@ import * as daemonSdk from "@/generated/daemon/sdk.gen";
 
 type ContentResult = { data: unknown; error: unknown; response?: Response };
 
+/** The full-bytes read (`parseAs: "blob"`). */
 let nextResult: () => ContentResult;
+/** The ranged classification probe (`parseAs: "stream"`), which gates it. */
+let nextProbe: () => ContentResult;
 
 const workspaceFileContentGet = mock(
-  async (_request: unknown): Promise<ContentResult> => nextResult(),
+  async (request: unknown): Promise<ContentResult> =>
+    (request as { parseAs?: string }).parseAs === "stream"
+      ? nextProbe()
+      : nextResult(),
 );
+
+/** The request options of every read the container made for the whole file. */
+function blobCalls(): unknown[] {
+  return workspaceFileContentGet.mock.calls
+    .map((call) => call[0])
+    .filter((request) => (request as { parseAs?: string }).parseAs === "blob");
+}
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
@@ -49,7 +62,10 @@ function blobResult(bytes: number): () => ContentResult {
 }
 
 function textResult(text: string): () => ContentResult {
-  return () => ({ data: new Blob([text], { type: "text/plain" }), error: null });
+  return () => ({
+    data: new Blob([text], { type: "text/plain" }),
+    error: null,
+  });
 }
 
 /**
@@ -96,6 +112,7 @@ beforeEach(() => {
   downloadWorkspaceFile.mockClear();
   openWorkspaceFile.mockClear();
   nextResult = blobResult(64);
+  nextProbe = probeResult(64);
 });
 
 afterEach(() => {
@@ -104,7 +121,7 @@ afterEach(() => {
 
 describe("FilePreviewContainer", () => {
   test("names the file and its path while the bytes are in flight", () => {
-    nextResult = () => new Promise<ContentResult>(() => {}) as never;
+    nextProbe = () => new Promise<ContentResult>(() => {}) as never;
 
     renderPreview();
 
@@ -120,7 +137,7 @@ describe("FilePreviewContainer", () => {
     await waitFor(() =>
       expect(screen.getByText("csv preview of rows.csv")).toBeTruthy(),
     );
-    const request = workspaceFileContentGet.mock.calls[0]![0] as {
+    const request = blobCalls()[0] as {
       path: { assistant_id: string };
       query: { path: string };
       parseAs: string;
@@ -145,18 +162,26 @@ describe("FilePreviewContainer", () => {
     await waitFor(() =>
       expect(screen.getByText("csv preview of rows.csv")).toBeTruthy(),
     );
-    expect(workspaceFileContentGet.mock.calls.length).toBe(2);
+    expect(blobCalls().length).toBe(2);
   });
 
-  test("a file over the size cap is offered as a download instead", async () => {
-    nextResult = blobResult(26 * 1024 * 1024);
+  test("a file over the size cap is offered as a download, unread", async () => {
+    nextProbe = probeResult(26 * 1024 * 1024);
 
     renderPreview();
 
     await waitFor(() =>
-      expect(screen.getByText("This file is too large to preview")).toBeTruthy(),
+      expect(
+        screen.getByText("This file is too large to preview"),
+      ).toBeTruthy(),
     );
+    // The size in the notice comes from the probe, not from bytes in hand.
+    expect(
+      screen.getByText("26 MB, over the 25 MB preview limit"),
+    ).toBeTruthy();
     expect(screen.queryByText("csv preview of rows.csv")).toBeNull();
+    // The whole file is never pulled across the wire to be refused.
+    expect(blobCalls().length).toBe(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Download" }));
     expect(downloadWorkspaceFile).toHaveBeenCalledTimes(1);
@@ -200,7 +225,7 @@ describe("FilePreviewContainer", () => {
   });
 
   test("a file with no reader names it and offers both ways on", async () => {
-    nextResult = probeResult(4096);
+    nextProbe = probeResult(4096);
 
     renderPreview({
       workspacePath: "archives/bundle.zip",
@@ -213,9 +238,7 @@ describe("FilePreviewContainer", () => {
     );
     expect(screen.getByText("4.0 KB")).toBeTruthy();
     // The bytes are never pulled for a file nothing can read.
-    for (const call of workspaceFileContentGet.mock.calls) {
-      expect((call[0] as { parseAs?: string }).parseAs).toBe("stream");
-    }
+    expect(blobCalls().length).toBe(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Go to file" }));
     expect(openWorkspaceFile.mock.calls[0]![0]).toBe("archives/bundle.zip");
@@ -229,7 +252,7 @@ describe("FilePreviewContainer", () => {
   });
 
   test("an office package lands in the unsupported state like any archive", async () => {
-    nextResult = probeResult(8192);
+    nextProbe = probeResult(8192);
 
     renderPreview({
       workspacePath: "docs/report.docx",
@@ -248,6 +271,7 @@ describe("FilePreviewContainer", () => {
   });
 
   test("media is refused only past the larger inline-media cap", async () => {
+    nextProbe = probeResult(26 * 1024 * 1024);
     nextResult = blobResult(26 * 1024 * 1024);
 
     renderPreview({

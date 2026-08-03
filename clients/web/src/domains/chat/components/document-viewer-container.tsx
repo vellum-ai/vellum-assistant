@@ -42,6 +42,10 @@ import {
   saveDocumentContent,
   type DocumentSaveTarget,
 } from "@/domains/chat/api/document-save";
+import {
+  localFileBlobQueryKey,
+  localFileInfoQueryKey,
+} from "@/domains/chat/components/local-file/use-local-file-info";
 import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
 import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import {
@@ -153,16 +157,54 @@ export function DocumentViewerContainer({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const savedFadeRef = useRef<ReturnType<typeof setTimeout>>(null);
 
-  // The debounced save reads the destination through a ref, so a save that
-  // flushes after a rename or a document switch writes to the current target
-  // rather than the one that was current when the keystroke landed. The backing
-  // file rides along for the same reason.
+  // The debounced save reads its destination through refs rather than the
+  // closure the keystroke created. The container is keyed per document, so a
+  // switch unmounts it with a save still pending, and a rename changes the
+  // title under a mounted one; both are cases where the value captured when
+  // the keystroke landed is no longer where the text belongs. The backing file
+  // rides along for the same reason, and the pending markdown does so the
+  // unmount flush below has something to write.
   const saveTargetRef = useRef(saveTarget);
   const workspacePathRef = useRef(workspacePath);
+  const pendingMarkdownRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     saveTargetRef.current = saveTarget;
     workspacePathRef.current = workspacePath;
   });
+
+  const flushPendingSave = useCallback(() => {
+    const markdown = pendingMarkdownRef.current;
+    if (markdown === null) {
+      return;
+    }
+    pendingMarkdownRef.current = null;
+    const target = saveTargetRef.current;
+    const savedFile = workspacePathRef.current;
+    void saveDocumentContent(target, markdown).then(
+      () => {
+        setSaveStatus("saved");
+        savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
+        if (savedFile !== null) {
+          // The daemon wrote this document through to its backing file, and
+          // the workspace browser reads that file through its own query, so
+          // that query must see the new bytes.
+          void queryClient.invalidateQueries({
+            queryKey: ["assistantsWorkspaceFileRetrieve"],
+          });
+          // The transcript's embeds and the drawer's read-only preview read
+          // the same file through the local-file queries, which hold their
+          // bytes indefinitely. Both are now a version behind.
+          void queryClient.invalidateQueries({
+            queryKey: localFileBlobQueryKey(savedFile, assistantId),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: localFileInfoQueryKey(savedFile, assistantId),
+          });
+        }
+      },
+      () => setSaveStatus("idle"),
+    );
+  }, [assistantId, queryClient]);
 
   const handleContentChange = useCallback(
     (markdown: string) => {
@@ -172,31 +214,37 @@ export function DocumentViewerContainer({
       if (savedFadeRef.current) {
         clearTimeout(savedFadeRef.current);
       }
+      pendingMarkdownRef.current = markdown;
       setSaveStatus("saving");
       saveTimerRef.current = setTimeout(() => {
-        const target = saveTargetRef.current;
-        const savedFile = workspacePathRef.current;
-        void saveDocumentContent(target, markdown).then(
-          () => {
-            setSaveStatus("saved");
-            savedFadeRef.current = setTimeout(
-              () => setSaveStatus("idle"),
-              2000,
-            );
-            if (savedFile !== null) {
-              // The daemon wrote this document through to its backing file, and
-              // the workspace browser reads that file through its own query, so
-              // that query must see the new bytes.
-              void queryClient.invalidateQueries({
-                queryKey: ["assistantsWorkspaceFileRetrieve"],
-              });
-            }
-          },
-          () => setSaveStatus("idle"),
-        );
+        saveTimerRef.current = null;
+        flushPendingSave();
       }, 1000);
     },
-    [queryClient],
+    [flushPendingSave],
+  );
+
+  // A keyed remount takes the pending timer down with it, so an edit made in
+  // the last second before a document switch or a close would never reach the
+  // daemon. Fire it now instead: the refs still name the document being left,
+  // so the text lands where it was typed.
+  const flushPendingSaveRef = useRef(flushPendingSave);
+  useLayoutEffect(() => {
+    flushPendingSaveRef.current = flushPendingSave;
+  });
+  useEffect(
+    () => () => {
+      if (savedFadeRef.current) {
+        clearTimeout(savedFadeRef.current);
+        savedFadeRef.current = null;
+      }
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        flushPendingSaveRef.current();
+      }
+    },
+    [],
   );
 
   // Clear inline comment state when panel closes (but keep text selection

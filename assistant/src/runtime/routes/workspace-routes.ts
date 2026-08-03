@@ -19,6 +19,7 @@ import { basename, dirname, join } from "node:path";
 
 import { z } from "zod";
 
+import { rebindDocumentsToRenamedPath } from "../../documents/document-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishSoundsConfigUpdated } from "../sync/resource-sync-events.js";
@@ -34,6 +35,7 @@ import {
   isTextMimeType,
   MAX_INLINE_TEXT_SIZE,
   resolveWorkspacePath,
+  toWorkspaceRelativePath,
   writeWorkspaceFile,
 } from "./workspace-utils.js";
 
@@ -503,6 +505,13 @@ function handleWorkspaceRename({ body, headers }: RouteHandlerArgs) {
 
   mkdirSync(dirname(resolvedNew), { recursive: true });
   renameSync(resolvedOld, resolvedNew);
+  // File-backed documents key off the canonical relative path, so they follow
+  // the file to its new name. The request strings are not canonical, hence the
+  // resolved paths.
+  rebindDocumentsToRenamedPath({
+    oldPath: toWorkspaceRelativePath(resolvedOld),
+    newPath: toWorkspaceRelativePath(resolvedNew),
+  });
   publishSoundsConfigUpdatedForPaths(
     [oldPath, newPath],
     headers?.["x-vellum-client-id"]?.trim() || undefined,

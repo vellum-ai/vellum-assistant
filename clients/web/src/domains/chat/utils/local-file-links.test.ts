@@ -43,6 +43,46 @@ describe("toWorkspacePathFromHref: accepted shapes", () => {
   });
 });
 
+describe("toWorkspacePathFromHref: fragments and queries", () => {
+  test("a fragment names a place inside the file, not part of its path", () => {
+    expect(toWorkspacePathFromHref("docs/guide.md#intro")).toBe(
+      "docs/guide.md",
+    );
+    expect(toWorkspacePathFromHref("/workspace/docs/guide.md#intro")).toBe(
+      "docs/guide.md",
+    );
+  });
+
+  test("a query string is dropped the same way", () => {
+    expect(toWorkspacePathFromHref("docs/guide.md?v=2")).toBe("docs/guide.md");
+    expect(toWorkspacePathFromHref("docs/guide.md?v=2#intro")).toBe(
+      "docs/guide.md",
+    );
+    // A `?` after the `#` belongs to the fragment.
+    expect(toWorkspacePathFromHref("docs/guide.md#a?b")).toBe("docs/guide.md");
+  });
+
+  test("an encoded # or ? stays part of the filename", () => {
+    expect(toWorkspacePathFromHref("docs/issue%2342.md")).toBe(
+      "docs/issue#42.md",
+    );
+    expect(toWorkspacePathFromHref("docs/what%3F.md")).toBe("docs/what?.md");
+  });
+
+  test("classification carries the stripped path and filename", () => {
+    expect(classifyMarkdownHref("docs/guide.md#intro")).toEqual({
+      kind: "local-file",
+      workspacePath: "docs/guide.md",
+      filename: "guide.md",
+    });
+    expect(classifyMarkdownHref("/Users/alice/Desktop/a.png#top")).toEqual({
+      kind: "local-file",
+      workspacePath: null,
+      filename: "a.png",
+    });
+  });
+});
+
 describe("toWorkspacePathFromHref: rejected shapes", () => {
   test("absolute path outside any workspace mount", () => {
     expect(toWorkspacePathFromHref("/etc/passwd")).toBeNull();
