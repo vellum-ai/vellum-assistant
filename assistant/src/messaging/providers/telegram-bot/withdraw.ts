@@ -27,7 +27,7 @@
 
 import {
   isParkAction,
-  PARK_STATUS_LABEL,
+  resolveDecisionStatusWord,
 } from "../../../runtime/channel-approval-types.js";
 import { getLogger } from "../../../util/logger.js";
 import { callTelegramBotApi } from "./api.js";
@@ -39,13 +39,6 @@ const STATUS_GLYPH: Record<string, string> = {
   denied: "❌",
   expired: "⌛",
   cancelled: "\u{1f6ab}",
-};
-
-const STATUS_WORD: Record<string, string> = {
-  approved: "Approved",
-  denied: "Denied",
-  expired: "Expired",
-  cancelled: "Cancelled",
 };
 
 /**
@@ -64,9 +57,10 @@ export interface WithdrawTelegramApprovalCardParams {
   status: string;
   /**
    * The action the guardian took, when known. A `denied` status reached by a
-   * park action (`leave_unverified`) reads as the neutral
-   * {@link PARK_STATUS_LABEL} rather than "Denied"; `block`/`reject` stay a
-   * denial. Omitted for status-only transitions (e.g. the expiry sweep).
+   * park action (`leave_unverified`) reads as the neutral park label (see
+   * {@link resolveDecisionStatusWord}) rather than "Denied"; `block`/`reject`
+   * stay a denial. Omitted for status-only transitions (e.g. the expiry
+   * sweep).
    */
   decidedAction?: string;
   /**
@@ -81,7 +75,7 @@ export interface WithdrawTelegramApprovalCardParams {
 function buildStatusText(status: string, decidedAction?: string): string {
   const park = status === "denied" && isParkAction(decidedAction);
   const glyph = park ? PARK_STATUS_GLYPH : (STATUS_GLYPH[status] ?? "");
-  const word = park ? PARK_STATUS_LABEL : (STATUS_WORD[status] ?? "Resolved");
+  const word = resolveDecisionStatusWord(status, decidedAction);
   return glyph ? `${glyph} ${word}` : word;
 }
 

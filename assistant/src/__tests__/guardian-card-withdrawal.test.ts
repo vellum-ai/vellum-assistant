@@ -232,7 +232,7 @@ describe("withdrawGuardianRequestCards", () => {
     });
   });
 
-  test("suppresses the Telegram status reply when the decision originated on Telegram", async () => {
+  test("suppresses the Telegram status reply only when the origin flow replies to the guardian", async () => {
     const req = makeRequest({ sourceChannel: "telegram" });
     bridgeState.seedDelivery({
       requestId: req.id,
@@ -246,9 +246,10 @@ describe("withdrawGuardianRequestCards", () => {
       status: "denied",
       originChannel: "telegram",
       decidedAction: "reject",
+      hasOriginGuardianReply: true,
     });
 
-    // The reply router already delivered its outcome message in that chat;
+    // The resolver's guardian-facing reply is being delivered in that chat;
     // withdrawal only drops the keyboard.
     expect(withdrawTelegramApprovalCard).toHaveBeenCalledWith({
       chatId: "T1",
@@ -256,6 +257,35 @@ describe("withdrawGuardianRequestCards", () => {
       status: "denied",
       decidedAction: "reject",
       postStatusReply: false,
+    });
+  });
+
+  test("posts the Telegram status reply for origin decisions without a guardian-facing resolver reply", async () => {
+    const req = makeRequest({ sourceChannel: "telegram" });
+    bridgeState.seedDelivery({
+      requestId: req.id,
+      destinationChannel: "telegram",
+      destinationChatId: "T1",
+      destinationMessageId: "9",
+    });
+
+    // Most resolvers (tool grants, tool approvals, questions) reply to the
+    // requester only, so the quoted status reply is the guardian's only
+    // durable outcome even for a decision made on Telegram itself.
+    await withdrawGuardianRequestCards({
+      request: req,
+      status: "approved",
+      originChannel: "telegram",
+      decidedAction: "approve_once",
+      hasOriginGuardianReply: false,
+    });
+
+    expect(withdrawTelegramApprovalCard).toHaveBeenCalledWith({
+      chatId: "T1",
+      messageId: "9",
+      status: "approved",
+      decidedAction: "approve_once",
+      postStatusReply: true,
     });
   });
 
