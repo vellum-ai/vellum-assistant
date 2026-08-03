@@ -414,18 +414,24 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * Past the budget the 401 is handed back untouched, so the normal error
  * path surfaces it and the tray's re-pair action stays available.
  *
- * Both keys live in sessionStorage, so quitting and reopening the app
- * grants a fresh budget: a genuinely transient rejection still recovers on
- * the next launch.
+ * The budget is spent permanently until the gateway demonstrates that it
+ * works: a 2xx from the ingress origin clears it. Elapsed time deliberately
+ * does not, because a gateway that is still rejecting every token would
+ * otherwise earn a fresh budget out of every quiet spell and reload forever
+ * in bursts. A reload that genuinely fixed the session produces that 2xx on
+ * its next request, so a transient rejection is not charged for recovering.
+ *
+ * Both keys live in sessionStorage, so quitting and reopening the app also
+ * grants a fresh budget.
+ *
+ * Installed on `daemonClient` only. `gatewayClient` does not carry this
+ * interceptor, so 401s raised through the generated gateway SDK are not
+ * recovered here; see the registrations at the bottom of this file.
  */
 const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
 const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
 const GW_401_COOLDOWN_MS = 600_000;
 const GW_401_MAX_RELOADS = 3;
-// Attempts age out after a quiet spell, so the budget bounds a burst rather
-// than the renderer's whole lifetime. Must exceed the cooldown, or every
-// attempt would age out before the next one and the budget would never bind.
-const GW_401_ATTEMPT_WINDOW_MS = 1_800_000;
 
 // In-memory latch: once recovery fires, all subsequent 401s in the same
 // page lifecycle are no-ops. Resets naturally on reload.
@@ -439,12 +445,6 @@ export function resetGw401RecoveryFlag(): void {
 export function localGatewayAuthRecoveryInterceptor(
   response: Response,
 ): Response {
-  if (response.status !== 401) {
-    return response;
-  }
-  if (gw401RecoveryFired) {
-    return response;
-  }
   if (!isLocalClient()) {
     return response;
   }
@@ -453,42 +453,50 @@ export function localGatewayAuthRecoveryInterceptor(
     return response;
   }
 
-  // Only recover from 401s that originated from the local gateway.
-  // Daemon requests that don't match ASSISTANT_PATH_RE are not rewritten
-  // and hit the platform instead — their 401s are handled elsewhere.
+  // Only act on responses that originated from the local gateway. Daemon
+  // requests that don't match ASSISTANT_PATH_RE are not rewritten and hit
+  // the platform instead; their 401s are handled elsewhere.
   if (!response.url.startsWith(ingressUrl)) {
     return response;
   }
 
-  try {
-    const now = Date.now();
-    const rawLast = sessionStorage.getItem(GW_401_RELOAD_KEY);
-    const lastReload = rawLast === null ? null : Number(rawLast);
-    const sinceLast =
-      lastReload !== null && Number.isFinite(lastReload)
-        ? now - lastReload
-        : Infinity;
+  // The gateway answering a request is the only evidence that the token it
+  // was rejecting has been replaced by a working one, so it is the only
+  // thing that restores the budget. `/readyz` probes use a bare `fetch`
+  // rather than this client, so an unauthenticated liveness check cannot
+  // stand in for a real one.
+  if (response.ok) {
+    try {
+      sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
+      sessionStorage.removeItem(GW_401_RELOAD_KEY);
+    } catch {
+      // sessionStorage unavailable; the budget check below fails closed.
+    }
+    return response;
+  }
 
-    // A gap longer than the window means whatever was rejecting tokens has
-    // stopped, so the next failure starts from a full budget. Reading the
-    // counter unconditionally would make it monotonic for the life of the
-    // renderer, and a session left open for days would spend its budget on
-    // recoveries that each succeeded.
-    const stored =
-      sinceLast >= GW_401_ATTEMPT_WINDOW_MS
-        ? 0
-        : Number(sessionStorage.getItem(GW_401_ATTEMPTS_KEY) ?? "0");
+  if (response.status !== 401) {
+    return response;
+  }
+  if (gw401RecoveryFired) {
+    return response;
+  }
+
+  try {
+    const stored = Number(sessionStorage.getItem(GW_401_ATTEMPTS_KEY) ?? "0");
     const attempts = Number.isFinite(stored) ? stored : 0;
 
-    // A budget spent inside the window means reloading is not fixing this
-    // gateway; let the 401 through to the error path.
+    // A spent budget means reloading has not made this gateway work, and
+    // nothing since has shown that it does; let the 401 through to the
+    // error path.
     if (attempts >= GW_401_MAX_RELOADS) {
       return response;
     }
-    if (sinceLast < GW_401_COOLDOWN_MS) {
+    const lastReload = sessionStorage.getItem(GW_401_RELOAD_KEY);
+    if (lastReload && Date.now() - Number(lastReload) < GW_401_COOLDOWN_MS) {
       return response;
     }
-    sessionStorage.setItem(GW_401_RELOAD_KEY, String(now));
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now()));
     sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(attempts + 1));
   } catch {
     // sessionStorage unavailable: cannot enforce cooldown or budget, skip
@@ -617,6 +625,12 @@ daemonClient.interceptors.error.use(daemonErrorInterceptor);
 
 // Gateway client uses the same routing as daemon — all gateway endpoints
 // are proxied through the same self-hosted ingress / platform gateway path.
+//
+// It deliberately does NOT carry `localGatewayAuthRecoveryInterceptor`: a
+// 401 raised through the generated gateway SDK is surfaced to the caller
+// rather than triggering a reload. Adding it here would widen the set of
+// responses that can restart the app, which is the opposite of what the
+// recovery budget is for, so it is tracked separately.
 gatewayClient.interceptors.request.use(daemonRequestInterceptor);
 gatewayClient.interceptors.response.use(daemonUnreachableInterceptor);
 gatewayClient.interceptors.response.use(platformAuthRecoveryInterceptor);

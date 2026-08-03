@@ -79,6 +79,8 @@ mock.module("@/lib/auth/hard-navigate", () => ({
   hardNavigate: hardNavigateMock,
 }));
 
+import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import {
   authorizeRemoteGatewayRequest,
   daemonErrorInterceptor,
@@ -1017,12 +1019,39 @@ function clearGatewayTokenStorage(): void {
   }
 }
 
+describe("api-interceptors / recovery interceptor registration", () => {
+  // Direct calls to the interceptor prove what it does, not where it runs.
+  // These pin which generated clients actually carry it, so adding or
+  // dropping a registration has to be deliberate.
+  function responseFns(c: {
+    interceptors: { response: unknown };
+  }): readonly unknown[] {
+    const chain = c.interceptors.response as unknown as { fns?: unknown[] };
+    return chain.fns ?? [];
+  }
+
+  test("daemonClient carries the local-gateway 401 recovery", () => {
+    expect(responseFns(daemonClient)).toContain(
+      localGatewayAuthRecoveryInterceptor,
+    );
+  });
+
+  test("gatewayClient deliberately does not carry it", () => {
+    // A 401 raised through the generated gateway SDK surfaces to the caller
+    // rather than reloading the app. Widening the set of responses that can
+    // restart the app is the opposite of what the budget is for, so this
+    // exclusion is intentional and tracked separately.
+    expect(responseFns(gatewayClient)).not.toContain(
+      localGatewayAuthRecoveryInterceptor,
+    );
+  });
+});
+
 describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   const GATEWAY_URL = "http://localhost:9090";
   const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
   const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
   const GW_401_MAX_RELOADS = 3;
-  const GW_401_ATTEMPT_WINDOW_MS = 1_800_000;
 
   function makeResponse(status: number, url: string): Response {
     const response = new Response(null, { status });
@@ -1265,43 +1294,69 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
   test("hands the 401 back unchanged once the budget is spent", () => {
     sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
-    // Inside the ageing window, so the spent budget still binds.
-    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
     const response = gatewayResponse(401);
 
     expect(localGatewayAuthRecoveryInterceptor(response)).toBe(response);
     expect(reloadCalls).toBe(0);
   });
 
-  test("attempts age out, so successful recoveries do not spend the budget", () => {
-    // Three recoveries that each worked, spread out over a long-lived
-    // session. The budget must not be consumed by them.
+  test("a quiet gap alone does not restore the budget", () => {
+    // A gateway that is still rejecting every token must not earn a fresh
+    // budget out of a lull in traffic, or it reloads forever in bursts.
     sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
-    sessionStorage.setItem(
-      GW_401_RELOAD_KEY,
-      String(Date.now() - GW_401_ATTEMPT_WINDOW_MS - 1),
-    );
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 86_400_000));
 
     localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
-    expect(reloadCalls).toBe(1);
-    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBe("1");
+    expect(reloadCalls).toBe(0);
   });
 
-  test("attempts inside the window still accumulate", () => {
-    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, "2");
-    // Past the cooldown but well inside the ageing window.
+  test("a successful gateway response restores the budget", () => {
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
     sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
 
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(200));
+
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBeNull();
+    expect(sessionStorage.getItem(GW_401_RELOAD_KEY)).toBeNull();
+  });
+
+  test("recovery, then a later failure episode, gets a full budget", () => {
+    // Episode one exhausts the budget.
+    for (let i = 0; i < GW_401_MAX_RELOADS; i++) {
+      resetGw401RecoveryFlag();
+      sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
+      localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    }
+    resetGw401RecoveryFlag();
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    expect(reloadCalls).toBe(GW_401_MAX_RELOADS);
+
+    // The gateway starts working again.
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(200));
+
+    // A genuinely new episode later gets its own budget.
+    resetGw401RecoveryFlag();
     localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
-    expect(reloadCalls).toBe(1);
-    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBe("3");
+    expect(reloadCalls).toBe(GW_401_MAX_RELOADS + 1);
+  });
+
+  test("a non-gateway 2xx does not restore the budget", () => {
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
+
+    localGatewayAuthRecoveryInterceptor(
+      makeResponse(200, "https://api.vellum.ai/v1/whatever"),
+    );
+
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBe(
+      String(GW_401_MAX_RELOADS),
+    );
   });
 
   test("a fresh renderer session grants a new budget", () => {
     sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
-    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
     localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
     expect(reloadCalls).toBe(0);
 
