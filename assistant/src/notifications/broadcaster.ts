@@ -45,6 +45,7 @@ import { nonEmpty } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
   ChannelAdapter,
+  ChannelDeliveryObserver,
   ChannelDeliveryPayload,
   ChannelDestination,
   ConversationAction,
@@ -738,6 +739,11 @@ export class NotificationBroadcaster {
             dispatch,
             signal,
             backgroundResults,
+            {
+              onRemotePushPlatforms: (platforms) => {
+                platformRemotePushPlatforms = platforms;
+              },
+            },
           ).then((adapterResult) => {
             platformRemotePushAccepted =
               adapterResult?.remotePushAccepted === true;
@@ -794,6 +800,7 @@ export class NotificationBroadcaster {
     dispatch: PendingChannelDispatch,
     signal: NotificationSignal,
     results: NotificationDeliveryResult[],
+    observer?: ChannelDeliveryObserver,
   ): Promise<DeliveryResult | null> {
     const {
       adapter,
@@ -805,7 +812,7 @@ export class NotificationBroadcaster {
       hasPersistedDecision,
     } = dispatch;
     try {
-      const adapterResult = await adapter.send(payload, destination);
+      const adapterResult = await adapter.send(payload, destination, observer);
 
       if (adapterResult.success) {
         // Prefer the channel-native id the adapter just captured (e.g.

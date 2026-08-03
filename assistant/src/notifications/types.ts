@@ -129,11 +129,16 @@ export interface ChannelUpdatePayload {
 // -- Channel adapter interface ------------------------------------------------
 
 /** Interface that each channel adapter must implement. */
+export type ChannelDeliveryObserver = {
+  onRemotePushPlatforms(platforms: ("ios" | "android")[]): void;
+};
+
 export interface ChannelAdapter {
   channel: NotificationChannel;
   send(
     payload: ChannelDeliveryPayload,
     destination: ChannelDestination,
+    observer?: ChannelDeliveryObserver,
   ): Promise<DeliveryResult>;
   update?(
     delivery: ChannelUpdateContext,

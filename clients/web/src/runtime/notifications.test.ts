@@ -48,12 +48,7 @@ mock.module("@/runtime/android-notification-channels", () => ({
 // ── @capacitor/local-notifications ───────────────────────────────────────────
 
 interface ScheduleArg {
-  notifications: Array<{
-    id: number;
-    title: string;
-    body: string;
-    channelId?: string;
-  }>;
+  notifications: Array<{ id: number; title: string; body: string; channelId?: string }>;
 }
 const scheduleMock = mock(async (_arg: ScheduleArg) => {});
 mock.module("@capacitor/local-notifications", () => ({

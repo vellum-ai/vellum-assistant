@@ -20,6 +20,7 @@ import {
 } from "../../util/retry.js";
 import type {
   ChannelAdapter,
+  ChannelDeliveryObserver,
   ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
@@ -75,6 +76,7 @@ export class PlatformPushAdapter implements ChannelAdapter {
   async send(
     payload: ChannelDeliveryPayload,
     destination: ChannelDestination,
+    observer?: ChannelDeliveryObserver,
   ): Promise<DeliveryResult> {
     const client = await VellumPlatformClient.create();
     if (!client) {
@@ -164,9 +166,12 @@ export class PlatformPushAdapter implements ChannelAdapter {
         responseBody = null;
       }
       const responsePlatforms = acceptedPlatforms(responseBody);
-      platformsReported ||= responsePlatforms !== undefined;
-      for (const platform of responsePlatforms ?? []) {
-        accumulatedPlatforms.add(platform);
+      if (responsePlatforms) {
+        platformsReported = true;
+        for (const platform of responsePlatforms) {
+          accumulatedPlatforms.add(platform);
+        }
+        observer?.onRemotePushPlatforms(remotePushPlatforms()!);
       }
 
       if (response.ok) {

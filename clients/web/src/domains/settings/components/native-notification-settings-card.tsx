@@ -1,4 +1,3 @@
-import { Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
@@ -45,17 +44,14 @@ export function NativeNotificationSettingsCard() {
             : "Receive alerts when the app is closed."}
         </p>
       </div>
-      {permission !== "unsupported" && (
-        <Button
-          variant="outlined"
-          size="regular"
-          leftIcon={<Settings />}
-          onClick={() => void openAndroidNotificationSettings()}
-          disabled={permission === null}
-        >
-          System settings
-        </Button>
-      )}
+      <Button
+        variant="outlined"
+        size="regular"
+        onClick={() => void openAndroidNotificationSettings()}
+        disabled={permission === null}
+      >
+        System settings
+      </Button>
     </Card>
   );
 }

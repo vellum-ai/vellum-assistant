@@ -11,6 +11,7 @@ import type { PairingResult } from "../conversation-pairing.js";
 import type { NotificationSignal } from "../signal.js";
 import type {
   ChannelAdapter,
+  ChannelDeliveryObserver,
   ChannelDeliveryPayload,
   ChannelDestination,
   DeliveryResult,
@@ -483,8 +484,10 @@ describe("NotificationBroadcaster remotePushDispatched flag", () => {
       send(
         payload: ChannelDeliveryPayload,
         destination: ChannelDestination,
+        observer?: ChannelDeliveryObserver,
       ): Promise<DeliveryResult> {
         platformSends.push({ payload, destination });
+        observer?.onRemotePushPlatforms(["ios"]);
         return new Promise<DeliveryResult>((resolve) => {
           resolvePlatform = resolve;
         });
@@ -502,6 +505,7 @@ describe("NotificationBroadcaster remotePushDispatched flag", () => {
     expect(platformSends.length).toBe(1);
     expect(vellum.sends.length).toBe(1);
     expect(vellum.sends[0]?.payload.remotePushDispatched).toBe(false);
+    expect(vellum.sends[0]?.payload.remotePushPlatforms).toEqual(["ios"]);
     expect(results.find((r) => r.channel === "platform")?.status).toBe(
       "pending",
     );

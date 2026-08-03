@@ -43,12 +43,7 @@ type ActionPerformedHandler = (action: {
   actionId: string;
   notification: { data?: unknown };
 }) => void;
-type ReceivedHandler = (notification: {
-  id: string;
-  title?: string;
-  body?: string;
-  data: unknown;
-}) => void;
+type ReceivedHandler = (notification: { id: string; data: unknown }) => void;
 
 let registrationHandler: RegistrationHandler | null = null;
 let registrationErrorHandler: ErrorHandler | null = null;
@@ -59,11 +54,7 @@ let permissionState: "granted" | "denied" | "prompt" = "granted";
 const addListenerMock = mock(
   async (
     event: string,
-    handler:
-      | RegistrationHandler
-      | ErrorHandler
-      | ActionPerformedHandler
-      | ReceivedHandler,
+    handler: unknown,
   ) => {
     if (event === "registration") {
       registrationHandler = handler as RegistrationHandler;
@@ -277,10 +268,11 @@ describe("registerForRemotePush", () => {
   test("creates the Android channel before registering and omits APNs fields", async () => {
     platform = "android";
     bundleId = "ai.vellum.assistant.dev";
+    const handler = mock(() => {});
+    setForegroundPushHandler(handler);
     registerMock.mockImplementationOnce(async () => {
       callOrder.push("register");
     });
-
     await registerForRemotePush("assistant-1");
     registrationHandler?.({ value: "fcm-token-abc" });
     await flushMicrotasks();
@@ -292,16 +284,7 @@ describe("registerForRemotePush", () => {
       bundle_id: "ai.vellum.assistant.dev",
     });
     expect(resolveSignedApnsEnvironmentMock).not.toHaveBeenCalled();
-  });
-
-  test("forwards Android foreground pushes to the active handler", async () => {
-    platform = "android";
-    const handler = mock(() => {});
-    setForegroundPushHandler(handler);
-
-    await registerForRemotePush("assistant-1");
     receivedHandler?.({ id: "message-1", data: { delivery_id: "delivery-1" } });
-
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
