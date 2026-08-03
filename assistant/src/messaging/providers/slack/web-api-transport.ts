@@ -271,6 +271,18 @@ async function connectionSlackRequest<T extends SlackApiResponse>(
   method: string,
   opts: SlackRequestOptions,
 ): Promise<T> {
+  // `connection.request()` carries only query/body; silently dropping a form
+  // payload would send Slack a parameterless request that fails with a
+  // misleading Slack-side error. Fail fast instead: form-encoded methods are
+  // only reachable on Socket Mode installs, whose auth is a raw token.
+  if (opts.form) {
+    throw new SlackApiError("form_unsupported_over_oauth", {
+      message:
+        `Slack ${method} uses a form-encoded body, which is not supported ` +
+        "over a legacy OAuth connection; a Socket Mode bot token is required",
+    });
+  }
+
   const query: Record<string, string> | undefined = opts.query
     ? Object.fromEntries(
         Object.entries(opts.query).filter(

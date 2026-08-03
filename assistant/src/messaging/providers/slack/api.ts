@@ -8,10 +8,11 @@
  * rules in `auth.ts`:
  *   - "bot" for everything the assistant does as itself: streaming replies,
  *     uploads, reading its own message blocks for edit-in-place.
- *   - "user" for reads that benefit from the owner's wider visibility, e.g.
- *     `conversations.info` channel-name resolution for channels the owner is
- *     in but the bot is not. Falls back to the bot token when no user token
- *     is stored.
+ *   - "user" only as a bounded FALLBACK: `conversations.info` channel-name
+ *     resolution acts as the bot first and retries with the stored user token
+ *     only when the bot cannot see the channel. See
+ *     {@link getSlackConversationInfo} for why that stays within the
+ *     neutral-bot rule for route-reachable calls.
  */
 
 import type { KnownBlock } from "@slack/types";
@@ -19,7 +20,11 @@ import type { SlackStreamTask } from "@vellumai/gateway-client";
 
 import { resolveSlackAuth, type SlackAuthIdentity } from "./auth.js";
 import type { SlackApiResponse } from "./types.js";
-import { slackRequest, type SlackRequestOptions } from "./web-api-transport.js";
+import {
+  SlackApiError,
+  slackRequest,
+  type SlackRequestOptions,
+} from "./web-api-transport.js";
 
 /** Envelope fields the outbound surfaces read off successful responses. */
 interface SlackOutboundApiResponse extends SlackApiResponse {
@@ -240,22 +245,9 @@ function normalizeSlackString(value: unknown): string | undefined {
   return trimmed || undefined;
 }
 
-/**
- * Resolve a channel's identity and display names via `conversations.info`.
- *
- * Acts as the "user" identity: channel-name resolution should see every
- * channel the assistant's owner can see, not only the channels the bot has
- * been invited to. Falls back to the bot token when no user token is stored.
- */
-export async function getSlackConversationInfo(
-  channelId: string,
-): Promise<SlackConversationInfo | null> {
-  const data = await slackApiRequest<SlackConversationsInfoResponse>(
-    "user",
-    "conversations.info",
-    { query: { channel: channelId } },
-  );
-
+function parseSlackConversationInfo(
+  data: SlackConversationsInfoResponse,
+): SlackConversationInfo | null {
   const id = normalizeSlackString(data.channel?.id);
   if (!id) {
     return null;
@@ -269,6 +261,61 @@ export async function getSlackConversationInfo(
     ...(name ? { name } : {}),
     ...(nameNormalized ? { nameNormalized } : {}),
   };
+}
+
+/**
+ * Resolve a channel's identity and display names via `conversations.info`.
+ *
+ * Acts as the bot first, honoring the neutral-bot rule for route-reachable
+ * calls (`auth.ts`): this function backs the `slack_channel_name_resolve`
+ * route. When the bot cannot see the channel (`channel_not_found` /
+ * permission errors) and a DISTINCT user token is stored, it retries once as
+ * the owner, so channels the owner is in but the bot is not still resolve.
+ * The wider identity is used only for the exact case the bot cannot answer,
+ * and the response is scoped to a channel the calling conversation is
+ * already bound to. Legacy OAuth installs have no separate user identity, so
+ * the fallback never fires there.
+ */
+export async function getSlackConversationInfo(
+  channelId: string,
+): Promise<SlackConversationInfo | null> {
+  const query = { channel: channelId };
+  const botAuth = await resolveSlackAuth("bot");
+  if (!botAuth) {
+    throw new Error("Slack bot token not configured");
+  }
+
+  try {
+    return parseSlackConversationInfo(
+      await slackRequest<SlackConversationsInfoResponse>(
+        botAuth,
+        "conversations.info",
+        { query },
+      ),
+    );
+  } catch (err) {
+    if (
+      !(err instanceof SlackApiError) ||
+      (err.category !== "channel_not_found" && err.category !== "permission")
+    ) {
+      throw err;
+    }
+    const userAuth = await resolveSlackAuth("user");
+    if (
+      typeof botAuth !== "string" ||
+      typeof userAuth !== "string" ||
+      userAuth === botAuth
+    ) {
+      throw err;
+    }
+    return parseSlackConversationInfo(
+      await slackRequest<SlackConversationsInfoResponse>(
+        userAuth,
+        "conversations.info",
+        { query },
+      ),
+    );
+  }
 }
 
 interface SlackHistoryResponse extends SlackApiResponse {

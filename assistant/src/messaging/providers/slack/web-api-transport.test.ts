@@ -145,6 +145,24 @@ describe("rawSlackRequest", () => {
     expect(err.slackError).toBe("http_403");
   });
 
+  test("rejects form bodies dispatched over an OAuth connection", async () => {
+    const connection = {
+      request: async () => {
+        throw new Error("connection.request must not be reached for forms");
+      },
+      withToken: async () => {
+        throw new Error("withToken must not be reached for forms");
+      },
+    };
+    const { slackRequest } = await import("./web-api-transport.js");
+    const err = await captureSlackApiError(
+      slackRequest(connection as never, "files.getUploadURLExternal", {
+        form: new URLSearchParams({ filename: "a.png" }),
+      }),
+    );
+    expect(err.slackError).toBe("form_unsupported_over_oauth");
+  });
+
   test("sends form bodies as x-www-form-urlencoded POSTs", async () => {
     let capturedInit: RequestInit | undefined;
     globalThis.fetch = mock(async (_input, init) => {
