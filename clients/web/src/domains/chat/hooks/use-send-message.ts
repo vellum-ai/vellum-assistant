@@ -224,6 +224,7 @@ export function useSendMessage({
   const pendingRetryRef = useRef<{
     conversationId: string;
     content: string;
+    attachmentKey: string;
     clientMessageId: string;
   } | null>(null);
 
@@ -744,15 +745,19 @@ export function useSendMessage({
       }
 
       const willQueue = isSending(useTurnStore.getState().phase);
-      // Reuse the nonce from a send whose POST threw with this same text still
-      // in the composer. A throw leaves delivery unknown: the request may have
-      // reached the daemon and had only its response lost, so a retry under a
-      // fresh nonce would slip past the server's per-nonce dedup and run the
-      // turn, and its tool calls, a second time.
+      // Reuse the nonce from a send whose POST threw. A throw leaves delivery
+      // unknown: the request may have reached the daemon and had only its
+      // response lost, so a retry under a fresh nonce would slip past the
+      // daemon's dedup and run the turn, and its tool calls, a second time.
+      // Dedup is keyed on (conversation, nonce), so the text and the
+      // attachments must both match for the retry to be the same message.
+      const attachmentKey = attachments.map((att) => att.id).join(",");
+      const pendingRetry = pendingRetryRef.current;
       const retryNonce =
-        pendingRetryRef.current?.conversationId === activeConversationId &&
-        pendingRetryRef.current.content === content
-          ? pendingRetryRef.current.clientMessageId
+        pendingRetry?.conversationId === activeConversationId &&
+        pendingRetry.content === content &&
+        pendingRetry.attachmentKey === attachmentKey
+          ? pendingRetry.clientMessageId
           : null;
       pendingRetryRef.current = null;
       const clientMessageId = retryNonce ?? crypto.randomUUID();
@@ -1019,15 +1024,31 @@ export function useSendMessage({
           requestConversationId: activeConversationId,
           resolvedConversationId: resolvedId,
         });
-        if (!isHidden && stillOnThisSend) {
-          // Carry the nonce so a retry of this same text dedups server-side
-          // rather than risking a second run of an ambiguous delivery.
-          pendingRetryRef.current = {
-            conversationId: activeConversationId,
-            content,
-            clientMessageId,
-          };
+        // The composer was cleared for this send, so anything in it now is
+        // newer text the user typed while the request was in flight. Restoring
+        // over it would destroy the very thing this recovery exists to protect.
+        const composerUntouched = useComposerStore.getState().input === "";
+        if (!isHidden && stillOnThisSend && composerUntouched) {
+          // Carry the nonce so a retry of the same message dedups server-side
+          // rather than risking a second run of an ambiguous delivery. Dedup is
+          // keyed on (conversation, nonce), so this only helps a send that
+          // targeted a conversation the daemon already knows about. A draft
+          // omits its id and is minted a fresh conversation per attempt, so a
+          // retry cannot dedup against the first attempt no matter what nonce
+          // it carries; refreshing the list below is what surfaces a draft that
+          // did land, so the user sees it rather than silently sending twice.
+          if (!isDraft) {
+            pendingRetryRef.current = {
+              conversationId: activeConversationId,
+              content,
+              attachmentKey,
+              clientMessageId,
+            };
+          }
           useComposerStore.getState().setInput(content);
+        }
+        if (isDraft) {
+          void refreshConversations();
         }
         setError({ message: "Something went wrong. Please try again." });
         // Multi-key processing-key cleanup: when a send is retargeted

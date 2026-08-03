@@ -21,12 +21,14 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { prependConversation } from "@/utils/conversation-cache-mutations";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useTurnStore, INITIAL_TURN_STATE } from "@/domains/chat/turn-store";
 
 const DRAFT_ID = "draft-1";
+const EXISTING_ID = "conv-existing";
 const SENT_TEXT = "resume: oil change, tire change, appraisal";
 
 let postCalls = 0;
@@ -56,9 +58,21 @@ function baseProps() {
   };
 }
 
-function renderSend() {
+function renderSend(conversationId: string = DRAFT_ID) {
   useAssistantIdentityStore.getState().setIdentity("Assistant", "0.10.12");
-  return renderHook(() => useSendMessage(baseProps()), { wrapper: Wrapper });
+  useConversationStore.getState().setActiveConversationId(conversationId);
+  return renderHook(
+    () => useSendMessage({ ...baseProps(), activeConversationId: conversationId }),
+    { wrapper: Wrapper },
+  );
+}
+
+/** A conversation the daemon already knows about, so the send is not a draft. */
+function seedExistingConversation() {
+  prependConversation(queryClient, "assistant-1", {
+    conversationId: EXISTING_ID,
+    lastMessageAt: Date.now(),
+  } as never);
 }
 
 beforeEach(() => {
@@ -120,7 +134,8 @@ describe("useSendMessage: recovery when the POST throws", () => {
   });
 
   test("retries the restored text under the original nonce", async () => {
-    const { result } = renderSend();
+    seedExistingConversation();
+    const { result } = renderSend(EXISTING_ID);
 
     await act(async () => {
       await result.current.sendMessage(SENT_TEXT);
@@ -136,7 +151,8 @@ describe("useSendMessage: recovery when the POST throws", () => {
   });
 
   test("starts a new nonce when the user edits the text before resending", async () => {
-    const { result } = renderSend();
+    seedExistingConversation();
+    const { result } = renderSend(EXISTING_ID);
 
     await act(async () => {
       await result.current.sendMessage(SENT_TEXT);
@@ -145,6 +161,34 @@ describe("useSendMessage: recovery when the POST throws", () => {
       await result.current.sendMessage(SENT_TEXT + " and grease the PTO");
     });
 
+    expect(sentNonces[0]).not.toBe(sentNonces[1]!);
+  });
+
+  test("does not overwrite text the user typed while the send was in flight", async () => {
+    const { result } = renderSend();
+
+    await act(async () => {
+      const pending = result.current.sendMessage(SENT_TEXT);
+      useComposerStore.getState().setInput("changed my mind");
+      await pending;
+    });
+
+    expect(useComposerStore.getState().input).toBe("changed my mind");
+  });
+
+  test("does not reuse a nonce for a draft, whose retry is minted a new conversation", async () => {
+    const { result } = renderSend();
+
+    await act(async () => {
+      await result.current.sendMessage(SENT_TEXT);
+    });
+    await act(async () => {
+      await result.current.sendMessage(SENT_TEXT);
+    });
+
+    // Dedup is keyed on (conversation, nonce) and each draft attempt is minted
+    // its own conversation, so carrying the nonce would imply a protection
+    // that does not exist.
     expect(sentNonces[0]).not.toBe(sentNonces[1]!);
   });
 
