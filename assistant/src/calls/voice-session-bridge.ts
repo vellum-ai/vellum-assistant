@@ -299,6 +299,16 @@ export interface VoiceTurnOptions {
    * client decides what to do about it.
    */
   onApprovalPending?: (requestId: string) => void;
+  /**
+   * Called when the last pending confirmation this turn was waiting on is
+   * decided, however it was decided (the user answered, it timed out, a newer
+   * message superseded it). Paired with {@link onApprovalPending} so a client
+   * that changed its presentation for the wait can change it back.
+   *
+   * Fires on the *last* one, not each: a turn waiting on two decisions is
+   * still waiting after the first is answered.
+   */
+  onApprovalsResolved?: () => void;
   /** Optional AbortSignal for external cancellation (e.g. barge-in). */
   signal?: AbortSignal;
   /**
@@ -894,9 +904,15 @@ export async function startVoiceTurn(
   >();
   const settleVoiceApproval = (requestId: string): void => {
     const timer = pendingVoiceApprovals.get(requestId);
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      pendingVoiceApprovals.delete(requestId);
+    if (timer === undefined) {
+      // Not one of ours: other interactions (secrets, host-proxy requests)
+      // resolve through the same event.
+      return;
+    }
+    clearTimeout(timer);
+    pendingVoiceApprovals.delete(requestId);
+    if (pendingVoiceApprovals.size === 0) {
+      opts.onApprovalsResolved?.();
     }
   };
   const cleanup = () => {
@@ -1292,6 +1308,9 @@ export async function startVoiceTurn(
         opts.onApprovalPending?.(msg.requestId);
         const timer = setTimeout(() => {
           pendingVoiceApprovals.delete(msg.requestId);
+          if (pendingVoiceApprovals.size === 0) {
+            opts.onApprovalsResolved?.();
+          }
           log.info(
             { turnId, toolName: msg.toolName },
             "Voice approval timed out — falling back to the guardian allow",

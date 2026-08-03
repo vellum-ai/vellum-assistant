@@ -158,18 +158,22 @@ function createCapturingTurnStarter(): {
   startVoiceTurn: LiveVoiceTurnStarter;
   getCallbacks: () => VoiceTurnCallbacks | undefined;
   announceApprovalPending: () => void;
+  announceApprovalsResolved: () => void;
 } {
   let callbacks: VoiceTurnCallbacks | undefined;
   let onApprovalPending: ((requestId: string) => void) | undefined;
+  let onApprovalsResolved: (() => void) | undefined;
   const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
     callbacks = options.callbacks;
     onApprovalPending = options.onApprovalPending;
+    onApprovalsResolved = options.onApprovalsResolved;
     return { turnId: "bridge-turn-1", abort: mock() };
   });
   return {
     startVoiceTurn,
     getCallbacks: () => callbacks,
     announceApprovalPending: () => onApprovalPending?.("req-1"),
+    announceApprovalsResolved: () => onApprovalsResolved?.(),
   };
 }
 
@@ -780,6 +784,39 @@ describe("LiveVoiceSession room reveal", () => {
 
     // Before any tts_done, unlike the drain-scoped reveal a shown surface gets.
     expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+  });
+
+  // Every phrase progress narration has describes work in flight ("still on
+  // it", "almost there"). While the turn is blocked on the user, all of them
+  // are false, and the one that matters is the one about who is being waited
+  // on.
+  test("says it is waiting, once, and stops narrating progress", async () => {
+    const {
+      startVoiceTurn,
+      announceApprovalPending,
+      announceApprovalsResolved,
+    } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    announceApprovalPending();
+    await waitFor(() => ttsTexts.join(" ").includes("okay"));
+    // Repeat announcements do not repeat the line.
+    announceApprovalPending();
+    await flushAsyncCallbacks();
+
+    const saidWaiting = ttsTexts.filter((text) => text.includes("okay")).length;
+    expect(saidWaiting).toBe(1);
+
+    announceApprovalsResolved();
+    await flushAsyncCallbacks();
   });
 
   test("dismissing a surface does not reveal the screen", async () => {
