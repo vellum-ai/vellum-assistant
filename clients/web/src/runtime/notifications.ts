@@ -260,37 +260,31 @@ async function scheduleNativeDelivery(
   if (recentNativeDeliveryIds.has(deliveryId)) {
     return;
   }
-  const active = nativeDeliveryPromises.get(deliveryId);
-  if (active) {
-    try {
-      await active;
-      return;
-    } catch {
-      // One waiter may retry a failed native bridge call.
-    }
-  }
-  const pending = nativeDeliveryPromises.get(deliveryId);
-  if (pending) {
-    return pending;
-  }
-  const attempt = ensureAndroidAlertsChannel().then(async () => {
-    await LocalNotifications.schedule({ notifications: [notification] });
-  });
-  nativeDeliveryPromises.set(deliveryId, attempt);
-  try {
-    await attempt;
-    recentNativeDeliveryIds.add(deliveryId);
-    if (recentNativeDeliveryIds.size > MAX_RECENT_DELIVERY_IDS) {
-      const oldest = recentNativeDeliveryIds.values().next().value;
-      if (oldest) {
-        recentNativeDeliveryIds.delete(oldest);
+  let pending = nativeDeliveryPromises.get(deliveryId);
+  if (!pending) {
+    pending = (async () => {
+      try {
+        try {
+          await ensureAndroidAlertsChannel();
+          await LocalNotifications.schedule({ notifications: [notification] });
+        } catch {
+          await ensureAndroidAlertsChannel();
+          await LocalNotifications.schedule({ notifications: [notification] });
+        }
+        recentNativeDeliveryIds.add(deliveryId);
+        if (recentNativeDeliveryIds.size > MAX_RECENT_DELIVERY_IDS) {
+          const oldest = recentNativeDeliveryIds.values().next().value;
+          if (oldest) {
+            recentNativeDeliveryIds.delete(oldest);
+          }
+        }
+      } finally {
+        nativeDeliveryPromises.delete(deliveryId);
       }
-    }
-  } finally {
-    if (nativeDeliveryPromises.get(deliveryId) === attempt) {
-      nativeDeliveryPromises.delete(deliveryId);
-    }
+    })();
+    nativeDeliveryPromises.set(deliveryId, pending);
   }
+  await pending;
 }
 
 /**

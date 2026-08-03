@@ -288,6 +288,6 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     await Promise.all([first, waiter]);
 
     expect(scheduleMock).toHaveBeenCalledTimes(2);
-    expect(ackArgs.map(({ body }) => body.success).sort()).toEqual([false, true]);
+    expect(ackArgs.map(({ body }) => body.success)).toEqual([true, true]);
   });
 });
