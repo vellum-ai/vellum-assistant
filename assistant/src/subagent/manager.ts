@@ -48,11 +48,13 @@ import {
   SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
   type SubagentRole,
+  subagentRoleConfig,
   type SubagentSpawnMode,
   type SubagentState,
   type SubagentStatus,
   type SubagentToolStatsSummary,
   TERMINAL_STATUSES,
+  UNSCOPED_SUBAGENT_ROLE,
 } from "./types.js";
 
 const log = getLogger("subagent-manager");
@@ -224,22 +226,21 @@ function extractDeltaText(msg: AssistantEvent): string | null {
 
 export function buildSubagentSystemPrompt(
   config: SubagentConfig,
-  role: SubagentRole,
+  role: SubagentRole | undefined,
 ): string {
-  const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
-  const sections: string[] = [
-    roleConfig.systemPromptPreamble,
-    "",
-    "## Your Task",
-    config.objective,
-  ];
+  const roleConfig = subagentRoleConfig(role);
+  const sections: string[] = [roleConfig.systemPromptPreamble];
+  if (config.persona) {
+    sections.push(`- Persona: act as ${config.persona} for this task.`);
+  }
+  sections.push("", "## Your Task", config.objective);
   if (config.context) {
     sections.push("", "## Context from Parent", config.context);
   }
   sections.push(
     "",
     "## Constraints",
-    `- Role: ${role}`,
+    `- Role: ${role ?? UNSCOPED_SUBAGENT_ROLE}`,
     "- You cannot spawn nested subagents.",
     "- Use notify_parent to report important findings, or if you are blocked.",
     '- If the objective needs a capability your role\'s tools do not provide (for example, writing or editing a file, or running a command, with a read-only role), do NOT fabricate a completed result — call notify_parent with urgency "blocked", name the capability you lack (e.g. file_write), and stop.',
@@ -294,7 +295,7 @@ export function buildSubagentTerminalMessage(opts: {
   const many = (deniedTools?.length ?? 0) > 1;
   const deniedNote =
     deniedTools && deniedTools.length > 0
-      ? `\n\nNote: this ${prefix.toLowerCase()} attempted ${deniedTools.join(", ")} but its role does not permit ${many ? "them" : "it"}. If the objective requires ${many ? "those" : "that"}, re-spawn with a role that includes ${many ? "them" : "it"} (e.g. \`coder\`).`
+      ? `\n\nNote: this ${prefix.toLowerCase()} attempted ${deniedTools.join(", ")} but its role does not permit ${many ? "them" : "it"}. If the objective requires ${many ? "those" : "that"}, re-spawn with a role that includes ${many ? "them" : "it"} (e.g. \`builder\`).`
       : "";
 
   // Machine truth envelope: the counts the parent can check the synthesis
@@ -475,28 +476,18 @@ export class SubagentManager {
     }
 
     // ── Resolve role ─────────────────────────────────────────────────
+    // A role is one of the three types or absent. The `subagent_spawn` tool
+    // resolves whatever the model wrote into a type before it gets here (see
+    // subagent/role-resolution.ts), so an unregistered value at this point is
+    // an internal caller's bug and is worth throwing over.
     const isFork = config.fork === true;
-    const role: SubagentRole = (config.role as SubagentRole) ?? "general";
-    if (isFork && role !== "general") {
-      // A context-inheriting subagent normally keeps the parent's `general`
-      // role so its KV cache stays aligned with the parent conversation. An
-      // explicit non-general role opts out of that alignment on purpose
-      // (e.g. the advisor role running on a stronger profile), so honor it.
-      log.warn(
-        {
-          requestedRole: role,
-          parentConversationId: config.parentConversationId,
-          label: config.label,
-        },
-        "Fork requested with non-general role — caller opted out of parent KV-cache alignment",
-      );
-    }
-    if (!SUBAGENT_ROLE_REGISTRY[role]) {
+    const role = config.role;
+    if (role && !SUBAGENT_ROLE_REGISTRY[role]) {
       throw new Error(
         `Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`,
       );
     }
-    const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
+    const roleConfig = subagentRoleConfig(role);
 
     // ── Resolve spawn mode ───────────────────────────────────────────
     // The spawning call site is the only layer that can tell an advisor
@@ -519,7 +510,7 @@ export class SubagentManager {
       origin: "subagent",
       systemHint: `Subagent: ${config.label}`,
       parentConversationId: config.parentConversationId,
-      subagentRole: role,
+      subagentRole: role ?? UNSCOPED_SUBAGENT_ROLE,
       subagentSpawnMode: spawnMode,
     });
 
@@ -707,10 +698,9 @@ export class SubagentManager {
       conversation.hasSystemPromptOverride = true;
     }
 
-    // Apply the role's tool allowlist when one is defined. The `general` role
-    // has `allowedTools: undefined`, so default forks (which keep the general
-    // role) are unaffected; a fork carrying an explicit role gets its
-    // allowlist applied like any other subagent.
+    // Apply the role's tool allowlist when one is defined. A spawn that named
+    // no role has none, so it keeps the full surface its conversation
+    // projects; every named role, fork or not, is scoped to its own list.
     if (roleConfig.allowedTools) {
       conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
     }
@@ -1560,7 +1550,7 @@ export class SubagentManager {
         conversationId: state.conversationId,
         label: state.config.label,
         objective: state.config.objective,
-        role: state.config.role ?? "general",
+        role: state.config.role ?? UNSCOPED_SUBAGENT_ROLE,
         isFork: state.isFork,
         sendResultToUser: state.config.sendResultToUser ?? null,
         parentToolUseId: state.config.parentToolUseId ?? null,

@@ -55,7 +55,7 @@
     },
     "subagent": {
       "docsSlug": "subagent",
-      "sha256": "1cd366034e38c879310468f603dc79725da7d6b8d02da9dc66cfefcbebffa293"
+      "sha256": "adc4ae23717f4b2dbfa5f408d22a0d0dd52f16a440dc977955fff5b0550365f6"
     },
     "transcribe": {
       "docsSlug": "transcribe",

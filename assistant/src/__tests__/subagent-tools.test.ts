@@ -89,9 +89,14 @@ import {
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
 import { getSubagentManager } from "../subagent/index.js";
-import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
+import {
+  buildSubagentSystemPrompt,
+  SubagentAbortedError,
+  SubagentManager,
+} from "../subagent/manager.js";
 import {
   SUBAGENT_READ_STILL_PROCESSING,
+  SUBAGENT_ROLE_REGISTRY,
   type SubagentState,
 } from "../subagent/types.js";
 import { executeSubagentAbort } from "../tools/subagent/abort.js";
@@ -961,7 +966,7 @@ describe("Subagent spawn repeat-loop guard", () => {
       conversationId: `conv-${id}`,
       label: id,
       objective,
-      role: "general",
+      role: "builder",
       isFork: false,
       sendResultToUser: true,
       parentToolUseId: null,
@@ -2379,7 +2384,7 @@ describe("Subagent role-based spawn", () => {
     }
   });
 
-  test("spawn without role defaults to general (backwards compat)", async () => {
+  test("spawn without role runs as builder", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
     let capturedConfig: Record<string, unknown> | undefined;
@@ -2391,35 +2396,170 @@ describe("Subagent role-based spawn", () => {
 
     try {
       const result = await executeSubagentSpawn(
-        { label: "General task", objective: "Do something" },
+        { label: "Unlabelled task", objective: "Do something" },
         makeContext("sess-role-2", { sendToClient: () => {} }),
       );
       expect(result.isError).toBe(false);
       const parsed = JSON.parse(result.content);
       expect(parsed.subagentId).toBe("role-default-id");
+      expect(parsed.role).toBe("builder");
+      // Naming no role stays write-capable, and says nothing extra about it.
+      expect(parsed.roleNote).toBeUndefined();
       expect(capturedConfig).toBeDefined();
-      // When role is not specified, it should not be present in config
-      expect(capturedConfig!.role).toBeUndefined();
+      expect(capturedConfig!.role).toBe("builder");
     } finally {
       manager.spawn = originalSpawn;
     }
   });
 
-  test("spawn with invalid role returns clear error message", async () => {
-    const result = await executeSubagentSpawn(
-      {
-        label: "Bad role task",
-        objective: "Should fail",
-        role: "nonexistent-role",
-      },
-      makeContext("sess-role-invalid", { sendToClient: () => {} }),
+  test.each([
+    ["planner", "researcher"],
+    ["investigator", "researcher"],
+    ["coder", "builder"],
+    ["general", "builder"],
+  ])("legacy role %s spawns a %s", async (legacy, expected) => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return `alias-${legacy}-id`;
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: `${legacy} task`, objective: "Do something", role: legacy },
+        makeContext(`sess-alias-${legacy}`, { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      expect(capturedConfig!.role).toBe(expected);
+      expect(capturedConfig!.persona).toBeUndefined();
+
+      const parsed = JSON.parse(result.content);
+      expect(parsed.role).toBe(expected);
+      expect(parsed.roleNote).toContain(legacy);
+      expect(parsed.roleNote).toContain(expected);
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("the child of a legacy role gets the new type's allowlist", () => {
+    // The alias resolves to a type, and the type owns the tools.
+    expect(SUBAGENT_ROLE_REGISTRY.researcher.allowedTools).toContain(
+      "code_search",
     );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Invalid subagent role");
-    expect(result.content).toContain("nonexistent-role");
-    expect(result.content).toContain("Must be one of");
-    expect(result.content).toContain("general");
-    expect(result.content).toContain("researcher");
+    expect(SUBAGENT_ROLE_REGISTRY.researcher.allowedTools).not.toContain(
+      "bash",
+    );
+    expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toContain("bash");
+    expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toContain("file_write");
+  });
+
+  test("an unrecognized role spawns a researcher with the text as persona", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "role-persona-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Persona task",
+          objective: "Assess the filing",
+          role: "financial journalist",
+        },
+        makeContext("sess-role-persona", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      expect(capturedConfig!.role).toBe("researcher");
+      expect(capturedConfig!.persona).toBe("financial journalist");
+
+      const parsed = JSON.parse(result.content);
+      expect(parsed.role).toBe("researcher");
+      expect(parsed.roleNote).toContain("financial journalist");
+      expect(parsed.roleNote).toContain("persona");
+      expect(parsed.roleNote).toContain("builder");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("the persona reaches the child's system prompt", () => {
+    const prompt = buildSubagentSystemPrompt(
+      {
+        id: "sub-persona",
+        parentConversationId: "conv-1",
+        label: "Persona task",
+        objective: "Assess the filing",
+        role: "researcher",
+        persona: "financial journalist",
+      },
+      "researcher",
+    );
+    expect(prompt).toContain(
+      "- Persona: act as financial journalist for this task.",
+    );
+  });
+
+  test("a whitespace-only role is treated as no role at all", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "role-blank-id";
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Blank role", objective: "Do something", role: "   " },
+        makeContext("sess-role-blank", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      expect(capturedConfig!.role).toBe("builder");
+      expect(capturedConfig!.persona).toBeUndefined();
+      expect(JSON.parse(result.content).roleNote).toBeUndefined();
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("a sentence-length role still spawns, bounded, as a researcher persona", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "role-sentence-id";
+    };
+
+    const sentence =
+      "You are a meticulous senior staff engineer who reviews every change against the design document and reports every discrepancy, however small.";
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Sentence role",
+          objective: "Review the change",
+          role: sentence,
+        },
+        makeContext("sess-role-sentence", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(false);
+      expect(capturedConfig!.role).toBe("researcher");
+      expect((capturedConfig!.persona as string).length).toBeLessThan(
+        sentence.length,
+      );
+    } finally {
+      manager.spawn = originalSpawn;
+    }
   });
 
   test("spawn tool definition includes role property", () => {
@@ -2428,11 +2568,8 @@ describe("Subagent role-based spawn", () => {
     expect(def.input_schema.properties.role).toBeDefined();
     expect(def.input_schema.properties.role.type).toBe("string");
     expect(def.input_schema.properties.role.enum).toEqual([
-      "general",
       "researcher",
-      "coder",
-      "planner",
-      "investigator",
+      "builder",
       "advisor",
     ]);
     // role is not required
@@ -2980,7 +3117,7 @@ function terminalRecord(over: Partial<SubagentRecord>): SubagentRecord {
     conversationId: "conv-seed",
     label: "seed",
     objective: "seeded objective",
-    role: "general",
+    role: "builder",
     isFork: false,
     sendResultToUser: true,
     parentToolUseId: null,

@@ -277,31 +277,32 @@ describe("GET /tools", () => {
     expect(names).not.toContain("file_edit");
   });
 
-  test("with agent=general, returns all tools (no allowlist filter)", async () => {
-    // GIVEN core tools
+  test("with agent=builder, returns exactly that role's allowlist", async () => {
+    // GIVEN core tools, one of which the builder allowlist omits
     registerTool(makeFakeTool("web_search"));
     registerTool(makeFakeTool("bash"));
     registerTool(makeFakeTool("notify_parent"));
+    registerTool(makeFakeTool("send_email"));
 
-    // WHEN the handler runs with agent=general (allowedTools: undefined)
+    // WHEN the handler runs with agent=builder
     const { names } = (await handler({
-      queryParams: { agent: "general" },
+      queryParams: { agent: "builder" },
     })) as ToolsGetResponse;
 
-    // THEN all registered tools are visible — the general role has no
-    // allowlist, so nothing is filtered
+    // THEN the projection is the role's capability envelope, nothing wider
     expect(names).toContain("web_search");
     expect(names).toContain("bash");
     expect(names).toContain("notify_parent");
+    expect(names).not.toContain("send_email");
   });
 
   test("with agent=role, notify_parent is visible (subagent-only gating works)", async () => {
     // GIVEN notify_parent registered as a core tool
     registerTool(makeFakeTool("notify_parent"));
 
-    // WHEN the handler runs with agent=coder
+    // WHEN the handler runs with agent=researcher
     const { names, tools } = (await handler({
-      queryParams: { agent: "coder" },
+      queryParams: { agent: "researcher" },
     })) as ToolsGetResponse;
 
     // THEN notify_parent appears because isSubagent=true satisfies

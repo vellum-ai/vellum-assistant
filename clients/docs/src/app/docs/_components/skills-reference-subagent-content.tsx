@@ -109,7 +109,7 @@ export function SkillsReferenceSubagentContent() {
                     &ldquo;Dig into why this build keeps failing&rdquo;
                   </td>
                   <td className="px-3 py-2">
-                    Delegates to an investigator for root-cause analysis
+                    Delegates to a researcher for root-cause analysis
                   </td>
                 </tr>
                 <tr>

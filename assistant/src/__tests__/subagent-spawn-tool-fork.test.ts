@@ -113,18 +113,61 @@ describe("subagent_spawn fork parameter", () => {
     }
   });
 
-  test("fork: true ignores role parameter", async () => {
+  test.each(["researcher", "builder"])(
+    "fork: true honors role %s",
+    async (role) => {
+      const manager = getSubagentManager();
+      const originalSpawn = manager.spawn.bind(manager);
+
+      let capturedConfig: Record<string, unknown> | undefined;
+      manager.spawn = async (config: Record<string, unknown>) => {
+        capturedConfig = config;
+        return "fork-role-id";
+      };
+
+      clearConversations();
+      setConversation("parent-conv-role", {
+        messages: FAKE_PARENT_MESSAGES,
+        getCurrentSystemPrompt: () => "Parent prompt.",
+      } as any);
+
+      try {
+        const result = await executeSubagentSpawn(
+          {
+            label: "Fork with role",
+            objective: "Do something",
+            fork: true,
+            role,
+          },
+          makeContext("parent-conv-role", { sendToClient: () => {} }),
+        );
+
+        expect(result.isError).toBe(false);
+        expect(capturedConfig).toBeDefined();
+        // The manager applies the type's allowlist to a fork like any other
+        // spawn, so a read-only fork really is read-only.
+        expect(capturedConfig!.role).toBe(role);
+        expect(capturedConfig!.fork).toBe(true);
+        expect(JSON.parse(result.content).role).toBe(role);
+      } finally {
+        manager.spawn = originalSpawn;
+        clearConversations();
+      }
+    },
+  );
+
+  test("a fork that names no role keeps the parent's tool surface", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
 
     let capturedConfig: Record<string, unknown> | undefined;
     manager.spawn = async (config: Record<string, unknown>) => {
       capturedConfig = config;
-      return "fork-role-id";
+      return "fork-no-role-id";
     };
 
     clearConversations();
-    setConversation("parent-conv-role", {
+    setConversation("parent-conv-no-role", {
       messages: FAKE_PARENT_MESSAGES,
       getCurrentSystemPrompt: () => "Parent prompt.",
     } as any);
@@ -132,19 +175,18 @@ describe("subagent_spawn fork parameter", () => {
     try {
       const result = await executeSubagentSpawn(
         {
-          label: "Fork with role",
+          label: "Plain fork",
           objective: "Do something",
           fork: true,
-          role: "researcher", // should be ignored
         },
-        makeContext("parent-conv-role", { sendToClient: () => {} }),
+        makeContext("parent-conv-no-role", { sendToClient: () => {} }),
       );
 
       expect(result.isError).toBe(false);
-      expect(capturedConfig).toBeDefined();
-      // When fork is true, role should NOT be passed to the manager config
+      // No role means no allowlist: the fork inherits the parent's system
+      // prompt, which describes the parent's tools.
       expect(capturedConfig!.role).toBeUndefined();
-      expect(capturedConfig!.fork).toBe(true);
+      expect(JSON.parse(result.content).role).toBeUndefined();
     } finally {
       manager.spawn = originalSpawn;
       clearConversations();

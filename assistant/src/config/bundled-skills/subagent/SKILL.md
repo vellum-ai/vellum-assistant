@@ -22,33 +22,40 @@ Subagent orchestration -- spawn background agents to work on tasks in parallel.
 
 Subagents follow this status flow: `pending` -> `running` -> `completed` / `failed` / `aborted`
 
-- **Spawn**: Use `subagent_spawn` with a label, objective, and role. The subagent runs autonomously.
+- **Spawn**: Use `subagent_spawn` with a label, objective, and type. The subagent runs autonomously.
 - **Mid-run communication**: Subagents can send notifications to the parent via `notify_parent` while still running -- useful for sharing interim findings or signaling that they are blocked.
 - **Auto-notification**: The parent conversation is automatically notified when a subagent reaches a terminal status (completed/failed/aborted). Do NOT poll `subagent_status`.
 - **Read output**: Use `subagent_read` after the subagent reaches a terminal status to retrieve its full output.
 
-## Roles
+## Types
 
-Each subagent is spawned with a role that determines its tool access. Choose the most restrictive role that can accomplish the task.
+There are three subagent types. Pick one with two questions: **does it need to change anything**, and **do you need its answer before you can continue?**
 
 `recall` is local information search across memory, the personal knowledge base, past conversations, and workspace files. Use it when a subagent needs prior context that is not already in the prompt.
 
-| Role | Tools | When to use |
-|---|---|---|
-| `general` | Full tool access | Task genuinely needs unrestricted capabilities (rare -- prefer a specialized role) |
-| `researcher` | `web_search`, `web_fetch`, `file_read`, `file_list`, `recall`, `notify_parent` | Information gathering, web research, codebase exploration, reading documentation |
-| `coder` | `bash`, `file_read`, `file_write`, `file_edit`, `web_search`, `recall`, `notify_parent` | Code changes, file editing, running commands, build/test tasks |
-| `planner` | `file_read`, `file_list`, `web_search`, `web_fetch`, `recall`, `notify_parent` | Analysis, planning, synthesizing information, reviewing approaches |
-| `investigator` | `code_search`, `file_read`, `file_list`, `web_search`, `web_fetch`, `recall`, `notify_parent` | Root-cause analysis: debugging, log forensics, tracing behavior across many files. Read-only search/read tools only (no shell): use `code_search` to grep file contents across directories, `file_list` to enumerate paths, `file_read` to read whole files and logs; returns a compact root-cause report |
-| `advisor` | None (tool-less) | Read-only senior-advisor consult. Runs on a stronger model, inherits full parent context, and BLOCKS until it returns guidance |
+| Type | Changes things? | You wait? | Tools | When to use |
+|---|---|---|---|---|
+| `researcher` | No | No | `web_search`, `web_fetch`, `file_read`, `file_list`, `code_search`, `recall`, `skill_execute`, `notify_parent` | Web research, codebase exploration, reading documentation, root-cause investigation, reviewing an approach against the code |
+| `builder` | Yes | No | `bash`, `file_read`, `file_write`, `file_edit`, `file_list`, `code_search`, `web_search`, `web_fetch`, `recall`, `skill_execute`, `notify_parent` | Code changes, file output, build/test runs, anything that must run a command |
+| `advisor` | No | Yes | None (tool-less) | Read-only senior-advisor consult. Runs on a stronger model, inherits full parent context, and BLOCKS until it returns guidance |
 
-All specialized roles (`researcher`, `coder`, `planner`) include `notify_parent` for mid-run communication with the parent.
+Both background types include `notify_parent` for mid-run communication with the parent.
 
-Read-only roles (`researcher`, `planner`, `investigator`, `advisor`) cannot write or edit files, run commands, or otherwise persist output. If the task must **produce a file, save results, or run a command**, use `coder` (or `general`) — a read-only role finishes without producing anything, and the delegated write silently no-ops.
+A `researcher` cannot write or edit files, run commands, or otherwise persist output. If the task must **produce a file, save results, or run a command**, spawn a `builder`: a researcher finishes without producing anything, and the delegated write silently no-ops.
+
+**Model tier is a separate knob.** Use `inference_profile` to run any type on a stronger or cheaper model. **A persona is not a type**: see the fallback below.
+
+### Legacy names and unknown roles
+
+The older role names still work: `planner` and `investigator` run as a `researcher`, `coder` and `general` run as a `builder`. The spawn result names the type that actually ran.
+
+Any other `role` text is treated as a persona, not a type. The subagent runs as a **`researcher`** (read-only) with that text framing how it approaches the task, and the spawn result says so. That is deliberate least privilege: an invented or misspelled role must never silently hand out write access. If the task genuinely needed to write, the subagent reports that it cannot, and you re-spawn it with `role: "builder"`.
+
+Omitting `role` entirely runs a `builder`.
 
 ## Consulting the Advisor
 
-The `advisor` role is the one role you spawn on your own judgment, unprompted — you do NOT wait for the user to ask for a subagent. The other roles (`researcher`, `coder`, `planner`, `investigator`, `general`) stay delegation-driven: reach for them to offload work, typically when the user's request calls for it. The advisor is different: proactively consult it whenever the conditions below are met.
+The `advisor` is the one type you spawn on your own judgment, unprompted: you do NOT wait for the user to ask for a subagent. The background types (`researcher`, `builder`) stay delegation-driven: reach for them to offload work, typically when the user's request calls for it. The advisor is different: proactively consult it whenever the conditions below are met.
 
 Orient yourself first (read the relevant files, understand the task), then consult the advisor:
 
@@ -98,7 +105,7 @@ Set `inference_profile` to an `llm.profiles` key when a subagent should run unde
 
 Forks are sub-agents that inherit the parent's full context -- messages, system prompt, and memory -- sharing the KV cache for near-free context inheritance. Use forks when the task benefits from knowing what you've been discussing; use a regular sub-agent when the task is self-contained.
 
-**Key behaviors:** Forks default to `general` role (the `role` parameter is ignored for forks), except the special `advisor` role, which is honored even as a fork. `send_result_to_user` defaults to `false`. Read fork output with `last_n: 1` to get only the final synthesis.
+**Key behaviors:** A fork honors the type you name, so `role: "researcher"` gives a read-only fork. A fork that names no type keeps your full tool surface, because it also inherits the system prompt that describes those tools. `send_result_to_user` defaults to `false`. Read fork output with `last_n: 1` to get only the final synthesis.
 
 **When to fork vs regular sub-agent:**
 
@@ -110,17 +117,17 @@ Forks are sub-agents that inherit the parent's full context -- messages, system 
 | Comparing multiple sources against what was discussed | Parallel forks |
 | Self-contained task with a clear objective | Regular sub-agent |
 
-Rule of thumb: "Does this task need to know what we've been talking about?" If yes, fork. If the objective is fully self-describing, use a regular sub-agent with a scoped role.
+Rule of thumb: "Does this task need to know what we've been talking about?" If yes, fork. If the objective is fully self-describing, use a regular sub-agent with a scoped type.
 
 ## Tips
 
 - Do NOT poll `subagent_status` in a loop. You will be notified automatically when a subagent completes.
-- Use roles to scope tool access and minimize blast radius. Default to the most restrictive role that works.
-- Spawn a `researcher` and `coder` in parallel for research-then-implement workflows -- the researcher gathers context while the coder starts on the known parts.
+- Prefer `researcher` unless the task has to change something. Read-only is the smaller blast radius, and most delegated work is reading.
+- Spawn a `researcher` and a `builder` in parallel for research-then-implement workflows -- the researcher gathers context while the builder starts on the known parts.
 - Use `notify_parent` for interim findings instead of waiting for completion. This lets the parent act on partial results early.
 - Use `subagent_message` to send follow-up instructions to a running subagent.
 - Use `subagent_abort` to cancel a subagent that is no longer needed.
 - Default to spawning subagents for any task that involves web research, multi-file exploration, or independent coding work. Serial execution should be the exception, not the rule.
-- Delegate root-cause investigations ("why is X happening?", debugging, log forensics) to an `investigator` instead of grepping inline. A long investigation done inline floods your own context with file slices and grep output, crowding out the conversation; the investigator does the digging in its own context and returns a compact root-cause report.
+- Delegate root-cause investigations ("why is X happening?", debugging, log forensics) to a `researcher` instead of grepping inline. A long investigation done inline floods your own context with file slices and grep output, crowding out the conversation; the researcher does the digging in its own context and returns a compact root-cause report.
 - When a user request has both an information-gathering component and an action component, spawn a researcher immediately rather than doing the research inline yourself.
-- Prefer spawning 2-3 focused subagents over one large general-purpose subagent. Smaller scopes finish faster and fail more gracefully.
+- Prefer spawning 2-3 focused subagents over one broad one. Smaller scopes finish faster and fail more gracefully.

@@ -95,6 +95,13 @@ export interface SubagentConfig {
   /** Optional role for the subagent. Defaults handled by consumers. */
   role?: SubagentRole;
   /**
+   * Free-text framing rendered as a persona line under the role preamble, for
+   * a spawn whose requested role names a character rather than a type ("staff
+   * security engineer", "financial journalist"). The role still decides what
+   * the child may do; the persona only decides how it reads the task.
+   */
+  persona?: string;
+  /**
    * How this subagent was spawned: the call site and its context/lifecycle
    * shape. Stamped onto the child conversation row and emitted as
    * `subagent_spawn_mode` on `llm_usage` telemetry so delegated spend is
@@ -280,13 +287,23 @@ export const SUBAGENT_LIMITS = {
 
 // ── Roles ───────────────────────────────────────────────────────────────
 
-export type SubagentRole =
-  | "general"
-  | "researcher"
-  | "coder"
-  | "planner"
-  | "investigator"
-  | "advisor";
+/**
+ * What a subagent is, derived from two questions: can it change things, and
+ * does the parent wait for it.
+ *
+ * - `researcher`: read-only, runs in the background.
+ * - `builder`: write-capable, runs in the background.
+ * - `advisor`: read-only, the parent turn blocks on its guidance.
+ *
+ * Write-plus-blocking is deliberately absent: a parent that waits on a change
+ * has no reason to delegate it. Model tier is a separate knob
+ * (`inference_profile`), and a persona is free text
+ * (`SubagentConfig.persona`), so neither is a type.
+ *
+ * The legacy names (`general`, `coder`, `planner`, `investigator`) remain
+ * accepted at the tool boundary as aliases; see ./role-resolution.ts.
+ */
+export type SubagentRole = "researcher" | "builder" | "advisor";
 
 // ── Spawn modes ──────────────────────────────────────────────────────────
 
@@ -330,76 +347,80 @@ export interface SubagentRoleConfig {
 
 export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
   {
-    general: {
-      allowedTools: undefined,
-      skillIds: [],
-      systemPromptPreamble:
-        "You are a general-purpose subagent. Complete the delegated task thoroughly and concisely.",
-    },
     researcher: {
       allowedTools: [
         "web_search",
         "web_fetch",
         "file_read",
         "file_list",
+        "code_search",
         "recall",
+        "skill_execute",
         "notify_parent",
       ],
       skillIds: [],
-      systemPromptPreamble:
-        "You are a research-focused subagent with read-only access. Search the web, read files, and recall memories. You cannot write files or run shell commands.",
+      systemPromptPreamble: [
+        "You are a research subagent with read-only access: search the web, read and search files, and recall memories. There is no shell, and you cannot write or edit files.",
+        "Working method: use code_search to search file contents across directories, file_list to enumerate paths, and file_read to read whole files and logs. Read whole files instead of many small line-range slices, and prefer broad code_search queries across a directory over one-symbol-at-a-time queries.",
+        "Send notify_parent (urgency 'important') as soon as each finding is confirmed, so progress survives interruption.",
+        "Your final message is the deliverable: a compact report that answers the objective, gives the evidence behind each claim (file:line references, URLs, or quotes), and names what you could not determine. For a root-cause investigation, use the sections Symptom, Root cause, Evidence, Suggested fix, Open questions.",
+        "If you approach context limits, stop investigating and write the report from what you have. A partial report delivered is worth more than a complete investigation lost.",
+      ].join(" "),
     },
-    coder: {
+    builder: {
       allowedTools: [
         "bash",
         "file_read",
         "file_write",
         "file_edit",
-        "web_search",
-        "recall",
-        "notify_parent",
-      ],
-      skillIds: [],
-      systemPromptPreamble:
-        "You are a code-focused subagent with file and shell access. Read, write, and edit files, and run shell commands.",
-    },
-    planner: {
-      allowedTools: [
-        "file_read",
         "file_list",
-        "web_search",
-        "web_fetch",
-        "recall",
-        "notify_parent",
-      ],
-      skillIds: [],
-      systemPromptPreamble:
-        "You are an analysis-focused subagent with read-only access. Read files, search the web, and synthesize findings. You cannot write files or run shell commands.",
-    },
-    investigator: {
-      allowedTools: [
         "code_search",
-        "file_read",
-        "file_list",
         "web_search",
         "web_fetch",
         "recall",
+        "skill_execute",
         "notify_parent",
       ],
       skillIds: [],
       systemPromptPreamble: [
-        "You are an investigation-focused subagent for root-cause analysis: debugging, log forensics, and tracing behavior across code.",
-        "You have read-only investigation tools only — there is no shell. Use code_search to search file contents across directories, file_list to enumerate paths, and file_read to read whole files and logs. You cannot modify files or system state.",
-        "Working method: read whole files instead of many small line-range slices; prefer broad code_search queries across a directory over one-symbol-at-a-time queries.",
-        "Send notify_parent (urgency 'important') as soon as each finding is confirmed, so progress survives interruption.",
-        "Your final message must be a compact root-cause report with these sections: Symptom, Root cause, Evidence (file:line references), Suggested fix, Open questions.",
-        "If you approach context limits, stop investigating and produce the report from what you have — a partial report delivered is worth more than a complete investigation lost.",
+        "You are a build subagent with file and shell access: read, write, and edit files, run shell commands, search code, and search the web.",
+        "Carry the task through end to end, then verify it yourself with the command that proves it (a build, a test run, a re-read of what you wrote) before reporting.",
+        "Send notify_parent (urgency 'important') when a milestone lands or a decision only the parent can make blocks you.",
+        "Your final message must state what you changed, the exact files you touched, and the result of the verification you ran.",
       ].join(" "),
     },
     advisor: {
       allowedTools: [],
       skillIds: [],
       systemPromptPreamble:
-        "You are a read-only senior advisor consulted for a one-shot strategic review. Read the inherited conversation, then return focused, high-leverage guidance in a single response. You have no tools — you cannot search, read files, or run commands — so reason from the context you were given.",
+        "You are a read-only senior advisor consulted for a one-shot strategic review. Read the inherited conversation, then return focused, high-leverage guidance in a single response. You have no tools (you cannot search, read files, or run commands), so reason from the context you were given.",
     },
   };
+
+/**
+ * Recorded role for a spawn that names none: no allowlist, so the child keeps
+ * the full tool surface its conversation would otherwise project. Not one of
+ * the three types, and not reachable through the `subagent_spawn` tool, which
+ * resolves an absent role to `builder` and an unnamed fork to the parent's own
+ * surface. The callers that land here are the internal context-inheriting ones
+ * (the live-voice continuation), whose child continues the parent's turn and
+ * needs the tools that turn had.
+ */
+export const UNSCOPED_SUBAGENT_ROLE = "unscoped";
+
+const UNSCOPED_SUBAGENT_ROLE_CONFIG: SubagentRoleConfig = {
+  allowedTools: undefined,
+  skillIds: [],
+  systemPromptPreamble:
+    "You are a subagent continuing work on behalf of the parent conversation. Complete the delegated task thoroughly and concisely.",
+};
+
+/**
+ * The role config a spawn runs under. An absent role imposes no tool filter;
+ * see {@link UNSCOPED_SUBAGENT_ROLE}.
+ */
+export function subagentRoleConfig(
+  role: SubagentRole | undefined,
+): SubagentRoleConfig {
+  return role ? SUBAGENT_ROLE_REGISTRY[role] : UNSCOPED_SUBAGENT_ROLE_CONFIG;
+}
