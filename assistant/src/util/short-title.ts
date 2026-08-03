@@ -4,10 +4,13 @@
  * meta-failure rejection, and length truncation.
  */
 
-export const MAX_TITLE_LENGTH = 40;
-export const MAX_TITLE_WORDS = 7;
+const MAX_TITLE_LENGTH = 40;
+const MAX_TITLE_WORDS = 7;
 
-export const META_FAILURE_TITLES = new Set([
+/** Word count a title exceeding `MAX_TITLE_WORDS` is cut back to. */
+const TRIMMED_TITLE_WORDS = 5;
+
+const META_FAILURE_TITLES = new Set([
   "missing context",
   "no context",
   "insufficient context",
@@ -23,7 +26,7 @@ export const META_FAILURE_TITLES = new Set([
 ]);
 
 /** Reasoning/sentence openers that never start a legitimate topic title. */
-export const LEAKED_PROSE_PREFIXES = [
+const LEAKED_PROSE_PREFIXES = [
   "i need to",
   "i needed to",
   "i should",
@@ -108,25 +111,31 @@ export function stripThinkingTags(text: string): string {
     .replace(/<:[^>]*>/gi, "");
 }
 
+/**
+ * Clamp a title to `MAX_TITLE_LENGTH` characters and `MAX_TITLE_WORDS` words.
+ * Both budgets apply: a wordy title is cut back to `TRIMMED_TITLE_WORDS` words
+ * and the survivors are still trimmed at a word boundary to fit the character
+ * budget, so the returned string is never longer than `MAX_TITLE_LENGTH`.
+ */
 export function truncateTitle(title: string): string {
   if (title.length <= MAX_TITLE_LENGTH) {
     return title;
   }
   const words = title.split(/\s+/);
-  if (words.length <= MAX_TITLE_WORDS) {
-    // Long words but few of them: truncate to char limit at word boundary
-    let result = "";
-    for (const word of words) {
-      const candidate = result ? result + " " + word : word;
-      if (candidate.length > MAX_TITLE_LENGTH) {
-        break;
-      }
-      result = candidate;
+  const kept =
+    words.length > MAX_TITLE_WORDS
+      ? words.slice(0, TRIMMED_TITLE_WORDS)
+      : words;
+  let result = "";
+  for (const word of kept) {
+    const candidate = result ? result + " " + word : word;
+    if (candidate.length > MAX_TITLE_LENGTH) {
+      break;
     }
-    return result || title.slice(0, MAX_TITLE_LENGTH);
+    result = candidate;
   }
-  // Too many words: trim to 5 words
-  return words.slice(0, 5).join(" ");
+  // Empty when even the first word overflows: hard-slice rather than return "".
+  return result || title.slice(0, MAX_TITLE_LENGTH);
 }
 
 /**
@@ -137,7 +146,7 @@ export function truncateTitle(title: string): string {
  * clauses. Deliberately tight: a false reject only costs a deterministic
  * fallback title, while a false accept persists a broken one.
  */
-export function looksLikeLeakedProse(title: string): boolean {
+function looksLikeLeakedProse(title: string): boolean {
   if (/\n/.test(title)) {
     return true;
   }

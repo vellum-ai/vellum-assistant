@@ -53,8 +53,6 @@ export interface HomeFeedFile {
   version: 2;
   items: z.infer<typeof FeedItemSchema>[];
   updatedAt: string;
-  /** In-memory only; never persisted. Set by `parseFeedFile`. */
-  droppedCount?: number;
 }
 
 /**
@@ -74,7 +72,8 @@ const homeFeedEnvelopeSchema = z.object({
  * feed. Throws a `ZodError` when the envelope itself is invalid (wrong
  * `version`, non-object input, missing `updatedAt`). Callers are
  * expected to log + recover (e.g. treat the file as empty). Individual
- * items that fail validation are dropped and counted in `droppedCount`
+ * items that fail validation are dropped and counted in `droppedCount`,
+ * an in-memory-only field on the return value that is never persisted,
  * so one malformed row cannot erase the rest of the feed.
  */
 export function parseFeedFile(
