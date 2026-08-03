@@ -347,6 +347,38 @@ describe("inference-profile writes are availability-aware", () => {
     expect(persistedProfiles()).toEqual({});
   });
 
+  test("missing credential on an existing connection suggests key collection only", async () => {
+    managedProxyEnabled = false;
+    seedKeyedConnection("gemini");
+    secureKeyResult = { value: undefined, unreachable: false };
+    const promise = call("inference_profiles_create", { body: geminiBody });
+    await expect(promise).rejects.toThrow(
+      /assistant credentials prompt --service gemini --field api_key/,
+    );
+    // The connection already exists — a `providers create` would collide.
+    await expect(promise).rejects.not.toThrow(/inference providers create/);
+    expect(persistedProfiles()).toEqual({});
+  });
+
+  test("shell-quotes profile names in generated commands", async () => {
+    setConfig("llm", {
+      profiles: {
+        "my profile; echo x": {
+          source: "user",
+          provider: "gemini",
+          model: "gemini-3.6-flash",
+          status: "active",
+        },
+      },
+    });
+    const promise = call("inference_profiles_set_active", {
+      body: { name: "my profile; echo x" },
+    });
+    await expect(promise).rejects.toThrow(
+      /--profile 'my profile; echo x' "Reply with OK"/,
+    );
+  });
+
   test("allowUnavailable writes the profile and warns instead", async () => {
     const result = (await call("inference_profiles_create", {
       body: { ...geminiBody, allowUnavailable: true },
