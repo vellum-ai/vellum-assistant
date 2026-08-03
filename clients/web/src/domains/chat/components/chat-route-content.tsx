@@ -151,6 +151,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
 // ---------------------------------------------------------------------------
@@ -688,6 +689,31 @@ export function ChatMainPanel({
     </Button>
   ) : undefined;
 
+  // The assistant API key is provisioned by the platform, so unlike a rejected
+  // personal key there is nothing for the user to fix in Settings — the Doctor
+  // is the only surface that can re-issue it. Hands the request off through the
+  // same one-shot store `/doctor <message>` uses, so the panel auto-starts a
+  // session already on topic instead of opening on a blank prompt.
+  //
+  // Shares `showDoctorAction`'s gate: the Doctor is platform-hosted only, so a
+  // self-hosted assistant gets the banner with no action. Its recovery is the
+  // CLI (`assistant keys set credential/vellum/assistant_api_key <key>`), which
+  // no chat affordance can drive.
+  const reprovisionAssistantKeyAction = showDoctorAction ? (
+    <Button asChild variant="outlined" size="compact">
+      <Link
+        to={`${routes.settings.debug}?tab=doctor`}
+        onClick={() =>
+          useDoctorHandoffStore
+            .getState()
+            .setPendingPrompt("Help me re-provision my assistant's API key")
+        }
+      >
+        Ask the Doctor
+      </Link>
+    </Button>
+  ) : undefined;
+
   // Blocked automatic opens (see `handleOpenUrl`) carry the URL in
   // `actionUrl`; the button click is a real user gesture, so the re-open
   // always succeeds and the banner clears itself.
@@ -717,7 +743,10 @@ export function ChatMainPanel({
           actions:
             buildOpenUrlAction(error.actionUrl, () =>
               useChatSessionStore.getState().setError(null),
-            ) ?? doctorAction,
+            ) ??
+            (isManagedCredentialChatError(error)
+              ? reprovisionAssistantKeyAction
+              : doctorAction),
         }
       : null;
   const hasGenericChatError = genericChatError !== null;
@@ -730,7 +759,9 @@ export function ChatMainPanel({
             buildOpenUrlAction(notice.actionUrl, () =>
               useChatSessionStore.getState().setNotice(null),
             ) ??
-            (isManagedCredentialChatError(notice) ? doctorAction : undefined),
+            (isManagedCredentialChatError(notice)
+              ? reprovisionAssistantKeyAction
+              : undefined),
         }
       : null;
   const genericChatBanner = genericChatError ?? genericChatNotice;
