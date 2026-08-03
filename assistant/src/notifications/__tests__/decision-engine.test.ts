@@ -66,6 +66,10 @@ let providerSendMessage: (
   );
 };
 
+// Tool block the engine reads back from a provider response. Null drives the
+// deterministic fallback, so LLM-path tests set it before calling in.
+let toolUseBlock: { input: Record<string, unknown> } | null = null;
+
 mock.module("../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => ({
     sendMessage: (messages: unknown[], opts: ProviderSendOptions) =>
@@ -75,7 +79,7 @@ mock.module("../../providers/provider-send-message.js", () => ({
     signal: new AbortController().signal,
     cleanup: () => {},
   }),
-  extractToolUse: () => null,
+  extractToolUse: () => toolUseBlock,
   userMessage: (text: string) => ({ role: "user", content: text }),
 }));
 
@@ -575,5 +579,87 @@ describe("decision tool title field specification", () => {
     expect(description).toContain("no markdown");
     expect(description).toContain("Missing Context");
     expect(description.match(/NOT '/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("title normalization", () => {
+  /** Run the LLM path with the given channel copy and return the kept title. */
+  async function titleFromModelCopy(
+    title: string,
+    body: string,
+  ): Promise<string | undefined> {
+    guardianDeliveryFixture = [];
+    contactInfoFixture = {};
+    const previousSendMessage = providerSendMessage;
+    providerSendMessage = async () => ({});
+    toolUseBlock = {
+      input: {
+        shouldNotify: true,
+        selectedChannels: ["vellum"],
+        reasoningSummary: "model decision",
+        dedupeKey: "title-normalization-test",
+        renderedCopy: { vellum: { title, body } },
+      },
+    };
+
+    try {
+      const decision = await evaluateSignal(makeLlmSignal(), [
+        "vellum",
+      ] as NotificationChannel[]);
+      return decision.renderedCopy.vellum?.title;
+    } finally {
+      toolUseBlock = null;
+      providerSendMessage = previousSendMessage;
+    }
+  }
+
+  test("replaces a model title that restates the body with a derived one", async () => {
+    const title = "The staging deploy finished and the build is live.";
+    const body = `Deploy complete. ${title}`;
+
+    expect(await titleFromModelCopy(title, body)).toBe("Deploy complete.");
+  });
+
+  test("keeps a clean model title verbatim", async () => {
+    expect(
+      await titleFromModelCopy(
+        "Staging Deploy Status",
+        "The staging deploy finished.",
+      ),
+    ).toBe("Staging Deploy Status");
+  });
+
+  test("truncates a model title longer than 40 characters", async () => {
+    const kept = await titleFromModelCopy(
+      "Quarterly Infrastructure Migration Status Report",
+      "The migration is on track for the quarter.",
+    );
+
+    expect(kept).toBe("Quarterly Infrastructure Migration");
+    expect(kept?.length).toBeLessThanOrEqual(40);
+  });
+
+  test("strips markdown from a model title", async () => {
+    expect(
+      await titleFromModelCopy(
+        "**Deploy Status**",
+        "The staging deploy finished.",
+      ),
+    ).toBe("Deploy Status");
+  });
+
+  test("replaces a pass-through requestedTitle that stutters against the body", async () => {
+    const requestedTitle = "The nightly backup finished without any errors.";
+    const signal = makeAssistantToolSignal({
+      contextPayload: {
+        requestedMessage: `Backup finished. ${requestedTitle}`,
+        requestedTitle,
+      },
+    });
+    const decision = await evaluateSignal(signal, [
+      "vellum",
+    ] as NotificationChannel[]);
+
+    expect(decision.renderedCopy.vellum?.title).toBe("Backup finished.");
   });
 });
