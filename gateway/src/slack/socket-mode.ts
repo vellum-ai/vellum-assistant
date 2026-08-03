@@ -110,8 +110,13 @@ const OUTBOUND_ROOT_THREAD_TTL_MS = 4 * 60 * 60 * 1_000;
  * subtypes too (`channel_join`, `channel_topic`, ...); those open no
  * conversation and must not arm anything. `thread_broadcast` is absent because
  * it always carries a `thread_ts` and therefore takes the thread-reply arm.
+ *
+ * `bot_message` is here because it is a real post, just attributed to an app
+ * rather than a user. Reaching this set at all means the self-filter already
+ * matched the event to our own `bot_id`, so another app's `bot_message` never
+ * gets this far.
  */
-const ROOT_ARMING_SUBTYPES = new Set(["file_share"]);
+const ROOT_ARMING_SUBTYPES = new Set(["file_share", "bot_message"]);
 
 const SLACK_RESOLVE_TIMEOUT_MS = 3_000;
 
@@ -150,6 +155,21 @@ export type SlackSocketModeConfig = {
    * startups load it without depending on a successful API call.
    */
   botUserId?: string;
+  /**
+   * Bot's own Slack `bot_id` (a `B…` app identity, distinct from the `U…`
+   * user id above). Slack attributes a post to one or the other depending on
+   * how it was sent: a plain `chat.postMessage` carries `user`, while a post
+   * with a `username` / `icon_*` override, or through an incoming webhook,
+   * arrives as `subtype: "bot_message"` with `bot_id` and no `user` at all.
+   * Holding both is what lets the self-filter recognize every shape of our
+   * own echo, and matching the exact id is what keeps *other* bots' posts
+   * from being mistaken for ours.
+   *
+   * Resolved alongside `botUserId` via `auth.test` and persisted with it.
+   * Optional: absent for a token whose `auth.test` predates this field, in
+   * which case the `bot_message` arm simply never matches (fail-closed).
+   */
+  botId?: string;
   /** Bot's display name, resolved at startup via auth.test. */
   botUsername?: string;
   /** Slack workspace/team name, resolved at startup via auth.test. */
@@ -267,6 +287,7 @@ export class SlackSocketModeClient {
         user_id?: string;
         user?: string;
         team?: string;
+        bot_id?: string;
       };
 
       if (!data.ok) {
@@ -301,14 +322,20 @@ export class SlackSocketModeClient {
         if (data.team) {
           this.config.teamName = data.team;
         }
+        if (data.bot_id) {
+          this.config.botId = data.bot_id;
+        }
         warnOnMissingSlackScopes(resp.headers.get("x-oauth-scopes") ?? "");
 
         // Persist for future startups.
         if (data.user_id) {
+          const metadata: Record<string, unknown> = {};
+          if (data.team) metadata.teamName = data.team;
+          if (data.bot_id) metadata.botId = data.bot_id;
           this.store.setBotIdentity({
             userId: data.user_id,
             username: data.user ?? null,
-            metadata: data.team ? { teamName: data.team } : null,
+            metadata: Object.keys(metadata).length > 0 ? metadata : null,
           });
         }
 
@@ -317,6 +344,7 @@ export class SlackSocketModeClient {
             botUserId: data.user_id,
             botUsername: data.user,
             teamName: data.team,
+            botId: data.bot_id,
           },
           "Resolved Slack bot identity via auth.test",
         );
@@ -341,8 +369,12 @@ export class SlackSocketModeClient {
     if (persisted) {
       this.config.botUserId = persisted.userId;
       this.config.botUsername = persisted.username ?? this.config.botUsername;
-      const meta = persisted.metadata as { teamName?: string } | null;
+      const meta = persisted.metadata as {
+        teamName?: string;
+        botId?: string;
+      } | null;
       this.config.teamName = meta?.teamName ?? this.config.teamName;
+      this.config.botId = meta?.botId ?? this.config.botId;
       log.info(
         {
           botUserId: persisted.userId,
@@ -655,6 +687,63 @@ export class SlackSocketModeClient {
       default:
         return classified.event.user;
     }
+  }
+
+  /**
+   * Extract the Slack `bot_id` an event is attributed to, mirroring
+   * `extractEventUser`'s per-kind field locations.
+   *
+   * Only messages carry one. A reaction is always attributed to a user even
+   * when an app adds it, so the reaction kinds have no `bot_id` to read.
+   */
+  private extractEventBotId(event: SlackInboundEvent): string | undefined {
+    const classified = classifySlackEvent(event);
+    if (!classified) {
+      return undefined;
+    }
+    switch (classified.kind) {
+      case "message_changed":
+        return classified.event.message?.bot_id;
+      case "message_deleted":
+        return classified.event.previous_message?.bot_id;
+      case "reaction_added":
+      case "reaction_removed":
+        return undefined;
+      default:
+        return classified.event.bot_id;
+    }
+  }
+
+  /**
+   * True when an event is the echo of something this assistant itself posted.
+   *
+   * Slack attributes a post to a user or to an app depending on how it was
+   * sent, and both shapes are ours:
+   *
+   *   - **`user` matches our bot user**: a plain `chat.postMessage` with a
+   *     bot token, which is what every current outbound path produces.
+   *   - **`bot_id` matches our app, with no `user`**: the `bot_message`
+   *     shape Slack emits for a post carrying a `username` / `icon_*`
+   *     override, sent through an incoming webhook, or made by a classic
+   *     app. Slack's own reference points current apps at `bot_id` /
+   *     `bot_profile` rather than this subtype, so it is the uncommon shape,
+   *     but it is the one that silently bypassed every self-filter.
+   *
+   * The `bot_id` arm is deliberately narrow. It requires an exact match
+   * against our resolved id and the absence of a `user`, so another app's
+   * posts are never mistaken for ours (which would arm roots in channels the
+   * assistant merely observes), and an unresolved `botId` matches nothing.
+   */
+  private isOwnBotEvent(event: SlackInboundEvent): boolean {
+    const eventUser = this.extractEventUser(event);
+    if (eventUser) {
+      return eventUser === this.config.botUserId;
+    }
+    const botId = this.config.botId;
+    if (!botId) {
+      return false;
+    }
+    return this.extractEventBotId(event) === botId;
   }
 
   /**
@@ -1007,8 +1096,7 @@ export class SlackSocketModeClient {
     // as inbound events (DM echoes, thread reply echoes, etc.). This is
     // the one structural filter point — every event with the bot as author
     // is dropped here, before any normalization or routing.
-    const eventUser = this.extractEventUser(event);
-    if (eventUser === botUserId) {
+    if (this.isOwnBotEvent(event)) {
       // Exception: the bot's own posts are used to arm thread tracking (so
       // follow-up human replies are forwarded). This is a side effect only,
       // the event itself is still dropped.

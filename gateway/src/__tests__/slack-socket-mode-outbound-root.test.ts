@@ -105,6 +105,11 @@ const MPIM = "C0000000MP1";
 /** The assistant's top-level post, from the LUM-2935 live report. */
 const BOT_POST_TS = "1785437318.595479";
 
+/** Our app's own `bot_id`, as `auth.test` reports it. */
+const OUR_BOT_ID = "B0000000SELF";
+/** Another app in the same workspace. Its posts are never ours. */
+const OTHER_BOT_ID = "B0000000OTHR";
+
 const FOUR_HOURS_MS = 4 * 60 * 60 * 1_000;
 
 function makeConfig(): GatewayConfig {
@@ -201,7 +206,7 @@ function threadRow(rawDb: Database, threadTs: string): ThreadRow | undefined {
 function createHarness(
   store: SlackStore,
   onEvent: (event: NormalizedSlackEvent) => void,
-  threadMode: SlackSocketModeConfig["threadMode"] = "mention_then_thread",
+  overrides: Partial<SlackSocketModeConfig> = {},
 ): SocketModeHarness {
   const harness = Object.create(
     SlackSocketModeClient.prototype,
@@ -210,10 +215,12 @@ function createHarness(
     appToken: "xapp-test",
     botToken: "xoxb-test",
     botUserId: "UBOT",
+    botId: OUR_BOT_ID,
     botUsername: "assistant",
     teamName: "Example Team",
     gatewayConfig: makeConfig(),
-    threadMode,
+    threadMode: "mention_then_thread",
+    ...overrides,
   };
   harness.onEvent = onEvent;
   harness.store = store;
@@ -582,7 +589,9 @@ describe("LUM-2941: arming the assistant's own top-level posts", () => {
 
   test("does not arm a root in mention_only thread mode", async () => {
     const { rawDb, store } = createSlackStore();
-    const client = createHarness(store, () => {}, "mention_only");
+    const client = createHarness(store, () => {}, {
+      threadMode: "mention_only",
+    });
     const ws = makeOpenSocket();
 
     try {
@@ -621,6 +630,221 @@ describe("LUM-2941: arming the assistant's own top-level posts", () => {
       const row = threadRow(rawDb, BOT_POST_TS);
       expect(row?.speculative_root_at).toBeNull();
       expect(row?.expires_at).toBeGreaterThan(armedAt + FOUR_HOURS_MS);
+    } finally {
+      rawDb.close();
+    }
+  });
+});
+
+/**
+ * The other shape Slack uses for the assistant's own posts.
+ *
+ * A plain `chat.postMessage` with a bot token is attributed to the bot *user*
+ * and carries `user`. A post made with a `username` / `icon_*` override, sent
+ * through an incoming webhook, or made by a classic app arrives as
+ * `subtype: "bot_message"` with `bot_id` and **no** `user` at all. That shape
+ * matched nothing in the `user`-keyed self-filter, so it armed no root and was
+ * not even recognized as our own echo.
+ */
+describe("LUM-2941: the assistant's own bot_message echoes", () => {
+  /** The `bot_message` echo shape: `bot_id`, `username`, and no `user`. */
+  function botMessagePost(
+    channel: string,
+    channelType: string,
+    botId: string,
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      type: "message",
+      subtype: "bot_message",
+      bot_id: botId,
+      username: "Vex",
+      text: "heartbeat: three PRs are waiting on review",
+      ts: BOT_POST_TS,
+      channel,
+      channel_type: channelType,
+      ...extra,
+    };
+  }
+
+  test("arms a root from our own bot_message post, so the human reply is admitted", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      deliver(
+        client,
+        ws,
+        "Ev-bot-message",
+        botMessagePost(CHANNEL, "channel", OUR_BOT_ID),
+      );
+      await flushAsyncEventEmission();
+
+      // Still dropped as our own echo, but now recognized as ours.
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(BOT_POST_TS)).toBe(true);
+      expect(threadRow(rawDb, BOT_POST_TS)?.speculative_root_at).not.toBeNull();
+
+      deliver(client, ws, "Ev-human-reply", humanReply(CHANNEL));
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]?.threadTs).toBe(BOT_POST_TS);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("arms the thread from our own bot_message thread reply", async () => {
+    const { rawDb, store } = createSlackStore();
+    const client = createHarness(store, () => {});
+    const ws = makeOpenSocket();
+    const threadTs = "1785437000.000100";
+
+    try {
+      deliver(
+        client,
+        ws,
+        "Ev-bot-message-reply",
+        botMessagePost(CHANNEL, "channel", OUR_BOT_ID, {
+          ts: "1785437010.000200",
+          thread_ts: threadTs,
+        }),
+      );
+      await flushAsyncEventEmission();
+
+      expect(store.hasThread(threadTs)).toBe(true);
+      expect(threadRow(rawDb, threadTs)?.speculative_root_at).toBeNull();
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("another app's bot_message is not treated as ours", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      // The match is on the exact `bot_id`. A different app posting into the
+      // same channel must not arm a root, or the assistant would start waking
+      // on threads under other bots' posts in channels it merely observes.
+      deliver(
+        client,
+        ws,
+        "Ev-other-bot",
+        botMessagePost(CHANNEL, "channel", OTHER_BOT_ID),
+      );
+      await flushAsyncEventEmission();
+
+      expect(store.hasThread(BOT_POST_TS)).toBe(false);
+      // Unsubscribed, unmentioned, untracked: the ordinary filter drops it.
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("fails closed when our bot_id has not been resolved yet", async () => {
+    const { rawDb, store } = createSlackStore();
+    const client = createHarness(store, () => {}, { botId: undefined });
+    const ws = makeOpenSocket();
+
+    try {
+      // `auth.test` predating the bot_id field, or a transient resolution
+      // failure, must not turn into "every bot_message is ours".
+      deliver(
+        client,
+        ws,
+        "Ev-bot-message-no-identity",
+        botMessagePost(CHANNEL, "channel", OUR_BOT_ID),
+      );
+      await flushAsyncEventEmission();
+
+      expect(store.hasThread(BOT_POST_TS)).toBe(false);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("treats a delete of our own bot_message post like a delete of our own user post", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      // This is a real behaviour change, made for consistency rather than as a
+      // side effect. `normalizeSlackMessageDelete` does not require an author
+      // (it falls back to "slack-system"), so a delete of a `bot_message`-shaped
+      // post used to reach the daemon while the identical delete of a
+      // user-attributed assistant post was already self-filtered on
+      // `previous_message.user`. Both shapes now behave the same way.
+      deliver(client, ws, "Ev-del-ours-botmsg", {
+        type: "message",
+        subtype: "message_deleted",
+        channel: DM,
+        channel_type: "im",
+        deleted_ts: BOT_POST_TS,
+        previous_message: {
+          bot_id: OUR_BOT_ID,
+          text: "heartbeat",
+          ts: BOT_POST_TS,
+        },
+      });
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(0);
+
+      // A delete of someone else's message in the same DM still forwards, so
+      // the filter narrowed to our own posts and nothing wider.
+      deliver(client, ws, "Ev-del-theirs", {
+        type: "message",
+        subtype: "message_deleted",
+        channel: DM,
+        channel_type: "im",
+        deleted_ts: "1785430000.000900",
+        previous_message: {
+          user: "U0000000AL1",
+          text: "their message",
+          ts: "1785430000.000900",
+        },
+      });
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]?.event.message.callbackData).toBe("message_deleted");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("does not forward our own bot_message DM echo back to the daemon", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+
+    try {
+      // This one held before the bot_id arm too, but only by luck of a later
+      // guard: a DM admits every message unconditionally, so the echo passed
+      // the admission filter and was caught downstream by
+      // `normalizeSlackDirectMessage`, which returns null for both a non
+      // `file_share` subtype and a missing `user`. It is now recognized as
+      // ours at the self-filter, where every other echo is handled. Pinned so
+      // a change to either normalizer guard cannot quietly start feeding the
+      // assistant its own posts.
+      deliver(
+        client,
+        ws,
+        "Ev-bot-message-dm",
+        botMessagePost(DM, "im", OUR_BOT_ID),
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(BOT_POST_TS)).toBe(false);
     } finally {
       rawDb.close();
     }
