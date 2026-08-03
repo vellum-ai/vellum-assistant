@@ -576,7 +576,7 @@ export async function postChatMessage(
     body.bypassSecretCheck = true;
   }
   // Whether this turn was auto-sent on the user's behalf. Tri-state on the
-  // wire — `false` is a real assertion ("the user typed this") that activation
+  // wire: `false` is a real assertion ("the user typed this") that activation
   // metrics trust, and omission means UNKNOWN. So this is an explicit
   // `typeof` check, NOT `if (scripted)`: a truthiness test would silently drop
   // every `false` and downgrade honest turns to unknown, which is the

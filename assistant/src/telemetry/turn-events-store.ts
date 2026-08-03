@@ -94,7 +94,7 @@ export interface TurnEvent {
    * `[User action on ...]` surface synthetics). Sourced from
    * `messages.metadata.scripted`, stamped by `persistQueuedMessageBody`.
    *
-   * Null ONLY for rows persisted before the field existed — scriptedness is
+   * Null ONLY for rows persisted before the field existed: scriptedness is
    * unknown for those, which downstream must not conflate with `false`.
    * Activation metrics exclude `true` and let `null` fall back to the legacy
    * trace-text classifier; treating `null` as `false` is the bug this field
@@ -178,7 +178,7 @@ export function queryUnreportedTurnEvents(
       ),
       // sqlite's `json_extract` yields 1/0 for JSON booleans, not true/false,
       // and SQL NULL when the path is absent (rows predating the field). Kept
-      // numeric here and converted below — a raw pass-through would put `1`
+      // numeric here and converted below. A raw pass-through would put `1`
       // on the wire, which the platform's BooleanField would reject.
       scripted: sql<
         number | null

@@ -15,8 +15,8 @@
  * SEPARATE marker from `hidden` rather than a synonym. `hidden` controls
  * transcript visibility and push suppression; `scripted` tells turn telemetry
  * the turn was auto-sent, so activation metrics exclude it. The two diverge in
- * both directions — the onboarding research prompt is visible AND scripted,
- * and a flow could in principle hide a turn the user really typed — so neither
+ * both directions: the onboarding research prompt is visible AND scripted,
+ * and a flow could in principle hide a turn the user really typed, so neither
  * can be inferred from the other. Without `scripted`, these turns are only
  * excluded from activation for owners whose diagnostics consent lets the
  * server-side trace classifier read their message text, which is the
@@ -49,7 +49,7 @@ export function buildSideConversationMessageBody({
     sourceChannel: "vellum",
     interface: transport,
     hidden: true,
-    // Auto-sent on the user's behalf, never typed — see the header. Excluded
+    // Auto-sent on the user's behalf, never typed. See the header. Excluded
     // from activation counts for every owner, not just the ones the
     // consent-gated trace classifier can see.
     scripted: true,

@@ -19800,7 +19800,7 @@ paths:
                   type: boolean
                 scripted:
                   description:
-                    "When true, this turn was auto-sent on the user's behalf rather than typed by them — onboarding research
+                    "When true, this turn was auto-sent on the user's behalf rather than typed by them: onboarding research
                     prompts, the personality rewrite message, research corrections, hidden kickoff greetings, the legacy
                     pre-chat bootstrap. Stamped onto the persisted message and forwarded to turn telemetry, where
                     activation metrics exclude it. Send false for a genuine typed message; OMIT the field only if the

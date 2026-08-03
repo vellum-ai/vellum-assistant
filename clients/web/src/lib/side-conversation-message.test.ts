@@ -1,13 +1,13 @@
 /**
  * Pins the two markers every throwaway side-conversation send depends on:
  *
- * - `hidden: true` — what the daemon's assistant-reply push producer gates on.
- * - `scripted: true` — what turn telemetry uses to keep these auto-sent turns
+ * - `hidden: true` is what the daemon's assistant-reply push producer gates on.
+ * - `scripted: true` is what turn telemetry uses to keep these auto-sent turns
  *   out of activation counts (ANT-10).
  *
  * They are asserted separately on purpose. The two are independent markers,
- * not synonyms — a turn can be visible and scripted (the onboarding research
- * prompt) — so a future change that derives one from the other would break
+ * not synonyms. A turn can be visible and scripted (the onboarding research
+ * prompt), so a future change that derives one from the other would break
  * activation silently while every hidden-marker test stayed green.
  */
 
@@ -33,7 +33,7 @@ describe("buildSideConversationMessageBody", () => {
   test("marks every side-conversation send scripted", () => {
     // Without this, these auto-sent turns are only excluded from activation
     // for owners whose diagnostics consent lets the server-side trace
-    // classifier read their message text — the gap ANT-10 was filed for.
+    // classifier read their message text: the gap ANT-10 was filed for.
     for (const transport of ["vellum", "web"] as const) {
       const body = buildSideConversationMessageBody({
         conversationId: "conv-1",

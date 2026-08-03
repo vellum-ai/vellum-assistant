@@ -575,7 +575,7 @@ describe("postChatMessage clientTimezone payload", () => {
 
 describe("postChatMessage scripted payload", () => {
   // `scripted` marks a turn the client auto-sent on the user's behalf so
-  // activation metrics can exclude it for EVERY user — not just those whose
+  // activation metrics can exclude it for EVERY user, not just those whose
   // diagnostics consent lets the server-side trace classifier see the text
   // (ANT-10). It is tri-state on the wire and the states are not
   // interchangeable: absent means UNKNOWN and falls back to that classifier,
@@ -644,7 +644,7 @@ describe("postChatMessage scripted payload", () => {
     // The regression this guards: serializing with `if (scripted)` would omit
     // every `false`, silently downgrading turns we KNOW were typed into
     // "unknown" and leaving activation dependent on the consent-gated
-    // classifier again — the exact gap this field closes.
+    // classifier again: the exact gap this field closes.
     await postChatMessage("asst-1", "K", "a typed message", {
       scripted: false,
     });

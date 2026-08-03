@@ -672,31 +672,31 @@ export interface PersistMessageOptions {
   skipIndexing?: boolean;
   /**
    * True when this turn was auto-sent on the user's behalf rather than typed
-   * by them — onboarding research prompts, the personality `<system-message>`,
+   * by them: onboarding research prompts, the personality `<system-message>`,
    * research corrections, hidden kickoff greetings, the legacy pre-chat
    * bootstrap, and `[User action on ...]` surface synthetics.
    *
    * Stamped onto `messages.metadata.scripted` and forwarded to
    * `TurnTelemetryEvent.scripted`, where activation metrics exclude it. This
    * is the consent-independent replacement for classifying turns by
-   * text-matching their content in diagnostics-gated traces — that classifier
+   * text-matching their content in diagnostics-gated traces. That classifier
    * can only see owners who opted into diagnostics, so it silently counted
    * scripted turns as real messages for everyone else (ANT-10).
    *
    * Defaults to `false`: a daemon that knows about the field asserts "the user
    * typed this" for ordinary sends, which is what makes a user's activation
    * measurable. This is only safe because every auto-send path is marked at
-   * its source — see the merged-metadata note below for the list.
+   * its source. See the merged-metadata note below for the list.
    *
    * Callers persisting machine-authored content into a `standard` conversation
-   * MUST pass `true` — a wrong `false` is trusted downstream and re-inflates
+   * MUST pass `true`. A wrong `false` is trusted downstream and re-inflates
    * activation. (Machine-authored turns in `background` / `scheduled`
    * conversations are already excluded from activation by conversation type,
    * and the `assert_scripted_signals_agree` dbt test catches any straggler
    * whose text matches a known template.)
    *
    * May also be carried in the `metadata` bag, which is how queued sends
-   * thread it — the queue round-trips `metadata`, not these options.
+   * thread it: the queue round-trips `metadata`, not these options.
    */
   scripted?: boolean;
 }
@@ -838,7 +838,7 @@ export async function persistQueuedMessageBody(
     // spread below can never re-introduce an unvalidated value. Letting a
     // non-boolean through would be worse than dropping it: sqlite stores it
     // verbatim, and `turn-events-store` narrows anything that isn't 1 to
-    // `false` — turning a junk string into a confident "the user typed this".
+    // `false`, turning a junk string into a confident "the user typed this".
     const {
       slackInbound: rawSlackInbound,
       scripted: rawScriptedFromMetadata,
@@ -853,7 +853,7 @@ export async function persistQueuedMessageBody(
     });
 
     // See the `scripted` note on the merged metadata below. Only a real
-    // boolean in the bag counts — a stray truthy string must not be read as a
+    // boolean in the bag counts: a stray truthy string must not be read as a
     // scripted assertion.
     const scriptedFromMetadata =
       typeof rawScriptedFromMetadata === "boolean"
@@ -861,7 +861,7 @@ export async function persistQueuedMessageBody(
         : undefined;
     // `automated` (machine-authored, set by the messaging skill and the memory
     // skill-card) implies scripted: it is by definition not a turn the user
-    // typed. Only a DEFAULT — an explicit `scripted` wins, so a caller can
+    // typed. Only a DEFAULT: an explicit `scripted` wins, so a caller can
     // mark an automated message as a real turn if that is ever right. Note the
     // two flags are not interchangeable in the other direction: `automated`
     // also suppresses memory extraction, so scripted onboarding turns that
@@ -917,7 +917,7 @@ export async function persistQueuedMessageBody(
       // `TurnTelemetryEvent.scripted`. Written LAST so it cannot be
       // half-overwritten by the raw metadata spread above.
       //
-      // Resolved from the typed option first, then the metadata bag — the bag
+      // Resolved from the typed option first, then the metadata bag. The bag
       // is how queued sends carry it, since the queue round-trips `metadata`
       // but not `PersistMessageOptions` (same carrier as the `hidden` flag).
       //
@@ -928,7 +928,7 @@ export async function persistQueuedMessageBody(
       // information than a truthful false.
       //
       // Defaulting to false is only safe because every auto-send path is now
-      // marked at its source — the web onboarding flows (research prompt,
+      // marked at its source: the web onboarding flows (research prompt,
       // kickoff, personality, corrections, legacy bootstrap), `[User action
       // on ...]` surface synthetics, and anything flagged `automated`. A new
       // auto-send path that forgets to mark itself lands here as a false and

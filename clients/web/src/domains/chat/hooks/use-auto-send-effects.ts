@@ -139,7 +139,7 @@ export function useAutoSendEffects({
     // Every message that reaches here is auto-sent by an onboarding flow, not
     // typed: the research prompt, the "Let's chat" kickoff greeting, or the
     // legacy pre-chat bootstrap. Marked unconditionally rather than keyed off
-    // `hidden`, because the two are independent — the research prompt is
+    // `hidden`, because the two are independent: the research prompt is
     // visible AND scripted.
     //
     // Note this is the pre-chat staged message only. The `?prompt=` auto-send

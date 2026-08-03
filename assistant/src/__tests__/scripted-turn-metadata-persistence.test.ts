@@ -14,10 +14,10 @@
  *
  * The absent case is the one worth protecting: downstream falls back to the
  * legacy trace-text classifier when the flag is missing, but TRUSTS an
- * explicit `false`. So a spurious `false` is strictly worse than no value —
+ * explicit `false`. So a spurious `false` is strictly worse than no value:
  * it re-inflates activation past the point where the fallback can catch it.
  *
- * Mirrors the mock harness of `client-os-metadata-persistence.test.ts` —
+ * Mirrors the mock harness of `client-os-metadata-persistence.test.ts`:
  * exercises `persistQueuedMessageBody` directly with a captured `addMessage`.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -183,7 +183,7 @@ describe("scripted-turn metadata persistence", () => {
   test("falls back to the default for a non-boolean `scripted` in the bag", async () => {
     // Guards against a truthy string ("true", "1") from an untyped caller
     // being read as a scripted assertion. It must not survive the metadata
-    // spread either — sqlite would store the string verbatim and the store's
+    // spread either: sqlite would store the string verbatim and the store's
     // narrowing turns anything that isn't 1 into `false`, so a leaked "true"
     // would invert into "the user typed this".
     const ctx = createContext();

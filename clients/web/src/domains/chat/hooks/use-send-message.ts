@@ -140,7 +140,7 @@ export interface SendChatMessageOptions {
   bypassSecretCheck?: boolean;
   /**
    * True when this turn was auto-sent on the user's behalf rather than typed
-   * — the onboarding research prompt, the kickoff greeting, the legacy
+   * the onboarding research prompt, the kickoff greeting, the legacy
    * pre-chat bootstrap. Forwarded to the daemon, which stamps it on the turn
    * so activation metrics can exclude it for every user rather than only
    * those whose diagnostics consent lets the trace classifier see it.
@@ -317,7 +317,7 @@ export function useSendMessage({
       clientMessageId?: string,
       isHidden = false,
       bypassSecretCheck = false,
-      // Tri-state, so the default is `undefined` (unknown), NOT false — this
+      // Tri-state, so the default is `undefined` (unknown), NOT false. This
       // helper has callers that genuinely cannot say, and inventing a `false`
       // here would assert "the user typed this" on their behalf. The daemon
       // applies its own default for an omitted field.
