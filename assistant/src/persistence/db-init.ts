@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
 import { runAsyncSqlite } from "./db-async-query.js";
-import { getDb } from "./db-connection.js";
+import { getDb, getSqliteFrom } from "./db-connection.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
 import { migrationSteps } from "./steps.js";
@@ -100,6 +100,19 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
     },
     "DB migration steps complete",
   );
+
+  // A migration that adds an index leaves it with no sqlite_stat1 entry, so the
+  // planner works from built-in guesses until something analyzes it. SQLite
+  // recommends running optimize after a schema change for exactly this reason.
+  // Only boots that applied a step pay for it, and the analysis limit in the
+  // mask bounds the scan.
+  if (applied.length > 0) {
+    try {
+      getSqliteFrom(database).exec("PRAGMA optimize=0x10012");
+    } catch (err) {
+      log.warn({ err }, "Post-migration PRAGMA optimize failed (non-fatal)");
+    }
+  }
 
   if (failed.length > 0) {
     log.error(
