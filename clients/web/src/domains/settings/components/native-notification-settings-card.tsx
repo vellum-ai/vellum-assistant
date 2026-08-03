@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { openAndroidNotificationSettings } from "@/runtime/android-notification-settings";
+import {
+  isAndroidNotificationSettingsAvailable,
+  openAndroidNotificationSettings,
+} from "@/runtime/android-notification-settings";
 import {
   getNotificationPermission,
   refreshNotificationPermission,
@@ -14,6 +17,7 @@ type PermissionState = Awaited<ReturnType<typeof getNotificationPermission>>;
 
 export function NativeNotificationSettingsCard() {
   const isAndroid = useIsNativeAndroid();
+  const canOpenSystemSettings = isAndroidNotificationSettingsAvailable();
   const [permission, setPermission] = useState<PermissionState | null>(null);
 
   useEffect(() => {
@@ -44,14 +48,16 @@ export function NativeNotificationSettingsCard() {
             : "Receive alerts when the app is closed."}
         </p>
       </div>
-      <Button
-        variant="outlined"
-        size="regular"
-        onClick={() => void openAndroidNotificationSettings()}
-        disabled={permission === null}
-      >
-        System settings
-      </Button>
+      {canOpenSystemSettings && (
+        <Button
+          variant="outlined"
+          size="regular"
+          onClick={() => void openAndroidNotificationSettings()}
+          disabled={permission === null}
+        >
+          System settings
+        </Button>
+      )}
     </Card>
   );
 }
