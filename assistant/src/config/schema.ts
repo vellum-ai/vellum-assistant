@@ -53,6 +53,7 @@ import {
 import { SecretDetectionConfigSchema } from "./schemas/security.js";
 import { ServicesSchema } from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
+import { SubagentConfigSchema } from "./schemas/subagent.js";
 import {
   RateLimitConfigSchema,
   TimeoutConfigSchema,
@@ -128,6 +129,7 @@ export const AssistantConfigSchema = z.object({
   ),
   ui: UiConfigSchema.default(UiConfigSchema.parse({})),
   tools: ToolsConfigSchema.default(ToolsConfigSchema.parse({})),
+  subagent: SubagentConfigSchema.default(SubagentConfigSchema.parse({})),
   workflows: WorkflowsConfigSchema.default(WorkflowsConfigSchema.parse({})),
   // Per-plugin config blocks keyed by plugin name. The schema is intentionally
   // permissive — each plugin's manifest supplies its own validator which the
