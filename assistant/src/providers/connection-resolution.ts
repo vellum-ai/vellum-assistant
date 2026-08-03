@@ -132,11 +132,12 @@ export async function tryResolveProviderForConnectionName(
     connectionName === VELLUM_MANAGED_CONNECTION_NAME &&
     !isVellumManagedConnection(connection)
   ) {
-    return resolveThroughPlatform(
+    const provider = await resolveThroughPlatform(
       config,
       expectedProvider ?? declaredProvider,
       model,
     );
+    return attachProviderRoute(provider, VELLUM_MANAGED_CONNECTION_NAME);
   }
   // The provider-agnostic Vellum-managed connection carries only the `vellum`
   // sentinel, so the usual `connection.provider === expectedProvider` equality
@@ -221,10 +222,11 @@ export async function tryResolveProviderForConnectionName(
   // catch is specifically for in-flight failures that should not take
   // dispatch offline.
   try {
-    return await resolveProviderFromConnection(connection, config, {
+    const provider = await resolveProviderFromConnection(connection, config, {
       model,
       providerOverride: isVellumRoute ? expectedProvider : undefined,
     });
+    return attachProviderRoute(provider, connection.name);
   } catch (err) {
     log.warn(
       { err, connectionName },
@@ -232,6 +234,19 @@ export async function tryResolveProviderForConnectionName(
     );
     return null;
   }
+}
+
+function attachProviderRoute(
+  provider: Provider | null,
+  connectionName: string,
+): Provider | null {
+  if (provider) {
+    provider.routeAttribution = {
+      connectionName,
+      isManagedRoute: connectionName === VELLUM_MANAGED_CONNECTION_NAME,
+    };
+  }
+  return provider;
 }
 
 /**

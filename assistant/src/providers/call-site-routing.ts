@@ -27,7 +27,10 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { getDb } from "../persistence/db-connection.js";
-import { ProviderError } from "../util/errors.js";
+import {
+  ProviderError,
+  type ProviderRouteAttribution,
+} from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
@@ -40,10 +43,7 @@ import {
 } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
-import {
-  getProviderRoutingSource,
-  shouldUseNativeWebSearch,
-} from "./registry.js";
+import { shouldUseNativeWebSearch } from "./registry.js";
 import { recordProviderRequestDiagnostics } from "./request-diagnostics.js";
 import type {
   Message,
@@ -115,7 +115,7 @@ export class CallSiteRoutingProvider implements Provider {
       expectedProvider: string,
       model: string | undefined,
     ) => Promise<Provider | null>,
-    private readonly defaultIsManagedRoute?: boolean,
+    private readonly defaultRouteAttribution?: ProviderRouteAttribution,
   ) {
     this.tokenEstimationProvider = defaultProvider.tokenEstimationProvider;
     this.supportsNativeWebSearch = defaultProvider.supportsNativeWebSearch;
@@ -366,10 +366,8 @@ export class CallSiteRoutingProvider implements Provider {
   private defaultRoute(profileName?: string): SelectedProviderRoute {
     return {
       provider: this.defaultProvider,
+      ...this.defaultRouteAttribution,
       ...(profileName ? { profileName } : {}),
-      ...(this.defaultIsManagedRoute !== undefined
-        ? { isManagedRoute: this.defaultIsManagedRoute }
-        : {}),
     };
   }
 }
@@ -387,7 +385,6 @@ export function wrapWithCallSiteRouting(
   base: Provider,
   config: ProvidersConfig,
 ): Provider {
-  const routingSource = getProviderRoutingSource(base.name);
   return new CallSiteRoutingProvider(
     base,
     (connectionName, expectedProvider, model) =>
@@ -397,6 +394,6 @@ export function wrapWithCallSiteRouting(
         expectedProvider,
         model,
       ),
-    routingSource === undefined ? undefined : routingSource === "managed-proxy",
+    base.routeAttribution,
   );
 }

@@ -2,7 +2,11 @@ import type { ToolDefinition } from "../tools/tool-types.js";
 export type { ToolDefinition };
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { ProviderError, type ProviderErrorReason } from "../util/errors.js";
+import {
+  ProviderError,
+  type ProviderErrorReason,
+  type ProviderRouteAttribution,
+} from "../util/errors.js";
 
 export interface TextContent {
   type: "text";
@@ -359,6 +363,8 @@ export interface SendMessageOptions {
 
 export interface Provider {
   name: string;
+  /** Connection route whose credentials this provider instance uses. */
+  routeAttribution?: ProviderRouteAttribution;
   /**
    * Provider key used by the local token estimator to select model-family
    * specific rules (e.g. Anthropic's `width * height / 750` image sizing).

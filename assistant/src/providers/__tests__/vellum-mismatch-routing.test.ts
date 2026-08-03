@@ -86,6 +86,10 @@ describe("vellum connection mismatch handling", () => {
       "accounts/fireworks/models/kimi-k2p5",
     );
     expect(provider).not.toBeNull();
+    expect(provider?.routeAttribution).toEqual({
+      connectionName: "vellum",
+      isManagedRoute: true,
+    });
     expect(resolveCalls).toHaveLength(1);
     expect(resolveCalls[0].connection.name).toBe("vellum");
     expect(resolveCalls[0].opts.providerOverride).toBe("fireworks");
@@ -129,6 +133,10 @@ describe("vellum connection mismatch handling", () => {
       "anthropic/claude-fable-5",
     );
     expect(provider).not.toBeNull();
+    expect(provider?.routeAttribution).toEqual({
+      connectionName: "openrouter-personal",
+      isManagedRoute: false,
+    });
     expect(resolveCalls).toHaveLength(1);
     expect(resolveCalls[0].connection.name).toBe("openrouter-personal");
     expect(resolveCalls[0].opts.providerOverride).toBeUndefined();

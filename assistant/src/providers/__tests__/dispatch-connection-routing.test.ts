@@ -407,7 +407,14 @@ describe("routing identities", () => {
       "claude-opus-4-8",
     );
 
-    expect(provider).toEqual({ name: "anthropic", tag: "managed" } as never);
+    expect(provider).toEqual({
+      name: "anthropic",
+      tag: "managed",
+      routeAttribution: {
+        connectionName: "vellum",
+        isManagedRoute: true,
+      },
+    } as never);
     expect(resolveProviderCalls[0]?.name).toBe("vellum");
     expect(resolveProviderOpts[0]?.providerOverride).toBe("anthropic");
   });
@@ -433,7 +440,14 @@ describe("routing identities", () => {
       "gpt-5.5",
     );
 
-    expect(provider).toEqual({ name: "openai", tag: "subscription" } as never);
+    expect(provider).toEqual({
+      name: "openai",
+      tag: "subscription",
+      routeAttribution: {
+        connectionName: "chatgpt-subscription",
+        isManagedRoute: false,
+      },
+    } as never);
     expect(resolveProviderCalls[0]?.name).toBe("chatgpt-subscription");
     // No override needed: the subscription row itself carries provider
     // "openai", so the adapter resolves from the row.

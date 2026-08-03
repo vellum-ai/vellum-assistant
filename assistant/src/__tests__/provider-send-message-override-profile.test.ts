@@ -266,7 +266,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       defaultProvider,
       async (connectionName) =>
         connectionName === "openai-conn" ? altProvider : null,
-      true,
+      { connectionName: "vellum", isManagedRoute: true },
     );
 
     await expect(
@@ -281,7 +281,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     });
   });
 
-  test("CallSiteRoutingProvider attributes soft fallback errors to the default route", async () => {
+  test("CallSiteRoutingProvider attributes soft fallback errors to the actual default connection", async () => {
     setLlmConfig({
       profiles: {
         fast: {
@@ -299,10 +299,14 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       { reason: "rate_limited" },
     );
     const defaultProvider = makeThrowingProvider("anthropic", providerError);
+    defaultProvider.routeAttribution = {
+      connectionName: "anthropic-default",
+      isManagedRoute: false,
+    };
     const wrapped = new CallSiteRoutingProvider(
       defaultProvider,
       async () => null,
-      true,
+      defaultProvider.routeAttribution,
     );
 
     await expect(
@@ -311,8 +315,9 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       }),
     ).rejects.toBe(providerError);
     expect(providerError.routeAttribution).toEqual({
+      connectionName: "anthropic-default",
       profileName: "fast",
-      isManagedRoute: true,
+      isManagedRoute: false,
     });
   });
 
