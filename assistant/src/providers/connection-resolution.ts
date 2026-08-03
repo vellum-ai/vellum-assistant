@@ -238,15 +238,40 @@ export async function tryResolveProviderForConnectionName(
 
 function attachProviderRoute(
   provider: Provider | null,
-  connection: { name: string; auth: { type: string } },
+  connection: { name: string; provider: string; auth: { type: string } },
 ): Provider | null {
   if (provider) {
     provider.routeAttribution = {
       connectionName: connection.name,
-      isManagedRoute: connection.auth.type === "platform",
+      isManagedRoute: isVellumManagedConnection(connection),
     };
   }
   return provider;
+}
+
+/**
+ * Whether a route through this connection name is Vellum-managed
+ * (platform-billed), for callers that hold only the name. Returns undefined
+ * when the row can't be read, so the caller can fall back rather than assert
+ * a BYOK route it never confirmed.
+ *
+ * The canonical name is always managed: a user-owned row claiming it is
+ * ignored and the route resolves through platform auth regardless (see
+ * `tryResolveProviderForConnectionName`).
+ */
+export function isManagedConnectionRoute(
+  connectionName: string,
+): boolean | undefined {
+  if (connectionName === VELLUM_MANAGED_CONNECTION_NAME) {
+    return true;
+  }
+  let connection;
+  try {
+    connection = getConnection(getDb(), connectionName);
+  } catch {
+    return undefined;
+  }
+  return connection ? isVellumManagedConnection(connection) : undefined;
 }
 
 /**

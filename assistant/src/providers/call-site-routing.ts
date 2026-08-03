@@ -38,6 +38,7 @@ import {
 } from "./connection-model-compat.js";
 import {
   ConnectionResolutionError,
+  isManagedConnectionRoute,
   resolveRoutingIdentity,
   tryResolveProviderForConnectionName,
 } from "./connection-resolution.js";
@@ -51,7 +52,6 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "./types.js";
-import { VELLUM_MANAGED_CONNECTION_NAME } from "./vellum-model-routing.js";
 
 const log = getLogger("providers/call-site-routing");
 
@@ -313,7 +313,7 @@ export class CallSiteRoutingProvider implements Provider {
             connectionName,
           isManagedRoute:
             connectionProvider.routeAttribution?.isManagedRoute ??
-            connectionName === VELLUM_MANAGED_CONNECTION_NAME,
+            isManagedConnectionRoute(connectionName),
         };
         // The connection whose credential the call authenticates with is only
         // known here, and diagnostics for a failed request are unactionable

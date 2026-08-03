@@ -60,13 +60,13 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
+import { isManagedConnectionRoute } from "../providers/connection-resolution.js";
 import {
   ConnectionResolutionError,
   resolveRoutingIdentity,
 } from "../providers/routing-identity.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
-import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
@@ -435,14 +435,17 @@ export async function runAgentLoopImpl(
         }
         connectionName = error.connectionName;
       }
+      // Managed-ness comes from the connection row, matching what dispatch
+      // decides. The profile's own provider can't stand in: a concrete
+      // provider tweak over a managed winner keeps the managed connection
+      // while replacing the provider (`llm-resolver.ts`).
+      const isManagedRoute = connectionName
+        ? isManagedConnectionRoute(connectionName)
+        : undefined;
       return {
         ...(connectionName ? { connectionName } : {}),
         ...(profileName ? { profileName } : {}),
-        ...(connectionName
-          ? {
-              isManagedRoute: connectionName === VELLUM_MANAGED_CONNECTION_NAME,
-            }
-          : {}),
+        ...(isManagedRoute !== undefined ? { isManagedRoute } : {}),
       };
     } catch {
       return {};

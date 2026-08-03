@@ -454,10 +454,13 @@ describe("routing identities", () => {
     expect(resolveProviderCalls[0]?.provider).toBe("openai");
   });
 
-  test("named platform-auth connections carry managed route attribution", async () => {
+  // A second managed row is creatable under any non-reserved name: only the
+  // canonical name is refused at the create route, and `provider: "vellum"`
+  // derives platform auth. Managed-ness is the row, never its name.
+  test("a managed row under a non-canonical name carries managed route attribution", async () => {
     fakeConnections.set("managed-openai", {
       name: "managed-openai",
-      provider: "openai",
+      provider: "vellum",
       auth: { type: "platform" },
     });
     fakeProviders.set("conn:managed-openai", {

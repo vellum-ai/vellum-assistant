@@ -254,6 +254,19 @@ describe("classifyConversationError", () => {
       expect(result.errorCategory).toBe("rate_limit");
     });
 
+    it("falls back to context for fields the failed call's route omits", () => {
+      const err = new ProviderError("Unauthorized", "anthropic", 401);
+      err.attachRouteAttribution({ profileName: "direct" });
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "anthropic-key",
+      });
+
+      expect(result.connectionName).toBe("anthropic-key");
+      expect(result.profileName).toBe("direct");
+    });
+
     it("still recognizes a rewrapped Vellum quota body", () => {
       const result = classifyConversationError(
         new Error('429 {"code":"daily_quota_exceeded"}'),
