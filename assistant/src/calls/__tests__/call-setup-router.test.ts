@@ -383,7 +383,7 @@ describe("routeSetup — verdict session stamp gates getPendingSession", () => {
 // BELOW a floor that a guardian approval could clear is routed into the
 // guardian access-request flow instead of hung up on: `name_capture` for an
 // unrecognized number, `unverified_caller` for a known contact who still owes
-// verification (LUM-2936). `guardian_only` / `no_one` sit above the trusted
+// verification. `guardian_only` / `no_one` sit above the trusted
 // contact rank an approval grants, so they stay a hard `deny`.
 // ---------------------------------------------------------------------------
 
@@ -457,10 +457,10 @@ describe("routeSetup — admission floor table", () => {
 });
 
 // ---------------------------------------------------------------------------
-// LUM-2936: an unrecognized caller below a clearable floor reaches the
-// guardian access-request flow instead of being hung up on. The default
-// channel policy is `trusted_contacts`, so this is the out-of-the-box path
-// for every inbound call from an unknown number.
+// An unrecognized caller below a clearable floor reaches the guardian
+// access-request flow instead of being hung up on. The default channel policy
+// is `trusted_contacts`, so this is the out-of-the-box path for every inbound
+// call from an unknown number.
 // ---------------------------------------------------------------------------
 
 describe("routeSetup: below-floor unknown caller reaches guardian approval", () => {
@@ -506,6 +506,60 @@ describe("routeSetup: below-floor unknown caller reaches guardian approval", () 
       makeMemberVerdict("unknown", { status: "revoked" }),
     );
     expect(outcome.action).toBe("deny");
+  });
+
+  // Status and policy are independent governance signals: the gateway derives
+  // trust class from status alone, so a channel the guardian set to
+  // `policy: "deny"` still resolves to `unverified_contact` while status is
+  // `unverified`/`pending`. The deny gate is trust-class independent and runs
+  // ahead of the floor, so it holds whether the floor admits or denies, and it
+  // outranks an active voice invite.
+  describe("member policy deny outranks every inbound flow", () => {
+    const denyVerdict = () =>
+      makeMemberVerdict("unverified_contact", {
+        status: "unverified",
+        policy: "deny",
+      });
+
+    test("denied below a clearable floor (not sent to verification guidance)", async () => {
+      const { outcome } = await route("trusted_contacts", denyVerdict());
+      expect(outcome.action).toBe("deny");
+      if (outcome.action === "deny") {
+        expect(outcome.logReason).toBe("Inbound voice ACL: member policy deny");
+      }
+    });
+
+    test("denied even when the floor would admit them", async () => {
+      const { outcome } = await route("strangers", denyVerdict());
+      expect(outcome.action).toBe("deny");
+    });
+
+    test("denied with no floor configured", async () => {
+      const { outcome } = await route(null, denyVerdict());
+      expect(outcome.action).toBe("deny");
+    });
+
+    test("denied even with an active voice invite", async () => {
+      activeVoiceInvite = {
+        inviteId: "inv_1",
+        inviteeName: "Alice Example",
+        guardianName: "Sam",
+        codeDigits: 6,
+      };
+      const { outcome } = await route("trusted_contacts", denyVerdict());
+      expect(outcome.action).toBe("deny");
+    });
+
+    test("an active-status member with policy deny is denied", async () => {
+      const { outcome } = await route(
+        "trusted_contacts",
+        makeMemberVerdict("trusted_contact", {
+          status: "active",
+          policy: "deny",
+        }),
+      );
+      expect(outcome.action).toBe("deny");
+    });
   });
 });
 

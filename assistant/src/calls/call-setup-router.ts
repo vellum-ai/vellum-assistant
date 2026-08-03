@@ -311,6 +311,36 @@ export async function routeSetup(ctx: SetupContext): Promise<{
     };
   };
 
+  // Members whose channel the guardian set to `policy: 'deny'`. This gate is
+  // trust-class independent and runs ahead of every inbound flow below: the
+  // gateway derives trust class from channel STATUS alone, so a denied channel
+  // still resolves to `unverified_contact` (status `unverified`/`pending`) or
+  // `trusted_contact` (status `active`). Gating per class would leave the deny
+  // unenforced for whichever classes the branch order happened to exclude.
+  //
+  // It also outranks an active voice invite: an explicit channel-level deny is
+  // the guardian's standing ruling, and an invite must not redeem past it into
+  // a trusted contact.
+  if (actorTrust.memberRecord?.policy === "deny") {
+    log.info(
+      {
+        callSessionId: ctx.callSessionId,
+        from: ctx.from,
+        channelId: actorTrust.memberRecord.channel.id,
+        trustClass: actorTrust.trustClass,
+      },
+      "Inbound voice ACL: member policy deny",
+    );
+    return {
+      outcome: {
+        action: "deny",
+        message: "This number is not authorized to use this assistant.",
+        logReason: "Inbound voice ACL: member policy deny",
+      },
+      resolved,
+    };
+  }
+
   if (
     (actorTrust.trustClass === "unknown" ||
       actorTrust.trustClass === "unverified_contact") &&
@@ -365,14 +395,16 @@ export async function routeSetup(ctx: SetupContext): Promise<{
     // A caller BELOW the floor is not simply hung up on: when a guardian
     // approval could admit them, fall through to the legacy identity flows
     // below, which capture the caller's name, raise a guardian access request,
-    // and hold the line for the decision (LUM-2936). The floor still governs
-    // the outcome, because the flow only ever admits a caller the guardian
-    // approved into a trusted contact.
+    // and hold the line for the decision. The floor still governs the outcome,
+    // because the flow only ever admits a caller the guardian approved into a
+    // trusted contact.
     //
-    // Two cases keep the hard deny: floors a trusted-contact promotion could
+    // Two cases keep the hard deny. Floors a trusted-contact promotion could
     // not clear (`guardian_only`, `no_one`), where an approval flow would
-    // promise a decision that cannot admit them; and blocked/revoked members,
-    // which are deliberate governance actions rather than an unvetted caller.
+    // promise a decision that cannot admit the caller. And `blocked` /
+    // `revoked` members, who should hear the denial rather than an invitation
+    // to identify themselves. (The third governance signal, a channel
+    // `policy` of `deny`, is gated ahead of this whole branch.)
     if (floorActive) {
       if (floorVerdict.admitted) {
         return {
@@ -441,27 +473,6 @@ export async function routeSetup(ctx: SetupContext): Promise<{
         action: "name_capture",
         assistantId,
         fromNumber: ctx.from,
-      },
-      resolved,
-    };
-  }
-
-  // Members with policy: 'deny'
-  if (actorTrust.memberRecord?.policy === "deny") {
-    log.info(
-      {
-        callSessionId: ctx.callSessionId,
-        from: ctx.from,
-        channelId: actorTrust.memberRecord.channel.id,
-        trustClass: actorTrust.trustClass,
-      },
-      "Inbound voice ACL: member policy deny",
-    );
-    return {
-      outcome: {
-        action: "deny",
-        message: "This number is not authorized to use this assistant.",
-        logReason: "Inbound voice ACL: member policy deny",
       },
       resolved,
     };
