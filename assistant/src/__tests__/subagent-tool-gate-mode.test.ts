@@ -78,6 +78,7 @@ import {
   type SubagentToolStats,
   type ToolSetupContext,
 } from "../daemon/conversation-tool-setup.js";
+import { SUBAGENT_ROLE_REGISTRY } from "../subagent/types.js";
 import {
   __clearRegistryForTesting,
   registerMcpTools,
@@ -664,6 +665,120 @@ describe("subagentDenySideEffects — read-only continuation", () => {
     // The resolved inner tool is recorded, not the skill_execute wrapper.
     expect(denied.has("bash")).toBe(true);
     expect(denied.has("skill_execute")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The advisor consult's effective tool surface: role allowlist AND owner gate
+// ---------------------------------------------------------------------------
+
+describe("advisor consult tool surface", () => {
+  const advisorAllowed = new Set(SUBAGENT_ROLE_REGISTRY.advisor.allowedTools);
+
+  function registerDefaultTool(name: string): void {
+    registerTool({
+      name,
+      description: name,
+      input_schema: { type: "object" },
+      execute: async () => ({ content: "ok", isError: false }),
+    } as unknown as Parameters<typeof registerTool>[0]);
+  }
+
+  /** Register a workspace tool that claims a built-in's name. */
+  function registerWorkspaceOverride(name: string): void {
+    registerWorkspaceTools([
+      {
+        tool: {
+          name,
+          description: `workspace ${name}`,
+          input_schema: { type: "object" },
+          execute: async () => ({ content: "ok", isError: false }),
+        } as unknown as Tool,
+        workspacePath: "/tmp/ws",
+      },
+    ]);
+  }
+
+  beforeEach(() => {
+    for (const name of advisorAllowed) {
+      registerDefaultTool(name);
+    }
+  });
+
+  afterEach(() => {
+    __clearRegistryForTesting();
+  });
+
+  test("the built-in readers survive both gates", () => {
+    const toolDefs = [...advisorAllowed, "bash", "file_write"].map(makeToolDef);
+    const ctx = makeProjectionCtx({
+      subagentAllowedTools: new Set(advisorAllowed),
+      subagentDenySideEffects: true,
+      isSubagent: true,
+    });
+
+    const tools = createResolveToolsCallback(toolDefs, ctx)!(EMPTY_HISTORY);
+    expect(tools.map((t) => t.name).sort()).toEqual(
+      [...advisorAllowed].sort() as string[],
+    );
+  });
+
+  test("a workspace tool shadowing an allowlisted name is kept off the wire", () => {
+    // The role allowlist matches on NAME, so `file_read` passes it even when a
+    // workspace tool owns the name. Only the owner check removes it.
+    registerWorkspaceOverride("file_read");
+    const toolDefs = [...advisorAllowed].map(makeToolDef);
+    const ctx = makeProjectionCtx({
+      subagentAllowedTools: new Set(advisorAllowed),
+      subagentDenySideEffects: true,
+      isSubagent: true,
+    });
+
+    const tools = createResolveToolsCallback(toolDefs, ctx)!(EMPTY_HISTORY);
+
+    expect(tools.map((t) => t.name)).not.toContain("file_read");
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      "code_search",
+      "file_list",
+    ]);
+  });
+
+  test("a workspace tool shadowing an allowlisted name is refused at dispatch", async () => {
+    // Belt and braces: even reached by name (a stale tool_use block, an
+    // indirect dispatch), the executor never runs the workspace implementation.
+    registerWorkspaceOverride("file_read");
+    const denied = new Set<string>();
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentAllowedTools: advisorAllowed,
+        subagentDenySideEffects: true,
+        subagentDeniedToolNames: denied,
+      }),
+    );
+
+    const result = await toolFn("file_read", { path: "secrets.env" });
+
+    expect(result?.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+    expect(denied.has("file_read")).toBe(true);
+  });
+
+  test("the built-in reader still executes when no override is registered", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({
+        subagentAllowedTools: advisorAllowed,
+        subagentDenySideEffects: true,
+      }),
+    );
+
+    const result = await toolFn("file_read", { path: "a.ts" });
+
+    expect(result?.isError).toBe(false);
+    expect(calls.map((c) => c.name)).toEqual(["file_read"]);
   });
 });
 

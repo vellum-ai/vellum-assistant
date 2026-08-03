@@ -28,6 +28,15 @@ describe("buildAdvisorSystem", () => {
     expect(prompt).toContain("You cannot change anything");
   });
 
+  test("does not offer the advisor a memory or conversation search", () => {
+    // The advisor's read tools stop at the workspace. Naming `recall` here
+    // would advertise a search the role allowlist does not grant, and would
+    // contradict the scope the consult framing promises the user.
+    const prompt = buildAdvisorSystem(null);
+    expect(prompt).not.toContain("recall");
+    expect(prompt).toContain("you cannot see other conversations");
+  });
+
   test("does not claim the advisor is tool-less", () => {
     // The advisor can open a file to check a fact; a prompt that says otherwise
     // suppresses the read it was given tools for.

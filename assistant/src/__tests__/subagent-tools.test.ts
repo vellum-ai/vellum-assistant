@@ -2588,7 +2588,11 @@ describe("Subagent advisor-role consult", () => {
   type Block = { type: string; [k: string]: unknown };
   type CapturedAwait = {
     config: Record<string, unknown>;
-    opts?: { signal?: AbortSignal; onText?: (chunk: string) => void };
+    opts?: {
+      signal?: AbortSignal;
+      onText?: (chunk: string) => void;
+      onProgress?: () => void;
+    };
   };
 
   /**
@@ -2846,12 +2850,64 @@ describe("Subagent advisor-role consult", () => {
         { label: "Consult", objective: "x", role: "advisor" },
         makeContext("advisor-sess-6", { sendToClient: () => {}, onOutput }),
       );
-      // onText is a progress-recording wrapper (resets the idle deadline), not
-      // onOutput itself — but invoking it must still forward to onOutput.
+      // onText is a forwarding wrapper rather than onOutput itself, but
+      // invoking it must still forward to onOutput.
       expect(captured.current!.opts?.onText).toBeInstanceOf(Function);
       captured.current!.opts?.onText?.("hello");
       expect(chunks).toEqual(["hello"]);
       expect(captured.current!.opts?.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor taps tool activity as deadline progress, separately from onText", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    const { captured, restore } = stubAwait("advice");
+    const chunks: string[] = [];
+    const onOutput = (c: string) => chunks.push(c);
+    try {
+      await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-progress", {
+          sendToClient: () => {},
+          onOutput,
+        }),
+      );
+      // The idle deadline is re-armed from onProgress, which the manager fires
+      // for tool events as well as tokens. An advisor reading a file emits no
+      // token, so without this tap the consult would be killed mid-read.
+      expect(captured.current!.opts?.onProgress).toBeInstanceOf(Function);
+      captured.current!.opts?.onProgress?.();
+      // Progress is a liveness signal, not content: it must not reach the
+      // caller's stream sink.
+      expect(chunks).toEqual([]);
+      expect(captured.current!.opts?.signal?.aborted).toBe(false);
+    } finally {
+      restore();
+      mockFindConversation = () => undefined;
+    }
+  });
+
+  test("advisor consult runs under the owner-gated read-only guard", async () => {
+    mockFindConversation = () => ({
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      getCurrentSystemPrompt: () => "SYS",
+    });
+    const { captured, restore } = stubAwait("advice");
+    try {
+      await executeSubagentSpawn(
+        { label: "Consult", objective: "x", role: "advisor" },
+        makeContext("advisor-sess-readonly", { sendToClient: () => {} }),
+      );
+      // Without this the advisor's read-only guarantee is a list of NAMES, and
+      // a workspace tool registered as `file_read` would be handed to it to
+      // execute. The flag adds the owner check that names cannot express.
+      expect(captured.current!.config.denySideEffectTools).toBe(true);
     } finally {
       restore();
       mockFindConversation = () => undefined;
@@ -2958,12 +3014,7 @@ describe("Advisor role is read-only", () => {
       await import("../daemon/conversation-tool-setup.js");
     const { SUBAGENT_ROLE_REGISTRY } = await import("../subagent/types.js");
     const advisorAllowed = SUBAGENT_ROLE_REGISTRY.advisor.allowedTools;
-    expect(advisorAllowed).toEqual([
-      "file_read",
-      "file_list",
-      "code_search",
-      "recall",
-    ]);
+    expect(advisorAllowed).toEqual(["file_read", "file_list", "code_search"]);
 
     const toolDefs = [
       "bash",
@@ -2997,13 +3048,15 @@ describe("Advisor role is read-only", () => {
       "code_search",
       "file_list",
       "file_read",
-      "recall",
     ]);
     // The per-turn execution gate matches the wire list.
     const gate = (ctx as unknown as { allowedToolNames?: Set<string> })
       .allowedToolNames;
     expect(gate?.has("file_read")).toBe(true);
     expect(gate?.has("bash")).toBe(false);
+    // `recall` reaches memory and prior conversations, which the consult's
+    // contract excludes, so the allowlist does not admit it either.
+    expect(gate?.has("recall")).toBe(false);
   });
 });
 

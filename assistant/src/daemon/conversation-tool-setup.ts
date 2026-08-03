@@ -201,8 +201,13 @@ export function getEffectiveEnabledPluginSet(conv: {
  * own implementation) does not slip through. `skill_execute` is the dispatcher —
  * its resolved inner tool is classified by the same check in the executor gate,
  * so exposing the wrapper is safe.
+ *
+ * Exported so a role allowlist that relies on this gate for its read-only
+ * guarantee (the advisor consult) can be asserted to stay inside the set: a name
+ * outside it is admitted by the role and then refused at dispatch, which reads
+ * as a broken tool rather than a policy decision.
  */
-const READ_ONLY_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
+export const READ_ONLY_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
   "file_read",
   "file_list",
   "code_search",

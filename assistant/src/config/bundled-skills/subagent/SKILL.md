@@ -37,7 +37,7 @@ There are three subagent types. Pick one with two questions: **does it need to c
 |---|---|---|---|---|
 | `researcher` | No | No | `web_search`, `web_fetch`, `file_read`, `file_list`, `code_search`, `recall`, `skill_execute`, `notify_parent` | Web research, codebase exploration, reading documentation, root-cause investigation, reviewing an approach against the code |
 | `builder` | Yes | No | Your whole tool surface, unrestricted: shell, file writes and edits, and every connector, MCP, and browser tool you can reach | Code changes, file output, build/test runs, anything that must run a command or act on an outside system |
-| `advisor` | No | Yes | Read-only fact checking: `file_read`, `file_list`, `code_search`, `recall` | Read-only senior-advisor consult. Runs on a stronger model, inherits full parent context, and BLOCKS until it returns guidance |
+| `advisor` | No | Yes | Read-only fact checking in the workspace: `file_read`, `file_list`, `code_search` | Read-only senior-advisor consult. Runs on a stronger model, inherits full parent context, and BLOCKS until it returns guidance |
 
 Both background types can call `notify_parent` for mid-run communication with the parent.
 
@@ -65,7 +65,7 @@ Orient yourself first (read the relevant files, understand the task), then consu
 
 The consult is synchronous and read-only: spawning an `advisor` subagent BLOCKS until it returns guidance. It runs on a stronger model and inherits your full context, so it sees the task, your tool calls, and their results without you re-explaining. It also receives a snapshot of your environment (the tools available to you this turn, the full skill catalog, and your workspace) so its guidance can point you at existing platform capabilities by name. Give its guidance serious weight; only override it when primary-source evidence contradicts a specific claim, and say so when you do.
 
-The advisor has read-only tools (`file_read`, `file_list`, `code_search`, `recall`) so it can open a file or search the code when a decisive fact would change its advice. It uses them sparingly, for verification rather than exploration, and it cannot change anything or persist output. It still cannot see other conversations or external systems, and every lookup it has to make delays your answer, so surface the evidence you already have (a file's contents, a command's output, results gathered elsewhere) in the conversation or the spawn objective before consulting.
+The advisor has read-only workspace tools (`file_read`, `file_list`, `code_search`) so it can open a file or search the code when a decisive fact would change its advice. It uses them sparingly, for verification rather than exploration, and it cannot change anything or persist output. It has no memory search and cannot see other conversations or external systems, and every lookup it has to make delays your answer, so surface the evidence you already have (a file's contents, a command's output, results gathered elsewhere) in the conversation or the spawn objective before consulting.
 
 Spawn the advisor **alone** — do NOT batch the consult in the same turn as other tool calls (especially file edits, shell commands, or anything destructive or expensive). Tool calls you issue in the same turn run concurrently with the consult, so they would execute before you see its guidance. Consult the advisor by itself, read its guidance, then act.
 

@@ -44,11 +44,12 @@ const log = getLogger("subagent-spawn");
 
 /**
  * Idle ceiling on a single advisor consult: abort only after this much time
- * passes with NO streamed token (thinking or text). A reasoning advisor profile
- * streams its reasoning while it works, so a fixed wall-clock ceiling would kill
- * it mid-thought; an idle window instead fires only when the consult is
- * genuinely stalled (or never starts). Generous enough to also span
- * time-to-first-token over a large inherited transcript.
+ * passes with NO sign of forward progress, meaning neither a streamed token
+ * (thinking or text) nor tool activity. A reasoning advisor profile streams its
+ * reasoning while it works, so a fixed wall-clock ceiling would kill it
+ * mid-thought; an idle window instead fires only when the consult is genuinely
+ * stalled (or never starts). Generous enough to also span time-to-first-token
+ * over a large inherited transcript.
  */
 const ADVISOR_IDLE_TIMEOUT_MS = 60_000;
 
@@ -433,11 +434,13 @@ function repeatSpawnGuardResult(
  * consult and return its guidance as the tool result.
  *
  * Inherits the parent transcript (sanitized), frames it as advice via
- * `buildAdvisorSystem`, runs read-only on `llm.advisorProfile` (unless the
- * caller passed an explicit `inference_profile`), and is bounded by a
- * progress-aware deadline: an idle window (`ADVISOR_IDLE_TIMEOUT_MS`) reset on
- * every streamed token so a reasoning model isn't killed mid-thought, plus an
- * absolute `ADVISOR_MAX_TIMEOUT_MS` backstop. If either ceiling is hit, the
+ * `buildAdvisorSystem`, and runs on `llm.advisorProfile` (unless the caller
+ * passed an explicit `inference_profile`) under both the advisor role allowlist
+ * and `denySideEffectTools`, so the only tools it can reach are the first-party
+ * built-in readers. It is bounded by a progress-aware deadline: an idle window
+ * (`ADVISOR_IDLE_TIMEOUT_MS`) reset on every streamed token and every tool event
+ * so a reasoning or reading model isn't killed mid-consult, plus an absolute
+ * `ADVISOR_MAX_TIMEOUT_MS` backstop. If either ceiling is hit, the
  * partial guidance produced so far is recovered and returned with a "may be cut
  * off" note rather than discarded. Degrades to a benign non-error notice on any
  * other failure (including the depth-limit rejection when a subagent itself
@@ -502,9 +505,9 @@ async function runAdvisorConsult(args: {
     const overrideProfile = requestedOverrideProfile ?? advisorProfile;
     const forceOverrideProfile = overrideProfile !== undefined;
 
-    // Progress-aware deadline: reset on every streamed token so the consult
-    // isn't killed mid-thought, with an absolute backstop. Combine it with the
-    // caller's own signal.
+    // Progress-aware deadline: reset on every sign of forward progress so the
+    // consult isn't killed mid-thought or mid-read, with an absolute backstop.
+    // Combine it with the caller's own signal.
     const deadline = createConsultDeadline({
       idleMs: ADVISOR_IDLE_TIMEOUT_MS,
       maxMs: ADVISOR_MAX_TIMEOUT_MS,
@@ -512,10 +515,16 @@ async function runAdvisorConsult(args: {
     const signal = context.signal
       ? AbortSignal.any([context.signal, deadline.signal])
       : deadline.signal;
-    // Every streamed chunk (thinking or text) counts as progress and resets the
-    // idle window, then forwards to the caller's stream sink if one is present.
-    const onText = (chunk: string): void => {
+    // Streamed tokens AND tool activity both count as progress. A consult that
+    // opens a file emits no token while the read runs, so token-only progress
+    // would let the idle window lapse on a healthy advisor and abort it before
+    // the model ever sees its tool result. The absolute backstop is untouched,
+    // so a stalled tool cannot extend the consult past `ADVISOR_MAX_TIMEOUT_MS`.
+    const onProgress = (): void => {
       deadline.recordProgress();
+    };
+    // Streamed chunks additionally forward to the caller's stream sink.
+    const onText = (chunk: string): void => {
       context.onOutput?.(chunk);
     };
 
@@ -534,6 +543,16 @@ async function runAdvisorConsult(args: {
           sendResultToUser: false,
           role: "advisor",
           fork: true,
+          // The advisor's read-only guarantee cannot rest on tool NAMES. A
+          // workspace tool may register under `file_read` (registerWorkspaceTools
+          // stashes the built-in and installs its own implementation), and a
+          // name-only role allowlist would hand the advisor that implementation
+          // to execute. This flag turns on the owner-aware read-only gate
+          // (`isRefusedInReadOnlyPass`): a name must be on the runtime's
+          // read-only set AND resolve to the first-party built-in, or it is kept
+          // off the wire and refused at dispatch. Provenance, not enumeration,
+          // so a tool that does not exist yet is covered too.
+          denySideEffectTools: true,
           // The advisor is a ROLE, not an `LLMCallSiteEnum` value, so its usage
           // lands under `subagentSpawn` like any other subagent. This is what
           // makes advisor consults separable from regular forks in telemetry.
@@ -545,7 +564,7 @@ async function runAdvisorConsult(args: {
           ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
         },
         sendToClient,
-        { signal, onText },
+        { signal, onText, onProgress },
       );
 
       const trimmed = advice.trim();

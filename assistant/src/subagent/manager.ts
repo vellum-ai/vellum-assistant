@@ -40,6 +40,7 @@ import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
 import { injectMessageIntoParent } from "./notify.js";
+import { isSubagentProgressEvent } from "./progress-events.js";
 import {
   DEFAULT_SUBAGENT_ROLE,
   formatSubagentToolStats,
@@ -378,6 +379,15 @@ interface ManagedSubagent {
    * this callback IN ADDITION to the normal `subagent_event` envelope.
    */
   onText?: (chunk: string) => void;
+  /**
+   * Optional liveness tap for the synchronous path. When set,
+   * `wrappedSendToClient` fires it once per event that shows the child is still
+   * moving (see {@link isSubagentProgressEvent}), which is a superset of the
+   * `onText` chunks: a subagent executing a tool streams no token but is not
+   * stalled. Callers that bound a synchronous run by an idle window re-arm it
+   * here.
+   */
+  onProgress?: () => void;
 }
 
 export interface SubagentNotificationInfo {
@@ -460,7 +470,11 @@ export class SubagentManager {
   private async setUpSubagent(
     config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: AssistantEvent) => void,
-    opts?: { synchronous?: boolean; onText?: (chunk: string) => void },
+    opts?: {
+      synchronous?: boolean;
+      onText?: (chunk: string) => void;
+      onProgress?: () => void;
+    },
   ): Promise<{ subagentId: string; managed: ManagedSubagent }> {
     // ── Limit checks ────────────────────────────────────────────────
 
@@ -608,6 +622,7 @@ export class SubagentManager {
       parentSendToClient,
       ...(opts?.synchronous ? { synchronous: true } : {}),
       ...(opts?.onText ? { onText: opts.onText } : {}),
+      ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
     };
 
     // Wrap sendToClient to envelope all events with the subagent ID.
@@ -621,6 +636,11 @@ export class SubagentManager {
         if (text) {
           managed.onText(text);
         }
+      }
+      // Liveness tap, separate from the text tap because tool activity is
+      // progress the caller must see and is not a chunk it can forward.
+      if (managed.onProgress && isSubagentProgressEvent(msg)) {
+        managed.onProgress();
       }
       managed.parentSendToClient({
         type: "subagent_event",
@@ -798,12 +818,20 @@ export class SubagentManager {
   async spawnAndAwait(
     config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: AssistantEvent) => void,
-    opts?: { signal?: AbortSignal; onText?: (chunk: string) => void },
+    opts?: {
+      signal?: AbortSignal;
+      onText?: (chunk: string) => void;
+      onProgress?: () => void;
+    },
   ): Promise<string> {
     const { subagentId, managed } = await this.setUpSubagent(
       config,
       parentSendToClient,
-      { synchronous: true, ...(opts?.onText ? { onText: opts.onText } : {}) },
+      {
+        synchronous: true,
+        ...(opts?.onText ? { onText: opts.onText } : {}),
+        ...(opts?.onProgress ? { onProgress: opts.onProgress } : {}),
+      },
     );
 
     // Wire the external signal to abort the child conversation. If the signal

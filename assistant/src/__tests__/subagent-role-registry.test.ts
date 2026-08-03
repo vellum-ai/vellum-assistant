@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { READ_ONLY_ALLOWED_TOOLS } from "../daemon/conversation-tool-setup.js";
 import {
   mergeSkillIds,
   SUBAGENT_ROLE_REGISTRY,
@@ -42,13 +43,33 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toBeUndefined();
   });
 
-  test("advisor is scoped to exactly the four read-only fact-checking tools", () => {
+  test("advisor is scoped to exactly the three read-only fact-checking tools", () => {
     expect(SUBAGENT_ROLE_REGISTRY.advisor.allowedTools).toEqual([
       "file_read",
       "file_list",
       "code_search",
-      "recall",
     ]);
+  });
+
+  test("advisor cannot search memory or other conversations", () => {
+    // `recall` searches memory, the personal knowledge base, and prior
+    // conversations. The consult's documented contract is this conversation
+    // plus what the advisor reads in the workspace, so the one tool that
+    // reaches past it stays out.
+    expect(SUBAGENT_ROLE_REGISTRY.advisor.allowedTools).not.toContain("recall");
+    expect(SUBAGENT_ROLE_REGISTRY.advisor.systemPromptPreamble).toContain(
+      "cannot see other conversations",
+    );
+  });
+
+  test("every advisor tool is inside the runtime's owner-gated read-only set", () => {
+    // The advisor spawn sets `denySideEffectTools`, so a name outside
+    // READ_ONLY_ALLOWED_TOOLS is admitted by the role and then refused at
+    // dispatch: the model would be shown a tool it cannot run. Keeping the
+    // allowlist a subset is what makes the two gates agree.
+    for (const name of SUBAGENT_ROLE_REGISTRY.advisor.allowedTools!) {
+      expect(READ_ONLY_ALLOWED_TOOLS.has(name)).toBe(true);
+    }
   });
 
   test("advisor is read-only: nothing write-capable, no shell, no skill execution", () => {
@@ -62,6 +83,7 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
       "file_edit",
       "skill_execute",
       "web_fetch",
+      "recall",
     ]) {
       expect(tools).not.toContain(forbidden);
     }
@@ -69,7 +91,7 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
 
   test("advisor preamble states it can verify facts but cannot change anything", () => {
     const preamble = SUBAGENT_ROLE_REGISTRY.advisor.systemPromptPreamble;
-    expect(preamble).toContain("read files");
+    expect(preamble).toContain("read and search the files");
     expect(preamble).toContain("cannot change anything");
     expect(preamble).not.toContain("no tools");
   });

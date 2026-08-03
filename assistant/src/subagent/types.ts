@@ -115,12 +115,18 @@ export interface SubagentConfig {
    */
   spawnMode?: SubagentSpawnMode;
   /**
-   * When true, side-effecting tools (send/write/delete/purchase, host commands)
-   * are refused for this subagent regardless of trust class — the executor
-   * rejects any such dispatch and the tool is kept off the model's tool surface.
-   * For unattended passes that must never take an unapproved action while the
-   * user isn't watching; the subagent surfaces the intended action for the
-   * user to approve instead.
+   * When true, this subagent may run only the runtime's own read-only built-ins:
+   * anything else, including a workspace/plugin/skill/MCP tool registered UNDER
+   * a built-in's name, is kept off the model's tool surface and refused by the
+   * executor regardless of trust class (see `isRefusedInReadOnlyPass`). Because
+   * the check is on the tool's registered OWNER and not its name, it is the only
+   * durable read-only guarantee available; a role allowlist alone is a set of
+   * names any extension can claim.
+   *
+   * Set by callers whose contract is that nothing changes: an unattended pass
+   * that must not take an unapproved action while the user isn't watching (the
+   * subagent surfaces the intended action for the user to approve instead), and
+   * the advisor consult, whose whole product is judgment rather than action.
    */
   denySideEffectTools?: boolean;
   /**
@@ -386,14 +392,21 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
     },
     advisor: {
       // Read-only fact checking, deliberately narrower than the researcher's
-      // list: no web fetch, no skill execution, nothing that persists. The
-      // advisor answers from the inherited conversation and opens a file only
-      // when a specific fact would change the advice. `recall` keeps its own
-      // trust gating at the tool layer.
-      allowedTools: ["file_read", "file_list", "code_search", "recall"],
+      // list: no web fetch, no skill execution, no memory search, nothing that
+      // persists. The advisor answers from the inherited conversation and opens
+      // a file only when a specific fact would change the advice.
+      //
+      // Names alone are not the guarantee. The advisor spawn also sets
+      // `denySideEffectTools`, so each name must additionally resolve to the
+      // first-party built-in implementation (`READ_ONLY_ALLOWED_TOOLS` plus the
+      // `ownerKind === "default"` check in `isRefusedInReadOnlyPass`) before the
+      // tool reaches the wire or the executor. Every entry here must stay inside
+      // that read-only set, or it is admitted by the role and then refused at
+      // dispatch. `subagent-role-registry.test.ts` asserts the subset.
+      allowedTools: ["file_read", "file_list", "code_search"],
       skillIds: [],
       systemPromptPreamble:
-        "You are a read-only senior advisor consulted for a one-shot strategic review. Read the inherited conversation, then return focused, high-leverage guidance in a single response. You may read files, search code, and recall memories to verify a decisive fact, but you cannot change anything.",
+        "You are a read-only senior advisor consulted for a one-shot strategic review. Read the inherited conversation, then return focused, high-leverage guidance in a single response. You may read and search the files in the workspace to verify a decisive fact, but you cannot change anything and you cannot see other conversations.",
     },
   };
 
