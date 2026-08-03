@@ -231,4 +231,29 @@ describe("SubagentManager fork — prompt source and role decoupling", () => {
     expect(first).toContain("FORK TASK");
     expect(first).not.toContain("Act as");
   });
+
+  test("a fork's output contract reaches the child in its first message", async () => {
+    const created = await spawnFork({
+      role: "researcher",
+      outputContract: "verdict",
+    });
+    const first = await firstUserMessage(created);
+
+    // Same carrier as the persona, and for the same reason: the system prompt
+    // is the parent's, so nothing the contract says can land there.
+    expect(created.systemPrompt).toBe(PARENT_PROMPT);
+    expect(created.systemPrompt).not.toContain("PASS or FAIL");
+    expect(first).toContain(
+      "Output contract: For each criterion in the objective return PASS or FAIL",
+    );
+    expect(first).toContain("do something");
+  });
+
+  test("a fork under the default report contract gets no contract line", async () => {
+    const created = await spawnFork({ outputContract: "report" });
+    const first = await firstUserMessage(created);
+
+    expect(first).toContain("FORK TASK");
+    expect(first).not.toContain("Output contract:");
+  });
 });

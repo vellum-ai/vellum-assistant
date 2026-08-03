@@ -102,6 +102,12 @@ export interface SubagentConfig {
    */
   persona?: string;
   /**
+   * The shape the child's final message has to take. Omitted spawns run as
+   * `report`, which asks for nothing beyond the role preamble's own reporting
+   * guidance.
+   */
+  outputContract?: SubagentOutputContract;
+  /**
    * How this subagent was spawned: the call site and its context/lifecycle
    * shape. Stamped onto the child conversation row and emitted as
    * `subagent_spawn_mode` on `llm_usage` telemetry so delegated spend is
@@ -306,6 +312,63 @@ export const SUBAGENT_LIMITS = {
  * accepted at the tool boundary as aliases; see ./role-resolution.ts.
  */
 export type SubagentRole = "researcher" | "builder" | "advisor";
+
+// ── Output contracts ─────────────────────────────────────────────────────
+
+/**
+ * Every contract the tool boundary accepts, in advertised order. `report` is
+ * first because it is what a spawn that names none runs under.
+ */
+export const SUBAGENT_OUTPUT_CONTRACTS = [
+  "report",
+  "verdict",
+  "artifact",
+] as const;
+
+/**
+ * The shape a subagent's final message has to take. Orthogonal to
+ * {@link SubagentRole}, which decides what the child may do: the contract
+ * decides what it owes back, so the same read-only researcher can return an
+ * investigation report or an evidence-backed pass/fail list.
+ *
+ * - `report`: prose answering the objective, which is what every role preamble
+ *   already asks for.
+ * - `verdict`: per-criterion PASS/FAIL with the evidence behind each call.
+ *   Researcher-only, since a verdict is a claim about what is already there.
+ *   Checking work this way is mechanical rather than exploratory, so the spawn
+ *   also defaults to the cheap model tier.
+ * - `artifact`: the deliverable is the thing produced, not the write-up.
+ *   Builder-only, since nothing else can produce one.
+ *
+ * "Verifier" is deliberately not a fourth role: verification is a researcher
+ * under the `verdict` contract, and a role would have implied a separate tool
+ * envelope it does not need.
+ */
+export type SubagentOutputContract = (typeof SUBAGENT_OUTPUT_CONTRACTS)[number];
+
+/**
+ * The instruction a contract adds to the child's framing, or `undefined` for
+ * `report`, whose expectations the role preamble already states.
+ *
+ * Rendered into the built system prompt for a regular spawn and into the fork
+ * task framing for a fork, which inherits the parent's prompt verbatim and so
+ * never sees a built one.
+ */
+export function subagentOutputContractText(
+  contract: SubagentOutputContract | undefined,
+): string | undefined {
+  switch (contract) {
+    case "verdict":
+      return (
+        "For each criterion in the objective return PASS or FAIL plus the exact evidence (file path, line, value, or quote). " +
+        "If evidence is unavailable say CANNOT VERIFY and state what is missing. No prose beyond the verdict list."
+      );
+    case "artifact":
+      return "Your deliverable is the artifact itself. End by listing the exact files you created or modified.";
+    default:
+      return undefined;
+  }
+}
 
 // ── Spawn modes ──────────────────────────────────────────────────────────
 

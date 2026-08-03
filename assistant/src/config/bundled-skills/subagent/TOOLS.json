@@ -41,6 +41,11 @@
           "confirm_repeat": {
             "type": "boolean",
             "description": "Set true to spawn anyway when the repeat-spawn guard reports that this objective already completed several times in the last day."
+          },
+          "output_contract": {
+            "type": "string",
+            "enum": ["report", "verdict", "artifact"],
+            "description": "What the subagent owes back. 'report' (default): prose answering the objective. 'verdict': per-criterion PASS or FAIL with the exact evidence (file path, line, value, or quote), CANNOT VERIFY where evidence is missing, and no prose beyond that list; researcher-only, and it defaults to a cheaper model because checking is mechanical. Use it for completion checks and audits instead of spawning a premium investigator. 'artifact': the deliverable is the thing produced, ending with the exact files created or modified; builder-only. A contract that does not match the role is rejected rather than coerced, and the advisor takes no contract at all."
           }
         },
         "required": ["label", "objective"]

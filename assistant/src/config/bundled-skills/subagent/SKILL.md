@@ -53,6 +53,16 @@ Any other `role` text is treated as a persona, not a type. The subagent runs as 
 
 Omitting `role` entirely runs a `builder`, so a spawn that names no type keeps your full tool surface.
 
+### Verification
+
+Checking that something is actually done is not a fourth type. It is a `researcher` with `output_contract: "verdict"`.
+
+A verdict subagent returns, for each criterion in the objective, `PASS` or `FAIL` plus the exact evidence (file path, line, value, or quote), `CANNOT VERIFY` where the evidence is missing, and nothing else. Give it the criteria explicitly in the objective; a vague "check the work" gets you a vague list.
+
+It runs on a cheaper model by default, because checking a claim against evidence that already exists is mechanical work, not investigation. An explicit `inference_profile` still wins if a check genuinely needs a stronger model.
+
+The other contracts: `output_contract: "artifact"` tells a `builder` that the deliverable is the thing produced and to end by listing the exact files it created or modified. `"report"` is the default and asks for nothing extra. A contract that does not match the type is rejected rather than quietly changed, and the `advisor` takes no contract (it has its own framing).
+
 ## Consulting the Advisor
 
 The `advisor` is the one type you spawn on your own judgment, unprompted: you do NOT wait for the user to ask for a subagent. The background types (`researcher`, `builder`) stay delegation-driven: reach for them to offload work, typically when the user's request calls for it. The advisor is different: proactively consult it whenever the conditions below are met.

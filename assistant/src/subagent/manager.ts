@@ -48,6 +48,7 @@ import {
   SUBAGENT_LIMITS,
   SUBAGENT_ROLE_REGISTRY,
   type SubagentConfig,
+  subagentOutputContractText,
   type SubagentRole,
   type SubagentSpawnMode,
   type SubagentState,
@@ -231,6 +232,10 @@ export function buildSubagentSystemPrompt(
   const sections: string[] = [roleConfig.systemPromptPreamble];
   if (config.persona) {
     sections.push(`- Persona: act as ${config.persona} for this task.`);
+  }
+  const contractText = subagentOutputContractText(config.outputContract);
+  if (contractText) {
+    sections.push(`- Output contract: ${contractText}`);
   }
   sections.push("", "## Your Task", config.objective);
   if (config.context) {
@@ -916,19 +921,23 @@ export class SubagentManager {
       // fight that framing. The advisor's objective is already the bare advice
       // request (`advisorRequestText()`), so it is sent uncontested.
       //
-      // A fork's persona rides in this framing rather than the system prompt:
-      // the prompt is the parent's, inherited verbatim to keep the KV cache
-      // aligned, so the task message is the only place a fork-specific
-      // instruction can land.
+      // A fork's persona and output contract ride in this framing rather than
+      // the system prompt: the prompt is the parent's, inherited verbatim to
+      // keep the KV cache aligned, so the task message is the only place a
+      // fork-specific instruction can land.
       const useForkFraming =
         managed.state.isFork && managed.state.config.role !== "advisor";
       const forkPersona = managed.state.config.persona;
+      const forkContract = subagentOutputContractText(
+        managed.state.config.outputContract,
+      );
       const message = useForkFraming
         ? [
             "⎯⎯⎯ FORK TASK ⎯⎯⎯",
             "You have been forked from the parent conversation to execute a specific task.",
             "The conversation above is context — do NOT continue it. Do NOT spawn sub-agents.",
             ...(forkPersona ? [`Act as ${forkPersona} for this task.`] : []),
+            ...(forkContract ? [`Output contract: ${forkContract}`] : []),
             "Complete this task directly and return only your findings:",
             "",
             objective,

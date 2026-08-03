@@ -2582,6 +2582,241 @@ describe("Subagent role-based spawn", () => {
   });
 });
 
+// ── Output contract ─────────────────────────────────────────────────
+
+describe("Subagent output contract", () => {
+  /**
+   * Run a spawn with the manager stubbed, reporting both the config it was
+   * handed and whether it was called at all (a rejected contract must not
+   * spawn).
+   */
+  async function spawnCapturing(
+    input: Record<string, unknown>,
+    contextExtras: Record<string, unknown> = {},
+  ): Promise<{
+    result: { content: string; isError: boolean };
+    config: Record<string, unknown> | undefined;
+  }> {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "contract-subagent-id";
+    };
+    try {
+      const result = await executeSubagentSpawn(
+        input,
+        makeContext("sess-contract", {
+          sendToClient: () => {},
+          ...contextExtras,
+        }),
+      );
+      return { result, config: capturedConfig };
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  }
+
+  test.each([
+    ["report", "builder"],
+    ["verdict", "researcher"],
+    ["artifact", "builder"],
+  ])("output_contract %s is accepted for a %s", async (contract, role) => {
+    const { result, config } = await spawnCapturing({
+      label: "Contract task",
+      objective: "Do it",
+      role,
+      output_contract: contract,
+    });
+    expect(result.isError).toBe(false);
+    expect(config!.outputContract).toBe(contract);
+  });
+
+  test("an unknown output_contract fails validation without spawning", async () => {
+    const { result, config } = await spawnCapturing({
+      label: "Bad contract",
+      objective: "Do it",
+      role: "researcher",
+      output_contract: "checklist",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "subagent_spawn"');
+    expect(result.content).toContain("output_contract");
+    expect(config).toBeUndefined();
+  });
+
+  test("verdict on a builder returns a mismatch error instead of spawning", async () => {
+    const { result, config } = await spawnCapturing({
+      label: "Check it",
+      objective: "Verify the migration ran",
+      role: "builder",
+      output_contract: "verdict",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("only available to researcher-typed");
+    expect(result.content).toContain('resolved to "builder"');
+    expect(config).toBeUndefined();
+  });
+
+  test("verdict on a spawn that names no role is a mismatch (the default is builder)", async () => {
+    const { result, config } = await spawnCapturing({
+      label: "Check it",
+      objective: "Verify the migration ran",
+      output_contract: "verdict",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('role "researcher"');
+    expect(config).toBeUndefined();
+  });
+
+  test("verdict rides the researcher fallback an unknown role resolves to", async () => {
+    const { result, config } = await spawnCapturing({
+      label: "Check it",
+      objective: "Verify the migration ran",
+      role: "release auditor",
+      output_contract: "verdict",
+    });
+    expect(result.isError).toBe(false);
+    expect(config!.role).toBe("researcher");
+    expect(config!.outputContract).toBe("verdict");
+  });
+
+  test("artifact on a researcher returns a mismatch error instead of spawning", async () => {
+    const { result, config } = await spawnCapturing({
+      label: "Write it",
+      objective: "Produce the migration file",
+      role: "researcher",
+      output_contract: "artifact",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("only available to builder-typed");
+    expect(config).toBeUndefined();
+  });
+
+  test("the advisor takes no output contract and never consults", async () => {
+    const manager = getSubagentManager();
+    const originalAwait = manager.spawnAndAwait.bind(manager);
+    let consulted = false;
+    manager.spawnAndAwait = async () => {
+      consulted = true;
+      return "advice";
+    };
+    try {
+      const result = await executeSubagentSpawn(
+        {
+          label: "Consult",
+          objective: "Check the plan",
+          role: "advisor",
+          output_contract: "verdict",
+        },
+        makeContext("sess-contract-advisor", { sendToClient: () => {} }),
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("does not apply to the advisor");
+      expect(consulted).toBe(false);
+    } finally {
+      manager.spawnAndAwait = originalAwait;
+    }
+  });
+
+  test("verdict defaults the child to the cost-optimized tier", async () => {
+    const { result, config } = await spawnCapturing(
+      {
+        label: "Check it",
+        objective: "Verify each acceptance criterion",
+        role: "researcher",
+        output_contract: "verdict",
+      },
+      { invokingCallSite: "mainAgent" },
+    );
+    expect(result.isError).toBe(false);
+    // Ahead of the mainAgent default (balanced) this spawn would otherwise
+    // inherit, and unforced like every other inheritance rung.
+    expect(config!.overrideProfile).toBe("cost-optimized");
+    expect(config!.forceOverrideProfile).toBeUndefined();
+  });
+
+  test("an explicit inference_profile beats the verdict default", async () => {
+    const { config } = await spawnCapturing({
+      label: "Check it",
+      objective: "Verify each acceptance criterion",
+      role: "researcher",
+      output_contract: "verdict",
+      inference_profile: "quality-optimized",
+    });
+    expect(config!.overrideProfile).toBe("quality-optimized");
+    expect(config!.forceOverrideProfile).toBe(true);
+  });
+
+  test("a report contract changes neither the profile nor the framing", async () => {
+    const { config } = await spawnCapturing(
+      {
+        label: "Research it",
+        objective: "Find the pricing data",
+        role: "researcher",
+        output_contract: "report",
+      },
+      { invokingCallSite: "mainAgent" },
+    );
+    expect(config!.overrideProfile).toBe("balanced");
+    expect(
+      buildSubagentSystemPrompt(
+        {
+          id: "sub-report",
+          parentConversationId: "conv-1",
+          label: "Research it",
+          objective: "Find the pricing data",
+          outputContract: "report",
+        },
+        "researcher",
+      ),
+    ).not.toContain("Output contract");
+  });
+
+  test("the verdict contract reaches the child's system prompt", () => {
+    const prompt = buildSubagentSystemPrompt(
+      {
+        id: "sub-verdict",
+        parentConversationId: "conv-1",
+        label: "Check it",
+        objective: "Verify each acceptance criterion",
+        outputContract: "verdict",
+      },
+      "researcher",
+    );
+    expect(prompt).toContain("- Output contract: ");
+    expect(prompt).toContain("return PASS or FAIL plus the exact evidence");
+    expect(prompt).toContain("CANNOT VERIFY");
+  });
+
+  test("the artifact contract reaches the child's system prompt", () => {
+    const prompt = buildSubagentSystemPrompt(
+      {
+        id: "sub-artifact",
+        parentConversationId: "conv-1",
+        label: "Write it",
+        objective: "Produce the migration file",
+        outputContract: "artifact",
+      },
+      "builder",
+    );
+    expect(prompt).toContain("Your deliverable is the artifact itself.");
+  });
+
+  test("spawn tool definition declares output_contract", () => {
+    const def = findTool("subagent_spawn");
+    expect(def.input_schema.properties.output_contract).toBeDefined();
+    expect(def.input_schema.properties.output_contract.type).toBe("string");
+    expect(def.input_schema.properties.output_contract.enum).toEqual([
+      "report",
+      "verdict",
+      "artifact",
+    ]);
+    expect(def.input_schema.required).not.toContain("output_contract");
+  });
+});
+
 // ── Advisor-role consult ────────────────────────────────────────────
 
 describe("Subagent advisor-role consult", () => {
