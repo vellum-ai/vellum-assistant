@@ -240,7 +240,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     expect(response.model).toBe("openai");
   });
 
-  test("CallSiteRoutingProvider attributes provider errors to the override profile route", async () => {
+  test("CallSiteRoutingProvider attributes provider errors to the actual resolved connection", async () => {
     setLlmConfig({
       profiles: {
         fast: {
@@ -262,6 +262,10 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       new Error("default provider should not be called"),
     );
     const altProvider = makeThrowingProvider("openai", providerError);
+    altProvider.routeAttribution = {
+      connectionName: "openai-recovered",
+      isManagedRoute: false,
+    };
     const wrapped = new CallSiteRoutingProvider(
       defaultProvider,
       async (connectionName) =>
@@ -275,7 +279,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       }),
     ).rejects.toBe(providerError);
     expect(providerError.routeAttribution).toEqual({
-      connectionName: "openai-conn",
+      connectionName: "openai-recovered",
       profileName: "fast",
       isManagedRoute: false,
     });

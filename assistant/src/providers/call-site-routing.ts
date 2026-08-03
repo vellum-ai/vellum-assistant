@@ -307,17 +307,26 @@ export class CallSiteRoutingProvider implements Provider {
         resolved.model,
       );
       if (connectionProvider) {
+        const actualRoute = {
+          connectionName:
+            connectionProvider.routeAttribution?.connectionName ??
+            connectionName,
+          isManagedRoute:
+            connectionProvider.routeAttribution?.isManagedRoute ??
+            connectionName === VELLUM_MANAGED_CONNECTION_NAME,
+        };
         // The connection whose credential the call authenticates with is only
         // known here, and diagnostics for a failed request are unactionable
         // without it ("which key was this?"). Recorded once the adapter exists,
         // so a connection that fell back to the default transport is not
         // reported as the one that signed the request.
-        recordProviderRequestDiagnostics({ connection_name: connectionName });
+        recordProviderRequestDiagnostics({
+          connection_name: actualRoute.connectionName,
+        });
         return {
           provider: connectionProvider,
-          connectionName,
+          ...actualRoute,
           ...(profileName ? { profileName } : {}),
-          isManagedRoute: connectionName === VELLUM_MANAGED_CONNECTION_NAME,
         };
       }
       // Soft credential failure: the routed connection yielded no usable

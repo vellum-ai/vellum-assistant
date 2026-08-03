@@ -137,7 +137,7 @@ export async function tryResolveProviderForConnectionName(
       expectedProvider ?? declaredProvider,
       model,
     );
-    return attachProviderRoute(provider, VELLUM_MANAGED_CONNECTION_NAME);
+    return attachProviderRoute(provider, canonicalVellumConnection());
   }
   // The provider-agnostic Vellum-managed connection carries only the `vellum`
   // sentinel, so the usual `connection.provider === expectedProvider` equality
@@ -226,7 +226,7 @@ export async function tryResolveProviderForConnectionName(
       model,
       providerOverride: isVellumRoute ? expectedProvider : undefined,
     });
-    return attachProviderRoute(provider, connection.name);
+    return attachProviderRoute(provider, connection);
   } catch (err) {
     log.warn(
       { err, connectionName },
@@ -238,12 +238,12 @@ export async function tryResolveProviderForConnectionName(
 
 function attachProviderRoute(
   provider: Provider | null,
-  connectionName: string,
+  connection: { name: string; auth: { type: string } },
 ): Provider | null {
   if (provider) {
     provider.routeAttribution = {
-      connectionName,
-      isManagedRoute: connectionName === VELLUM_MANAGED_CONNECTION_NAME,
+      connectionName: connection.name,
+      isManagedRoute: connection.auth.type === "platform",
     };
   }
   return provider;

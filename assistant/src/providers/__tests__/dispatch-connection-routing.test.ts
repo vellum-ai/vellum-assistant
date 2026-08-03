@@ -454,6 +454,30 @@ describe("routing identities", () => {
     expect(resolveProviderCalls[0]?.provider).toBe("openai");
   });
 
+  test("named platform-auth connections carry managed route attribution", async () => {
+    fakeConnections.set("managed-openai", {
+      name: "managed-openai",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    fakeProviders.set("conn:managed-openai", {
+      name: "openai",
+      tag: "managed",
+    });
+
+    const provider = await tryResolveProviderForConnectionName(
+      "managed-openai",
+      { llm: {} } as never,
+      "openai",
+      "gpt-5.5",
+    );
+
+    expect(provider?.routeAttribution).toEqual({
+      connectionName: "managed-openai",
+      isManagedRoute: true,
+    });
+  });
+
   test("chatgpt identity with no subscription row throws not_found (never a silent fallback)", async () => {
     await expect(
       tryResolveProviderForConnectionName(
