@@ -157,13 +157,20 @@ async function waitFor(
 function createCapturingTurnStarter(): {
   startVoiceTurn: LiveVoiceTurnStarter;
   getCallbacks: () => VoiceTurnCallbacks | undefined;
+  announceApprovalPending: () => void;
 } {
   let callbacks: VoiceTurnCallbacks | undefined;
+  let onApprovalPending: ((requestId: string) => void) | undefined;
   const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
     callbacks = options.callbacks;
+    onApprovalPending = options.onApprovalPending;
     return { turnId: "bridge-turn-1", abort: mock() };
   });
-  return { startVoiceTurn, getCallbacks: () => callbacks };
+  return {
+    startVoiceTurn,
+    getCallbacks: () => callbacks,
+    announceApprovalPending: () => onApprovalPending?.("req-1"),
+  };
 }
 
 function createRecordingTtsStreamer(): {
@@ -754,6 +761,25 @@ describe("LiveVoiceSession room reveal", () => {
     await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
 
     expect(frames.some((frame) => frame.type === "minimize_room")).toBe(true);
+  });
+
+  // A blocked turn has no speech left to drain, and the card it is blocked on
+  // renders behind the room. Waiting for a drain that is not coming would
+  // leave the call silent in front of a decision the user cannot see.
+  test("a pending approval reveals the screen immediately", async () => {
+    const { startVoiceTurn, announceApprovalPending } =
+      createCapturingTurnStarter();
+    const { frames, session } = createSessionHarness({ startVoiceTurn });
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    announceApprovalPending();
+    await waitFor(() => frames.some((frame) => frame.type === "minimize_room"));
+
+    // Before any tts_done, unlike the drain-scoped reveal a shown surface gets.
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
   });
 
   test("dismissing a surface does not reveal the screen", async () => {

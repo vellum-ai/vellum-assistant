@@ -287,6 +287,18 @@ export interface VoiceTurnOptions {
   onError?: (message: string) => void;
   /** Event-name callbacks used by non-phone voice clients. */
   callbacks?: VoiceTurnCallbacks;
+  /**
+   * Called when this turn leaves a confirmation for the user to answer instead
+   * of deciding it, so the client can put the prompt where they can see it.
+   *
+   * A voice client renders its call as something that covers the app (the
+   * live-voice room is a full-screen overlay), which is fine while the call is
+   * the only thing happening and wrong the moment the turn is waiting on a
+   * decision: the card is on screen, behind the call. The bridge cannot reach
+   * a client's own surfaces, so it says *that a decision is waiting* and the
+   * client decides what to do about it.
+   */
+  onApprovalPending?: (requestId: string) => void;
   /** Optional AbortSignal for external cancellation (e.g. barge-in). */
   signal?: AbortSignal;
   /**
@@ -1244,6 +1256,13 @@ export async function startVoiceTurn(
       //
       // Phone keeps the old behavior in full. There is no screen on that
       // channel, so a prompt there is a question nobody can answer.
+      // The workspace root is what makes an escape visible. A sandbox file
+      // tool pointed outside the workspace reaches the host filesystem on a
+      // non-containerized install, and `sensitiveToolReach` can only see that
+      // when it is given the boundary to compare against: without it,
+      // `file_read { path: "/etc/hosts" }` classifies as `none` and would fall
+      // through to the auto-allow this branch exists to prevent.
+      const workspaceRoot = conversation.workingDir;
       const reach = sensitiveToolReach(
         msg.toolName,
         // Absent on requests that do not come from the tool pipeline (proxy
@@ -1252,9 +1271,14 @@ export async function startVoiceTurn(
         // against an unreviewed action on their machine.
         msg.executionTarget ?? "host",
         msg.input,
+        workspaceRoot,
       );
       const canPrompt = turnChannelContext.userMessageChannel === "vellum";
-      if (canPrompt && reach !== "none") {
+      // Fail closed on a missing boundary for the same reason: with no
+      // workspace root there is no way to tell an ordinary write from an
+      // escape, and the safe reading of "cannot tell" is "ask". A real
+      // conversation always has one, so this is a guard rather than a path.
+      if (canPrompt && (reach !== "none" || !workspaceRoot)) {
         log.info(
           { turnId, toolName: msg.toolName, reach },
           "Prompting guardian voice caller for a sensitive tool",
@@ -1262,6 +1286,10 @@ export async function startVoiceTurn(
         // Left pending: the request is already broadcast, so the approval card
         // an attached client renders is now answerable rather than cleared a
         // moment later by this handler.
+        //
+        // Announced separately, because "a card exists" and "the user can see
+        // it" are different things on a channel whose call covers the app.
+        opts.onApprovalPending?.(msg.requestId);
         const timer = setTimeout(() => {
           pendingVoiceApprovals.delete(msg.requestId);
           log.info(

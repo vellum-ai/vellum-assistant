@@ -2340,6 +2340,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
+   * Open the room because a decision is waiting behind it.
+   *
+   * The approval card renders in the app, and the room covers the app, so
+   * without this the turn simply goes quiet: nothing is spoken, nothing is
+   * visible, and the only cue is a call that stopped talking. Sent
+   * immediately rather than latched for the drain the way a shown surface is,
+   * because there is no drain coming. The turn is blocked on this decision,
+   * and the whole point is that the user can make it now.
+   *
+   * The latch is cleared as well, so a turn that also showed a surface does
+   * not send a second minimize once its speech ends; the room is already open.
+   */
+  private revealRoomForPendingApproval(turn: ActiveAssistantTurn): void {
+    turn.minimizeRequested = false;
+    void this.sendFrame(
+      { type: "minimize_room", turnId: turn.turnId },
+      () => !this.isClosed,
+    );
+  }
+
+  /**
    * Tell the client what the turn is doing, if it changed.
    *
    * De-duplicated for the same reason the Live Activity reporter de-duplicates
@@ -3655,6 +3676,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {
           ...(leg.frontDoor !== undefined ? { frontDoor: leg.frontDoor } : {}),
         }),
+        onApprovalPending: () => {
+          this.revealRoomForPendingApproval(activeTurn);
+        },
         content: leg.content,
         isInbound: true,
         launchedAtMs: activeTurn.launchedAtMs,

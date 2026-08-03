@@ -119,6 +119,7 @@ interface FakeConversation {
     requestId: string;
     metadata?: Record<string, unknown>;
   }) => Promise<{ id: string }>;
+  workingDir: string;
   updateClient: (cb: unknown, reset?: boolean) => void;
   handleConfirmationResponse: (
     requestId: string,
@@ -140,6 +141,8 @@ function makeFakeConversation(opts: {
   hasQueuedMessages?: () => boolean;
   /** Runs before each persist resolves; throw to script a persist failure. */
   onPersist?: (attempt: number) => void;
+  /** Workspace root; pass empty to model a missing boundary. */
+  workingDir?: string;
 }) {
   const waitForIdleCalls: WaitForIdleCall[] = [];
   const confirmationDecisions: Array<{ requestId: string; decision: string }> =
@@ -151,6 +154,9 @@ function makeFakeConversation(opts: {
     | undefined;
   const conversation: FakeConversation = {
     conversationId: "conv-voice-bridge-test",
+    // The workspace boundary the reach check compares paths against. A real
+    // conversation always has one; without it the approval gate fails closed.
+    workingDir: opts.workingDir ?? "/tmp/workspace-voice-bridge-test",
     callSessionId: undefined,
     forcePromptSideEffects: false,
     currentRequestId: undefined,
@@ -558,12 +564,13 @@ describe("startVoiceTurn guardian approvals", () => {
   function confirmationRequest(
     toolName: string,
     executionTarget?: "sandbox" | "host",
+    input: Record<string, unknown> = {},
   ) {
     return {
       type: "confirmation_request",
       requestId: "req-1",
       toolName,
-      input: {},
+      input,
       riskLevel: "medium",
       allowlistOptions: [],
       scopeOptions: [],
@@ -571,15 +578,25 @@ describe("startVoiceTurn guardian approvals", () => {
     };
   }
 
-  async function runVoiceTurn(overrides: Partial<VoiceTurnOptions>) {
-    const fake = makeFakeConversation({ processing: false });
+  async function runVoiceTurn(
+    overrides: Partial<VoiceTurnOptions>,
+    conversationOpts: { workingDir?: string } = {},
+  ) {
+    const fake = makeFakeConversation({
+      processing: false,
+      ...conversationOpts,
+    });
     fakeConversation = fake.conversation;
+    const pendingAnnounced: string[] = [];
     await startVoiceTurn({
       ...makeTurnOptions(),
       trustContext: { trustClass: "guardian" },
+      onApprovalPending: (requestId: string) => {
+        pendingAnnounced.push(requestId);
+      },
       ...overrides,
     } as VoiceTurnOptions);
-    return fake;
+    return { ...fake, pendingAnnounced };
   }
 
   // A live-voice call has a screen, so a tool that reaches the workspace or
@@ -594,6 +611,9 @@ describe("startVoiceTurn guardian approvals", () => {
     await fake.emitToClient(confirmationRequest("bash", "host"));
 
     expect(fake.confirmationDecisions).toEqual([]);
+    // The card renders in the app, and the call covers the app, so a pending
+    // decision has to be announced or the turn just goes quiet.
+    expect(fake.pendingAnnounced).toEqual(["req-1"]);
   });
 
   // The tools that read or render were never the reason approval exists, and
@@ -609,6 +629,8 @@ describe("startVoiceTurn guardian approvals", () => {
     expect(fake.confirmationDecisions).toEqual([
       { requestId: "req-1", decision: "allow" },
     ]);
+    // Nothing is waiting, so nothing interrupts the call.
+    expect(fake.pendingAnnounced).toEqual([]);
   });
 
   // There is no screen on a phone call, so a prompt there is a question nobody
@@ -621,6 +643,56 @@ describe("startVoiceTurn guardian approvals", () => {
     expect(fake.confirmationDecisions).toEqual([
       { requestId: "req-1", decision: "allow" },
     ]);
+  });
+
+  // The escape this gate exists to catch: a *sandbox* file tool pointed
+  // outside the workspace reaches the host filesystem on a non-containerized
+  // install. The reach check can only see that when it is given the workspace
+  // boundary; without it this read of a host file classifies as `none` and
+  // lands on the auto-allow.
+  test("an out-of-workspace path prompts even on a sandbox target", async () => {
+    const fake = await runVoiceTurn(
+      { userMessageChannel: "vellum", userMessageInterface: "macos" },
+      { workingDir: "/tmp/workspace-voice-bridge-test" },
+    );
+
+    await fake.emitToClient(
+      confirmationRequest("file_read", "sandbox", { path: "/etc/hosts" }),
+    );
+
+    expect(fake.confirmationDecisions).toEqual([]);
+  });
+
+  // A path inside the workspace is the ordinary case, and gating it would
+  // interrupt the conversation for every file the assistant touches.
+  test("an in-workspace read is still allowed outright", async () => {
+    const fake = await runVoiceTurn(
+      { userMessageChannel: "vellum", userMessageInterface: "macos" },
+      { workingDir: "/tmp/workspace-voice-bridge-test" },
+    );
+
+    await fake.emitToClient(
+      confirmationRequest("file_read", "sandbox", {
+        path: "/tmp/workspace-voice-bridge-test/notes.md",
+      }),
+    );
+
+    expect(fake.confirmationDecisions).toEqual([
+      { requestId: "req-1", decision: "allow" },
+    ]);
+  });
+
+  // With no boundary there is no way to tell an ordinary write from an escape,
+  // and the safe reading of "cannot tell" is "ask".
+  test("a missing workspace boundary fails closed", async () => {
+    const fake = await runVoiceTurn(
+      { userMessageChannel: "vellum", userMessageInterface: "macos" },
+      { workingDir: "" },
+    );
+
+    await fake.emitToClient(confirmationRequest("ui_show", "sandbox"));
+
+    expect(fake.confirmationDecisions).toEqual([]);
   });
 
   // Requests from the proxy and network prompters carry no target. Unknown
