@@ -1,6 +1,7 @@
 /**
- * Portal-based mobile overlay container for app, document, subagent-detail,
- * workflow-detail, acp-run-detail, and tool-detail viewers. Reads from Zustand
+ * Portal-based mobile overlay container for the app, document,
+ * subagent-detail, workflow-detail, acp-run-detail, background-task-detail,
+ * tool-detail, activity-steps, and message-files viewers. Reads from Zustand
  * stores directly so the parent (ActiveChatView) doesn't need to assemble
  * inline handlers.
  *

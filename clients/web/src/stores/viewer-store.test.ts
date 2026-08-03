@@ -7,7 +7,7 @@ import {
   type MessageFilesPayload,
   type ToolDetailPayload,
 } from "@/stores/viewer-store";
-import type { DisplayAttachment } from "@/types/attachment-types";
+import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -775,19 +775,12 @@ describe("openActivitySteps / toggleActivitySteps / closeActivitySteps", () => {
 // Message files panel
 // ---------------------------------------------------------------------------
 
-function makeAttachment(id: string): DisplayAttachment {
-  return {
-    id,
-    filename: `${id}.png`,
-    mimeType: "image/png",
-    sizeBytes: 1024,
-    previewUrl: null,
-  };
-}
-
 const SAMPLE_FILES: MessageFilesPayload = {
   messageId: "m1",
-  attachments: [makeAttachment("a1"), makeAttachment("a2")],
+  attachments: [
+    makeDisplayAttachment({ id: "a1" }),
+    makeDisplayAttachment({ id: "a2" }),
+  ],
   assistantId: "asst-1",
 };
 
@@ -826,10 +819,15 @@ describe("openMessageFiles / toggleMessageFiles / closeMessageFiles", () => {
     expect(state.activeMessageFiles?.messageId).toBe("m2");
   });
 
-  it("identity-less payloads match on the first attachment id", () => {
-    getState().openMessageFiles({ attachments: [makeAttachment("a1")] });
-    getState().toggleMessageFiles({ attachments: [makeAttachment("a1")] });
-    expect(getState().mainView).toBe("chat");
+  it("clears the transcript panel payloads without touching mainView", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openMessageFiles(SAMPLE_FILES);
+    getState().clearTranscriptPanelPayloads();
+    const state = getState();
+    expect(state.activeMessageFiles).toBeNull();
+    expect(state.activeActivitySteps).toBeNull();
+    expect(state.activeToolDetail).toBeNull();
+    expect(state.mainView).toBe("message-files");
   });
 });
 

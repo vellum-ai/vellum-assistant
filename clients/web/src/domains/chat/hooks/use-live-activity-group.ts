@@ -14,8 +14,7 @@ import {
   workflowRunIdForCall,
   type WorkflowCardBackingState,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
-import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
-import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
+import { useTranscriptMessageById } from "@/domains/chat/hooks/use-transcript-message-by-id";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
 
@@ -91,7 +90,7 @@ export function useLiveActivityGroup(
   messageId: string | undefined,
   groupIndex: number | undefined,
 ): { items: ToolCallCardItem[]; toolCalls: ChatMessageToolCall[] } | null {
-  const messages = useTranscriptMessages();
+  const message = useTranscriptMessageById(messageId);
   // Card-backed process suppression reads the same store slices the
   // transcript subscribes to, so a card's backing flipping (an entry
   // appearing) drops the raw step from an open panel in the same render.
@@ -105,13 +104,7 @@ export function useLiveActivityGroup(
   const backgroundTaskById = useBackgroundTaskStore.use.byId();
 
   return useMemo(() => {
-    if (!messageId || groupIndex == null) {
-      return null;
-    }
-    const message = messages.find((m) =>
-      messageMatchKeys(m).includes(messageId),
-    );
-    if (!message) {
+    if (!message || groupIndex == null) {
       return null;
     }
     const groups = groupContentBlocks(message.contentBlocks ?? [], {
@@ -134,8 +127,7 @@ export function useLiveActivityGroup(
       backgroundTaskById,
     });
   }, [
-    messages,
-    messageId,
+    message,
     groupIndex,
     workflowById,
     workflowByToolUseId,
