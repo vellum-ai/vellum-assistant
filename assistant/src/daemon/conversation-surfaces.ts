@@ -363,6 +363,46 @@ export function markSurfaceCompleted(
 }
 
 /**
+ * Read a `ui_surface` block's `surfaceType` out of persisted history.
+ *
+ * This must NOT be routed through `findPersistedSurfaceState`
+ * (`runtime/routes/surface-conversation-resolver.ts`): that helper is bounded
+ * by `liveHistoryStartRow` / `contextCompactedMessageCount` and by design will
+ * not see a surface behind the compaction boundary, which is exactly the case
+ * this lookup exists to serve. The write scan in {@link markSurfaceCompleted}
+ * is likewise unbounded, so the two stay consistent.
+ *
+ * Hits are deliberately not memoized into `conversation.surfaceState`; see
+ * `runtime/routes/surface-content-routes.ts` for why that shared map must not
+ * absorb scan results.
+ */
+export function findPersistedSurfaceType(
+  conversationId: string,
+  surfaceId: string,
+): string | undefined {
+  try {
+    const rows = getMessages(conversationId);
+    for (let r = rows.length - 1; r >= 0; r--) {
+      const parsed: unknown[] = rows[r].content;
+      for (const pb of parsed) {
+        const rb = pb as Record<string, unknown>;
+        if (rb.type === "ui_surface" && rb.surfaceId === surfaceId) {
+          return typeof rb.surfaceType === "string"
+            ? rb.surfaceType
+            : undefined;
+        }
+      }
+    }
+  } catch (err) {
+    log.warn(
+      { err, conversationId, surfaceId },
+      "Failed to read persisted surface type from DB",
+    );
+  }
+  return undefined;
+}
+
+/**
  * Complete a `ui_surface` card and notify live clients, addressed only by
  * conversation + surface id.
  *
