@@ -33,6 +33,7 @@ const {
   buildClientLogsFile,
   MAX_BUNDLE_DECOMPRESSED_BYTES,
   MAX_MAIN_LOG_BYTES,
+  MAX_EXTRA_LOG_BYTES,
 } = await import("@/components/share-feedback-modal");
 
 afterEach(() => {
@@ -266,7 +267,7 @@ describe("buildClientLogsFile bundle budget", () => {
     expect(members.has("electron-diagnostics.json")).toBe(true);
   });
 
-  test("holds the total budget for a member with no per-member ceiling", async () => {
+  test("an oversized attached log cannot starve the members behind it", async () => {
     const padding = "x".repeat(127);
     const lineCount = Math.ceil(
       (MAX_BUNDLE_DECOMPRESSED_BYTES + 4 * 1024 * 1024) / 128,
@@ -274,6 +275,8 @@ describe("buildClientLogsFile bundle budget", () => {
     const oversized = Array.from({ length: lineCount }, () => padding).join(
       "\n",
     );
+    const mainLog = "2026-08-03 12:00:00 [info] ready\n";
+    stubElectronShell(mainLog);
 
     const { tar, members } = await buildBundle({
       extraLogFiles: [{ filename: "doctor-session.txt", contents: oversized }],
@@ -281,10 +284,26 @@ describe("buildClientLogsFile bundle budget", () => {
 
     expect(tar.length).toBeLessThanOrEqual(MAX_BUNDLE_DECOMPRESSED_BYTES);
 
+    const doctorLog = members.get("doctor-session.txt");
+    expect(doctorLog).toBeDefined();
+    expect(doctorLog!.length).toBeLessThanOrEqual(MAX_EXTRA_LOG_BYTES);
+
     const entry = readManifest(members).entries.find(
       (e) => e.filename === "doctor-session.txt",
     );
     expect(entry?.status).toBe("truncated");
     expect(entry!.included_bytes).toBeLessThan(entry!.original_bytes);
+
+    // The members offered after the attached log still make it into the
+    // bundle, whole.
+    expect(members.has("electron-diagnostics.json")).toBe(true);
+    expect(new TextDecoder().decode(members.get("electron-main-logs.txt")!)).toBe(
+      mainLog,
+    );
+    expect(
+      readManifest(members)
+        .entries.filter((e) => e.filename !== "doctor-session.txt")
+        .every((e) => e.status === "included"),
+    ).toBe(true);
   });
 });

@@ -150,6 +150,13 @@ export const MAX_BUNDLE_DECOMPRESSED_BYTES = 40 * 1024 * 1024;
  */
 export const MAX_MAIN_LOG_BYTES = 12 * 1024 * 1024;
 
+/**
+ * Per-member ceiling for caller-supplied log files such as a Doctor session
+ * transcript. Generous for a session transcript while leaving the rest of the
+ * budget to the members offered after it.
+ */
+export const MAX_EXTRA_LOG_BYTES = 4 * 1024 * 1024;
+
 const TAR_BLOCK_SIZE = 512;
 
 /** Two zero blocks terminate a tar archive. */
@@ -317,6 +324,9 @@ function buildTruncatedTail(
  * dropped otherwise (JSON and nested archives are not meaningfully
  * truncatable). Either way the outcome is recorded so a reader can tell a
  * missing member from an empty one.
+ *
+ * Every truncatable member carries its own ceiling, so no single log can
+ * consume the budget the members behind it need.
  */
 function createBundleWriter(maxBytes: number) {
   const parts: Uint8Array[] = [];
@@ -359,8 +369,12 @@ function createBundleWriter(maxBytes: number) {
     /**
      * Add a chronological text member, tail-truncating it to fit the smaller
      * of `maxMemberBytes` and the remaining budget.
+     *
+     * `maxMemberBytes` is required: without a ceiling an oversized member
+     * truncates to the entire remaining budget and starves every member
+     * offered after it.
      */
-    addText(filename: string, text: string, maxMemberBytes = Infinity) {
+    addText(filename: string, text: string, maxMemberBytes: number) {
       const data = encoder.encode(text);
       const allowance = Math.min(
         maxMemberBytes,
@@ -565,13 +579,6 @@ export async function buildClientLogsFile(
   );
   bundle.addBytes("web-debug-flags.json", debugFlagBytes);
 
-  for (const file of extraLogFiles) {
-    const contents = file.contents.trim();
-    if (contents) {
-      bundle.addText(file.filename, contents);
-    }
-  }
-
   // Capture the live chat debug API state for indicator-stuck and
   // stuck-prompt reports. This is a separate file so support can diff it
   // against the main diagnostics snapshot without cross-contamination.
@@ -652,6 +659,13 @@ export async function buildClientLogsFile(
     // Debug API is best-effort; if it's missing or throws, don't block the
     // feedback submission. This can happen during SSR, in tests, or if the
     // chat page hasn't mounted the API yet.
+  }
+
+  for (const file of extraLogFiles) {
+    const contents = file.contents.trim();
+    if (contents) {
+      bundle.addText(file.filename, contents, MAX_EXTRA_LOG_BYTES);
+    }
   }
 
   if (isElectron() && window.vellum?.feedback) {
