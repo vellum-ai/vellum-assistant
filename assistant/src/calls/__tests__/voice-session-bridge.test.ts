@@ -78,6 +78,7 @@ import {
   cutFrontDoorContentAtVerdict,
   startVoiceTurn,
   TOOL_RESULT_PREVIEW_MAX_CHARS,
+  type VoiceTurnOptions,
 } from "../voice-session-bridge.js";
 import {
   escalatedContinuationRule,
@@ -119,6 +120,11 @@ interface FakeConversation {
     metadata?: Record<string, unknown>;
   }) => Promise<{ id: string }>;
   updateClient: (cb: unknown, reset?: boolean) => void;
+  handleConfirmationResponse: (
+    requestId: string,
+    decision: string,
+    opts?: { decisionContext?: string },
+  ) => void;
   runAgentLoop: (...args: unknown[]) => Promise<void>;
   abort: (reason?: unknown) => void;
   loadFromDb: () => Promise<void>;
@@ -136,6 +142,9 @@ function makeFakeConversation(opts: {
   onPersist?: (attempt: number) => void;
 }) {
   const waitForIdleCalls: WaitForIdleCall[] = [];
+  const confirmationDecisions: Array<{ requestId: string; decision: string }> =
+    [];
+  let clientCallback: ((msg: unknown) => Promise<void>) | undefined;
   let persistCount = 0;
   let lastPersistOpts:
     | { content: string; requestId: string; metadata?: Record<string, unknown> }
@@ -173,8 +182,14 @@ function makeFakeConversation(opts: {
     },
     // The install (reset falsy) / reset (reset true) pair marks a turn
     // taking ownership of the conversation vs a turn's cleanup releasing it.
-    updateClient: (_cb, reset) => {
+    updateClient: (cb, reset) => {
       opts.events?.push(reset ? "client:reset" : "client:install");
+      if (reset !== true) {
+        clientCallback = cb as (msg: unknown) => Promise<void>;
+      }
+    },
+    handleConfirmationResponse: (requestId, decision) => {
+      confirmationDecisions.push({ requestId, decision });
     },
     runAgentLoop: () => (opts.runAgentLoop ?? (async () => {}))(),
     abort: () => {},
@@ -186,6 +201,11 @@ function makeFakeConversation(opts: {
   return {
     conversation,
     waitForIdleCalls,
+    confirmationDecisions,
+    /** Deliver an event the way the conversation would, to the installed handler. */
+    emitToClient: async (msg: unknown) => {
+      await clientCallback?.(msg);
+    },
     persistCount: () => persistCount,
     lastPersistOpts: () => lastPersistOpts,
     setProcessingFlag: (value: boolean) => {
@@ -531,6 +551,90 @@ describe("startVoiceTurn channel capabilities", () => {
     const caps = installed();
     expect(caps?.channel).toBe("phone");
     expect(caps?.supportsDynamicUi).toBe(false);
+  });
+});
+
+describe("startVoiceTurn guardian approvals", () => {
+  function confirmationRequest(
+    toolName: string,
+    executionTarget?: "sandbox" | "host",
+  ) {
+    return {
+      type: "confirmation_request",
+      requestId: "req-1",
+      toolName,
+      input: {},
+      riskLevel: "medium",
+      allowlistOptions: [],
+      scopeOptions: [],
+      ...(executionTarget !== undefined ? { executionTarget } : {}),
+    };
+  }
+
+  async function runVoiceTurn(overrides: Partial<VoiceTurnOptions>) {
+    const fake = makeFakeConversation({ processing: false });
+    fakeConversation = fake.conversation;
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      trustContext: { trustClass: "guardian" },
+      ...overrides,
+    } as VoiceTurnOptions);
+    return fake;
+  }
+
+  // A live-voice call has a screen, so a tool that reaches the workspace or
+  // the host is put to the user rather than decided for them. This is the hole
+  // it closes: a guardian call used to allow every confirmation outright.
+  test("leaves a sensitive tool pending for the user to answer", async () => {
+    const fake = await runVoiceTurn({
+      userMessageChannel: "vellum",
+      userMessageInterface: "macos",
+    });
+
+    await fake.emitToClient(confirmationRequest("bash", "host"));
+
+    expect(fake.confirmationDecisions).toEqual([]);
+  });
+
+  // The tools that read or render were never the reason approval exists, and
+  // gating them would interrupt the conversation constantly.
+  test("still allows a tool with no sensitive reach", async () => {
+    const fake = await runVoiceTurn({
+      userMessageChannel: "vellum",
+      userMessageInterface: "macos",
+    });
+
+    await fake.emitToClient(confirmationRequest("ui_show", "sandbox"));
+
+    expect(fake.confirmationDecisions).toEqual([
+      { requestId: "req-1", decision: "allow" },
+    ]);
+  });
+
+  // There is no screen on a phone call, so a prompt there is a question nobody
+  // can answer.
+  test("a phone call keeps allowing sensitive tools outright", async () => {
+    const fake = await runVoiceTurn({ userMessageChannel: "phone" });
+
+    await fake.emitToClient(confirmationRequest("bash", "host"));
+
+    expect(fake.confirmationDecisions).toEqual([
+      { requestId: "req-1", decision: "allow" },
+    ]);
+  });
+
+  // Requests from the proxy and network prompters carry no target. Unknown
+  // reads as the more consequential of the two: a prompt the user did not need
+  // costs less than an unreviewed action on their machine.
+  test("prompts when the execution target is unknown", async () => {
+    const fake = await runVoiceTurn({
+      userMessageChannel: "vellum",
+      userMessageInterface: "macos",
+    });
+
+    await fake.emitToClient(confirmationRequest("bash"));
+
+    expect(fake.confirmationDecisions).toEqual([]);
   });
 });
 
