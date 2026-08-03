@@ -275,8 +275,10 @@ export function SubagentDetailPanel({
             onClick={handleBack}
             title={entry.label}
             // inline-flex: the `link` variant is `display: inline`, which can't
-            // constrain the label for truncation.
-            className="inline-flex min-w-0 shrink text-left text-[color:var(--content-default)]"
+            // constrain the label for truncation. border-0: the button base
+            // carries a 1px transparent border the raw crumb never had, which
+            // would grow the breadcrumb row by 2px.
+            className="inline-flex min-w-0 shrink border-0 text-left text-[color:var(--content-default)]"
           >
             <Typography
               variant="body-small-default"
@@ -461,7 +463,8 @@ export function SubagentDetailPanel({
                         />
                       }
                       // no-underline: this is a disclosure toggle, not a link.
-                      className="mt-1.5 inline-flex gap-1 text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)] hover:no-underline"
+                      // border-0: see the breadcrumb crumb above.
+                      className="mt-1.5 inline-flex gap-1 border-0 text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)] hover:no-underline"
                     >
                       <Typography variant="label-small-default">
                         {objectiveExpanded ? "Show less" : "Show more"}
