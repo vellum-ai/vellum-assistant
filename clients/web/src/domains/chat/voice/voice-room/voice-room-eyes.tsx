@@ -5,7 +5,10 @@
  * `resolveVoiceRoomLook` maps the assistant's avatar data to the look; the
  * {@link VoiceRoomColorLook} component plays the onboarding Introduction
  * step's entrance on mount, so opening the room reads as the avatar growing
- * from "on the screen" to BEING the screen:
+ * from "on the screen" to BEING the screen, unless the surface already has an
+ * entrance of its own, in which case the look is simply painted and rides it.
+ * Which one a surface gets is `voice-room-entrance.ts`'s call, arriving here as
+ * the `entrance` prop; the steps below describe the grow:
  *
  * 1. the room starts on a dark surface,
  * 2. the avatar's body shape springs from its small on-screen size up to
@@ -38,10 +41,15 @@
  * ambient-void look — what that look should become is an open design
  * question.
  *
- * Decorative: `aria-hidden`, `pointer-events-none`, reduced-motion safe (no
- * entrance, no parallax; the blink is a discrete squish, kept). Sized against
- * the window — the room is a `fixed inset-0` overlay, so the window IS its
- * box — unless a `viewport` override is passed (Storybook renders in a box).
+ * Decorative: `aria-hidden`, `pointer-events-none`, reduced-motion safe. It
+ * resolves to the presented entrance (no grow), and drops the parallax; the
+ * blink is a discrete squish, kept.
+ *
+ * Everything here is sized against the box it is given, not the window. The
+ * room is an inset panel on desktop (see `voice-room.tsx`), so "the screen" the
+ * avatar grows to BE is the panel; the room measures itself and passes that
+ * box, and Storybook passes its frame. `useViewportSize` remains only as the
+ * fallback for callers that render at full-viewport scale.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -62,7 +70,17 @@ import {
   type VoiceWaveStyle,
 } from "./voice-listening-waves";
 import type { VoiceAvatarVisual } from "./voice-avatar-state";
+import {
+  bodyGrowMotion,
+  colorFillMotion,
+  eyesEntranceMotion,
+  withReducedMotion,
+  type VoiceRoomEntrance,
+} from "./voice-room-entrance";
 import { createAmplitudeSmoother } from "./voice-motion";
+import { useReactiveEyes, type VoiceEyeReaction } from "./use-reactive-eyes";
+import { VoiceReactiveWaves } from "./voice-reactive-waves";
+import { VoiceMeshWaves } from "./voice-mesh-waves";
 import {
   VOICE_ROOM_CAPTION_TEXT,
   VOICE_ROOM_LOWER_ZONE_BOTTOM,
@@ -106,6 +124,73 @@ const EYE_STATE_SCALE: Record<VoiceAvatarVisual, number> = {
 };
 /** How long the eyes take to resize between states. */
 const EYE_RESIZE_MS = 500;
+
+/**
+ * Which audio gesture the eyes express per session phase. Only the two states
+ * that actually carry audio react: `listening` follows the mic, `responding`
+ * follows the TTS output. `thinking` is deliberately still — there is no sound
+ * to answer, and a reaction there would be animating noise.
+ */
+const EYE_REACTION: Record<VoiceAvatarVisual, VoiceEyeReaction> = {
+  idle: null,
+  listening: "listening",
+  thinking: null,
+  responding: "responding",
+  reconnecting: null,
+};
+
+/**
+ * Which wave band the room draws.
+ *
+ * `reactive` rebuilds the filled wave geometry every frame from a rolling
+ * history of the live amplitude, so the terrain is a record of what was
+ * actually said. `mesh` draws the same signal as a woven wireframe sheet —
+ * dozens of phase-shifted hairlines on a canvas, brightening where they cross.
+ * `sine` is the original fixed-geometry band, kept so the alternatives can be
+ * compared against it in Storybook — its silhouette is authored once at mount
+ * and only slid sideways, which is what made the room read as a static image.
+ */
+export type VoiceWaveEngine = "reactive" | "mesh" | "sine";
+
+/** Draw the listening band with whichever engine the caller selected. */
+function WaveBand({
+  engine,
+  waveStyle,
+  color,
+  peakOpacity,
+  opacityKnee,
+  ...props
+}: {
+  engine: VoiceWaveEngine;
+  getAmplitude: () => number;
+  waveStyle?: VoiceWaveStyle;
+  palette?: VoiceWavePalette;
+  placement?: VoiceWavePlacement;
+  /** Mesh-only: explicit ink, its opacity ceiling, and how fast that ceiling
+   *  is reached. See {@link BAND_VOICE}. */
+  color?: string;
+  peakOpacity?: number;
+  opacityKnee?: number;
+}) {
+  // The mesh is stroked hairlines by construction, so fill-vs-line does not
+  // apply to it; the filled bands in turn take their color from the palette
+  // CSS and have nowhere to put an explicit ink.
+  if (engine === "mesh") {
+    return (
+      <VoiceMeshWaves
+        {...props}
+        color={color}
+        peakOpacity={peakOpacity}
+        tuning={opacityKnee === undefined ? undefined : { opacityKnee }}
+      />
+    );
+  }
+  return engine === "reactive" ? (
+    <VoiceReactiveWaves waveStyle={waveStyle} {...props} />
+  ) : (
+    <VoiceListeningWaves waveStyle={waveStyle} {...props} />
+  );
+}
 /** State caption shown below the eyes, per visual (none for idle / connecting-
  *  side states, which the room's own connect label covers). */
 const EYE_STATE_CAPTION: Partial<Record<VoiceAvatarVisual, string>> = {
@@ -117,9 +202,18 @@ const EYE_STATE_CAPTION: Partial<Record<VoiceAvatarVisual, string>> = {
  *  eyes from this vertical center — onboarding's picker geometry. */
 const ENTER_FROM_SIZE = 200;
 const ENTER_FROM_CENTER_VH = 40;
-/** The room's own dark base, under the color fade (matches the ambient look's
- *  deep surface so the first frames read the same for both looks). */
-const DARK_SURFACE = "#17191C";
+/**
+ * The room's own dark base, under the color fade (matches the ambient look's
+ * deep surface so the first frames read the same for both looks).
+ *
+ * Exported as the surface any voice surface paints when the assistant has no
+ * character color to borrow, which is what `resolveVoiceRoomLook` returning
+ * null means: custom-image and "none" avatars. The minimized composer bar
+ * shares it so a colorless assistant minimizes into the same deep surface the
+ * room shows it on.
+ */
+export const VOICE_SURFACE_DARK = "#17191C";
+const DARK_SURFACE = VOICE_SURFACE_DARK;
 
 export interface VoiceRoomEyeArt {
   paths: { svgPath: string; color: string }[];
@@ -211,7 +305,11 @@ function windowSize(): { w: number; h: number } {
   return { w: window.innerWidth, h: window.innerHeight };
 }
 
-/** The window box, kept live on resize — the room is a full-viewport overlay. */
+/**
+ * The window box, kept live on resize. The fallback for callers that render at
+ * full-viewport scale. The room itself measures its own panel and passes it in
+ * as `viewport`; see `use-room-box.ts`.
+ */
 function useViewportSize(): { w: number; h: number } {
   const [size, setSize] = useState(windowSize);
   useEffect(() => {
@@ -232,13 +330,16 @@ export function VoiceRoomColorLook({
   visual = "idle",
   getAmplitude,
   getResponseAmplitude,
-  respondingStyle = "rings",
+  respondingStyle = "waves",
   eyePlacement = "center",
-  wavePlacement = "top",
+  wavePlacement = "bottom",
   wavePalette = "tone",
   waveStyle = "fill",
   showStateCaption = true,
+  captionEmphasis = "hidden",
   entryOrigin = null,
+  entrance: requestedEntrance = "grow",
+  waveEngine = "mesh",
   viewport,
 }: {
   look: VoiceRoomLook;
@@ -258,18 +359,29 @@ export function VoiceRoomColorLook({
   /** Show the state caption below the eyes. Off when the room's live captions
    *  are on — the transcript already names/fills that space. */
   showStateCaption?: boolean;
-  /** Viewport point the entrance grows from (the tapped control). Null → the
-   *  fixed screen-center origin. */
+  /** How prominent that caption is while audio flows. See {@link VoiceCaptionEmphasis}. */
+  captionEmphasis?: VoiceCaptionEmphasis;
+  /** Point the entrance grows from (the tapped control), in ROOM-LOCAL space.
+   *  the caller converts from the viewport point it captured. Null → the fixed
+   *  room-center origin. Unread when {@link entrance} is `"presented"`. */
   entryOrigin?: { x: number; y: number } | null;
-  /** Override the room box (Storybook renders in a box, not the full window). */
+  /** How the look introduces itself. See `voice-room-entrance.ts`. Defaults to
+   *  the grow; a surface with an entrance of its own passes `"presented"`. */
+  entrance?: VoiceRoomEntrance;
+  /** Which wave band to draw. See {@link VoiceWaveEngine}. */
+  waveEngine?: VoiceWaveEngine;
+  /** The room box to lay out against. The room measures its own panel and
+   *  passes it; omitted, this falls back to the window. */
   viewport?: { w: number; h: number };
 }) {
   const reduce = useReducedMotion();
   const measured = useViewportSize();
   const { w, h } = viewport ?? measured;
+  const entrance = withReducedMotion(requestedEntrance, reduce === true);
 
-  // Where the entrance grows from: the tapped control's viewport point, or the
-  // fixed picker-height screen center when none was captured (or in Storybook).
+  // Where the entrance grows from: the tapped control's point in room-local
+  // space, or the fixed picker-height room center when none was captured (or in
+  // Storybook).
   const origin = entryOrigin ?? {
     x: w / 2,
     y: (ENTER_FROM_CENTER_VH / 100) * h,
@@ -299,7 +411,11 @@ export function VoiceRoomColorLook({
   // user tapped. The body's rest center is the screen center (w/2, h/2), so it
   // starts offset by (origin − center) and slides to 0.
   const bodyGeometry = useMemo(() => {
-    if (!look.body) {
+    // A degenerate box (a not-yet-laid-out panel, a test renderer that reports
+    // no extent) would make `startScale` divide by zero and hand Motion an
+    // `Infinity` scale. Skip the body grow rather than animate garbage. The
+    // color fill still covers the room.
+    if (!look.body || w <= 0 || h <= 0) {
       return null;
     }
     const coverSize = 1.25 * Math.max(w, h);
@@ -331,14 +447,7 @@ export function VoiceRoomColorLook({
       <motion.div
         className="absolute inset-0"
         style={{ backgroundColor: look.bgHex }}
-        initial={reduce ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={
-          reduce
-            ? { opacity: 0 }
-            : { opacity: 0, transition: { duration: 0.2, ease: "easeIn" } }
-        }
-        transition={reduce ? { duration: 0 } : { duration: 0.6, delay: 0.35 }}
+        {...colorFillMotion(entrance)}
       />
 
       {/* Body — springs from "avatar on the screen" to covering it. */}
@@ -354,33 +463,7 @@ export function VoiceRoomColorLook({
             top: bodyGeometry.top,
             transformOrigin: "center",
           }}
-          initial={
-            reduce
-              ? false
-              : {
-                  scale: bodyGeometry.startScale,
-                  x: bodyGeometry.startX,
-                  y: bodyGeometry.startY,
-                }
-          }
-          animate={{ scale: 1, x: 0, y: 0 }}
-          // Close reverses the grow: the body shrinks back to its "avatar on the
-          // screen" size at the entry origin.
-          exit={
-            reduce
-              ? { opacity: 0 }
-              : {
-                  scale: bodyGeometry.startScale,
-                  x: bodyGeometry.startX,
-                  y: bodyGeometry.startY,
-                  transition: { duration: 0.4, ease: "easeIn" },
-                }
-          }
-          transition={
-            reduce
-              ? { duration: 0 }
-              : { type: "spring", stiffness: 78, damping: 18, mass: 1 }
-          }
+          {...bodyGrowMotion(entrance, bodyGeometry)}
         >
           <path d={look.body.svgPath} fill={look.bgHex} />
         </motion.svg>
@@ -402,11 +485,15 @@ export function VoiceRoomColorLook({
             exit={{ opacity: 0 }}
             transition={{ duration: reduce ? 0 : 0.3 }}
           >
-            <VoiceListeningWaves
+            <WaveBand
+              engine={waveEngine}
               getAmplitude={getAmplitude}
               waveStyle={waveStyle}
               palette={wavePalette}
               placement={wavePlacement}
+              color={BAND_VOICE.listening.color}
+              peakOpacity={BAND_VOICE.listening.peakOpacity}
+              opacityKnee={BAND_VOICE.listening.opacityKnee}
             />
           </motion.div>
         ) : null}
@@ -444,9 +531,11 @@ export function VoiceRoomColorLook({
           >
             <VoiceRespondingTreatment
               style={respondingStyle}
+              engine={waveEngine}
               getAmplitude={getResponseAmplitude ?? getAmplitude}
               waveStyle={waveStyle}
               wavePlacement={wavePlacement}
+              wavePalette={wavePalette}
               viewport={{ w, h }}
             />
           </motion.div>
@@ -458,15 +547,28 @@ export function VoiceRoomColorLook({
         placement={eyePlacement}
         viewport={{ w, h }}
         entranceOrigin={origin}
+        entrance={entrance}
         // The centered eyes never move — they express the state by size.
         sizeScale={sizeScale}
         // Reconnecting: fade the eyes back — presence dimmed while away.
         dimmed={visual === "reconnecting"}
+        // Audio reaction on top of the size tween: the eyes widen with the
+        // user's mic while listening and pulse with the assistant's own voice
+        // while responding, so they stay alive through a turn instead of
+        // holding one pose for its whole duration.
+        eyeReaction={EYE_REACTION[visual]}
+        getAmplitude={
+          visual === "responding"
+            ? (getResponseAmplitude ?? getAmplitude)
+            : getAmplitude
+        }
       />
 
       {/* State caption in the room's lower zone (unless the live captions are
           on — the assistant transcript occupies that zone instead). */}
-      {showStateCaption ? <VoiceStateCaption visual={visual} /> : null}
+      {showStateCaption ? (
+        <VoiceStateCaption visual={visual} emphasis={captionEmphasis} />
+      ) : null}
     </>
   );
 }
@@ -490,23 +592,96 @@ export function VoiceRoomColorLook({
  * Both looks share this anchor, so the caption reads in the same place
  * regardless of avatar type.
  */
-export function VoiceStateCaption({ visual }: { visual: VoiceAvatarVisual }) {
+/**
+ * How loudly the room states the phase in words.
+ *
+ * The caption existed to name beats the visuals could not. Every phase now has
+ * a band of its own — the mic at the ceiling, the reply at the floor, and the
+ * hand-off sweeping between them — so the words were repeating what the screen
+ * already showed while competing with the transcript for the same lower zone.
+ * `hidden` (the default) drops the caption and lets the animation carry the
+ * state alone; `muted` keeps it as a small dim label; `full` is the original
+ * weight.
+ *
+ * Applies uniformly across phases. It did once exempt `thinking`, back when
+ * that state had nothing but a dot triad and dropping its caption would have
+ * left a still, silent room — {@link VoiceThinkingBand} is what removed the
+ * need for the exception.
+ */
+export type VoiceCaptionEmphasis = "full" | "muted" | "hidden";
+
+/** Scale + opacity applied to the caption per emphasis, while audio flows. */
+const CAPTION_EMPHASIS: Record<
+  VoiceCaptionEmphasis,
+  { scale: number; opacity: number } | null
+> = {
+  full: { scale: 1, opacity: 1 },
+  muted: { scale: 0.72, opacity: 0.55 },
+  hidden: null,
+};
+
+/**
+ * How each voice's band is inked.
+ *
+ * Both sit on the floor. An earlier pass told them apart by *position* — the
+ * mic at the ceiling, the reply at the bottom — which read well but meant the
+ * room's whole composition rearranged itself twice a turn. Keeping both at the
+ * same edge and separating them by ink instead holds the layout still: the
+ * user's voice lifts a pale sheet off the floor, the assistant's answers in a
+ * darker one, and the eyes never have to share the frame with a band overhead.
+ *
+ * The two are deliberately not symmetric, because dark ink and pale ink do not
+ * behave the same way on a mid-tone background:
+ *
+ * - **Opacity ceiling.** Black at 0.2 is nowhere near "half as present" as
+ *   white at 0.4 — light-on-midtone is a far bigger luminance step than
+ *   dark-on-midtone at equal alpha, so the dark band needs a higher number to
+ *   land in the same perceptual place.
+ * - **`opacityKnee`.** The pale band's *silhouette* reads clearly, so opacity
+ *   can saturate early and let displacement carry the dynamics. The dark
+ *   band's silhouette is low-contrast, so opacity is doing most of the visible
+ *   work — saturating it early made the assistant's voice look like it had
+ *   stopped responding to amplitude at all. It stays closer to linear.
+ *
+ * Both still reach zero in silence, so the floor is empty between turns.
+ *
+ * Exported because every painted voice surface inks its band this way, not just
+ * the room: the fill is the avatar color, so a band tinted with the avatar
+ * accent is the fill's own hue and paints nothing visible on it. The minimized
+ * composer block borrows both entries for the same reason the room has them.
+ */
+export const BAND_VOICE = {
+  listening: { color: "#FFFFFF", peakOpacity: 0.4, opacityKnee: 3 },
+  responding: { color: "#000000", peakOpacity: 0.45, opacityKnee: 1.3 },
+} as const;
+
+export function VoiceStateCaption({
+  visual,
+  emphasis = "hidden",
+}: {
+  visual: VoiceAvatarVisual;
+  emphasis?: VoiceCaptionEmphasis;
+}) {
   const reduce = useReducedMotion();
   const label = EYE_STATE_CAPTION[visual];
+  const treatment = CAPTION_EMPHASIS[emphasis];
   return (
     <AnimatePresence mode="wait">
-      {label ? (
+      {label && treatment ? (
         <motion.div
           key={label}
           data-testid="voice-state-caption"
+          data-emphasis={emphasis}
           aria-hidden="true"
           className="pointer-events-none absolute left-1/2 z-[1] -translate-x-1/2 text-center font-medium tracking-wide text-[var(--room-fg-muted,rgba(255,255,255,0.7))]"
           style={{
             bottom: VOICE_ROOM_LOWER_ZONE_BOTTOM,
-            fontSize: VOICE_ROOM_CAPTION_TEXT,
+            // Scale the type rather than transform the box, so the caption
+            // stays on the lower zone's baseline instead of drifting off it.
+            fontSize: `calc(${VOICE_ROOM_CAPTION_TEXT} * ${treatment.scale})`,
           }}
           initial={reduce ? false : { opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={{ opacity: treatment.opacity, y: 0 }}
           exit={reduce ? { opacity: 0 } : { opacity: 0, y: -6 }}
           transition={{ duration: reduce ? 0 : 0.28, ease: "easeOut" }}
         >
@@ -591,7 +766,18 @@ function VoiceThinkingIndicator({
  * - `pulse`    — the whole color field brightens gently on speech peaks.
  * All ride the TTS-output amplitude and tint from the room foreground tone.
  */
-export type VoiceRespondingStyle = "rings" | "halo" | "waveform" | "pulse";
+/**
+ * How the assistant's voice is drawn while it speaks.
+ *
+ * `waves` is the spatial counterpart to the listening band: the user's voice
+ * arrives from the ceiling, the assistant's answers from the floor, so the two
+ * halves of a turn own opposite edges of the room and the eyes sit on the axis
+ * between them. The rest are earlier sketches — `rings` and `halo` radiate from
+ * behind the eyes, `pulse` lightens the whole field, `waveform` reuses the
+ * listening band at whatever placement the room is already using.
+ */
+export type VoiceRespondingStyle =
+  "waves" | "rings" | "halo" | "waveform" | "pulse";
 
 /**
  * Smoothed output-amplitude → `--resp-amp` on a ref, for the responding
@@ -637,15 +823,19 @@ function useRespondingAmp(getAmplitude?: () => number) {
 
 function VoiceRespondingTreatment({
   style,
+  engine,
   getAmplitude,
   waveStyle,
   wavePlacement,
+  wavePalette,
   viewport,
 }: {
   style: VoiceRespondingStyle;
+  engine: VoiceWaveEngine;
   getAmplitude?: () => number;
   waveStyle: VoiceWaveStyle;
   wavePlacement: VoiceWavePlacement;
+  wavePalette: VoiceWavePalette;
   viewport: { w: number; h: number };
 }) {
   const ampRef = useRespondingAmp(getAmplitude);
@@ -654,10 +844,31 @@ function VoiceRespondingTreatment({
   // and resolve against the window) so proportions match app and Storybook.
   const M = Math.min(viewport.w, viewport.h);
 
+  if (style === "waves") {
+    // The mirror of listening: the same band, the same engine, anchored to the
+    // floor instead of the ceiling and fed the TTS output rather than the mic.
+    // Nothing about it is a different visual language — that is the point. The
+    // room says who is speaking by *where* the energy is, not by switching
+    // metaphors mid-turn.
+    return getAmplitude ? (
+      <WaveBand
+        engine={engine}
+        getAmplitude={getAmplitude}
+        waveStyle={waveStyle}
+        palette={wavePalette}
+        placement="bottom"
+        color={BAND_VOICE.responding.color}
+        peakOpacity={BAND_VOICE.responding.peakOpacity}
+        opacityKnee={BAND_VOICE.responding.opacityKnee}
+      />
+    ) : null;
+  }
+
   if (style === "waveform") {
     // The assistant's own voice — reuse the centered band, output-driven.
     return getAmplitude ? (
-      <VoiceListeningWaves
+      <WaveBand
+        engine={engine}
         getAmplitude={getAmplitude}
         waveStyle={waveStyle}
         palette="tone"
@@ -750,9 +961,10 @@ function VoiceRespondingTreatment({
 
 /**
  * The `rings` responding treatment as a self-contained layer: the concentric
- * rings radiating outward from screen center on the TTS-output amplitude, sized
- * against the live window (pass `viewport` to size against a box instead —
- * Storybook). Exported for the void look, which renders it behind the centered
+ * rings radiating outward from the room's center on the TTS-output amplitude.
+ * Pass `viewport` to size against the room's own box (the room passes its
+ * measured panel; Storybook its frame); omitted, it falls back to the live
+ * window. Exported for the void look, which renders it behind the centered
  * avatar so a custom avatar emits the same rings the eyes do in the color look.
  */
 export function VoiceRespondingRings({
@@ -761,7 +973,7 @@ export function VoiceRespondingRings({
 }: {
   /** TTS (output) amplitude source (0–1) — drives the rings' presence. */
   getAmplitude?: () => number;
-  /** Override the room box (Storybook renders in a box, not the full window). */
+  /** The room box to size against; omitted, falls back to the window. */
   viewport?: { w: number; h: number };
 }) {
   const measured = useViewportSize();
@@ -769,9 +981,12 @@ export function VoiceRespondingRings({
     <VoiceRespondingTreatment
       style="rings"
       getAmplitude={getAmplitude}
-      // waveStyle/wavePlacement are only read by the `waveform` style; inert here.
+      // engine/waveStyle/wavePlacement/wavePalette are only read by the band
+      // styles (`waves`, `waveform`); inert for the rings.
+      engine="reactive"
       waveStyle="fill"
       wavePlacement="top"
+      wavePalette="tone"
       viewport={viewport ?? measured}
     />
   );
@@ -814,15 +1029,29 @@ export function VoiceRoomEyes({
   viewport,
   placement = "center",
   entranceOrigin,
+  entrance: requestedEntrance = "grow",
   sizeScale = 1,
   dimmed = false,
+  eyeReaction = null,
+  getAmplitude,
 }: {
   art: VoiceRoomEyeArt;
   /** The room box the eyes are framed in (the caller's live viewport size). */
   viewport: { w: number; h: number };
   placement?: VoiceEyePlacement;
-  /** Viewport point the eyes grow from on entrance. Defaults to screen center. */
+  /** Room-local point the eyes grow from on entrance. Defaults to room center.
+   *  Unread when {@link entrance} is `"presented"`. */
   entranceOrigin?: { x: number; y: number };
+  /** How the eyes arrive. See `voice-room-entrance.ts`. */
+  entrance?: VoiceRoomEntrance;
+  /**
+   * Audio gesture the eyes express — `listening` widens them with the mic,
+   * `responding` pulses them with the assistant's own voice, `null` holds them
+   * still. See `use-reactive-eyes.ts`.
+   */
+  eyeReaction?: VoiceEyeReaction;
+  /** Amplitude source (0–1) for {@link eyeReaction}, polled in a rAF loop. */
+  getAmplitude?: () => number;
   /** Per-state size, as a scale of the rest geometry — tweened on change so the
    *  eyes resize smoothly (they never move). See {@link EYE_STATE_SCALE}. */
   sizeScale?: number;
@@ -831,18 +1060,29 @@ export function VoiceRoomEyes({
 }) {
   const reduce = useReducedMotion();
   const { w, h } = viewport;
-  const playEntrance = !reduce;
+  const entrance = withReducedMotion(requestedEntrance, reduce === true);
+  const playEntrance = entrance === "grow";
+  const reactiveRef = useReactiveEyes(eyeReaction, getAmplitude);
 
-  const [pointer, setPointer] = useState({ x: 0, y: 0 });
+  // The parallax offset and the blink are decorative, so both drive the DOM
+  // through a ref rather than React state: a pointer-rate or frame-rate
+  // updater in the commit stream is what walks React's nested-update counter
+  // to its limit. See docs/CONVENTIONS.md, "Keep decorative animation out of
+  // the commit stream". The rendered values below stay constant so a re-render
+  // never clobbers the imperative write.
+  const parallaxRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (reduce) {
       return;
     }
     const onMove = (e: MouseEvent) => {
-      setPointer({
-        x: (e.clientX / window.innerWidth - 0.5) * 2,
-        y: (e.clientY / window.innerHeight - 0.5) * 2,
-      });
+      const node = parallaxRef.current;
+      if (!node) {
+        return;
+      }
+      const x = (e.clientX / window.innerWidth - 0.5) * 2;
+      const y = (e.clientY / window.innerHeight - 0.5) * 2;
+      node.style.transform = `translate(${x * CURSOR_MAX_X}px, ${y * CURSOR_MAX_Y}px)`;
     };
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
@@ -850,7 +1090,14 @@ export function VoiceRoomEyes({
 
   // Two settle blinks once the entrance lands, then a slow random idle blink —
   // onboarding's entrance blink choreography.
-  const [blinking, setBlinking] = useState(false);
+  const eyelidsRef = useRef<SVGGElement | null>(null);
+  const setBlink = useCallback((closed: boolean) => {
+    const node = eyelidsRef.current;
+    if (node) {
+      node.style.transform = closed ? "scaleY(0.1)" : "scaleY(1)";
+    }
+  }, []);
+
   const [entranceDone, setEntranceDone] = useState(!playEntrance);
   useEffect(() => {
     if (reduce || !entranceDone) {
@@ -862,12 +1109,12 @@ export function VoiceRoomEyes({
       if (cancelled) {
         return;
       }
-      setBlinking(true);
+      setBlink(true);
       t = setTimeout(() => {
         if (cancelled) {
           return;
         }
-        setBlinking(false);
+        setBlink(false);
         t = setTimeout(next, 140);
       }, 140);
     };
@@ -875,18 +1122,21 @@ export function VoiceRoomEyes({
       t = setTimeout(() => blink(idle), 2500 + Math.random() * 4000);
     };
     blink(() => blink(idle));
+    // Leaving the lids open on teardown keeps a torn-down or re-armed loop
+    // from stranding the eyes mid-blink.
     return () => {
       cancelled = true;
       clearTimeout(t);
+      setBlink(false);
     };
-  }, [reduce, entranceDone]);
+  }, [reduce, entranceDone, setBlink]);
 
   // Poke-the-eyes delight: clicking the eyes fires a single blink and a quick
-  // springy wobble that settles back. The blink drives the same `blinking`
-  // state the idle loop uses (its own timeout is tracked so rapid clicks don't
-  // leak), and the wobble rides a dedicated controls-driven layer so it can't
-  // fight the entrance keyframes or the per-state scale tween. Reduced motion
-  // keeps the discrete blink and skips the wobble.
+  // springy wobble that settles back. The blink goes through the same
+  // `setBlink` the idle loop uses (its own timeout is tracked so rapid clicks
+  // don't leak), and the wobble rides a dedicated controls-driven layer so it
+  // can't fight the entrance keyframes or the per-state scale tween. Reduced
+  // motion keeps the discrete blink and skips the wobble.
   const wobble = useAnimationControls();
   const manualBlinkTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -898,11 +1148,11 @@ export function VoiceRoomEyes({
     [],
   );
   const reactToClick = useCallback(() => {
-    setBlinking(true);
+    setBlink(true);
     if (manualBlinkTimeout.current) {
       clearTimeout(manualBlinkTimeout.current);
     }
-    manualBlinkTimeout.current = setTimeout(() => setBlinking(false), 140);
+    manualBlinkTimeout.current = setTimeout(() => setBlink(false), 140);
     if (reduce) {
       return;
     }
@@ -912,7 +1162,7 @@ export function VoiceRoomEyes({
       rotate: [0, -2.5, 1.5, 0],
       transition: { duration: 0.5, ease: "easeOut" },
     });
-  }, [reduce, wobble]);
+  }, [reduce, wobble, setBlink]);
 
   const originX = entranceOrigin?.x ?? w / 2;
   const originY = entranceOrigin?.y ?? (ENTER_FROM_CENTER_VH / 100) * h;
@@ -953,43 +1203,7 @@ export function VoiceRoomEyes({
         height: geometry.eyesH,
         transformOrigin: "center",
       }}
-      initial={
-        playEntrance
-          ? { x: geometry.startX, y: geometry.startY, scale: 0.35 }
-          : false
-      }
-      // Play the grow-in keyframes only until the entrance lands, then hold a
-      // stable static target. Otherwise every re-render (a `visual`/`sizeScale`
-      // change) hands Motion a fresh keyframe array and it replays part of the
-      // entrance — the eyes lurch toward the origin and snap back, fighting the
-      // smooth per-state resize.
-      animate={
-        playEntrance && !entranceDone
-          ? {
-              x: [geometry.startX, 0, 0],
-              y: [geometry.startY, geometry.dipY, 0],
-              scale: [0.35, 1, 1],
-            }
-          : { x: 0, y: 0, scale: 1 }
-      }
-      // Close reverses the grow: the eyes shrink back to the entry origin
-      // alongside the body, so the whole avatar shape collapses to the point.
-      exit={
-        reduce
-          ? { opacity: 0 }
-          : {
-              x: geometry.startX,
-              y: geometry.startY,
-              scale: 0.35,
-              opacity: 0,
-              transition: { duration: 0.4, ease: "easeIn" },
-            }
-      }
-      transition={
-        playEntrance && !entranceDone
-          ? { duration: 1, times: [0, 0.7, 1], ease: "easeInOut" }
-          : { duration: 0 }
-      }
+      {...eyesEntranceMotion(entrance, geometry, entranceDone)}
       onAnimationComplete={() => setEntranceDone(true)}
     >
       {/* Per-state size: the eyes stay put and resize, on the same motion tween
@@ -1029,29 +1243,44 @@ export function VoiceRoomEyes({
                 cursor — a few px only, so they stay visually centered on the
                 room's spine (see CURSOR_MAX_X / CURSOR_MAX_Y). */}
             <div
+              ref={parallaxRef}
+              data-testid="voice-room-eyes-parallax"
               style={{
-                transform: `translate(${pointer.x * CURSOR_MAX_X}px, ${pointer.y * CURSOR_MAX_Y}px)`,
+                transform: "translate(0px, 0px)",
                 transition: "transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)",
               }}
             >
-              <svg
-                viewBox={`${art.bbox.x} ${art.bbox.y} ${art.bbox.w} ${art.bbox.h}`}
-                width={geometry.eyesW}
-                height={geometry.eyesH}
-                style={{ overflow: "visible", display: "block" }}
+              {/* Audio reaction: its own layer so the per-frame amplitude
+                  transform composes with the blink squish below and the size
+                  tween above instead of overwriting either. */}
+              <div
+                ref={reactiveRef}
+                className="voice-room-eyes-reactive"
+                data-eye-reaction={eyeReaction ?? undefined}
               >
-                <g
-                  style={{
-                    transform: blinking ? "scaleY(0.1)" : "scaleY(1)",
-                    transformOrigin: `${cx}px ${cy}px`,
-                    transition: "transform 0.14s ease-in-out",
-                  }}
+                <svg
+                  viewBox={`${art.bbox.x} ${art.bbox.y} ${art.bbox.w} ${art.bbox.h}`}
+                  width={geometry.eyesW}
+                  height={geometry.eyesH}
+                  style={{ overflow: "visible", display: "block" }}
                 >
-                  {art.paths.map((p, i) => (
-                    <path key={i} d={p.svgPath} fill={p.color} />
-                  ))}
-                </g>
-              </svg>
+                  {/* Eyelids are driven imperatively (LUM-2927) — the blink
+                      must not re-render this tree, and neither must the audio
+                      reaction on the wrapper above it. */}
+                  <g
+                    ref={eyelidsRef}
+                    style={{
+                      transform: "scaleY(1)",
+                      transformOrigin: `${cx}px ${cy}px`,
+                      transition: "transform 0.14s ease-in-out",
+                    }}
+                  >
+                    {art.paths.map((p, i) => (
+                      <path key={i} d={p.svgPath} fill={p.color} />
+                    ))}
+                  </g>
+                </svg>
+              </div>
             </div>
           </motion.div>
         </div>

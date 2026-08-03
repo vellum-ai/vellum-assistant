@@ -21,7 +21,7 @@ let getSessionFailStatus: number | undefined = 401;
 let getSessionGates: Array<() => void> | null = null;
 
 let mockIsGatewayAuth = false;
-let mockIsLocalMode = false;
+let mockIsLocalClient = false;
 let mockIsRemoteGatewayMode = false;
 // The assistant `getSelectedAssistant()` resolves; `undefined` means none selected.
 let mockSelectedAssistant: { assistantId: string; cloud: string } | undefined;
@@ -30,6 +30,11 @@ let mockPrimeError: Error | null = null;
 let mockGatewayToken: string | null = null;
 const setSelectedAssistantMock = mock(async (_id: string | null) => {});
 const primeLocalGatewayConnectionMock = mock(async () => {
+  if (mockPrimeError) {
+    throw mockPrimeError;
+  }
+});
+const primeLocalGatewayConnectionWithStartupRetryMock = mock(async () => {
   if (mockPrimeError) {
     throw mockPrimeError;
   }
@@ -189,7 +194,7 @@ mock.module("@/lib/auth/remote-gateway-session", () => ({
 }));
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => mockIsLocalMode,
+  isLocalClient: () => mockIsLocalClient,
   isRemoteGatewayMode: () => mockIsRemoteGatewayMode,
   isLocalAssistant: (a: { cloud?: string }) => a.cloud === "local",
   isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
@@ -197,6 +202,8 @@ mock.module("@/lib/local-mode", () => ({
   getLocalAssistants: () => [],
   getSelectedAssistant: () => mockSelectedAssistant,
   primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
+  primeLocalGatewayConnectionWithStartupRetry:
+    primeLocalGatewayConnectionWithStartupRetryMock,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
@@ -374,7 +381,7 @@ beforeEach(() => {
   localStorage.removeItem("device:share_diagnostics");
   localStorage.removeItem("device:diagnostics_reporting");
   mockIsGatewayAuth = false;
-  mockIsLocalMode = false;
+  mockIsLocalClient = false;
   mockIsRemoteGatewayMode = false;
   mockSelectedAssistant = undefined;
   mockPlatformAssistants = [];
@@ -385,6 +392,7 @@ beforeEach(() => {
   mockPrimeError = null;
   setSelectedAssistantMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
+  primeLocalGatewayConnectionWithStartupRetryMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   ensureGatewayTokenMock.mockClear();
   refreshRemoteGatewaySessionMock.mockClear();
@@ -509,7 +517,7 @@ describe("auth store onboarding flag reconciliation", () => {
     // The user had also signed into the platform; the platform session now
     // settles negative (401). The local session stays authenticated, but the
     // stale platform user and "present" status are cleared.
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockIsGatewayAuth = true; // isGatewayAuthEnabled() === true
     mockGatewayToken = null; // isGatewayAuthMode() === false (token not minted)
     sessionUser = null; // platform probe settles 401
@@ -530,7 +538,7 @@ describe("auth store onboarding flag reconciliation", () => {
     // Mid cold-start hatch: gateway enabled, token not minted, session not yet
     // established. A settled 401 must not promote to authenticated — the gateway
     // settles the session once its token mints (via connectLocalAssistant).
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockIsGatewayAuth = true;
     mockGatewayToken = null;
     sessionUser = null;
@@ -549,7 +557,7 @@ describe("auth store onboarding flag reconciliation", () => {
     // A local user who also signs into the platform (e.g. ProviderCallbackPage
     // after an allauth login) must have the successful probe update the store,
     // even while the gateway token isn't minted.
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockIsGatewayAuth = true;
     mockGatewayToken = null;
     sessionUser = { id: "user-1", email: "user@example.com" };
@@ -566,7 +574,7 @@ describe("auth store onboarding flag reconciliation", () => {
   });
 
   test("successful local platform probe bootstraps the selected local assistant identity", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockIsGatewayAuth = true;
     mockGatewayToken = "access-token";
     mockSelectedAssistant = { assistantId: "local-a", cloud: "local" };
@@ -576,6 +584,39 @@ describe("auth store onboarding flag reconciliation", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(bootstrapLocalAssistantPlatformIdentityMock).toHaveBeenCalledWith();
+  });
+
+  test("initSession restores the local gateway session through the startup-retry prime", async () => {
+    // The boot restore must ride out the gateway's reboot startup window rather
+    // than the bare prime, so a transient "starting" failure doesn't drop the
+    // persisted local assistant to the recovery controls.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+
+    await useAuthStore.getState().initSession();
+
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).toHaveBeenCalledTimes(1);
+    expect(primeLocalGatewayConnectionMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("gateway-local");
+  });
+
+  test("initSession settles unauthenticated when the startup-retry prime is exhausted", async () => {
+    // After the ride-out budget is spent the prime still throws; boot falls
+    // through to the chooser exactly as before.
+    mockIsLocalClient = true;
+    mockIsGatewayAuth = true;
+    mockPrimeError = new Error("Gateway token request failed: 401");
+
+    await useAuthStore.getState().initSession();
+
+    expect(
+      primeLocalGatewayConnectionWithStartupRetryMock,
+    ).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(useAuthStore.getState().user).toBeNull();
   });
 
   test("initSession uses server consent when server has a consent record", async () => {
@@ -1370,7 +1411,7 @@ describe("auth store onboarding flag reconciliation", () => {
   });
 
   test("initSession fetches server consent for local-mode platform sessions", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     sessionUser = { id: "user-1", email: "user@example.com" };
     mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
     mockFetchConsentResult = {
@@ -1416,7 +1457,7 @@ describe("auth store onboarding flag reconciliation", () => {
     // callback) must re-sync managed assistants into the lockfile — not only
     // cold `initSession` — so the macOS tray and CLI don't keep a stale list
     // until the next full boot.
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     sessionUser = { id: "user-3", email: "user@example.com" };
     mockListAssistantsResult = {
       ok: true,
@@ -1449,7 +1490,7 @@ describe("auth store onboarding flag reconciliation", () => {
 
   test("refreshSession skips lockfile sync outside local mode", async () => {
     // Platform mode has no lockfile host — the sync must not run there.
-    mockIsLocalMode = false;
+    mockIsLocalClient = false;
     sessionUser = { id: "user-4", email: "user@example.com" };
     mockListAssistantsResult = {
       ok: true,
@@ -1554,7 +1595,7 @@ describe("platform session probe resolution", () => {
   test("a re-run gateway probe retains the last status until it settles", async () => {
     mockIsGatewayAuth = true;
     mockGatewayToken = "access-token";
-    mockIsLocalMode = false;
+    mockIsLocalClient = false;
     sessionUser = { id: "user-1", email: "user@example.com" };
     useAuthStore.setState({ platformSession: "absent" });
 
@@ -1580,7 +1621,7 @@ describe("platform session probe resolution", () => {
   test("a stale probe completing after a newer one does not change status", async () => {
     mockIsGatewayAuth = true;
     mockGatewayToken = "access-token";
-    mockIsLocalMode = false;
+    mockIsLocalClient = false;
     sessionUser = { id: "user-1", email: "user@example.com" };
     useAuthStore.setState({ platformSession: "absent" });
 
@@ -1660,7 +1701,7 @@ describe("biometric session recovery", () => {
 
 describe("connectLocalAssistant", () => {
   test("primes the connection BEFORE selecting the assistant, then logs in", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPlatformAssistants = [];
     // Prime must complete before the selection write becomes observable —
     // the lifecycle's selection subscription republishes the connection
@@ -1691,7 +1732,7 @@ describe("connectLocalAssistant", () => {
     // the already-selected assistant — the common case after guardian-token
     // repair retries the same assistant — would otherwise leave the active id
     // stale, so `connectLocalAssistant` must drive `checkAssistant()` itself.
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPlatformAssistants = [];
     // setSelectedAssistant is a no-op write here (already selected); the only
     // thing that publishes active state is the explicit checkAssistant call.
@@ -1703,7 +1744,7 @@ describe("connectLocalAssistant", () => {
   });
 
   test("bootstraps a newly connected local assistant when already signed into the platform", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPlatformAssistants = [];
     useAuthStore.setState({
       platformSession: "present",
@@ -1718,7 +1759,7 @@ describe("connectLocalAssistant", () => {
   });
 
   test("rethrows the prime failure without selecting or marking the session logged in", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPrimeError = new Error("Guardian token not found");
 
     await expect(
@@ -1863,7 +1904,7 @@ describe("offline session restore (LUM-2412)", () => {
   });
 
   test("local-mode platform-assistants boot also restores from cache on transport failure", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
     getSessionThrows = true;
     mockElectronSessionToken = "tok-1";
@@ -1929,7 +1970,7 @@ describe("offline session restore (LUM-2412)", () => {
 // `kind` separates a real platform account from synthetic local gateway access.
 describe("identity kind (platform vs local gateway access)", () => {
   test("a local gateway session is kind 'local' and not a platform identity, but keeps its stable id", async () => {
-    mockIsLocalMode = true;
+    mockIsLocalClient = true;
     mockPlatformAssistants = [];
 
     await useAuthStore.getState().initSession();

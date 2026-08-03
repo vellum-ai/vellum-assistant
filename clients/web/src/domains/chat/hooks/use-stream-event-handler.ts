@@ -52,6 +52,7 @@ import {
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import {
   handleUsageUpdate,
+  handleContextWindowUsage,
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
@@ -59,6 +60,7 @@ import {
   handleMessageQueued,
   handleMessageDequeued,
   handleMessageQueuedDeleted,
+  handleMessageRequeued,
   handleMessageRequestComplete,
 } from "@/domains/chat/utils/stream-handlers/queue-handlers";
 import {
@@ -322,6 +324,11 @@ export function useStreamEventHandler(
         case "ui_surface_show":
           handleUISurfaceShow(event, ctx);
           break;
+        // A ui_show whose input is still streaming announced the surface type
+        // it will produce. The placeholder marker folds onto the assistant row
+        // in the rolling-snapshot reducer; there is no turn state to move.
+        case "ui_surface_pending":
+          break;
         case "ui_surface_update":
           handleUISurfaceUpdate(event, ctx);
           break;
@@ -356,6 +363,9 @@ export function useStreamEventHandler(
         case "usage_update":
           handleUsageUpdate(event, ctx);
           break;
+        case "context_window_usage":
+          handleContextWindowUsage(event, ctx);
+          break;
         // Per-call usage deltas. The top-level chat surface reads running
         // totals from `usage_update`; per-call deltas are only consumed by
         // subagent surfaces via the `subagent_event` envelope.
@@ -387,6 +397,9 @@ export function useStreamEventHandler(
           break;
         case "message_dequeued":
           handleMessageDequeued(event, ctx);
+          break;
+        case "message_requeued":
+          handleMessageRequeued(event, ctx);
           break;
         case "message_queued_deleted":
           handleMessageQueuedDeleted(event, ctx);

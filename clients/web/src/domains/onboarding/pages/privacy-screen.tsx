@@ -22,7 +22,7 @@ import {
   readCheckoutIntent,
 } from "@/lib/billing/checkout-intent";
 import { buildCustomCheckoutSearch } from "@/lib/billing/custom-checkout-params";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalClient } from "@/lib/local-mode";
 import { postCheckoutHatchReturnTo } from "@/lib/navigation/navigation-resolver";
 import {
   usePrivacyConsent,
@@ -110,7 +110,7 @@ export function PrivacyScreen() {
     // then redirects into the research flow. Vellum-Cloud goes straight to
     // research (managed background hatch).
     const isLocalHatch =
-      isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+      isLocalClient() && hostingParam !== null && hostingParam !== "vellum-cloud";
     const destination = onboardingDestinationAfterConsent({
       isLocalHatch,
     });
@@ -245,7 +245,7 @@ export function PrivacyScreen() {
             fullWidth
             onClick={() =>
               navigate(
-                isLocalMode()
+                isLocalClient()
                   ? routes.onboarding.hosting
                   : routes.onboarding.start,
               )

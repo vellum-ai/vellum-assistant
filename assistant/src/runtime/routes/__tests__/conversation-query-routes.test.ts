@@ -50,7 +50,7 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
   },
 }));
 
-import { loadRawConfig } from "../../../config/loader.js";
+import { getConfig, loadRawConfig } from "../../../config/loader.js";
 import { LLMConfigBase } from "../../../config/schemas/llm.js";
 import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
 import {
@@ -1506,6 +1506,121 @@ describe("call-site override tuning backfill", () => {
       body: { llm: { callSites: { recall: null } } },
     });
     expect(savedCallSites().recall).toBeUndefined();
+  });
+});
+
+describe("sparse services.stt patch provider seeding", () => {
+  const configPatchRoute = ROUTES.find(
+    (r) => r.operationId === "config_patch",
+  )!;
+
+  const savedServices = () =>
+    (loadRawConfig().services ?? {}) as Record<
+      string,
+      Record<string, unknown> | undefined
+    >;
+
+  beforeEach(() => {
+    // No services.stt block: exactly the sparse state where the web
+    // language picker's hot-apply patch would otherwise persist a
+    // provider-less stt block. The tts block is the canary for the
+    // LUM-2758 failure family (a validation reset wipes it too).
+    rawConfigFixture = {
+      services: { tts: { provider: "elevenlabs" } },
+    };
+    seedRawConfig();
+  });
+
+  test("language-only patch onto a config with no stt block seeds the effective provider", async () => {
+    const effectiveProvider = getConfig().services.stt.provider;
+
+    await configPatchRoute.handler({
+      body: { services: { stt: { language: "hi" } } },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.language).toBe("hi");
+    expect(stt.provider).toBe(effectiveProvider);
+    // The persisted block validates, so the language round-trips through
+    // the parsed config instead of tripping the salvage ladder.
+    const parsed = getConfig().services;
+    expect(parsed.stt.language).toBe("hi");
+    expect(parsed.stt.provider).toBe(effectiveProvider);
+    // Unrelated tts settings survive: no services-section reset happened.
+    expect(savedServices().tts).toEqual({ provider: "elevenlabs" });
+  });
+
+  test("language patch onto a config that has a provider is a pure merge", async () => {
+    rawConfigFixture = {
+      services: { stt: { provider: "xai" }, tts: { provider: "elevenlabs" } },
+    };
+    seedRawConfig();
+
+    await configPatchRoute.handler({
+      body: { services: { stt: { language: "hi" } } },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.provider).toBe("xai");
+    expect(stt.language).toBe("hi");
+  });
+
+  test("non-language stt patch without a provider is seeded too", async () => {
+    // The schema requires a provider whenever the stt block exists, so the
+    // seed covers every sparse stt write, not just language.
+    const effectiveProvider = getConfig().services.stt.provider;
+
+    await configPatchRoute.handler({
+      body: { services: { stt: { providers: { deepgram: {} } } } },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.provider).toBe(effectiveProvider);
+    expect(stt.providers).toEqual({ deepgram: {} });
+  });
+
+  test("a patch not touching stt invents no stt block", async () => {
+    await configPatchRoute.handler({
+      body: { heartbeat: { activeHoursStart: 9 } },
+    });
+
+    expect(savedServices().stt).toBeUndefined();
+    expect(savedServices().tts).toEqual({ provider: "elevenlabs" });
+  });
+
+  test("a config_set language write onto a sparse config seeds the provider", async () => {
+    // The CLI leaf-write path (`assistant config set services.stt.language`)
+    // creates the stt block via setNestedValue; the same seed that guards
+    // PATCH keeps its persisted block schema-valid.
+    const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+    const effectiveProvider = getConfig().services.stt.provider;
+
+    await configSetRoute.handler({
+      body: { path: "services.stt.language", value: "hi" },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.language).toBe("hi");
+    expect(stt.provider).toBe(effectiveProvider);
+    const parsed = getConfig().services;
+    expect(parsed.stt.language).toBe("hi");
+    expect(savedServices().tts).toEqual({ provider: "elevenlabs" });
+  });
+
+  test("a config_set onto a config with a provider leaves it untouched", async () => {
+    rawConfigFixture = {
+      services: { stt: { provider: "xai" }, tts: { provider: "elevenlabs" } },
+    };
+    seedRawConfig();
+    const configSetRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
+    await configSetRoute.handler({
+      body: { path: "services.stt.language", value: "hi" },
+    });
+
+    const stt = savedServices().stt!;
+    expect(stt.provider).toBe("xai");
+    expect(stt.language).toBe("hi");
   });
 });
 

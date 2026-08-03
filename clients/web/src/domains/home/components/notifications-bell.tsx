@@ -103,12 +103,6 @@ export function NotificationsBell() {
   const trigger = (
     <Button
       variant="ghost"
-      // The bell reads at 18px (vs. the Button's 14px icon-only default) so
-      // it holds its own in the top bar next to the dot. The touch-mobile
-      // variant must be repeated: expandOnMobile (on by default) adds a
-      // touch-mobile:[&_svg]:size-4 rule that would otherwise win over the
-      // unprefixed override inside the media query.
-      iconOnlyGlyphClassName="[&_svg]:size-4.5 touch-mobile:[&_svg]:size-4.5"
       iconOnly={
         <span className="relative flex" aria-hidden>
           <Bell />
@@ -120,8 +114,8 @@ export function NotificationsBell() {
             // --surface-lift inside the circular tap target that ghost
             // icon-only buttons grow on touch-mobile. The 2px ring eats into
             // the box (border-box), so size/offset grow by 2px each to keep
-            // the 8px amber core in place.
-            <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]" />
+            // the 6px amber core in place.
+            <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] bg-[var(--system-mid-strong)] touch-mobile:border-[var(--surface-lift)]" />
           ) : null}
         </span>
       }

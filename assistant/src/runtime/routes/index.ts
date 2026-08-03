@@ -10,6 +10,7 @@
 
 import { ROUTES as MEMORY_EVAL_ROUTES } from "../../plugins/defaults/memory/src/memory-eval-routes.js";
 import { ROUTES as MEMORY_GRAPH_ROUTES } from "../../plugins/defaults/memory/src/memory-graph-routes.js";
+import { ROUTES as MEMORY_INGEST_ROUTES } from "../../plugins/defaults/memory/src/memory-ingest-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/src/memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/src/memory-v2-routes.js";
 import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/src/memory-v3-routes.js";
@@ -248,6 +249,7 @@ export const ROUTES: RouteDefinition[] = [
   ...LLM_CALL_SITES_ROUTES,
   ...MEMORY_EVAL_ROUTES,
   ...MEMORY_GRAPH_ROUTES,
+  ...MEMORY_INGEST_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,
   ...MEMORY_V3_ROUTES,

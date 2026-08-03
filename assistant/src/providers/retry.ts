@@ -18,8 +18,12 @@ import {
   isAnthropicModel,
 } from "./anthropic-gateway-shared.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
-import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
 import {
+  isAdaptiveThinkingOnlyModel,
+  isAdaptiveThinkingUnsupportedModel,
+} from "./model-catalog.js";
+import {
+  isThinkingConfigAdaptive,
   isThinkingConfigDisabled,
   normalizeThinkingConfigForWire,
 } from "./thinking-config.js";
@@ -547,6 +551,21 @@ function normalizeSendMessageOptions(
     typeof nextConfig.model === "string" &&
     isAdaptiveThinkingOnlyModel(nextConfig.model) &&
     isThinkingConfigDisabled(nextConfig.thinking)
+  ) {
+    delete nextConfig.thinking;
+  }
+
+  // Pre-adaptive Claude models (Haiku 4.5, Opus 4.5, Sonnet 4.5) reject
+  // `thinking: { type: "adaptive" }` (Anthropic 400s the request), and Vellum
+  // never sends the legacy budget_tokens form. Drop an adaptive thinking
+  // config for these models so the request goes out without thinking instead
+  // of failing. A pass-through `{ type: "enabled", budget_tokens }` config is
+  // left intact: these models do support that shape.
+  if (
+    typeof nextConfig.model === "string" &&
+    isAdaptiveThinkingUnsupportedModel(nextConfig.model) &&
+    isThinkingConfigAdaptive(nextConfig.thinking) &&
+    targetsAnthropicWire(providerName, nextConfig.model)
   ) {
     delete nextConfig.thinking;
   }

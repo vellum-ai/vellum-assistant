@@ -43,6 +43,30 @@ const log = getLogger("memory-embeddings");
 let localBackendBroken = false;
 
 /**
+ * Set once {@link shutdownEmbeddingBackends} starts, and never cleared: the
+ * process is exiting.
+ *
+ * Emptying the backend cache is not enough on its own. A background turn that
+ * was already past its last await can call {@link selectEmbeddingBackend}
+ * afterwards, build a fresh backend with its own `disposeRequested` still
+ * false, and spawn a worker milliseconds before the process exits, which is
+ * precisely the orphan this is all here to prevent.
+ */
+let embeddingBackendsShutDown = false;
+
+/**
+ * Ceiling on {@link shutdownEmbeddingBackends}.
+ *
+ * The work it bounds is variable: an in-flight-initialization race, then a
+ * SIGTERM and SIGKILL wait per backend, then a reclaim sweep that pays the same
+ * two waits for every worker it finds. Callers that bound their own shutdown
+ * (the daemon's force-exit timer, the memory-worker process) budget against
+ * this single number rather than trying to model those parts, and it is
+ * enforced here rather than merely documented.
+ */
+export const EMBEDDING_SHUTDOWN_BUDGET_MS = 8_000;
+
+/**
  * Lazy wrapper around LocalEmbeddingBackend that dynamically imports the
  * module on first use. This avoids eagerly loading @huggingface/transformers
  * (which statically imports onnxruntime-node) at module evaluation time.
@@ -85,6 +109,23 @@ class LazyLocalEmbeddingBackend implements EmbeddingBackend {
 
   dispose(): void {
     this.delegate?.dispose?.();
+  }
+
+  terminateNow(): void {
+    this.delegate?.terminateNow?.();
+  }
+
+  async sweepOwnedWorkers(): Promise<void> {
+    await this.delegate?.sweepOwnedWorkers?.();
+  }
+
+  async shutdown(): Promise<void> {
+    // A delegate under construction still ends up owning a worker, so settle
+    // the in-flight import before tearing down rather than skipping it.
+    if (!this.delegate && this.initPromise) {
+      await this.initPromise.catch(() => undefined);
+    }
+    await this.delegate?.shutdown?.();
   }
 
   resetForRetry(): void {
@@ -223,6 +264,71 @@ export function clearEmbeddingBackendCache(): void {
   vectorCacheBytes = 0;
   backendDimCache.clear();
   localBackendBroken = false;
+}
+
+/**
+ * Tear down every cached backend's OS resources and empty the caches.
+ *
+ * Called on daemon shutdown so process-owned embedding workers exit with their
+ * owner instead of being orphaned. `clearEmbeddingBackendCache()` is the
+ * fire-and-forget sibling used on config/credential changes; this one waits for
+ * each worker to actually exit (JARVIS-1125).
+ */
+export async function shutdownEmbeddingBackends(): Promise<void> {
+  embeddingBackendsShutDown = true;
+  const backends = new Set(backendCache.values());
+  backendCache.clear();
+  vectorCache.clear();
+  vectorCacheBytes = 0;
+  backendDimCache.clear();
+
+  const teardown = Promise.all(
+    [...backends].map(async (backend) => {
+      try {
+        await backend.shutdown?.();
+        await backend.sweepOwnedWorkers?.();
+      } catch (err) {
+        log.warn(
+          { err, provider: backend.provider, model: backend.model },
+          "Failed to shut down embedding backend",
+        );
+      }
+    }),
+  );
+
+  const timedOut = Symbol("timeout");
+  const outcome = await Promise.race([
+    teardown.then(() => undefined),
+    Bun.sleep(EMBEDDING_SHUTDOWN_BUDGET_MS).then(() => timedOut),
+  ]);
+  if (outcome === timedOut) {
+    log.warn(
+      { budgetMs: EMBEDDING_SHUTDOWN_BUDGET_MS },
+      "Embedding backend shutdown exceeded its budget; a worker may outlive this process",
+    );
+  }
+}
+
+/**
+ * SIGKILL every cached backend's worker synchronously.
+ *
+ * For a process that must exit immediately and cannot run the graceful
+ * teardown: the memory worker on PID-file eviction, where staying alive to reap
+ * would let it keep executing a job its successor has already reclaimed.
+ * Without this the child is orphaned only after the successor's single reclaim
+ * sweep has passed, leaving two workers alive (JARVIS-1125).
+ */
+export function terminateEmbeddingWorkersNow(): void {
+  for (const backend of new Set(backendCache.values())) {
+    try {
+      backend.terminateNow?.();
+    } catch (err) {
+      log.warn(
+        { err, provider: backend.provider, model: backend.model },
+        "Failed to terminate embedding worker",
+      );
+    }
+  }
 }
 
 /** Reset the sticky local-backend failure flag without evicting live backends. */
@@ -382,6 +488,9 @@ export interface EmbeddingBackendSelection {
 export async function selectEmbeddingBackend(
   config: AssistantConfig,
 ): Promise<EmbeddingBackendSelection> {
+  if (embeddingBackendsShutDown) {
+    return { backend: null, reason: "Embedding backends are shutting down" };
+  }
   const requested = config.memory.embeddings.provider;
   if (requested === "local") {
     return {

@@ -8,7 +8,13 @@ import { closeSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  expect,
+  setDefaultTimeout,
+  test,
+} from "bun:test";
 
 import { assertNotLiveDb } from "../../__tests__/assert-not-live-db.js";
 import {
@@ -16,6 +22,10 @@ import {
   type IntegritySampleResult,
   runIntegrityCheck,
 } from "../db-integrity-check.js";
+
+// quick_check and the cold `bun run` subprocess are disk-bound; loaded CI
+// runners blow past the 5s default.
+setDefaultTimeout(30_000);
 
 let dir: string;
 let dbPath: string;
@@ -36,9 +46,13 @@ function seedDb(walMode: boolean): void {
     db.exec(`PRAGMA journal_mode=${walMode ? "WAL" : "DELETE"}`);
     db.exec("CREATE TABLE t (id TEXT PRIMARY KEY, v TEXT)");
     const ins = db.prepare("INSERT INTO t (id, v) VALUES (?, ?)");
-    for (let i = 0; i < 200; i++) {
-      ins.run(`k-${i}`, `v-${i}`);
-    }
+    // One transaction: 200 per-insert commits are fsync-bound and take
+    // seconds on loaded CI runners.
+    db.transaction(() => {
+      for (let i = 0; i < 200; i++) {
+        ins.run(`k-${i}`, `v-${i}`);
+      }
+    })();
   } finally {
     db.close();
   }

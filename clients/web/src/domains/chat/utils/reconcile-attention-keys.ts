@@ -3,7 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useConversationStore } from "@/stores/conversation-store";
 import { getConversations } from "@/utils/conversation-cache";
 import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";
-import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
+import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 
 /**
  * Reveal lazy sidebar sections (Background / Scheduled) when a pending
@@ -15,7 +15,7 @@ function revealLazySectionsIfPendingUnloaded(
 ): void {
   for (const key of pendingKeys) {
     if (!loadedConversationIds.has(key)) {
-      const store = useSidebarCollapseStore.getState();
+      const store = useSidebarLayoutStore.getState();
       store.activateBackground();
       store.activateScheduled();
       return;

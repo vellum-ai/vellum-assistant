@@ -1,4 +1,5 @@
 import {
+  configLlmDefaultproviderPut,
   configLlmProfilesByNamePut,
   configPatch,
   inferenceProviderconnectionsPost,
@@ -9,7 +10,11 @@ import {
   onboardingProvider,
   type OnboardingProviderId,
 } from "@/domains/onboarding/provider-catalog";
-import type { ProfileEntry } from "@/generated/daemon/types.gen";
+import { supportsOnboardingDefaultProvider } from "@/lib/backwards-compat/onboarding-default-provider";
+import type {
+  ConfigLlmDefaultproviderPutData,
+  ProfileEntry,
+} from "@/generated/daemon/types.gen";
 
 // Model-provider API key collected during onboarding. Held in sessionStorage
 // (consume-once) between the API-key step and the post-hatch application, then
@@ -17,8 +22,20 @@ import type { ProfileEntry } from "@/generated/daemon/types.gen";
 // holds the key in-memory and POSTs it to the daemon once the assistant is up.
 
 const PENDING_KEY_STORAGE = "onboarding.providerKey";
-const ONBOARDING_ACTIVE_PROFILE = "custom-balanced";
 const DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS = 200_000;
+const LEGACY_ONBOARDING_ACTIVE_PROFILE = "custom-balanced";
+
+/**
+ * Providers the daemon's code-defined default profiles cannot serve: Ollama is
+ * keyless/local and openai-compatible needs a user-supplied base URL + model
+ * list, so neither has a column in the intent × provider matrix. Onboarding
+ * authors and activates a user profile for these; every other catalog provider
+ * relies on the read-only defaults resolved through `llm.defaultProvider`.
+ */
+const PROFILE_AUTHORING_PROVIDERS = new Set<OnboardingProviderId>([
+  "ollama",
+  "openai-compatible",
+]);
 
 export interface PendingProviderKey {
   provider: OnboardingProviderId;
@@ -84,6 +101,15 @@ export function consumePendingProviderKey(): PendingProviderKey | null {
 // Daemon wrappers via the generated SDK. Duplicated minimally here because
 // cross-domain imports are ESLint-gated in clients/web.
 
+function ensureOk(
+  response: { ok: boolean; status: number } | undefined,
+  message: string,
+): void {
+  if (!response?.ok) {
+    throw Object.assign(new Error(message), { status: response?.status });
+  }
+}
+
 async function writeApiKeySecret(
   assistantId: string,
   provider: OnboardingProviderId,
@@ -94,14 +120,56 @@ async function writeApiKeySecret(
     body: { type: "api_key", name: provider, value },
     throwOnError: false,
   });
-  if (!response?.ok) {
-    throw Object.assign(new Error("Failed to write provider secret"), {
-      status: response?.status,
-    });
+  ensureOk(response, "Failed to write provider secret");
+}
+
+/**
+ * Create the `<provider>-personal` connection the BYOK columns of the intent ×
+ * provider matrix stamp onto the default profiles — the same connection a
+ * CLI hatch's seeding creates when the hatch overlay carries the provider.
+ */
+async function createPersonalConnection(
+  assistantId: string,
+  provider: OnboardingProviderId,
+): Promise<void> {
+  const displayName = onboardingProvider(provider)?.displayName ?? provider;
+  const { response } = await inferenceProviderconnectionsPost({
+    path: { assistant_id: assistantId },
+    body: {
+      name: `${provider}-personal`,
+      provider,
+      auth: {
+        type: "api_key",
+        credential: `credential/${provider}/api_key`,
+      },
+      label: `${displayName} (Personal)`,
+    },
+    throwOnError: false,
+  });
+  if (response?.status !== 409) {
+    ensureOk(response, "Failed to create provider connection");
   }
 }
 
-async function createProviderConnection(
+async function setDefaultProvider(
+  assistantId: string,
+  provider: OnboardingProviderId,
+): Promise<void> {
+  const { response } = await configLlmDefaultproviderPut({
+    path: { assistant_id: assistantId },
+    body: {
+      // The generated enum tracks the daemon's default-profile matrix, which
+      // can lag the onboarding catalog within a release; the daemon strict-
+      // validates, so an unsupported provider fails loudly rather than
+      // silently.
+      provider: provider as ConfigLlmDefaultproviderPutData["body"]["provider"],
+    },
+    throwOnError: false,
+  });
+  ensureOk(response, "Failed to set default provider");
+}
+
+async function createCustomProviderConnection(
   assistantId: string,
   provider: OnboardingProviderId,
   hasKey: boolean,
@@ -134,14 +202,12 @@ async function createProviderConnection(
     },
     throwOnError: false,
   });
-  if (!response?.ok && response?.status !== 409) {
-    throw Object.assign(new Error("Failed to create provider connection"), {
-      status: response?.status,
-    });
+  if (response?.status !== 409) {
+    ensureOk(response, "Failed to create provider connection");
   }
 }
 
-function buildOnboardingProfile(
+function buildCustomProviderProfile(
   provider: OnboardingProviderId,
   model: string,
 ): ProfileEntry {
@@ -152,8 +218,7 @@ function buildOnboardingProfile(
     model,
     provider_connection: provider,
     source: "user",
-    label: "Balanced",
-    description: "Good balance of quality, cost, and speed",
+    label: providerEntry?.displayName ?? provider,
     maxTokens: modelEntry?.maxOutputTokens ?? 16_000,
     contextWindow: {
       maxInputTokens:
@@ -173,40 +238,84 @@ function buildOnboardingProfile(
   return profile;
 }
 
-async function replaceOnboardingProfile(
+/**
+ * Author and activate a user profile for a provider the code-defined defaults
+ * cannot serve. Named after the provider — never `custom-balanced` or another
+ * default-sounding name, so it can't shadow the read-only default rail.
+ */
+async function applyCustomProviderProfile(
   assistantId: string,
   provider: OnboardingProviderId,
   model: string,
 ): Promise<void> {
-  const { response } = await configLlmProfilesByNamePut({
-    path: { assistant_id: assistantId, name: ONBOARDING_ACTIVE_PROFILE },
-    body: buildOnboardingProfile(provider, model),
+  const { response: putResponse } = await configLlmProfilesByNamePut({
+    path: { assistant_id: assistantId, name: provider },
+    body: buildCustomProviderProfile(provider, model),
     throwOnError: false,
   });
-  if (!response?.ok) {
-    throw Object.assign(new Error("Failed to set provider profile"), {
-      status: response?.status,
-    });
-  }
+  ensureOk(putResponse, "Failed to set provider profile");
+  const { response: patchResponse } = await configPatch({
+    path: { assistant_id: assistantId },
+    body: { llm: { activeProfile: provider } },
+    throwOnError: false,
+  });
+  ensureOk(patchResponse, "Failed to activate provider profile");
 }
 
-async function activateOnboardingProfile(assistantId: string): Promise<void> {
-  const { response } = await configPatch({
-    path: { assistant_id: assistantId },
-    body: { llm: { activeProfile: ONBOARDING_ACTIVE_PROFILE } },
+/**
+ * Legacy write path for assistants below the onboarding-default-provider
+ * gate: they have no code-defined BYOK defaults, so the picked provider must
+ * be materialized client-side the way onboarding always did — a
+ * provider-named connection plus an authored-and-activated `custom-balanced`
+ * profile. Newer daemons understand these writes too (their BYOK conversion
+ * pass migrates the profile onto the default rail), so this is also the safe
+ * landing when the daemon version cannot be resolved.
+ */
+async function applyLegacyOnboardingProfile(
+  assistantId: string,
+  pending: PendingProviderKey,
+  hasKey: boolean,
+): Promise<void> {
+  await createCustomProviderConnection(assistantId, pending.provider, hasKey, {
+    baseUrl: pending.baseUrl,
+    customModels: pending.customModels,
+  });
+  const model =
+    pending.model?.trim() ||
+    defaultModelForOnboardingProvider(pending.provider);
+  if (!model) {
+    return;
+  }
+  const { response: putResponse } = await configLlmProfilesByNamePut({
+    path: { assistant_id: assistantId, name: LEGACY_ONBOARDING_ACTIVE_PROFILE },
+    body: {
+      ...buildCustomProviderProfile(pending.provider, model),
+      label: "Balanced",
+      description: "Good balance of quality, cost, and speed",
+    },
     throwOnError: false,
   });
-  if (!response?.ok) {
-    throw Object.assign(new Error("Failed to activate provider profile"), {
-      status: response?.status,
-    });
-  }
+  ensureOk(putResponse, "Failed to set provider profile");
+  const { response: patchResponse } = await configPatch({
+    path: { assistant_id: assistantId },
+    body: { llm: { activeProfile: LEGACY_ONBOARDING_ACTIVE_PROFILE } },
+    throwOnError: false,
+  });
+  ensureOk(patchResponse, "Failed to activate provider profile");
 }
 
 /**
  * Apply the model-provider selection collected during onboarding to the
  * freshly hatched local assistant. Consumes the pending key; no-op when nothing
  * was collected (e.g. Vellum Cloud, which skips the API-key step).
+ *
+ * API-key providers rely on the daemon's code-defined default profiles: store
+ * the key, create the `<provider>-personal` connection the defaults dispatch
+ * through, and point `llm.defaultProvider` at the picked provider. The hatch
+ * already activated `balanced`, so no profile is written. Only providers the
+ * matrix cannot serve (Ollama, openai-compatible) get a client-authored
+ * profile. Assistants predating the code-defined defaults get the legacy
+ * custom-balanced authoring flow instead.
  */
 export async function applyPendingProviderKey(
   assistantId: string,
@@ -216,12 +325,28 @@ export async function applyPendingProviderKey(
     return;
   }
   const trimmed = pending.key.trim();
+
+  if (!PROFILE_AUTHORING_PROVIDERS.has(pending.provider)) {
+    await writeApiKeySecret(assistantId, pending.provider, trimmed);
+    if (await supportsOnboardingDefaultProvider(assistantId)) {
+      await createPersonalConnection(assistantId, pending.provider);
+      await setDefaultProvider(assistantId, pending.provider);
+    } else {
+      await applyLegacyOnboardingProfile(
+        assistantId,
+        pending,
+        trimmed.length > 0,
+      );
+    }
+    return;
+  }
+
   const hasKey = trimmed.length > 0;
   const isOpenAICompatible = pending.provider === "openai-compatible";
   if (hasKey || isOpenAICompatible) {
     await writeApiKeySecret(assistantId, pending.provider, trimmed);
   }
-  await createProviderConnection(assistantId, pending.provider, hasKey, {
+  await createCustomProviderConnection(assistantId, pending.provider, hasKey, {
     baseUrl: pending.baseUrl,
     customModels: pending.customModels,
   });
@@ -235,7 +360,6 @@ export async function applyPendingProviderKey(
     firstCustomModel ||
     defaultModelForOnboardingProvider(pending.provider);
   if (model) {
-    await replaceOnboardingProfile(assistantId, pending.provider, model);
-    await activateOnboardingProfile(assistantId);
+    await applyCustomProviderProfile(assistantId, pending.provider, model);
   }
 }

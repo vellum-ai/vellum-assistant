@@ -3,18 +3,47 @@
 // target-specific keys (bundle ID, display name, icon, URL scheme,
 // associated domain).
 
-// MARKETING_VERSION and CURRENT_PROJECT_VERSION are intentionally not set
-// here. Release builds inject them as xcodebuild CLI overrides at archive
-// time (see .github/workflows/release-ios.yaml), so any value committed
-// here would only affect local Xcode builds and quickly go stale after
-// each release.
+// MARKETING_VERSION and CURRENT_PROJECT_VERSION are placeholders that only
+// ever apply to local builds. Release builds inject the real values as
+// xcodebuild CLI overrides at archive time (see
+// .github/workflows/release-ios.yaml), and a command-line build setting beats
+// an xcconfig, so these never reach a shipped build and cannot go stale.
+//
+// They are not optional, despite only mattering locally: an embedded app
+// extension whose Info.plist resolves CFBundleVersion to an empty string
+// fails to install with "Failed to create app extension placeholder /
+// Invalid placeholder attributes", so without a default here no local build
+// of the app can be installed on a simulator or a device at all. Keep this
+// value identical to Extension-Base.xcconfig's — App Store validation
+// requires the appex's version to match its containing app's.
+MARKETING_VERSION = 0.0.0
+CURRENT_PROJECT_VERSION = 1
 
 CODE_SIGN_ENTITLEMENTS = App/App.entitlements
 CODE_SIGN_STYLE = Automatic
 DEVELOPMENT_TEAM = 7FZDXZR8P5
 INFOPLIST_FILE = App/Info.plist
-IPHONEOS_DEPLOYMENT_TARGET = 15.0
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
 LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
 PRODUCT_NAME = $(TARGET_NAME)
+
+// Manual-signing provisioning profile, resolved per target.
+//
+// Release builds sign manually (the workflow passes CODE_SIGN_STYLE=Manual
+// on the xcodebuild command line) and need a profile name per target: the
+// app targets and the VoiceActivity extension targets have different bundle
+// IDs and therefore different profiles. An xcodebuild CLI override cannot
+// express that — it applies to every target in the archive — so the mapping
+// lives in the per-target xcconfigs alongside the PRODUCT_BUNDLE_IDENTIFIER
+// it has to agree with. Each of them sets
+// PROVISIONING_PROFILE_SPECIFIER_Manual.
+//
+// The indirection through CODE_SIGN_STYLE keeps local development working:
+// under the Automatic default above, PROVISIONING_PROFILE_SPECIFIER_Automatic
+// is undefined, so the specifier resolves to empty and Xcode manages signing
+// itself. Setting the specifier unconditionally would break every local
+// build, because the distribution profiles are not on developer machines.
+PROVISIONING_PROFILE_SPECIFIER = $(PROVISIONING_PROFILE_SPECIFIER_$(CODE_SIGN_STYLE))
+
 SWIFT_VERSION = 5.0
 TARGETED_DEVICE_FAMILY = 1,2

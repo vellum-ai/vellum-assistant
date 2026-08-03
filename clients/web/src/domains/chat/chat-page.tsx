@@ -163,5 +163,10 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Active chat — all orchestration hooks mount inside ActiveChatView
   // -------------------------------------------------------------------------
-  return <ActiveChatView />;
+  return (
+    <>
+      <span data-slot="active-chat-view" hidden />
+      <ActiveChatView />
+    </>
+  );
 }

@@ -27,7 +27,7 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 import {
-  isLocalMode,
+  isLocalClient,
   isLocalAssistant,
   isPlatformAssistant,
 } from "@/lib/local-mode";
@@ -311,7 +311,7 @@ function getEffectiveActiveLockfileAssistantId(
 // committed lockfiles count: the empty placeholder written when nothing has
 // loaded (e.g. a failed host read at boot) must not mark the list hydrated
 // and reconcile away a still-valid selection.
-if (isLocalMode()) {
+if (isLocalClient()) {
   useLockfileStore.subscribe((state) => {
     if (state.lockfile && state.committed) {
       useResolvedAssistantsStoreBase.getState().setFromLockfile(state.lockfile);

@@ -67,6 +67,9 @@ graph LR
     CONS --> VIEWS["essentials / threads / recent"]
     CONS --> REEMBED["memory_v2_reembed →<br/>concept-page Qdrant collection"]
     CONS --> MAINT["memory_v3_maintain<br/>(v3-live follow-up)"]
+    ING["POST /v1/memory/ingest<br/>(deterministic batch import)"] --> PAGES
+    ING --> REEMBED
+    ING --> MAINT
 ```
 
 - `handleRemember` (`graph/tool-handlers.ts`) appends timestamped bullets to
@@ -85,6 +88,62 @@ graph LR
     failure-backoff-respecting);
   - manual "Run now" via `POST /v1/consolidation/run-now`.
     Failed runs enter an exponential backoff (transient vs billing curves).
+- **Ingestion** (`substrate/ingest.ts`, exposed as `POST /v1/memory/ingest`;
+  generated HTTP operation id `memory_ingest_post`, IPC method
+  `memory_ingest`) is the second sanctioned writer of
+  `memory/concepts/`: a deterministic batch import of fully-formed,
+  page-shaped markdown (frontmatter + body) that bypasses the buffer
+  entirely. The bypass is load-bearing, not a shortcut: buffer timestamps
+  have minute precision, so a bulk append lands every entry on one shared
+  minute stamp, the chunker's timestamp cutoff cannot split inside that
+  minute, and its same-minute burst guard falls back to processing the
+  whole buffer in a single oversized run. Ingest writes validated pages
+  directly instead. Purely mechanical: each page is validated and reported
+  individually, writes hold the consolidation lock so a batch cannot
+  interleave with a consolidation pass, and a batch that wrote at least one
+  page enqueues the same reindex follow-ups as consolidation
+  (`memory_v2_reembed`, `memory_v3_maintain`). Consolidation remains the only
+  LLM-driven writer.
+
+### Ingestion tracks and provenance
+
+Two user-facing flows feed the ingest route, chosen by the shape of the
+source material rather than its size:
+
+- **Distilled import** (`skills/assistant-migration`): memory exported from
+  another assistant is parsed, creator-reviewed, and shaped into concept
+  pages. The input is already distilled, so everything approved becomes
+  pages; assistant exports route here regardless of size because they need
+  candidate parsing and creator review.
+- **Large-corpus skim** (`skills/memory-corpus-ingest`): the raw dataset
+  (recording archives, document dumps) is cold-stored under a workspace
+  imports directory and never enters the memory corpus. Only a small map of
+  roughly 10 to 50 skim pages is ingested, each pointing back at the raw
+  files, and a drill-in retrieval skill authored alongside searches the cold
+  store on demand.
+
+Both stage pages on disk and write them through the `assistant memory ingest`
+CLI (`src/cli/commands/memory/memory-ingest.ts`: staging directory, JSON
+manifest, or stdin; dry-run; overwrite; 200-page batches). The one exception
+is a migration yielding only a handful of approved facts: assistant-migration
+saves those through the normal `remember` tool, so they enter via the buffer
+like any organic capture instead of the ingest route.
+
+Ingested pages carry provenance frontmatter with distinct consumers:
+
+- `source:` marks a page's origin, by convention `import:<provider>`
+  (e.g. `import:chatgpt`), so imported pages stay distinguishable from
+  consolidation-authored ones, which never carry the key.
+- `origin_date:` (ISO 8601 date or datetime) declares when the page's
+  content is from and drives `PageIndexEntry.freshAt`, the effective-recency
+  signal: any finite parse is accepted (pre-epoch dates included; an
+  offset-less datetime is read as UTC), and an absent or unparseable value
+  falls back to file mtime. The v3 fresh lane ranks on `freshAt` and the
+  card's `dated` stamp renders it, so a backdated import ranks by what its
+  content is about rather than when it reached disk. `modifiedAt` stays raw
+  mtime because the maintain job's re-embed delta diffs on it. Synthetic
+  entries (skills, CLI commands) carry `freshAt: null` and are skipped by
+  recency ranking.
 
 ### Read paths
 

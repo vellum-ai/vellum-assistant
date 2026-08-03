@@ -32,6 +32,10 @@ import {
   MACOS_NATIVE_STT_PROVIDER_ID,
   STT_PROVIDERS,
 } from "@/lib/provider-catalogs";
+import { sttLanguageLabelForCode } from "@/lib/stt/language-catalog";
+import { SelectTriggerRow } from "@/components/speech/select-trigger-row";
+import { SttLanguagePickerModal } from "@/components/speech/stt-language-picker-modal";
+import { useSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 
 /**
  * The speech-to-text provider + API key form: provider choice, key entry, and
@@ -133,7 +137,8 @@ export function SttProviderForm({
   // `services.stt` falls under the ConfigGetResponse index signature
   // (`unknown`), so narrow it explicitly to read the provider.
   const daemonStt = daemonConfig?.services?.stt as
-    { provider?: string; mode?: string } | undefined;
+    | { provider?: string; mode?: string }
+    | undefined;
   // A config written by the legacy mode toggle marks managed via `mode` while
   // `provider` holds the BYOK restore value — the daemon routes it to Vellum,
   // so the form must render it as Vellum too.
@@ -155,6 +160,41 @@ export function SttProviderForm({
   const daemonHasProvider = !!daemonSttProvider;
 
   const [draftProvider, setDraftProvider] = useDraftOverride(serverProvider);
+  // Spoken-language pick, shown only when the daemon reports the provider it
+  // would steer as manually language-selectable. Hot-applies through the
+  // hook, independent of this form's Save.
+  const {
+    available: languageAvailable,
+    currentCode: languageCode,
+    configuredProviderId: languageProviderId,
+    selectLanguage,
+    selecting: languageSelecting,
+  } = useSttLanguageSelection(assistantId);
+  // The language catalog is ~50 entries, so the control is a trigger row
+  // opening the shared search-first picker modal; a pick hot-applies through
+  // the hook above, independent of this form's Save.
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
+  // A language pick hot-applies to the daemon's CONFIGURED provider (the
+  // hook's `configuredProviderId`, which its `available` already vets), so
+  // the picker binds to that provider and hides while the dropdown holds an
+  // unsaved draft of a different one: offering the draft's languages would
+  // write a value the still-active provider may ignore (e.g. Multilingual
+  // drafted for Vellum while xAI runs, whose resolver drops "multi"). A
+  // settled selection with a daemon mapping shows the picker only when that
+  // mapping IS the provider the pick steers (the hook's
+  // `configuredProviderId`): with no `services.stt` config, a stale
+  // cross-assistant localStorage choice can settle the card on a provider
+  // (e.g. auto-detecting Whisper) that diverges from the daemon-default
+  // provider the pick would write for. A settled selection with no daemon
+  // mapping (the client-only native choice, whose recognizer never reads
+  // `services.stt.language`) also hides the picker, unless the daemon itself
+  // runs a provider the dropdown can't represent (e.g. xai via CLI renders
+  // as a placeholder), which is exactly what the picker steers.
+  const languagePickerVisible =
+    languageAvailable &&
+    draftProvider === serverProvider &&
+    (STT_DAEMON_PROVIDER[draftProvider]?.provider === languageProviderId ||
+      (!!daemonSttProvider && !CARD_ID_BY_DAEMON_PROVIDER[daemonSttProvider]));
   const [apiKeyText, setApiKeyText] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -342,6 +382,35 @@ export function SttProviderForm({
           aria-label="STT provider"
         />
       </div>
+
+      {languagePickerVisible && (
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            Spoken language
+          </label>
+          {/* A trigger row (current value + chevron) opening the shared
+              search-first picker: mirrors the Dropdown trigger's field
+              styling so the form reads uniformly, but opens a dialog. */}
+          <SelectTriggerRow
+            aria-label="Spoken language"
+            aria-haspopup="dialog"
+            onClick={() => setLanguagePickerOpen(true)}
+            value={sttLanguageLabelForCode(languageCode, languageProviderId)}
+          />
+          <p className="text-body-small-default text-[var(--content-tertiary)]">
+            Applies from your next spoken turn.
+          </p>
+          <SttLanguagePickerModal
+            open={languagePickerOpen}
+            onOpenChange={setLanguagePickerOpen}
+            title="Spoken language"
+            currentCode={languageCode}
+            configuredProviderId={languageProviderId}
+            selectLanguage={selectLanguage}
+            selecting={languageSelecting}
+          />
+        </div>
+      )}
 
       {requiresApiKey && (
         <div className="space-y-1">

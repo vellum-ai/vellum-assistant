@@ -23,6 +23,7 @@ const ROUTE = {
   path: "realtime",
   kind: "http" as const,
   signer: "plugin" as const,
+  handshake: "signed-headers" as const,
   description: "events",
 };
 
@@ -59,6 +60,7 @@ function approvedWith(
     path: string;
     kind: "http" | "websocket";
     signer: "plugin" | "vellum";
+    handshake: "signed-headers" | "signed-query";
     description: string;
   }[],
 ): PluginIngressResolution {

@@ -6,7 +6,7 @@ import { hatchAssistant, listAssistants } from "@/assistant/api";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
 import {
-  isLocalMode,
+  isLocalClient,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import {
@@ -58,7 +58,7 @@ export function AssistantLifecyclePanel() {
         // newly hatched assistants stayed invisible to the tray until the next
         // session refresh. Best-effort and local-mode only; the hatch already
         // succeeded regardless of the sync outcome.
-        if (isLocalMode()) {
+        if (isLocalClient()) {
           try {
             const list = await listAssistants();
             if (list.ok) {

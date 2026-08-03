@@ -67,6 +67,16 @@ export interface DeriveProvisioningInput {
    * unaffected.
    */
   statusObservedSinceTargetsMet?: boolean;
+  /**
+   * Whether met targets are themselves evidence that nothing was owed. True
+   * for a change that only ever raises the ceilings: the assistant sitting at
+   * or above what was bought then really does mean there is no work. False for
+   * one that can lower them, where the targets read met from the first render
+   * (a machine-less package has no machine target at all, and storage never
+   * shrinks) and so prove nothing. Defaults to true, which is what
+   * post-checkout onboarding always is.
+   */
+  targetsProveNoop?: boolean;
 }
 
 export interface ProvisioningSnapshot {
@@ -89,6 +99,7 @@ export function deriveProvisioningState(
     confirmExpired,
     serverVerdict = null,
     statusObservedSinceTargetsMet = true,
+    targetsProveNoop = true,
   } = input;
 
   if (planId !== "pro") {
@@ -132,12 +143,20 @@ export function deriveProvisioningState(
   // rolling out — the guard above holds) or finds it retired (genuinely
   // converged). A resize we watched appear and clear is equally good evidence.
   //
+  // That write-order argument runs on the same grow-only footing as the
+  // targets themselves, so it is only available where met targets prove a
+  // no-op. A change that can lower the ceilings meets them before the resize is
+  // even requested, so the reading it anchors can precede the marker entirely
+  // and says nothing about the rollout. There, only a marker the client watched
+  // appear counts.
+  //
   // `already_done` stays terminal on its own because the server checked the
   // marker itself — `collect_pro_provisioning_state` combines targets-met AND
   // no-active-operation before it answers that.
   const provisionalVerdict =
     serverVerdict === "started" || serverVerdict === "in_progress";
-  const rolloutConfirmedOver = sawOperation || statusObservedSinceTargetsMet;
+  const rolloutConfirmedOver =
+    sawOperation || (targetsProveNoop && statusObservedSinceTargetsMet);
 
   if (!resizeOperationInFlight) {
     // Outside a provisional verdict: DONE-by-actuals still wins over a stale
@@ -146,8 +165,9 @@ export function deriveProvisioningState(
     // seen, disambiguate by the first actuals ever observed: if they were below
     // the targets, a resize must have run → DONE. NOT_APPLICABLE is reserved
     // for first-observed actuals that already met the targets (null
-    // initialActuals means the current actuals ARE the first observation — the
-    // hook freezes them as the snapshot one render later).
+    // initialActuals means the current actuals ARE the first observation, since
+    // the hook freezes them as the snapshot one render later), and only where
+    // met targets can prove a no-op at all.
     const completed = provisionalVerdict
       ? rolloutConfirmedOver
       : operationObserved ||
@@ -160,7 +180,20 @@ export function deriveProvisioningState(
       }
       // An uncorroborated provisional verdict keeps observing (falls through to
       // RESIZING) rather than completing or declaring there was nothing to do.
-      if (!provisionalVerdict) {
+      //
+      // Where met targets prove nothing, only the server may declare the no-op.
+      // A change that can lower the ceilings meets them from its very first
+      // render (a machine-less package carries no machine target, and storage
+      // never shrinks), so completing here would say "ready" while the pod is
+      // still restarting. A verdict that has not landed yet, or a reconcile
+      // that failed outright, falls through instead: the flow holds in
+      // WAITING/RESIZING and the stall clock is the backstop, so a failed
+      // reconcile costs the user a 90s wait ending in STALLED with a retry.
+      // An honest spinner beats claiming a restart finished when it has not.
+      if (
+        !provisionalVerdict &&
+        (targetsProveNoop || serverVerdict === "not_applicable")
+      ) {
         return { state: "NOT_APPLICABLE", softWaiting: false };
       }
     } else {

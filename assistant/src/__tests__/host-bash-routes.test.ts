@@ -448,3 +448,69 @@ describe("handleHostBashResult", () => {
     );
   });
 });
+
+// ── Request body validation ──────────────────────────────────────────
+
+describe("handleHostBashResult: request body validation", () => {
+  beforeEach(() => {
+    pendingStore.clear();
+    resolvedIds.length = 0;
+    resolveSpy.length = 0;
+    clientActorPrincipals.clear();
+  });
+
+  test("rejects a body that is not an object", () => {
+    expect(() => handleHostBashResult({ body: undefined })).toThrow(
+      BadRequestError,
+    );
+  });
+
+  test("rejects an empty-string requestId", () => {
+    expect(() => handleHostBashResult({ body: bashBody("") })).toThrow(
+      BadRequestError,
+    );
+  });
+
+  test("rejects a wrongly typed field before the interaction is consumed", () => {
+    const requestId = "req-bash-bad-exit-code";
+    registerPending(requestId);
+
+    expect(() =>
+      handleHostBashResult({
+        body: { ...bashBody(requestId), exitCode: "0" },
+      }),
+    ).toThrow(BadRequestError);
+
+    expect(resolveSpy).toHaveLength(0);
+    expect(pendingStore.has(requestId)).toBe(true);
+  });
+
+  test("accepts a null exitCode (process terminated by a signal)", async () => {
+    const requestId = "req-bash-signal-kill";
+    registerPending(requestId);
+
+    const result = await handleHostBashResult({
+      body: { ...bashBody(requestId), exitCode: null, timedOut: true },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(resolveSpy[0].result.exitCode).toBeNull();
+  });
+
+  test("tolerates unknown keys", async () => {
+    const requestId = "req-bash-unknown-keys";
+    registerPending(requestId);
+
+    const result = await handleHostBashResult({
+      body: { ...bashBody(requestId), somethingNew: "ignored" },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(resolveSpy[0].result).toEqual({
+      stdout: "hello\n",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+    });
+  });
+});

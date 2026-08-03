@@ -1098,7 +1098,7 @@ which UI surfaces are available:
 
 | Signal | Where | What it means |
 |--------|-------|---------------|
-| `isLocalMode()` | `src/lib/local-mode.ts` | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform |
+| `isLocalClient()` | `src/lib/local-mode.ts` | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform |
 | `hasPlatformSession` | `src/stores/auth-store.ts` | `true` when the user has a valid session with the Vellum platform (set asynchronously after probing the allauth session endpoint) |
 | `isPlatformDisabled()` | `src/lib/local-mode.ts` | Env var / config setting (`VITE_VELLUM_DISABLE_PLATFORM` or `__VELLUM_CONFIG__.disablePlatform`). When `true` in local mode, the API interceptor no-ops all platform client requests |
 
@@ -1395,8 +1395,36 @@ renders correctly given the data it actually receives in production.
   helpers that transform a different input format into the prop shape —
   that adds a layer of indirection that hides what the component
   actually receives.
+- **Render the real components; never a story-local lookalike.** A story
+  that draws its own children with its own padding, type token, or hover
+  state documents a layout the app doesn't ship, and it can't catch a
+  regression in the thing it claims to document. If a story needs a
+  layout the shipped primitives can't express, that's the signal a
+  primitive is missing, not a licence to hand-roll one in the story.
+- **Wrappers go in decorators, styling goes in the component.** A story
+  may frame its subject (a width, a backdrop, a provider); it may not
+  restyle it. When a story and a call site need the same treatment,
+  extract it and import it from both, the way
+  `NATIVE_IOS_BARE_ICON_BUTTON` and `VOICE_ASSISTANT_CAPTION_CLASS` are.
+- **No raw hex or off-scale sizes in story _styling_.** The token rules
+  apply to story files exactly as they do to product code. A `#17191C`
+  backdrop or a `text-[15px]` caption is the same defect in a story as in
+  the app, and harder to spot. Hex in sample _data_ is fine (an avatar
+  color the component receives as a prop): the line is whether the value
+  styles the story or is the fixture.
+- **Pin a viewport when the component is responsive.** Components with
+  `max-md:` variants key off the *viewport*, so at a narrow window a
+  story silently renders the mobile treatment while still passing a
+  desktop variant. Set `globals: { viewport: { value: ... } }` on the
+  meta (viewport is built into Storybook core, no addon needed). Note
+  this holds the **Canvas** only: every story on a docs page shares one
+  iframe, so no per-story viewport applies in **Docs**, and that iframe
+  runs roughly 300px narrower than the browser window.
 
-Reference: [Storybook — Writing stories](https://storybook.js.org/docs/writing-stories)
+References:
+- [Storybook - Writing stories](https://storybook.js.org/docs/writing-stories)
+- [Storybook - Decorators](https://storybook.js.org/docs/writing-stories/decorators)
+- [Storybook - Viewport](https://storybook.js.org/docs/essentials/viewport)
 
 ---
 

@@ -24,8 +24,12 @@ import type {
 // ---------------------------------------------------------------------------
 
 let nextResponse: ProviderResponse;
+let sendMessageImpl: (() => Promise<ProviderResponse>) | undefined;
 let getConfiguredProviderOptions: ConfiguredProviderOptions | undefined;
 let sendMessageOptions: SendMessageOptions | undefined;
+// Connection the stubbed resolution reports, mirroring the real resolver:
+// the connection is chosen while resolving the provider, not while sending.
+let resolutionConnectionName: string | undefined;
 
 mock.module("../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async (
@@ -33,11 +37,16 @@ mock.module("../../../providers/provider-send-message.js", () => ({
     options: ConfiguredProviderOptions,
   ) => {
     getConfiguredProviderOptions = options;
+    if (resolutionConnectionName) {
+      recordProviderRequestDiagnostics({
+        connection_name: resolutionConnectionName,
+      });
+    }
     return {
       name: "stub",
       sendMessage: async (_messages: unknown, options: SendMessageOptions) => {
         sendMessageOptions = options;
-        return nextResponse;
+        return sendMessageImpl ? sendMessageImpl() : nextResponse;
       },
     };
   },
@@ -58,7 +67,9 @@ mock.module("../../../config/loader.js", () => ({
 }));
 
 const { ROUTES } = await import("../inference-send-routes.js");
-const { BadRequestError } = await import("../errors.js");
+const { BadRequestError, UpstreamProviderError } = await import("../errors.js");
+const { recordProviderRequestDiagnostics } =
+  await import("../../../providers/request-diagnostics.js");
 
 function inferenceSendHandler() {
   const route = ROUTES.find((r) => r.operationId === "inference_send");
@@ -81,8 +92,10 @@ function baseResponse(overrides: Partial<ProviderResponse>): ProviderResponse {
 beforeEach(() => {
   configuredLlm = LLMSchema.parse({});
   nextResponse = baseResponse({});
+  sendMessageImpl = undefined;
   getConfiguredProviderOptions = undefined;
   sendMessageOptions = undefined;
+  resolutionConnectionName = undefined;
 });
 
 describe("inference_send profile routing", () => {
@@ -131,6 +144,26 @@ describe("inference_send evidence", () => {
     });
   });
 
+  test("surfaces the connection recorded while the provider is resolved", async () => {
+    /**
+     * Tests that diagnostics recorded during provider resolution reach the
+     * evidence payload. The connection backing the request is chosen while
+     * resolving the provider, so resolution has to run inside the diagnostics
+     * scope or "which key was this?" goes unanswered on every probe.
+     */
+
+    // GIVEN resolution picks a named connection for the request
+    resolutionConnectionName = "gemini-personal";
+
+    // WHEN the inference_send handler processes a request
+    const result = (await inferenceSendHandler()({
+      body: { message: "hi" },
+    })) as { evidence?: { connection_name?: string } };
+
+    // THEN the evidence names the connection that authenticated the send
+    expect(result.evidence?.connection_name).toBe("gemini-personal");
+  });
+
   test("omits evidence entirely when the provider surfaces no endpoint", async () => {
     // GIVEN a provider whose runtime response carries no resolvedEndpoint
     nextResponse = baseResponse({ resolvedEndpoint: undefined });
@@ -142,6 +175,50 @@ describe("inference_send evidence", () => {
 
     // THEN no evidence object is fabricated — the endpoint stays unknown
     expect(result.evidence).toBeUndefined();
+  });
+
+  test("reports the outbound request and verbatim upstream body when the send fails", async () => {
+    // GIVEN a provider call that reaches the upstream and fails there
+    sendMessageImpl = async () => {
+      recordProviderRequestDiagnostics({
+        resolved_url:
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro:streamGenerateContent?key=REDACTED",
+        model_id: "gemini-3-pro",
+        connection_name: "gemini-personal",
+        http_status: 404,
+        upstream_error_body: '{"error":{"code":404}}',
+        upstream_error_body_state: "captured",
+        upstream_error_body_bytes: 22,
+      });
+      throw new Error("Gemini API error (404): Not Found");
+    };
+
+    // WHEN the inference_send handler processes a request
+    const error = await Promise.resolve(
+      inferenceSendHandler()({ body: { message: "hi" } }),
+    ).then(
+      () => new Error("expected the request to fail"),
+      (err: unknown) => err,
+    );
+
+    // THEN the failure carries the evidence needed to diagnose it
+    expect(error).toBeInstanceOf(UpstreamProviderError);
+    expect(
+      (error as InstanceType<typeof UpstreamProviderError>).details,
+    ).toEqual({
+      error_class: "Error",
+      error_stack_head: expect.any(String),
+      evidence: {
+        resolved_url:
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro:streamGenerateContent?key=REDACTED",
+        model_id: "gemini-3-pro",
+        connection_name: "gemini-personal",
+        http_status: 404,
+        upstream_error_body: '{"error":{"code":404}}',
+        upstream_error_body_state: "captured",
+        upstream_error_body_bytes: 22,
+      },
+    });
   });
 });
 

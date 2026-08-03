@@ -1,45 +1,50 @@
 /**
  * Tests for `VoiceSessionPill`.
  *
- * The pill is purely presentational, so tests drive it directly through
- * props. The embedded `VoiceListeningWaves` is SVG + a rAF loop writing a
- * CSS var — inert under happy-dom, so no harness is needed here.
+ * The pill is purely presentational, so tests drive it directly through props.
+ * The embedded `VoiceMeshWaves` is a canvas plus a rAF loop, inert under
+ * happy-dom, so no harness is needed here.
  *
- * `useIsMobile` is mocked because the pill has two genuinely different forms
- * either side of the `md` breakpoint: an inline control row on desktop, a
- * single sheet trigger on mobile. `mockIsMobile` selects which one is under
- * test; it resets to desktop in `beforeEach`.
+ * The two layouts (`pill` in the header, `row` above it on a phone) are the
+ * same surface at two sizes, so most behaviour is asserted once; the layout
+ * describe covers only what genuinely differs: the box each one occupies.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
+import type { VoiceSurfacePaint } from "@/domains/chat/voice/voice-room/voice-surface-paint";
+import { toneForBg } from "@/utils/avatar-tone";
 
-let mockIsMobile = false;
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => mockIsMobile,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
-}));
+import {
+  VoiceSessionErrorChip,
+  VoiceSessionPill,
+} from "@/domains/chat/components/voice-session-pill";
 
-// Imported after the mock so the component picks up the mocked module.
-const { VoiceSessionErrorChip, VoiceSessionPill } =
-  await import("@/domains/chat/components/voice-session-pill");
 type VoiceSessionPillProps = React.ComponentProps<typeof VoiceSessionPill>;
 
-beforeEach(() => {
-  mockIsMobile = false;
-});
+const YELLOW_PAINT: VoiceSurfacePaint = {
+  bgHex: "#F5C518",
+  tone: toneForBg("#F5C518"),
+};
+const NAVY_PAINT: VoiceSurfacePaint = {
+  bgHex: "#17191C",
+  tone: toneForBg("#17191C"),
+};
 
 afterEach(() => {
   cleanup();
 });
 
+const INPUT_LEVEL = 0.5;
+const OUTPUT_LEVEL = 0.25;
+
 function renderPill(overrides: Partial<VoiceSessionPillProps> = {}) {
   const handlers = {
     onToggleMute: mock(() => {}),
-    onStop: mock(() => {}),
+    onToggleOutputMute: mock(() => {}),
     onEnd: mock(() => {}),
     onNavigate: mock(() => {}),
   };
@@ -47,8 +52,10 @@ function renderPill(overrides: Partial<VoiceSessionPillProps> = {}) {
     <VoiceSessionPill
       primaryLabel="Working on App…"
       state="listening"
-      getAmplitude={() => 0.5}
+      getAmplitude={() => INPUT_LEVEL}
+      getOutputAmplitude={() => OUTPUT_LEVEL}
       muted={false}
+      outputMuted={false}
       {...handlers}
       {...overrides}
     />,
@@ -56,25 +63,23 @@ function renderPill(overrides: Partial<VoiceSessionPillProps> = {}) {
   return handlers;
 }
 
-const stopButton = () =>
-  screen.queryByRole("button", { name: "Stop assistant response" });
+const root = () => screen.getByRole("group", { name: "Voice session" });
 const endButton = () =>
   screen.getByRole("button", { name: "End voice session" });
 const navButton = () =>
   screen.queryByRole("button", { name: "Go to voice session thread" });
 
-describe("VoiceSessionPill — textless surface", () => {
-  test("paints no visible label — state reaches AT via a live region only", () => {
+describe("VoiceSessionPill: state announcement", () => {
+  test("paints no words: the band is the readout", () => {
     renderPill();
-    // The state text must exist for screen readers…
-    const live = screen.getByText("Working on App…");
-    // …but be visually hidden, so the pill stays narrow enough to leave the
-    // header's centre title its room.
-    expect(live.className).toContain("sr-only");
-    expect(live.getAttribute("aria-live")).toBe("polite");
+    const label = screen.getByText("Working on App…");
+    // The state reaches assistive tech only. A word over the band competed
+    // with the motion and gave the surface one more thing to read.
+    expect(label.className).toContain("sr-only");
+    expect(label.getAttribute("aria-live")).toBe("polite");
   });
 
-  test("live region announces muted in place of the state label", () => {
+  test("muted is announced in place of the state", () => {
     renderPill({ muted: true });
     expect(screen.getByText("Muted")).toBeTruthy();
     expect(screen.queryByText("Working on App…")).toBeNull();
@@ -86,48 +91,185 @@ describe("VoiceSessionPill — textless surface", () => {
   });
 });
 
-describe("VoiceSessionPill — title-bar constraints", () => {
-  test("root is a no-drag group capped to the header control height", () => {
+describe("VoiceSessionPill: paint", () => {
+  test("fills with the room's colour and publishes its tones", () => {
+    renderPill({ paint: YELLOW_PAINT });
+    const style = root().getAttribute("style") ?? "";
+    // The fill is an arbitrary avatar colour, so chrome on it reads these
+    // rather than theme tokens.
+    expect(style).toContain("--room-fg");
+    expect(style).toContain("--room-fg-muted");
+    expect(style).toContain("--room-wash");
+    expect(root().className).not.toContain("bg-[var(--surface-lift)]");
+  });
+
+  test("flips data-theme with the fill's polarity", () => {
+    renderPill({ paint: YELLOW_PAINT });
+    // Light fill: descendants reading plain theme tokens must go light with it.
+    expect(root().getAttribute("data-theme")).toBe("light");
+    cleanup();
+
+    renderPill({ paint: NAVY_PAINT });
+    expect(root().getAttribute("data-theme")).toBe("dark");
+  });
+
+  test("holds the app's lift surface until the paint resolves", () => {
+    // `paint` is null while the avatar query is in flight. Painting the
+    // ambient dark there would flash the surface through a colour it never
+    // settles on.
     renderPill();
-    const root = screen.getByRole("group", { name: "Voice session" });
-    expect(root.className).toContain("[-webkit-app-region:no-drag]");
-    expect(root.className).toContain("h-8");
+    expect(root().className).toContain("bg-[var(--surface-lift)]");
+    expect(root().getAttribute("data-theme")).toBeNull();
   });
 });
 
-describe("VoiceSessionPill — stop control", () => {
-  test("hidden outside the speaking state", () => {
+describe("VoiceSessionPill: layouts", () => {
+  test("pill: capped to the header control height, as a no-drag group", () => {
+    renderPill();
+    expect(root().className).toContain("[-webkit-app-region:no-drag]");
+    expect(root().className).toContain("h-8");
+    expect(root().className).toContain("rounded-full");
+    // Held off its neighbours in the cluster: the header's own gap is tuned
+    // for icon buttons, not for a painted capsule.
+    expect(root().className).toContain("mx-2");
+  });
+
+  test("row: the same pill stretched edge to edge, taking its own space in flow", () => {
+    renderPill({ layout: "row" });
+    // Edge to edge, and still a pill: the row is one shape with the header
+    // pill rather than a squared-off band. `shrink-0` is what keeps it pushing
+    // the page down rather than being squeezed out of the column.
+    expect(root().className).toContain("w-full");
+    expect(root().className).toContain("shrink-0");
+    expect(root().className).toContain("rounded-full");
+    // No side margin here: the header pill's breathing room would pull this
+    // one off both edges.
+    expect(root().className).not.toContain("mx-2");
+  });
+});
+
+describe("VoiceSessionPill: controls on touch", () => {
+  // The design library gives an icon-only ghost Button an opaque chip on touch
+  // (`touch-mobile:bg-[var(--surface-lift)]` plus a theme foreground). That is
+  // right on app chrome and wrong on a surface painted an arbitrary avatar
+  // color, where it lands as a theme-colored tile floating on the fill. These
+  // assert the merge outcome, which is the whole of the bug: the overrides are
+  // only worth anything if tailwind-merge drops the library's classes.
+  test("no theme chip survives on the row's controls", () => {
+    renderPill({ layout: "row", paint: NAVY_PAINT });
+    for (const name of [
+      "Mute microphone",
+      "Mute assistant",
+      "End voice session",
+    ]) {
+      const { className } = screen.getByRole("button", { name });
+      expect(className).not.toContain("touch-mobile:bg-[var(--surface-lift)]");
+      expect(className).not.toContain(
+        "touch-mobile:[--vbtn-fg:var(--content-default)]",
+      );
+      expect(className).toContain("touch-mobile:bg-transparent");
+      expect(className).toContain(
+        "touch-mobile:[--vbtn-fg:var(--room-fg-muted",
+      );
+    }
+  });
+
+  test("the 40px touch target survives the override", () => {
+    // The tap target comes from a separate `touch-mobile:h-10 w-10` pair, so
+    // dropping the chip must not shrink the control back to desktop size.
+    renderPill({ layout: "row", paint: NAVY_PAINT });
+    const { className } = screen.getByRole("button", {
+      name: "End voice session",
+    });
+    expect(className).toContain("touch-mobile:h-10");
+    expect(className).toContain("touch-mobile:w-10");
+  });
+});
+
+describe("VoiceSessionPill: muted controls stay visible", () => {
+  test("a muted mic inks itself against the fill, not the theme", () => {
+    // The negative token is a mid-tone red and the surface is painted an
+    // arbitrary avatar color, so the two can land close enough that the muted
+    // glyph vanishes into the fill. Inline, so it beats the resting
+    // `--vbtn-fg` regardless of how Tailwind orders the two utilities.
+    renderPill({ muted: true, paint: NAVY_PAINT });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute microphone" })
+        .getAttribute("style") ?? "";
+    expect(style).toContain("--vbtn-fg");
+    expect(style.toUpperCase()).toContain("#FCA5A5");
+  });
+
+  test("a light fill gets the deep red instead of the pale one", () => {
+    renderPill({ muted: true, paint: YELLOW_PAINT });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute microphone" })
+        .getAttribute("style") ?? "";
+    expect(style.toUpperCase()).toContain("#991B1B");
+  });
+
+  test("a muted assistant inks itself the same way", () => {
+    renderPill({ outputMuted: true, paint: NAVY_PAINT });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute assistant" })
+        .getAttribute("style") ?? "";
+    expect(style.toUpperCase()).toContain("#FCA5A5");
+  });
+
+  test("an unpainted surface falls back to the theme's negative token", () => {
+    renderPill({ muted: true });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute microphone" })
+        .getAttribute("style") ?? "";
+    expect(style).toContain("--system-negative-strong");
+  });
+});
+
+describe("VoiceSessionPill: assistant mute", () => {
+  test("offers the mute in every state and fires it", () => {
+    // Persistent, like the room's: the pair of mutes never changes shape
+    // mid-turn, so neither moves out from under a reaching finger.
     for (const state of [
       "connecting",
       "listening",
-      "transcribing",
       "thinking",
-      "ending",
+      "speaking",
     ] as LiveVoiceSessionState[]) {
-      renderPill({ state });
-      expect(stopButton()).toBeNull();
+      const { onToggleOutputMute } = renderPill({ state });
+      fireEvent.click(screen.getByRole("button", { name: "Mute assistant" }));
+      expect(onToggleOutputMute).toHaveBeenCalledTimes(1);
       cleanup();
     }
   });
 
-  test("shown while speaking and fires onStop", () => {
-    const { onStop, onNavigate } = renderPill({ state: "speaking" });
-    fireEvent.click(stopButton()!);
-    expect(onStop).toHaveBeenCalledTimes(1);
-    expect(onNavigate).not.toHaveBeenCalled();
+  test("muted: offers unmute and reflects the pressed state", () => {
+    renderPill({ state: "speaking", outputMuted: true });
+    const toggle = screen.getByRole("button", { name: "Unmute assistant" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
   });
 
-  test("hidden even while speaking when onStop is not provided", () => {
-    // The host omits onStop for manual (version-skew fallback) sessions,
-    // where stopping a response would end the whole session; the ✕ stays
-    // the only destructive control there.
-    renderPill({ state: "speaking", onStop: undefined });
-    expect(stopButton()).toBeNull();
-    expect(endButton()).toBeTruthy();
+  test("offers no transient stop in any state", () => {
+    // Muting the assistant replaced it: a control that appeared and vanished
+    // with the reply changed the surface's shape twice a turn.
+    for (const state of [
+      "listening",
+      "thinking",
+      "speaking",
+    ] as LiveVoiceSessionState[]) {
+      renderPill({ state });
+      expect(
+        screen.queryByRole("button", { name: "Stop assistant response" }),
+      ).toBeNull();
+      cleanup();
+    }
   });
 });
 
-describe("VoiceSessionPill — no manual send", () => {
+describe("VoiceSessionPill: no manual send", () => {
   test("offers no send control in any state", () => {
     // Turns release themselves (server VAD hands-free, auto-release in the
     // manual fallback), so a send affordance would name a no-op action and
@@ -146,7 +288,9 @@ describe("VoiceSessionPill — no manual send", () => {
     }
   });
 
-  test("resting pill is exactly mute + waves + end", () => {
+  test("the surface holds the room's control set, and nothing else", () => {
+    // The two mutes (one per direction of the conversation) with the band
+    // between them, which is also the way back to the thread.
     renderPill({ state: "listening" });
     const names = screen
       .getAllByRole("button")
@@ -154,12 +298,13 @@ describe("VoiceSessionPill — no manual send", () => {
     expect(names).toEqual([
       "Mute microphone",
       "Go to voice session thread",
+      "Mute assistant",
       "End voice session",
     ]);
   });
 });
 
-describe("VoiceSessionPill — mute toggle", () => {
+describe("VoiceSessionPill: mute toggle", () => {
   test("live: offers mute and fires onToggleMute", () => {
     const { onToggleMute } = renderPill();
     fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
@@ -173,9 +318,15 @@ describe("VoiceSessionPill — mute toggle", () => {
     fireEvent.click(toggle);
     expect(onToggleMute).toHaveBeenCalledTimes(1);
   });
+
+  test("stays reachable in the row layout: a hot mic keeps a one-tap mute", () => {
+    const { onToggleMute } = renderPill({ layout: "row" });
+    fireEvent.click(screen.getByRole("button", { name: "Mute microphone" }));
+    expect(onToggleMute).toHaveBeenCalledTimes(1);
+  });
 });
 
-describe("VoiceSessionPill — end control", () => {
+describe("VoiceSessionPill: end control", () => {
   test("always enabled and fires onEnd", () => {
     const { onEnd, onNavigate } = renderPill({ state: "thinking" });
     const end = endButton();
@@ -186,89 +337,22 @@ describe("VoiceSessionPill — end control", () => {
   });
 });
 
-describe("VoiceSessionPill — navigation", () => {
-  test("the wave strip carries the tap and fires onNavigate only", () => {
-    const { onNavigate, onStop, onEnd } = renderPill();
+describe("VoiceSessionPill: navigation", () => {
+  test("the band's middle carries the tap and fires onNavigate only", () => {
+    const { onNavigate, onToggleOutputMute, onEnd } = renderPill();
     fireEvent.click(navButton()!);
     expect(onNavigate).toHaveBeenCalledTimes(1);
-    expect(onStop).not.toHaveBeenCalled();
+    expect(onToggleOutputMute).not.toHaveBeenCalled();
     expect(onEnd).not.toHaveBeenCalled();
   });
 
-  test("waves stay inert (not a button) without onNavigate", () => {
-    // A session with no conversation yet has nowhere to go — the strip must
-    // not ship as a dead target.
+  test("the band's middle stays inert (not a button) without onNavigate", () => {
+    // A session with no conversation yet has nowhere to go, so the surface must
+    // not ship a dead target.
     renderPill({ onNavigate: undefined });
     expect(navButton()).toBeNull();
-  });
-});
-
-describe("VoiceSessionPill — condensed mobile form", () => {
-  const trigger = () =>
-    screen.getByRole("button", { name: "Voice session controls" });
-
-  test("collapses the whole cluster to one trigger", () => {
-    mockIsMobile = true;
-    renderPill();
-    // One trigger, no inline controls: three icon buttons leave the header's
-    // centre title unreadable at phone widths.
-    expect(trigger()).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Mute microphone" }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "End voice session" }),
-    ).toBeNull();
-  });
-
-  test("a live mic still announces its state without opening the sheet", () => {
-    mockIsMobile = true;
-    renderPill();
-    const live = screen.getByText("Working on App…");
-    expect(live.className).toContain("sr-only");
-    expect(live.getAttribute("aria-live")).toBe("polite");
-  });
-
-  test("opening the sheet offers mute and end, and fires them", () => {
-    mockIsMobile = true;
-    const { onToggleMute, onEnd } = renderPill();
-    fireEvent.click(trigger());
-    fireEvent.click(screen.getByText("Mute microphone"));
-    expect(onToggleMute).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(trigger());
-    fireEvent.click(screen.getByText("End voice session"));
-    expect(onEnd).toHaveBeenCalledTimes(1);
-  });
-
-  test("stop row appears only while speaking", () => {
-    mockIsMobile = true;
-    const { onStop } = renderPill({ state: "speaking" });
-    fireEvent.click(trigger());
-    fireEvent.click(screen.getByText("Stop response"));
-    expect(onStop).toHaveBeenCalledTimes(1);
-    cleanup();
-
-    mockIsMobile = true;
-    renderPill({ state: "listening" });
-    fireEvent.click(trigger());
-    expect(screen.queryByText("Stop response")).toBeNull();
-  });
-
-  test("navigate row is omitted when there is no thread to return to", () => {
-    mockIsMobile = true;
-    renderPill({ onNavigate: undefined });
-    fireEvent.click(trigger());
-    expect(screen.queryByText("Go to voice session thread")).toBeNull();
-  });
-
-  test("muted swaps the trigger glyph's label target, not the control itself", () => {
-    // The trigger keeps one stable accessible name in both states — it opens
-    // a menu, it is not itself the mute toggle.
-    mockIsMobile = true;
-    renderPill({ muted: true });
-    expect(trigger()).toBeTruthy();
-    expect(screen.getByText("Muted")).toBeTruthy();
+    // The state is still announced; only the tap target goes.
+    expect(screen.getByText("Working on App…")).toBeTruthy();
   });
 });
 

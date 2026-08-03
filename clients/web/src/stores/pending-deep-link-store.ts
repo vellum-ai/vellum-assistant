@@ -28,6 +28,17 @@ import { createSelectors } from "@/utils/create-selectors";
 export interface PendingDeepLinkState {
   /** Latest pending `deeplink.send` message text, or `null` if none. */
   pendingComposerMessage: string | null;
+  /**
+   * When a `deeplink.startVoice` was parked waiting for a live-voice session
+   * starter (`Date.now()`), or `null` if none is. Same cold-launch race as
+   * `pendingComposerMessage`: the starter is registered by
+   * `useLiveVoiceSessionController` at `ChatLayout` scope, so it does not exist
+   * yet when a launch deep link fires (and never exists on settings / logs /
+   * account routes). A timestamp rather than a payload — a second link before
+   * the drain is the same request, but the drain needs to know how stale it is
+   * (see `consumePendingVoiceStart`).
+   */
+  pendingVoiceStartAt: number | null;
 }
 
 export interface PendingDeepLinkActions {
@@ -42,6 +53,17 @@ export interface PendingDeepLinkActions {
    * none was set. Used by `useDeepLinkConsumer` in the chat domain.
    */
   consumePendingComposerMessage: () => string | null;
+  /** Park a start-voice deep link until a session starter is registered. */
+  setPendingVoiceStart: () => void;
+  /**
+   * Read and clear the parked start-voice request. Returns `false` when none
+   * was parked, and when the parked one is older than `maxAgeMs` — a park that
+   * was never drained (its navigation bounced off a route guard, say) must not
+   * open a full-screen voice session minutes later. Either way the park is
+   * cleared. Used by `drainPendingVoiceStartDeepLink` in the live-voice domain,
+   * which owns the age bound.
+   */
+  consumePendingVoiceStart: (maxAgeMs: number) => boolean;
 }
 
 export type PendingDeepLinkStore = PendingDeepLinkState &
@@ -50,6 +72,7 @@ export type PendingDeepLinkStore = PendingDeepLinkState &
 const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
   (set, get) => ({
     pendingComposerMessage: null,
+    pendingVoiceStartAt: null,
     setPendingComposerMessage: (message) =>
       set({ pendingComposerMessage: message }),
     consumePendingComposerMessage: () => {
@@ -58,6 +81,15 @@ const usePendingDeepLinkStoreBase = create<PendingDeepLinkStore>()(
         set({ pendingComposerMessage: null });
       }
       return message;
+    },
+    setPendingVoiceStart: () => set({ pendingVoiceStartAt: Date.now() }),
+    consumePendingVoiceStart: (maxAgeMs) => {
+      const parkedAt = get().pendingVoiceStartAt;
+      if (parkedAt === null) {
+        return false;
+      }
+      set({ pendingVoiceStartAt: null });
+      return Date.now() - parkedAt <= maxAgeMs;
     },
   }),
 );
@@ -70,5 +102,8 @@ export const usePendingDeepLinkStore = createSelectors(
  * Reset hook for tests. Not intended for production callers.
  */
 export function __resetPendingDeepLinkForTesting(): void {
-  usePendingDeepLinkStoreBase.setState({ pendingComposerMessage: null });
+  usePendingDeepLinkStoreBase.setState({
+    pendingComposerMessage: null,
+    pendingVoiceStartAt: null,
+  });
 }

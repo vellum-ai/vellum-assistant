@@ -18,7 +18,10 @@ import {
 } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { isIOSBrowser } from "@/runtime/platform-detection";
+import {
+  isAndroidBrowser,
+  isIOSBrowser,
+} from "@/runtime/platform-detection";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
 
@@ -117,42 +120,62 @@ function clearDeviceCodeFromUrl(): void {
 }
 
 /**
- * Custom URL scheme registered by the shipped iOS app. Dev and staging app
+ * Custom URL scheme registered by the shipped mobile apps. Dev and staging app
  * builds register suffixed schemes (e.g. `vellum-assistant-dev`), so this
  * handoff link intentionally targets the production app — the common case for
  * a phone that scanned a pairing QR with its camera.
  */
 const VELLUM_APP_SCHEME = "vellum-assistant";
+const VELLUM_ANDROID_PACKAGE = "ai.vellum.assistant";
+type AppHandoffPlatform = "ios" | "android";
 
 /**
  * Build the `vellum-assistant://connect?url=<base>&code=<device-code>` deep
- * link the iOS app consumes to persist this server and finish pairing inside
+ * link the mobile app consumes to persist this server and finish pairing inside
  * the app. `url` is the page's own public base (origin + served path prefix)
  * so the app reconnects to the same self-hosted assistant this browser is
  * already on.
  */
-function buildAppHandoffUrl(deviceCode: string): string {
+function buildAppHandoffUrl(
+  deviceCode: string,
+  platform: AppHandoffPlatform,
+): string {
   const query = new URLSearchParams({
     url: remoteGatewayPublicBaseUrl(),
     code: deviceCode,
   });
-  return `${VELLUM_APP_SCHEME}://connect?${query.toString()}`;
+  if (platform === "ios") {
+    return `${VELLUM_APP_SCHEME}://connect?${query.toString()}`;
+  }
+
+  const fallbackUrl = encodeURIComponent(window.location.href);
+  return (
+    `intent://connect?${query.toString()}` +
+    `#Intent;scheme=${VELLUM_APP_SCHEME};` +
+    `package=${VELLUM_ANDROID_PACKAGE};` +
+    `S.browser_fallback_url=${fallbackUrl};end`
+  );
 }
 
 /**
- * Pre-exchange choice shown to an iOS browser that arrived with a device code.
- * The primary action is a plain anchor so Safari performs the custom-scheme
- * navigation natively; tapping it does not burn the single-use code, so
+ * Pre-exchange choice shown to a mobile browser that arrived with a device
+ * code. The primary action is a plain anchor so the browser performs the
+ * custom-scheme navigation natively; tapping it does not burn the code, so
  * "Continue in this browser" stays available if the app is not installed.
  */
 function PairingHandoffActions({
   deviceCode,
+  platform,
   onContinueInBrowser,
 }: {
   deviceCode: string;
+  platform: AppHandoffPlatform;
   onContinueInBrowser: () => void;
 }) {
-  const appLink = useMemo(() => buildAppHandoffUrl(deviceCode), [deviceCode]);
+  const appLink = useMemo(
+    () => buildAppHandoffUrl(deviceCode, platform),
+    [deviceCode, platform],
+  );
 
   return (
     <div className="mt-6 flex flex-col gap-3">
@@ -189,12 +212,19 @@ export function RemoteWebPairingPage() {
     [location.pathname, location.search, location.hash],
   );
 
-  // A phone that scanned the pairing QR with its camera lands here in Safari.
+  // A phone that scanned the pairing QR with its camera lands here in a browser.
   // If the Vellum app is installed we offer to hand the pairing to it before
-  // burning the single-use code — but only in an iOS browser, never inside the
-  // app's own WKWebView (which pairs directly).
-  const iosAppHandoff = useMemo(
-    () => Boolean(params.deviceCode) && isIOSBrowser() && !isNativePlatform(),
+  // burning the single-use code, never inside a native shell that pairs directly.
+  const appHandoffPlatform = useMemo<AppHandoffPlatform | null>(
+    () => {
+      if (!params.deviceCode || isNativePlatform()) {
+        return null;
+      }
+      if (isAndroidBrowser()) {
+        return "android";
+      }
+      return isIOSBrowser() ? "ios" : null;
+    },
     [params.deviceCode],
   );
 
@@ -207,15 +237,15 @@ export function RemoteWebPairingPage() {
       : null,
   );
 
-  // The browser-side exchange burns the single-use code, so on the iOS handoff
+  // The browser-side exchange burns the single-use code, so on the app handoff
   // screen it waits until the user picks "Continue in this browser"; every
   // other surface starts it immediately.
   const [browserExchangeAllowed, setBrowserExchangeAllowed] = useState(
-    () => !iosAppHandoff,
+    () => !appHandoffPlatform,
   );
 
   const [state, setState] = useState<PairingState>(() => {
-    if (iosAppHandoff) {
+    if (appHandoffPlatform) {
       return { kind: "handoff_choice" };
     }
     return params.deviceCode ? { kind: "verifying" } : { kind: "starting" };
@@ -267,7 +297,7 @@ export function RemoteWebPairingPage() {
     if (!pairing?.deviceCode) {
       return;
     }
-    // Hold the code-burning exchange while the iOS handoff choice is pending.
+    // Hold the code-burning exchange while the app handoff choice is pending.
     if (!browserExchangeAllowed) {
       return;
     }
@@ -375,9 +405,10 @@ export function RemoteWebPairingPage() {
           {copy.body}
         </p>
 
-        {state.kind === "handoff_choice" && pairing ? (
+        {state.kind === "handoff_choice" && pairing && appHandoffPlatform ? (
           <PairingHandoffActions
             deviceCode={pairing.deviceCode}
+            platform={appHandoffPlatform}
             onContinueInBrowser={handleContinueInBrowser}
           />
         ) : null}

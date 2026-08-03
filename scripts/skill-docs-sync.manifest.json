@@ -7,7 +7,7 @@
     },
     "app-builder": {
       "docsSlug": "app-builder",
-      "sha256": "e7bcebd572719b70e7206fe32056d1fa62e6b9d74691a34c195b961c76c45e05"
+      "sha256": "0e2e522d8735a4ea9331c994a2520e0e1a57aca7c728b7105cac1b94166ed595"
     },
     "computer-use": {
       "docsSlug": "computer-use",
@@ -51,11 +51,11 @@
     },
     "skill-management": {
       "docsSlug": "skill-management",
-      "sha256": "23ee1a0fb1d53f7cab88348883987f9a5a833520cfe420fc44055f0d27b5563a"
+      "sha256": "cc095fdb54af9ab614227aca110449b7ae6d4466e80ee4b36f0b9ce04e7aa92d"
     },
     "subagent": {
       "docsSlug": "subagent",
-      "sha256": "c6c75fd2b200c09f7c12b60a87846ffbc6b8021723532f2d4b13bdd87c4683b2"
+      "sha256": "1cd366034e38c879310468f603dc79725da7d6b8d02da9dc66cfefcbebffa293"
     },
     "transcribe": {
       "docsSlug": "transcribe",

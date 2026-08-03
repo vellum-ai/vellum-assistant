@@ -116,6 +116,63 @@ describe("SegmentControl text-mode (non-icon-only) geometry is unchanged", () =>
   });
 });
 
+describe("SegmentControl size", () => {
+  test("defaults to the 28px segment height", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={textItems}
+        value="light"
+        onChange={() => {}}
+        ariaLabel="Theme"
+      />,
+    );
+    for (const cls of radioClassNames(html)) {
+      expect(cls).toContain("h-7");
+      expect(cls).not.toContain("h-6");
+    }
+  });
+
+  test("sm shrinks the segments to 24px, and grows them back for touch", () => {
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={textItems}
+        value="light"
+        onChange={() => {}}
+        ariaLabel="Theme"
+        size="sm"
+      />,
+    );
+    for (const cls of radioClassNames(html)) {
+      expect(cls).toContain("h-6");
+      expect(cls).not.toContain("h-7");
+      // 24px is under a comfortable touch target, so it grows below `md`.
+      expect(cls).toContain("max-md:h-9");
+    }
+  });
+
+  // Sublabels need height to follow content, so they win over the size map
+  // rather than being clipped by a fixed height.
+  test("sublabels override the size in either mode", () => {
+    const items: SegmentControlItem<ThemeValue>[] = [
+      { value: "light", label: "Light", sublabel: "Always" },
+      { value: "dark", label: "Dark", sublabel: "Always" },
+    ];
+    const html = renderToStaticMarkup(
+      <SegmentControl
+        items={items}
+        value="light"
+        onChange={() => {}}
+        ariaLabel="Theme"
+        size="sm"
+      />,
+    );
+    for (const cls of radioClassNames(html)) {
+      expect(cls).toContain("h-auto");
+      expect(cls).not.toContain("h-6");
+    }
+  });
+});
+
 describe("SegmentControl sublabels", () => {
   const sublabelItems: SegmentControlItem<ThemeValue>[] = [
     { value: "light", label: "Light", sublabel: "bright and clear" },

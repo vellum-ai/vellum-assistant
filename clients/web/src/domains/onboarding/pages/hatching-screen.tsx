@@ -31,7 +31,7 @@ import {
   POLL_INTERVAL_MS,
 } from "@/domains/onboarding/purchased-provisioning";
 import {
-  isLocalMode,
+  isLocalClient,
   loadLockfile,
   primeLocalGatewayConnection,
   probeLocalGatewayReady,
@@ -148,7 +148,7 @@ export function HatchingScreen() {
   const pluginParam = searchParams.get(ATTRIBUTED_PLUGIN_PARAM);
   const electron = isElectron();
   const useLocalHatch =
-    isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+    isLocalClient() && hostingParam !== null && hostingParam !== "vellum-cloud";
   // `hosting=vellum-cloud` names a managed hatch even in a local-mode build
   // (see `adopt-existing-assistant`): the assistant is provisioned on the
   // platform, so its purchased machine and storage are waited for.
@@ -225,7 +225,7 @@ export function HatchingScreen() {
     // healthz probes below) rewrite to the local gateway while a self-hosted
     // connection is primed. Dropping both is the same handoff the hosting
     // screen performs for its Vellum Cloud choice.
-    if (managedHatch && isLocalMode()) {
+    if (managedHatch && isLocalClient()) {
       clearGatewayToken();
       setSelfHostedConnection(null);
     }
@@ -329,7 +329,7 @@ export function HatchingScreen() {
           const existing = await getAssistant();
           const preflightState = resolveAssistantLifecycleState(existing);
           if (!cancelled && existing.ok && preflightState.kind === "active") {
-            if (isLocalMode()) {
+            if (isLocalClient()) {
               void saveManagedLockfileAssistant(
                 existing.data.id,
                 existing.data.name,
@@ -631,7 +631,7 @@ export function HatchingScreen() {
             if (createdFreshAssistant || preflightFoundNoAssistant) {
               void persistHatchAvatar(assistantId);
             }
-            if (isLocalMode()) {
+            if (isLocalClient()) {
               void saveManagedLockfileAssistant(
                 assistantId,
                 result.data.name,

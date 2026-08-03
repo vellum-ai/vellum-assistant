@@ -32,6 +32,12 @@ export interface UseCommandPaletteReturn {
   isSearching: boolean;
   /** Server search results, grouped by category. */
   searchResults: GlobalSearchResponse | null;
+  /**
+   * Lexical tokens of the term the server matched on, from the daemon's
+   * own tokenizer and aligned with `searchResults`. Use these for match
+   * highlighting.
+   */
+  searchTokens: string[];
   open: () => void;
   close: () => void;
   toggle: () => void;
@@ -42,6 +48,7 @@ export interface UseCommandPaletteReturn {
 
 const DEBOUNCE_MS = 150;
 const MIN_QUERY_LENGTH = 2;
+const NO_TOKENS: string[] = [];
 
 /**
  * Hook managing the command palette state: open/close toggle, search query,
@@ -65,6 +72,7 @@ export function useCommandPalette({
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] =
     useState<GlobalSearchResponse | null>(null);
+  const [searchTokens, setSearchTokens] = useState<string[]>(NO_TOKENS);
 
   const itemCountGetterRef = useRef<() => number>(() => 0);
   useLayoutEffect(() => {
@@ -91,11 +99,16 @@ export function useCommandPalette({
   }, [storeOpen]);
 
   const close = useCallback(() => {
+    // Focus stays where it is: item selection runs its action before closing,
+    // and actions such as "New Conversation" focus the composer. Releasing
+    // focus held inside the palette itself is the palette component's job
+    // (see `command-palette.tsx`).
     storeClose();
     setQuery("");
     setSelectedIndex(0);
     setIsSearching(false);
     setSearchResults(null);
+    setSearchTokens(NO_TOKENS);
     cancelSearch();
     onClose?.();
   }, [storeClose, cancelSearch, onClose]);
@@ -116,6 +129,7 @@ export function useCommandPalette({
       setSelectedIndex(0);
       setIsSearching(false);
       setSearchResults(null);
+      setSearchTokens(NO_TOKENS);
       cancelSearch();
     }
   }, [isOpen, cancelSearch]);
@@ -132,6 +146,7 @@ export function useCommandPalette({
       if (trimmed.length < MIN_QUERY_LENGTH || !assistantId) {
         setIsSearching(false);
         setSearchResults(null);
+        setSearchTokens(NO_TOKENS);
         return;
       }
 
@@ -147,9 +162,10 @@ export function useCommandPalette({
         abortControllerRef.current = controller;
 
         searchGlobal(assistantId, trimmed, { signal: controller.signal })
-          .then((results) => {
+          .then((outcome) => {
             if (abortControllerRef.current === controller) {
-              setSearchResults(results);
+              setSearchResults(outcome.results);
+              setSearchTokens(outcome.queryTokens);
               setIsSearching(false);
             }
           })
@@ -224,6 +240,7 @@ export function useCommandPalette({
     selectedIndex,
     isSearching,
     searchResults,
+    searchTokens,
     open,
     close,
     toggle,

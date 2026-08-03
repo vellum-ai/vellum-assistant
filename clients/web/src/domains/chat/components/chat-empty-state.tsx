@@ -9,9 +9,10 @@ import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-c
  * rendered by the parent `ChatBody` in the same flex column so that
  * greeting → composer → starters appear as one vertically-centered group.
  *
- * Centering and overflow handling live on `ChatBody`'s outer container
- * (`justify-content: safe center` + `overflow-y-auto`), not here. This
- * component just renders its content at natural height.
+ * Centering and overflow handling live on `ChatBody` (`overflow-y-auto`
+ * on its outer scroll container, `justify-content: safe center` on an
+ * inner `min-h-full` wrapper), not here. This component just renders its
+ * content at natural height.
  *
  * See [React — Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
  * for why the composer must stay at a fixed tree position rather than
@@ -45,7 +46,7 @@ export function ChatEmptyState({
                Serif 32px) — larger than the old title tokens, scaled down
                a step on mobile. */
             <h1
-              className="text-center text-[24px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasized)] md:text-[32px]"
+              className="text-center text-[28px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasized)] md:text-[36px]"
               style={{ fontFamily: "var(--font-serif)" }}
             >
               {greeting}

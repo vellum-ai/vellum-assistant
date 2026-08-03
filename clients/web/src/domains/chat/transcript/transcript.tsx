@@ -17,6 +17,7 @@ import { PullRefreshSpinner } from "@/domains/chat/transcript/pull-refresh-spinn
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import { PULL_THRESHOLD_PX } from "@/domains/chat/transcript/pull-to-refresh-utils";
 import { usePullToRefresh } from "@/domains/chat/transcript/use-pull-to-refresh";
+import { useHideIdleScrollbar } from "@/domains/chat/transcript/use-hide-idle-scrollbar";
 import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -158,11 +159,17 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     } = props;
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
+    const latestEdgeSpacerRef = useRef<HTMLDivElement | null>(null);
     // Pending removal of the transient deep-link highlight class.
     const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
       null,
     );
     const viewportMinHeight = useViewportMinHeight(scrollRef);
+    const hideIdleScrollbar = useHideIdleScrollbar(
+      scrollRef,
+      contentRef,
+      latestEdgeSpacerRef,
+    );
 
     useEffect(() => {
       return () => {
@@ -283,7 +290,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
         key={conversationId}
         ref={scrollRef}
         data-testid="transcript-scroll-container"
-        className="flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]"
+        className={`flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none] ${
+          hideIdleScrollbar
+            ? "[&::-webkit-scrollbar]:hidden [scrollbar-width:none]"
+            : ""
+        }`}
       >
         {/* Inner content wrapper — observed by the scroll coordinator's
          *  ResizeObserver so we can re-pin to bottom when scroll content
@@ -365,7 +376,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 </div>
               )}
               {partition.anchorMessage && (
-                <div data-latest-edge-spacer="true" className="flex-1" />
+                <div
+                  ref={latestEdgeSpacerRef}
+                  data-latest-edge-spacer="true"
+                  className="flex-1"
+                />
               )}
               <div aria-hidden data-latest-edge="true" />
             </div>

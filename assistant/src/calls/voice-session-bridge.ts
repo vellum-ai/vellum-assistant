@@ -872,7 +872,12 @@ export async function startVoiceTurn(
     const persistResult = await conversation.persistUserMessage({
       content: persistedContent,
       requestId,
-      ...(isHiddenSyntheticPrompt ? { metadata: { hidden: true } } : {}),
+      metadata: {
+        // Durable "this turn came from an open voice session" marker; see
+        // `isVoiceSessionUserMessage` for why the channel fields cannot carry it.
+        voiceSessionTurn: true,
+        ...(isHiddenSyntheticPrompt ? { hidden: true } : {}),
+      },
     });
     return persistResult.id;
   };

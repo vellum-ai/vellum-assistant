@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { NativeSplash } from "@/components/native-splash";
 import { AuthWaitSpinner } from "@/domains/account/components/auth-wait-spinner";
@@ -9,12 +9,12 @@ import {
   LoginErrorText,
   LoginHeading,
 } from "@/domains/account/components/login-shell";
-import { useFunnelPageView } from "@/domains/account/hooks/use-funnel-page-view";
 import { useReturnToShortCircuit } from "@/domains/account/hooks/use-return-to-short-circuit";
 import {
   PROVIDER_ID,
   buildProviderCallbackUrl,
 } from "@/domains/account/login-flow";
+import { withPreservedAttribution } from "@/domains/account/social-auth";
 import {
   startAuthFlow,
   startNativeLogin,
@@ -29,9 +29,9 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
 };
 
 /**
- * Capacitor iOS login: single "Sign in" button inside NativeSplash.
- * Opens a Safari sheet via `/accounts/native/start` with no provider
- * hint — WorkOS AuthKit handles Apple / Google / email selection.
+ * Capacitor native login: single "Sign in" button inside NativeSplash.
+ * Opens the platform browser auth surface with no provider hint; WorkOS
+ * AuthKit handles Apple / Google / email selection.
  */
 function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -108,9 +108,14 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const callbackUrl = buildProviderCallbackUrl(returnTo);
-  const signUpHref = returnTo
-    ? `${routes.account.signup}?returnTo=${encodeURIComponent(returnTo)}`
-    : routes.account.signup;
+  // Keep URL-borne attribution alive across the pivot to signup.
+  const { search } = useLocation();
+  const signUpHref = withPreservedAttribution(
+    returnTo
+      ? `${routes.account.signup}?returnTo=${encodeURIComponent(returnTo)}`
+      : routes.account.signup,
+    search,
+  );
 
   const handleContinue = async () => {
     setErrorMessage(null);
@@ -160,7 +165,7 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
 /**
  * Branded sign-in screen for `/account/login`.
  *
- * Delegates to `NativeLoginForm` (Capacitor iOS) or `WebLoginForm`
+ * Delegates to `NativeLoginForm` (Capacitor native) or `WebLoginForm`
  * (standard browser / Electron) based on platform detection.
  *
  * `useReturnToShortCircuit` owns whether an existing session skips OAuth and
@@ -170,9 +175,6 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
 export function LoginPage() {
   const isNative = useIsNativePlatform();
   const shortCircuit = useReturnToShortCircuit();
-  // Only a visitor who reaches the screen is a funnel arrival — an existing
-  // session that short-circuits straight to `returnTo` is not.
-  useFunnelPageView(routes.account.login, shortCircuit.kind === "proceed");
 
   if (shortCircuit.kind === "wait") {
     return isNative ? (

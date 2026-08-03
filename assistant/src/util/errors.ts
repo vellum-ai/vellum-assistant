@@ -120,7 +120,14 @@ export type ProviderErrorReason =
   | "vision_unsupported"
   | "bad_request"
   | "server_error"
+  | "network_error"
   | "unknown";
+
+export interface ProviderRouteAttribution {
+  connectionName?: string;
+  profileName?: string;
+  isManagedRoute?: boolean;
+}
 
 export class ProviderError extends AssistantError {
   /** Delay (in ms) suggested by the server's Retry-After header, if present. */
@@ -145,6 +152,8 @@ export class ProviderError extends AssistantError {
   public readonly abortReason?: unknown;
   /** Semantic failure classification stamped at the throw site. */
   public readonly reason?: ProviderErrorReason;
+  /** Transport route selected for the failed provider call. */
+  public routeAttribution?: ProviderRouteAttribution;
 
   constructor(
     message: string,
@@ -172,6 +181,13 @@ export class ProviderError extends AssistantError {
     this.rawBody = options?.rawBody;
     this.abortReason = options?.abortReason;
     this.reason = options?.reason;
+  }
+
+  attachRouteAttribution(attribution: ProviderRouteAttribution): void {
+    this.routeAttribution = {
+      ...attribution,
+      ...this.routeAttribution,
+    };
   }
 }
 

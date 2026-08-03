@@ -148,6 +148,31 @@ describe("preflightResolvedConfig", () => {
     expect(err?.reason).toBe("platform_unauthenticated");
   });
 
+  test("a user-owned row claiming the vellum name preflights the platform", async () => {
+    // Dispatch ignores that row, so its credential is irrelevant to the
+    // verdict: signed in passes, signed out is the platform's own failure.
+    connectionsByName["vellum"] = {
+      name: "vellum",
+      provider: "openai",
+      auth: { type: "api_key", credential: "credential/openai/api_key" },
+    };
+    secureKeys["credential/openai/api_key"] = "sk-openai";
+    const collided = resolved({
+      provider: "vellum",
+      provider_connection: "",
+      model: "gpt-5.6-luna",
+    });
+
+    platformLoggedIn = true;
+    await expect(
+      preflightResolvedConfig(collided, {}),
+    ).resolves.toBeUndefined();
+
+    platformLoggedIn = false;
+    const err = await preflightError(collided);
+    expect(err?.reason).toBe("platform_unauthenticated");
+  });
+
   test("an unroutable vellum model throws unroutable_managed_model", async () => {
     const err = await preflightError(
       resolved({

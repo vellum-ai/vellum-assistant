@@ -42,6 +42,7 @@ import type { SubagentStatus } from "@vellumai/assistant-api";
 import { isActiveStatus } from "@/utils/subagent-status";
 import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";
+import { thinkingPreview } from "@/domains/chat/utils/thinking-preview";
 import { truncate } from "@/domains/chat/utils/truncate";
 import {
   extractDomain,
@@ -668,7 +669,7 @@ function deriveCurrentStep(
     // the resting card doesn't read as live.
     return {
       currentStepTitle: isTerminal ? "Thought" : "Thinking",
-      currentStepInfo: latest.text,
+      currentStepInfo: thinkingPreview(latest.text),
     };
   }
 

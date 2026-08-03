@@ -110,6 +110,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "collapse-assistant-intermediates",
+      "scope": "client",
+      "key": "collapse-assistant-intermediates",
+      "label": "Collapse Assistant Intermediates",
+      "description": "Collapse completed intermediary assistant activity behind Earlier activity while keeping the final response visible",
+      "defaultEnabled": false
+    },
+    {
       "id": "backward-releases",
       "scope": "assistant",
       "key": "backward-releases",
@@ -334,11 +342,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "composer-secret-guard",
-      "scope": "assistant",
-      "key": "composer-secret-guard",
-      "label": "Composer Secret Guard",
-      "description": "Detect API keys/secrets typed into the chat composer and offer secure credential storage before send",
+      "id": "assistant-switcher",
+      "scope": "client",
+      "key": "assistant-switcher",
+      "label": "Assistant Switcher",
+      "description": "Show the Switch Assistant section in General settings (local mode only), linking to the assistant chooser.",
       "defaultEnabled": false
     },
     {
@@ -348,6 +356,14 @@
       "label": "Marketing Pricing Takeover",
       "description": "Gates the marketing pricing takeover page (www.vellum.ai/pricing) and the `/assistant/checkout?package=<slug>` deep link its package CTAs target. One flag covers both halves of the funnel so they can never be enabled independently and strand a CTA. When off, the checkout deep link redirects to the in-app plans takeover.",
       "defaultEnabled": false
+    },
+    {
+      "id": "assistant-reply-push",
+      "scope": "assistant",
+      "key": "assistant-reply-push",
+      "label": "Assistant Reply Push",
+      "description": "Gates the `chat.assistant_reply` push notification the assistant sends at the end of a user-initiated turn whose reply the user has not seen. On by default; turn it off to silence the push without disabling the rest of the notification pipeline.",
+      "defaultEnabled": true
     }
   ]
 }

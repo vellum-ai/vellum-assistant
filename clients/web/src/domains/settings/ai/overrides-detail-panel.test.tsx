@@ -55,19 +55,29 @@ const CONFIG = {
         provider: "anthropic",
         model: "claude-fable-5",
       },
+      quality: {
+        label: "Quality",
+        provider: "anthropic",
+        model: "claude-opus-5",
+      },
     },
-    profileOrder: ["my-byok"],
+    profileOrder: ["my-byok", "quality"],
     activeProfile: null,
+    advisorProfile: "quality",
     callSites: {},
   },
 };
 
 let configPatchBodies: unknown[] = [];
+// The config the mocked `configGet` serves. Tests that need a different
+// persisted shape reassign this, because seeding the query cache alone is
+// not enough: `staleTime: 0` refetches and the mock's value wins.
+let servedConfig: unknown = CONFIG;
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   configLlmCallsitesGet: mock(async () => ({ data: CATALOG })),
-  configGet: mock(async () => ({ data: CONFIG })),
+  configGet: mock(async () => ({ data: servedConfig })),
   configPatch: async (options?: { body?: unknown }) => {
     configPatchBodies.push(options?.body);
     return { data: CONFIG };
@@ -117,6 +127,7 @@ function pickOption(trigger: HTMLElement, optionLabel: string): void {
 
 beforeEach(() => {
   configPatchBodies = [];
+  servedConfig = CONFIG;
 });
 
 afterEach(() => {
@@ -161,7 +172,8 @@ describe("OverridesDetailPanel - apply to all", () => {
     // Before a profile is chosen the apply button is inert.
     expect(getButton("Apply to all").disabled).toBe(true);
 
-    // The apply-all dropdown is the only combobox while no override is on.
+    // With no override toggled on, the only comboboxes are the apply-all
+    // dropdown and the Advisor row's - and apply-all renders first.
     const trigger = document.querySelector<HTMLElement>(
       'button[role="combobox"]',
     );
@@ -184,5 +196,200 @@ describe("OverridesDetailPanel - apply to all", () => {
       heartbeatAgent: { profile: "my-byok", provider: null, model: null },
     });
     expect("mainAgent" in body.llm.callSites).toBe(false);
+  });
+
+  test("apply-to-all leaves the advisor selection alone", async () => {
+    render(
+      <Wrapper>
+        <OverridesDetailPanel assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(renderedText()).toContain("Use one profile for all actions");
+    });
+
+    const trigger = document.querySelector<HTMLElement>(
+      'button[role="combobox"]',
+    );
+    if (!trigger) {
+      throw new Error("expected the apply-all dropdown trigger");
+    }
+    pickOption(trigger, "My BYOK");
+    fireEvent.click(getButton("Apply to all"));
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as { llm: Record<string, unknown> };
+    expect("advisorProfile" in body.llm).toBe(false);
+  });
+});
+
+describe("OverridesDetailPanel - advisor", () => {
+  test("renders the advisor row seeded from llm.advisorProfile", async () => {
+    render(
+      <Wrapper>
+        <OverridesDetailPanel assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(renderedText()).toContain("Advisor");
+    });
+    expect(renderedText()).toContain("second opinion");
+    // Seeded selection is visible in the row's dropdown trigger.
+    const triggers = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    );
+    expect(triggers.some((t) => t.textContent?.includes("Quality"))).toBe(true);
+  });
+
+  test("the advisor row offers no off state", async () => {
+    render(
+      <Wrapper>
+        <OverridesDetailPanel assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(renderedText()).toContain("Advisor");
+    });
+
+    const advisorTrigger = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    ).find((t) => t.textContent?.includes("Quality"));
+    if (!advisorTrigger) {
+      throw new Error("expected the advisor dropdown trigger");
+    }
+    fireEvent.click(advisorTrigger);
+    const optionLabels = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((o) => o.textContent?.trim());
+    expect(optionLabels).toEqual(["My BYOK", "Quality"]);
+  });
+
+  test("an advisor-only save omits callSites entirely", async () => {
+    render(
+      <Wrapper>
+        <OverridesDetailPanel assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+    await waitFor(() => {
+      expect(renderedText()).toContain("Advisor");
+    });
+
+    const advisorTrigger = Array.from(
+      document.querySelectorAll<HTMLElement>('button[role="combobox"]'),
+    ).find((t) => t.textContent?.includes("Quality"));
+    if (!advisorTrigger) {
+      throw new Error("expected the advisor dropdown trigger");
+    }
+    pickOption(advisorTrigger, "My BYOK");
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as { llm: Record<string, unknown> };
+    expect(body.llm.advisorProfile).toBe("my-byok");
+    // No call site was touched. Sending the map anyway would rewrite each
+    // entry from the picker's three fields and drop any tuning field
+    // (effort, thinking, maxTokens) a persisted entry carries.
+    expect("callSites" in body.llm).toBe(false);
+  });
+});
+
+describe("OverridesDetailPanel - tuning-only entries (LUM-2949)", () => {
+  // `isDraftActive` reads only profile/provider/model, so a persisted entry
+  // holding nothing but tuning reads as "off". Serializing it to `null`
+  // would delete it: see `config-callsite-patch-merge.test.ts`, which pins
+  // that a `null` erases the whole entry while an omitted key is preserved.
+  const TUNING_ONLY_CONFIG = {
+    ...CONFIG,
+    llm: {
+      ...CONFIG.llm,
+      callSites: {
+        heartbeatAgent: { effort: "low", thinking: { enabled: false } },
+      },
+    },
+  };
+
+  function renderWith(config: unknown) {
+    servedConfig = config;
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    client.setQueryData([{ _id: "configLlmCallsitesGet" }], CATALOG);
+    client.setQueryData([{ _id: "configGet" }], config);
+    return render(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(OverridesDetailPanel, {
+          assistantId: "asst-1",
+          onClose: () => {},
+        }),
+      ),
+    );
+  }
+
+  function toggleFor(displayName: string): HTMLElement {
+    const match = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '[role="switch"], input[type="checkbox"]',
+      ),
+    ).find((el) =>
+      (el.getAttribute("aria-label") ?? "").includes(displayName),
+    );
+    if (!match) {
+      throw new Error(`expected a toggle for ${displayName}`);
+    }
+    return match;
+  }
+
+  test("a tuning-only entry the user never touched is omitted, not nulled", async () => {
+    renderWith(TUNING_ONLY_CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Workflow Leaf");
+    });
+
+    // Turn on an override for a different row, then save.
+    fireEvent.click(toggleFor("Workflow Leaf"));
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as {
+      llm: { callSites: Record<string, unknown> };
+    };
+    // Absent, so the merge leaves the persisted tuning in place. `null`
+    // here would delete settings the user never asked to remove.
+    expect("heartbeatAgent" in body.llm.callSites).toBe(false);
+    expect(body.llm.callSites.workflowLeaf).toBeTruthy();
+  });
+
+  test("switching a row off still sends null so the entry is deleted", async () => {
+    const ACTIVE_CONFIG = {
+      ...CONFIG,
+      llm: {
+        ...CONFIG.llm,
+        callSites: { heartbeatAgent: { profile: "quality", effort: "low" } },
+      },
+    };
+    renderWith(ACTIVE_CONFIG);
+    await waitFor(() => {
+      expect(renderedText()).toContain("Heartbeat Agent");
+    });
+
+    fireEvent.click(toggleFor("Heartbeat Agent"));
+    fireEvent.click(getButton("Save"));
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBe(1);
+    });
+    const body = configPatchBodies[0] as {
+      llm: { callSites: Record<string, unknown> };
+    };
+    expect(body.llm.callSites.heartbeatAgent).toBe(null);
   });
 });

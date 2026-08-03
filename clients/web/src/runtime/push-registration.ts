@@ -31,6 +31,9 @@
  * (no native Capacitor Android shell ships today); registration/delete failures
  * are reported to Sentry but never thrown into the app lifecycle.
  *
+ * The upserted row's `apns_environment` tag is resolved by
+ * `runtime/apns-environment.ts`; see its docblock for the rationale.
+ *
  * Per `docs/CAPACITOR.md`, the `@capacitor/*` plugins are destructured inline
  * at each call site — never returned through an `async` boundary — because the
  * plugin Proxy's `.then` trap would hang the awaiting caller forever.
@@ -42,22 +45,11 @@ import {
   assistantsPushTokensDelete,
   assistantsPushTokensUpsert,
 } from "@/generated/api/sdk.gen";
-import type { ApnsEnvironmentEnum } from "@/generated/api/types.gen";
 import { publish } from "@/lib/event-bus";
 import { captureError } from "@/lib/sentry/capture-error";
+import { resolveSignedApnsEnvironment } from "@/runtime/apns-environment";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { createStorageAccessor } from "@/utils/typed-storage";
-
-/**
- * Bundle-id suffix that maps to the development APNs entitlement. The dev Xcode
- * config (`clients/ios/App/App/Config/App-Dev.xcconfig`) signs with
- * `App-Dev.entitlements` (`aps-environment = development`) and ships the `.dev`
- * bundle id; production and staging both sign with `App.entitlements`
- * (`aps-environment = production`). APNs rejects a token minted under one
- * environment if dispatched against the other, so the platform stores the
- * environment alongside the token and the value must match the running build.
- */
-const DEV_BUNDLE_SUFFIX = ".dev";
 
 /** Token registration we last upserted, retained so logout can delete it. */
 interface RegisteredToken {
@@ -141,11 +133,6 @@ export function isRemotePushSupported(): boolean {
   return isNativePlatform() && Capacitor.getPlatform() === "ios";
 }
 
-/** Map the running build's bundle id to its APNs entitlement environment. */
-function resolveApnsEnvironment(bundleId: string): ApnsEnvironmentEnum {
-  return bundleId.endsWith(DEV_BUNDLE_SUFFIX) ? "development" : "production";
-}
-
 /**
  * Upsert a freshly-minted APNs token to the platform for the given assistant.
  * Best-effort: a non-2xx response or thrown error is reported and swallowed.
@@ -155,6 +142,7 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
     // `@capacitor/app` is a plugin Proxy — destructure inline (see CAPACITOR.md).
     const { App } = await import("@capacitor/app");
     const { id: bundleId } = await App.getInfo();
+    const apnsEnvironment = await resolveSignedApnsEnvironment(bundleId);
 
     const result = await assistantsPushTokensUpsert({
       path: { assistant_id: assistantId },
@@ -162,7 +150,7 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
         token,
         platform: "ios",
         bundle_id: bundleId,
-        apns_environment: resolveApnsEnvironment(bundleId),
+        apns_environment: apnsEnvironment,
       },
       throwOnError: false,
     });
@@ -320,8 +308,8 @@ export async function unregisterFromRemotePush(): Promise<void> {
     await Promise.allSettled([...pendingUpserts]);
   }
 
-  // Fall back to persisted storage: a process reload before re-registration
-  // leaves `lastRegistered` null even though a token is still registered.
+  // Module memory, falling back to persisted storage: a process reload wipes
+  // `lastRegistered` while the token stays registered server-side.
   const registered = lastRegistered ?? persistedRegistration.load();
   lastRegistered = null;
   persistedRegistration.remove();
@@ -357,6 +345,30 @@ export async function unregisterFromRemotePush(): Promise<void> {
       bestEffort: true,
     });
   }
+}
+
+/**
+ * True when this device holds a push registration for `assistantId` that was
+ * confirmed in the current JS session (module-memory `lastRegistered`, set
+ * only when an upsert succeeded after this process started).
+ *
+ * Deliberately ignores the persisted-storage registration: a record from an
+ * earlier session only proves an upsert once succeeded, not that the platform
+ * still holds a token row for this device (APNs BadDeviceToken responses
+ * prune rows server-side). A session-confirmed upsert proves the platform
+ * held a live token row for this device at mount time, which is the evidence
+ * the remote-push banner dedup in `runtime/notifications.ts` needs before
+ * suppressing a local banner. The logout path is different: deleting a
+ * possibly-stale token is harmless, so `unregisterFromRemotePush` falls back
+ * to the persisted registration.
+ *
+ * Pure state read, never touches Capacitor plugins, so it is safe to call
+ * synchronously on any platform.
+ */
+export function hasSessionConfirmedRemotePushRegistration(
+  assistantId: string,
+): boolean {
+  return lastRegistered?.assistantId === assistantId;
 }
 
 /** Test-only: reset module + persisted state between cases. */

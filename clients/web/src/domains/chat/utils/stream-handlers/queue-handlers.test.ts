@@ -7,6 +7,7 @@ import {
   handleMessageQueued,
   handleMessageDequeued,
   handleMessageQueuedDeleted,
+  handleMessageRequeued,
   handleMessageRequestComplete,
 } from "@/domains/chat/utils/stream-handlers/queue-handlers";
 
@@ -184,6 +185,80 @@ describe("handleMessageDequeued", () => {
     expect(message?.isOptimistic).toBe(true);
     expect(message?.queueStatus).toBeUndefined();
     expect(message?.queuePosition).toBeUndefined();
+  });
+});
+
+describe("handleMessageRequeued", () => {
+  it("restores the pending row the dequeue cleared, keyed by the nonce", () => {
+    const ctx = makeCtx();
+    handleMessageRequeued(
+      {
+        type: "message_requeued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+        position: 1,
+        clientMessageId: "nonce-1",
+      },
+      ctx,
+    );
+
+    expect(ctx.turnActions.enqueueMessage).toHaveBeenCalled();
+    // The dequeue consumed the mapping, so it has to be re-registered or the
+    // eventual second dequeue has nothing to clear.
+    expect(ctx.setRequestIdMapping).toHaveBeenCalledWith("req-1", "nonce-1");
+
+    const updater = (
+      ctx.setOptimisticSends as unknown as ReturnType<typeof Object>
+    ).mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+    const updated = updater([
+      {
+        id: "stable-1",
+        role: "user",
+        clientMessageId: "nonce-1",
+      } as DisplayMessage,
+    ]);
+    expect(updated[0]?.queueStatus).toBe("queued");
+    expect(updated[0]?.queuePosition).toBe(1);
+  });
+
+  it("falls back to the requestId when the sender minted no nonce", () => {
+    const ctx = makeCtx();
+    handleMessageRequeued(
+      {
+        type: "message_requeued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+        position: 2,
+      },
+      ctx,
+    );
+    expect(ctx.setRequestIdMapping).toHaveBeenCalledWith("req-1", "req-1");
+  });
+
+  it("re-marks a server-backed queued transcript row", () => {
+    useChatSessionStore.setState({
+      snapshot: {
+        messages: [{ id: "req-1", role: "user" }],
+        hasMore: false,
+        oldestTimestamp: null,
+        oldestMessageId: null,
+        seq: 1,
+      },
+    });
+
+    handleMessageRequeued(
+      {
+        type: "message_requeued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+        position: 3,
+      },
+      makeCtx(),
+    );
+
+    const message = useChatSessionStore.getState().snapshot?.messages[0];
+    expect(message?.queueStatus).toBe("queued");
+    expect(message?.queuePosition).toBe(3);
   });
 });
 

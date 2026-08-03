@@ -24,7 +24,7 @@ import {
   test,
 } from "bun:test";
 
-const isLocalModeMock = mock(() => !process.env.VITE_PLATFORM_MODE);
+const isLocalClientMock = mock(() => !process.env.VITE_PLATFORM_MODE);
 const isPlatformDisabledMock = mock(() => false);
 const isRemoteGatewayModeMock = mock(
   () => window.__VELLUM_CONFIG__?.mode === "remote-gateway",
@@ -39,7 +39,7 @@ mock.module("@/lib/local-mode", () => ({
   getSelectedAssistant: () => undefined,
   hasAssistants: () => false,
   isLocalAssistant: () => false,
-  isLocalMode: isLocalModeMock,
+  isLocalClient: isLocalClientMock,
   isPlatformDisabled: isPlatformDisabledMock,
   isPlatformAssistant: () => false,
   isRemoteGatewayMode: isRemoteGatewayModeMock,
@@ -819,7 +819,7 @@ describe("api-interceptors / remote gateway direct requests", () => {
 // must NOT kill requests already rewritten to the self-hosted gateway.
 //
 // The test preload sets VITE_PLATFORM_MODE=true (platform mode).
-// These tests temporarily clear it so isLocalMode() returns true.
+// These tests temporarily clear it so isLocalClient() returns true.
 
 describe("api-interceptors / platform features gate", () => {
   let savedPlatformMode: string | undefined;
@@ -1046,7 +1046,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
         reloadCalls += 1;
       }),
     });
-    isLocalModeMock.mockImplementation(() => true);
+    isLocalClientMock.mockImplementation(() => true);
     setSelfHostedConnection({ url: GATEWAY_URL, token: "tok" });
     sessionStorage.removeItem(GW_401_RELOAD_KEY);
     clearGatewayTokenStorage();
@@ -1058,7 +1058,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
       configurable: true,
       value: originalReload,
     });
-    isLocalModeMock.mockImplementation(() => !process.env.VITE_PLATFORM_MODE);
+    isLocalClientMock.mockImplementation(() => !process.env.VITE_PLATFORM_MODE);
     setSelfHostedConnection(null);
     sessionStorage.removeItem(GW_401_RELOAD_KEY);
     clearGatewayTokenStorage();
@@ -1111,7 +1111,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
      */
 
     // GIVEN platform mode is active
-    isLocalModeMock.mockImplementation(() => false);
+    isLocalClientMock.mockImplementation(() => false);
 
     // WHEN the daemon receives a 401
     localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
@@ -1254,7 +1254,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 // being image/file uploads above ~1.5 MB hanging on "Stalled". A Blob is
 // passed by reference (blob handle), so there is no renderer-side data pipe to
 // block on. The preload sets VITE_PLATFORM_MODE=true; these tests clear it so
-// isLocalMode() returns true and the buffering path runs.
+// isLocalClient() returns true and the buffering path runs.
 
 describe("api-interceptors / local-mode body buffering", () => {
   let savedPlatformMode: string | undefined;

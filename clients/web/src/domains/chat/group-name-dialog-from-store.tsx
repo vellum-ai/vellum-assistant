@@ -11,10 +11,11 @@ import type {
 /**
  * Store-driven group-name dialog. Reads the pending create/rename request from
  * {@link useGroupNameRequestStore} and drives one {@link NameInputDialog} for
- * both. On a "create" submit it creates the group and moves the requesting
- * conversation into it; on "rename" it renames. Extracted so the
- * create-then-move / rename wiring lives with the dialog rather than being
- * threaded through the parent orchestrator's dependency tree.
+ * both. On a "create" submit it creates the group, then moves the requesting
+ * conversation into it when the request carried one; on "rename" it renames.
+ * Extracted so the create-then-move / rename wiring lives with the dialog
+ * rather than being threaded through the parent orchestrator's dependency
+ * tree.
  *
  * The icon picker renders only when the active assistant persists group
  * icons ({@link useSupportsGroupIcons}); against an older assistant the
@@ -46,7 +47,9 @@ export function GroupNameDialogFromStore({
       clear();
       if (request.mode === "create") {
         const group = await createGroup(name, icon);
-        if (group) {
+        // No conversation means this came from the sidebar's own "New group…",
+        // which creates an empty group rather than filing something into it.
+        if (group && request.conversation) {
           moveToGroup(request.conversation, group.id);
         }
       } else {

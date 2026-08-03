@@ -5,6 +5,10 @@ import {
   ensureConversationExists,
   getConversation,
 } from "../persistence/conversation-crud.js";
+import {
+  isEchoSuppressedUserMessage,
+  isReplyPushIneligibleUserMessage,
+} from "../persistence/conversation-types.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 
@@ -31,6 +35,9 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
 // `ensureConversationExists`. The persistence module is intentionally NOT
 // mocked so the real `ensureConversationExists` runs against the real DB.
 let lastProcessMessageConversationId: string | undefined;
+let lastProcessMessageOptions: Record<string, unknown> | undefined;
+let lastEnqueueOptions: Record<string, unknown> | undefined;
+let conversationIsProcessing = false;
 mock.module("../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async (
     conversationId: string,
@@ -50,14 +57,18 @@ mock.module("../daemon/conversation-store.js", () => ({
     }
     return {
       abortController: undefined,
-      isProcessing: () => false,
-      async processMessage() {
+      isProcessing: () => conversationIsProcessing,
+      async processMessage(processOptions: Record<string, unknown>) {
         // The row must already exist by the time the turn persists its user
         // message — record the id so the FK precondition can be asserted.
         lastProcessMessageConversationId = conversationId;
+        lastProcessMessageOptions = processOptions;
         return "user-message-id";
       },
-      enqueueMessage: () => ({ rejected: false }),
+      enqueueMessage: (enqueueOptions: Record<string, unknown>) => {
+        lastEnqueueOptions = enqueueOptions;
+        return { rejected: false };
+      },
     };
   },
 }));
@@ -82,6 +93,9 @@ describe("runConversationTurn persistence", () => {
     db.run("DELETE FROM conversations");
     listChangedCalls.length = 0;
     lastProcessMessageConversationId = undefined;
+    lastProcessMessageOptions = undefined;
+    lastEnqueueOptions = undefined;
+    conversationIsProcessing = false;
   });
 
   test("persists a conversations row for a freshly-minted conversation", async () => {
@@ -128,5 +142,54 @@ describe("runConversationTurn persistence", () => {
     // Row is untouched and no duplicate "created" invalidation fires.
     expect(getConversation(existing.id)?.title).toBe("already here");
     expect(listChangedCalls).toEqual([]);
+  });
+});
+
+// A plugin drives its turn on its own schedule, so the row that opens it is
+// machine-initiated even when the turn runs in an ordinary standard
+// conversation the user also types into. Each case asserts the shared
+// eligibility predicate's verdict on the stamped metadata, so the marker and
+// the gate that reads it cannot drift apart.
+describe("runConversationTurn provenance", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM messages");
+    db.run("DELETE FROM conversations");
+    lastProcessMessageOptions = undefined;
+    lastEnqueueOptions = undefined;
+    conversationIsProcessing = false;
+  });
+
+  test("stamps the initiating row automated so its reply raises no push", async () => {
+    const existing = createConversation({ title: "standard conversation" });
+
+    await runConversationTurn({
+      conversationId: existing.id,
+      content: [{ type: "text", text: "transcript excerpt" }],
+    });
+
+    const metadata = lastProcessMessageOptions?.metadata as Record<
+      string,
+      unknown
+    >;
+    expect(metadata).toEqual({ automated: true });
+    expect(isReplyPushIneligibleUserMessage(metadata)).toBe(true);
+    // Not an echo-suppression marker: the row still renders in the transcript.
+    expect(isEchoSuppressedUserMessage(metadata)).toBe(false);
+  });
+
+  test("stamps the same marker on a turn queued behind a busy conversation", async () => {
+    const existing = createConversation({ title: "busy conversation" });
+    conversationIsProcessing = true;
+
+    const result = await runConversationTurn({
+      conversationId: existing.id,
+      content: [{ type: "text", text: "transcript excerpt" }],
+    });
+
+    expect(result.queued).toBe(true);
+    const metadata = lastEnqueueOptions?.metadata as Record<string, unknown>;
+    expect(metadata).toEqual({ automated: true });
+    expect(isReplyPushIneligibleUserMessage(metadata)).toBe(true);
   });
 });

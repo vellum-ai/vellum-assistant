@@ -418,7 +418,7 @@ describe("selectPool — infrastructure failures throw", () => {
       source: "memory_v3",
       code: "PROVIDER_BILLING",
       userMessage:
-        "You've run out of credits. Add funds to continue using the assistant.",
+        "You're out of credits. Add credits in Settings → Billing to continue.",
       errorCategory: "credits_exhausted",
     });
   });

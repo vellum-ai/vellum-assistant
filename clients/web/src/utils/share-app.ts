@@ -3,14 +3,16 @@
  *
  * 1. Calls the share-cloud endpoint to package the app server-side.
  * 2. Downloads the binary bundle using the returned share token.
- * 3. Saves/shares the file via the cross-platform saveFile helper.
+ * 3. Hands the file to the cross-platform `shareFile` helper. This is the
+ *    "send it somewhere" intent, so it presents the native Share Sheet on the
+ *    hosts that have one and falls back to a download elsewhere.
  */
 
 import {
   appsByIdSharecloudPost,
   appsSharedByTokenGet,
 } from "@/generated/daemon/sdk.gen";
-import { saveFile } from "@/runtime/native-file";
+import { shareFile } from "@/runtime/native-file";
 
 export async function shareApp(
   assistantId: string,
@@ -35,5 +37,5 @@ export async function shareApp(
   }
 
   const safeName = appName.replace(/[/\\:*?"<>|]/g, "_").trim() || "App";
-  await saveFile(blob, `${safeName}.vellum`);
+  await shareFile(blob, `${safeName}.vellum`);
 }

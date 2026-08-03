@@ -1691,6 +1691,17 @@ describe("Subagent advisor-role consult", () => {
       expect(captured.current!.config.systemPromptOverride).toContain(
         "PARENT SYSTEM PROMPT",
       );
+      // The situational context pack must never ride display surfaces: the
+      // system prompt stays minimal and `objective` (rendered verbatim by the
+      // subagent detail panel) stays the concise advice request. Only the
+      // non-display `requestText` may carry the pack.
+      expect(captured.current!.config.systemPromptOverride).not.toContain(
+        "<agent_environment>",
+      );
+      expect(captured.current!.config.objective).not.toContain(
+        "<agent_environment>",
+      );
+      expect(captured.current!.config.requestText).toContain("advise me");
     } finally {
       restore();
       mockFindConversation = () => undefined;

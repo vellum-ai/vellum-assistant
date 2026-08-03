@@ -407,3 +407,63 @@ describe("handleHostFileResult — targetClientId guard", () => {
     });
   });
 });
+
+// ── Request body validation ─────────────────────────────────────────────────
+
+describe("handleHostFileResult: request body validation", () => {
+  beforeEach(() => {
+    pendingStore.clear();
+    resolvedIds.length = 0;
+    resolveSpy.length = 0;
+    clientActors.clear();
+  });
+
+  test("rejects a body that is not an object", () => {
+    expect(() => handleHostFileResult({ body: undefined })).toThrow(
+      BadRequestError,
+    );
+  });
+
+  test("rejects an empty-string requestId", () => {
+    expect(() => handleHostFileResult({ body: fileBody("") })).toThrow(
+      BadRequestError,
+    );
+  });
+
+  test("rejects a wrongly typed field before the interaction is consumed", () => {
+    const requestId = "req-file-bad-is-error";
+    registerPending(requestId);
+
+    expect(() =>
+      handleHostFileResult({
+        body: { ...fileBody(requestId), isError: "yes" },
+      }),
+    ).toThrow(BadRequestError);
+
+    expect(resolveSpy).toHaveLength(0);
+    expect(pendingStore.has(requestId)).toBe(true);
+  });
+
+  test("accepts a body carrying only requestId", async () => {
+    const requestId = "req-file-minimal";
+    registerPending(requestId);
+
+    const result = await handleHostFileResult({ body: { requestId } });
+
+    expect(result).toEqual({ accepted: true });
+    expect(resolveSpy[0].result.content).toBe("");
+    expect(resolveSpy[0].result.isError).toBe(false);
+  });
+
+  test("tolerates unknown keys", async () => {
+    const requestId = "req-file-unknown-keys";
+    registerPending(requestId);
+
+    const result = await handleHostFileResult({
+      body: { ...fileBody(requestId), somethingNew: "ignored" },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(resolveSpy[0].result).not.toHaveProperty("somethingNew");
+  });
+});

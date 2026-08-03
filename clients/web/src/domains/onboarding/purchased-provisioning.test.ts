@@ -63,7 +63,7 @@ mock.module("@/generated/api/sdk.gen", () => ({
 }));
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => localMode,
+  isLocalClient: () => localMode,
 }));
 
 const { awaitPurchasedProvisioning, MAX_HATCH_WAIT_MS, POLL_INTERVAL_MS } =

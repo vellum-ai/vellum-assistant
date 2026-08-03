@@ -8,12 +8,13 @@
 // because they have different defaults: primary sections default to OPEN, the
 // other two to closed.
 //
-// Storage buckets are not accordion roots. Pinned/Chats and the channel
-// sections render in a *single* CollapsibleNavSection.Root so every section
-// boundary gets one uniform gap; the sidebar splits that root's value array
-// back into the primary vs category buckets with `isKnownPrimaryKey`. Custom
-// groups stay in their own root — they sit below a separator and a "Your
-// Groups" heading, so they're a genuinely separate block.
+// Storage buckets are not accordion roots. Every section - Pinned, Chats, the
+// channel sections, and the custom groups - renders in a *single*
+// CollapsibleNavSection.Root, because the user can order them freely and a
+// custom group may sit between two built-in sections. The sidebar splits that
+// root's one value array back into these three buckets with
+// `isKnownPrimaryKey` / `isKnownCategoryKey`; anything matching neither is a
+// custom group id.
 
 import { parseStringArray } from "@/domains/chat/utils/storage-validators";
 import { createKeyedStorageAccessor } from "@/utils/typed-storage";
@@ -49,11 +50,19 @@ export function channelSectionKey(channelId: string): string {
   return `${CHANNEL_SECTION_PREFIX}${channelId}`;
 }
 
-function isKnownCategoryKey(category: string): boolean {
-  return (
-    OPEN_CATEGORY_KEYS.has(category) ||
-    category.startsWith(CHANNEL_SECTION_PREFIX)
-  );
+/** True for a per-origin-channel section key (e.g. `"channel:slack"`). */
+export function isChannelSectionKey(key: string): boolean {
+  return key.startsWith(CHANNEL_SECTION_PREFIX);
+}
+
+/**
+ * True for the built-in collapsible categories (Scheduled, Background, and
+ * every `channel:` section). Exported so the sidebar can route a key from the
+ * shared accordion root into the right storage bucket: primary, category, or
+ * - matching neither - a custom group id.
+ */
+export function isKnownCategoryKey(category: string): boolean {
+  return OPEN_CATEGORY_KEYS.has(category) || isChannelSectionKey(category);
 }
 
 const categoriesStorage = createKeyedStorageAccessor<string[]>({

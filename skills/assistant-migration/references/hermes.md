@@ -22,13 +22,13 @@ Confirm with the creator before bundling — they may have set `HERMES_HOME` to 
 | `AGENTS.md`                      | Identity / `SOUL.md`          | Port               |
 | `skills/<name>/SKILL.md`         | Vellum skills (same standard) | Port               |
 | `skills/<name>/scripts/*`        | Skill scripts                 | Port               |
-| `memory.db` (SQLite + FTS5)      | Memory                        | Review             |
+| `memory.db` (SQLite + FTS5)      | Memory                        | Review (see below) |
 | `schedules.json`                 | Schedules                     | Port               |
 | `mcp.json` (URLs only)           | MCP setup tasks               | Re-setup           |
 | `subagents/<name>/AGENTS.md`     | Subagents / additional skills | Review             |
 | `gateway/accounts.json`          | Channels + Contacts           | Port + Review      |
 | `providers.json` (non-secret)    | Inference Profiles            | Review             |
-| Honcho user-model rows           | Memory                        | Review             |
+| Honcho user-model rows           | Memory                        | Review (see below) |
 | `memory.db-wal`, `memory.db-shm` | —                             | Skip (journal)     |
 | `memory.db.fts5*`                | —                             | Skip (rebuildable) |
 | `cache/`, `logs/`                | —                             | Skip               |
@@ -36,6 +36,18 @@ Confirm with the creator before bundling — they may have set `HERMES_HOME` to 
 | `cookies.json`                   | —                             | **Skip (secrets)** |
 | `.env`, `*.key`, `*.pem`         | —                             | **Skip (secrets)** |
 | RL trajectories                  | —                             | Skip               |
+
+### Memory extraction (`memory.db`)
+
+Once a consistent snapshot of `memory.db` is in the workspace (see Pre-bundle safety for the `.backup` pattern), extract review candidates deterministically:
+
+```sh
+bun run <skill-dir>/scripts/parse-agent-memory-db.ts --file /path/to/memory.db.snapshot --source hermes
+```
+
+(`<skill-dir>` is the installed skill directory. The runnable form lives in SKILL.md Memory Import Guidance, whose `{baseDir}` placeholder the skill loader substitutes at load time; substitution does not apply to reference files, so resolve the path yourself when running from here.)
+
+The parser introspects `sqlite_master` instead of assuming a schema, skips FTS5 shadow tables and credential-named tables/columns, redacts credential-shaped values, and emits `MemoryImportItem[]` JSON on stdout plus a per-table census on stderr. Honcho user-model rows come out through the same introspection pass. Then follow SKILL.md's Memory Import Guidance from the review step onward: creator review, staged v3 pages (`source: import:hermes`), and the `assistant memory ingest` run.
 
 ## Pre-bundle safety
 

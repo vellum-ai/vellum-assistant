@@ -24,6 +24,10 @@ export interface PlanCardContentProps {
   plan: PlanCatalogEntry;
   isCurrent: boolean;
   onPro: boolean;
+  /** The sub's real plan name ("Mighty" / "Custom"); used on the current Pro card. */
+  planDisplayName: string;
+  /** The sub's real specs plus the catalog rows they don't replace; null until the tier reads settle. */
+  currentPlanFeatures: string[] | null;
   cancelAtPeriodEnd: boolean;
   isCanceled: boolean;
   cancelDate: string | null;
@@ -63,6 +67,8 @@ export function PlanCardContent({
   plan,
   isCurrent,
   onPro,
+  planDisplayName,
+  currentPlanFeatures,
   cancelAtPeriodEnd,
   isCanceled,
   cancelDate,
@@ -107,6 +113,10 @@ export function PlanCardContent({
   const proPickerShown =
     isProCard && (!isCurrent || (isCurrent && proTierChangeMode));
   const showProTierChange = isProCard && isCurrent && proTierChangeMode;
+  // Only the card describing a plan the user actually holds goes concrete. To a
+  // base user the Pro card is an offer, so it keeps the generic catalog name and
+  // capability copy alongside its "From $X/mo" price.
+  const showsRealPlan = isProCard && isCurrent;
 
   return (
     <Card.Root className="flex flex-col bg-[var(--surface-base)]">
@@ -123,8 +133,12 @@ export function PlanCardContent({
             )}
           </span>
           <div className="flex min-h-6 items-center gap-2">
-            <Typography as="h3" variant="title-small">
-              {plan.name}
+            <Typography
+              as="h3"
+              variant="title-small"
+              data-testid="modal-plan-name"
+            >
+              {showsRealPlan ? planDisplayName : plan.name}
             </Typography>
             {isCurrent && <Tag tone="positive">Current</Tag>}
           </div>
@@ -233,7 +247,11 @@ export function PlanCardContent({
             )}
           </div>
           <PlanFeatureList
-            features={plan.included_features}
+            features={
+              showsRealPlan && currentPlanFeatures
+                ? currentPlanFeatures
+                : plan.included_features
+            }
             variant="checklist"
           />
           {isProCard && !creditTiersEnabled && (

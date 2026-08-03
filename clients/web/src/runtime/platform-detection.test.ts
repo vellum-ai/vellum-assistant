@@ -1,8 +1,8 @@
 /**
  * Unit tests for `detectClientOs`.
  *
- * The same `clients/web` bundle ships to a plain browser, the Capacitor iOS
- * shell, and the Electron macOS app, so the OS surface the assistant sees is
+ * The same `clients/web` bundle ships to a plain browser, the Capacitor mobile
+ * shells, and the Electron macOS app, so the OS surface the assistant sees is
  * decided entirely at runtime. These tests pin each host → OS mapping and the
  * precedence between overlapping signals.
  *
@@ -13,6 +13,7 @@
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, renderHook } from "@testing-library/react";
 
 let electron = false;
 let nativePlatform = false;
@@ -28,7 +29,13 @@ mock.module("@capacitor/core", () => ({
   Capacitor: { getPlatform: () => nativeOsPlatform },
 }));
 
-const { detectClientOs } = await import("@/runtime/platform-detection");
+const {
+  detectClientOs,
+  isNativeAndroid,
+  isNativeIOS,
+  isNativeMobile,
+  useIsNativeIOS,
+} = await import("@/runtime/platform-detection");
 
 const ORIGINAL_UA = navigator.userAgent;
 const IPHONE_UA =
@@ -46,6 +53,7 @@ function setUserAgent(ua: string): void {
 }
 
 afterEach(() => {
+  cleanup();
   electron = false;
   nativePlatform = false;
   nativeOsPlatform = "web";
@@ -94,5 +102,44 @@ describe("detectClientOs", () => {
     nativePlatform = true;
     setUserAgent(IPHONE_UA);
     expect(detectClientOs()).toBe("macos");
+  });
+});
+
+describe("useIsNativeIOS", () => {
+  test("is true inside the Capacitor iOS native shell", () => {
+    nativePlatform = true;
+    nativeOsPlatform = "ios";
+    expect(renderHook(() => useIsNativeIOS()).result.current).toBe(true);
+  });
+
+  test("is false outside a native shell", () => {
+    expect(renderHook(() => useIsNativeIOS()).result.current).toBe(false);
+  });
+});
+
+describe("native mobile shell detection", () => {
+  test("distinguishes the native iOS shell", () => {
+    nativePlatform = true;
+    nativeOsPlatform = "ios";
+
+    expect(isNativeIOS()).toBe(true);
+    expect(isNativeAndroid()).toBe(false);
+    expect(isNativeMobile()).toBe(true);
+  });
+
+  test("distinguishes the native Android shell", () => {
+    nativePlatform = true;
+    nativeOsPlatform = "android";
+
+    expect(isNativeIOS()).toBe(false);
+    expect(isNativeAndroid()).toBe(true);
+    expect(isNativeMobile()).toBe(true);
+  });
+
+  test("does not treat mobile browsers as native shells", () => {
+    setUserAgent(ANDROID_UA);
+
+    expect(isNativeAndroid()).toBe(false);
+    expect(isNativeMobile()).toBe(false);
   });
 });

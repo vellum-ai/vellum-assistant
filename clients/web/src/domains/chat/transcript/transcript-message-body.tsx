@@ -3,7 +3,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -14,7 +13,10 @@ import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachmen
 
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
-import { ToolResultImages } from "@/domains/chat/components/chat-attachments/tool-result-images";
+import {
+  hasToolResultImages,
+  ToolResultImages,
+} from "@/domains/chat/components/chat-attachments/tool-result-images";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import {
   VellumFileActionModal,
@@ -29,6 +31,7 @@ import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors
 import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
 import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
+import { VisualPlaceholder } from "@/domains/chat/components/surfaces/visual-placeholder";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
 import { WEB_TOOL_NAMES } from "@/domains/chat/utils/tool-call-card-utils";
@@ -39,6 +42,8 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
+import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
@@ -49,6 +54,7 @@ import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
+import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { useLongPress } from "@/hooks/use-long-press";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -56,6 +62,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
@@ -132,6 +139,8 @@ export function TranscriptMessageBody({
   isStreaming = false,
   isLatestMessage = false,
 }: TranscriptMessageBodyProps) {
+  const collapseAssistantIntermediates =
+    useClientFeatureFlagStore.use.collapseAssistantIntermediates();
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
@@ -156,6 +165,11 @@ export function TranscriptMessageBody({
       ? trailingGroup.text
       : null,
   );
+
+  // Visuals announced by a still-streaming `ui_show` (`ui_surface_pending`).
+  // Each holds a shimmer at the end of the row's activity area until its
+  // widget lands, its call resolves, or the turn ends.
+  const pendingVisualToolUseIds = message.pendingVisualToolUseIds ?? [];
 
   const isTouch = isPointerCoarse();
 
@@ -200,8 +214,7 @@ export function TranscriptMessageBody({
       ? onRetryLatestTurn
       : undefined;
 
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [revealed, setRevealed] = useState(false);
+  const { wrapperRef, revealed, toggleRevealed } = useCoarsePointerReveal();
   const slackMessageUrl = getExternalLinkUrl(message.slackMessage?.messageLink);
 
   const [longPressOpen, setLongPressOpen] = useState(false);
@@ -241,24 +254,6 @@ export function TranscriptMessageBody({
     }
   }, []);
 
-  useEffect(() => {
-    if (!revealed) {
-      return;
-    }
-    const onDocPointerDown = (e: PointerEvent) => {
-      const target = e.target as Node | null;
-      if (
-        target &&
-        wrapperRef.current &&
-        !wrapperRef.current.contains(target)
-      ) {
-        setRevealed(false);
-      }
-    };
-    document.addEventListener("pointerdown", onDocPointerDown);
-    return () => document.removeEventListener("pointerdown", onDocPointerDown);
-  }, [revealed]);
-
   const handleBubbleClick = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
       // Suppress the click that follows a long-press activation so the
@@ -283,9 +278,9 @@ export function TranscriptMessageBody({
       if (!isPointerCoarse()) {
         return;
       }
-      setRevealed((v) => !v);
+      toggleRevealed();
     },
-    [slackMessageUrl],
+    [slackMessageUrl, toggleRevealed],
   );
 
   const linkedSubagentEntries = useSubagentStore((s) =>
@@ -847,7 +842,8 @@ export function TranscriptMessageBody({
     items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
   ): ReactNode => {
     type Slot =
-      { kind: "bubble"; nodes: ReactNode[] } | { kind: "raw"; node: ReactNode };
+      | { kind: "bubble"; nodes: ReactNode[] }
+      | { kind: "raw"; node: ReactNode };
     const slots: Slot[] = [];
     let textRun: ReactNode[] = [];
 
@@ -1019,6 +1015,71 @@ export function TranscriptMessageBody({
     );
   }
 
+  const finalResponseGroupIndex = groups.findLastIndex(
+    (group) => group.type === "text" && group.text.trim().length > 0,
+  );
+  const renderedGroups = groups.map((group, gi) => renderGroupNode(group, gi));
+  const collapsibleGroupIndexes = collapseAssistantIntermediates
+    ? groups.flatMap((group, groupIndex) => {
+        if (groupIndex >= finalResponseGroupIndex) {
+          return [];
+        }
+        if (group.type === "surface") {
+          return [];
+        }
+        if (group.type === "text") {
+          const isSurfaceAdjacent =
+            groups[groupIndex - 1]?.type === "surface" ||
+            groups[groupIndex + 1]?.type === "surface";
+          return parseInlineSurfaces(group.text) || isSurfaceAdjacent
+            ? []
+            : [groupIndex];
+        }
+
+        const { toolCalls } = activityItemsToCardData(group.items);
+        const hasVisibleOutputOrControl =
+          hasToolResultImages(toolCalls) ||
+          toolCalls.some(
+            (toolCall) =>
+              isToolCallRunning(toolCall) ||
+              toolCall.pendingConfirmation !== undefined ||
+              isSubagentSpawnCall(toolCall) ||
+              cardBackedWorkflowRunId(toolCall) !== null ||
+              cardBackedAcpRunId(toolCall) !== null ||
+              cardBackedBackgroundTaskId(toolCall) !== null ||
+              acpConnectToolUseId === toolCall.id ||
+              unknownNudgeToolCallIds?.has(toolCall.id) === true,
+          );
+        return hasVisibleOutputOrControl ? [] : [groupIndex];
+      })
+    : [];
+  const collapsibleGroupIndexSet = new Set(collapsibleGroupIndexes);
+  const assistantContent =
+    collapsibleGroupIndexes.length > 0
+      ? renderedGroups.map((renderedGroup, groupIndex) => {
+          if (
+            collapsibleGroupIndexSet.has(groupIndex) &&
+            !collapsibleGroupIndexSet.has(groupIndex - 1)
+          ) {
+            let runEndIndex = groupIndex + 1;
+            while (collapsibleGroupIndexSet.has(runEndIndex)) {
+              runEndIndex += 1;
+            }
+            return (
+              <AssistantContentDisclosure
+                key={`earlier-activity-${groupIndex}`}
+                isStreaming={isStreaming}
+              >
+                {renderedGroups.slice(groupIndex, runEndIndex)}
+              </AssistantContentDisclosure>
+            );
+          }
+          return collapsibleGroupIndexSet.has(groupIndex)
+            ? null
+            : renderedGroup;
+        })
+      : renderedGroups;
+
   return (
     <div
       ref={wrapperRef}
@@ -1034,7 +1095,10 @@ export function TranscriptMessageBody({
       className={wrapperClass}
     >
       <div className={columnClass}>
-        {groups.map((group, gi) => renderGroupNode(group, gi))}
+        {assistantContent}
+        {pendingVisualToolUseIds.map((toolUseId) => (
+          <VisualPlaceholder key={`visual-pending-${toolUseId}`} />
+        ))}
         {hasAttachments && (
           <MessageAttachments
             attachments={message.attachments ?? []}

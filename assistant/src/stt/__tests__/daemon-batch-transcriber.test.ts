@@ -24,9 +24,25 @@ mock.module("../../providers/speech-to-text/openai-whisper.js", () => ({
 let mockDeepgramTranscribeResult: { text: string } = { text: "" };
 let mockDeepgramTranscribeError: Error | null = null;
 
+/**
+ * Captured DeepgramProvider constructor calls so tests can assert which
+ * options (language, model) the batch adapter forwards.
+ */
+const deepgramProviderCtorCalls: Array<{ apiKey: string; options: unknown }> =
+  [];
+
+// Real module captured before the mock replaces it, so pure exports
+// (deepgramLanguageOptions) stay real while the provider class
+// alone is stubbed.
+const actualDeepgram =
+  await import("../../providers/speech-to-text/deepgram.js");
+
 mock.module("../../providers/speech-to-text/deepgram.js", () => ({
+  ...actualDeepgram,
   DeepgramProvider: class MockDeepgramProvider {
-    constructor(_apiKey: string) {}
+    constructor(apiKey: string, options?: unknown) {
+      deepgramProviderCtorCalls.push({ apiKey, options });
+    }
     async transcribe(_audio: Buffer, _mimeType: string, _signal?: AbortSignal) {
       if (mockDeepgramTranscribeError) {
         throw mockDeepgramTranscribeError;
@@ -54,9 +70,22 @@ mock.module("../../providers/speech-to-text/google-gemini.js", () => ({
 let mockXAITranscribeResult: { text: string } = { text: "" };
 let mockXAITranscribeError: Error | null = null;
 
+/**
+ * Captured XAIProvider constructor calls so tests can assert which options
+ * (language) the batch adapter forwards.
+ */
+const xaiProviderCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
+
+// Real module captured before the mock replaces it, so pure exports
+// (xaiLanguageOptions) stay real while the provider class alone is stubbed.
+const actualXai = await import("../../providers/speech-to-text/xai.js");
+
 mock.module("../../providers/speech-to-text/xai.js", () => ({
+  ...actualXai,
   XAIProvider: class MockXAIProvider {
-    constructor(_apiKey: string) {}
+    constructor(apiKey: string, options?: unknown) {
+      xaiProviderCtorCalls.push({ apiKey, options });
+    }
     async transcribe(_audio: Buffer, _mimeType: string, _signal?: AbortSignal) {
       if (mockXAITranscribeError) {
         throw mockXAITranscribeError;
@@ -80,10 +109,12 @@ describe("createDaemonBatchTranscriber", () => {
     mockWhisperTranscribeError = null;
     mockDeepgramTranscribeResult = { text: "" };
     mockDeepgramTranscribeError = null;
+    deepgramProviderCtorCalls.length = 0;
     mockGeminiTranscribeResult = { text: "" };
     mockGeminiTranscribeError = null;
     mockXAITranscribeResult = { text: "" };
     mockXAITranscribeError = null;
+    xaiProviderCtorCalls.length = 0;
   });
 
   // -------------------------------------------------------------------------
@@ -246,6 +277,64 @@ describe("createDaemonBatchTranscriber", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Language forwarding - Deepgram
+  // -------------------------------------------------------------------------
+
+  test("forwards the configured language to the Deepgram provider", async () => {
+    const transcriber = createDaemonBatchTranscriber(
+      "dg-test-key",
+      "deepgram",
+      "hi",
+    );
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(deepgramProviderCtorCalls).toHaveLength(1);
+    expect(deepgramProviderCtorCalls[0]?.options).toMatchObject({
+      language: "hi",
+      // Any configured language pins nova-3, the model the roster is
+      // verified for; the provider default (nova-2) covers only a subset.
+      model: "nova-3",
+    });
+  });
+
+  test("pins nova-3 on the Deepgram provider when language is 'multi'", async () => {
+    // multi is a nova-3-only code-switching feature; the provider's default
+    // model (nova-2) rejects it.
+    const transcriber = createDaemonBatchTranscriber(
+      "dg-test-key",
+      "deepgram",
+      "multi",
+    );
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(deepgramProviderCtorCalls).toHaveLength(1);
+    expect(deepgramProviderCtorCalls[0]?.options).toMatchObject({
+      language: "multi",
+      model: "nova-3",
+    });
+  });
+
+  test("passes neither language nor model to Deepgram when no language is configured", async () => {
+    const transcriber = createDaemonBatchTranscriber("dg-test-key", "deepgram");
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(deepgramProviderCtorCalls).toHaveLength(1);
+    expect(deepgramProviderCtorCalls[0]?.options).not.toHaveProperty(
+      "language",
+    );
+    expect(deepgramProviderCtorCalls[0]?.options).not.toHaveProperty("model");
+  });
+
+  // -------------------------------------------------------------------------
   // Null on missing key — Deepgram
   // -------------------------------------------------------------------------
 
@@ -379,6 +468,51 @@ describe("createDaemonBatchTranscriber", () => {
     } catch (err) {
       expect(err).toBe(original);
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // Language forwarding - xAI
+  // -------------------------------------------------------------------------
+
+  test("forwards the configured language to the xAI provider", async () => {
+    const transcriber = createDaemonBatchTranscriber(
+      "xai-test-key",
+      "xai",
+      "hi",
+    );
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(xaiProviderCtorCalls).toHaveLength(1);
+    expect(xaiProviderCtorCalls[0]?.options).toMatchObject({ language: "hi" });
+  });
+
+  test("never passes 'multi' to the xAI provider (a Deepgram-specific value, not a language code)", async () => {
+    const transcriber = createDaemonBatchTranscriber(
+      "xai-test-key",
+      "xai",
+      "multi",
+    );
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(xaiProviderCtorCalls).toHaveLength(1);
+    expect(xaiProviderCtorCalls[0]?.options).not.toHaveProperty("language");
+  });
+
+  test("passes no language to the xAI provider when none is configured", async () => {
+    const transcriber = createDaemonBatchTranscriber("xai-test-key", "xai");
+    await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(xaiProviderCtorCalls).toHaveLength(1);
+    expect(xaiProviderCtorCalls[0]?.options).not.toHaveProperty("language");
   });
 
   // -------------------------------------------------------------------------

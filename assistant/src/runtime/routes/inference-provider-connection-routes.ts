@@ -39,6 +39,7 @@ import {
   updateConnection,
 } from "../../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
+import { isVellumManagedConnection } from "../../providers/vellum-model-routing.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { deleteSecureKeyAsync } from "../../security/secure-keys.js";
 import {
@@ -278,6 +279,15 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError("name must be a non-empty string");
   }
 
+  // Canonical names belong to boot seeding, which skips a name already taken
+  // by a user-owned row, leaving the install with no managed connection and a
+  // BYOK row that managed routing then ignores. Refuse the name up front.
+  if (MANAGED_CONNECTION_NAMES.has(name)) {
+    throw new BadRequestError(
+      `Connection name "${name}" is reserved for the Vellum-managed connection. Pick another name.`,
+    );
+  }
+
   const providerResult = ConnectionProviderSchema.safeParse(provider);
   if (!providerResult.success) {
     throw new BadRequestError(
@@ -399,9 +409,12 @@ async function handleUpdateConnection({
   // Managed connections: lock auth to `{type:"platform"}`. The boot upsert in
   // `seedCanonicalConnections` would revert any other value on next restart;
   // reject the write here so the surprise loop never happens. Label remains
-  // user-editable (the boot upsert leaves it alone).
+  // user-editable (the boot upsert leaves it alone). Gated on the row for the
+  // same reason as deletion: a user-owned row under the canonical name is not
+  // re-upserted by boot seeding, so its own auth stays editable.
   if (
     MANAGED_CONNECTION_NAMES.has(name) &&
+    isVellumManagedConnection(existing) &&
     authResult.data.type !== "platform"
   ) {
     throw new BadRequestError(
@@ -469,7 +482,14 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // produces a confusing delete → reappear loop. Reject outright. Mirrors
   // `rejectManagedProfileDeletion` for managed profiles (which are similarly
   // re-overlaid by `seed-inference-profiles.ts` on boot).
-  if (MANAGED_CONNECTION_NAMES.has(name)) {
+  //
+  // Gated on the row, not the name: an install predating the reserved name can
+  // hold a user-owned row here, which boot seeding refuses to overwrite and
+  // managed routing ignores. That row must stay deletable, since deleting it
+  // is what lets boot seeding restore the real managed connection.
+  const claimsManagedName =
+    MANAGED_CONNECTION_NAMES.has(name) && !isVellumManagedConnection(existing);
+  if (MANAGED_CONNECTION_NAMES.has(name) && !claimsManagedName) {
     throw new BadRequestError(
       `Cannot delete managed connection "${name}". This is a Vellum-managed connection that is re-seeded on every startup.`,
     );
@@ -488,7 +508,11 @@ async function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // managed rows are excluded from the count for the same reason the list
   // route hides them — they aren't user-manageable connections.
   const dp = getDefaultProviderFromConfig(config);
-  if (dp) {
+  // A `vellum` default resolves to the canonical name, so this guard would
+  // otherwise block deleting a row that merely claims that name. Deleting it
+  // does not orphan the default: boot seeding writes the real managed
+  // connection under the same name on the next restart.
+  if (dp && !claimsManagedName) {
     if (name === resolveDefaultConnectionName(dp)) {
       throw new ConflictError(
         `Connection "${name}" is referenced by llm.defaultProvider. Update llm.defaultProvider before deleting.`,

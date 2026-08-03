@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.0
+  version: 0.11.1
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -698,6 +698,52 @@ paths:
                     type: boolean
                 required:
                   - ok
+                additionalProperties: false
+  /v1/admin/workspace-compact-history:
+    post:
+      operationId: admin_workspacecompacthistory_post
+      summary: Compact workspace git history
+      description:
+        Squash workspace git history older than the retention window into a single base commit and prune reclaimed
+        objects. By default acts only when an oversized blob is reclaimable; with force, the squash runs
+        unconditionally.
+      tags:
+        - admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  description: Squash aged history even when no oversized blob is reclaimable
+                  type: boolean
+                retentionDays:
+                  description: Retention window override in days (default 7)
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rewrote:
+                    type: boolean
+                  squashedCommits:
+                    type: number
+                  keptCommits:
+                    type: number
+                  retryAfterMs:
+                    type: number
+                required:
+                  - rewrote
+                  - squashedCommits
+                  - keptCommits
                 additionalProperties: false
   /v1/apps:
     get:
@@ -4743,6 +4789,12 @@ paths:
                     - fireworks
                     - openrouter
                     - vellum
+                    - together
+                    - vercel-ai-gateway
+                    - minimax
+                    - atlascloud
+                    - baseten
+                    - poolside
                 connectionName:
                   type: string
                   minLength: 1
@@ -6125,6 +6177,9 @@ paths:
                   type: string
                 placeholder:
                   description: Placeholder text for the address input field.
+                  type: string
+                defaultValue:
+                  description: Suggested address to pre-fill the input with (e.g. a known email). The user can edit it before submitting.
                   type: string
                 label:
                   description: Display label shown in the prompt UI.
@@ -8264,7 +8319,10 @@ paths:
     post:
       operationId: conversations_import_post
       summary: Import conversations
-      description: Import conversations from a standard JSON payload.
+      description:
+        Import conversations from a standard JSON payload. Created conversations record a provenance source of
+        `import:<provider>` derived from the `sourceKey` prefix (e.g. `chatgpt:abc123` -> `import:chatgpt`), or
+        `import:unknown` when no prefix is present.
       tags:
         - conversations
       requestBody:
@@ -13790,13 +13848,17 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending bash request ID
                 stdout:
                   type: string
                 stderr:
                   type: string
                 exitCode:
-                  type: number
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                  description: Process exit status, or null when terminated by a signal
                 timedOut:
                   type: boolean
               required:
@@ -13959,6 +14021,7 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending CU request ID
                 axTree:
                   type: string
@@ -14026,6 +14089,7 @@ paths:
               properties:
                 requestId:
                   type: string
+                  minLength: 1
                   description: Pending request ID to resolve
                 content:
                   type: string
@@ -14907,6 +14971,25 @@ paths:
                     properties:
                       resolved_endpoint:
                         type: string
+                      resolved_url:
+                        type: string
+                      model_id:
+                        type: string
+                      connection_name:
+                        type: string
+                      http_status:
+                        type: number
+                      upstream_error_body:
+                        type: string
+                      upstream_error_body_state:
+                        type: string
+                        enum:
+                          - captured
+                          - empty
+                          - truncated
+                          - unavailable
+                      upstream_error_body_bytes:
+                        type: number
                     additionalProperties: false
                 required:
                   - response
@@ -17797,6 +17880,88 @@ paths:
                   - confident
                   - notes
                 additionalProperties: false
+  /v1/memory/ingest:
+    post:
+      operationId: memory_ingest_post
+      summary:
+        Batch-ingest fully-formed concept pages directly into memory/concepts/ (bypassing the consolidation buffer) and
+        enqueue reindex jobs
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pages:
+                  minItems: 1
+                  maxItems: 200
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      slug:
+                        type: string
+                      content:
+                        type: string
+                    required:
+                      - slug
+                      - content
+                dryRun:
+                  type: boolean
+                overwrite:
+                  type: boolean
+              required:
+                - pages
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        action:
+                          type: string
+                          enum:
+                            - written
+                            - skipped_exists
+                            - invalid
+                        warnings:
+                          type: array
+                          items:
+                            type: string
+                        error:
+                          type: string
+                      required:
+                        - slug
+                        - action
+                        - warnings
+                      additionalProperties: false
+                  written:
+                    type: number
+                  skipped:
+                    type: number
+                  invalid:
+                    type: number
+                  dryRun:
+                    type: boolean
+                required:
+                  - results
+                  - written
+                  - skipped
+                  - invalid
+                  - dryRun
+                additionalProperties: false
   /v1/memory/remember:
     post:
       operationId: memory_remember_post
@@ -19498,6 +19663,14 @@ paths:
                           additionalProperties: false
                         systemCard:
                           type: boolean
+                        providerError:
+                          type: object
+                          properties:
+                            code:
+                              type: string
+                            category:
+                              type: string
+                          additionalProperties: false
                         slackMessage:
                           type: object
                           properties:
@@ -19706,6 +19879,16 @@ paths:
                     lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued
                     snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send
                     path only — slash-command content bypasses it."
+                  type: boolean
+                scripted:
+                  description:
+                    "When true, this turn was auto-sent on the user's behalf rather than typed by them: onboarding research
+                    prompts, the personality rewrite message, research corrections, hidden kickoff greetings, the legacy
+                    pre-chat bootstrap. Stamped onto the persisted message and forwarded to turn telemetry, where
+                    activation metrics exclude it. Send false for a genuine typed message; OMIT the field only if the
+                    client genuinely cannot tell, since absent means UNKNOWN and a wrong false is trusted downstream.
+                    Independent of `hidden`: a turn can be visible and scripted (the research prompt) or hidden and
+                    scripted (the kickoff greeting)."
                   type: boolean
                 onboarding:
                   type: object
@@ -20414,7 +20597,9 @@ paths:
     delete:
       operationId: messages_queued_by_id_delete
       summary: Delete a queued message
-      description: Remove a pending message from the conversation queue before it is processed.
+      description:
+        Remove a pending message from the conversation queue before it is processed. Broadcasts
+        `message_queued_deleted` so every client can close out the pending row.
       tags:
         - messages
       parameters:
@@ -20432,6 +20617,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: The queued message was enqueued by a different actor principal.
+        "404":
+          description: Conversation or queued message not found.
   /v1/messages/queued/{id}/steer:
     post:
       operationId: messages_queued_by_id_steer_post
@@ -21321,6 +21510,7 @@ paths:
                   minLength: 1
                   description: Feed item id (notif:<uuid>) or bare uuid
                 title:
+                  description: New title. An empty value is ignored, never cleared.
                   type: string
                 body:
                   type: string
@@ -22713,6 +22903,145 @@ paths:
                 required:
                   - disconnected
                   - previousBaseUrl
+                additionalProperties: false
+  /v1/platform/invoices:
+    get:
+      operationId: platform_invoices_get
+      summary: List one page of the organization's Stripe invoices
+      description:
+        Fetches one page of the org's Stripe invoice history (newest first) from the platform billing invoices
+        endpoint. Amounts are in the currency's minor units. When has_more is true, pass the last invoice's id as
+        starting_after to fetch the next page.
+      tags:
+        - platform
+      parameters:
+        - name: starting_after
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Cursor: return invoices older than the invoice with this id (from the previous page's last entry)."
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoices:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        number:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        status:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        currency:
+                          type: string
+                        amount_due:
+                          type: number
+                        amount_paid:
+                          type: number
+                        amount_remaining:
+                          type: number
+                        created:
+                          type: number
+                        hosted_invoice_url:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        invoice_pdf:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - number
+                        - status
+                        - currency
+                        - amount_due
+                        - amount_paid
+                        - amount_remaining
+                        - created
+                        - hosted_invoice_url
+                        - invoice_pdf
+                      additionalProperties: false
+                  has_more:
+                    type: boolean
+                required:
+                  - invoices
+                  - has_more
+                additionalProperties: false
+  /v1/platform/invoices/{id}:
+    get:
+      operationId: platform_invoices_by_id_get
+      summary: Get a single Stripe invoice by ID
+      description:
+        Pages through the org's invoice list from the platform and returns the invoice matching the given Stripe
+        invoice ID (e.g. in_xxx). 404 if no such invoice.
+      tags:
+        - platform
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  number:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  status:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  currency:
+                    type: string
+                  amount_due:
+                    type: number
+                  amount_paid:
+                    type: number
+                  amount_remaining:
+                    type: number
+                  created:
+                    type: number
+                  hosted_invoice_url:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  invoice_pdf:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - id
+                  - number
+                  - status
+                  - currency
+                  - amount_due
+                  - amount_paid
+                  - amount_remaining
+                  - created
+                  - hosted_invoice_url
+                  - invoice_pdf
                 additionalProperties: false
   /v1/platform/plans:
     get:
@@ -26647,6 +26976,10 @@ paths:
                 properties:
                   query:
                     type: string
+                  queryTokens:
+                    type: array
+                    items:
+                      type: string
                   results:
                     type: object
                     properties:
@@ -26769,6 +27102,7 @@ paths:
                     additionalProperties: false
                 required:
                   - query
+                  - queryTokens
                   - results
                 additionalProperties: false
   /v1/secret:
@@ -29488,6 +29822,11 @@ paths:
                           type: string
                         conversationStreamingMode:
                           type: string
+                        languageSelection:
+                          type: string
+                          enum:
+                            - manual
+                            - auto
                         credentialsGuide:
                           type: string
                       required:
@@ -33622,6 +33961,12 @@ components:
                     - fireworks
                     - openrouter
                     - vellum
+                    - together
+                    - vercel-ai-gateway
+                    - minimax
+                    - atlascloud
+                    - baseten
+                    - poolside
                 connectionName:
                   type: string
                   minLength: 1
@@ -33993,6 +34338,12 @@ components:
                 - fireworks
                 - openrouter
                 - vellum
+                - together
+                - vercel-ai-gateway
+                - minimax
+                - atlascloud
+                - baseten
+                - poolside
             - type: "null"
         connectionName:
           type: string

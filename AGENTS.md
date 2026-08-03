@@ -4,10 +4,9 @@
 
 Bun + TypeScript monorepo with multiple packages:
 
-- `clients/` — End-user app surfaces: `clients/web/` (Vite + React Router v7 SPA), `clients/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), and `clients/macos/` (Electron desktop shell that wraps `clients/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`; CI workflows are `pr-macos.yaml` / `ci-main-macos.yaml`). See [`clients/README.md`](clients/README.md) and [`clients/AGENTS.md`](clients/AGENTS.md).
+- `clients/`: End-user app surfaces: `clients/web/` (Vite + React Router v7 SPA), `clients/ios/` (Capacitor iOS shell that loads the web app in a WKWebView), `clients/android/` (Capacitor Android shell that loads the web app in a WebView), `clients/macos/` (Electron desktop shell that wraps `clients/web/`; daemon/gateway lifecycle is owned by the `vellum` CLI, which the app invokes as a subprocess; auto-update via `electron-updater`; CI workflows are `pr-macos.yaml` / `ci-main-macos.yaml`), `clients/windows/` (bootstrap Electron shell around `clients/web/`; CI workflows are `pr-windows.yaml` / `ci-main-windows.yaml`), and `clients/chrome-extension/` (MV3 Chrome browser extension). See [`clients/README.md`](clients/README.md) and [`clients/AGENTS.md`](clients/AGENTS.md).
 - `assistant/` — Main backend service (Bun + TypeScript)
 - `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
-- `clients/` — Chrome extension client. See `clients/chrome-extension/README.md`.
 - `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `packages/` — Shared internal packages (e.g. `service-contracts` for CES wire-protocol schemas)
 - `scripts/` — Utility scripts
@@ -25,10 +24,10 @@ Defend technical positions with evidence. Don't flip-flop to placate the user �
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: Packages that compile to JS (`assistant/`, `gateway/`, `cli/`) use NodeNext module resolution with `.js` extensions on all imports. Bundler-only packages (`clients/web/`, `packages/design-library/`) use `moduleResolution: "Bundler"` and omit `.js` extensions.
-- **Package manager**: This is a bun workspace — one root `bun.lock` covers every member (services, `packages/*`, `clients/web`, `clients/macos`). Run `bun install` anywhere in the tree (it resolves to the workspace root), or scope it with name filters like `--filter=@vellumai/assistant` (path filters resolve against the cwd — avoid them). Cross-package deps use `workspace:*`; `overrides`, `patchedDependencies`, and `trustedDependencies` are honored only in the root manifest. Non-members (`clients/chrome-extension`, skills) keep their own lockfiles.
+- **Package manager**: This is a bun workspace. One root `bun.lock` covers every member (services, `packages/*`, `clients/web`, `clients/macos`, `clients/windows`). Run `bun install` anywhere in the tree (it resolves to the workspace root), or scope it with name filters like `--filter=@vellumai/assistant` (path filters resolve against the cwd, so avoid them). Cross-package deps use `workspace:*`; `overrides`, `patchedDependencies`, and `trustedDependencies` are honored only in the root manifest. Non-members (`clients/chrome-extension`, skills) keep their own lockfiles.
 
 ```bash
-cd assistant && bun install          # Install dependencies
+bun install                          # Install workspace dependencies (any directory works)
 cd assistant && bunx tsc --noEmit    # Type-check
 cd assistant && bun run typecheck:fast  # Fast type-check using tsgo
 cd assistant && bun test src/path/to/changed.test.ts  # Run tests
@@ -319,17 +318,18 @@ Error reporting uses Sentry. The daemon/runtime (Node) project's DSN is configur
 
 ### Sentry projects & DSNs
 
-Surfaces map onto Sentry projects as below. The Electron renderer reports to the macOS project, sharing the `SENTRY_DSN_MACOS` secret with the main process. Per-host flavor + DSN selection in the shared clients/web bundle is live: `flavor.ts` `selectSentryFlavor()` picks the capacitor flavor on native iOS and the react flavor everywhere else (web + Electron renderer); `sentry-init.ts` `resolveDsn()` picks `VITE_SENTRY_DSN_MACOS` (Electron) / `VITE_SENTRY_DSN_IOS` (iOS) / `VITE_SENTRY_DSN` (web). All flavors share one `options` object (ignoreErrors, denyUrls, beforeBreadcrumb URL sanitize, enhanceFetchErrorMessages, attachStacktrace) so PII/noise filtering is uniform. An empty DSN no-ops.
+Surfaces map onto Sentry projects as below. The Electron renderer reports to the macOS project, sharing the `SENTRY_DSN_MACOS` secret with the main process. Per-host flavor + DSN selection in the shared clients/web bundle is live: `flavor.ts` `selectSentryFlavor()` picks the capacitor flavor on native iOS/Android and the react flavor everywhere else (web + Electron renderer); `sentry-init.ts` `resolveDsn()` picks `VITE_SENTRY_DSN_MACOS` (Electron) / `VITE_SENTRY_DSN_IOS` (iOS) / `VITE_SENTRY_DSN_ANDROID` (Android) / `VITE_SENTRY_DSN` (web). All flavors share one `options` object (ignoreErrors, denyUrls, beforeBreadcrumb URL sanitize, enhanceFetchErrorMessages, attachStacktrace) so PII/noise filtering is uniform. An empty DSN no-ops.
 
-| Surface              | Project                  | DSN source                                            | Delivered via                            |
-| -------------------- | ------------------------ | ----------------------------------------------------- | ---------------------------------------- |
-| Web SPA              | `vellum-assistant-web`   | `VITE_SENTRY_DSN` (vars)                              | web build                                |
-| Electron main        | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `__SENTRY_DSN_MACOS__`  | macOS build define                       |
-| Electron renderer    | `vellum-assistant-macos` | `SENTRY_DSN_MACOS` (secret) → `VITE_SENTRY_DSN_MACOS` | macOS build                              |
-| iOS webview + native | `vellum-assistant-ios`   | `SENTRY_DSN_IOS` (secret) → `VITE_SENTRY_DSN_IOS`     | web-SPA build (loaded at runtime on iOS) |
-| Assistant daemon     | (unchanged)              | `SENTRY_DSN_ASSISTANT`                                | runtime env                              |
+| Surface                  | Project                    | DSN source                                                | Delivered via                                |
+| ------------------------ | -------------------------- | --------------------------------------------------------- | -------------------------------------------- |
+| Web SPA                  | `vellum-assistant-web`     | `VITE_SENTRY_DSN` (vars)                                  | web build                                    |
+| Electron main            | `vellum-assistant-macos`   | `SENTRY_DSN_MACOS` (secret) → `__SENTRY_DSN_MACOS__`      | macOS build define                           |
+| Electron renderer        | `vellum-assistant-macos`   | `SENTRY_DSN_MACOS` (secret) → `VITE_SENTRY_DSN_MACOS`     | macOS build                                  |
+| iOS webview + native     | `vellum-assistant-ios`     | `SENTRY_DSN_IOS` (secret) → `VITE_SENTRY_DSN_IOS`         | web-SPA build (loaded at runtime on iOS)     |
+| Android webview + native | `vellum-assistant-android` | `SENTRY_DSN_ANDROID` (secret) → `VITE_SENTRY_DSN_ANDROID` | web-SPA build (loaded at runtime on Android) |
+| Assistant daemon         | (unchanged)                | `SENTRY_DSN_ASSISTANT`                                    | runtime env                                  |
 
-The iOS DSN is baked into the deployed web SPA bundle rather than the iOS build, because the iOS app runs the deployed SPA via `server.url` (see `clients/web/capacitor.config.ts`) and bundles no web assets at `cap sync`.
+Native mobile DSNs are baked into the deployed web SPA bundle rather than the native builds, because the iOS and Android apps run the deployed SPA via `server.url` (see `clients/web/capacitor.config.ts`) and bundle no web assets at `cap sync`.
 
 The Electron renderer uses `@sentry/react` (not `@sentry/electron/renderer`): `@sentry/electron` pins `@sentry/core` 10.50 while `@sentry/capacitor` pins `@sentry/react`/`@sentry/browser` 10.52, and Sentry's current-client carrier is version-specific, so an `@sentry/electron/renderer` client couldn't see `@sentry/react` captures. Renderer native crashes still reach `vellum-assistant-macos` via `@sentry/electron/main` (separate process).
 

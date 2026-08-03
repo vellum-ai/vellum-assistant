@@ -75,6 +75,7 @@ export function useNotificationIntentSync(assistantId: string | null): void {
       deliveryId: event.deliveryId,
       deepLinkMetadata: event.deepLinkMetadata,
       assistantId: assistantId ?? undefined,
+      remotePushDispatched: event.remotePushDispatched,
     });
   });
 }

@@ -66,7 +66,8 @@ export function AppViewerContainer({
       return;
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        e.preventDefault();
         setIsFullscreen(false);
       }
     };

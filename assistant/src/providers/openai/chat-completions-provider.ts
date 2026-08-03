@@ -13,6 +13,7 @@ import {
 } from "../media-resolve.js";
 import { modelSupportsAudioInput } from "../model-catalog.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
+import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
@@ -386,6 +387,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
         systemPrompt,
         modelSupportsAudioInput(modelOverride ?? this.model),
       );
+
+      recordProviderRequestDiagnostics({
+        model_id: modelOverride ?? this.model,
+      });
 
       const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming =
         {

@@ -36,6 +36,7 @@ import {
   WebSearchErrorRow,
   WebSearchStepRow,
 } from "@/domains/chat/components/web-search/web-search-step-row";
+import { thinkingPreview } from "@/domains/chat/utils/thinking-preview";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 import { cn } from "@/utils/misc";
 
@@ -117,7 +118,7 @@ function latestThinkingText(section: PhaseSection): string | undefined {
   for (let i = section.steps.length - 1; i >= 0; i--) {
     const step = section.steps[i]!;
     if (step.kind === "thinking" && step.text) {
-      return step.text;
+      return thinkingPreview(step.text);
     }
   }
   return undefined;
@@ -564,7 +565,7 @@ const SubagentPhaseRow = memo(function SubagentPhaseRow({
                         key={stepKey(step, stepIdx)}
                         variant="tool"
                         iconName="brain"
-                        label={step.text}
+                        label={thinkingPreview(step.text)}
                         ariaLabel="View reasoning"
                         onClick={() => onStepDetailClick(detailKey)}
                       />

@@ -44,17 +44,18 @@ import {
 } from "@/lib/auth/gateway-session";
 import { refreshRemoteGatewaySession } from "@/lib/auth/remote-gateway-session";
 import {
-  isLocalMode,
+  isLocalClient,
   isRemoteGatewayMode,
   getPlatformAssistants,
   getLocalAssistants,
-  primeLocalGatewayConnection,
   primeLocalGatewayConnectionWithRepair,
+  primeLocalGatewayConnectionWithStartupRetry,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { bootstrapLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { listAssistants } from "@/assistant/api";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
+import { unregisterLiveActivityPushToken } from "@/domains/chat/voice/live-voice/live-activity-push-registration";
 import { unregisterFromRemotePush } from "@/runtime/push-registration";
 import {
   fetchConsent,
@@ -640,7 +641,7 @@ function probePlatformSession(
         // late commit must not land after routing decisions were made on
         // the un-synced lockfile. `!isStale()` likewise keeps a
         // superseded probe from committing an out-of-date lockfile.
-        if (isLocalMode()) {
+        if (isLocalClient()) {
           let timedOut = false;
           const syncIsCurrent = (): boolean => !timedOut && !isStale();
           try {
@@ -740,7 +741,7 @@ function probePlatformSessionIfReachable(
   options?: { setUserOnSuccess?: boolean; clearOnFailure?: boolean },
 ): void {
   if (
-    !isLocalMode() ||
+    !isLocalClient() ||
     isGatewayAuthEnabled() ||
     getPlatformAssistants().length > 0
   ) {
@@ -779,7 +780,13 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
 
     if (isGatewayAuthEnabled()) {
       try {
-        await primeLocalGatewayConnection();
+        // Ride out the gateway's startup window: on reboot the gateway restarts
+        // concurrently with the app and answers the mint with a transient
+        // "starting" 503 for a few seconds. A single prime there would drop the
+        // session to unauthenticated and surface the recovery controls for an
+        // assistant that reconnects on its own moments later. Still no `wake` —
+        // app launch must not spawn daemon processes.
+        await primeLocalGatewayConnectionWithStartupRetry();
         set(authenticatedLocalUser());
       } catch {
         // Gateway prime failed: settle to unauthenticated but leave
@@ -790,7 +797,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
       return;
     }
 
-    if (isLocalMode() && !isGatewayAuthEnabled()) {
+    if (isLocalClient() && !isGatewayAuthEnabled()) {
       const hasPlatformAssistants = getPlatformAssistants().length > 0;
       if (hasPlatformAssistants) {
         // Platform assistants require a valid session — await the check
@@ -997,7 +1004,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         // stale managed-assistant list until the next full boot. Best-effort
         // and local-mode only (platform mode has no lockfile host); the
         // refresh has already succeeded regardless of the sync outcome.
-        if (isLocalMode()) {
+        if (isLocalClient()) {
           try {
             await useOrganizationStore.getState().fetchOrganizations();
             const apiAssistants = await listAssistants();
@@ -1078,6 +1085,10 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // session — the platform delete is authenticated by the still-valid
     // session cookie. No-ops off native iOS. Best-effort: never blocks logout.
     await unregisterFromRemotePush();
+    // Same window, same reason: a Live Activity registered for a voice session
+    // outlives the session that owns it unless something retires it, and after
+    // logout there is no authenticated request left that could.
+    await unregisterLiveActivityPushToken();
     try {
       await allauthLogout();
     } finally {
@@ -1086,7 +1097,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         await window.vellum?.auth?.signOut?.();
       }
       // Web loopback: drop the token the local server's proxy authenticates with.
-      if (isLocalMode() && !isElectron()) {
+      if (isLocalClient() && !isElectron()) {
         await clearLocalPlatformSession();
       }
       void deleteBiometricToken();

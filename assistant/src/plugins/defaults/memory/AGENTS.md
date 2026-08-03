@@ -38,7 +38,7 @@ them. Everything not listed as a tier directory is spine.
 
 | Directory         | What lives there                                                                                                                                                                                                                                                                                                                                                                                                                  | Gate predicate                |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `substrate/`      | The shared concept-page substrate (v2 + v3): `page-store`, `page-index`, `edge-index`, `qdrant`, `sim`, `sparse-bm25`, `spread`, `skill-store`, `cli-command-store`, `skill-content`, `cli-command-content`, `injected-block-slugs`, `static-context`, `boot-maintenance`, `frontmatter-sweep`, `consolidation-job`, `sweep-job`, `reembed-job`, `tuning`, `types`, `constants`, `prompts/`.                                      | `usesConceptPageMemory()`     |
+| `substrate/`      | The shared concept-page substrate (v2 + v3): `page-store`, `page-index`, `edge-index`, `qdrant`, `sim`, `sparse-bm25`, `spread`, `skill-store`, `cli-command-store`, `skill-content`, `cli-command-content`, `injected-block-slugs`, `static-context`, `boot-maintenance`, `frontmatter-sweep`, `consolidation-lock`, `consolidation-job`, `ingest`, `sweep-job`, `reembed-job`, `tuning`, `types`, `constants`, `prompts/`.      | `usesConceptPageMemory()`     |
 | `v1/`             | The legacy PKB/graph engine: `pkb/`, `graph/` (retriever, triggers, scoring, serendipity, extraction, extraction-job, decay, consolidation, pattern-scan, narrative, bootstrap, injection, and the hybrid node-search half of `graph-search`), `jobs/embed-pkb-file.ts`, `job-handlers/{backfill,embedding,index-maintenance}.ts`, `pkb-schedule.ts`, `filing-jobs.ts`, `semantic-search.ts`, `identity-context.ts`, `README.md`. | `isMemoryV1Active()`          |
 | `v2/`             | The v2 activation/router injection engine: `activation`, `activation-store`, `activation-log-store`, `concept-frequency`, `injection`, `injection-events`, `router`, `reranker`, `rerank-local`, `migration`, `now-text`, `backfill-jobs` (migrate + activation-recompute), `harness/`, `prompts/router`.                                                                                                                         | `isV2InjectionEngineActive()` |
 | `v3/`, `v3-eval/` | The v3 lanes, orchestrator, injectors, maintain job, and the eval siblings.                                                                                                                                                                                                                                                                                                                                                       | `isMemoryV3Live()`            |
@@ -315,12 +315,12 @@ failure record and the section re-embed high-water:
 
 ### On-disk / vector-store names
 
-| Name                          | Where                                                                        | Why frozen                                                                                                    |
-| ----------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `memory_v2_concept_pages`     | `substrate/qdrant.ts` `MEMORY_V2_COLLECTION`                                 | Qdrant collection on disk. **Duplicated** in `persistence/embeddings/embedding-identity.ts` — change neither. |
-| `memory_v3_sections`          | `v3/section-dense-store.ts` `SECTION_COLLECTION`                             | Qdrant collection on disk                                                                                     |
-| `.memory-v2-reembed-required` | `substrate/qdrant.ts`                                                        | on-disk sentinel read across upgrades                                                                         |
-| `memory/.v2-state/`           | `substrate/consolidation-job.ts`, `v2/migration.ts`, workspace migration 060 | persisted workspace path (consolidation lock, migration sentinel)                                             |
+| Name                          | Where                                                                                                       | Why frozen                                                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `memory_v2_concept_pages`     | `substrate/qdrant.ts` `MEMORY_V2_COLLECTION`                                                                | Qdrant collection on disk. **Duplicated** in `persistence/embeddings/embedding-identity.ts` — change neither. |
+| `memory_v3_sections`          | `v3/section-dense-store.ts` `SECTION_COLLECTION`                                                            | Qdrant collection on disk                                                                                     |
+| `.memory-v2-reembed-required` | `substrate/qdrant.ts`                                                                                       | on-disk sentinel read across upgrades                                                                         |
+| `memory/.v2-state/`           | `getConsolidationLockPath` in `substrate/consolidation-lock.ts`, `v2/migration.ts`, workspace migration 060 | persisted workspace path (consolidation lock, migration sentinel)                                             |
 
 ### Wire-visible strings
 
@@ -351,6 +351,9 @@ consumed by generated clients:
   `reembed-skills`, `router-prompt-template`, `simulate-router`, `validate`
   (operation ids `memory_v2_*`)
 - `memory/v3/*` — `backfill-sections`, `rebuild-index`
+- `memory/ingest` (IPC method `memory_ingest`; the generated OpenAPI/HTTP
+  operation id is `memory_ingest_post`): POST, deterministic batch
+  concept-page ingestion
 - `memory/worker/*`, `memory/eval/*`
 - `consolidation/config`, `consolidation/run-now`, `consolidation/runs`
 - `filing/config`, `filing/run-now` (v1)

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 
+import { recordUpdate } from "@/lib/commit-pressure";
 import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
 
 /**
  * Real-time microphone amplitude via Web Audio API.
  *
  * When `active` is true, pipes audio through an `AnalyserNode` and reads RMS
- * amplitude at ~33 Hz (every `requestAnimationFrame`). The raw RMS is
+ * amplitude on every `requestAnimationFrame`, so at the display refresh rate
+ * (60Hz, or 120Hz on a high-refresh display). The raw RMS is
  * exponentially smoothed (0.5/0.5 EMA) and scaled to 0-1 via
  * `min(smoothed * 14.0, 1.0)`, matching the macOS
  * `AudioEngineController` algorithm.
@@ -78,6 +80,7 @@ export function useAudioAmplitude({
         const scaled = Math.min(smoothed * 14.0, 1.0);
         if (scaled !== lastSetRef.current) {
           lastSetRef.current = scaled;
+          recordUpdate("audio-amplitude");
           setAmplitude(scaled);
         }
 

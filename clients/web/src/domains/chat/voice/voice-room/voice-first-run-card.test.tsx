@@ -14,7 +14,10 @@
  *     `markFirstRunSeen` (as the composer does) consumes the first run so a
  *     second entry would skip the card,
  *   - the voice-settings detour is a VIEW of this one modal, not a modal
- *     stacked on it, and returns to the intro.
+ *     stacked on it, and returns to the intro,
+ *   - the listening-language row renders only on locale evidence plus daemon
+ *     capability, never writes without an explicit pick, and holds Start
+ *     while a pick's write is in flight.
  */
 import { type ReactNode } from "react";
 
@@ -55,6 +58,22 @@ mock.module("@/components/speech/use-managed-voice-selection", () => ({
   }),
 }));
 
+// The listening-language row reads availability and the current code off the
+// daemon config graph through this hook; a mutable stub keeps the card free
+// of React Query and lets each test shape daemon capability independently of
+// the locale evidence it stubs on `navigator.language`.
+const STT_LANGUAGE_SELECTION_DEFAULTS = {
+  available: false,
+  currentCode: "",
+  configuredProviderId: "vellum",
+  selectLanguage: (_code: string) => {},
+  selecting: false,
+};
+let sttLanguageSelection = { ...STT_LANGUAGE_SELECTION_DEFAULTS };
+mock.module("@/components/speech/use-stt-language-selection", () => ({
+  useSttLanguageSelection: () => sttLanguageSelection,
+}));
+
 // The settings view links to Models & Services; give it a plain anchor so the
 // card renders without a Router.
 mock.module("react-router", () => ({
@@ -80,7 +99,37 @@ function dialogTitle(): string {
   return document.querySelector('[data-slot="modal-title"]')?.textContent ?? "";
 }
 
-afterEach(cleanup);
+/**
+ * Stub the browser locale the card reads for its language suggestion. The
+ * original descriptor (own or absent, with the prototype getter beneath) is
+ * restored after every test so locale evidence never leaks between them.
+ */
+const originalLanguageDescriptor = Object.getOwnPropertyDescriptor(
+  window.navigator,
+  "language",
+);
+function stubLocale(language: string): void {
+  Object.defineProperty(window.navigator, "language", {
+    value: language,
+    configurable: true,
+  });
+}
+function restoreLocale(): void {
+  if (originalLanguageDescriptor) {
+    Object.defineProperty(
+      window.navigator,
+      "language",
+      originalLanguageDescriptor,
+    );
+  } else {
+    delete (window.navigator as { language?: string }).language;
+  }
+}
+
+afterEach(() => {
+  cleanup();
+  restoreLocale();
+});
 beforeEach(() => {
   // Fresh first run, both transcripts off — the real first-entry state.
   useVoicePrefsStore.setState({
@@ -88,6 +137,7 @@ beforeEach(() => {
     showAssistantTranscript: false,
     firstRunSeen: false,
   });
+  sttLanguageSelection = { ...STT_LANGUAGE_SELECTION_DEFAULTS };
 });
 
 describe("VoiceFirstRunCard", () => {
@@ -214,6 +264,224 @@ describe("VoiceFirstRunCard", () => {
       expect(dialogTitle()).toBe("Voices");
       fireEvent.click(getByLabelText("Back"));
       expect(getByText("Start talking")).toBeTruthy();
+    });
+  });
+
+  describe("listening language row", () => {
+    const ROW_LABEL = "Listening language";
+
+    /**
+     * Open the language sub-view through the row and return the picker's
+     * option rows, in render order (Featured first, then A-Z).
+     */
+    function languageOptions(getByLabelText: (label: string) => HTMLElement) {
+      fireEvent.click(getByLabelText(ROW_LABEL));
+      return Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      );
+    }
+
+    test("an English locale sees no row even when the provider is selectable", () => {
+      stubLocale("en-US");
+      sttLanguageSelection = { ...sttLanguageSelection, available: true };
+      const { queryByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+      // No locale evidence means no row: the card stays exactly the card.
+      expect(queryByLabelText(ROW_LABEL)).toBeNull();
+    });
+
+    test("locale evidence without daemon support sees no row", () => {
+      stubLocale("hi-IN");
+      // `available` stays false: an auto-detecting provider or an old daemon.
+      const { queryByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+      expect(queryByLabelText(ROW_LABEL)).toBeNull();
+    });
+
+    test("locale evidence plus a selectable provider shows the row with Multilingual suggested", () => {
+      stubLocale("hi-IN");
+      sttLanguageSelection = { ...sttLanguageSelection, available: true };
+      const { getByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      const options = languageOptions(getByLabelText);
+      // The Featured group pins the current (default) value first with the
+      // annotated suggestion beside it; the rest of the catalog follows A-Z.
+      expect(options[0]?.textContent).toContain("English (default)");
+      expect(options[1]?.textContent).toContain("Multilingual");
+      expect(options[1]?.textContent).toContain("Suggested");
+    });
+
+    test("under xai a multi-roster locale falls back to the monolingual suggestion", () => {
+      // xai's option set omits Multilingual, so the suggestion degrades to
+      // the Hindi pin (which every language-selectable provider offers)
+      // instead of vanishing or naming a row the picker withholds.
+      stubLocale("hi-IN");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        configuredProviderId: "xai",
+      };
+      const { getByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      const options = languageOptions(getByLabelText);
+      expect(options[0]?.textContent).toContain("Auto-detect (default)");
+      expect(options[1]?.textContent).toContain("Hindi");
+      expect(options[1]?.textContent).toContain("Suggested");
+      expect(options.some((o) => o.textContent?.includes("Multilingual"))).toBe(
+        false,
+      );
+    });
+
+    test("an extended-roster locale under xai sees no row: nothing valid to suggest", () => {
+      // xai never offers "ta", so a row would render with no suggestion and
+      // no matching language; the provider-aware suggestion hides it.
+      stubLocale("ta-IN");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        configuredProviderId: "xai",
+      };
+      const { queryByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+      expect(queryByLabelText(ROW_LABEL)).toBeNull();
+    });
+
+    test("the row opens the language sub-view in place: one dialog, no stack", () => {
+      stubLocale("hi-IN");
+      sttLanguageSelection = { ...sttLanguageSelection, available: true };
+      const { getByLabelText, baseElement } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByLabelText(ROW_LABEL));
+      expect(dialogTitle()).toBe("Listening language");
+      expect(baseElement.querySelectorAll('[role="dialog"]').length).toBe(1);
+      // The shared picker's search field is the sub-view's first control.
+      expect(document.querySelector('input[role="combobox"]')).not.toBeNull();
+    });
+
+    test("Escape in the language sub-view returns to the intro, not a dismiss", () => {
+      stubLocale("hi-IN");
+      sttLanguageSelection = { ...sttLanguageSelection, available: true };
+      const onDismiss = mock(() => {});
+      const { getByLabelText, getByText } = render(
+        <VoiceFirstRunCard
+          assistantId="asst_test"
+          onStart={() => {}}
+          onDismiss={onDismiss}
+        />,
+      );
+
+      fireEvent.click(getByLabelText(ROW_LABEL));
+      expect(dialogTitle()).toBe("Listening language");
+      // Dispatch on the picker's search field, the element that holds focus
+      // in the sub-view: keying off a queried in-dialog target (the file's
+      // selector convention for the search field) keeps the test independent
+      // of environment-specific autofocus timing.
+      const search = document.querySelector<HTMLInputElement>(
+        'input[role="combobox"]',
+      );
+      expect(search).not.toBeNull();
+      // With text in the search field the stakes are highest: Escape must
+      // discard at most the query, never the whole card.
+      fireEvent.change(search!, { target: { value: "tam" } });
+      fireEvent.keyDown(search!, { key: "Escape" });
+      // Back on the intro with the card still open and un-consumed.
+      expect(getByText("Start talking")).toBeTruthy();
+      expect(onDismiss).not.toHaveBeenCalled();
+      expect(useVoicePrefsStore.getState().firstRunSeen).toBe(false);
+    });
+
+    test("picking Tamil from search calls selectLanguage with its code", () => {
+      stubLocale("hi-IN");
+      const selectLanguage = mock((_code: string) => {});
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        selectLanguage,
+      };
+      const { getByLabelText, getByText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+
+      fireEvent.click(getByLabelText(ROW_LABEL));
+      const search = document.querySelector<HTMLInputElement>(
+        'input[role="combobox"]',
+      );
+      expect(search).not.toBeNull();
+      fireEvent.change(search!, { target: { value: "tamil" } });
+      const options = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="option"]'),
+      );
+      expect(options).toHaveLength(1);
+      fireEvent.click(options[0]!);
+
+      expect(selectLanguage).toHaveBeenCalledTimes(1);
+      expect(selectLanguage).toHaveBeenCalledWith("ta");
+      // The pick returns to the intro (hot-applies; nothing else to do).
+      expect(getByText("Start talking")).toBeTruthy();
+    });
+
+    test("a pick writes the language; merely rendering writes nothing", () => {
+      stubLocale("hi-IN");
+      const selectLanguage = mock((_code: string) => {});
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        selectLanguage,
+      };
+      const { getByLabelText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+      // Showing the smart default never auto-writes.
+      expect(selectLanguage).not.toHaveBeenCalled();
+
+      const multilingual = languageOptions(getByLabelText).find((o) =>
+        o.textContent?.includes("Multilingual"),
+      );
+      expect(multilingual).toBeTruthy();
+      fireEvent.click(multilingual!);
+
+      expect(selectLanguage).toHaveBeenCalledTimes(1);
+      expect(selectLanguage).toHaveBeenCalledWith("multi");
+    });
+
+    test("Start waits out an in-flight language write", () => {
+      stubLocale("hi-IN");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        selecting: true,
+      };
+      const { getByText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+      const start = getByText("Start talking").closest("button");
+      expect(start?.disabled).toBe(true);
+    });
+
+    test("the settings view's Start also waits out the language write", () => {
+      // A language pick on the intro followed by opening Voice settings must
+      // not offer a Start that races the config patch.
+      stubLocale("hi-IN");
+      sttLanguageSelection = {
+        ...sttLanguageSelection,
+        available: true,
+        selecting: true,
+      };
+      const { getByText } = render(
+        <VoiceFirstRunCard assistantId="asst_test" onStart={() => {}} />,
+      );
+      fireEvent.click(getByText("Voice settings"));
+      const start = getByText("Start talking").closest("button");
+      expect(start?.disabled).toBe(true);
     });
   });
 });

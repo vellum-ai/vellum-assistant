@@ -349,6 +349,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   finalizeMessageContent: finalizeMessageContentMock,
   recordConversationPersistedSeq: () => {},
   getConversationPersistedSeq: () => null,
+  PROVIDER_ERROR_MESSAGE_KIND: "provider_error",
   // The real schema is a Zod object; tests don't exercise validation,
   // so a passthrough is sufficient — the production code at
   // `handleMessageComplete` only branches on `success` and reads two
@@ -377,6 +378,11 @@ mock.module("../persistence/conversation-attention-store.js", () => ({
 }));
 mock.module("../runtime/sync/sync-publisher.js", () => ({
   publishSyncInvalidation: publishSyncInvalidationMock,
+}));
+
+const emitAssistantReplyNotificationMock = mock(async () => {});
+mock.module("../notifications/assistant-reply-producer.js", () => ({
+  emitAssistantReplyNotification: emitAssistantReplyNotificationMock,
 }));
 
 afterAll(() => {
@@ -895,6 +901,7 @@ beforeEach(() => {
   setAgentLoopExitReasonOnLatestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
+  emitAssistantReplyNotificationMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
   updateConversationSlackContextWatermarkMock.mockClear();
@@ -2227,6 +2234,49 @@ describe("session-agent-loop", () => {
       expect(backfillCall[1]).toBe("mock-msg-id");
     });
 
+    test("stamps provider-error metadata onto the persisted synthetic assistant row", async () => {
+      mockConversationErrorClassification = {
+        code: "PROVIDER_BILLING",
+        userMessage:
+          "You're out of credits. Add credits in Settings → Billing to continue.",
+        retryable: false,
+        errorCategory: "credits_exhausted",
+      };
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("Payment Required");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalledTimes(1);
+      const addCall = addMessageMock.mock.calls[0] as unknown as [
+        string,
+        string,
+        string,
+        { metadata?: Record<string, unknown> },
+      ];
+      expect(addCall[1]).toBe("assistant");
+      // The persisted row swaps the context-neutral classification copy for
+      // assistant-voice wording, since this turn truly ends with no reply.
+      const persistedBlocks = JSON.parse(addCall[2]) as Array<{
+        type: string;
+        text: string;
+      }>;
+      expect(persistedBlocks[0]?.text).toBe(
+        "I couldn't reply because you ran out of credits. Add credits in Settings → Billing and we can pick up where we left off.",
+      );
+      expect(addCall[3]?.metadata).toMatchObject({
+        messageKind: "provider_error",
+        providerErrorCode: "PROVIDER_BILLING",
+        providerErrorCategory: "credits_exhausted",
+      });
+    });
+
     test("does not persist managed credential refresh failures as assistant text", async () => {
       mockConversationErrorClassification = {
         code: "MANAGED_KEY_INVALID",
@@ -2268,6 +2318,120 @@ describe("session-agent-loop", () => {
         string,
       ];
       expect(deleteCall[0]).toBe("msg-reserve");
+    });
+
+    test("does not push the synthetic error row as a reply notification", async () => {
+      // The synthetic row carries the provider's error text. It reaches the
+      // `message_complete` branch like any other turn, so without the
+      // provider-error guard the tail would send that text to the lock screen
+      // as if it were the assistant's reply.
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("upstream 500");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalled();
+      expect(emitAssistantReplyNotificationMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("assistant-reply notification wiring", () => {
+    test("a completed turn notifies with the row that opened it", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-7", () => {});
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [
+        { conversationId: string; userMessageId: string | undefined },
+      ];
+      expect(notifyCall[0]).toMatchObject({
+        conversationId: "test-conv",
+        userMessageId: "msg-user-7",
+      });
+    });
+
+    test("a caller-supplied notify row overrides the turn's user message id", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-tail", () => {}, {
+        notifyUserMessageId: "msg-user-prompt",
+      });
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [{ userMessageId: string | undefined }];
+      expect(notifyCall[0].userMessageId).toBe("msg-user-prompt");
+    });
+
+    test("threads the app-only delivery marker to the producer", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-8", () => {}, {
+        replyDeliveredInAppOnly: true,
+      });
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [{ replyDeliveredInAppOnly?: boolean }];
+      expect(notifyCall[0].replyDeliveredInAppOnly).toBe(true);
+    });
+
+    test("omits the app-only delivery marker for an ordinary turn", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-9", () => {});
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [Record<string, unknown>];
+      expect(notifyCall[0]).not.toHaveProperty("replyDeliveredInAppOnly");
     });
   });
 
@@ -2858,12 +3022,20 @@ describe("session-agent-loop", () => {
       }));
 
       // GIVEN a real loop whose provider streams a delta — landing a debounced
-      // partial flush on the reserved row — then rejects, so the loop emits
-      // `provider_error` and `error` and exits with no `message_complete`.
+      // partial flush on the reserved row — then rejects. The loop resumes a
+      // call that died after it had started streaming, so the second attempt
+      // is scripted to fail before streaming anything: that keeps exactly one
+      // row carrying partial content, and the turn then exits via
+      // `provider_error` with no `message_complete`.
+      let attempt = 0;
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
           async sendMessage(_messages, options) {
+            attempt++;
+            if (attempt > 1) {
+              throw new Error("upstream 500");
+            }
             options?.onEvent?.({ type: "text_delta", text: "hello world" });
             await new Promise((resolve) => setTimeout(resolve, 1100));
             throw new Error("upstream 500");
@@ -2887,11 +3059,12 @@ describe("session-agent-loop", () => {
         .split("\n");
       expect(orphanLines).toHaveLength(1);
       expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
-      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
-      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
-        string,
-      ];
-      expect(deleteCall[0]).toBe("msg-orphan-with-partial");
+      // Scoped to the row under test: the resumed attempt reserves a row of
+      // its own, which its own cleanup deletes.
+      const deletedIds = deleteMessageByIdMock.mock.calls.map(
+        (call) => (call as unknown as [string])[0],
+      );
+      expect(deletedIds).toContain("msg-orphan-with-partial");
     });
   });
 

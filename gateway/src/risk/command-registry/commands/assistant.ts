@@ -173,6 +173,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "mcp auth",
   "mcp remove",
   "memory",
+  "memory ingest",
   "memory nodes",
   "memory nodes stats",
   "memory nodes list",
@@ -232,6 +233,9 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "platform credits",
   "platform subscription",
   "platform plans",
+  "platform invoices",
+  "platform invoices list",
+  "platform invoices get",
   "platform disconnect",
   "platform callback-routes",
   "platform callback-routes register",
@@ -615,6 +619,12 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "mcp add", risk: "high" },
   { path: "mcp auth", risk: "medium" },
   { path: "mcp remove", risk: "low" },
+  {
+    path: "memory ingest",
+    risk: "medium",
+    reason:
+      "Writes concept pages directly into assistant memory, bypassing the consolidation buffer, and enqueues reindex jobs",
+  },
   {
     path: "memory nodes delete",
     risk: "medium",

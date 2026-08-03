@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
+import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { isCodexSubscriptionModel } from "../../providers/openai/codex-models.js";
 import {
   getManagedUpstream,
@@ -48,11 +50,53 @@ export const LLMProvider = z
     "chatgpt",
   ])
   .meta({ id: "LLMProvider" });
-type LLMProvider = z.infer<typeof LLMProvider>;
+export type LLMProvider = z.infer<typeof LLMProvider>;
 
-// Deliberately narrower than `LLMProvider`: only providers that can serve
-// the code-defined default profile catalog.
-const DefaultProviderEnum = z.enum(DEFAULT_PROFILE_PROVIDERS);
+/**
+ * Providers that can back `llm.defaultProvider`: the named columns of the
+ * default-profile matrix plus every API-key catalog provider whose personal
+ * connection can serve the shared BYOK templates (fixed base URL, and a
+ * non-empty catalog `defaultModel` for the intent fallback in
+ * `resolveModelIntent`). Deliberately narrower than `LLMProvider`: keyless
+ * (ollama) and endpoint-supplied (openai-compatible, litellm) providers have
+ * no code-resolvable default profile implementation.
+ */
+export const DEFAULT_PROVIDER_CHOICES: readonly LLMProvider[] = [
+  ...new Set<LLMProvider>([
+    ...DEFAULT_PROFILE_PROVIDERS,
+    ...PROVIDER_CATALOG.filter(
+      (entry) =>
+        entry.setupMode === "api-key" &&
+        !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(entry.id) &&
+        entry.defaultModel !== "",
+    )
+      .map((entry) => entry.id)
+      // A catalog provider absent from `LLMProvider` cannot be referenced by
+      // any profile, so it cannot back the defaults either.
+      .filter((id): id is LLMProvider =>
+        (LLMProvider.options as readonly string[]).includes(id),
+      ),
+  ]),
+];
+
+export function isDefaultProviderChoice(value: string): value is LLMProvider {
+  return (DEFAULT_PROVIDER_CHOICES as readonly string[]).includes(value);
+}
+
+/**
+ * Default-provider choices whose profiles materialize from the shared BYOK
+ * templates: every choice except the `vellum` routing identity, whose
+ * defaults are pinned managed models.
+ */
+export function isByokDefaultProviderChoice(
+  value: string,
+): value is LLMProvider {
+  return value !== "vellum" && isDefaultProviderChoice(value);
+}
+
+const DefaultProviderEnum = z.enum(
+  DEFAULT_PROVIDER_CHOICES as [LLMProvider, ...LLMProvider[]],
+);
 
 /**
  * Validation for routing-identity (provider, model) pairs in stored config.

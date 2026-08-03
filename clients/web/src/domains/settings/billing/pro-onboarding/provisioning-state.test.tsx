@@ -8,7 +8,13 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import * as motionReact from "motion/react";
 
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
@@ -160,6 +166,18 @@ function renderState(
   );
 }
 
+/** Matches the dimension chips, not the check/spinner testids inside them. */
+const CHIP_TESTID = /^chip-(machine|storage|credits)$/;
+
+/** The resource chip row, asserting on the way that there is exactly one. */
+function chipRow(container: HTMLElement): HTMLElement {
+  const rows = container.querySelectorAll<HTMLElement>(
+    '[data-testid="resource-chips"]',
+  );
+  expect(rows.length).toBe(1);
+  return rows[0];
+}
+
 describe("confirming", () => {
   test("renders the confirming status line and caption", () => {
     const { getByText } = renderState({ state: "CONFIRMING" });
@@ -229,8 +247,7 @@ describe("waiting / resizing", () => {
     expect(getByText("Storage")).toBeTruthy();
     expect(getByText("30 GB")).toBeTruthy();
     expect(getByText("100 GB")).toBeTruthy();
-    // Two changed dimensions (≤ MAX_CHIPS_IN_ROW) show together, each with a
-    // current→new arrow.
+    // Both changed dimensions show together, each with a current→new arrow.
     expect(container.querySelector(".lucide-arrow-right")).toBeTruthy();
   });
 
@@ -273,7 +290,7 @@ describe("waiting / resizing", () => {
     ).toBeTruthy();
   });
 
-  test("renders a 0 → label credits chip when the catalog resolves a label", () => {
+  test("renders a checkout credits chip as a monthly rate from $0", () => {
     const { getByText } = renderState({
       state: "WAITING",
       intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
@@ -282,8 +299,23 @@ describe("waiting / resizing", () => {
     });
 
     expect(getByText("Credits")).toBeTruthy();
-    expect(getByText("0")).toBeTruthy();
-    expect(getByText("$50 credits/mo")).toBeTruthy();
+    expect(getByText("$0/mo")).toBeTruthy();
+    expect(getByText("$50/mo")).toBeTruthy();
+  });
+
+  test("an in-place credit change renders the same from-to rate, in either direction", () => {
+    // One format for checkout and for a switch: the chip states the move, so a
+    // downgrade reads as plainly as an upgrade.
+    const { getByTestId } = renderState({
+      state: "WAITING",
+      creditsChange: { fromTier: "credits_50", toTier: "credits_25" },
+      targets: { machineSize: null, storageGib: null },
+      fromSnapshot: { machineSize: null, storageGib: null },
+    });
+
+    const chip = getByTestId("chip-credits");
+    expect(chip.textContent).toContain("$50/mo");
+    expect(chip.textContent).toContain("$25/mo");
   });
 
   test("omits the credits chip when the catalog can't resolve a label", () => {
@@ -300,46 +332,312 @@ describe("waiting / resizing", () => {
     expect(queryByText("Credits")).toBeNull();
   });
 
-  test("under reduced motion, machine + storage + credits all render together", () => {
-    reducedMotion = true;
-    const { getByText } = renderState({
+  for (const reduce of [false, true]) {
+    const label = reduce ? "under reduced motion" : "under full motion";
+    test(`${label}, machine + storage + credits share one row`, () => {
+      // The row is motion-independent: three chips are always all on screen,
+      // never one at a time, so a downgrade can't hide the resize being waited
+      // on behind a dimension that was never in doubt.
+      reducedMotion = reduce;
+      const { container, getByText } = renderState({
+        state: "WAITING",
+        intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+        targets: { machineSize: "large", storageGib: 100 },
+        fromSnapshot: { machineSize: "small", storageGib: 30 },
+      });
+
+      expect(getByText("Machine")).toBeTruthy();
+      expect(getByText("Large")).toBeTruthy();
+      expect(getByText("Storage")).toBeTruthy();
+      expect(getByText("100 GB")).toBeTruthy();
+      expect(getByText("Credits")).toBeTruthy();
+      expect(getByText("$50/mo")).toBeTruthy();
+      // One row holds all three; there is no sibling row to wrap onto.
+      const row = chipRow(container);
+      expect(within(row).getAllByTestId(CHIP_TESTID).length).toBe(3);
+    });
+  }
+
+  test("the row cap widens for a third chip and holds the mock's width for two", () => {
+    // happy-dom performs no layout, so this is a smoke test on the class the
+    // width comes from; the real single-row check is visual.
+    const threeChips = renderState({
       state: "WAITING",
       intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
       targets: { machineSize: "large", storageGib: 100 },
       fromSnapshot: { machineSize: "small", storageGib: 30 },
     });
+    expect(chipRow(threeChips.container).className).toContain("max-w-2xl");
+    // Never a second row: the chips shrink inside the cap instead.
+    expect(chipRow(threeChips.container).className).not.toContain("flex-wrap");
 
-    expect(getByText("Machine")).toBeTruthy();
-    expect(getByText("Large")).toBeTruthy();
-    expect(getByText("Storage")).toBeTruthy();
-    expect(getByText("100 GB")).toBeTruthy();
-    expect(getByText("Credits")).toBeTruthy();
-    expect(getByText("$50 credits/mo")).toBeTruthy();
+    cleanup();
+    const twoChips = renderState({
+      state: "WAITING",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+    });
+    expect(chipRow(twoChips.container).className).toContain("max-w-sm");
   });
 
-  test("under full motion, three changes rotate — only the first chip renders", () => {
-    reducedMotion = false;
-    const { getByText, queryByText } = renderState({
+  test("a machine-less target renders the floor downsize it settles at", () => {
+    const { getByTestId } = renderState({
       state: "WAITING",
-      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
-      targets: { machineSize: "large", storageGib: 100 },
-      fromSnapshot: { machineSize: "small", storageGib: 30 },
+      targets: { machineSize: null, storageGib: 100 },
+      fromSnapshot: { machineSize: "medium", storageGib: 30 },
+      machineFloor: "small",
     });
 
-    // Rotation starts at the machine change; storage/credits are off-screen.
+    const chip = getByTestId("chip-machine");
+    expect(chip.textContent).toContain("Medium");
+    expect(chip.textContent).toContain("Small");
+  });
+});
+
+/** A machine + storage upgrade mid-resize, with nothing landed yet. */
+const IN_FLIGHT: Partial<ProvisioningStateProps> = {
+  state: "WAITING",
+  targets: { machineSize: "large", storageGib: 100 },
+  fromSnapshot: { machineSize: "small", storageGib: 30 },
+};
+
+describe("per-chip progress", () => {
+  test("every chip starts pending with a spinner and no check", () => {
+    const { getByTestId } = renderState(IN_FLIGHT);
+
+    for (const key of ["chip-machine", "chip-storage"]) {
+      const chip = getByTestId(key);
+      expect(within(chip).getByTestId("chip-spinner")).toBeTruthy();
+      expect(within(chip).queryByTestId("chip-check")).toBeNull();
+      expect(chip.className).toContain("opacity-70");
+    }
+  });
+
+  test("a landed dimension checks off while the other keeps spinning", () => {
+    const { getByTestId } = renderState({
+      ...IN_FLIGHT,
+      landed: { machine: false, storage: true },
+    });
+
+    const storage = getByTestId("chip-storage");
+    expect(within(storage).getByTestId("chip-check")).toBeTruthy();
+    expect(within(storage).queryByTestId("chip-spinner")).toBeNull();
+    expect(storage.className).not.toContain("opacity-70");
+    // The landed chip keeps its from→to arrow rather than collapsing to the
+    // achieved value.
+    expect(storage.textContent).toContain("30 GB");
+    expect(storage.textContent).toContain("100 GB");
+
+    const machine = getByTestId("chip-machine");
+    expect(within(machine).getByTestId("chip-spinner")).toBeTruthy();
+    expect(within(machine).queryByTestId("chip-check")).toBeNull();
+  });
+
+  test("the credits chip is landed from first paint", () => {
+    // The rate flips when the plan change is accepted; nothing rolls out, so
+    // waiting on the machine would leave it spinning for no reason.
+    const { getByTestId } = renderState({
+      state: "WAITING",
+      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+      targets: { machineSize: "large", storageGib: null },
+      fromSnapshot: { machineSize: "small", storageGib: null },
+      landed: { machine: false, storage: false },
+    });
+
+    expect(
+      within(getByTestId("chip-credits")).getByTestId("chip-check"),
+    ).toBeTruthy();
+    expect(
+      within(getByTestId("chip-machine")).getByTestId("chip-spinner"),
+    ).toBeTruthy();
+  });
+
+  test("the progress mark shares a line with the value it belongs to", () => {
+    // The value row wraps so a long value can break rather than clip the chip,
+    // and the mark is the last and smallest thing on that line, so it is what
+    // wraps: it lands alone underneath and reads as belonging to nothing. It
+    // has to travel with the destination value as one item.
+    const { getByTestId } = renderState({
+      state: "WAITING",
+      intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+      targets: { machineSize: "large", storageGib: null },
+      fromSnapshot: { machineSize: "small", storageGib: null },
+      landed: { machine: false, storage: false },
+    });
+
+    for (const [chipId, markId] of [
+      ["chip-credits", "chip-check"],
+      ["chip-machine", "chip-spinner"],
+    ] as const) {
+      const chip = getByTestId(chipId);
+      const mark = within(chip).getByTestId(markId);
+      const group = mark.parentElement;
+      // The wrapping row is the grandparent once the mark sits in its group.
+      expect(group?.className).toContain("inline-flex");
+      expect(group?.className).not.toContain("flex-wrap");
+      // The destination value is inside that same unwrappable group.
+      expect(group?.textContent).not.toBe("");
+    }
+  });
+
+  test("stalled keeps each chip on its own dimension's state", () => {
+    const { getByTestId } = renderState({
+      state: "STALLED",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+      landed: { machine: false, storage: true },
+    });
+
+    expect(
+      within(getByTestId("chip-storage")).getByTestId("chip-check"),
+    ).toBeTruthy();
+    expect(
+      within(getByTestId("chip-machine")).getByTestId("chip-spinner"),
+    ).toBeTruthy();
+  });
+
+  test("a mixed row reads its progress per dimension, not just paints it", () => {
+    // The spinner, the check and the dimming are all invisible to assistive
+    // tech, so without the status text a landed storage sounds identical to a
+    // pending one.
+    const { getByTestId } = renderState({
+      ...IN_FLIGHT,
+      landed: { machine: false, storage: true },
+    });
+
+    const storage = within(getByTestId("chip-storage"));
+    expect(storage.getByText("Complete").className).toContain("sr-only");
+    expect(storage.queryByText("Pending")).toBeNull();
+
+    const machine = within(getByTestId("chip-machine"));
+    expect(machine.getByText("Pending").className).toContain("sr-only");
+    expect(machine.queryByText("Complete")).toBeNull();
+  });
+
+  test("a dimension arriving mid-wait announces itself by name", () => {
+    // Discoverable `sr-only` text is silent on change, so a user who stays on
+    // the takeover hears nothing when a dimension arrives without the region.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(
+      organizationsBillingPlansRetrieveQueryKey(),
+      plansResponse(),
+    );
+    const tree = (landed: { machine: boolean; storage: boolean }) => (
+      <QueryClientProvider client={client}>
+        <ProvisioningState {...baseProps({ ...IN_FLIGHT, landed })} />
+      </QueryClientProvider>
+    );
+
+    const { getByTestId, rerender } = render(
+      tree({ machine: false, storage: false }),
+    );
+    expect(getByTestId("chip-announcement").textContent).toBe("");
+
+    rerender(tree({ machine: false, storage: true }));
+
+    const announced = getByTestId("chip-announcement").textContent ?? "";
+    expect(announced).toContain("Storage");
+    expect(announced).toContain("complete");
+  });
+
+  test("what already reads complete at first paint stays silent", () => {
+    // A dimension that settled before the takeover opened, and credits which
+    // carry no wait at all, have no arrival to report. Announcing them on mount
+    // would claim progress the user never waited through.
+    const { getByTestId } = renderState({
+      ...IN_FLIGHT,
+      landed: { machine: false, storage: true },
+    });
+
+    expect(
+      within(getByTestId("chip-storage")).getByText("Complete"),
+    ).toBeTruthy();
+    expect(getByTestId("chip-announcement").textContent).toBe("");
+  });
+
+  test("the from-to relation is spoken rather than left to the arrow glyph", () => {
+    // The arrow is aria-hidden, so the chip would otherwise read
+    // "Machine Small Large Pending".
+    const { getByTestId } = renderState(IN_FLIGHT);
+
+    expect(
+      within(getByTestId("chip-machine")).getByText("to").className,
+    ).toContain("sr-only");
+  });
+
+  test("a target-only intent chip claims neither status", () => {
+    // CONFIRMING has no per-dimension progress to report, so claiming
+    // "Pending" there would assert a resize that isn't in flight.
+    const { getByText, queryByText } = renderState({
+      state: "CONFIRMING",
+      intent: {
+        kind: "custom",
+        machineTier: "large",
+        storageTier: null,
+        creditTier: null,
+        savedAt: Date.now(),
+      },
+    });
+
     expect(getByText("Machine")).toBeTruthy();
-    expect(queryByText("Storage")).toBeNull();
-    expect(queryByText("Credits")).toBeNull();
+    expect(queryByText("Pending")).toBeNull();
+    expect(queryByText("Complete")).toBeNull();
+  });
+});
+
+describe("chip fit at narrow widths", () => {
+  /** The widest row the takeover renders: all three dimensions at once. */
+  const NARROW: Partial<ProvisioningStateProps> = {
+    ...IN_FLIGHT,
+    intent: { kind: "package", packageKey: "mighty", savedAt: Date.now() },
+  };
+
+  test("chip text breaks inside a word so it can never spill into the next chip", () => {
+    // happy-dom runs no layout, so this asserts the rule the no-clip behaviour
+    // rests on. `min-w-0` lets the box shrink but an unbreakable word such as
+    // "Machine" still sets a floor; `anywhere` (not `break-word`) is what feeds
+    // the break opportunity into the min-content sizing a flex item measures
+    // itself against.
+    const { getByTestId } = renderState(NARROW);
+    const cases: Array<[string, string, string]> = [
+      ["chip-machine", "Machine", "Large"],
+      ["chip-storage", "Storage", "100 GB"],
+      ["chip-credits", "Credits", "$50/mo"],
+    ];
+
+    for (const [key, label, value] of cases) {
+      const chip = within(getByTestId(key));
+      // Label and value both sit under the rule, which inherits from the text
+      // column rather than being repeated on each span.
+      expect(chip.getByText(label).closest(".wrap-anywhere")).toBeTruthy();
+      expect(chip.getByText(value).closest(".wrap-anywhere")).toBeTruthy();
+    }
+  });
+
+  test("the decorative icon yields its column below the narrow breakpoint", () => {
+    // 32px of icon and gap against roughly 37px of text width at 320px, for a
+    // glyph that is aria-hidden and repeats what the label already says.
+    const { getByTestId } = renderState(NARROW);
+    const slot =
+      getByTestId("chip-machine").querySelector(".lucide-cpu")?.parentElement;
+
+    expect(slot?.className).toContain("hidden");
+    expect(slot?.className).toContain("min-[420px]:flex");
   });
 });
 
 describe("done / not_applicable", () => {
-  test("done renders the all-done status, target chips, and fires onCelebrationEnd after the dwell", async () => {
+  test("done renders the all-done status, checked chips, and fires onCelebrationEnd after the dwell", async () => {
     const onCelebrationEnd = mock(() => {});
-    const { getByText } = renderState({
+    const { getByText, getByTestId } = renderState({
       state: "DONE",
       targets: { machineSize: "large", storageGib: 100 },
       fromSnapshot: { machineSize: "small", storageGib: 30 },
+      // The state itself is the signal here, so a dimension the hook never got
+      // to report still reads done.
+      landed: { machine: false, storage: false },
       celebrating: true,
       onCelebrationEnd,
       dwellMs: 10,
@@ -348,7 +646,15 @@ describe("done / not_applicable", () => {
     expect(getByText("All done!")).toBeTruthy();
     expect(getByText("Large")).toBeTruthy();
     expect(getByText("100 GB")).toBeTruthy();
-    // The "from" side is dropped once done — only the achieved target shows.
+    // One format everywhere: the terminal phase keeps the from→to arrow and
+    // adds the check.
+    for (const key of ["chip-machine", "chip-storage"]) {
+      const chip = getByTestId(key);
+      expect(within(chip).getByTestId("chip-check")).toBeTruthy();
+      expect(within(chip).queryByTestId("chip-spinner")).toBeNull();
+    }
+    expect(getByText("Small")).toBeTruthy();
+    expect(getByText("30 GB")).toBeTruthy();
     await waitFor(() => expect(onCelebrationEnd).toHaveBeenCalledTimes(1));
   });
 
@@ -365,7 +671,7 @@ describe("done / not_applicable", () => {
     expect(onCelebrationEnd).not.toHaveBeenCalled();
   });
 
-  test("not_applicable renders the plan-ready status without chips or an Apply button", async () => {
+  test("not_applicable renders the plan-ready status with nothing to show and no Apply button", async () => {
     const onCelebrationEnd = mock(() => {});
     const { getByText, queryByText, queryByTestId } = renderState({
       state: "NOT_APPLICABLE",
@@ -375,49 +681,96 @@ describe("done / not_applicable", () => {
     });
 
     expect(getByText("Your plan is ready")).toBeTruthy();
+    // No targets and no credit change, so the row has no chip to build.
+    expect(queryByTestId("resource-chips")).toBeNull();
     expect(queryByText("Machine")).toBeNull();
     expect(queryByText("Storage")).toBeNull();
     expect(queryByTestId("provisioning-apply")).toBeNull();
     await waitFor(() => expect(onCelebrationEnd).toHaveBeenCalledTimes(1));
   });
 
-  test("not_applicable confirms an applied credit bundle with the catalog label", () => {
-    // A credit-only in-place change owes no resize, so it lands here — the only
-    // surface where its bundle can be confirmed (the WAITING credits chip never
-    // shows).
-    const { getByText } = renderState({
+  test("not_applicable carries the credits chip, checked, in the same format", () => {
+    // A credit-only in-place change owes no resize, so it lands here, and this
+    // is the one surface where it can state what changed.
+    const { getByText, getByTestId } = renderState({
       state: "NOT_APPLICABLE",
-      resizeCredits: "credits_50",
+      creditsChange: { fromTier: "credits_25", toTier: "credits_50" },
     });
 
     expect(getByText("Your plan is ready")).toBeTruthy();
-    expect(getByText("Credits")).toBeTruthy();
-    expect(getByText("$50 credits/mo")).toBeTruthy();
+    const chip = getByTestId("chip-credits");
+    expect(chip.textContent).toContain("$25/mo");
+    expect(chip.textContent).toContain("$50/mo");
+    expect(within(chip).getByTestId("chip-check")).toBeTruthy();
   });
 
-  test("not_applicable falls back to plain copy when the bundle can't resolve", () => {
-    // "No extra credits" (null tier) still counts as a change, so it confirms
-    // without a catalog label rather than leaving the phase blank.
-    const { getByText, queryByText } = renderState({
+  test("not_applicable states the credit move alone, whatever the live targets carry", () => {
+    // The provisioning targets carry the tier ceiling, so a Super/Ultra sub has
+    // a non-null machine target even for a credit-only change. Nothing is being
+    // provisioned in this phase, so only the credit move belongs on screen.
+    const { getByTestId, queryByTestId } = renderState({
       state: "NOT_APPLICABLE",
-      resizeCredits: null,
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: null, storageGib: null },
+      creditsChange: { fromTier: "credits_25", toTier: "credits_50" },
     });
 
-    expect(getByText("Credits updated")).toBeTruthy();
-    expect(queryByText(/credits\/mo/)).toBeNull();
+    expect(getByTestId("chip-credits")).toBeTruthy();
+    expect(queryByTestId("chip-machine")).toBeNull();
+    expect(queryByTestId("chip-storage")).toBeNull();
   });
 
-  test("done confirms an applied credit bundle alongside the target chips", () => {
-    const { getByText } = renderState({
+  test("not_applicable with nothing but resource targets renders no row at all", () => {
+    const { queryByTestId } = renderState({
+      state: "NOT_APPLICABLE",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+    });
+
+    expect(queryByTestId("resource-chips")).toBeNull();
+  });
+
+  test("done still renders the resource chips alongside credits", () => {
+    // The credits-only narrowing is scoped to NOT_APPLICABLE; DONE reports the
+    // provisioning that actually ran.
+    const { getByTestId } = renderState({
       state: "DONE",
       targets: { machineSize: "large", storageGib: 100 },
       fromSnapshot: { machineSize: "small", storageGib: 30 },
-      resizeCredits: "credits_50",
+      creditsChange: { fromTier: "credits_25", toTier: "credits_50" },
+    });
+
+    expect(getByTestId("chip-machine")).toBeTruthy();
+    expect(getByTestId("chip-storage")).toBeTruthy();
+    expect(getByTestId("chip-credits")).toBeTruthy();
+  });
+
+  test("not_applicable renders a dropped bundle as a move to $0", () => {
+    // "No extra credits" is an endpoint of the change like any other, so the
+    // chip prices it rather than falling back to a bare status word.
+    const { getByTestId } = renderState({
+      state: "NOT_APPLICABLE",
+      creditsChange: { fromTier: "credits_50", toTier: null },
+    });
+
+    const chip = getByTestId("chip-credits");
+    expect(chip.textContent).toContain("$50/mo");
+    expect(chip.textContent).toContain("$0/mo");
+  });
+
+  test("done carries the credits chip alongside the resource chips", () => {
+    const { getByText, getByTestId } = renderState({
+      state: "DONE",
+      targets: { machineSize: "large", storageGib: 100 },
+      fromSnapshot: { machineSize: "small", storageGib: 30 },
+      creditsChange: { fromTier: null, toTier: "credits_50" },
     });
 
     expect(getByText("All done!")).toBeTruthy();
     expect(getByText("Large")).toBeTruthy();
-    expect(getByText("$50 credits/mo")).toBeTruthy();
+    const chip = getByTestId("chip-credits");
+    expect(chip.textContent).toContain("$0/mo");
+    expect(chip.textContent).toContain("$50/mo");
   });
 });
 
@@ -480,36 +833,33 @@ describe("stalled", () => {
     expect(queryByText("Continue in the background")).toBeNull();
   });
 
-  test("an unchanged machine dimension renders singular while storage still arrows", () => {
-    const { getByText, getAllByText, container } = renderState({
+  test("an unchanged machine dimension drops out while storage still arrows", () => {
+    const { getByText, queryByTestId, container } = renderState({
       state: "STALLED",
       targets: { machineSize: "medium", storageGib: 100 },
       fromSnapshot: { machineSize: "medium", storageGib: 30 },
     });
 
-    // Machine is unchanged: the label appears once (target only), never as a
-    // "Medium → Medium" self-arrow.
-    expect(getByText("Machine")).toBeTruthy();
-    expect(getAllByText("Medium").length).toBe(1);
+    // The pod is already at the target size, so nothing is being resized there
+    // and the chip would claim work that never runs.
+    expect(queryByTestId("chip-machine")).toBeNull();
     // Storage changed: both endpoints render, with a single from→to arrow.
     expect(getByText("30 GB")).toBeTruthy();
     expect(getByText("100 GB")).toBeTruthy();
     expect(container.querySelectorAll(".lucide-arrow-right").length).toBe(1);
   });
 
-  test("both dimensions unchanged render singular with no arrows", () => {
-    const { getByText, container } = renderState({
+  test("an unchanged machine and unchanged storage leave no chip row", () => {
+    const { queryByText, queryByTestId } = renderState({
       state: "STALLED",
       targets: { machineSize: "medium", storageGib: 30 },
       fromSnapshot: { machineSize: "medium", storageGib: 30 },
     });
 
-    expect(getByText("Machine")).toBeTruthy();
-    expect(getByText("Medium")).toBeTruthy();
-    expect(getByText("Storage")).toBeTruthy();
-    expect(getByText("30 GB")).toBeTruthy();
-    // Nothing changed, so neither chip draws a current→new arrow.
-    expect(container.querySelector(".lucide-arrow-right")).toBeNull();
+    expect(queryByTestId("resource-chips")).toBeNull();
+    expect(queryByText("Machine")).toBeNull();
+    // Storage only renders when it grows, so an unchanged tier has no chip.
+    expect(queryByText("Storage")).toBeNull();
   });
 });
 
@@ -524,12 +874,76 @@ describe("confirm_timeout", () => {
 
     expect(getByText("Still confirming your upgrade")).toBeTruthy();
     expect(
-      getByText("Your payment went through safely — this can take a minute."),
+      getByText("Your payment went through safely. This can take a minute."),
     ).toBeTruthy();
     fireEvent.click(getByTestId("onboarding-retry"));
     expect(onRetry).toHaveBeenCalledTimes(1);
     fireEvent.click(getByTestId("onboarding-go-to-billing"));
     expect(onGoToBilling).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("direction", () => {
+  test("a downgrade never claims an upgrade in any phase", () => {
+    const phases: Array<[ProvisioningStateProps["state"], string]> = [
+      ["CONFIRMING", "Confirming your plan change…"],
+      ["WAITING", "Updating your assistant…"],
+      ["RESIZING", "Updating your assistant…"],
+      ["CONFIRM_TIMEOUT", "Still confirming your plan change"],
+    ];
+    for (const [state, expected] of phases) {
+      const { getByText, unmount } = renderState({
+        state,
+        direction: "downgrade",
+        targets: { machineSize: "small", storageGib: null },
+        fromSnapshot: { machineSize: "medium", storageGib: null },
+      });
+      expect(getByText(expected)).toBeTruthy();
+      unmount();
+    }
+  });
+
+  test("a downgrade confirm timeout reassures without claiming a payment", () => {
+    // A net package decrease is credited against the next invoice, so nothing
+    // may have been charged at all.
+    const { getByText, queryByText } = renderState({
+      state: "CONFIRM_TIMEOUT",
+      direction: "downgrade",
+    });
+
+    expect(
+      getByText("Your plan change was submitted. This can take a minute."),
+    ).toBeTruthy();
+    expect(queryByText(/payment/i)).toBeNull();
+  });
+
+  test("a downgrade snag reads as a plan change, error message and all", () => {
+    const { getByText } = renderState({
+      state: "STALLED",
+      direction: "downgrade",
+      escapeAvailable: true,
+      kickError: {},
+    });
+
+    expect(getByText("We hit a snag updating your assistant")).toBeTruthy();
+    expect(
+      getByText(
+        "Retry in the background and we'll keep working on your plan change.",
+      ),
+    ).toBeTruthy();
+  });
+
+  test("a direction-unknown change reads the same as a downgrade", () => {
+    const { getByText } = renderState({
+      state: "WAITING",
+      direction: "change",
+    });
+    expect(getByText("Updating your assistant…")).toBeTruthy();
+  });
+
+  test("an omitted direction keeps the upgrade wording", () => {
+    const { getByText } = renderState({ state: "WAITING" });
+    expect(getByText("Upgrading your assistant…")).toBeTruthy();
   });
 });
 
@@ -730,6 +1144,30 @@ describe("takeover avatar mode", () => {
       }
     });
   }
+
+  test("a downgrade inverts the resolve, and only a known one does", () => {
+    // The stage reserves the grown height either way, so the step down waits at
+    // that size and settles into the resting one. Ending taller than it started
+    // would read as the opposite of the change the user just made.
+    const down = renderState({
+      state: "DONE",
+      direction: "downgrade",
+      assistantId: "primary-assistant",
+    });
+    expect(modeClasses(down.container)).toContain("is-downsizing");
+    cleanup();
+
+    // A move with no knowable direction must not claim one.
+    for (const direction of ["upgrade", "change", undefined] as const) {
+      const view = renderState({
+        state: "DONE",
+        direction,
+        assistantId: "primary-assistant",
+      });
+      expect(modeClasses(view.container)).not.toContain("is-downsizing");
+      cleanup();
+    }
+  });
 
   test("withholds the avatar until its query settles", () => {
     // `components ?? fallback` synthesizes traits from the first bundled entry

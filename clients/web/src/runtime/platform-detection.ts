@@ -112,8 +112,8 @@ export function isAndroidBrowser(): boolean {
 /**
  * The OS surfaces this web bundle can report as `clientOs`.
  *
- * The same `clients/web` bundle runs in a plain browser, the Capacitor iOS
- * shell, and the Electron macOS app, so the OS is decided at runtime, not by
+ * The same `clients/web` bundle runs in a plain browser, the Capacitor mobile
+ * shells, and the Electron macOS app, so the OS is decided at runtime, not by
  * which build is shipped. This is NOT the backend interface vocabulary —
  * `clientOs` describes the device OS (`android` has no transport), so it is a
  * deliberately separate set from `InterfaceId` (mirrors the daemon's
@@ -132,9 +132,9 @@ export type ClientOs = "macos" | "ios" | "android" | "web";
  *
  * It must NOT drive the message body's `interface` field or the
  * `X-Vellum-Interface-Id` registration header — those are the *transport*
- * surface and are intentionally hardcoded to `"web"` (the web/iOS/macOS apps
- * all run this one renderer = one transport). The daemon keys host-proxy and
- * transport capabilities off that transport interface, so reporting the OS
+ * surface and are intentionally hardcoded to `"web"` (the web/native/macOS
+ * apps all run this one renderer = one transport). The daemon keys host-proxy
+ * and transport capabilities off that transport interface, so reporting the OS
  * there would mis-tag a renderer turn as a host-proxy transport. Keep OS
  * detection on `clientOs` only; do not re-couple it to interface/header
  * identity.
@@ -178,13 +178,21 @@ export function detectClientOs(): ClientOs {
  * OS permission alert (`getUserMedia`, `Notification.requestPermission`, etc.),
  * which per `docs/CAPACITOR.md` § OS permission requests must be skipped (or
  * carry zero exit affordances) so it leads directly to the system alert per
- * Apple HIG / App Store Review 5.1.1(iv). Android is excluded because no native
- * Capacitor Android shell ships today (mirrors `isRemotePushSupported`);
- * revisit if one does. Safe server-side — falls through to `false` before
- * hydration.
+ * Apple HIG / App Store Review 5.1.1(iv). Safe server-side: falls through to
+ * `false` before hydration.
  */
 export function isNativeIOS(): boolean {
   return isNativePlatform() && Capacitor.getPlatform() === "ios";
+}
+
+/** True only inside the native Capacitor Android shell. */
+export function isNativeAndroid(): boolean {
+  return isNativePlatform() && Capacitor.getPlatform() === "android";
+}
+
+/** True inside either native mobile Capacitor shell. */
+export function isNativeMobile(): boolean {
+  return isNativeIOS() || isNativeAndroid();
 }
 
 /**
@@ -305,4 +313,27 @@ export function useIsMacOSWeb(): boolean {
     () => isMacOSBrowser() && !isNativePlatform() && !isElectron(),
     () => false,
   );
+}
+
+/**
+ * Hook form of `isNativeIOS()`, safe to call from a render body.
+ *
+ * The value is correct on the very first render and constant thereafter:
+ * Capacitor injects `native-bridge.js` as a `WKUserScript` at
+ * `.atDocumentStart`, so `window.Capacitor` exists before this bundle
+ * executes. `subscribe` is a noop because nothing can change the value, and
+ * the `getServerSnapshot` argument is unreachable because `clients/web`
+ * renders client-only through `createRoot` (no SSR, no hydration).
+ *
+ * Prefer it over the bare function in JSX (docs/CAPACITOR.md): it keeps the
+ * shape consistent with `useIsIOSWeb` / `useIsMacOSWeb` and stays correct if a
+ * prerender step is ever added. There is no first-paint flicker to avoid.
+ */
+export function useIsNativeIOS(): boolean {
+  return useSyncExternalStore(noop, isNativeIOS, () => false);
+}
+
+/** Hook form of `isNativeAndroid()`, safe to call from a render body. */
+export function useIsNativeAndroid(): boolean {
+  return useSyncExternalStore(noop, isNativeAndroid, () => false);
 }

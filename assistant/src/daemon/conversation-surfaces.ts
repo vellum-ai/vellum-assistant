@@ -13,6 +13,7 @@ import {
   isKnownSurfaceType,
   MODEL_INVOKABLE_SURFACE_TYPES,
   normalizeCopyBlockShowData,
+  normalizeVisualShowData,
   OAuthConnectSurfaceDataSchema,
   safeParseSurfaceData,
   SurfaceTypeSchema,
@@ -98,6 +99,33 @@ import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context-types.js";
 
+/**
+ * Prefix of the synthetic user-message text this module writes when a surface
+ * action has no custom prompt of its own (`[User action on app: ...]`,
+ * `[User action on <surface_type> surface: ...]`).
+ *
+ * Machine-authored, so turns carrying it must be stamped `scripted` and kept
+ * out of activation counts. Deliberately the SAME anchor the analytics
+ * classifier matches on (`stg_telemetry__scripted_turn.sql`, "Synthetic
+ * UI-surface action events"): the two signals are compared against each other
+ * by the `assert_scripted_signals_agree` dbt test, so if this string ever
+ * changes, that model's anchor has to change with it or the test fires.
+ */
+const SYNTHETIC_SURFACE_ACTION_PREFIX = "[User action on ";
+
+/**
+ * True when `content` is the synthetic fallback text above rather than a
+ * custom prompt supplied by the surface.
+ *
+ * Only the synthetic form is scripted. A surface that supplies its own prompt
+ * is treated as a real turn, because that is what the existing analytics
+ * classifier does. Widening this to every surface action would silently move
+ * activation beyond the bug being fixed.
+ */
+function isSyntheticSurfaceActionContent(content: string): boolean {
+  return content.startsWith(SYNTHETIC_SURFACE_ACTION_PREFIX);
+}
+
 const log = getLogger("conversation-surfaces");
 
 // Tolerant variant of SurfaceActionSchema for parsing raw model output.
@@ -111,6 +139,16 @@ const ModelActionSchema = SurfaceActionSchema.extend({
 });
 
 const MAX_UNDO_DEPTH = 10;
+
+/**
+ * Pending surface types that do not hold the one-interactive-surface-at-a-time
+ * lock. Both render content the user reads rather than a question they must
+ * answer, so a live one must not block the next surface.
+ */
+const NON_BLOCKING_PENDING_SURFACE_TYPES = new Set<SurfaceType>([
+  "dynamic_page",
+  "visual",
+]);
 
 /**
  * Debounce window for persisting `ui_surface_update` data back to the
@@ -2012,6 +2050,9 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
+      // Rides the metadata bag rather than a typed option: the queue
+      // round-trips `metadata` but not `PersistMessageOptions`.
+      metadata: { scripted: isSyntheticSurfaceActionContent(content) },
     });
 
     if (result.rejected) {
@@ -2069,6 +2110,7 @@ export async function handleSurfaceAction(
         activeSurfaceId: surfaceId,
         displayContent,
         sourceActorPrincipalId,
+        scripted: isSyntheticSurfaceActionContent(content),
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -2254,6 +2296,9 @@ export async function handleSurfaceAction(
     activeSurfaceId: surfaceId,
     displayContent,
     sourceActorPrincipalId,
+    // Rides the metadata bag rather than a typed option: the queue
+    // round-trips `metadata` but not `PersistMessageOptions`.
+    metadata: { scripted: isSyntheticSurfaceActionContent(content) },
   });
   if (result.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);
@@ -2336,6 +2381,7 @@ export async function handleSurfaceAction(
       activeSurfaceId: surfaceId,
       displayContent,
       sourceActorPrincipalId,
+      scripted: isSyntheticSurfaceActionContent(content),
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -2992,9 +3038,9 @@ export async function surfaceProxyResolver(
     }
 
     // Every surface type parses through its canonical schema. Card,
-    // copy_block, and dynamic_page first run bespoke normalizers that
-    // recover fields the model placed at the top level of the tool input;
-    // the rest go straight through `safeParseSurfaceData`. Choice and
+    // copy_block, dynamic_page, and visual first run bespoke normalizers
+    // that recover fields the model placed at the top level of the tool
+    // input; the rest go straight through `safeParseSurfaceData`. Choice and
     // oauth_connect parse into named bindings so their content guards below
     // read typed data instead of re-narrowing the union.
     const cardData =
@@ -3026,7 +3072,12 @@ export async function surfaceProxyResolver(
                     surfaceType,
                     data: normalizeDynamicPageShowData(input, rawData),
                   }
-                : parseShowPairOrThrow(surfaceType, rawData);
+                : surfaceType === "visual"
+                  ? {
+                      surfaceType,
+                      data: normalizeVisualShowData(input, rawData),
+                    }
+                  : parseShowPairOrThrow(surfaceType, rawData);
     // Parse actions through the schema instead of typecasting raw model output.
     // The model may place actions inside `data` instead of the top-level
     // `actions` param — recover them so they aren't silently dropped.
@@ -3103,10 +3154,12 @@ export async function surfaceProxyResolver(
 
     // Only one non-persistent interactive surface at a time. If another
     // surface is already awaiting user input, reject this one so the LLM
-    // presents surfaces sequentially.
+    // presents surfaces sequentially. dynamic_page and visual are rendered
+    // content rather than a question posed to the user, so a pending one
+    // never blocks the next surface.
     if (awaitAction) {
       const hasExistingPending = [...ctx.pendingSurfaceActions.values()].some(
-        (entry) => entry.surfaceType !== "dynamic_page",
+        (entry) => !NON_BLOCKING_PENDING_SURFACE_TYPES.has(entry.surfaceType),
       );
       if (hasExistingPending) {
         return {
@@ -3213,6 +3266,15 @@ export async function surfaceProxyResolver(
         }),
         isError: false,
         yieldToUser: true,
+      };
+    }
+    if (surfaceType === "visual") {
+      return {
+        content: JSON.stringify({
+          surfaceId,
+          note: "The visual is now visible inline in the chat. Continue your response in prose and do not describe or restate what the visual shows. To replace it, call ui_dismiss with this surfaceId and show a new one.",
+        }),
+        isError: false,
       };
     }
     return { content: JSON.stringify({ surfaceId }), isError: false };

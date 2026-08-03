@@ -1,3 +1,5 @@
+import type { TakeoverDirection } from "./takeover-copy";
+
 export const DOMAIN_EXIT_DELAY_MS = 800;
 
 export const PRO_POLL_INTERVAL_MS = 1000;
@@ -23,6 +25,14 @@ export const PROVISION_PHASE_MIN_MS = 900;
  * wasn't visible to the reconcile yet. One retry only.
  */
 export const ENSURE_PROVISIONED_RACE_RETRY_MS = 2_000;
+/**
+ * How often to re-ask the reconcile while a change that can lower the ceilings
+ * waits under a provisional verdict with no marker of its own observed. The
+ * server checks the marker and the targets together, so its answer is the only
+ * terminal one available when the polls never caught the rollout; without a
+ * re-ask that wait runs to the stall clock on a change that already succeeded.
+ */
+export const PROVISION_VERDICT_RECHECK_MS = 10_000;
 
 const ONBOARDING_MACHINE_DRF_FIELD_KEYS = [
   "machine_size",
@@ -44,14 +54,32 @@ export const ONBOARDING_ERROR_CODE_MESSAGES: Record<string, string> = {
     "We couldn't find an assistant to upgrade yet. Try again in a moment.",
 };
 
+/**
+ * The codes whose stock message names an upgrade, reworded for a takeover that
+ * is watching something else. The reconcile these come from runs the same way
+ * for a downgrade, so without this a stalled downgrade offers to retry and then
+ * reports a failure to queue "your upgrade".
+ */
+const PLAN_CHANGE_ERROR_CODE_MESSAGES: Record<string, string> = {
+  provisioning_submission_failed:
+    "We couldn't queue your plan change just now. Try again in a moment.",
+  no_provisionable_assistants:
+    "We couldn't find an assistant to update yet. Try again in a moment.",
+};
+
 export function extractOnboardingErrorMessage(
   error: unknown,
   fallback: string,
+  direction: TakeoverDirection = "upgrade",
 ): string {
   if (error && typeof error === "object") {
     const rec = error as Record<string, unknown>;
     if (typeof rec.error === "string") {
-      const mapped = ONBOARDING_ERROR_CODE_MESSAGES[rec.error];
+      const mapped =
+        (direction === "upgrade"
+          ? undefined
+          : PLAN_CHANGE_ERROR_CODE_MESSAGES[rec.error]) ??
+        ONBOARDING_ERROR_CODE_MESSAGES[rec.error];
       if (mapped) {
         return mapped;
       }

@@ -27,7 +27,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  notifyManager,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import {
   assistantsActiveRetrieveOptions,
@@ -39,11 +45,19 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import { allowedMachineSizesForTier } from "@/lib/billing/machine-sizes";
 import {
+  MACHINE_FLOOR_SIZE,
+  machineCeilingForTier,
+  machineSizeRank,
+} from "@/lib/billing/machine-sizes";
+import {
+  dimensionTargetsMet,
   isEntitlementRaceVerdict,
   isResizeOperationInFlight,
+  type ProvisioningDimensionFlags,
+  resizeDimensionsInFlight,
 } from "@/lib/billing/provisioning-targets";
 import { useOrganizationStore } from "@/stores/organization-store";
 
@@ -59,6 +73,7 @@ import {
   PRO_POLL_INTERVAL_MS,
   PRO_POLL_TIMEOUT_MS,
   PROVISION_ESCAPE_MS,
+  PROVISION_VERDICT_RECHECK_MS,
 } from "./utils";
 
 const ACTUALS_POLL_INTERVAL_MS = 2000;
@@ -76,8 +91,34 @@ const TERMINAL_STATES: readonly ProvisioningStateKind[] = [
   "CONFIRM_TIMEOUT",
 ];
 
+/**
+ * The operational-status fetch-start count at the moment each dimension was
+ * first seen to meet what the takeover displays for it, keyed to the assistant
+ * those counts describe. The per-dimension analogue of `targetsMetAt`, feeding
+ * the presentation-only landed flags.
+ */
+interface DimensionMetLatch {
+  assistantId: string | null;
+  machine: number | null;
+  storage: number | null;
+}
+
+const NO_DIMENSIONS_MET: DimensionMetLatch = {
+  assistantId: null,
+  machine: null,
+  storage: null,
+};
+
 export interface UseProProvisioningOptions {
   open: boolean;
+  /**
+   * Whether the change being watched can lower a resource ceiling, which is the
+   * only thing that stops met targets from standing in for "nothing was owed".
+   * Absent reads as false, which is what post-checkout onboarding always is.
+   */
+  canLowerResources?: boolean;
+  /** Test hook: how often to re-ask a verdict-only wait for a terminal answer. */
+  verdictRecheckMs?: number;
 }
 
 export interface ProProvisioningResult {
@@ -86,6 +127,33 @@ export interface ProProvisioningResult {
   targets: ProvisioningDimensions | null;
   /** First actuals observed, frozen — the "from" side of before/after cards. */
   actualsSnapshot: ProvisioningDimensions | null;
+  /**
+   * Machine size a package with no machine tier settles at, mirroring the
+   * server's ceiling for a null tier. Display only, so the takeover can show
+   * the resulting downsize; it never feeds `targets`, where a non-null machine
+   * size would demand non-null actuals and hang a fresh hatch.
+   */
+  machineFloor: MachineSizeEnum | null;
+  /**
+   * Per-dimension provisioning progress: a dimension has landed once what the
+   * takeover displays for it is met, it has no resize in flight, and a status
+   * fetch that started after that dimension read met has come back.
+   * The machine dimension is measured against the size it is headed for (the
+   * purchased size, or `machineFloor` for a machine-less package) in the
+   * direction it is moving, because the purchased targets only ever grow and a
+   * downsize would otherwise read met before the pod shrank.
+   *
+   * Presentation only, for per-chip progress; terminal completion still flows
+   * exclusively through `deriveProvisioningState`, which can complete the flow
+   * before any status reading postdates the actuals. A dimension may therefore
+   * still read pending in DONE, where the state is itself the signal.
+   *
+   * A machine resize supersedes a storage one in the single per-assistant
+   * marker, so storage can read landed while the machine rollout is still
+   * running. That is honest: the storage grow was accepted, and the machine
+   * flag keeps its own row pending until the rollout converges.
+   */
+  landed: ProvisioningDimensionFlags;
   /**
    * The assistant provisioning targets: the onboarding payload's primary
    * assistant when named, else the active assistant. Drives the actuals and
@@ -134,6 +202,8 @@ export interface ProProvisioningResult {
 
 export function useProProvisioning({
   open,
+  canLowerResources = false,
+  verdictRecheckMs = PROVISION_VERDICT_RECHECK_MS,
 }: UseProProvisioningOptions): ProProvisioningResult {
   const queryClient = useQueryClient();
   // Every query here is org-scoped (needs the Vellum-Organization-Id header).
@@ -173,6 +243,9 @@ export function useProProvisioning({
   const [targetsMetAssistantId, setTargetsMetAssistantId] = useState<
     string | null
   >(null);
+  // The same anchor per dimension, for the landed flags.
+  const [dimensionMetAtFetch, setDimensionMetAtFetch] =
+    useState<DimensionMetLatch>(NO_DIMENSIONS_MET);
   // Latest reconcile failure from any source (auto/escape); cleared by a later
   // success — see runEnsureProvisioned.
   const [ensureError, setEnsureError] = useState<unknown>(null);
@@ -188,6 +261,14 @@ export function useProProvisioning({
   // verdict or an error into the next open's session.
   const ensureGenerationRef = useRef(0);
   const [sawOperation, setSawOperation] = useState(false);
+  // The assistant whose marker was watched. Until the onboarding payload names
+  // a primary the hook polls the active-assistant fallback, so a marker can be
+  // observed on one assistant and the watch then re-keyed to another. An
+  // unkeyed latch would carry that unrelated marker across as evidence that a
+  // downsize on the new assistant had already rolled out.
+  const [sawOperationAssistantId, setSawOperationAssistantId] = useState<
+    string | null
+  >(null);
   const [actualsSnapshot, setActualsSnapshot] =
     useState<ProvisioningDimensions | null>(null);
   // The assistant the frozen snapshot describes, so it can be re-captured when
@@ -213,12 +294,14 @@ export function useProProvisioning({
     setProConfirmedAt(null);
     setResumedAt(null);
     setSawOperation(false);
+    setSawOperationAssistantId(null);
     setActualsSnapshot(null);
     setSnapshotAssistantId(null);
     setTracking(true);
     setServerVerdict(null);
     setTargetsMetAt(null);
     setTargetsMetAssistantId(null);
+    setDimensionMetAtFetch(NO_DIMENSIONS_MET);
     setEnsureError(null);
     setRaceRetryScheduled(false);
     ensureRequestedRef.current = false;
@@ -461,24 +544,81 @@ export function useProProvisioning({
     retry: false,
   });
 
+  const operationalStatusOptions = assistantsOperationalStatusDetailReadOptions(
+    { path: { id: assistantId ?? "unresolved" } },
+  );
   const operationalStatusQuery = useQuery({
-    ...assistantsOperationalStatusDetailReadOptions({
-      path: { id: assistantId ?? "unresolved" },
-    }),
+    ...operationalStatusOptions,
     enabled: open && orgReady && proConfirmed && assistantId != null,
     refetchInterval: pollInterval,
     retry: false,
   });
 
+  // How many operational-status fetches have *started*, and which of those
+  // starts the most recent successful reading belongs to. The query cache
+  // dispatches `fetch` as a request begins and `success` when one lands, both
+  // synchronously, so a subscription counts starts, not completions.
+  //
+  // That distinction is the whole fence below. A request already out when a
+  // dimension latches read the world before the resize marker existed, and no
+  // time its answer is later stored under changes that. Since only starts move
+  // the count, such a request can never advance it past a latch taken while it
+  // was in flight, so where the latch falls relative to the render is moot.
+  //
+  // The ref is the live count, which is what effects read: a count captured
+  // during render is already stale if a request begins before the effect runs.
+  // The state is the render-visible half. It advances only on a successful
+  // reading, so a status query stuck erroring withholds the flags rather than
+  // guessing, and only ever forward, so a landed flag never blinks off when
+  // the next poll goes out. Neither is reset with the wizard: both are
+  // monotonic and the latch is re-taken against the live count.
+  const statusFetchStartsRef = useRef(0);
+  const [lastReadFetchStart, setLastReadFetchStart] = useState(0);
+  const statusQueryHash = hashKey(operationalStatusOptions.queryKey);
+  useEffect(() => {
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type !== "updated" ||
+        event.query.queryHash !== statusQueryHash
+      ) {
+        return;
+      }
+      if (event.action.type === "fetch") {
+        statusFetchStartsRef.current += 1;
+      } else if (event.action.type === "success" && !event.action.manual) {
+        // Which start this reading belongs to has to be read here, before a
+        // later one can move the count. Publishing it through the cache's own
+        // notify queue lands it in the same React commit as the reading.
+        const readStart = statusFetchStartsRef.current;
+        // A marker only counts as this takeover's evidence when it arrives in a
+        // reading that landed here: the query cache outlives the takeover and
+        // the lifecycle poller keeps it warm, so its stored value can be a
+        // marker from an earlier resize on this same assistant. Reading the
+        // marker off the delivered payload rather than off rendered state ties
+        // the evidence to the reading that carried it, so neither a cached
+        // value nor a later re-render can stand in for one.
+        const watchedMarker =
+          open && isResizeOperationInFlight(event.action.data);
+        notifyManager.schedule(() => {
+          setLastReadFetchStart(readStart);
+          if (watchedMarker) {
+            setSawOperation(true);
+            setSawOperationAssistantId(assistantId);
+          }
+        });
+      }
+    });
+  }, [queryClient, statusQueryHash, open, assistantId]);
+
   const resizeOperationInFlight = isResizeOperationInFlight(
     operationalStatusQuery.data,
   );
 
-  useEffect(() => {
-    if (resizeOperationInFlight) {
-      setSawOperation(true);
-    }
-  }, [resizeOperationInFlight]);
+  // `sawOperation` is latched from the reading itself, in the cache listener
+  // above, so nothing here needs to re-observe it. It stays keyed to the
+  // assistant it was watched on, because the fallback-to-primary re-key can
+  // move the watch mid-open.
+  const sawOperationMatchesAssistant = sawOperationAssistantId === assistantId;
 
   const onboarding = onboardingQuery.data;
   const targets = useMemo<ProvisioningDimensions | null>(() => {
@@ -489,11 +629,16 @@ export function useProProvisioning({
       // No machine tier on the package (e.g. Mighty), or a tier this bundle
       // doesn't know, yields no machine target; the machine treats a null
       // dimension as satisfied, so version skew never computes a wrong target.
-      machineSize:
-        allowedMachineSizesForTier(onboarding.max_machine_tier).at(-1) ?? null,
+      machineSize: machineCeilingForTier(onboarding.max_machine_tier),
       storageGib: onboarding.selected_storage_gib ?? null,
     };
   }, [onboarding]);
+
+  // Mirrors the server's machine ceiling for a package with no tier.
+  const machineFloor: MachineSizeEnum | null =
+    onboarding != null && onboarding.max_machine_tier == null
+      ? MACHINE_FLOOR_SIZE
+      : null;
 
   // The managed-email entitlement alone doesn't make the domain step offerable:
   // the domain POST re-resolves the caller's primary assistant server-side and
@@ -518,6 +663,48 @@ export function useProProvisioning({
 
   const snapshotMatchesAssistant = snapshotAssistantId === assistantId;
 
+  // What the takeover displays as met, per dimension. `dimensionTargetsMet`
+  // answers the purchased targets, which only ever grow, while the takeover
+  // also displays downsizes: a machine-less package has no machine target at
+  // all, so null reads met by definition, and a lower one reads met while the
+  // pod is still larger. Either way the displayed change would report complete
+  // before anything moved. So judge the machine dimension against where it is
+  // actually headed (the purchased size when the package names one, the floor
+  // it settles at otherwise) in the direction the change goes from the size it
+  // started at. The floor stays out of `targets` for the reason on
+  // `machineFloor`.
+  const displayTargetsMet = useMemo<ProvisioningDimensionFlags>(() => {
+    const met = dimensionTargetsMet(targets, actuals);
+    const destination = targets?.machineSize ?? machineFloor;
+    if (destination == null) {
+      return met;
+    }
+    const actualMachine = actuals?.machineSize ?? null;
+    if (actualMachine == null) {
+      return { ...met, machine: false };
+    }
+    // Before the snapshot latches, and whenever it describes another assistant,
+    // the actuals in hand are themselves the first reading, which narrows the
+    // comparison to "already there" rather than guessing a direction.
+    const startedFrom =
+      (snapshotMatchesAssistant ? actualsSnapshot?.machineSize : null) ??
+      actualMachine;
+    const downsizing =
+      machineSizeRank(destination) < machineSizeRank(startedFrom);
+    return {
+      ...met,
+      machine: downsizing
+        ? machineSizeRank(actualMachine) <= machineSizeRank(destination)
+        : machineSizeRank(actualMachine) >= machineSizeRank(destination),
+    };
+  }, [
+    targets,
+    actuals,
+    actualsSnapshot,
+    snapshotMatchesAssistant,
+    machineFloor,
+  ]);
+
   // Latch the instant the actuals first read as meeting the targets. The
   // platform creates the resize marker BEFORE it persists the effective sizes,
   // so any operational-status reading taken after this instant is guaranteed to
@@ -541,6 +728,83 @@ export function useProProvisioning({
     }
   }, [open, currentTargetsMet, assistantId, targetsMetMatchesAssistant]);
 
+  // The same latch per dimension, on the same write-order guarantee: a status
+  // reading taken after a dimension read met is the one guaranteed to find that
+  // dimension's marker, or find it retired. Keyed to the provisioning assistant
+  // for the reason above.
+  //
+  // What is recorded is the fetch-start count rather than an instant, because
+  // the question the fence asks is when a reading *began*, and that is the only
+  // thing that says whether it could have seen the marker.
+  const dimensionMetMatchesAssistant =
+    dimensionMetAtFetch.assistantId === assistantId;
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const startedFetches = statusFetchStartsRef.current;
+    setDimensionMetAtFetch((prev) => {
+      const carried =
+        prev.assistantId === assistantId ? prev : NO_DIMENSIONS_MET;
+      const machine = displayTargetsMet.machine
+        ? (carried.machine ?? startedFetches)
+        : null;
+      const storage = displayTargetsMet.storage
+        ? (carried.storage ?? startedFetches)
+        : null;
+      if (
+        prev.assistantId === assistantId &&
+        prev.machine === machine &&
+        prev.storage === storage
+      ) {
+        return prev;
+      }
+      return { assistantId, machine, storage };
+    });
+  }, [open, displayTargetsMet, assistantId]);
+
+  // Pairs the same questions the state machine pairs globally, per dimension.
+  // Met-ness alone would not do: the platform persists the effective sizes at
+  // resize acceptance, before the pod restarts, so a dimension reads met
+  // mid-rollout. Nor would met-ness plus the marker, because the assistant and
+  // status queries poll independently: in the window where the assistant poll
+  // holds the persisted sizes and the status query still holds its pre-resize
+  // reading, a flag would land and the next poll would take it back.
+  //
+  // These flags are fenced more strictly than the terminal
+  // `statusObservedSinceTargetsMet` gate below, which compares `dataUpdatedAt`
+  // against its own latch. That is a result-storage time, so it also counts a
+  // fetch that was already out. But that gate is one-way: reaching a terminal
+  // state stops the poll, so a slightly early completion is absorbed and never
+  // visibly reverses. These flags render continuously, so the same false
+  // positive shows a chip checking off and then regressing to a spinner. That
+  // asymmetry is why the stricter fence lives here and not there.
+  const landed = useMemo<ProvisioningDimensionFlags>(() => {
+    const inFlight = resizeDimensionsInFlight(operationalStatusQuery.data);
+    // The reading in hand belongs to a fetch that started after this dimension
+    // latched, so it is the first one that could have seen the marker.
+    const readSinceMet = (metAtFetch: number | null) =>
+      metAtFetch != null &&
+      dimensionMetMatchesAssistant &&
+      lastReadFetchStart > metAtFetch;
+    return {
+      machine:
+        displayTargetsMet.machine &&
+        !inFlight.machine &&
+        readSinceMet(dimensionMetAtFetch.machine),
+      storage:
+        displayTargetsMet.storage &&
+        !inFlight.storage &&
+        readSinceMet(dimensionMetAtFetch.storage),
+    };
+  }, [
+    displayTargetsMet,
+    dimensionMetAtFetch,
+    dimensionMetMatchesAssistant,
+    lastReadFetchStart,
+    operationalStatusQuery.data,
+  ]);
+
   // Freeze the first non-null actuals as the before/after "from" side, keyed to
   // the assistant it describes. When assistantId changes (e.g. a stale primary
   // corrected to the fresh one) the by-id assistant query re-keys, so re-capture
@@ -560,6 +824,10 @@ export function useProProvisioning({
   const watchStartedAt = resumedAt ?? proConfirmedAt;
   const msSinceWatchStart =
     watchStartedAt == null ? null : Math.max(0, now - watchStartedAt);
+  // Only a change that never lowers the ceilings keeps "targets met" and
+  // "nothing to provision" equivalent. One that can lower them meets its
+  // targets before anything has moved.
+  const targetsProveNoop = !canLowerResources;
   const { state, softWaiting } = deriveProvisioningState({
     planId: proConfirmed ? "pro" : observedPlanId,
     targets,
@@ -568,7 +836,10 @@ export function useProProvisioning({
     // snapshot from a prior target must never drive the before/after verdict.
     initialActuals: snapshotMatchesAssistant ? actualsSnapshot : null,
     resizeOperationInFlight,
-    sawOperation,
+    // Same rule as the snapshot: a marker watched on a prior target says
+    // nothing about this one, and under a downward change it is the only
+    // evidence the completion gate accepts.
+    sawOperation: sawOperation && sawOperationMatchesAssistant,
     msSinceWatchStart,
     confirmExpired,
     serverVerdict,
@@ -583,6 +854,7 @@ export function useProProvisioning({
       targetsMetAt != null &&
       targetsMetMatchesAssistant &&
       operationalStatusQuery.dataUpdatedAt > targetsMetAt,
+    targetsProveNoop,
   });
 
   const isTerminal = TERMINAL_STATES.includes(state);
@@ -600,11 +872,40 @@ export function useProProvisioning({
     return () => clearInterval(t);
   }, [open, proConfirmed, isTerminal]);
 
+  // Re-ask the reconcile while a change that can lower the ceilings waits on a
+  // verdict that only says a rollout began. Such a change meets its targets
+  // from the first render, so the marker is the one thing that can complete it,
+  // and the 2s polls can miss a rollout entirely if it finishes between them or
+  // if they error while the pod restarts. The server checks the marker and the
+  // targets together, so re-asking is the only terminal answer available; the
+  // alternative is a spinner running to the stall clock on a change that
+  // already succeeded. A marker we did watch needs none of this.
+  const awaitingVerdictWithoutMarker =
+    !targetsProveNoop &&
+    (serverVerdict === "started" || serverVerdict === "in_progress") &&
+    !(sawOperation && sawOperationMatchesAssistant);
+  useEffect(() => {
+    if (!open || !proConfirmed || isTerminal || !awaitingVerdictWithoutMarker) {
+      return;
+    }
+    const t = setInterval(() => runEnsureProvisioned("auto"), verdictRecheckMs);
+    return () => clearInterval(t);
+  }, [
+    open,
+    proConfirmed,
+    isTerminal,
+    awaitingVerdictWithoutMarker,
+    verdictRecheckMs,
+    runEnsureProvisioned,
+  ]);
+
   return {
     state,
     softWaiting,
     targets,
     actualsSnapshot,
+    machineFloor,
+    landed,
     assistantId,
     domainStepAvailable,
     onboardingSettled,

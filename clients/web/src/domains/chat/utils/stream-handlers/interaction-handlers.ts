@@ -119,6 +119,7 @@ export function handleContactRequest(
     requestId: event.requestId,
     channel: event.channel,
     placeholder: event.placeholder,
+    defaultValue: event.defaultValue,
     label: event.label,
     description: event.description,
     role: event.role,

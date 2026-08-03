@@ -104,6 +104,12 @@ const ContactPromptParams = z.object({
     .string()
     .optional()
     .describe("Placeholder text for the address input field."),
+  defaultValue: z
+    .string()
+    .optional()
+    .describe(
+      "Suggested address to pre-fill the input with (e.g. a known email). The user can edit it before submitting.",
+    ),
   label: z
     .string()
     .optional()
@@ -125,7 +131,7 @@ const ContactPromptParams = z.object({
 async function handleContactPrompt({
   body = {},
 }: RouteHandlerArgs): Promise<ContactPromptResult> {
-  const { channel, placeholder, label, description, role } =
+  const { channel, placeholder, defaultValue, label, description, role } =
     ContactPromptParams.parse(body);
 
   const requestId = uuid();
@@ -144,6 +150,7 @@ async function handleContactPrompt({
       requestId,
       channel,
       placeholder,
+      defaultValue,
       label,
       description,
       role,

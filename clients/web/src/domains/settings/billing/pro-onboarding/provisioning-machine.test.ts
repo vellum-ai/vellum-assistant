@@ -394,6 +394,120 @@ describe("deriveProvisioningState — an in-flight resize blocks completion", ()
   });
 });
 
+describe("deriveProvisioningState: met targets only prove a no-op on the way up", () => {
+  // A change that can lower the ceilings meets them from its very first render:
+  // a machine-less package carries no machine target at all, and storage never
+  // shrinks. So targets-met says nothing about whether the pod has restarted,
+  // and only the server may declare there was nothing to do.
+  //
+  // The whole block runs with the pod still at its pre-change size, which is
+  // exactly what a Super → Mighty cap-down looks like before it lands.
+  const downgrade = {
+    targetsProveNoop: false,
+    targets: { machineSize: null, storageGib: 10 },
+    actuals: { machineSize: "medium" as const, storageGib: 10 },
+    initialActuals: null,
+  };
+
+  test("no verdict yet with met targets holds the wait instead of NOT_APPLICABLE", () => {
+    expect(deriveProvisioningState(baseInput(downgrade))).toEqual({
+      state: "WAITING",
+      softWaiting: false,
+    });
+  });
+
+  test("a failed reconcile rides the stall clock out to STALLED", () => {
+    // The endpoint erroring leaves the verdict null, so the flow waits rather
+    // than claiming a restart it never observed.
+    expect(
+      deriveProvisioningState(
+        baseInput({ ...downgrade, msSinceWatchStart: PROVISION_STALL_MS }),
+      ).state,
+    ).toBe("STALLED");
+  });
+
+  test("not_applicable still declares the no-op", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({ ...downgrade, serverVerdict: "not_applicable" }),
+      ).state,
+    ).toBe("NOT_APPLICABLE");
+  });
+
+  test("already_done still completes", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({ ...downgrade, serverVerdict: "already_done" }),
+      ).state,
+    ).toBe("DONE");
+  });
+
+  // A status reading taken after the targets read met is the upgrade path's
+  // proof that the rollout is over, and it rests on the same grow-only footing:
+  // the marker is created before the sizes are persisted, so met targets
+  // postdate it. A change that never has to grow meets its targets before the
+  // resize is requested at all, so that reading can precede the marker and
+  // proves nothing. Only a marker the client watched appear does.
+  test("started stays RESIZING despite a post-actuals status reading", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          ...downgrade,
+          serverVerdict: "started",
+          statusObservedSinceTargetsMet: true,
+        }),
+      ).state,
+    ).toBe("RESIZING");
+  });
+
+  test("in_progress stays RESIZING despite a post-actuals status reading", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          ...downgrade,
+          serverVerdict: "in_progress",
+          statusObservedSinceTargetsMet: true,
+        }),
+      ).state,
+    ).toBe("RESIZING");
+  });
+
+  test("a watched marker still completes a provisional verdict", () => {
+    expect(
+      deriveProvisioningState(
+        baseInput({
+          ...downgrade,
+          serverVerdict: "in_progress",
+          sawOperation: true,
+        }),
+      ).state,
+    ).toBe("DONE");
+  });
+
+  test("an observed resize that cleared still completes", () => {
+    expect(
+      deriveProvisioningState(baseInput({ ...downgrade, sawOperation: true }))
+        .state,
+    ).toBe("DONE");
+  });
+
+  test("the same inputs on the way up still read NOT_APPLICABLE", () => {
+    // The flag is the only difference, so every upgrade path is untouched.
+    expect(
+      deriveProvisioningState(
+        baseInput({ ...downgrade, targetsProveNoop: true }),
+      ).state,
+    ).toBe("NOT_APPLICABLE");
+  });
+
+  test("omitting the flag keeps today's behaviour", () => {
+    const { targetsProveNoop: _omitted, ...withoutFlag } = downgrade;
+    expect(deriveProvisioningState(baseInput(withoutFlag)).state).toBe(
+      "NOT_APPLICABLE",
+    );
+  });
+});
+
 describe("deriveProvisioningState — a provisional verdict needs a post-actuals status reading", () => {
   // The assistant and operational-status queries poll independently, so the
   // assistant poll can land the target sizes while the status query still holds

@@ -1,13 +1,16 @@
 /**
  * Recency fresh-set lane.
  *
- * Returns the top-K page slugs by most-recent on-disk modification
- * (`PageIndexEntry.modifiedAt`). The fresh set keeps *just-written* pages in
- * the candidate pool during the window before the other lanes can reach them:
- * a page consolidated minutes ago has no selection history (so frecency can't
- * rank it into the hot set) and a "what happened today?"-shaped message gives
- * the finder lanes nothing lexical to match it on. Recency is exactly the
- * signal those lanes are missing, so it gets its own lane.
+ * Returns the top-K page slugs by effective recency
+ * (`PageIndexEntry.freshAt`: the parsed `origin_date` frontmatter when
+ * present, else the file mtime), so origin-dated imports sort by their
+ * original chronology instead of their import time. The fresh set keeps
+ * *just-written* pages in the candidate pool during the window before the
+ * other lanes can reach them: a page consolidated minutes ago has no
+ * selection history (so frecency can't rank it into the hot set) and a
+ * "what happened today?"-shaped message gives the finder lanes nothing
+ * lexical to match it on. Recency is exactly the signal those lanes are
+ * missing, so it gets its own lane.
  *
  * Like core and hot, the fresh set is a stable-prefix lane: it is computed at
  * lane init and recomputed only on lane invalidation (the consolidation
@@ -19,7 +22,7 @@
  * Slugs in `excludeSlugs` (core + hot members) are dropped before the K cut —
  * those pages already sit in the stable prefix, so re-listing them would only
  * spend fresh slots on duplicates. Synthetic capability entries carry
- * `modifiedAt: 0` and are skipped: they have no on-disk write to be fresh by.
+ * `freshAt: null` and are skipped: they have no on-disk write to be fresh by.
  */
 
 import type { Slug } from "./types.js";
@@ -27,8 +30,10 @@ import type { Slug } from "./types.js";
 /** The slice of a page-index entry the fresh lane ranks on. */
 export interface FreshSetEntry {
   slug: Slug;
-  /** File mtime in epoch ms; `0` for synthetic entries (skills, CLI commands). */
-  modifiedAt: number;
+  /** Effective recency in epoch ms (origin date when declared, else file
+   *  mtime); pre-epoch origin dates are valid zero or negative values.
+   *  `null` for synthetic entries (skills, CLI commands). */
+  freshAt: number | null;
 }
 
 export interface FreshSetOptions {
@@ -40,9 +45,9 @@ export interface FreshSetOptions {
 }
 
 /**
- * Compute the top-`k` fresh slugs by file modification time, newest first.
+ * Compute the top-`k` fresh slugs by effective recency, newest first.
  *
- * Deterministic for fixed inputs: ties break `modifiedAt` desc, then slug asc.
+ * Deterministic for fixed inputs: ties break `freshAt` desc, then slug asc.
  */
 export function computeFreshSet(
   entries: readonly FreshSetEntry[],
@@ -54,8 +59,13 @@ export function computeFreshSet(
   }
 
   return entries
-    .filter((entry) => entry.modifiedAt > 0 && !excludeSlugs.has(entry.slug))
-    .sort((a, b) => b.modifiedAt - a.modifiedAt || (a.slug < b.slug ? -1 : 1))
+    .filter(
+      (entry): entry is FreshSetEntry & { freshAt: number } =>
+        entry.freshAt !== null &&
+        Number.isFinite(entry.freshAt) &&
+        !excludeSlugs.has(entry.slug),
+    )
+    .sort((a, b) => b.freshAt - a.freshAt || (a.slug < b.slug ? -1 : 1))
     .slice(0, k)
     .map((entry) => entry.slug);
 }

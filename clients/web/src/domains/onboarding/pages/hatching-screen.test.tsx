@@ -33,7 +33,7 @@ const RESIZE_LABEL = "Setting up your machine…";
 const navigateMock = mock((_to: string, _opts?: unknown) => {});
 let searchParams = new URLSearchParams();
 
-let isLocalModeValue = false;
+let isLocalClientValue = false;
 
 // The observed subscription plan gates the free/no-wait decision (Fix 2).
 let subscriptionPlanId = "base";
@@ -301,7 +301,7 @@ mock.module("@/domains/onboarding/plugin-attribution", () => ({
 }));
 
 mock.module("@/lib/local-mode", () => ({
-  isLocalMode: () => isLocalModeValue,
+  isLocalClient: () => isLocalClientValue,
   loadLockfile: async () => {},
   primeLocalGatewayConnection: async () => {},
   probeLocalGatewayReady: async () => true,
@@ -439,7 +439,7 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     clearGatewayTokenMock.mockClear();
     setSelfHostedConnectionMock.mockClear();
     searchParams = new URLSearchParams();
-    isLocalModeValue = false;
+    isLocalClientValue = false;
     subscriptionPlanId = "base";
     subscriptionThrows = false;
     subscriptionNoData = false;
@@ -866,7 +866,7 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
   });
 
   test("local hatches never provision", async () => {
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     searchParams = new URLSearchParams("hosting=docker");
 
     render(<HatchingScreen />);
@@ -885,7 +885,7 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     // a reload onto an already-active assistant flows through the platform
     // preflight path into finishActiveHatch. Without the managed marker the
     // provisioning wait short-circuits — no billing reads, no resize wait.
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     preflightActive = true;
 
     render(<HatchingScreen />);
@@ -907,7 +907,7 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
   // the purchased machine and storage must land before the screen completes.
 
   test("a managed hatch in local mode waits for the purchased provisioning", async () => {
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     searchParams = new URLSearchParams("hosting=vellum-cloud");
     subscriptionPlanId = "pro";
     onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };
@@ -932,7 +932,7 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
     // entry. That entry is self-hosted, so it is never mistaken for the
     // managed assistant being hatched: the hatch still runs, and the only
     // lockfile write names the managed id.
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     searchParams = new URLSearchParams("hosting=vellum-cloud");
     preflightGatewaySelectedLocal = true;
     subscriptionPlanId = "base";
@@ -956,7 +956,7 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
   });
 
   test("a local hatch keeps its gateway session", async () => {
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     searchParams = new URLSearchParams("hosting=docker");
 
     render(<HatchingScreen />);
@@ -1052,7 +1052,7 @@ describe("HatchingScreen — post-payment provisioning wait", () => {
   test("a managed hatch without the post-checkout marker completes on the first non-pro read", async () => {
     // Picking Vellum Cloud is not a purchase: a free managed hatch must never
     // be parked on the post-checkout wait.
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     searchParams = new URLSearchParams("hosting=vellum-cloud");
     subscriptionPlanId = "base";
     onboardingData = { max_machine_tier: "xl", selected_storage_gib: 50 };

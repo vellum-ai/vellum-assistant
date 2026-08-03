@@ -1,5 +1,5 @@
 import { Cron } from "croner";
-import { and, asc, desc, eq, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../persistence/db-connection.js";
@@ -8,8 +8,15 @@ import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { rawChanges } from "../persistence/raw-query.js";
 import { scheduleJobs, scheduleRuns } from "../persistence/schema/index.js";
 import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js";
+import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
+import {
+  hasOwnerDeferProvenance,
+  isDeferSchedule,
+  LEGACY_DEFER_CREATED_BY,
+  OWNER_DEFER_CREATED_BY,
+} from "./defer-provenance.js";
 import {
   computeNextRunAt as computeNextRunAtEngine,
   isValidScheduleExpression,
@@ -114,7 +121,15 @@ export function isValidCronExpression(expr: string): boolean {
   }
 }
 
-export async function createSchedule(params: {
+/**
+ * Insert a schedule row. Unexported on purpose: it is the only writer of
+ * `createdBy` and `createdFromConversationId`, the two fields a deferred wake's
+ * firing reads as proof of who authored its target and trigger text. Callers
+ * reach it through {@link createSchedule} (which cannot mint owner-defer
+ * provenance) or {@link createOwnerDeferredWake} (which is the only thing that
+ * can).
+ */
+interface InsertScheduleParams {
   name: string;
   description?: string;
   cronExpression?: string | null;
@@ -141,7 +156,30 @@ export async function createSchedule(params: {
   inferenceProfile?: string | null;
   groupId?: string | null;
   createdFromConversationId?: string | null;
-}): Promise<ScheduleJob> {
+}
+
+/**
+ * Values ordinary schedule creation may record in `createdBy`.
+ *
+ * Deliberately a closed union rather than `string`: it excludes the owner-defer
+ * marker at the type level, so {@link createSchedule} cannot express the
+ * provenance that lets a wake firing recover trust. The legacy defer value
+ * stays available because rows written before the marker existed still need to
+ * be representable.
+ */
+export type OrdinaryScheduleCreator =
+  | "agent"
+  | "user"
+  | typeof LEGACY_DEFER_CREATED_BY;
+
+/** Parameters for ordinary schedule creation. */
+export type CreateScheduleParams = Omit<InsertScheduleParams, "createdBy"> & {
+  createdBy?: OrdinaryScheduleCreator;
+};
+
+async function insertSchedule(
+  params: InsertScheduleParams,
+): Promise<ScheduleJob> {
   const expression = params.expression ?? params.cronExpression ?? null;
   const isOneShot = expression == null;
   const syntax = params.syntax ?? "cron";
@@ -189,7 +227,7 @@ export async function createSchedule(params: {
   const createdFromConversationId = params.createdFromConversationId ?? null;
   const description = normalizeDescription(
     params.description,
-    params.createdBy === "defer" ? "" : params.name,
+    isDeferSchedule(params.createdBy ?? "") ? "" : params.name,
   );
 
   let nextRunAt: number;
@@ -249,6 +287,63 @@ export async function createSchedule(params: {
 }
 
 /**
+ * Create an ordinary schedule.
+ *
+ * Cannot mint owner-defer provenance: that marker is what lets an unattended
+ * wake firing recover its target conversation's resting trust, so it is issued
+ * only by {@link createOwnerDeferredWake}, which sets it together with the
+ * target and source binding that give it meaning. Passing the reserved value
+ * here throws rather than silently downgrading, so a caller reaching for it
+ * fails loudly instead of producing a row that looks trusted.
+ */
+export async function createSchedule(
+  params: CreateScheduleParams,
+): Promise<ScheduleJob> {
+  if (params.createdBy && hasOwnerDeferProvenance(params.createdBy)) {
+    throw new Error(
+      "Owner-defer provenance is issued only by createOwnerDeferredWake()",
+    );
+  }
+  return insertSchedule(params);
+}
+
+/**
+ * Create a deferred wake on `conversationId`, carrying durable proof that the
+ * assistant's owner chose both its target and its trigger text.
+ *
+ * The proof is the combination this function sets atomically and nothing else
+ * can assemble: owner provenance in `createdBy`, the wake target, and the
+ * source-conversation binding that must equal it. All three are write-once
+ * (absent from `updateSchedule`'s parameters), and `updateSchedule` refuses to
+ * rewrite the trigger text or target of a row carrying the marker, so a row's
+ * target and text are exactly what this call recorded.
+ *
+ * Callers must have established owner authority first; `defer/create` is the
+ * only production caller and is gated accordingly.
+ */
+export async function createOwnerDeferredWake(params: {
+  conversationId: string;
+  hint: string;
+  fireAt: number;
+  name?: string;
+  inferenceProfile?: string | null;
+}): Promise<ScheduleJob> {
+  return insertSchedule({
+    name: params.name ?? "Deferred wake",
+    message: params.hint,
+    mode: "wake",
+    wakeConversationId: params.conversationId,
+    createdFromConversationId: params.conversationId,
+    createdBy: OWNER_DEFER_CREATED_BY,
+    nextRunAt: params.fireAt,
+    quiet: true,
+    ...(params.inferenceProfile !== undefined
+      ? { inferenceProfile: params.inferenceProfile }
+      : {}),
+  });
+}
+
+/**
  * Sidebar group for conversations created by a schedule's runs. The job's
  * `groupId` wins only while the group still exists: a schedule may outlive
  * its custom group, and creating a conversation with a dangling group id
@@ -293,7 +388,7 @@ export function listSchedules(options?: {
   oneShotOnly?: boolean;
   recurringOnly?: boolean;
   mode?: ScheduleMode;
-  createdBy?: string;
+  createdBy?: string | readonly string[];
   conversationId?: string;
 }): ScheduleJob[] {
   const db = getDb();
@@ -311,7 +406,12 @@ export function listSchedules(options?: {
     conditions.push(eq(scheduleJobs.mode, options.mode));
   }
   if (options?.createdBy) {
-    conditions.push(eq(scheduleJobs.createdBy, options.createdBy));
+    const createdBy = options.createdBy;
+    conditions.push(
+      typeof createdBy === "string"
+        ? eq(scheduleJobs.createdBy, createdBy)
+        : inArray(scheduleJobs.createdBy, [...createdBy]),
+    );
   }
   if (options?.conversationId) {
     conditions.push(
@@ -354,7 +454,18 @@ export async function updateSchedule(
     timeoutMs?: number | null;
     inferenceProfile?: string | null;
     groupId?: string | null;
-    createdFromConversationId?: string | null;
+    // `createdBy` and `createdFromConversationId` are deliberately absent: a
+    // deferred wake's firing reads both to decide whether the woken turn may
+    // recover its target conversation's resting trust (see
+    // `wake-schedule-options.ts`), and proof that can be rewritten is not
+    // proof. Keeping them out of this type makes that structural rather than a
+    // caller convention, so reaching for them is a compile error instead of a
+    // silent trust bypass.
+    //
+    // `message`, `wakeConversationId`, and `mode` stay in this type because
+    // ordinary schedules and legacy defers edit them freely. On a row carrying
+    // owner-defer provenance they are immutable, enforced at the top of the
+    // function body rather than in the type, since the distinction is per-row.
   },
 ): Promise<ScheduleJob | null> {
   const db = getDb();
@@ -365,6 +476,31 @@ export async function updateSchedule(
     .get();
   if (!existing) {
     return null;
+  }
+
+  // Owner-defer provenance certifies that the assistant's owner chose both the
+  // conversation this wake resumes and the text it carries. Rewriting either
+  // would leave the marker standing over content it does not describe, so on
+  // these rows the authority-bearing trio is fixed at creation. Same-value
+  // writes pass, so an idempotent update that echoes current state is not an
+  // error. Changing a trusted defer is cancel-and-recreate through
+  // `createOwnerDeferredWake`, which is exactly what the defer surface exposes.
+  // Legacy defers stay editable and never recover trust either way.
+  if (hasOwnerDeferProvenance(existing.createdBy)) {
+    const rewritesTrigger =
+      updates.message !== undefined && updates.message !== existing.message;
+    const rewritesTarget =
+      updates.wakeConversationId !== undefined &&
+      updates.wakeConversationId !== existing.wakeConversationId;
+    const rewritesMode =
+      updates.mode !== undefined && updates.mode !== existing.mode;
+    if (rewritesTrigger || rewritesTarget || rewritesMode) {
+      // UserError: a caller-facing refusal, not a daemon fault. Transport
+      // surfaces map it to a 4xx carrying this message, not a generic 500.
+      throw new UserError(
+        "A trusted deferred wake's target, trigger text, and mode are fixed at creation; cancel and re-create it",
+      );
+    }
   }
 
   // Resolve the effective syntax and expression after this update
@@ -393,7 +529,7 @@ export async function updateSchedule(
       timezone: newTimezone,
     };
     if (!isValidScheduleExpression(spec)) {
-      throw new Error(`Invalid ${newSyntax} expression: "${newExpr}"`);
+      throw new UserError(`Invalid ${newSyntax} expression: "${newExpr}"`);
     }
   }
 
@@ -478,9 +614,6 @@ export async function updateSchedule(
   }
   if (updates.groupId !== undefined) {
     set.groupId = updates.groupId;
-  }
-  if (updates.createdFromConversationId !== undefined) {
-    set.createdFromConversationId = updates.createdFromConversationId;
   }
 
   // Recompute nextRunAt if schedule timing may have changed (only for recurring)

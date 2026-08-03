@@ -237,6 +237,7 @@ function handleListProviders() {
     setupHint: e.setupHint,
     apiKeyProviderName: e.credentialProvider,
     conversationStreamingMode: e.conversationStreamingMode,
+    languageSelection: e.languageSelection,
     credentialsGuide: e.credentialsGuide,
   }));
   return { providers };
@@ -440,6 +441,8 @@ export const ROUTES: RouteDefinition[] = [
           setupHint: z.string().optional(),
           apiKeyProviderName: z.string().optional(),
           conversationStreamingMode: z.string().optional(),
+          // Optional on the wire so older generated clients keep validating.
+          languageSelection: z.enum(["manual", "auto"]).optional(),
           credentialsGuide: z.string().optional(),
         }),
       ),

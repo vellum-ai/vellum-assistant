@@ -23,6 +23,7 @@
  */
 
 import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
+import { clearUserScopedOverrides } from "@/utils/typed-storage";
 
 const USER_PREFIX = "vellum:";
 
@@ -74,6 +75,10 @@ export function clearUserScopedStorage(): void {
   // The takeover avatar stash can outlive `sessionStorage.clear()` through its
   // in-memory mirror when the write never reached storage.
   clearTakeoverAvatarStash();
+
+  // Same shape: a typed-storage accessor holds a value in memory when the
+  // device refuses writes, so the key sweep below has nothing to remove.
+  clearUserScopedOverrides();
 
   try {
     sessionStorage.clear();

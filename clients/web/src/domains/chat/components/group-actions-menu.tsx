@@ -19,6 +19,8 @@
 
 import {
     Archive,
+    ArrowDown,
+    ArrowUp,
     CircleCheck,
     Copy,
     MoreHorizontal,
@@ -61,6 +63,18 @@ export interface GroupMenuItemsProps {
    * reference into chat (the assistant resolves group ids directly).
    */
   onCopyGroupId?: () => void;
+  /**
+   * Move this section one slot up / down in the sidebar. Omitted when the
+   * section is already at that end, which is also why they're separate
+   * optional callbacks rather than one `onMove(delta)`: absence *is* the
+   * disabled state, so the menu never offers a move that does nothing.
+   *
+   * These are the pointer-free path to the same reordering the header's
+   * drag handle performs - HTML5 drag events fire on neither touch nor the
+   * keyboard, so without them section layout would be mouse-only.
+   */
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }
 
 /**
@@ -73,13 +87,17 @@ export function hasAnyGroupMenuAction({
   onRename,
   onDelete,
   onCopyGroupId,
+  onMoveUp,
+  onMoveDown,
 }: GroupMenuItemsProps): boolean {
   return (
     onMarkAllRead != null ||
     onArchiveAll != null ||
     onRename != null ||
     onDelete != null ||
-    onCopyGroupId != null
+    onCopyGroupId != null ||
+    onMoveUp != null ||
+    onMoveDown != null
   );
 }
 
@@ -92,13 +110,32 @@ export function renderGroupMenuItems({
   onRename,
   onDelete,
   onCopyGroupId,
+  onMoveUp,
+  onMoveDown,
 }: GroupMenuItemsProps & { Primitive: GroupMenuPrimitive }): ReactNode {
   const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
   const hasIndividualActions =
     onRename != null || onDelete != null || onCopyGroupId != null;
+  const hasMoveActions = onMoveUp != null || onMoveDown != null;
 
   return (
     <>
+      {/* Layout actions lead: they apply to every section, so keeping them
+          in one place means the menu doesn't reshuffle between a channel
+          section (no rename/delete) and a custom group. */}
+      {onMoveUp ? (
+        <Primitive.Item leftIcon={<ArrowUp size={14} />} onSelect={onMoveUp}>
+          Move Section Up
+        </Primitive.Item>
+      ) : null}
+      {onMoveDown ? (
+        <Primitive.Item leftIcon={<ArrowDown size={14} />} onSelect={onMoveDown}>
+          Move Section Down
+        </Primitive.Item>
+      ) : null}
+      {hasMoveActions && (hasBulkActions || hasIndividualActions) ? (
+        <Primitive.Separator />
+      ) : null}
       {onMarkAllRead ? (
         <Primitive.Item
           leftIcon={<CircleCheck size={14} />}
@@ -149,14 +186,38 @@ export function renderGroupMenuItemsAsPanelItems({
   onRename,
   onDelete,
   onCopyGroupId,
+  onMoveUp,
+  onMoveDown,
   onClose,
 }: GroupMenuItemsProps & { onClose: () => void }): ReactNode {
   const hasBulkActions = onMarkAllRead != null || onArchiveAll != null;
   const hasIndividualActions =
     onRename != null || onDelete != null || onCopyGroupId != null;
+  const hasMoveActions = onMoveUp != null || onMoveDown != null;
 
   return (
     <>
+      {onMoveUp
+        ? buildPanelMenuItem({
+            key: "move-section-up",
+            icon: ArrowUp,
+            label: "Move Section Up",
+            run: onMoveUp,
+            onClose,
+          })
+        : null}
+      {onMoveDown
+        ? buildPanelMenuItem({
+            key: "move-section-down",
+            icon: ArrowDown,
+            label: "Move Section Down",
+            run: onMoveDown,
+            onClose,
+          })
+        : null}
+      {hasMoveActions && (hasBulkActions || hasIndividualActions) ? (
+        <PanelMenuDivider />
+      ) : null}
       {onMarkAllRead
         ? buildPanelMenuItem({
             key: "mark-all-read",
@@ -216,6 +277,14 @@ export function renderGroupMenuItemsAsPanelItems({
 export interface GroupActionsMenuProps extends GroupMenuItemsProps {
   /** Group name, used for the trigger's accessible label. */
   label: string;
+  /**
+   * Extra content appended below the shared items, its own divider before it
+   * (only when the shared items are non-empty). Currently used only by the
+   * "Conversations" header, for the List/Groups view-mode toggle: a section
+   * property rather than a bulk action, so it doesn't belong in
+   * {@link GroupMenuItemsProps}.
+   */
+  footer?: ReactNode;
 }
 
 /**
@@ -225,20 +294,29 @@ export interface GroupActionsMenuProps extends GroupMenuItemsProps {
  */
 export function GroupActionsMenu({
   label,
+  footer,
   ...menuProps
 }: GroupActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const closeMenu = () => setOpen(false);
+  const hasItems = hasAnyGroupMenuAction(menuProps);
 
-  if (!hasAnyGroupMenuAction(menuProps)) {
+  if (!hasItems && !footer) {
     return null;
   }
 
-  const items = renderGroupMenuItemsAsPanelItems({
-    ...menuProps,
-    onClose: closeMenu,
-  });
+  const items = (
+    <>
+      {renderGroupMenuItemsAsPanelItems({ ...menuProps, onClose: closeMenu })}
+      {footer ? (
+        <>
+          {hasItems ? <PanelMenuDivider /> : null}
+          {footer}
+        </>
+      ) : null}
+    </>
+  );
 
   const trigger = (
     <button

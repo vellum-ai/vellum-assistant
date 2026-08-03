@@ -45,6 +45,7 @@ import {
   scheduleRetry,
   setScheduleRunConversationId,
 } from "./schedule-store.js";
+import { buildWakeScheduleOptions } from "./wake-schedule-options.js";
 import {
   isScheduleWorkerAdministrativelyStopped,
   probeScheduleWorker,
@@ -649,15 +650,9 @@ export async function runDueSchedulesOnce(
           { jobId: job.id, name: job.name, wakeConversationId, isOneShot },
           "Executing wake schedule",
         );
-        const result = await wakeAgentForOpportunity({
-          conversationId: wakeConversationId,
-          hint: job.message,
-          source: "defer",
-          persistTriggerAsEvent: true,
-          ...(job.inferenceProfile
-            ? { forceOverrideProfile: job.inferenceProfile }
-            : {}),
-        });
+        const result = await wakeAgentForOpportunity(
+          buildWakeScheduleOptions(job, wakeConversationId),
+        );
 
         if (result.reason === "timeout" && isOneShot) {
           // The conversation is busy processing a tool call. Retry on

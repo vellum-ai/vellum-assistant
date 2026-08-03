@@ -7,9 +7,6 @@ import type { ConfigPatchRequest } from "@/generated/daemon/types.gen";
 export interface ProfileActions {
   /** Set `llm.activeProfile` - the main-chat default. */
   makeActive: (name: string) => Promise<void>;
-  /** Set `llm.advisorProfile` - the second-opinion consult. */
-  makeAdvisor: (name: string) => Promise<void>;
-  clearAdvisor: () => Promise<void>;
   /** Enable/disable a profile via a deep-merge status patch. */
   setStatus: (name: string, active: boolean) => Promise<void>;
   /**
@@ -63,18 +60,6 @@ export function useProfileActions(assistantId: string): ProfileActions {
         { activeProfile: name },
         "settings-ai-profile-make-active",
         "Failed to set the active profile. Please try again.",
-      ),
-    makeAdvisor: (name) =>
-      patchLlm(
-        { advisorProfile: name },
-        "settings-ai-profile-make-advisor",
-        "Failed to set the advisor profile. Please try again.",
-      ),
-    clearAdvisor: () =>
-      patchLlm(
-        { advisorProfile: null },
-        "settings-ai-profile-clear-advisor",
-        "Failed to clear the advisor profile. Please try again.",
       ),
     setStatus: (name, active) =>
       patchLlm(

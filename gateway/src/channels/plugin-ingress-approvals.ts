@@ -20,16 +20,32 @@ const log = getLogger("plugin-ingress-approvals");
 /**
  * Digest of what a declaration asks for.
  *
- * Covers reach only — each route's transport, signer, and path,
- * order-independent. A `description` reword leaves the digest alone, so it
- * does not revoke an approval, while adding a route, changing one's
- * transport, or changing whose signature opens it does.
+ * Covers reach only — each route's transport, signer, handshake scheme, and
+ * path, order-independent. A `description` reword leaves the digest alone, so
+ * it does not revoke an approval, while adding a route, changing one's
+ * transport, changing whose signature opens it, or moving it to a scheme that
+ * exposes it differently all do.
+ *
+ * A route on the default `signed-headers` scheme is encoded without that
+ * field, exactly as it was before the field existed. The alternative is that
+ * introducing `handshake` silently re-digests every unchanged manifest, drops
+ * each one back to `pending`, and 404s routes a guardian already approved
+ * until someone approves them again. Omitting the default is unambiguous
+ * because a path may not contain whitespace (see `IngressRouteSchema`), so a
+ * three-token line can never be read as a four-token one.
  */
 export function ingressDeclarationDigest(
-  routes: readonly Pick<IngressRoute, "kind" | "path" | "signer">[],
+  routes: readonly Pick<
+    IngressRoute,
+    "kind" | "path" | "signer" | "handshake"
+  >[],
 ): string {
   const canonical = routes
-    .map((route) => `${route.kind} ${route.signer} ${route.path}`)
+    .map((route) =>
+      route.handshake === "signed-headers"
+        ? `${route.kind} ${route.signer} ${route.path}`
+        : `${route.kind} ${route.signer} ${route.handshake} ${route.path}`,
+    )
     .sort()
     .join("\n");
   return createHash("sha256").update(canonical).digest("hex").slice(0, 32);
@@ -134,16 +150,16 @@ function resolveDiscoveredPluginIngress(
  *
  * Approval is the general gate, with one exception: a route declaring
  * `signer: "vellum"` is served without it. Such a route only opens to a
- * caller holding the platform's own webhook secret — us — and the user
- * already extended that trust when they connected their account, so asking
+ * caller holding the platform's own webhook secret, which is to say us, and
+ * the user extended that trust when they connected their account, so asking
  * them to approve it again buys nothing. A route signed by anyone else still
  * needs a guardian decision, because approval is what establishes who that
  * signer is allowed to be.
  *
  * Note this is reach the plugin can grant itself: a manifest can name a
  * `vellum`-signed path and have it served unreviewed. What it gets is a path
- * only Vellum can drive — no authority over the assistant, and nothing a
- * plugin could not already reach by running its own code.
+ * only Vellum can drive, carrying no authority over the assistant and
+ * nothing a plugin could not already reach by running its own code.
  *
  * Declarations that failed validation are in `problems` and are never
  * servable, regardless of signer.
@@ -159,7 +175,9 @@ export function findServableRoute(
 
   const approved = resolution.approved.find((d) => d.plugin === plugin);
   const fromApproved = approved && matches(approved.routes);
-  if (fromApproved) return fromApproved;
+  if (fromApproved) {
+    return fromApproved;
+  }
 
   const pending = resolution.pending.find((d) => d.plugin === plugin);
   const fromPending = pending && matches(pending.routes);

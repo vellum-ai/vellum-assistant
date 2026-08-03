@@ -18,6 +18,8 @@ import { resolveManagedProxyContext } from "../platform-proxy/context.js";
 import {
   isVellumManagedConnection,
   MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_MANAGED_CONNECTION_NAME,
+  VELLUM_MANAGED_PROVIDER,
 } from "../vellum-model-routing.js";
 import { getConnection } from "./connections.js";
 
@@ -119,10 +121,20 @@ export async function computeConnectionAvailability(
   // providers via platform auth; any other provider mismatch fails there, so
   // usable credentials must not read as ok.
   if (isVellumManagedConnection(connection)) {
-    if (provider === "vellum" || MANAGED_ROUTABLE_PROVIDERS.has(provider)) {
+    if (
+      provider === VELLUM_MANAGED_PROVIDER ||
+      MANAGED_ROUTABLE_PROVIDERS.has(provider)
+    ) {
       return vellumConnectionAvailability();
     }
     return vellumManagedMismatch(resolvedConnectionName, provider);
+  }
+  // Everything routed through the canonical name dispatches on platform auth,
+  // never on a claiming row's credentials, so the platform's own status is the
+  // answer. Scoped to that name: a managed default explicitly pinned to some
+  // other row is a real misconfiguration and still reads as a mismatch below.
+  if (resolvedConnectionName === VELLUM_MANAGED_CONNECTION_NAME) {
+    return vellumConnectionAvailability();
   }
   if (connection.provider !== provider) {
     return {

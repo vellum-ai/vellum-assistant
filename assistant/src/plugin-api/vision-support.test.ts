@@ -161,18 +161,19 @@ describe("doesSupportVision", () => {
 
 describe("doesSupportVision with a BYO default provider", () => {
   test("judges a default profile against the default provider's column model", () => {
-    // Managed/vellum column: balanced → glm-5p2 (text-only, supportsVision:
-    // false). Anthropic column: balanced → claude-sonnet-4-6 (supportsVision:
-    // true). The judged model must be the one the BYO install actually runs.
+    // Managed/vellum column: cost-optimized → deepseek-v4-flash (text-only,
+    // supportsVision: false). Anthropic column: cost-optimized carries
+    // intent "latency-optimized" → claude-haiku-4-5 (supportsVision: true).
+    // The judged model must be the one the BYO install actually runs.
     setMockConfig({}, { provider: "anthropic" });
-    expect(doesSupportVision(profile("balanced"))).toBe(true);
+    expect(doesSupportVision(profile("cost-optimized"))).toBe(true);
   });
 
   test("without a default provider, a default profile judges the managed column", () => {
-    // Null-reduction: no defaultProvider resolves balanced through the
-    // vellum column (glm-5p2, text-only).
+    // Null-reduction: no defaultProvider resolves cost-optimized through the
+    // vellum column (deepseek-v4-flash, text-only).
     setMockConfig({});
-    expect(doesSupportVision(profile("balanced"))).toBe(false);
+    expect(doesSupportVision(profile("cost-optimized"))).toBe(false);
   });
 
   test("mix arms naming a default profile resolve through the same column", () => {
@@ -181,7 +182,7 @@ describe("doesSupportVision with a BYO default provider", () => {
         "mix-profile": {
           mix: [
             { profile: "text-arm", weight: 0.5 },
-            { profile: "balanced", weight: 0.5 },
+            { profile: "cost-optimized", weight: 0.5 },
           ],
         },
         "text-arm": {
@@ -191,8 +192,8 @@ describe("doesSupportVision with a BYO default provider", () => {
       },
       { provider: "anthropic" },
     );
-    // The "balanced" arm resolves to the anthropic column's vision-capable
-    // model, so the mix can route to vision.
+    // The "cost-optimized" arm resolves to the anthropic column's
+    // vision-capable model, so the mix can route to vision.
     expect(doesSupportVision(profile("mix-profile"))).toBe(true);
   });
 

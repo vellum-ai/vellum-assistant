@@ -3,20 +3,45 @@
  *
  * The bar is purely presentational, so tests drive it prop-by-prop: state
  * label mapping, control presence, callback wiring, and accessibility
- * attributes. The embedded `VoiceListeningWaves` is SVG + a rAF loop writing
- * a CSS var — inert under happy-dom, so no harness is needed here.
+ * attributes.
+ *
+ * `VoiceMeshWaves` is a canvas plus a rAF loop, inert under happy-dom, so the
+ * band is stubbed with a probe that records the props it was handed. That is
+ * the only way to assert what the band is drawing (its ink and which voice it
+ * rides), which is otherwise invisible to a DOM test.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { VoiceComposerBar } from "@/domains/chat/components/chat-composer/voice-composer-bar";
+let lastBandProps: {
+  getAmplitude: () => number;
+  color?: string;
+  peakOpacity?: number;
+} | null = null;
+mock.module("@/domains/chat/voice/voice-room/voice-mesh-waves", () => ({
+  MESH_INLINE_TUNING: {},
+  VoiceMeshWaves: (props: {
+    getAmplitude: () => number;
+    color?: string;
+    peakOpacity?: number;
+  }) => {
+    lastBandProps = props;
+    return null;
+  },
+}));
+
+const { VoiceComposerBar } =
+  await import("@/domains/chat/components/chat-composer/voice-composer-bar");
 import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 afterEach(() => {
   cleanup();
 });
+
+const INPUT_LEVEL = 0.5;
+const OUTPUT_LEVEL = 0.25;
 
 function renderBar(
   state: LiveVoiceSessionState,
@@ -24,7 +49,9 @@ function renderBar(
     muted?: boolean;
     onToggleMute?: () => void;
     onEnd?: () => void;
-    onStop?: () => void;
+    outputMuted?: boolean;
+    onToggleOutputMute?: () => void;
+    fillIsLight?: boolean;
     onExpand?: () => void;
     standalone?: boolean;
   },
@@ -32,18 +59,28 @@ function renderBar(
   return render(
     <VoiceComposerBar
       state={state}
-      getAmplitude={() => 0.5}
+      getAmplitude={() => INPUT_LEVEL}
+      getOutputAmplitude={() => OUTPUT_LEVEL}
       muted={overrides?.muted ?? false}
       onToggleMute={overrides?.onToggleMute ?? (() => {})}
       onEnd={overrides?.onEnd ?? (() => {})}
-      onStop={overrides?.onStop}
+      outputMuted={overrides?.outputMuted ?? false}
+      onToggleOutputMute={overrides?.onToggleOutputMute ?? (() => {})}
+      fillIsLight={overrides?.fillIsLight ?? false}
       onExpand={overrides?.onExpand}
       standalone={overrides?.standalone}
     />,
   );
 }
 
-describe("VoiceComposerBar — state label", () => {
+/** The `sr-only` live region that announces the state. */
+function liveRegion(): HTMLElement | undefined {
+  return screen
+    .getAllByText(/…|Muted/)
+    .find((el) => el.className.includes("sr-only"));
+}
+
+describe("VoiceComposerBar: state announcement", () => {
   const labels: Array<[LiveVoiceSessionState, string]> = [
     ["connecting", "Connecting…"],
     ["listening", "Listening…"],
@@ -56,21 +93,23 @@ describe("VoiceComposerBar — state label", () => {
   for (const [state, label] of labels) {
     test(`announces "${label}" for the ${state} state`, () => {
       renderBar(state);
-      expect(screen.getByText(label)).toBeTruthy();
+      expect(liveRegion()?.textContent).toBe(label);
     });
   }
 
-  test("announces state changes via an aria-live region", () => {
+  test("paints no state word: the band is the readout", () => {
+    // The block says what it is doing by moving. A word over the band competed
+    // with it and gave the surface one more thing to read.
     renderBar("listening");
-    const label = screen.getByText("Listening…");
-    expect(label.getAttribute("aria-live")).toBe("polite");
+    const painted = screen
+      .getAllByText(/…|Muted/)
+      .filter((el) => !el.className.includes("sr-only"));
+    expect(painted).toEqual([]);
   });
 
-  test("the state label is visually hidden, not painted", () => {
-    // The mic glyph and the animating waves carry "listening" on their own,
-    // so the text stays in the tree for assistive tech only.
+  test("announces state changes via an aria-live region", () => {
     renderBar("listening");
-    expect(screen.getByText("Listening…").className).toContain("sr-only");
+    expect(liveRegion()?.getAttribute("aria-live")).toBe("polite");
   });
 });
 
@@ -124,37 +163,51 @@ describe("VoiceComposerBar — mute toggle", () => {
     expect(onToggleMute).toHaveBeenCalledTimes(1);
   });
 
-  test("muted: offers unmute and replaces the state label with 'Muted'", () => {
+  test("muted: offers unmute and announces 'Muted' in place of the state", () => {
     renderBar("listening", { muted: true });
     expect(
       screen.getByRole("button", { name: "Unmute microphone" }),
     ).toBeTruthy();
-    expect(screen.getByText("Muted")).toBeTruthy();
+    expect(liveRegion()?.textContent).toBe("Muted");
     expect(screen.queryByText("Listening…")).toBeNull();
   });
 });
 
-describe("VoiceComposerBar — stop response", () => {
-  test("■ renders only while speaking with onStop wired, and fires it", () => {
-    const onStop = mock(() => {});
-    renderBar("speaking", { onStop });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Stop assistant response" }),
-    );
-    expect(onStop).toHaveBeenCalledTimes(1);
+describe("VoiceComposerBar: assistant mute", () => {
+  test("offers the mute and fires it, in every state", () => {
+    // Persistent, like the room's: the pair of mutes never changes shape
+    // mid-turn, so neither moves out from under a reaching finger.
+    for (const state of ["listening", "thinking", "speaking"] as const) {
+      const onToggleOutputMute = mock(() => {});
+      const { unmount } = renderBar(state, { onToggleOutputMute });
+      fireEvent.click(screen.getByRole("button", { name: "Mute assistant" }));
+      expect(onToggleOutputMute).toHaveBeenCalledTimes(1);
+      unmount();
+    }
   });
 
-  test("no ■ outside speaking, or without onStop (manual session)", () => {
-    const { unmount } = renderBar("listening", { onStop: () => {} });
-    expect(
-      screen.queryByRole("button", { name: "Stop assistant response" }),
-    ).toBeNull();
-    unmount();
+  test("muted: offers unmute and reflects the pressed state", () => {
+    renderBar("speaking", { outputMuted: true });
+    const toggle = screen.getByRole("button", { name: "Unmute assistant" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  });
+});
 
-    renderBar("speaking");
-    expect(
-      screen.queryByRole("button", { name: "Stop assistant response" }),
-    ).toBeNull();
+describe("VoiceComposerBar: no transient stop", () => {
+  test("offers no ■ in any state", () => {
+    // Muting the assistant replaced it: a control that appeared and vanished
+    // with the reply changed the row's shape twice a turn.
+    for (const state of [
+      "listening",
+      "thinking",
+      "speaking",
+    ] as LiveVoiceSessionState[]) {
+      const { unmount } = renderBar(state);
+      expect(
+        screen.queryByRole("button", { name: "Stop assistant response" }),
+      ).toBeNull();
+      unmount();
+    }
   });
 });
 
@@ -181,48 +234,153 @@ describe("VoiceComposerBar — structure and accessibility", () => {
     expect(group).toBeTruthy();
   });
 
-  test("renders the room's listening waves inline", () => {
-    const { container } = renderBar("listening");
-    expect(
-      container.querySelector(".voice-listening-waves--inline"),
-    ).toBeTruthy();
+  test("renders the room's band across the block", () => {
+    renderBar("listening");
+    const band = screen.getByTestId("voice-session-band");
+    // Filling the block, behind everything: the color and the motion are one
+    // surface, not a strip in a middle column.
+    expect(band.className).toContain("absolute inset-0");
+    expect(lastBandProps).not.toBeNull();
   });
 
-  test("standalone supplies its own top padding", () => {
-    // When the textarea collapses away for the session the bar is the card's
-    // only row, so it can no longer lean on the textarea's top padding.
+  test("standalone takes the composer's footprint, otherwise it is a control row", () => {
+    // Owning the card, the block holds the height the composer it replaced
+    // had, so minimizing does not shift the thread above it. Sharing the card
+    // with the live transcript, it stays a row under it.
     const { unmount } = renderBar("listening", { standalone: true });
     expect(
       screen.getByRole("group", { name: "Voice session" }).className,
-    ).toContain("pt-3");
+    ).toContain("h-[5.25rem]");
     unmount();
 
     renderBar("listening");
     expect(
       screen.getByRole("group", { name: "Voice session" }).className,
-    ).not.toContain("pt-3");
+    ).not.toContain("h-[5.25rem]");
   });
 
-  test("wave strip fades at both edges instead of hard-clipping", () => {
+  test("controls are toned for the avatar color, not theme tokens", () => {
+    // The block is painted an arbitrary avatar color, so chrome that read
+    // `--content-default` would be as likely to vanish into it as contrast.
+    renderBar("listening", { onExpand: () => {} });
+    for (const name of [
+      "Mute microphone",
+      "Mute assistant",
+      "Open voice room",
+      "End voice session",
+    ]) {
+      expect(screen.getByRole("button", { name }).className).toContain(
+        "--room-fg-muted",
+      );
+    }
+  });
+
+  test("controls stay bare on touch, at full tap size", () => {
+    // On touch the design library gives an icon-only ghost Button an opaque
+    // chip and a theme foreground, which reads as a tile floating on the
+    // block's avatar-colored fill. The override drops the chip and keeps the
+    // 40px target, which comes from a separate pair of classes.
+    renderBar("listening", { onExpand: () => {} });
+    const { className } = screen.getByRole("button", {
+      name: "End voice session",
+    });
+    expect(className).not.toContain("touch-mobile:bg-[var(--surface-lift)]");
+    expect(className).toContain("touch-mobile:bg-transparent");
+    expect(className).toContain("touch-mobile:[--vbtn-fg:var(--room-fg-muted");
+    expect(className).toContain("touch-mobile:h-10");
+  });
+
+  test("the band fades at both edges instead of hard-clipping", () => {
     // Includes the -webkit- prefix: the iOS client is a WKWebView and drops
     // the unprefixed property, which would silently disable the fade there.
-    const { container } = renderBar("listening");
-    const strip = container.querySelector(
-      ".voice-listening-waves--inline",
-    )?.parentElement;
-    expect(strip?.className).toContain("mask-image:linear-gradient");
-    expect(strip?.className).toContain("-webkit-mask-image:linear-gradient");
+    renderBar("listening");
+    const band = screen.getByTestId("voice-session-band");
+    expect(band.className).toContain("mask-image:linear-gradient");
+    expect(band.className).toContain("-webkit-mask-image:linear-gradient");
   });
 
-  test("resting bar is exactly mute + expand + end", () => {
+  test("the block holds the room's control set, and nothing else", () => {
+    // Same four as the room, in the same reading order: the two mutes (one per
+    // direction of the conversation), the way back into the room, and end.
     renderBar("listening", { onExpand: () => {} });
     const names = screen
       .getAllByRole("button")
       .map((b) => b.getAttribute("aria-label"));
     expect(names).toEqual([
       "Mute microphone",
+      "Mute assistant",
       "Open voice room",
       "End voice session",
     ]);
+  });
+});
+
+describe("VoiceComposerBar: the band", () => {
+  test("rides the mic in a pale ink while listening", () => {
+    renderBar("listening");
+    // Pale over the fill, per the room's own pairing. The block is painted the
+    // avatar color, so an accent-tinted band would be that same hue and paint
+    // nothing at all.
+    expect(lastBandProps?.color).toBe("#FFFFFF");
+    expect(lastBandProps?.getAmplitude()).toBe(INPUT_LEVEL);
+  });
+
+  test("rides the reply in a darker ink while the assistant speaks", () => {
+    renderBar("speaking");
+    expect(lastBandProps?.color).toBe("#000000");
+    // The mic is closed through the reply, so a band on the input level would
+    // sit flat for that whole half of the turn.
+    expect(lastBandProps?.getAmplitude()).toBe(OUTPUT_LEVEL);
+  });
+
+  test("keeps riding the mic while the turn is being worked on", () => {
+    // The mic is open through transcribing/thinking (barge-in), so the block
+    // stays alive with the user's own level rather than flattening.
+    renderBar("thinking");
+    expect(lastBandProps?.getAmplitude()).toBe(INPUT_LEVEL);
+  });
+
+  test("empties the floor when neither voice is present", () => {
+    renderBar("connecting");
+    expect(lastBandProps?.getAmplitude()).toBe(0);
+  });
+
+  test("a muted mic reads silent, not frozen", () => {
+    renderBar("listening", { muted: true });
+    expect(lastBandProps?.getAmplitude()).toBe(0);
+  });
+});
+
+describe("VoiceComposerBar: muted controls stay visible", () => {
+  test("a muted control inks itself against the fill, not the theme", () => {
+    // The negative token is a mid-tone red and the block is painted an
+    // arbitrary avatar color, so the two can land close enough that the muted
+    // glyph vanishes into the fill. Inline, so it beats the resting
+    // `--vbtn-fg` regardless of how Tailwind orders the two utilities.
+    renderBar("listening", { muted: true });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute microphone" })
+        .getAttribute("style") ?? "";
+    expect(style).toContain("--vbtn-fg");
+    expect(style.toUpperCase()).toContain("#FCA5A5");
+  });
+
+  test("a light fill gets the deep red instead of the pale one", () => {
+    renderBar("listening", { muted: true, fillIsLight: true });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute microphone" })
+        .getAttribute("style") ?? "";
+    expect(style.toUpperCase()).toContain("#991B1B");
+  });
+
+  test("a muted assistant inks itself the same way", () => {
+    renderBar("speaking", { outputMuted: true });
+    const style =
+      screen
+        .getByRole("button", { name: "Unmute assistant" })
+        .getAttribute("style") ?? "";
+    expect(style.toUpperCase()).toContain("#FCA5A5");
   });
 });

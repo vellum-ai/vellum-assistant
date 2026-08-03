@@ -504,6 +504,7 @@ export const linearProvider: WatcherProvider = {
   id: "linear",
   displayName: "Linear",
   requiredCredentialService: "linear",
+  untrustedContentSource: "webhook",
 
   async getInitialWatermark(_credentialService: string): Promise<string> {
     // Start from "now" so we don't replay all existing notifications

@@ -76,6 +76,14 @@ export interface SubagentConfig {
   label: string;
   /** The task objective for this subagent. */
   objective: string;
+  /**
+   * Optional full model request sent as the subagent's first user message in
+   * place of `objective`. Display surfaces (lifecycle events, persisted
+   * records, the detail panel) keep showing the concise `objective`; use this
+   * when the model request carries bulky internal context that must not leak
+   * into those surfaces (e.g. the advisor's situational context pack).
+   */
+  requestText?: string;
   /** Optional extra context passed from the parent (recent messages, files, etc.). */
   context?: string;
   /** Optional system prompt override. Falls back to a default subagent prompt. */

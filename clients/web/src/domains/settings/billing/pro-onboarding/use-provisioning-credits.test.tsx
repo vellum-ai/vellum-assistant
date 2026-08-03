@@ -1,7 +1,8 @@
 /**
- * Tests for `useProvisioningCredits`. The plan catalog is seeded straight into
- * the React Query cache so `useQuery` resolves synchronously without a fetch —
- * mirrors the `plan-card.test.tsx` `setQueryData` pattern.
+ * Tests for the credits resolution behind the takeover's from-to chip. The plan
+ * catalog is seeded straight into the React Query cache so `useQuery` resolves
+ * synchronously without a fetch, mirroring the `plan-card.test.tsx`
+ * `setQueryData` pattern.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -9,8 +10,16 @@ import { renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import { organizationsBillingPlansRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
-import type { PlanListResponse } from "@/generated/api/types.gen";
+import type {
+  CreditTierEnum,
+  PlanListResponse,
+} from "@/generated/api/types.gen";
 import type { CheckoutIntent } from "@/lib/billing/checkout-intent";
+
+import type {
+  CreditsChange,
+  CreditTierChange,
+} from "./use-provisioning-credits";
 
 // Drives the org-readiness gate — the plans lookup must stay idle until the
 // organization store hydrates, or it fires without a `Vellum-Organization-Id`.
@@ -19,7 +28,7 @@ mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
 }));
 
-const { useProvisioningCredits, useCreditTierLabel } =
+const { useProvisioningCredits, useResizeCreditsChange } =
   await import("./use-provisioning-credits");
 
 /** A pro-plan catalog with a `credits_50` tier and a Mighty package on it. */
@@ -65,16 +74,16 @@ function plansResponse(): PlanListResponse {
             total_price_cents: 4000,
           },
           {
-            key: "orphan",
-            name: "Orphan",
+            key: "tierless",
+            name: "Tierless",
             description: "",
             version: 1,
             machine_tier: null,
             storage_tier: "xs",
-            credit_tier: "credits_999",
+            credit_tier: "credits_50",
             machine_size: null,
             storage_gib: 10,
-            credits_usd: 30,
+            credits_usd: null,
             include_platform_fee: false,
             base_price_cents: 4000,
             machine_price_cents: 0,
@@ -88,10 +97,10 @@ function plansResponse(): PlanListResponse {
   };
 }
 
-function renderWithClient(
-  intent: CheckoutIntent | null,
+function withClient<T>(
+  hook: () => T,
   plans?: PlanListResponse,
-): { value: string | null; client: QueryClient } {
+): { value: T; client: QueryClient } {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -100,16 +109,15 @@ function renderWithClient(
   }
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
-  const value = renderHook(() => useProvisioningCredits(intent), { wrapper })
-    .result.current;
-  return { value, client };
+  return { value: renderHook(hook, { wrapper }).result.current, client };
 }
 
-function renderCredits(
-  intent: CheckoutIntent | null,
-  plans?: PlanListResponse,
-): string | null {
-  return renderWithClient(intent, plans).value;
+/** "idle" unless the plans query actually went out. */
+function plansFetchStatus(client: QueryClient): string {
+  return (
+    client.getQueryState(organizationsBillingPlansRetrieveQueryKey())
+      ?.fetchStatus ?? "idle"
+  );
 }
 
 describe("useProvisioningCredits", () => {
@@ -117,28 +125,31 @@ describe("useProvisioningCredits", () => {
     orgReady = true;
   });
 
+  function renderCredits(
+    intent: CheckoutIntent | null,
+    plans?: PlanListResponse,
+  ): CreditsChange | null {
+    return withClient(() => useProvisioningCredits(intent), plans).value;
+  }
+
   test("holds the plans lookup until the org is ready", () => {
     orgReady = false;
-    const { value, client } = renderWithClient({
-      kind: "package",
-      packageKey: "mighty",
-      savedAt: 0,
-    });
+    const { value, client } = withClient(() =>
+      useProvisioningCredits({
+        kind: "package",
+        packageKey: "mighty",
+        savedAt: 0,
+      }),
+    );
 
     expect(value).toBeNull();
-    expect(
-      client.getQueryState(organizationsBillingPlansRetrieveQueryKey())
-        ?.fetchStatus ?? "idle",
-    ).toBe("idle");
+    expect(plansFetchStatus(client)).toBe("idle");
   });
 
   test("holds the plans lookup when there is no intent", () => {
-    const { client } = renderWithClient(null);
+    const { client } = withClient(() => useProvisioningCredits(null));
 
-    expect(
-      client.getQueryState(organizationsBillingPlansRetrieveQueryKey())
-        ?.fetchStatus ?? "idle",
-    ).toBe("idle");
+    expect(plansFetchStatus(client)).toBe("idle");
   });
 
   test("returns null for a null intent", () => {
@@ -151,22 +162,22 @@ describe("useProvisioningCredits", () => {
     ).toBeNull();
   });
 
-  test("resolves a package's credit tier label", () => {
+  test("resolves a package's credits from $0, since the base plan bundles none", () => {
     expect(
       renderCredits(
         { kind: "package", packageKey: "mighty", savedAt: 0 },
         plansResponse(),
       ),
-    ).toBe("$50 credits/mo");
+    ).toEqual({ fromUsd: 0, toUsd: 50 });
   });
 
-  test("falls back to the package's credits_usd when no tier matches", () => {
+  test("falls back to the package's credit tier when it carries no credits_usd", () => {
     expect(
       renderCredits(
-        { kind: "package", packageKey: "orphan", savedAt: 0 },
+        { kind: "package", packageKey: "tierless", savedAt: 0 },
         plansResponse(),
       ),
-    ).toBe("30 credits");
+    ).toEqual({ fromUsd: 0, toUsd: 50 });
   });
 
   test("returns null for an unknown package key", () => {
@@ -178,7 +189,7 @@ describe("useProvisioningCredits", () => {
     ).toBeNull();
   });
 
-  test("resolves a custom intent's credit tier label", () => {
+  test("resolves a custom intent's credit tier", () => {
     expect(
       renderCredits(
         {
@@ -190,7 +201,7 @@ describe("useProvisioningCredits", () => {
         },
         plansResponse(),
       ),
-    ).toBe("$50 credits/mo");
+    ).toEqual({ fromUsd: 0, toUsd: 50 });
   });
 
   test("returns null for a custom intent without credits", () => {
@@ -209,58 +220,70 @@ describe("useProvisioningCredits", () => {
   });
 });
 
-describe("useCreditTierLabel", () => {
+describe("useResizeCreditsChange", () => {
   beforeEach(() => {
     orgReady = true;
   });
 
-  function renderLabel(
-    creditTier: Parameters<typeof useCreditTierLabel>[0],
+  function renderChange(
+    change: CreditTierChange | null | undefined,
     plans?: PlanListResponse,
-  ): { value: string | null; client: QueryClient } {
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    if (plans) {
-      client.setQueryData(organizationsBillingPlansRetrieveQueryKey(), plans);
-    }
-    const wrapper = ({ children }: { children: ReactNode }) =>
-      createElement(QueryClientProvider, { client }, children);
-    const value = renderHook(() => useCreditTierLabel(creditTier), { wrapper })
-      .result.current;
-    return { value, client };
+  ): CreditsChange | null {
+    return withClient(() => useResizeCreditsChange(change), plans).value;
   }
 
-  test("resolves a credit tier's catalog label", () => {
-    expect(renderLabel("credits_50", plansResponse()).value).toBe(
-      "$50 credits/mo",
-    );
-  });
-
-  test("returns null while the catalog is unresolved", () => {
-    expect(renderLabel("credits_50").value).toBeNull();
-  });
-
-  test("returns null for a tier absent from the catalog", () => {
-    expect(renderLabel("credits_100", plansResponse()).value).toBeNull();
-  });
-
-  test("returns null — and holds the lookup — for a null tier", () => {
-    const { value, client } = renderLabel(null, plansResponse());
-    expect(value).toBeNull();
+  test("resolves both sides from the catalog", () => {
     expect(
-      client.getQueryState(organizationsBillingPlansRetrieveQueryKey())
-        ?.fetchStatus ?? "idle",
-    ).toBe("idle");
+      renderChange({ fromTier: null, toTier: "credits_50" }, plansResponse()),
+    ).toEqual({ fromUsd: 0, toUsd: 50 });
+  });
+
+  test("reads a dropped bundle as a move down to $0", () => {
+    // "No extra credits" is a real endpoint of the change, not a missing side.
+    expect(
+      renderChange({ fromTier: "credits_50", toTier: null }, plansResponse()),
+    ).toEqual({ fromUsd: 50, toUsd: 0 });
+  });
+
+  test("reads a held tier the catalog no longer lists off its key", () => {
+    // A grandfathered bundle is absent from the offered tiers, so the catalog
+    // can't price it; its key carries the dollars.
+    expect(
+      renderChange(
+        { fromTier: "credits_115", toTier: "credits_50" },
+        plansResponse(),
+      ),
+    ).toEqual({ fromUsd: 115, toUsd: 50 });
+  });
+
+  test("omits the chip when a tier carries no resolvable amount", () => {
+    // Version skew: the server names a tier this bundle's enum doesn't list and
+    // whose key holds no dollar figure. A wrong number is worse than no chip.
+    const skewedTier = "credits_unlimited" as unknown as CreditTierEnum;
+    expect(
+      renderChange(
+        { fromTier: skewedTier, toTier: "credits_50" },
+        plansResponse(),
+      ),
+    ).toBeNull();
+  });
+
+  test("returns null and holds the lookup with no change threaded", () => {
+    const { value, client } = withClient(
+      () => useResizeCreditsChange(undefined),
+      plansResponse(),
+    );
+
+    expect(value).toBeNull();
+    expect(plansFetchStatus(client)).toBe("idle");
   });
 
   test("holds the lookup until the org is ready", () => {
     orgReady = false;
-    const { value, client } = renderLabel("credits_50");
-    expect(value).toBeNull();
-    expect(
-      client.getQueryState(organizationsBillingPlansRetrieveQueryKey())
-        ?.fetchStatus ?? "idle",
-    ).toBe("idle");
+    const { client } = withClient(() =>
+      useResizeCreditsChange({ fromTier: null, toTier: "credits_50" }),
+    );
+
+    expect(plansFetchStatus(client)).toBe("idle");
   });
 });

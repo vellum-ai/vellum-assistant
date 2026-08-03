@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import { useSupportsLiveVoice } from "@/lib/backwards-compat/use-supports-live-voice";
+import {
+  supportsLiveVoice,
+  useSupportsLiveVoice,
+} from "@/lib/backwards-compat/use-supports-live-voice";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const OWNER_ASSISTANT_ID = "asst-owner";
@@ -68,5 +71,34 @@ describe("useSupportsLiveVoice", () => {
     expect(renderHook(() => useSupportsLiveVoice(null)).result.current).toBe(
       false,
     );
+  });
+});
+
+// The imperative twin used by the start-voice deep link, which decides from a
+// bus handler rather than a render.
+describe("supportsLiveVoice (non-hook)", () => {
+  const seed = (
+    version: string | null,
+    identityAssistantId = OWNER_ASSISTANT_ID,
+  ) => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", version, identityAssistantId);
+  };
+
+  test("matches the hook across the 0.10.12 boundary", () => {
+    seed("0.10.11");
+    expect(supportsLiveVoice(OWNER_ASSISTANT_ID)).toBe(false);
+    seed("0.10.12");
+    expect(supportsLiveVoice(OWNER_ASSISTANT_ID)).toBe(true);
+  });
+
+  test("false when unknown, cross-assistant, or owner-less", () => {
+    seed(null);
+    expect(supportsLiveVoice(OWNER_ASSISTANT_ID)).toBe(false);
+    seed("0.10.12", "asst-other");
+    expect(supportsLiveVoice(OWNER_ASSISTANT_ID)).toBe(false);
+    seed("0.10.12");
+    expect(supportsLiveVoice(null)).toBe(false);
   });
 });

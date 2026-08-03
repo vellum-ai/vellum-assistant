@@ -17,11 +17,13 @@ import {
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
   liveVoiceStateLabel,
+  liveVoiceSurfaceLabel,
   minimizeVoiceRoom,
   releaseLiveVoiceTurn,
   restoreVoiceRoom,
   setLiveVoiceMuted,
   stopLiveVoiceResponse,
+  subscribeSettledLiveVoiceState,
   updateLiveVoiceSessionConfig,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
@@ -215,6 +217,77 @@ describe("liveVoiceStateLabel", () => {
     expect(liveVoiceStateLabel("connecting", false)).toBe("Connecting…");
     // reconnecting is ignored for every other phase.
     expect(liveVoiceStateLabel("listening", true)).toBe("Listening…");
+  });
+});
+
+describe("liveVoiceSurfaceLabel", () => {
+  test("a speaking phase with no audio playing reads as thinking", () => {
+    // `speaking` stays set across a mid-turn tool run — the ack was spoken and
+    // the assistant is now silent — so every surface says "Thinking…".
+    expect(liveVoiceSurfaceLabel("speaking", false, false)).toBe("Thinking…");
+    expect(liveVoiceSurfaceLabel("speaking", false, true)).toBe("Speaking…");
+  });
+
+  test("carries the reconnecting relabel through unchanged", () => {
+    expect(liveVoiceSurfaceLabel("connecting", true, false)).toBe(
+      "Reconnecting…",
+    );
+    expect(liveVoiceSurfaceLabel("listening", false, false)).toBe(
+      "Listening…",
+    );
+  });
+});
+
+describe("subscribeSettledLiveVoiceState", () => {
+  test("a superseded state never reaches the listener", () => {
+    const seen: string[] = [];
+    const unsubscribe = subscribeSettledLiveVoiceState((s) =>
+      seen.push(s.state),
+    );
+
+    // The reconnect burst: `connectSession` resets (landing on `idle`) and
+    // immediately rebuilds the session as `connecting`. A raw
+    // `useLiveVoiceStore.subscribe` would report the `idle`, and the consumers
+    // that drive the native audio session and the Live Activity would act on
+    // it — tearing both down and re-creating them on every retry.
+    useLiveVoiceStore.getState().setState("listening");
+    useLiveVoiceStore.getState().reset();
+    useLiveVoiceStore.getState().setState("connecting");
+    useLiveVoiceStore.getState().setReconnecting(true);
+
+    return Promise.resolve().then(() => {
+      unsubscribe();
+      expect(seen).toEqual(["connecting"]);
+    });
+  });
+
+  test("stops delivering once unsubscribed, even mid-burst", () => {
+    const seen: string[] = [];
+    const unsubscribe = subscribeSettledLiveVoiceState((s) =>
+      seen.push(s.state),
+    );
+
+    useLiveVoiceStore.getState().setState("listening");
+    unsubscribe();
+
+    return Promise.resolve().then(() => {
+      expect(seen).toEqual([]);
+    });
+  });
+
+  test("delivers each settled transition once", async () => {
+    const seen: string[] = [];
+    const unsubscribe = subscribeSettledLiveVoiceState((s) =>
+      seen.push(s.state),
+    );
+
+    useLiveVoiceStore.getState().setState("connecting");
+    await Promise.resolve();
+    useLiveVoiceStore.getState().setState("listening");
+    await Promise.resolve();
+    unsubscribe();
+
+    expect(seen).toEqual(["connecting", "listening"]);
   });
 });
 

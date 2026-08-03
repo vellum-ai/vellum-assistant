@@ -8,7 +8,7 @@ const replacePlatformAssistantsHost = mock(
   async (
     _entries: Array<Record<string, unknown>>,
     _organizationId?: string,
-  ) => ({
+  ): Promise<localModeHost.LockfileWriteResult> => ({
     ok: true as const,
     lockfile: { assistants: [], activeAssistant: null },
   }),
@@ -48,6 +48,7 @@ import {
   loadLockfile,
   primeLocalGatewayConnection,
   reconcileSelectedAssistant,
+  removePlatformAssistantFromLockfile,
   saveManagedLockfileAssistant,
   syncPlatformAssistantsToLockfile,
   UnresolvedLocalGatewayError,
@@ -172,6 +173,114 @@ describe("syncPlatformAssistantsToLockfile", () => {
     expect(replacePlatformAssistantsHost).toHaveBeenCalledTimes(1);
     expect(useLockfileStore.getState().lockfile).toBeNull();
     expect(localStorage.getItem(LOCKFILE_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("removePlatformAssistantFromLockfile", () => {
+  const platformA: LockfileAssistant = {
+    assistantId: "platform-a",
+    cloud: "vellum",
+    organizationId: "org-1",
+  } as LockfileAssistant;
+
+  const platformB: LockfileAssistant = {
+    assistantId: "platform-b",
+    cloud: "vellum",
+    organizationId: "org-1",
+  } as LockfileAssistant;
+
+  const platformOtherOrg: LockfileAssistant = {
+    assistantId: "platform-c",
+    cloud: "vellum",
+    organizationId: "org-2",
+  } as LockfileAssistant;
+
+  test("rewrites the remaining platform entries scoped to the entry's org and commits", async () => {
+    setLockfile({
+      assistants: [localA, platformA, platformB, platformOtherOrg],
+      activeAssistant: "local-a",
+    });
+    const resulting = {
+      assistants: [localA, platformB, platformOtherOrg],
+      activeAssistant: "local-a",
+    };
+    replacePlatformAssistantsHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: resulting,
+    });
+
+    const result = await removePlatformAssistantFromLockfile("platform-a");
+
+    expect(result.ok).toBe(true);
+    expect(replacePlatformAssistantsHost).toHaveBeenCalledTimes(1);
+    const [entries, org] = replacePlatformAssistantsHost.mock.calls[0]!;
+    expect(org).toBe("org-1");
+    // Other orgs' entries stay out of the payload so the host preserves
+    // their on-disk records raw instead of replacing them with the
+    // renderer's parsed copies.
+    expect(entries).toEqual([expect.objectContaining({ assistantId: "platform-b" })]);
+    expect(useLockfileStore.getState().lockfile).toEqual(resulting);
+    expect(useLockfileStore.getState().committed).toBe(true);
+  });
+
+  test("a legacy org-less entry removes via the unscoped replace", async () => {
+    setLockfile({ assistants: [platform, platformB], activeAssistant: null });
+    replacePlatformAssistantsHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: { assistants: [platformB], activeAssistant: null },
+    });
+
+    const result = await removePlatformAssistantFromLockfile("platform-a");
+
+    expect(result.ok).toBe(true);
+    const [entries, org] = replacePlatformAssistantsHost.mock.calls[0]!;
+    expect(org).toBeUndefined();
+    expect(entries).toEqual([expect.objectContaining({ assistantId: "platform-b" })]);
+  });
+
+  test("refuses a local assistant without touching the host", async () => {
+    setLockfile({ assistants: [localA, platformA], activeAssistant: "local-a" });
+
+    const result = await removePlatformAssistantFromLockfile("local-a");
+
+    expect(result.ok).toBe(false);
+    expect(replacePlatformAssistantsHost).not.toHaveBeenCalled();
+  });
+
+  test("refuses an unknown id without touching the host", async () => {
+    setLockfile({ assistants: [platformA], activeAssistant: null });
+
+    const result = await removePlatformAssistantFromLockfile("nope");
+
+    expect(result.ok).toBe(false);
+    expect(replacePlatformAssistantsHost).not.toHaveBeenCalled();
+  });
+
+  test("surfaces a host failure without committing", async () => {
+    setLockfile({ assistants: [platformA, platformB], activeAssistant: null });
+    replacePlatformAssistantsHost.mockResolvedValueOnce({
+      ok: false,
+      error: "disk unavailable",
+    });
+
+    const result = await removePlatformAssistantFromLockfile("platform-a");
+
+    expect(result).toEqual({ ok: false, error: "disk unavailable" });
+    expect(useLockfileStore.getState().committed).toBe(false);
+    expect(localStorage.getItem(LOCKFILE_STORAGE_KEY)).toBeNull();
+  });
+
+  test("clears a selection that pointed at the removed entry", async () => {
+    setLockfile({ assistants: [localA, platformA], activeAssistant: "local-a" });
+    setSelected("platform-a");
+    replacePlatformAssistantsHost.mockResolvedValueOnce({
+      ok: true as const,
+      lockfile: { assistants: [localA], activeAssistant: "local-a" },
+    });
+
+    await removePlatformAssistantFromLockfile("platform-a");
+
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBeNull();
   });
 });
 

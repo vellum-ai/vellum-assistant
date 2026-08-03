@@ -17,7 +17,7 @@
 
 import {
   isParkAction,
-  PARK_STATUS_LABEL,
+  resolveDecisionStatusWord,
 } from "../../../runtime/channel-approval-types.js";
 import { getLogger } from "../../../util/logger.js";
 import { callSlackApi, getSlackMessageBlocks } from "./api.js";
@@ -46,13 +46,6 @@ const STATUS_GLYPH: Record<string, string> = {
   cancelled: ":no_entry_sign:",
 };
 
-const STATUS_WORD: Record<string, string> = {
-  approved: "Approved",
-  denied: "Denied",
-  expired: "Expired",
-  cancelled: "Cancelled",
-};
-
 /**
  * Glyph for a parked (leave-unverified) decision. A neutral "on hold" mark
  * rather than the `denied` red cross — the sender was neither trusted nor kept
@@ -69,9 +62,10 @@ export interface WithdrawSlackApprovalCardParams {
   status: string;
   /**
    * The action the guardian took, when known. A `denied` status reached by a
-   * park action (`leave_unverified`) reads as the neutral
-   * {@link PARK_STATUS_LABEL} rather than "Denied"; `block`/`reject` stay a
-   * denial. Omitted for status-only transitions (e.g. the expiry sweep).
+   * park action (`leave_unverified`) reads as the neutral park label (see
+   * {@link resolveDecisionStatusWord}) rather than "Denied"; `block`/`reject`
+   * stay a denial. Omitted for status-only transitions (e.g. the expiry
+   * sweep).
    */
   decidedAction?: string;
   /** Slack user id of the decider, when the decision came from Slack. */
@@ -87,9 +81,7 @@ export interface WithdrawSlackApprovalCardParams {
 function buildStatusText(params: WithdrawSlackApprovalCardParams): string {
   const park = params.status === "denied" && isParkAction(params.decidedAction);
   const glyph = park ? PARK_STATUS_GLYPH : (STATUS_GLYPH[params.status] ?? "");
-  const word = park
-    ? PARK_STATUS_LABEL
-    : (STATUS_WORD[params.status] ?? "Resolved");
+  const word = resolveDecisionStatusWord(params.status, params.decidedAction);
   let line = glyph ? `${glyph} *${word}*` : `*${word}*`;
   if (params.decidedByExternalUserId) {
     line += ` by <@${params.decidedByExternalUserId}>`;

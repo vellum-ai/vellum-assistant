@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import type {
@@ -31,6 +31,7 @@ let onboardingFixture: OnboardingStateResponse | null = null;
 let plansFixture: PlanListResponse | null = null;
 // When true, the onboarding query stays pending (its first load never lands).
 let onboardingHangs = false;
+let onboardingFails = false;
 
 /** Pro catalog whose machine tiers carry the prices used to rank up/downgrades. */
 function proPlans(): PlanListResponse {
@@ -94,9 +95,17 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   organizationsBillingSubscriptionOnboardingRetrieveOptions: () => ({
     queryKey: ONBOARDING_KEY,
     // When `onboardingHangs`, never resolves — models the first onboarding load
-    // still in flight so `currentReady` can be exercised.
-    queryFn: () =>
-      onboardingHangs ? new Promise(() => {}) : onboardingFixture,
+    // still in flight so `currentReady` can be exercised. When
+    // `onboardingFails`, rejects, which settles the query with no data at all.
+    queryFn: () => {
+      if (onboardingHangs) {
+        return new Promise(() => {});
+      }
+      if (onboardingFails) {
+        return Promise.reject(new Error("onboarding read failed"));
+      }
+      return onboardingFixture;
+    },
   }),
   organizationsBillingSubscriptionOnboardingRetrieveQueryKey: () =>
     ONBOARDING_KEY,
@@ -213,7 +222,7 @@ function setup({
   const wrapper = ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children);
   const { result } = renderHook(() => useChangeTiers({ enabled }), { wrapper });
-  return { result, invalidatedKeys, events };
+  return { result, invalidatedKeys, events, client };
 }
 
 describe("useChangeTiers", () => {
@@ -226,6 +235,7 @@ describe("useChangeTiers", () => {
     storageImpl = async () => ({});
     creditImpl = async () => ({});
     onboardingHangs = false;
+    onboardingFails = false;
     subscriptionFetches = 0;
     subscriptionFixture = proSubscription();
     onboardingFixture = onboarding();
@@ -252,6 +262,37 @@ describe("useChangeTiers", () => {
       creditTier: null,
     });
     expect(result.current.eligible).toBe(true);
+  });
+
+  test("exposes the onboarding payload's primary assistant", () => {
+    onboardingFixture = onboarding({ primary_assistant_id: "assistant-7" });
+    const { result } = setup();
+    expect(result.current.primaryAssistantId).toBe("assistant-7");
+  });
+
+  test("reports no primary assistant from a payload it cannot trust", async () => {
+    // The primary names the pod a caller reads tier values off, so a stale
+    // payload can point at the org's previous primary while the takeover
+    // resolves the current one, describing two machines as one change.
+    onboardingFixture = onboarding({ primary_assistant_id: "assistant-7" });
+    const { result, client } = setup();
+    expect(result.current.primaryAssistantId).toBe("assistant-7");
+
+    act(() => {
+      client.setQueryData(ONBOARDING_KEY, onboardingFixture, {
+        updatedAt: Date.now() - 60_000,
+      });
+    });
+
+    await waitFor(() => expect(result.current.currentKnown).toBe(false));
+    expect(result.current.primaryAssistantId).toBeNull();
+  });
+
+  test("reports no primary assistant while the payload is absent", () => {
+    // Callers fall back to the active assistant here, which is how the
+    // provisioning takeover resolves its own target.
+    const { result } = setup({ seedOnboarding: false });
+    expect(result.current.primaryAssistantId).toBeNull();
   });
 
   test("is ineligible when the sub is cancelling", () => {
@@ -285,6 +326,82 @@ describe("useChangeTiers", () => {
   test("currentReady is true once the onboarding data is present", () => {
     const { result } = setup();
     expect(result.current.currentReady).toBe(true);
+  });
+
+  test("currentKnown is false when the onboarding read failed", async () => {
+    // The read settles, so `currentReady` says go, but every dimension behind
+    // it is null. A caller ranking the machine tier must not read that null as
+    // the machine-less floor.
+    onboardingFails = true;
+    const { result } = setup({ seedOnboarding: false });
+    await waitFor(() => expect(result.current.currentReady).toBe(true));
+    expect(result.current.currentKnown).toBe(false);
+    expect(result.current.current.machineTier).toBeNull();
+  });
+
+  test("currentKnown is true once the onboarding payload is in hand", () => {
+    const { result } = setup();
+    expect(result.current.currentKnown).toBe(true);
+  });
+
+  test("currentKnown is false when the tiers predate the subscription", async () => {
+    // Both queries sit in cache for `staleTime` without refetching, so the
+    // subscription can be refreshed on its own and leave the tiers describing
+    // the plan before it. Nothing about the onboarding query itself looks wrong
+    // in that window; only the pairing does.
+    const { result, client } = setup();
+    expect(result.current.currentKnown).toBe(true);
+
+    // Re-seed the same payload as an older read. Nothing about it changes
+    // except its vintage, which is the entire defect.
+    act(() => {
+      client.setQueryData(ONBOARDING_KEY, onboardingFixture, {
+        updatedAt: Date.now() - 60_000,
+      });
+    });
+
+    await waitFor(() => expect(result.current.currentKnown).toBe(false));
+    // The tiers still read fine on their own, which is what hides this.
+    expect(result.current.current.machineTier).not.toBeNull();
+  });
+
+  test("currentKnown is false while cached tiers are being re-read", async () => {
+    // A background refetch keeps `isSuccess` true over the old payload, so the
+    // tiers stay readable while a fresher answer is already on its way.
+    const { result, client } = setup();
+    expect(result.current.currentKnown).toBe(true);
+
+    onboardingHangs = true;
+    act(() => {
+      void client.refetchQueries({ queryKey: ONBOARDING_KEY });
+    });
+
+    await waitFor(() => expect(result.current.currentKnown).toBe(false));
+    expect(result.current.current.machineTier).not.toBeNull();
+  });
+
+  test("currentKnown is false when a refetch fails over cached tiers", async () => {
+    // React Query keeps the previous payload when a refetch fails, so the tiers
+    // stay readable while no longer describing the sub. Ranking them is as
+    // wrong as ranking nulls, just harder to see.
+    const { result, client } = setup();
+    expect(result.current.currentKnown).toBe(true);
+
+    onboardingFails = true;
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ONBOARDING_KEY });
+    });
+
+    await waitFor(() => expect(result.current.currentKnown).toBe(false));
+    // The stale tiers are still readable, which is what makes this dangerous.
+    expect(result.current.current.machineTier).not.toBeNull();
+  });
+
+  test("currentKnown is true for a base sub (no onboarding to read)", () => {
+    subscriptionFixture = proSubscription({ plan_id: "base" });
+    onboardingHangs = true;
+    const { result } = setup({ seedOnboarding: false });
+    expect(result.current.currentKnown).toBe(true);
   });
 
   test("currentReady is true for a base sub (no onboarding to await)", () => {

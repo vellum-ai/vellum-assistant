@@ -1,7 +1,8 @@
 /**
- * Tests for the notification copy-composer — specifically the fallback
- * path that composeFallbackCopy uses when the LLM is unavailable, and
- * the shared deriveTitle utility.
+ * Tests for the notification copy-composer: the fallback path that
+ * composeFallbackCopy uses when the LLM is unavailable, the normalization
+ * it applies to producer-supplied titles, and the shared deriveTitle
+ * utility.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -188,6 +189,55 @@ describe("composeFallbackCopy honors requestedMessage / requestedTitle", () => {
 
     expect(copy.vellum?.body).toBe("User-supplied content");
     expect(copy.vellum?.title).toBe("User Title");
+  });
+
+  test("strips markdown and quotes from a producer-supplied title", () => {
+    const signal = makeSignal({
+      contextPayload: {
+        requestedMessage: "The deploy finished cleanly.",
+        requestedTitle: '"**Deploy** finished"',
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("Deploy finished");
+  });
+
+  test("derives the title when requestedTitle reads as leaked prose", () => {
+    const signal = makeSignal({
+      contextPayload: {
+        requestedMessage: "Backup finished. Nothing needs your attention.",
+        requestedTitle: "I need to generate a title for this notification",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("Backup finished.");
+  });
+
+  test("derives the title when requestedTitle spans multiple lines", () => {
+    const signal = makeSignal({
+      contextPayload: {
+        requestedMessage: "The nightly job is done.",
+        requestedTitle: "Nightly job\nsecond line",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("The nightly job is done.");
+  });
+
+  test("truncates an over-long requestedTitle to the shared title budget", () => {
+    const signal = makeSignal({
+      contextPayload: {
+        requestedMessage: "Body text",
+        requestedTitle:
+          "Alpha bravo charlie delta echo foxtrot golf hotel india juliett",
+      },
+    });
+    const copy = composeFallbackCopy(signal, CHANNELS);
+
+    expect(copy.vellum?.title).toBe("Alpha bravo charlie delta echo");
   });
 
   test("works with non-assistant_tool source channels", () => {

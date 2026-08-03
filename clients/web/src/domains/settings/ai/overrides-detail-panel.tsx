@@ -9,6 +9,7 @@ import {
   visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
 import { getDefaultModelForProvider } from "@/assistant/llm-model-catalog";
+import { AdvisorProfileRow } from "@/domains/settings/ai/advisor-profile-row";
 import {
   CUSTOM_SENTINEL,
   draftsEqual,
@@ -100,6 +101,9 @@ export function OverridesDetailPanel({
   const [draftEdits, setDraftEdits] = useState<
     Record<string, CallSiteOverrideDraft | null>
   >({});
+  // `undefined` means "untouched this session": the row falls through to the
+  // persisted `llm.advisorProfile` rather than pinning a stale snapshot.
+  const [advisorEdit, setAdvisorEdit] = useState<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [showResetConfirmation, setShowResetConfirmation] = useState(false);
 
@@ -159,6 +163,29 @@ export function OverridesDetailPanel({
     [catalogCallSiteIds],
   );
 
+  // The advisor is a top-level `llm.advisorProfile` selection, not a call-site
+  // override. It rides this panel's draft/Save cycle but never enters the
+  // `llm.callSites` patch, the apply-to-all sweep, or the Overrides count.
+  const persistedAdvisor = daemonConfig?.llm?.advisorProfile ?? "";
+  const advisorProfile = advisorEdit ?? persistedAdvisor;
+  const advisorDirty = advisorProfile !== persistedAdvisor;
+
+  const advisorOptions = useMemo(
+    () =>
+      visibleProfilesForPicker(orderedProfiles, [persistedAdvisor]).map((p) => ({
+        value: p.name,
+        label: profilePickerLabel(p),
+      })),
+    [orderedProfiles, persistedAdvisor],
+  );
+
+  // "advisor" isn't in the call-site catalog, so its row filters on its own
+  // copy rather than falling out of `filteredCallSites`.
+  const advisorMatchesSearch = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q === "" || "advisor".includes(q) || "second opinion".includes(q);
+  }, [search]);
+
   const hasAnyPersistedOverride = useMemo(
     () =>
       Object.entries(persistedOverrides).some(
@@ -169,7 +196,7 @@ export function OverridesDetailPanel({
     [persistedOverrides, gatedCallSiteIdSet],
   );
 
-  const hasUnsavedDrafts = useMemo(() => {
+  const callSiteDraftsDirty = useMemo(() => {
     if (!isSeeded) {
       return false;
     }
@@ -180,6 +207,8 @@ export function OverridesDetailPanel({
     }
     return false;
   }, [isSeeded, drafts, persistedOverrides]);
+
+  const hasUnsavedDrafts = advisorDirty || callSiteDraftsDirty;
 
   const hasValidationError = useMemo(
     () =>
@@ -308,20 +337,45 @@ export function OverridesDetailPanel({
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
+      // `PATCH /v1/config` deep-merges (`deepMergeOverwrite` in the daemon's
+      // config loader), so an omitted key keeps its persisted value and a
+      // `null` deletes the whole entry. Three cases follow from that:
+      //
+      //  - active draft: send the picker triple. Nulling provider/model
+      //    clears a stale pin; any tuning the entry carries is untouched
+      //    because it isn't mentioned.
+      //  - the user switched this row off: send `null` and delete it. That
+      //    is what off means.
+      //  - inactive and untouched: omit it. `isDraftActive` only reads the
+      //    picker triple, so an entry holding nothing but tuning reads as
+      //    off; sending `null` for it would delete settings the user never
+      //    asked to remove.
       const patch: Record<string, CallSiteOverrideDraft | null> = {};
       for (const id of Object.keys(drafts)) {
         const d = drafts[id] ?? null;
-        patch[id] = isDraftActive(d)
-          ? {
-              profile: d?.profile ?? null,
-              provider: d?.provider ?? null,
-              model: d?.model ?? null,
-            }
-          : null;
+        if (isDraftActive(d)) {
+          patch[id] = {
+            profile: d?.profile ?? null,
+            provider: d?.provider ?? null,
+            model: d?.model ?? null,
+          };
+        } else if (id in draftEdits && draftEdits[id] === null) {
+          patch[id] = null;
+        }
       }
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
-        body: { llm: { callSites: patch } },
+        body: {
+          llm: {
+            // Each key is rewritten from the picker's three fields, which
+            // drops any tuning field (effort, thinking, maxTokens) a
+            // persisted entry carries. Send the map only when a call-site
+            // row actually moved, so an Advisor-only Save cannot reach it.
+            ...(callSiteDraftsDirty ? { callSites: patch } : {}),
+            // Likewise: a no-op key would still rewrite the config file.
+            ...(advisorDirty ? { advisorProfile } : {}),
+          },
+        },
       });
       onClose();
       toast.success("Overrides saved.");
@@ -331,7 +385,16 @@ export function OverridesDetailPanel({
     } finally {
       setSaving(false);
     }
-  }, [drafts, onClose, configMutation, assistantId]);
+  }, [
+    drafts,
+    draftEdits,
+    callSiteDraftsDirty,
+    advisorDirty,
+    advisorProfile,
+    onClose,
+    configMutation,
+    assistantId,
+  ]);
 
   const handleReset = useCallback(async () => {
     setSaving(true);
@@ -434,6 +497,24 @@ export function OverridesDetailPanel({
           </div>
         )}
 
+        {/* Advisor: a top-level selection, not a catalog call site, so it
+            renders off `daemonConfig` alone and stays put if the call-site
+            catalog fails to load. */}
+        {daemonConfigLoaded && advisorMatchesSearch && (
+          <div className="mb-4">
+            {/* typography: off-scale. Matches the domain section label below */}
+            <p className="mb-2 text-body-small-default font-semibold uppercase tracking-wider text-[var(--content-tertiary)]">
+              Advisor
+            </p>
+            <AdvisorProfileRow
+              value={advisorProfile}
+              profileOptions={advisorOptions}
+              disabled={saving}
+              onChange={setAdvisorEdit}
+            />
+          </div>
+        )}
+
         {/* Loading */}
         {isLoading && (
           <div className="flex items-center justify-center py-12">
@@ -464,9 +545,13 @@ export function OverridesDetailPanel({
         {!isLoading && !isError && catalog && (
           <div className="space-y-4">
             {groupedCallSites.length === 0 ? (
-              <p className="py-8 text-center text-body-medium-lighter text-[var(--content-tertiary)]">
-                No actions match your search.
-              </p>
+              // Suppressed when the Advisor row above already answered the
+              // search: "no matches" next to a visible match reads as a bug.
+              advisorMatchesSearch ? null : (
+                <p className="py-8 text-center text-body-medium-lighter text-[var(--content-tertiary)]">
+                  No actions match your search.
+                </p>
+              )
             ) : (
               groupedCallSites.map(({ domain, sites }) => (
                 <div key={domain.id}>

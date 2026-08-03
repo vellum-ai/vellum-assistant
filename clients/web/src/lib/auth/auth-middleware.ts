@@ -6,7 +6,7 @@ import {
 
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { isAuthenticated, isSessionSettled } from "@/stores/session-status";
-import { isLocalMode, hasAssistants } from "@/lib/local-mode";
+import { isLocalClient, hasAssistants } from "@/lib/local-mode";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -125,7 +125,7 @@ const resolveWithGuard = async (
     let platformProbeStillUnknown = false;
     if (
       !timedOut.platformProbe &&
-      isLocalMode() &&
+      isLocalClient() &&
       (!hasAssistants() || decision.waitFor === "platform-session")
     ) {
       await whenStoreState(
@@ -150,7 +150,7 @@ const resolveWithGuard = async (
     let consentStillPending = false;
     let assistantsStillPending = false;
     if (
-      !isLocalMode() &&
+      !isLocalClient() &&
       isAuthenticated(useAuthStore.getState().sessionStatus)
     ) {
       if (!timedOut.consentHydration) {

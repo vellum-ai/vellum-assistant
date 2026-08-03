@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // --- mutable mock state (set per test) --- //
 
-let isLocalModeValue = false;
+let isLocalClientValue = false;
 let lockfileAssistants: Array<{ assistantId: string; cloud?: string }> = [];
 let storeAssistants: Array<{ id: string }> = [];
 let retireByIdResult:
@@ -43,7 +43,7 @@ mock.module("@/lib/local-mode", () => ({
     activeAssistant: null,
   }),
   isLocalAssistant: (a: { cloud?: string }) => a.cloud === "local",
-  isLocalMode: () => isLocalModeValue,
+  isLocalClient: () => isLocalClientValue,
   retireLocalAssistant: retireLocalAssistantMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
 }));
@@ -74,10 +74,10 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
     if (state.hasAssistants) {
       return {
         action: "redirect",
-        to: state.isLocalMode ? "/assistant/select-assistant" : "/assistant",
+        to: state.isLocalClient ? "/assistant/select-assistant" : "/assistant",
       };
     }
-    if (!state.isLocalMode) {
+    if (!state.isLocalClient) {
       return { action: "redirect", to: "/assistant/onboarding/privacy" };
     }
     if (state.platformSession === "present") {
@@ -88,7 +88,7 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
 }));
 mock.module("@/lib/navigation/build-state", () => ({
   buildNavigationState: () => ({
-    isLocalMode: isLocalModeValue,
+    isLocalClient: isLocalClientValue,
     isAuthenticated: false,
     platformSession: "absent",
     hasAssistants: storeAssistants.length > 0,
@@ -119,7 +119,7 @@ mock.module("@/utils/routes", () => ({
 const { retireAssistant } = await import("./retire-service");
 
 beforeEach(() => {
-  isLocalModeValue = false;
+  isLocalClientValue = false;
   lockfileAssistants = [];
   storeAssistants = [];
   retireByIdResult = { ok: true };
@@ -185,7 +185,7 @@ describe("retireAssistant", () => {
 
   test("local assistant in local mode routes through the local retire", async () => {
     // GIVEN a local target in local mode
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     lockfileAssistants = [{ assistantId: "l1", cloud: "local" }];
     storeAssistants = [{ id: "l1" }];
 
@@ -200,7 +200,7 @@ describe("retireAssistant", () => {
 
   test("routes by the TARGET assistant, not local-mode alone", async () => {
     // GIVEN local mode but the *target* is a platform assistant
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     lockfileAssistants = [{ assistantId: "p1", cloud: "vellum" }];
     storeAssistants = [{ id: "p1" }];
 
@@ -241,7 +241,7 @@ describe("retireAssistant", () => {
   });
 
   test("post-retire redirects to select-assistant when other assistants remain", async () => {
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     lockfileAssistants = [
       { assistantId: "l1", cloud: "local" },
       { assistantId: "p1", cloud: "vellum" },
@@ -257,7 +257,7 @@ describe("retireAssistant", () => {
   });
 
   test("post-retire redirects to welcome when no assistants and not logged in", async () => {
-    isLocalModeValue = true;
+    isLocalClientValue = true;
     lockfileAssistants = [{ assistantId: "l1", cloud: "local" }];
     storeAssistants = [{ id: "l1" }];
 

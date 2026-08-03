@@ -61,6 +61,32 @@ export interface AttentionState {
   updatedAt: number;
 }
 
+/**
+ * True when the latest assistant cursor is ahead of the last-seen cursor.
+ *
+ * The single definition of "unseen" for the sidebar indicator
+ * (`buildAssistantAttention` in `runtime/services/conversation-serializer.ts`)
+ * and the assistant-reply push producer, so the badge and the notification
+ * cannot disagree. An absent state row reads as seen.
+ */
+export function hasUnseenLatestAssistantMessage(
+  state:
+    | Pick<
+        AttentionState,
+        "latestAssistantMessageAt" | "lastSeenAssistantMessageAt"
+      >
+    | null
+    | undefined,
+): boolean {
+  if (!state || state.latestAssistantMessageAt == null) {
+    return false;
+  }
+  return (
+    state.lastSeenAssistantMessageAt == null ||
+    state.lastSeenAssistantMessageAt < state.latestAssistantMessageAt
+  );
+}
+
 // ── Row mappers ──────────────────────────────────────────────────────
 
 function rowToEvent(

@@ -65,21 +65,8 @@ export function ensureCompleteCustomProfiles(workspaceDir: string): void {
     if (entry === null) {
       continue;
     }
-    const parsed = ProfileEntry.safeParse(entry);
-    if (!parsed.success) {
-      continue;
-    }
-    // Merge over the original raw entry at every depth so keys the schema
-    // doesn't know survive (`safeParse` strips them, top-level and inside
-    // nested objects like `contextWindow`).
-    const merged: Record<string, unknown> = mergePreservingUnknownKeys(
-      entry,
-      completeCustomProfile(parsedDefault.data, parsed.data) as Record<
-        string,
-        unknown
-      >,
-    );
-    if (isDeepStrictEqual(merged, entry)) {
+    const merged = completedProfileBody(entry, parsedDefault.data);
+    if (merged === null || isDeepStrictEqual(merged, entry)) {
       continue;
     }
     const bakedFields = Object.keys(merged).filter(
@@ -100,6 +87,30 @@ export function ensureCompleteCustomProfiles(workspaceDir: string): void {
   // The lifecycle call site runs before the first loadConfig() of this boot;
   // this guards callers that read config earlier (and future reordering).
   invalidateConfigCache();
+}
+
+/**
+ * The completion this pass bakes onto a single raw profile body: schema-parse,
+ * complete against the workspace's default base, then merge over the original
+ * raw entry at every depth so keys the schema doesn't know survive
+ * (`safeParse` strips them, top-level and inside nested objects like
+ * `contextWindow`). Returns null for a body that does not parse as a
+ * `ProfileEntry` (completion never touches it). The BYOK conversion pass
+ * normalizes bodies through this same function so its unedited-copy
+ * comparisons match what this pass wrote to disk on prior boots.
+ */
+export function completedProfileBody(
+  entry: Record<string, unknown>,
+  dflt: LLMConfigBase,
+): Record<string, unknown> | null {
+  const parsed = ProfileEntry.safeParse(entry);
+  if (!parsed.success) {
+    return null;
+  }
+  return mergePreservingUnknownKeys(
+    entry,
+    completeCustomProfile(dflt, parsed.data) as Record<string, unknown>,
+  );
 }
 
 /**

@@ -7,6 +7,7 @@ import {
 } from "@/lib/session-replay/session-replay-control";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { detectClientOs } from "@/runtime/platform-detection";
 
 /**
  * Detect the host surface. Electron is checked first since its renderer also
@@ -17,7 +18,7 @@ function sessionReplaySurface(): SessionReplayConfig["surface"] {
     return "macos";
   }
   if (isNativePlatform()) {
-    return "ios";
+    return detectClientOs() === "android" ? "android" : "ios";
   }
   return "web";
 }

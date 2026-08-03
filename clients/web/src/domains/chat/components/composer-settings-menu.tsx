@@ -680,7 +680,7 @@ export function ComposerSettingsMenu({
         <Menu.Root open={accessOpen} onOpenChange={setAccessOpen}>
           <Menu.Trigger asChild>{accessTrigger}</Menu.Trigger>
           <Menu.Content side="top" align="start">
-            <Menu.Label className="text-label-small-default normal-case tracking-normal">
+            <Menu.Label className="mb-1 text-label-small-default normal-case tracking-normal">
               Assistant Access
             </Menu.Label>
             {accessItems.map(({ preset, isActive, isDefault }) => {
@@ -718,9 +718,14 @@ export function ComposerSettingsMenu({
         <Menu.Root open={profileOpen} onOpenChange={setProfileOpen}>
           <Menu.Trigger asChild>{profileTrigger}</Menu.Trigger>
           <Menu.Content side="top" align="start">
-            <Menu.Label className="flex items-center justify-between gap-2 text-label-small-default normal-case tracking-normal">
+            <Menu.Label className="mb-1 flex items-center justify-between gap-2 text-label-small-default normal-case tracking-normal">
               <span>Model Profile</span>
-              {quickAddButton}
+              {/* The compact quick-add button (h-6/24px) is taller than the
+                  label text's own line box (10px); items-center would
+                  otherwise stretch the row to fit it and nudge the text down
+                  relative to the icon-less Assistant Access label. Cancel
+                  that out so both labels sit at the same offset. */}
+              <span className="-my-[7px]">{quickAddButton}</span>
             </Menu.Label>
             {visibleProfileEntries.map((entry) => {
               const isActive = entry.name === profileActiveKey;

@@ -16,6 +16,12 @@ const DEFAULT_PROVIDER_ELIGIBLE: Record<DefaultProviderId, true> = {
   fireworks: true,
   openrouter: true,
   vellum: true,
+  together: true,
+  "vercel-ai-gateway": true,
+  minimax: true,
+  atlascloud: true,
+  baseten: true,
+  poolside: true,
 };
 
 export function isDefaultProviderId(

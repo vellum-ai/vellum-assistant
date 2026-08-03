@@ -284,10 +284,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     .map((entry) => entry.slug)
     .filter((slug) => sectionIndex.byArticle.has(slug));
 
-  // Fresh is the modification-recency top-K over the page index with core and
-  // hot excluded (fresh never duplicates the rest of the prefix). Page mtimes
-  // move at consolidation — the same event that invalidates the lanes — so the
-  // set is recomputed exactly when it can have changed.
+  // Fresh is the effective-recency top-K over the page index (`freshAt`:
+  // origin date when declared, else mtime, so backdated imports rank by their
+  // original chronology) with core and hot excluded (fresh never duplicates
+  // the rest of the prefix). Page mtimes move at consolidation, the same
+  // event that invalidates the lanes, so the set is recomputed exactly when
+  // it can have changed.
   const freshSlugs = computeFreshSet(pageIndex.entries, {
     k: tuning.freshSetK,
     excludeSlugs: new Set([...coreSlugs, ...hotSlugs]),
@@ -314,11 +316,12 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // body into the byte-stable prefix. Disk pages render raw (frontmatter +
   // body) through `renderCard` so `kind: index` pages surface their `links:`
   // map in the card TOC. Each disk card carries its lane annotation; fresh
-  // cards additionally carry the page's last-modified time (an absolute
-  // stamp — it only changes when the page does, so the card stays byte-stable
-  // between lane recomputes).
-  const modifiedAtBySlug = new Map(
-    pageIndex.entries.map((entry) => [entry.slug, entry.modifiedAt]),
+  // cards additionally carry the page's effective-recency time (`freshAt`, so
+  // imported pages display their original date; an absolute stamp that only
+  // changes when the page does, so the card stays byte-stable between lane
+  // recomputes).
+  const freshAtBySlug = new Map(
+    pageIndex.entries.map((entry) => [entry.slug, entry.freshAt]),
   );
   const laneAnnotation = (
     slug: Slug,
@@ -327,19 +330,22 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     if (lane !== "fresh") {
       return `[lane: ${lane}]`;
     }
-    const modifiedAt = modifiedAtBySlug.get(slug);
+    const freshAt = freshAtBySlug.get(slug);
     if (
-      modifiedAt === undefined ||
-      !Number.isFinite(modifiedAt) ||
-      modifiedAt <= 0
+      freshAt === undefined ||
+      freshAt === null ||
+      !Number.isFinite(freshAt)
     ) {
       return "[lane: fresh]";
     }
-    const stamp = new Date(modifiedAt)
+    const stamp = new Date(freshAt)
       .toISOString()
       .slice(0, 16)
       .replace("T", " ");
-    return `[lane: fresh · updated ${stamp} UTC]`;
+    // "dated", not "updated": for origin-dated imports the stamp is the
+    // content's original chronology, not a last-modified time, and claiming
+    // an update would feed the selector false temporal metadata.
+    return `[lane: fresh · dated ${stamp} UTC]`;
   };
   const prefixCards = new Map<Slug, string>();
   for (const [lane, slugs] of [
@@ -472,8 +478,9 @@ function readNowContext(): string | null {
 function buildSituationalContext(): string {
   const now = readNowContext();
   const at = new Date();
-  // Clock time matters, not just the date: fresh cards carry absolute
-  // `updated <time>` stamps, and hour-grain windows ("while I was asleep",
+  // Clock time matters, not just the date: fresh cards carry `dated <time>`
+  // stamps (effective recency, so imports show their content's chronology
+  // rather than write time), and hour-grain windows ("while I was asleep",
   // "this morning") are only computable against a current-time anchor —
   // measured on a state-recall turn, the anchor alone moved selection more
   // than prompt steering did.

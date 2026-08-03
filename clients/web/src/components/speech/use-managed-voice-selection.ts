@@ -19,23 +19,25 @@
  * unavailable, `available` is false and the surfaces render no picker.
  */
 
-import { useCallback, useMemo, useRef, useState } from "react";
-
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-
-import { toast } from "@vellumai/design-library/components/toast";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   configGetOptions,
-  configGetQueryKey,
   ttsProvidersGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
-import { configPatch } from "@/generated/daemon/sdk.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   useManagedVoices,
   type ManagedVoiceOption,
 } from "@/lib/tts/use-managed-voices";
+
+import { useSerializedConfigSelection } from "@/components/speech/use-serialized-config-selection";
+
+// Module-level so `select` identity only tracks real state (see
+// `useSerializedConfigSelection`).
+const buildVoicePatchBody = (model: string) => ({
+  services: { tts: { providers: { vellum: { model } } } },
+});
 
 export interface UseManagedVoiceSelection {
   /** True only when this assistant is managed and its daemon offers voice selection. */
@@ -70,7 +72,6 @@ export function useManagedVoiceSelection(
 ): UseManagedVoiceSelection {
   const isOrgReady = useIsOrgReady();
   const enabled = isOrgReady && !!assistantId;
-  const queryClient = useQueryClient();
 
   const { data: providerCatalog } = useQuery({
     ...ttsProvidersGetOptions({ path: { assistant_id: assistantId ?? "" } }),
@@ -113,66 +114,22 @@ export function useManagedVoiceSelection(
   // "not managed", which would flash the BYO state on every mount.
   const isByok = enabled && !!daemonConfig && !isManaged;
 
-  const [selecting, setSelecting] = useState(false);
-  // The voice a pick is heading for, held until its write has landed in config.
-  // Auditioning voices in a row is the point of the picker, and a check mark
-  // that waits out a round trip reads as a dropped click.
-  const [pendingModel, setPendingModel] = useState<string | null>(null);
+  const configuredModel =
+    daemonTts?.providers?.vellum?.model ??
+    defaultModel ??
+    voices[0]?.model ??
+    "";
 
-  const currentModel = useMemo(() => {
-    const configured = daemonTts?.providers?.vellum?.model;
-    return pendingModel ?? configured ?? defaultModel ?? voices[0]?.model ?? "";
-  }, [pendingModel, daemonTts, defaultModel, voices]);
-
-  // Writes run one at a time in click order, and only the newest one settles the
-  // UI. Concurrent PATCHes of the same config field can arrive out of order —
-  // config would then keep whichever landed last rather than what was clicked
-  // last, and the first response back would clear `selecting` while a later
-  // write was still in flight.
-  const writeChain = useRef<Promise<void>>(Promise.resolve());
-  const latestWrite = useRef(0);
-
-  const selectModel = useCallback(
-    (model: string) => {
-      if (!assistantId || model === currentModel) {
-        return;
-      }
-      const seq = ++latestWrite.current;
-      setPendingModel(model);
-      setSelecting(true);
-      writeChain.current = writeChain.current.then(async () => {
-        try {
-          const { response } = await configPatch({
-            path: { assistant_id: assistantId },
-            body: { services: { tts: { providers: { vellum: { model } } } } },
-            throwOnError: false,
-          });
-          if (!response?.ok) {
-            toast.error("Couldn't change the voice just now — try again.");
-            return;
-          }
-          // Refetch config so `currentModel` reflects the write. The running
-          // session picks the new voice up from config on its next turn.
-          await queryClient.invalidateQueries({
-            queryKey: configGetQueryKey({
-              path: { assistant_id: assistantId },
-            }),
-          });
-        } catch {
-          toast.error("Couldn't change the voice just now — try again.");
-        } finally {
-          // Superseded writes leave the state alone: the pick they'd revert to
-          // is not the one the user is waiting on. Dropping the pending model
-          // here also reverts a failed write to whatever config actually holds.
-          if (seq === latestWrite.current) {
-            setPendingModel(null);
-            setSelecting(false);
-          }
-        }
-      });
-    },
-    [assistantId, currentModel, queryClient],
-  );
+  const {
+    currentValue: currentModel,
+    selecting,
+    select: selectModel,
+  } = useSerializedConfigSelection({
+    assistantId,
+    configuredValue: configuredModel,
+    buildPatchBody: buildVoicePatchBody,
+    failureMessage: "Couldn't change the voice just now. Try again.",
+  });
 
   return {
     available,

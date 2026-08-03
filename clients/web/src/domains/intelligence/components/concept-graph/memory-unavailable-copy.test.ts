@@ -9,7 +9,8 @@ import {
   describeMemoryUnavailable,
   MEMORY_ENABLE_PROMPT,
   MEMORY_STATUS_ERROR_COPY,
-  MEMORY_V3_UPGRADE_PROMPT,
+  MEMORY_V1_UPGRADE_PROMPT,
+  MEMORY_V2_UPGRADE_PROMPT,
 } from "./memory-unavailable-copy";
 
 describe("describeMemoryUnavailable", () => {
@@ -90,14 +91,101 @@ describe("MEMORY_STATUS_ERROR_COPY", () => {
   });
 });
 
-describe("MEMORY_V3_UPGRADE_PROMPT", () => {
-  test("asks the assistant to check the corpus before rewriting it", () => {
-    // The seed drives a real, irreversible reform of the concept corpus; both
-    // the check and the confirmation are load-bearing, not politeness.
-    expect(MEMORY_V3_UPGRADE_PROMPT).toContain("v3");
-    expect(MEMORY_V3_UPGRADE_PROMPT.toLowerCase()).toContain("empty");
-    expect(MEMORY_V3_UPGRADE_PROMPT.toLowerCase()).toContain("before");
+describe("the upgrade seed per legacy tier", () => {
+  const seeds = {
+    v1: MEMORY_V1_UPGRADE_PROMPT,
+    v2: MEMORY_V2_UPGRADE_PROMPT,
+  } as const;
+
+  test.each(Object.entries(seeds))(
+    "%s reaches the right tier",
+    (tier, seed) => {
+      expect(seed).toContain(`from ${tier} to v3`);
+      expect(describeMemoryUnavailable(tier as "v1" | "v2").prompt).toBe(seed);
+    },
+  );
+
+  test("v2 points at the reform skill", () => {
+    expect(MEMORY_V2_UPGRADE_PROMPT).toContain("Memory v3 Migration");
   });
+
+  test("v1 points at both skills, in the order they have to run", () => {
+    // The v2 migration backfills concepts/ from pkb/ and the buffer; the v3
+    // migration reforms the result. Reaching for v3 first meets its
+    // empty-corpus guard, so the order is the useful part of the hint.
+    const v2At = MEMORY_V1_UPGRADE_PROMPT.indexOf("Memory v2 Migration");
+    const v3At = MEMORY_V1_UPGRADE_PROMPT.indexOf("Memory v3 Migration");
+    expect(v2At).toBeGreaterThan(-1);
+    expect(v3At).toBeGreaterThan(v2At);
+  });
+
+  test.each(Object.entries(seeds))(
+    "%s names the skill as a pointer, not a mandate",
+    (_tier, seed) => {
+      // Both skills carry `avoid-when` rules and some corpus shapes are
+      // claimed by neither, so a seed that commits to one can hand the
+      // assistant an instruction it has to refuse. The hedge is what lets it
+      // deviate; it reads the skills and counts the pages, this file can't.
+      expect(seed).toContain("most likely");
+      expect(seed.toLowerCase()).toContain("work out what");
+    },
+  );
+
+  test.each(Object.entries(seeds))(
+    "%s still binds the assistant to whatever it picks",
+    (_tier, seed) => {
+      // Delegating the choice is not loosening the rules: the skills' own hard
+      // rules are what keep an irreversible corpus rewrite loss-proof.
+      expect(seed.toLowerCase()).toContain("exactly");
+      // The rules themselves stay in the skills, which version separately.
+      expect(seed).not.toContain("Step 10");
+    },
+  );
+
+  test.each(Object.entries(seeds))(
+    "%s runs in the background and reports back",
+    (_tier, seed) => {
+      expect(seed.toLowerCase()).toContain("in the background");
+      expect(seed.toLowerCase()).toContain("blocks");
+    },
+  );
+
+  test.each(Object.entries(seeds))(
+    "%s says nothing about cost or credits",
+    (_tier, seed) => {
+      for (const word of ["cost", "credit", "spend", "estimate", "money"]) {
+        expect(seed.toLowerCase()).not.toContain(word);
+      }
+    },
+  );
+});
+
+describe("every seeded prompt", () => {
+  const seeds = {
+    v2: MEMORY_V2_UPGRADE_PROMPT,
+    v1: MEMORY_V1_UPGRADE_PROMPT,
+    enable: MEMORY_ENABLE_PROMPT,
+  };
+
+  test.each(Object.entries(seeds))("%s uses no em dash", (_name, seed) => {
+    // These land in the composer, where the assistant is forbidden from
+    // writing one (SOUL.md), so a seed carrying an em dash puts words in its
+    // mouth that it would never have typed. See the Em Dashes rule in
+    // AGENTS.md.
+    expect(seed).not.toContain("—");
+  });
+
+  test.each(Object.entries(seeds))(
+    "%s is reachable from a tier",
+    (_n, seed) => {
+      // Every state a user can actually land in, so a seed can't be orphaned
+      // by a future routing change.
+      const prompts = (["off", "v1", "v2"] as const).map(
+        (tier) => describeMemoryUnavailable(tier).prompt,
+      );
+      expect(prompts).toContain(seed);
+    },
+  );
 });
 
 describe("MEMORY_ENABLE_PROMPT", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isSlackDmChannel } from "./channel.js";
+import { isSlackDmChannel, isSlackMpimChannel } from "./channel.js";
 
 describe("isSlackDmChannel", () => {
   it("classifies an explicit im channel_type as a DM", () => {
@@ -21,5 +21,27 @@ describe("isSlackDmChannel", () => {
   it("is not a DM when neither signal identifies one", () => {
     expect(isSlackDmChannel(undefined)).toBe(false);
     expect(isSlackDmChannel("")).toBe(false);
+  });
+});
+
+describe("isSlackMpimChannel", () => {
+  it("classifies an explicit mpim channel_type as a group DM", () => {
+    expect(isSlackMpimChannel("mpim")).toBe(true);
+  });
+
+  it("does not classify other conversation kinds as group DMs", () => {
+    expect(isSlackMpimChannel("im")).toBe(false);
+    expect(isSlackMpimChannel("channel")).toBe(false);
+    expect(isSlackMpimChannel("group")).toBe(false);
+  });
+
+  it("has no id-prefix fallback in either direction", () => {
+    // `G` is shared with private channels, and modern workspaces mint MPIMs
+    // with a plain `C` prefix, confirmed against `conversations.info`
+    // (`is_mpim: true, is_channel: true`). An id alone proves nothing, so
+    // payloads without a channel_type resolve through the observed-kind cache
+    // instead (see user-directory.ts).
+    expect(isSlackMpimChannel(undefined)).toBe(false);
+    expect(isSlackMpimChannel("")).toBe(false);
   });
 });
