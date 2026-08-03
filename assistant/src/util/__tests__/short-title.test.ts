@@ -1,16 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  LEAKED_PROSE_PREFIXES,
-  looksLikeLeakedProse,
-  MAX_TITLE_LENGTH,
-  MAX_TITLE_WORDS,
-  META_FAILURE_TITLES,
   normalizeTitle,
   stripMarkdown,
   stripThinkingTags,
   truncateTitle,
 } from "../short-title.js";
+
+/** The character and word budgets `short-title.ts` documents and enforces. */
+const MAX_TITLE_LENGTH = 40;
+const MAX_TITLE_WORDS = 7;
 
 describe("stripMarkdown", () => {
   test("unwraps bold, italic, strikethrough, and code spans", () => {
@@ -91,74 +90,80 @@ describe("truncateTitle", () => {
     expect(title.split(" ").length).toBeGreaterThan(MAX_TITLE_WORDS);
     expect(truncateTitle(title)).toBe("alpha bravo charlie delta echo");
   });
+
+  test("still honors the char limit when the first five words overflow it", () => {
+    const title =
+      "Authentication Infrastructure Modernization Deployment Verification Report Complete Today";
+    expect(title.length).toBeGreaterThan(MAX_TITLE_LENGTH);
+    expect(title.split(" ").length).toBeGreaterThan(MAX_TITLE_WORDS);
+    const result = truncateTitle(title);
+    expect(result).toBe("Authentication Infrastructure");
+    expect(result.length).toBeLessThanOrEqual(MAX_TITLE_LENGTH);
+  });
 });
 
-describe("looksLikeLeakedProse", () => {
+describe("normalizeTitle prose rejection", () => {
   test("rejects multi-line output", () => {
-    expect(looksLikeLeakedProse("Auth Rewrite\nand more")).toBe(true);
+    expect(normalizeTitle("Auth Rewrite\nand more")).toBe("");
   });
 
   test("rejects embedded transcript markers", () => {
-    expect(looksLikeLeakedProse("User: how do I log in")).toBe(true);
-    expect(looksLikeLeakedProse("Assistant : here you go")).toBe(true);
+    expect(normalizeTitle("User: how do I log in")).toBe("");
+    expect(normalizeTitle("Assistant : here you go")).toBe("");
   });
 
   test("rejects sentence-shaped clauses ending in terminal punctuation", () => {
-    expect(looksLikeLeakedProse("This is a topic about authentication.")).toBe(
-      true,
-    );
-    expect(looksLikeLeakedProse("What did they want to build here?")).toBe(
-      true,
-    );
+    expect(normalizeTitle("This is a topic about authentication.")).toBe("");
+    expect(normalizeTitle("What did they want to build here?")).toBe("");
   });
 
   test("keeps short phrases that end in punctuation", () => {
-    expect(looksLikeLeakedProse("Auth Rewrite?")).toBe(false);
+    expect(normalizeTitle("Auth Rewrite?")).toBe("Auth Rewrite?");
   });
 
   test("rejects first-person reasoning openers", () => {
-    expect(looksLikeLeakedProse("I need to generate a title")).toBe(true);
-    expect(looksLikeLeakedProse("I'll work through these files")).toBe(true);
-    expect(looksLikeLeakedProse("I cannot title this")).toBe(true);
+    expect(normalizeTitle("I need to generate a title")).toBe("");
+    expect(normalizeTitle("I'll work through these files")).toBe("");
+    expect(normalizeTitle("I cannot title this")).toBe("");
   });
 
   test("rejects imperative and deferral openers", () => {
-    expect(looksLikeLeakedProse("Let me summarize the request")).toBe(true);
-    expect(looksLikeLeakedProse("Looking at the conversation")).toBe(true);
-    expect(looksLikeLeakedProse("Based on the messages")).toBe(true);
-    expect(looksLikeLeakedProse("Given the context")).toBe(true);
+    expect(normalizeTitle("Let me summarize the request")).toBe("");
+    expect(normalizeTitle("Looking at the conversation")).toBe("");
+    expect(normalizeTitle("Based on the messages")).toBe("");
+    expect(normalizeTitle("Given the context")).toBe("");
   });
 
   test("rejects infinitive openers", () => {
-    expect(looksLikeLeakedProse("To generate a good title")).toBe(true);
-    expect(looksLikeLeakedProse("To summarize the discussion")).toBe(true);
-    expect(looksLikeLeakedProse("To title this thread")).toBe(true);
+    expect(normalizeTitle("To generate a good title")).toBe("");
+    expect(normalizeTitle("To summarize the discussion")).toBe("");
+    expect(normalizeTitle("To title this thread")).toBe("");
   });
 
   test("rejects subject-led reasoning openers", () => {
-    expect(looksLikeLeakedProse("The user wants a summary")).toBe(true);
-    expect(looksLikeLeakedProse("The conversation is about Docker")).toBe(true);
-    expect(looksLikeLeakedProse("The assistant should reply")).toBe(true);
-    expect(looksLikeLeakedProse("The title should be short")).toBe(true);
+    expect(normalizeTitle("The user wants a summary")).toBe("");
+    expect(normalizeTitle("The conversation is about Docker")).toBe("");
+    expect(normalizeTitle("The assistant should reply")).toBe("");
+    expect(normalizeTitle("The title should be short")).toBe("");
   });
 
   test("rejects preamble openers", () => {
-    expect(looksLikeLeakedProse("Here's a title")).toBe(true);
-    expect(looksLikeLeakedProse("Here is a title")).toBe(true);
-    expect(looksLikeLeakedProse("Sure, Auth Rewrite")).toBe(true);
-    expect(looksLikeLeakedProse("Okay, Auth Rewrite")).toBe(true);
+    expect(normalizeTitle("Here's a title")).toBe("");
+    expect(normalizeTitle("Here is a title")).toBe("");
+    expect(normalizeTitle("Here are the options")).toBe("");
+    expect(normalizeTitle("Sure, Auth Rewrite")).toBe("");
+    expect(normalizeTitle("Okay, Auth Rewrite")).toBe("");
+    expect(normalizeTitle("Ok, Auth Rewrite")).toBe("");
   });
 
   test("accepts bare noun-phrase titles that share a subject word", () => {
-    expect(looksLikeLeakedProse("The Conversation API")).toBe(false);
-    expect(looksLikeLeakedProse("The User Interface Redesign")).toBe(false);
-    expect(looksLikeLeakedProse("Auth Middleware Rewrite")).toBe(false);
-  });
-
-  test("every configured prefix is treated as prose", () => {
-    for (const prefix of LEAKED_PROSE_PREFIXES) {
-      expect(looksLikeLeakedProse(`${prefix} something`)).toBe(true);
-    }
+    expect(normalizeTitle("The Conversation API")).toBe("The Conversation API");
+    expect(normalizeTitle("The User Interface Redesign")).toBe(
+      "The User Interface Redesign",
+    );
+    expect(normalizeTitle("Auth Middleware Rewrite")).toBe(
+      "Auth Middleware Rewrite",
+    );
   });
 });
 
@@ -187,7 +192,21 @@ describe("normalizeTitle", () => {
   });
 
   test("returns empty for meta-failure titles regardless of case", () => {
-    for (const meta of META_FAILURE_TITLES) {
+    const metaFailures = [
+      "missing context",
+      "no context",
+      "insufficient context",
+      "unclear context",
+      "empty context",
+      "no topic",
+      "unclear topic",
+      "unclear request",
+      "unclear message",
+      "empty conversation",
+      "empty message",
+      "no content",
+    ];
+    for (const meta of metaFailures) {
       expect(normalizeTitle(meta)).toBe("");
     }
     expect(normalizeTitle("Missing Context")).toBe("");
@@ -198,5 +217,13 @@ describe("normalizeTitle", () => {
     expect(
       normalizeTitle("alpha bravo charlie delta echo foxtrot golf hotel india"),
     ).toBe("alpha bravo charlie delta echo");
+  });
+
+  test("keeps a wordy title inside the character budget", () => {
+    const result = normalizeTitle(
+      "Authentication Infrastructure Modernization Deployment Verification Report Complete Today",
+    );
+    expect(result).toBe("Authentication Infrastructure");
+    expect(result.length).toBeLessThanOrEqual(MAX_TITLE_LENGTH);
   });
 });
