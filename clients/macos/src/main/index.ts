@@ -66,10 +66,8 @@ import {
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu, refreshCliPathMenuState } from "./menu";
-import {
-  markRelocationSkipped,
-  relocateToApplicationsFolder,
-} from "./move-to-applications";
+import { relocateToApplicationsFolder } from "./move-to-applications";
+import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";

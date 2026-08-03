@@ -59,12 +59,11 @@ mock.module("electron", () => ({
   },
 }));
 
-const {
-  getInstallLocation,
-  markRelocationSkipped,
-  relocateToApplicationsFolder,
-  __resetForTesting,
-} = await import("./move-to-applications");
+const { relocateToApplicationsFolder } = await import(
+  "./move-to-applications"
+);
+const { getInstallLocation, markRelocationSkipped, __resetForTesting } =
+  await import("./install-location");
 
 describe("relocateToApplicationsFolder", () => {
   beforeEach(() => {

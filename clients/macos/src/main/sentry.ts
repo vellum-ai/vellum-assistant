@@ -4,7 +4,7 @@ import path from "node:path";
 import * as Sentry from "@sentry/electron/main";
 import { app } from "electron";
 
-import { getInstallLocation } from "./move-to-applications";
+import { getInstallLocation } from "./install-location";
 import { onSettingChange, writeSetting } from "./settings";
 
 declare const __VELLUM_BUILD_SHA__: string;
