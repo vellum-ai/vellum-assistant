@@ -55,10 +55,13 @@ export interface HomeFeedFile {
   updatedAt: string;
 }
 
-/** Schema for the on-disk `home-feed.json` file. */
-const homeFeedFileSchema = z.object({
+/**
+ * Envelope schema for the on-disk `home-feed.json` file. Items stay
+ * unvalidated here so `parseFeedFile` can validate them one at a time.
+ */
+const homeFeedEnvelopeSchema = z.object({
   version: z.literal(2),
-  items: z.array(FeedItemSchema),
+  items: z.array(z.unknown()),
   updatedAt: z.string(),
 });
 
@@ -66,9 +69,33 @@ const homeFeedFileSchema = z.object({
  * Parse and validate a raw value read from `home-feed.json`.
  *
  * Used by the writer on read-back and by the HTTP route when serving the
- * feed. Throws a `ZodError` on any validation failure — callers are
- * expected to log + recover (e.g. treat the file as empty).
+ * feed. Throws a `ZodError` when the envelope itself is invalid (wrong
+ * `version`, non-object input, missing `updatedAt`). Callers are
+ * expected to log + recover (e.g. treat the file as empty). Individual
+ * items that fail validation are dropped and counted in `droppedCount`,
+ * an in-memory-only field on the return value that is never persisted,
+ * so one malformed row cannot erase the rest of the feed.
  */
-export function parseFeedFile(raw: unknown): HomeFeedFile {
-  return homeFeedFileSchema.parse(raw) as HomeFeedFile;
+export function parseFeedFile(
+  raw: unknown,
+): HomeFeedFile & { droppedCount: number } {
+  const envelope = homeFeedEnvelopeSchema.parse(raw);
+
+  const items: z.infer<typeof FeedItemSchema>[] = [];
+  let droppedCount = 0;
+  for (const rawItem of envelope.items) {
+    const result = FeedItemSchema.safeParse(rawItem);
+    if (result.success) {
+      items.push(result.data);
+    } else {
+      droppedCount++;
+    }
+  }
+
+  return {
+    version: envelope.version,
+    items,
+    updatedAt: envelope.updatedAt,
+    droppedCount,
+  };
 }

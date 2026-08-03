@@ -27,6 +27,13 @@ export interface PinnedAppNavItemProps {
  * complementing the long-press context menu. In the collapsed rail the
  * swipe is omitted (the tooltip provider would interfere, same as the
  * context menu).
+ *
+ * On desktop, a third path: a hover-revealed unpin button on the row's
+ * trailing edge. `SideMenu.Item` has no `trailingAction` slot (unlike
+ * `PanelItem`), and it renders as a real `<button>` when `onSelect` is
+ * given, so the unpin button can't nest inside it: it's a sibling,
+ * absolutely positioned over the row's right edge by their shared
+ * `relative` wrapper.
  */
 export function PinnedAppNavItem({
   app,
@@ -36,7 +43,7 @@ export function PinnedAppNavItem({
 }: PinnedAppNavItemProps) {
   const unpin = usePinnedAppsStore.use.unpin();
 
-  const item = (
+  const sideMenuItem = (
     <SideMenu.Item
       // Apps source their icon as an emoji string on the manifest
       // (`app.icon`). Fall back to the Rocket lucide glyph so unmojified
@@ -46,12 +53,36 @@ export function PinnedAppNavItem({
       showCollapsedTooltip
       active={active}
       onSelect={onOpen ? () => onOpen(app.appId) : undefined}
+      className="text-[color:var(--content-default)]"
     />
   );
 
   if (collapsed) {
-    return item;
+    return sideMenuItem;
   }
+
+  const item = (
+    <div className="group/pinned-app relative">
+      <SideMenu.Item
+        icon={app.icon ?? Rocket}
+        label={app.name}
+        active={active}
+        onSelect={onOpen ? () => onOpen(app.appId) : undefined}
+        className="pr-8 text-[color:var(--content-default)]"
+      />
+      <button
+        type="button"
+        aria-label={`Unpin ${app.name}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          unpin(app.appId);
+        }}
+        className="absolute top-1/2 right-[6px] flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] opacity-0 transition-opacity hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] group-hover/pinned-app:opacity-100 focus-visible:opacity-100"
+      >
+        <PinOff size={12} aria-hidden />
+      </button>
+    </div>
+  );
 
   const trailingActions: SwipeAction[] = isPointerCoarse()
     ? [
