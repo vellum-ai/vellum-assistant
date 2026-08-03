@@ -175,11 +175,57 @@ const pendingSurfacePersists = new Map<
   }
 >();
 
+/** A located `ui_surface` block plus everything needed to write it back. */
+type PersistedSurfaceHit = {
+  /** Message row the block lives in, for `updateMessageContent`. */
+  rowId: string;
+  /** The row's full content block array, mutated in place then re-serialized. */
+  blocks: unknown[];
+  /** The matching `ui_surface` block, a live reference into `blocks`. */
+  block: Record<string, unknown>;
+  /** Index of `block` within `blocks`. */
+  blockIndex: number;
+};
+
 /**
- * Persist the latest `data` for a `ui_surface` content block by
- * scanning the conversation's messages for one containing the given
- * `surfaceId` and patching its `data` field. Mirrors the scan-and-patch
- * pattern in `markSurfaceCompleted`.
+ * Locate the persisted `ui_surface` content block for `surfaceId`.
+ *
+ * The single owner of how a persisted surface block is resolved: newest
+ * message row first, first matching block within that row, stopping at the
+ * first hit. Every persisted read and write goes through here so a change to
+ * storage resolution, ordering, or matching can never make them target
+ * different blocks.
+ *
+ * The scan is deliberately unbounded by compaction (see
+ * {@link findPersistedSurfaceType}), and it throws rather than swallowing DB
+ * errors so each caller keeps its own logging.
+ */
+function findPersistedSurfaceBlock(
+  conversationId: string,
+  surfaceId: string,
+): PersistedSurfaceHit | undefined {
+  const rows = getMessages(conversationId);
+  for (let r = rows.length - 1; r >= 0; r--) {
+    const blocks: unknown[] = rows[r].content;
+    const blockIndex = blocks.findIndex((pb) => {
+      const rb = pb as Record<string, unknown>;
+      return rb.type === "ui_surface" && rb.surfaceId === surfaceId;
+    });
+    if (blockIndex !== -1) {
+      return {
+        rowId: rows[r].id,
+        blocks,
+        block: blocks[blockIndex] as Record<string, unknown>,
+        blockIndex,
+      };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Persist the latest `data` for a `ui_surface` content block by locating it
+ * with {@link findPersistedSurfaceBlock} and patching its `data` field.
  *
  * Safe to call before the assistant message has been persisted (mid-stream):
  * the scan simply finds nothing and bails. The next update after
@@ -191,23 +237,12 @@ function persistSurfaceData(
   data: SurfaceData,
 ): void {
   try {
-    const rows = getMessages(conversationId);
-    for (let r = rows.length - 1; r >= 0; r--) {
-      const parsed: unknown[] = rows[r].content;
-      let found = false;
-      for (const pb of parsed) {
-        const rb = pb as Record<string, unknown>;
-        if (rb.type === "ui_surface" && rb.surfaceId === surfaceId) {
-          rb.data = data;
-          found = true;
-          break;
-        }
-      }
-      if (found) {
-        updateMessageContent(rows[r].id, JSON.stringify(parsed));
-        return;
-      }
+    const hit = findPersistedSurfaceBlock(conversationId, surfaceId);
+    if (!hit) {
+      return;
     }
+    hit.block.data = data;
+    updateMessageContent(hit.rowId, JSON.stringify(hit.blocks));
   } catch (err) {
     log.debug(
       { err, surfaceId, conversationId },
@@ -339,23 +374,11 @@ export function markSurfaceCompleted(
 
   // Persist to DB.
   try {
-    const rows = getMessages(ctx.conversationId);
-    for (let r = rows.length - 1; r >= 0; r--) {
-      const parsed: unknown[] = rows[r].content;
-      let found = false;
-      for (const pb of parsed) {
-        const rb = pb as Record<string, unknown>;
-        if (rb.type === "ui_surface" && rb.surfaceId === surfaceId) {
-          rb.completed = true;
-          rb.completionSummary = summary;
-          found = true;
-          break;
-        }
-      }
-      if (found) {
-        updateMessageContent(rows[r].id, JSON.stringify(parsed));
-        return;
-      }
+    const hit = findPersistedSurfaceBlock(ctx.conversationId, surfaceId);
+    if (hit) {
+      hit.block.completed = true;
+      hit.block.completionSummary = summary;
+      updateMessageContent(hit.rowId, JSON.stringify(hit.blocks));
     }
   } catch (err) {
     // Error, not warn: a silent failure here presents as the user's answer being discarded.
@@ -364,6 +387,38 @@ export function markSurfaceCompleted(
       "Failed to persist surface completion to DB",
     );
   }
+}
+
+/**
+ * Read a `ui_surface` block's `surfaceType` out of persisted history.
+ *
+ * This must NOT be routed through `findPersistedSurfaceState`
+ * (`runtime/routes/surface-conversation-resolver.ts`): that helper is bounded
+ * by `liveHistoryStartRow` / `contextCompactedMessageCount` and by design will
+ * not see a surface behind the compaction boundary, which is exactly the case
+ * this lookup exists to serve. {@link findPersistedSurfaceBlock}, which also
+ * backs the write paths, is unbounded, so reads and writes stay consistent.
+ *
+ * Hits are deliberately not memoized into `conversation.surfaceState`; see
+ * `runtime/routes/surface-content-routes.ts` for why that shared map must not
+ * absorb scan results.
+ */
+export function findPersistedSurfaceType(
+  conversationId: string,
+  surfaceId: string,
+): string | undefined {
+  try {
+    const hit = findPersistedSurfaceBlock(conversationId, surfaceId);
+    if (hit && typeof hit.block.surfaceType === "string") {
+      return hit.block.surfaceType;
+    }
+  } catch (err) {
+    log.warn(
+      { err, conversationId, surfaceId },
+      "Failed to read persisted surface type from DB",
+    );
+  }
+  return undefined;
 }
 
 /**
@@ -423,18 +478,10 @@ export function removeSurfaceBlock(
   }
 
   try {
-    const rows = getMessages(ctx.conversationId);
-    for (let r = rows.length - 1; r >= 0; r--) {
-      const parsed: unknown[] = rows[r].content;
-      const idx = parsed.findIndex((pb) => {
-        const rb = pb as Record<string, unknown>;
-        return rb.type === "ui_surface" && rb.surfaceId === surfaceId;
-      });
-      if (idx !== -1) {
-        parsed.splice(idx, 1);
-        updateMessageContent(rows[r].id, JSON.stringify(parsed));
-        return;
-      }
+    const hit = findPersistedSurfaceBlock(ctx.conversationId, surfaceId);
+    if (hit) {
+      hit.blocks.splice(hit.blockIndex, 1);
+      updateMessageContent(hit.rowId, JSON.stringify(hit.blocks));
     }
   } catch (err) {
     log.warn({ err, surfaceId }, "Failed to remove dismissed surface from DB");
