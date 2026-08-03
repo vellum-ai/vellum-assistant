@@ -118,6 +118,21 @@ const OUTBOUND_ROOT_THREAD_TTL_MS = 4 * 60 * 60 * 1_000;
  */
 const ROOT_ARMING_SUBTYPES = new Set(["file_share", "bot_message"]);
 
+/**
+ * How often to retry `auth.test` while the bot identity is still incomplete.
+ *
+ * Identity is otherwise refreshed only when a WebSocket opens, and Slack
+ * Socket Mode holds a connection for around an hour, so an install that starts
+ * during a Slack blip would run that long on a persisted identity. That is
+ * survivable for the `user`-attributed shape (`botUserId` comes from the same
+ * persisted row) but leaves `botId` unresolved, and an own `bot_message` echo
+ * arriving in that window is not recognized as ours, so it arms no root. This
+ * bounds that window to roughly a minute without gating ingestion on identity,
+ * which would trade a narrow arming gap for a total Slack outage during any
+ * `auth.test` blip.
+ */
+const IDENTITY_RETRY_INTERVAL_MS = 60_000;
+
 const SLACK_RESOLVE_TIMEOUT_MS = 3_000;
 
 /**
@@ -236,6 +251,7 @@ export class SlackSocketModeClient {
    * the identity short-circuit: see `resolveBotIdentity`.
    */
   private identityResolvedFromApi = false;
+  private identityRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     config: SlackSocketModeConfig,
@@ -252,6 +268,10 @@ export class SlackSocketModeClient {
     this.startDedupCleanup();
 
     await this.resolveBotIdentity();
+    // A transient auth.test failure leaves identity incomplete; keep retrying
+    // on a timer so the gap is bounded by a minute rather than by the life of
+    // the Socket Mode connection.
+    this.scheduleIdentityRetry();
     await this.connect();
   }
 
@@ -275,6 +295,50 @@ export class SlackSocketModeClient {
    * token cannot self-heal. Server-side errors (internal_error, fatal_error)
    * are treated as transient and fall through to persistence.
    */
+  /**
+   * True while `auth.test` still has something to tell us. False once it has
+   * answered authoritatively in this process, or when the config already
+   * carries every identity field.
+   */
+  private identityNeedsResolution(): boolean {
+    if (this.identityResolvedFromApi) return false;
+    return !(
+      this.config.botUserId &&
+      this.config.botUsername &&
+      this.config.botId
+    );
+  }
+
+  /**
+   * Keep retrying identity resolution on a timer while it is incomplete.
+   *
+   * Without this the only retry is a WebSocket open, so a persisted-identity
+   * fallback survives for the life of a Socket Mode connection. See
+   * {@link IDENTITY_RETRY_INTERVAL_MS} for why this bounds the window rather
+   * than gating event processing on it.
+   */
+  private scheduleIdentityRetry(): void {
+    if (this.identityRetryTimer) {
+      clearTimeout(this.identityRetryTimer);
+      this.identityRetryTimer = null;
+    }
+    if (!this.running || !this.identityNeedsResolution()) {
+      return;
+    }
+    this.identityRetryTimer = setTimeout(() => {
+      this.identityRetryTimer = null;
+      void this.resolveBotIdentity()
+        .catch((err: unknown) => {
+          log.warn({ err }, "Slack identity retry failed");
+        })
+        .finally(() => {
+          this.scheduleIdentityRetry();
+        });
+    }, IDENTITY_RETRY_INTERVAL_MS);
+    // Never hold the process open for a retry.
+    this.identityRetryTimer.unref?.();
+  }
+
   private async resolveBotIdentity(): Promise<void> {
     // Short-circuit on having had an authoritative answer, not on the fields
     // being populated. Those differ exactly once: an install that upgrades
@@ -283,10 +347,7 @@ export class SlackSocketModeClient {
     // not. Keying on presence would return here on every later reconnect and
     // leave the `bot_message` self-filter disabled until a full restart, which
     // reopens the echo gap for precisely the installs that hit a bad upgrade.
-    if (this.identityResolvedFromApi) {
-      return;
-    }
-    if (this.config.botUserId && this.config.botUsername && this.config.botId) {
+    if (!this.identityNeedsResolution()) {
       return;
     }
 
@@ -420,6 +481,10 @@ export class SlackSocketModeClient {
     this.running = false;
     this.connecting = false;
     this.stopDedupCleanup();
+    if (this.identityRetryTimer) {
+      clearTimeout(this.identityRetryTimer);
+      this.identityRetryTimer = null;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
