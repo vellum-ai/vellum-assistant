@@ -165,11 +165,16 @@ export async function writeHomeFeedItemForSignal(
  * non-empty title.
  */
 function deriveFallbackTitle(summary: string): string {
-  // `stripMarkdown` covers inline syntax and headings; list bullets only read
-  // as markers while the line breaks are still there, so drop them here.
-  const plain = flattenWhitespace(
-    stripMarkdown(summary).replace(/^[ \t]*[-*+][ \t]+/gm, ""),
-  );
+  // Block markers are line-anchored, so they have to go before the whitespace
+  // collapse, and before `stripMarkdown` (whose inline-code rule would chew a
+  // fence into a stray backtick). Ordered markers matter most: the seed prompt
+  // asks the model for numbered lists, and a leading `1.` also reads as a
+  // sentence terminator, which would truncate the title to the first digit.
+  const deblocked = summary
+    .replace(/^[ \t]*```.*$/gm, "")
+    .replace(/^[ \t]*>[ \t]?/gm, "")
+    .replace(/^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/gm, "");
+  const plain = flattenWhitespace(stripMarkdown(deblocked));
   return deriveTitle(plain || flattenWhitespace(summary));
 }
 
