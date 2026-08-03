@@ -32,6 +32,11 @@ import {
   type ResolvedSubagentRole,
   resolveSubagentRole,
 } from "../../subagent/role-resolution.js";
+import {
+  SUBAGENT_OUTPUT_CONTRACTS,
+  type SubagentOutputContract,
+  type SubagentRole,
+} from "../../subagent/types.js";
 import { getLogger } from "../../util/logger.js";
 import {
   invalidToolInputResult,
@@ -81,6 +86,17 @@ const LOOP_GUARD_CONVERSATION_LIMIT = 3;
 const LOOP_GUARD_ASSISTANT_LIMIT = 10;
 
 /**
+ * The tier a `verdict` spawn runs on when it names no `inference_profile`.
+ *
+ * Checking a criterion against evidence that already exists is mechanical:
+ * find the file, read the value, say PASS or FAIL. A premium model buys
+ * nothing there, and completion checks are frequent enough that paying
+ * investigation rates for them dominates delegated spend, so the contract that
+ * makes a spawn a check also picks the tier the check is worth.
+ */
+const VERDICT_PROFILE_KEY = "cost-optimized";
+
+/**
  * Model-input schema, `safeParse`d at the top of {@link executeSubagentSpawn}.
  * Same in-tool pattern and TOOLS.json drift guard as the other bundled-skill
  * tools — see the schema block in `tools/document/document-tool.ts` for the
@@ -96,6 +112,7 @@ export const subagentSpawnInputSchema = z.looseObject({
   context: nullAsOmitted(z.string()),
   inference_profile: z.string().optional(),
   confirm_repeat: nullAsOmitted(z.boolean()),
+  output_contract: nullAsOmitted(z.enum(SUBAGENT_OUTPUT_CONTRACTS)),
 });
 
 export async function executeSubagentSpawn(
@@ -118,6 +135,7 @@ export async function executeSubagentSpawn(
       : undefined;
   const resolvedRole = resolveSubagentRole(requestedRole);
   const inferenceProfile = parsed.inference_profile;
+  const outputContract = parsed.output_contract;
 
   // For fork mode, sendResultToUser defaults to false unless explicitly set to true.
   // For regular mode, sendResultToUser defaults to true (existing behavior).
@@ -130,6 +148,11 @@ export async function executeSubagentSpawn(
       content: 'Both "label" and "objective" are required.',
       isError: true,
     };
+  }
+
+  const contractError = outputContractError(outputContract, resolvedRole.role);
+  if (contractError) {
+    return { content: contractError, isError: true };
   }
 
   let requestedOverrideProfile: string | undefined;
@@ -267,16 +290,27 @@ export async function executeSubagentSpawn(
   let profileNote: string | undefined;
   let inheritedOverrideProfile = requestedOverrideProfile;
   if (inheritedOverrideProfile === undefined) {
-    inheritedOverrideProfile = isolateProfile
-      ? subagentCallSiteProfile()
-      : (context.overrideProfile ??
+    if (outputContract === "verdict") {
+      // A verdict is a check rather than an investigation, so it takes the
+      // cheap tier ahead of every inheritance rung below. It stays unforced
+      // like those rungs: the tier is this tool's preset, not a caller's
+      // choice, so an explicit `llm.callSites.subagentSpawn` pin still
+      // outranks it. Only an `inference_profile` argument beats it, and that
+      // one never enters this branch at all.
+      inheritedOverrideProfile = VERDICT_PROFILE_KEY;
+    } else if (isolateProfile) {
+      inheritedOverrideProfile = subagentCallSiteProfile();
+    } else {
+      inheritedOverrideProfile =
+        context.overrideProfile ??
         getConversationOverrideProfile(context.conversationId) ??
         (llm.callSites?.subagentSpawn?.profile == null
           ? resolveDefaultProfileKey(
               context.invokingCallSite ?? "mainAgent",
               llm,
             )
-          : undefined));
+          : undefined);
+    }
   } else if (
     isolateProfile &&
     profileSupportsTools(inheritedOverrideProfile, config) === false
@@ -305,6 +339,7 @@ export async function executeSubagentSpawn(
         ...(resolvedRole.personaText
           ? { persona: resolvedRole.personaText }
           : {}),
+        ...(outputContract ? { outputContract } : {}),
         // Declare the spawn mode so delegated LLM spend is separable in
         // telemetry: every variety shares `llm_call_site = "subagentSpawn"`,
         // and a fork's inherited transcript costs very differently from a
@@ -339,6 +374,59 @@ export async function executeSubagentSpawn(
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Failed to spawn subagent: ${msg}`, isError: true };
   }
+}
+
+// ── Output contract ──────────────────────────────────────────────────
+
+/**
+ * Why the requested `output_contract` cannot run under the type this spawn
+ * resolved to, or `undefined` when the pairing is fine.
+ *
+ * The two non-default contracts each need a capability only one type has: a
+ * verdict is a claim about what already exists, which is the read-only
+ * researcher's job, and an artifact has to be written, which only a builder
+ * can do. The advisor takes no contract at all: it is a blocking consult that
+ * returns guidance in its own framing, and its child never sees a built system
+ * prompt or fork framing to render one into. That includes an explicit
+ * `report`, which is checked against the advisor before it is waved through as
+ * the default everywhere else: the caller asked for a shape the consult cannot
+ * produce, and only an omitted contract means it never asked.
+ *
+ * Mismatches are rejected rather than coerced. Silently promoting a verdict
+ * spawn to a builder would hand out write access the caller never asked for,
+ * and silently demoting one to a report would return prose where the caller
+ * expected pass/fail. Either way the caller is the only one who can say which
+ * half of its request was the mistake.
+ */
+function outputContractError(
+  contract: SubagentOutputContract | undefined,
+  role: SubagentRole,
+): string | undefined {
+  if (contract === undefined) {
+    return undefined;
+  }
+  if (role === "advisor") {
+    return (
+      `output_contract "${contract}" does not apply to the advisor: it is a blocking consult that returns guidance in its own shape. ` +
+      'Drop output_contract, or spawn role "researcher" with output_contract "verdict" to have work checked.'
+    );
+  }
+  if (contract === "report") {
+    return undefined;
+  }
+  if (contract === "verdict" && role !== "researcher") {
+    return (
+      `output_contract "verdict" is only available to researcher-typed subagents, and this spawn resolved to "${role}". ` +
+      'Spawn it with role "researcher" to get an evidence-backed PASS/FAIL check, or drop output_contract to get a report.'
+    );
+  }
+  if (contract === "artifact" && role !== "builder") {
+    return (
+      `output_contract "artifact" is only available to builder-typed subagents, and this spawn resolved to "${role}". ` +
+      'Spawn it with role "builder" so it can actually produce the artifact, or drop output_contract to get a report.'
+    );
+  }
+  return undefined;
 }
 
 // ── Role resolution ──────────────────────────────────────────────────

@@ -307,6 +307,15 @@ export function SkillsReferenceSubagentContent() {
               <strong>No role named.</strong> A subagent spawned without a role
               runs as a builder, with the same tools your assistant has.
             </li>
+            <li>
+              <strong>Checking work is a researcher job.</strong> Ask whether
+              something is really done (&ldquo;verify every item on that
+              list&rdquo;) and your assistant sends a read-only researcher that
+              answers pass or fail per item with the evidence behind each call,
+              and says so plainly when the evidence isn&apos;t there. Checking
+              is mechanical, so it runs on a cheaper model than an open-ended
+              investigation would.
+            </li>
           </ul>
         </section>
 
