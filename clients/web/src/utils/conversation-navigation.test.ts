@@ -4,7 +4,7 @@
  *
  * Focus: they reset stale viewer state (main view, subagent / workflow panels,
  * transcript side-panel payloads), update the active conversation, and fire
- * exactly one haptic tap — unless the caller opts out via `{ silent: true }`.
+ * exactly one haptic tap, unless the caller opts out via `{ silent: true }`.
  * The fork action taps at action start and routes navigation through this
  * helper, so it relies on `silent` to avoid a double buzz.
  */
