@@ -30,7 +30,7 @@ import {
 } from "../config/llm-context-resolution.js";
 import {
   resolveCallSiteConfig,
-  resolveEffectiveProfileKey,
+  resolveCallSiteConfigWithProfile,
   resolveProfilelessModelKey,
   selectWinningProfile,
 } from "../config/llm-resolver.js";
@@ -422,16 +422,8 @@ export async function runAgentLoopImpl(
         forceOverrideProfile,
         selectionSeed: ctx.conversationId,
       };
-      const resolved = resolveCallSiteConfig(
-        turnCallSite,
-        config.llm,
-        resolveOpts,
-      );
-      const profileName = resolveEffectiveProfileKey(
-        turnCallSite,
-        config.llm,
-        resolveOpts,
-      );
+      const { config: resolved, profileName } =
+        resolveCallSiteConfigWithProfile(turnCallSite, config.llm, resolveOpts);
       let connectionName = resolved.provider_connection;
       try {
         connectionName =

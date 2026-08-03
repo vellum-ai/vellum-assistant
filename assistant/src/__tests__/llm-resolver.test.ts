@@ -6,6 +6,7 @@ import { CODE_DEFAULT_PROFILE_ENTRIES } from "../config/default-profile-catalog.
 import {
   type ResolutionFallbackReason,
   resolveCallSiteConfig,
+  resolveCallSiteConfigWithProfile,
   resolveDefaultProfileKey,
   resolveEffectiveProfileKey,
 } from "../config/llm-resolver.js";
@@ -857,6 +858,21 @@ describe("mix profiles", () => {
     } else {
       expect(first.effort).toBe("high");
     }
+  });
+
+  test("config and profile attribution share one mix selection", () => {
+    const selectedArms: string[] = [];
+    const resolved = resolveCallSiteConfigWithProfile("mainAgent", mixLlm, {
+      onMixSelected: ({ chosenProfile }) => {
+        selectedArms.push(chosenProfile);
+      },
+    });
+
+    expect(resolved.profileName).toBe("ab");
+    expect(selectedArms).toHaveLength(1);
+    expect(resolved.config.model).toBe(
+      selectedArms[0] === "a" ? "model-a" : "model-b",
+    );
   });
 
   test("all dereference spots in a turn agree for the same seed", () => {

@@ -191,6 +191,56 @@ describe("classifyConversationError", () => {
       expect(result.errorCategory).toBe("rate_limit");
     });
 
+    it("prefers the failed call's direct route over stale managed turn attribution", () => {
+      providerRoutingSources.openai = "managed-proxy";
+      const err = new ProviderError(
+        "OpenAI API error (429): Too many requests",
+        "openai",
+        429,
+        { reason: "rate_limited" },
+      );
+      err.attachRouteAttribution({
+        connectionName: "chatgpt-subscription",
+        profileName: "chatgpt",
+        isManagedRoute: false,
+      });
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "vellum",
+        profileName: "managed",
+        isManagedRoute: true,
+      });
+
+      expect(result.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(result.userMessage).toContain("AI provider");
+      expect(result.errorCategory).toBe("rate_limit");
+    });
+
+    it("prefers the failed call's managed fallback over stale direct turn attribution", () => {
+      const err = new ProviderError(
+        "Anthropic API error (429): Too many requests",
+        "anthropic",
+        429,
+        { reason: "rate_limited" },
+      );
+      err.attachRouteAttribution({
+        profileName: "direct",
+        isManagedRoute: true,
+      });
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "anthropic-key",
+        profileName: "direct",
+        isManagedRoute: false,
+      });
+
+      expect(result.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(result.userMessage).toContain("Vellum managed inference");
+      expect(result.errorCategory).toBe("managed_usage_limit");
+    });
+
     it("does not apply a managed LLM route to a plain rate-limit error", () => {
       const result = classifyConversationError(
         new Error("429 Too Many Requests from a tool API"),

@@ -260,12 +260,22 @@ export function classifyConversationError(
   // credential-related classifications can name the exact slot to fix.
   // A `ProviderNotConfiguredError` instance carries its own attribution
   // (from the throw site) which takes priority over context when present.
+  const providerRoute =
+    error instanceof ProviderError ? error.routeAttribution : undefined;
+  const profileName = providerRoute?.profileName ?? ctx.profileName;
   const attribution: ConversationErrorAttribution = {
-    ...(ctx.connectionName ? { connectionName: ctx.connectionName } : {}),
-    ...(ctx.profileName ? { profileName: ctx.profileName } : {}),
-    ...(ctx.isManagedRoute !== undefined
-      ? { isManagedRoute: ctx.isManagedRoute }
+    ...(providerRoute === undefined && ctx.connectionName
+      ? { connectionName: ctx.connectionName }
       : {}),
+    ...(providerRoute?.connectionName
+      ? { connectionName: providerRoute.connectionName }
+      : {}),
+    ...(profileName ? { profileName } : {}),
+    ...(providerRoute?.isManagedRoute !== undefined
+      ? { isManagedRoute: providerRoute.isManagedRoute }
+      : providerRoute === undefined && ctx.isManagedRoute !== undefined
+        ? { isManagedRoute: ctx.isManagedRoute }
+        : {}),
   };
 
   // Dedicated classification for missing provider API key

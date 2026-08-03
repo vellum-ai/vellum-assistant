@@ -21,9 +21,13 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import {
+  resolveCallSiteConfig,
+  resolveCallSiteConfigWithProfile,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { getDb } from "../persistence/db-connection.js";
+import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
@@ -36,7 +40,10 @@ import {
 } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
-import { shouldUseNativeWebSearch } from "./registry.js";
+import {
+  getProviderRoutingSource,
+  shouldUseNativeWebSearch,
+} from "./registry.js";
 import { recordProviderRequestDiagnostics } from "./request-diagnostics.js";
 import type {
   Message,
@@ -44,8 +51,17 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "./types.js";
+import { VELLUM_MANAGED_CONNECTION_NAME } from "./vellum-model-routing.js";
 
 const log = getLogger("providers/call-site-routing");
+
+interface SelectedProviderRoute {
+  provider: Provider;
+  connectionName?: string;
+  profileName?: string;
+  isManagedRoute?: boolean;
+}
+
 export class CallSiteRoutingProvider implements Provider {
   public readonly tokenEstimationProvider?: string;
   // Forward native web-search capability so it survives the wrapper chain
@@ -99,6 +115,7 @@ export class CallSiteRoutingProvider implements Provider {
       expectedProvider: string,
       model: string | undefined,
     ) => Promise<Provider | null>,
+    private readonly defaultIsManagedRoute?: boolean,
   ) {
     this.tokenEstimationProvider = defaultProvider.tokenEstimationProvider;
     this.supportsNativeWebSearch = defaultProvider.supportsNativeWebSearch;
@@ -112,11 +129,30 @@ export class CallSiteRoutingProvider implements Provider {
     messages: Message[],
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    const target = await this.selectProvider(options);
+    const selectedRoute = await this.selectProvider(options);
+    const target = selectedRoute.provider;
     const isRouted = target !== this.defaultProvider;
 
     const doSend = async (): Promise<ProviderResponse> => {
-      const response = await target.sendMessage(messages, options);
+      let response: ProviderResponse;
+      try {
+        response = await target.sendMessage(messages, options);
+      } catch (error) {
+        if (error instanceof ProviderError) {
+          error.attachRouteAttribution({
+            ...(selectedRoute.connectionName
+              ? { connectionName: selectedRoute.connectionName }
+              : {}),
+            ...(selectedRoute.profileName
+              ? { profileName: selectedRoute.profileName }
+              : {}),
+            ...(selectedRoute.isManagedRoute !== undefined
+              ? { isManagedRoute: selectedRoute.isManagedRoute }
+              : {}),
+          });
+        }
+        throw error;
+      }
       // Also stamp actualProvider on the response so that handleUsage
       // (which reads event.actualProvider, not provider.name) attributes
       // the call to the right provider.
@@ -199,10 +235,10 @@ export class CallSiteRoutingProvider implements Provider {
    */
   private async selectProvider(
     options?: SendMessageOptions,
-  ): Promise<Provider> {
+  ): Promise<SelectedProviderRoute> {
     const callSite = options?.config?.callSite;
     if (!callSite) {
-      return this.defaultProvider;
+      return this.defaultRoute();
     }
 
     const overrideProfile = options?.config?.overrideProfile;
@@ -213,11 +249,15 @@ export class CallSiteRoutingProvider implements Provider {
     // request params.
     const forceOverrideProfile = options?.config?.forceOverrideProfile;
     const selectionSeed = options?.config?.selectionSeed;
-    const resolved = resolveCallSiteConfig(callSite, getConfig().llm, {
-      overrideProfile,
-      forceOverrideProfile,
-      selectionSeed,
-    });
+    const { config: resolved, profileName } = resolveCallSiteConfigWithProfile(
+      callSite,
+      getConfig().llm,
+      {
+        overrideProfile,
+        forceOverrideProfile,
+        selectionSeed,
+      },
+    );
 
     let connectionName = resolved.provider_connection;
 
@@ -273,7 +313,12 @@ export class CallSiteRoutingProvider implements Provider {
         // so a connection that fell back to the default transport is not
         // reported as the one that signed the request.
         recordProviderRequestDiagnostics({ connection_name: connectionName });
-        return connectionProvider;
+        return {
+          provider: connectionProvider,
+          connectionName,
+          ...(profileName ? { profileName } : {}),
+          isManagedRoute: connectionName === VELLUM_MANAGED_CONNECTION_NAME,
+        };
       }
       // Soft credential failure: the routed connection yielded no usable
       // adapter and dispatch is landing on the default transport, which may
@@ -289,11 +334,11 @@ export class CallSiteRoutingProvider implements Provider {
         },
         "Routed connection yielded no adapter — falling back to the default transport",
       );
-      return this.defaultProvider;
+      return this.defaultRoute(profileName);
     }
 
     if (resolved.provider === this.defaultProvider.name) {
-      return this.defaultProvider;
+      return this.defaultRoute(profileName);
     }
 
     if (autoResolveCandidates) {
@@ -317,6 +362,16 @@ export class CallSiteRoutingProvider implements Provider {
       `call-site "${callSite}" resolves to provider "${resolved.provider}" but no provider_connection is set — alternate-provider routing requires a connection`,
     );
   }
+
+  private defaultRoute(profileName?: string): SelectedProviderRoute {
+    return {
+      provider: this.defaultProvider,
+      ...(profileName ? { profileName } : {}),
+      ...(this.defaultIsManagedRoute !== undefined
+        ? { isManagedRoute: this.defaultIsManagedRoute }
+        : {}),
+    };
+  }
 }
 
 /**
@@ -332,6 +387,7 @@ export function wrapWithCallSiteRouting(
   base: Provider,
   config: ProvidersConfig,
 ): Provider {
+  const routingSource = getProviderRoutingSource(base.name);
   return new CallSiteRoutingProvider(
     base,
     (connectionName, expectedProvider, model) =>
@@ -341,5 +397,6 @@ export function wrapWithCallSiteRouting(
         expectedProvider,
         model,
       ),
+    routingSource === undefined ? undefined : routingSource === "managed-proxy",
   );
 }
