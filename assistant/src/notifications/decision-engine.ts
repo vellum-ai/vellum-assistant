@@ -230,9 +230,9 @@ function buildUserPrompt(signal: NotificationSignal): string {
 // ── Tool definition ────────────────────────────────────────────────────
 
 /**
- * Modelled on the conversation title prompt (`persistence/conversation-title-service.ts`),
- * which reliably gets clean noun-phrase headlines out of this same model profile.
- * Without a real spec the model echoes the body back as the title.
+ * Spec for the per-channel notification title. Mirrors the conversation title
+ * prompt (`persistence/conversation-title-service.ts`), which gets clean
+ * noun-phrase headlines out of this same model profile.
  */
 const TITLE_FIELD_DESCRIPTION = [
   "Scannable headline naming the TOPIC of this notification, not a summary of it.",
