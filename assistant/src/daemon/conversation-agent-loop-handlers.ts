@@ -120,6 +120,7 @@ import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
   classifyConversationError,
+  type ConversationErrorAttribution,
   maxTokensReachedClassification,
 } from "./conversation-error.js";
 import { buildDeferredFinalizeEffect } from "./conversation-turn-finalize.js";
@@ -548,6 +549,8 @@ export interface EventHandlerDeps {
    * degrades gracefully when it's absent.
    */
   readonly latencyTracker?: TurnLatencyTracker;
+  /** Best-effort resolved route metadata for provider error classification. */
+  readonly errorAttribution?: () => ConversationErrorAttribution;
 }
 
 // ── Factory ──────────────────────────────────────────────────────────
@@ -2620,9 +2623,7 @@ function handleError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "error" }>,
 ): void {
-  const classified = classifyConversationError(event.error, {
-    phase: "agent_loop",
-  });
+  const classified = classifyAgentLoopError(event.error, deps);
   if (classified.errorCategory === "provider_api_error") {
     log.error(
       {
@@ -3131,9 +3132,7 @@ function handleProviderError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "provider_error" }>,
 ): void {
-  const classified = classifyConversationError(event.error, {
-    phase: "agent_loop",
-  });
+  const classified = classifyAgentLoopError(event.error, deps);
   if (!shouldPersistProviderErrorAsAssistantMessage(classified)) {
     return;
   }
@@ -3153,6 +3152,16 @@ function handleProviderError(
       "Failed to persist provider-error LLM request log (non-fatal)",
     );
   }
+}
+
+function classifyAgentLoopError(
+  error: Error,
+  deps: EventHandlerDeps,
+): ReturnType<typeof classifyConversationError> {
+  return classifyConversationError(error, {
+    phase: "agent_loop",
+    ...deps.errorAttribution?.(),
+  });
 }
 
 // ── Dispatcher ───────────────────────────────────────────────────────

@@ -170,6 +170,26 @@ describe("classifyConversationError", () => {
       expect(result.userMessage).toContain("AI provider");
       expect(result.errorCategory).toBe("rate_limit");
     });
+
+    it("uses the ChatGPT OAuth route instead of the OpenAI registry default", () => {
+      providerRoutingSources.openai = "managed-proxy";
+      const err = new ProviderError(
+        "OpenAI API error (429): Too many requests",
+        "openai",
+        429,
+        { reason: "rate_limited" },
+      );
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "chatgpt-subscription",
+        isManagedRoute: false,
+      });
+
+      expect(result.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(result.userMessage).toContain("AI provider");
+      expect(result.errorCategory).toBe("rate_limit");
+    });
   });
 
   describe("provider overloaded errors", () => {

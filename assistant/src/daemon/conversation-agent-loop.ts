@@ -60,8 +60,10 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
+import { resolveRoutingIdentity } from "../providers/routing-identity.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
+import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
@@ -94,6 +96,7 @@ import {
   budgetYieldUnrecoveredClassification,
   buildConversationErrorMessage,
   classifyConversationError,
+  type ConversationErrorAttribution,
   isUserCancellation,
 } from "./conversation-error.js";
 import { raceWithTimeout } from "./conversation-media-retry.js";
@@ -408,10 +411,7 @@ export async function runAgentLoopImpl(
   // connection and profile so credential/connection errors point at the
   // exact slot to fix instead of a generic banner. Resolution can itself
   // throw on a broken config — attribution must never mask the real error.
-  const turnErrorAttribution = (): {
-    connectionName?: string;
-    profileName?: string;
-  } => {
+  const turnErrorAttribution = (): ConversationErrorAttribution => {
     try {
       const overrideProfile = readCurrentOverrideProfile();
       const resolveOpts = {
@@ -429,11 +429,22 @@ export async function runAgentLoopImpl(
         config.llm,
         resolveOpts,
       );
+      const routingIdentity = resolveRoutingIdentity(
+        resolved.provider,
+        resolved.model,
+      );
+      const connectionName =
+        routingIdentity?.connectionName ?? resolved.provider_connection;
+      const isManagedRoute =
+        connectionName === VELLUM_MANAGED_CONNECTION_NAME
+          ? true
+          : routingIdentity
+            ? false
+            : undefined;
       return {
-        ...(resolved.provider_connection
-          ? { connectionName: resolved.provider_connection }
-          : {}),
+        ...(connectionName ? { connectionName } : {}),
         ...(profileName ? { profileName } : {}),
+        ...(isManagedRoute !== undefined ? { isManagedRoute } : {}),
       };
     } catch {
       return {};
@@ -1035,6 +1046,7 @@ export async function runAgentLoopImpl(
       turnInterfaceContext: capturedTurnInterfaceContext,
       applyCompaction: applySuccessfulCompaction,
       latencyTracker,
+      errorAttribution: turnErrorAttribution,
     };
     const eventHandler = (event: AgentEvent): Promise<void> => {
       if (

@@ -63,6 +63,8 @@ export interface ClassifiedConversationError {
 export interface ConversationErrorAttribution {
   connectionName?: string;
   profileName?: string;
+  /** Whether the resolved turn route uses Vellum-managed inference. */
+  isManagedRoute?: boolean;
 }
 
 // Network-level error patterns (connection refused, timeout, DNS, reset)
@@ -181,6 +183,11 @@ export interface ErrorContext {
    * underlying connection name is generic.
    */
   profileName?: string;
+  /**
+   * Whether the resolved turn route uses Vellum-managed inference. Turn routing
+   * takes precedence over the provider registry's boot-time default.
+   */
+  isManagedRoute?: boolean;
 }
 
 /**
@@ -256,6 +263,9 @@ export function classifyConversationError(
   const attribution: ConversationErrorAttribution = {
     ...(ctx.connectionName ? { connectionName: ctx.connectionName } : {}),
     ...(ctx.profileName ? { profileName: ctx.profileName } : {}),
+    ...(ctx.isManagedRoute !== undefined
+      ? { isManagedRoute: ctx.isManagedRoute }
+      : {}),
   };
 
   // Dedicated classification for missing provider API key
@@ -354,13 +364,18 @@ function classifyCore(
   message: string,
   attribution: ConversationErrorAttribution = {},
 ): Omit<ClassifiedConversationError, "debugDetails"> {
+  const isManagedRoute =
+    attribution.isManagedRoute ??
+    (error instanceof ProviderError &&
+      getProviderRoutingSource(error.provider) === "managed-proxy");
+
   // Prefer the semantic reason stamped by the provider layer, regardless of
   // HTTP status — statusless errors (e.g. SDK streaming failures) still carry a
   // reason. Reasons that map cleanly win here; `bad_request`/`unknown` (and a
   // reason-less error) fall through to the status switch + regex battery below.
   if (error instanceof ProviderError && error.reason) {
     const c = reasonToClassification(error.reason, {
-      routingSource: getProviderRoutingSource(error.provider),
+      isManagedRoute,
       attribution,
       message,
     });
@@ -382,20 +397,19 @@ function classifyCore(
       // Everything else is a user-set credential that the upstream provider
       // rejected, so emit `PROVIDER_INVALID_KEY` and let the chat banner point
       // at Settings.
-      const providerName = error.provider;
-      if (getProviderRoutingSource(providerName) === "managed-proxy") {
+      if (isManagedRoute) {
         return managedKeyInvalidClassification();
       }
       return invalidApiKeyClassification(attribution);
     }
     if (error.statusCode === 402) {
-      if (isManagedBalanceError(error)) {
+      if (isManagedRoute) {
         return managedBalanceClassification();
       }
       return providerBillingClassification();
     }
     if (error.statusCode === 429) {
-      if (isManagedUsageLimitError(error, message)) {
+      if (isManagedUsageLimitError(message, isManagedRoute)) {
         return managedUsageLimitClassification();
       }
       return rateLimitClassification();
@@ -508,7 +522,7 @@ function classifyCore(
   }
 
   // Regex fallback for non-ProviderError or ProviderError without statusCode
-  return classifyByMessage(error, message);
+  return classifyByMessage(message, isManagedRoute);
 }
 
 /**
@@ -540,12 +554,12 @@ function extractProviderDetail(message: string): string | undefined {
 function reasonToClassification(
   reason: ProviderErrorReason,
   args: {
-    routingSource?: string;
+    isManagedRoute: boolean;
     attribution?: ConversationErrorAttribution;
     message: string;
   },
 ): Omit<ClassifiedConversationError, "debugDetails"> | null {
-  const managed = args.routingSource === "managed-proxy";
+  const managed = args.isManagedRoute;
   switch (reason) {
     case "invalid_credentials":
       return managed
@@ -670,18 +684,13 @@ function isStreamingError(message: string): boolean {
   return STREAMING_ERROR_PATTERNS.some((p) => p.test(message));
 }
 
-function isManagedUsageLimitError(error: unknown, message: string): boolean {
-  if (
-    error instanceof ProviderError &&
-    getProviderRoutingSource(error.provider) === "managed-proxy"
-  ) {
-    return true;
-  }
-  return MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(message));
-}
-
-function isManagedBalanceError(error: ProviderError): boolean {
-  return getProviderRoutingSource(error.provider) === "managed-proxy";
+function isManagedUsageLimitError(
+  message: string,
+  isManagedRoute: boolean,
+): boolean {
+  return (
+    isManagedRoute || MANAGED_USAGE_LIMIT_PATTERNS.some((p) => p.test(message))
+  );
 }
 
 function isProviderBillingError(message: string): boolean {
@@ -906,8 +915,8 @@ function providerNotConfiguredClassification(
  * short-circuit and the status switch both decline to classify.
  */
 function classifyByMessage(
-  error: unknown,
   message: string,
+  isManagedRoute: boolean,
 ): Omit<ClassifiedConversationError, "debugDetails"> {
   // Empty-request-messages is always an internal construction failure — check
   // it before the provider/network patterns so a ProviderError that carries the
@@ -924,7 +933,7 @@ function classifyByMessage(
   // Check rate limit first (before network, since 429 could match both)
   for (const pattern of RATE_LIMIT_PATTERNS) {
     if (pattern.test(message)) {
-      if (isManagedUsageLimitError(error, message)) {
+      if (isManagedUsageLimitError(message, isManagedRoute)) {
         return managedUsageLimitClassification();
       }
       return rateLimitClassification();
