@@ -74,7 +74,8 @@ function createSlackStore(): { rawDb: Database; store: SlackStore } {
       channel_id TEXT,
       tracked_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL,
-      detached_at INTEGER
+      detached_at INTEGER,
+      speculative_root_at INTEGER
     );
     CREATE TABLE slack_seen_events (
       event_id TEXT PRIMARY KEY,
@@ -698,6 +699,99 @@ describe("replayMissedEvents", () => {
       const raw = emitted[0].event.raw as { type?: string };
       expect(raw.type).toBe("app_mention");
       expect(emitted[0].threadTs).toBe(parentTs);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("does not fan out over a speculative root until a human replies (LUM-2941)", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    client.ws = ws;
+
+    store.setLastSeenTsIfGreater("1700000000.000000");
+
+    // The assistant posts top-level into an unrouted channel (a heartbeat
+    // turn). The echo arms the post's ts as a speculative thread root.
+    const rootTs = "1700000020.000000";
+    const post = (eventId: string) =>
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: `env-${eventId}`,
+          type: "events_api",
+          payload: {
+            event_id: eventId,
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: "three PRs are waiting on review",
+              ts: rootTs,
+              channel: "CUNROUTED1",
+              channel_type: "channel",
+            },
+          },
+        }),
+        ws,
+      );
+
+    post("Ev-bot-top-level");
+    await flushAsyncEventEmission();
+    expect(emitted).toHaveLength(0);
+    expect(store.hasThread(rootTs)).toBe(true);
+
+    const calls: string[] = [];
+    fetchMock = mock(async (input) => {
+      calls.push(String(input));
+      return makeHistoryResponse([]);
+    });
+
+    try {
+      await client.replayMissedEvents(ws);
+      await flushAsyncEventEmission();
+
+      // The assistant posts continuously; one tier-3 conversations.replies
+      // call per never-engaged root on every reconnect would burn the rate
+      // limit that recovery of genuinely missed messages depends on.
+      expect(calls.some((u) => u.includes("conversations.replies"))).toBe(
+        false,
+      );
+
+      // A human replies live, which promotes the root to a tracked thread.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-human-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-human-reply",
+            event: {
+              type: "message",
+              user: "U-human",
+              text: "which one is blocking the release?",
+              ts: "1700000040.000000",
+              channel: "CUNROUTED1",
+              channel_type: "channel",
+              thread_ts: rootTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(1);
+
+      calls.length = 0;
+      await client.replayMissedEvents(ws);
+      await flushAsyncEventEmission();
+
+      expect(
+        calls.some(
+          (u) =>
+            u.includes("conversations.replies") &&
+            u.includes(encodeURIComponent(rootTs)),
+        ),
+      ).toBe(true);
     } finally {
       rawDb.close();
     }

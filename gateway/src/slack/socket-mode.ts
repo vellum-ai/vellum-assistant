@@ -85,6 +85,34 @@ const MAX_BACKOFF_MS = 30_000;
 const DEDUP_TTL_MS = 24 * 60 * 60 * 1_000;
 const DEDUP_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
 const ACTIVE_THREAD_TTL_MS = 24 * 60 * 60 * 1_000;
+
+/**
+ * TTL for a thread root armed from the assistant's own top-level post.
+ *
+ * Deliberately shorter than {@link ACTIVE_THREAD_TTL_MS} because these roots
+ * are speculative: the assistant opens one on every heartbeat or triage turn
+ * and most are never replied to. Four hours covers a same-session or
+ * after-lunch reply while letting untouched roots lapse before the next day's
+ * posts compound on them.
+ *
+ * This bounds only roots nobody engaged with. The moment a human reply is
+ * admitted, `normalizeAndEmit` re-arms the thread through `trackThread` at the
+ * full inbound TTL, so a root that becomes a real conversation immediately
+ * gets the normal lifetime.
+ */
+const OUTBOUND_ROOT_THREAD_TTL_MS = 4 * 60 * 60 * 1_000;
+
+/**
+ * Message subtypes that still count as the assistant saying something a human
+ * can reply to, and so may arm a thread root.
+ *
+ * `classifySlackEvent` reports `kind: "message"` for bot-authored system
+ * subtypes too (`channel_join`, `channel_topic`, ...); those open no
+ * conversation and must not arm anything. `thread_broadcast` is absent because
+ * it always carries a `thread_ts` and therefore takes the thread-reply arm.
+ */
+const ROOT_ARMING_SUBTYPES = new Set(["file_share"]);
+
 const SLACK_RESOLVE_TIMEOUT_MS = 3_000;
 
 /**
@@ -630,39 +658,102 @@ export class SlackSocketModeClient {
   }
 
   /**
-   * Side-effect-only handler for the bot's own thread replies. The event
-   * itself is always dropped (the caller returns after this), but thread
-   * tracking is armed so follow-up human replies pass the active-thread
-   * filter.
+   * Side-effect-only handler for the bot's own posts. The event itself is
+   * always dropped (the caller returns after this), but thread tracking is
+   * armed so follow-up human replies pass the active-thread filter.
+   *
+   * Two cases, because both open a conversation a human can reply into:
+   *
+   *   - **Thread reply** (`thread_ts` present): arms that thread at the full
+   *     TTL. The bot joining a thread is a participation signal as strong as
+   *     an inbound one.
+   *   - **Top-level post** (no `thread_ts`): arms the post's own `ts` as a
+   *     speculative thread root, at the shorter
+   *     {@link OUTBOUND_ROOT_THREAD_TTL_MS}. Without this a bot-initiated
+   *     conversation arms nothing at all and every reply under it is dropped
+   *     by the active-thread filter (LUM-2941).
+   *
+   * Keyed on the echo rather than on the sending code path, so it holds for
+   * every outbound route: the Slack skill's raw `chat.postMessage`, the
+   * messaging adapter, and the gateway's own posts alike. The flip side is
+   * that a post Slack attributes to a bot identity rather than to the bot
+   * *user* (subtype `bot_message`, no `user` field) never reaches here,
+   * because the self-filter that calls this matches on `user`. Routing
+   * outbound through the gateway (LUM-2942) removes the inference entirely.
    */
-  private maybeTrackBotOwnThreadReply(event: SlackInboundEvent): void {
+  private maybeTrackBotOwnPost(event: SlackInboundEvent): void {
     if (this.config.threadMode !== "mention_then_thread") {
       return;
     }
 
-    // Only a plain thread reply arms tracking. app_mentions, edits, deletes,
+    // Only a plain message arms tracking. app_mentions, edits, deletes,
     // and reactions do not.
     const classified = classifySlackEvent(event);
     if (!classified || classified.kind !== "message") {
       return;
     }
-    const { channel, thread_ts: threadTs } = classified.event;
-    if (!threadTs || !channel) {
+    const {
+      channel,
+      thread_ts: threadTs,
+      ts,
+      channel_type: channelType,
+      subtype,
+    } = classified.event;
+    if (!channel) {
       return;
     }
 
-    if (this.store.isThreadDetached(threadTs)) {
+    if (threadTs) {
+      if (this.store.isThreadDetached(threadTs)) {
+        log.info(
+          { channel, threadTs },
+          "Skipped tracking bot's own reply in explicitly muted thread",
+        );
+        return;
+      }
+      this.store.trackThread(threadTs, channel, ACTIVE_THREAD_TTL_MS);
       log.info(
         { channel, threadTs },
-        "Skipped tracking bot's own reply in explicitly muted thread",
+        "Tracked thread after bot's own thread reply",
       );
       return;
     }
 
-    this.store.trackThread(threadTs, channel, ACTIVE_THREAD_TTL_MS);
+    if (!ts) {
+      return;
+    }
+
+    // A system subtype (`channel_join` and friends) still classifies as
+    // `kind: "message"`, but the bot did not say anything repliable.
+    if (subtype !== undefined && !ROOT_ARMING_SUBTYPES.has(subtype)) {
+      return;
+    }
+
+    // A root buys admission only where admission is otherwise gated. DMs and
+    // group DMs already admit every message without a tracked thread, so a
+    // root there would add a row and change nothing. Message echoes carry
+    // `channel_type`, so the direct-like cases resolve from the payload
+    // without a `conversations.info` warm.
+    if (this.isDirectLikeChannel(channel, channelType)) {
+      return;
+    }
+
+    if (this.store.isThreadDetached(ts)) {
+      log.info(
+        { channel, threadTs: ts },
+        "Skipped arming bot's own post as a root in an explicitly muted thread",
+      );
+      return;
+    }
+
+    this.store.armSpeculativeThreadRoot(
+      ts,
+      channel,
+      OUTBOUND_ROOT_THREAD_TTL_MS,
+    );
     log.info(
-      { channel, threadTs },
-      "Tracked thread after bot's own thread reply",
+      { channel, threadTs: ts },
+      "Armed thread root after bot's own top-level post",
     );
   }
 
@@ -899,10 +990,10 @@ export class SlackSocketModeClient {
     // is dropped here, before any normalization or routing.
     const eventUser = this.extractEventUser(event);
     if (eventUser === botUserId) {
-      // Exception: the bot's own thread replies are used to arm thread
-      // tracking (so follow-up human replies are forwarded). This is a
-      // side effect only, the event itself is still dropped.
-      this.maybeTrackBotOwnThreadReply(event);
+      // Exception: the bot's own posts are used to arm thread tracking (so
+      // follow-up human replies are forwarded). This is a side effect only,
+      // the event itself is still dropped.
+      this.maybeTrackBotOwnPost(event);
       return;
     }
 

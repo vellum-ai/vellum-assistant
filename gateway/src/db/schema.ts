@@ -35,6 +35,16 @@ export const slackActiveThreads = sqliteTable("slack_active_threads", {
   // the bot's own mute confirmation cannot silently re-arm the thread it
   // just muted. An explicit human re-engagement (trackThread) clears it.
   detachedAt: integer("detached_at"),
+  // Set when the row was armed speculatively from the assistant's own
+  // top-level post: a thread root nobody has replied into yet. NULL = a
+  // thread with real human engagement behind it. Speculative roots still
+  // admit inbound events (`hasThread`), but are excluded from reconnect
+  // catch-up enumeration (`listActiveThreadsWithChannel`), which spends one
+  // tier-3 `conversations.replies` call per row. The assistant posts
+  // continuously, so fanning out over every never-engaged root could burn
+  // the rate limit that genuinely missed messages need. The first human
+  // reply promotes the row via `trackThread`, which clears this.
+  speculativeRootAt: integer("speculative_root_at"),
 });
 
 export const slackSeenEvents = sqliteTable("slack_seen_events", {
