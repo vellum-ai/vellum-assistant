@@ -229,6 +229,26 @@ function buildUserPrompt(signal: NotificationSignal): string {
 
 // ── Tool definition ────────────────────────────────────────────────────
 
+/**
+ * Spec for the per-channel notification title. Mirrors the conversation title
+ * prompt (`persistence/conversation-title-service.ts`), which gets clean
+ * noun-phrase headlines out of this same model profile.
+ */
+const TITLE_FIELD_DESCRIPTION = [
+  "Scannable headline naming the TOPIC of this notification, not a summary of it.",
+  "Rules:",
+  "- 2 to 5 words. Longer titles are unacceptable, ruthlessly compress",
+  "- 40 characters absolute maximum, longer titles get truncated and look broken",
+  "- A noun phrase naming the topic, never a sentence, question, or greeting (e.g. 'Platform Standup', 'Nightly Backup Failure')",
+  "- Do NOT restate, summarize, or echo the body. The title and the body must carry different information",
+  "- No quotes, no markdown, no trailing punctuation",
+  "- Never describe missing or thin context. Titles like 'Notification', 'Update', 'Missing Context' are forbidden. Extract a topic from the words that ARE present",
+  "Examples:",
+  "- Body 'Your 9am standup with the platform team starts in 5 minutes' -> 'Platform Standup', NOT 'Standup Starts In 5 Minutes'",
+  "- Body 'The nightly backup job failed on db-primary at 02:14' -> 'Nightly Backup Failure', NOT 'Nightly Backup Job Failed On db-primary'",
+  "- Body 'Alice replied about the Q3 pricing deck and wants your notes' -> 'Q3 Pricing Deck', NOT 'Alice Replied About The Pricing Deck'",
+].join("\n");
+
 function buildDecisionTool(availableChannels: NotificationChannel[]) {
   return {
     name: "record_notification_decision",
@@ -264,7 +284,7 @@ function buildDecisionTool(availableChannels: NotificationChannel[]) {
                 properties: {
                   title: {
                     type: "string",
-                    description: "Short notification popup title (≤ 8 words)",
+                    description: TITLE_FIELD_DESCRIPTION,
                   },
                   body: {
                     type: "string",
