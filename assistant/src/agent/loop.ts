@@ -1,3 +1,4 @@
+import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -289,6 +290,8 @@ export type AgentEvent =
       approvalReason?: string;
       riskThreshold?: string;
       activityMetadata?: ToolActivityMetadata;
+      /** Answered `ask_question` record (see `ToolExecutionResult.answeredQuestion`). */
+      answeredQuestion?: AnsweredQuestion;
       /** Stable machine-readable error classification (see `ToolExecutionResult.errorCode`). */
       errorCode?: string;
       /**
@@ -698,6 +701,7 @@ export type LoopToolExecutor = (
   approvalReason?: string;
   riskThreshold?: string;
   activityMetadata?: ToolActivityMetadata;
+  answeredQuestion?: AnsweredQuestion;
   errorCode?: string;
 }>;
 
@@ -2286,6 +2290,7 @@ export class AgentLoop {
             approvalReason: result.approvalReason,
             riskThreshold: result.riskThreshold,
             activityMetadata: result.activityMetadata,
+            answeredQuestion: result.answeredQuestion,
             errorCode: result.errorCode,
           });
         }

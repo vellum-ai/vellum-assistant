@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import type {
+  QuestionEntry,
   QuestionOption,
   QuestionRequestEvent,
 } from "../api/events/question-request.js";
@@ -57,6 +58,18 @@ export interface QuestionPromptEntryResult {
 export interface QuestionPromptResult {
   entries: QuestionPromptEntryResult[];
   overall: "completed" | "closed" | "timed_out" | "aborted";
+}
+
+/**
+ * What {@link QuestionPrompter.prompt} returns: the resolution plus the
+ * identity of the prompt that produced it. `requestId` and `questions` are
+ * known only to the prompter (it mints the id and assigns the per-question
+ * ids), and the `ask_question` executor needs both to record the durable
+ * answered-question payload against the questions as they were asked.
+ */
+export interface QuestionPromptOutcome extends QuestionPromptResult {
+  requestId: string;
+  questions: QuestionEntry[];
 }
 
 export interface QuestionPromptParamsEntry {
@@ -170,7 +183,7 @@ export interface QuestionBatchMetadata {
  * fires when a prompt is left open with no response and no follow-up message.
  */
 export class QuestionPrompter {
-  async prompt(params: QuestionPromptParams): Promise<QuestionPromptResult> {
+  async prompt(params: QuestionPromptParams): Promise<QuestionPromptOutcome> {
     const { conversationId, questions, toolUseId, signal } = params;
 
     if (questions.length === 0) {
@@ -195,8 +208,12 @@ export class QuestionPrompter {
       optionsById[e.id] = e.options.map((o) => o.id);
     }
 
+    const requestId = uuid();
+
     if (signal?.aborted) {
       return {
+        requestId,
+        questions: entries,
         entries: orderedIds.map((id) => ({
           questionId: id,
           decision: "aborted",
@@ -205,9 +222,7 @@ export class QuestionPrompter {
       };
     }
 
-    const requestId = uuid();
-
-    return new Promise<QuestionPromptResult>((resolve, reject) => {
+    const settled = new Promise<QuestionPromptResult>((resolve, reject) => {
       const timeoutMs = getConfig().timeouts.questionResponseTimeoutSec * 1000;
 
       // Closure-scoped idempotency guard. Every resolution path (timeout,
@@ -318,5 +333,7 @@ export class QuestionPrompter {
       // single-question batch) lives in the promotion module.
       void createGuardianRequestForQuestion(msg, conversationId);
     });
+
+    return { ...(await settled), requestId, questions: entries };
   }
 }

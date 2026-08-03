@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-import { QuestionPrompter } from "../../permissions/question-prompter.js";
+import type {
+  AnsweredQuestion,
+  AnsweredQuestionResponse,
+} from "../../api/events/question-answered.js";
+import {
+  QuestionPrompter,
+  type QuestionPromptOutcome,
+} from "../../permissions/question-prompter.js";
 import { RiskLevel } from "../../permissions/types.js";
 import {
   invalidToolInputResult,
@@ -161,6 +168,47 @@ export function formatQuestionsAsTextFallback(
   return [header, "", blocks.join("\n\n")].join("\n");
 }
 
+/**
+ * Project a settled prompt into the durable answered-question record the
+ * daemon persists on the tool call. Returns undefined for outcomes that carry
+ * no user decision (timeout, abort), which have nothing to show in history.
+ */
+export function toAnsweredQuestion(
+  outcome: QuestionPromptOutcome,
+): AnsweredQuestion | undefined {
+  if (outcome.overall !== "completed" && outcome.overall !== "closed") {
+    return undefined;
+  }
+  const responses: AnsweredQuestionResponse[] = [];
+  for (const entry of outcome.entries) {
+    if (entry.decision === "option") {
+      responses.push({
+        questionId: entry.questionId,
+        decision: "option",
+        optionId: entry.optionId,
+      });
+    } else if (entry.decision === "free_text") {
+      responses.push({
+        questionId: entry.questionId,
+        decision: "free_text",
+        text: entry.text,
+      });
+    } else {
+      // A `completed` batch can still carry per-question skips, and a `closed`
+      // card reports every question as skipped. `timed_out` / `aborted` cannot
+      // reach here: they only ever appear on a batch-wide outcome of the same
+      // name, which is filtered above.
+      responses.push({ questionId: entry.questionId, decision: "skipped" });
+    }
+  }
+  return {
+    requestId: outcome.requestId,
+    questions: outcome.questions,
+    responses,
+    overall: outcome.overall,
+  };
+}
+
 // ── Tool ────────────────────────────────────────────────────────────
 
 /**
@@ -254,15 +302,21 @@ export const askQuestionTool = {
       return `${prefix} Skipped`;
     });
 
+    // The user's decision belongs in the transcript, not just in the string
+    // handed to the model: the daemon persists this on the tool call so the
+    // answered card survives a conversation switch, reload, or history reopen.
+    const answeredQuestion = toAnsweredQuestion(result);
+
     switch (result.overall) {
       case "completed":
-        return { content: lines.join("\n"), isError: false };
+        return { content: lines.join("\n"), isError: false, answeredQuestion };
       case "closed": {
         const summary =
           "User closed the question card without answering. All questions skipped.";
         return {
           content: [summary, ...lines].join("\n"),
           isError: false,
+          answeredQuestion,
         };
       }
       case "timed_out":

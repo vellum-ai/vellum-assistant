@@ -42,6 +42,7 @@ import {
   isSubagentSpawnCall,
 } from "@/domains/chat/transcript/message-content";
 import { AcpConnectAffordance } from "@/domains/chat/transcript/acp-connect-affordance";
+import { AnsweredQuestionCard } from "@/domains/chat/components/answered-question-card";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
@@ -655,6 +656,25 @@ export function TranscriptMessageBody({
       <AcpConnectAffordance assistantId={assistantId} />
     ) : null;
 
+  // An answered `ask_question` renders its questions and the user's answers as
+  // a durable transcript row. The record rides the tool call itself (live from
+  // `tool_result`, then from the daemon's persisted copy on reload), so this
+  // renders identically on both paths and cannot double up: one card per
+  // answered tool call.
+  const renderAnsweredQuestionCards = (toolCalls: ChatMessageToolCall[]) => {
+    const answered = toolCalls.filter((tc) => tc.answeredQuestion);
+    if (answered.length === 0) {
+      return null;
+    }
+    return (
+      <div className="flex w-full flex-col gap-1.5">
+        {answered.map((tc) => (
+          <AnsweredQuestionCard key={tc.id} answered={tc.answeredQuestion!} />
+        ))}
+      </div>
+    );
+  };
+
   const renderInlineBackgroundTaskCards = (
     toolCalls: ChatMessageToolCall[],
   ) => {
@@ -731,14 +751,16 @@ export function TranscriptMessageBody({
     const renderableToolCalls = groupToolCalls.filter(
       // Suppress the raw chip only for a card-backed run_workflow / acp_spawn /
       // background bash call (see cardBackedWorkflowRunId / cardBackedAcpRunId /
-      // cardBackedBackgroundTaskId). A failed call (no id) or a run with no
-      // store entry is not card-backed, so it renders its tool result instead
-      // of vanishing.
+      // cardBackedBackgroundTaskId), or an answered ask_question whose card
+      // already shows the question and the answer. A failed call (no id) or a
+      // run with no store entry is not card-backed, so it renders its tool
+      // result instead of vanishing.
       (tc) =>
         !isSubagentSpawnCall(tc) &&
         cardBackedWorkflowRunId(tc) === null &&
         cardBackedAcpRunId(tc) === null &&
-        cardBackedBackgroundTaskId(tc) === null,
+        cardBackedBackgroundTaskId(tc) === null &&
+        tc.answeredQuestion === undefined,
     );
     const loneTool =
       cardItems.length === 1 &&
@@ -757,6 +779,7 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAnsweredQuestionCards(groupToolCalls)}
           {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
@@ -773,7 +796,8 @@ export function TranscriptMessageBody({
             (tc) =>
               cardBackedWorkflowRunId(tc) !== null ||
               cardBackedAcpRunId(tc) !== null ||
-              cardBackedBackgroundTaskId(tc) !== null,
+              cardBackedBackgroundTaskId(tc) !== null ||
+              tc.answeredQuestion !== undefined,
           )
           .map((tc) => tc.id),
       );
@@ -809,6 +833,7 @@ export function TranscriptMessageBody({
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
           {renderInlineBackgroundTaskCards(groupToolCalls)}
+          {renderAnsweredQuestionCards(groupToolCalls)}
           {renderAcpConnectAffordance(groupToolCalls)}
         </Fragment>
       );
@@ -834,6 +859,7 @@ export function TranscriptMessageBody({
         {renderInlineWorkflowCards(groupToolCalls)}
         {renderInlineAcpRunCards(groupToolCalls)}
         {renderInlineBackgroundTaskCards(groupToolCalls)}
+        {renderAnsweredQuestionCards(groupToolCalls)}
       </Fragment>
     );
   };
@@ -1047,6 +1073,7 @@ export function TranscriptMessageBody({
               cardBackedWorkflowRunId(toolCall) !== null ||
               cardBackedAcpRunId(toolCall) !== null ||
               cardBackedBackgroundTaskId(toolCall) !== null ||
+              toolCall.answeredQuestion !== undefined ||
               acpConnectToolUseId === toolCall.id ||
               unknownNudgeToolCallIds?.has(toolCall.id) === true,
           );

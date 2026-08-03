@@ -18976,6 +18976,76 @@ paths:
                                   - requestId
                                   - entries
                                 additionalProperties: false
+                              answeredQuestion:
+                                type: object
+                                properties:
+                                  requestId:
+                                    type: string
+                                  questions:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        id:
+                                          type: string
+                                        question:
+                                          type: string
+                                        description:
+                                          type: string
+                                        options:
+                                          type: array
+                                          items:
+                                            type: object
+                                            properties:
+                                              id:
+                                                type: string
+                                              label:
+                                                type: string
+                                              description:
+                                                type: string
+                                            required:
+                                              - id
+                                              - label
+                                            additionalProperties: false
+                                        freeTextPlaceholder:
+                                          type: string
+                                      required:
+                                        - id
+                                        - question
+                                        - options
+                                      additionalProperties: false
+                                  responses:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        questionId:
+                                          type: string
+                                        decision:
+                                          type: string
+                                          enum:
+                                            - option
+                                            - free_text
+                                            - skipped
+                                        optionId:
+                                          type: string
+                                        text:
+                                          type: string
+                                      required:
+                                        - questionId
+                                        - decision
+                                      additionalProperties: false
+                                  overall:
+                                    type: string
+                                    enum:
+                                      - completed
+                                      - closed
+                                required:
+                                  - requestId
+                                  - questions
+                                  - responses
+                                  - overall
+                                additionalProperties: false
                             required:
                               - name
                               - input
@@ -19414,6 +19484,76 @@ paths:
                                         required:
                                           - requestId
                                           - entries
+                                        additionalProperties: false
+                                      answeredQuestion:
+                                        type: object
+                                        properties:
+                                          requestId:
+                                            type: string
+                                          questions:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                id:
+                                                  type: string
+                                                question:
+                                                  type: string
+                                                description:
+                                                  type: string
+                                                options:
+                                                  type: array
+                                                  items:
+                                                    type: object
+                                                    properties:
+                                                      id:
+                                                        type: string
+                                                      label:
+                                                        type: string
+                                                      description:
+                                                        type: string
+                                                    required:
+                                                      - id
+                                                      - label
+                                                    additionalProperties: false
+                                                freeTextPlaceholder:
+                                                  type: string
+                                              required:
+                                                - id
+                                                - question
+                                                - options
+                                              additionalProperties: false
+                                          responses:
+                                            type: array
+                                            items:
+                                              type: object
+                                              properties:
+                                                questionId:
+                                                  type: string
+                                                decision:
+                                                  type: string
+                                                  enum:
+                                                    - option
+                                                    - free_text
+                                                    - skipped
+                                                optionId:
+                                                  type: string
+                                                text:
+                                                  type: string
+                                              required:
+                                                - questionId
+                                                - decision
+                                              additionalProperties: false
+                                          overall:
+                                            type: string
+                                            enum:
+                                              - completed
+                                              - closed
+                                        required:
+                                          - requestId
+                                          - questions
+                                          - responses
+                                          - overall
                                         additionalProperties: false
                                     required:
                                       - name

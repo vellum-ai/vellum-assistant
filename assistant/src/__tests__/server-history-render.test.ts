@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import {
@@ -547,6 +548,95 @@ describe("renderHistoryContent", () => {
     ]);
 
     expect(output.toolCalls[0].activityMetadata).toEqual(activityMetadata);
+  });
+
+  // ── Persisted answered ask_question ────────────────────────────────────────
+
+  test("hydrates a persisted _answeredQuestion onto its tool_use block", () => {
+    // Mirrors what the daemon stamps when an `ask_question` prompt settles, so
+    // the answered card rehydrates on a reopened conversation instead of the
+    // user's decision disappearing with the interactive prompt.
+    const answeredQuestion: AnsweredQuestion = {
+      requestId: "req-1",
+      questions: [
+        {
+          id: "q1",
+          question: "Which Alice?",
+          options: [
+            { id: "alice_work", label: "Alice (work)" },
+            { id: "alice_personal", label: "Alice (personal)" },
+          ],
+        },
+      ],
+      responses: [
+        { questionId: "q1", decision: "option", optionId: "alice_work" },
+      ],
+      overall: "completed",
+    };
+
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_q",
+        name: "ask_question",
+        input: { questions: [{ question: "Which Alice?" }] },
+        _answeredQuestion: answeredQuestion,
+      },
+    ]);
+
+    expect(output.toolCalls[0].answeredQuestion).toEqual(answeredQuestion);
+  });
+
+  test("hydrates a free-text answer verbatim", () => {
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_q",
+        name: "ask_question",
+        input: {},
+        _answeredQuestion: {
+          requestId: "req-2",
+          questions: [{ id: "q1", question: "Which fruit?", options: [] }],
+          responses: [
+            { questionId: "q1", decision: "free_text", text: "Cherry" },
+          ],
+          overall: "completed",
+        },
+      },
+    ]);
+
+    expect(output.toolCalls[0].answeredQuestion?.responses).toEqual([
+      { questionId: "q1", decision: "free_text", text: "Cherry" },
+    ]);
+  });
+
+  test("leaves answeredQuestion absent on rows that predate the annotation", () => {
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_q",
+        name: "ask_question",
+        input: { questions: [{ question: "Which Alice?" }] },
+      },
+    ]);
+
+    expect(output.toolCalls[0].answeredQuestion).toBeUndefined();
+  });
+
+  test("ignores a malformed _answeredQuestion annotation", () => {
+    // The card renders these contents directly, so a rider that does not match
+    // the schema must degrade to no card rather than a crashing render.
+    const output = renderHistoryContent([
+      {
+        type: "tool_use",
+        id: "tu_q",
+        name: "ask_question",
+        input: {},
+        _answeredQuestion: { requestId: "req-3", overall: "sideways" },
+      },
+    ]);
+
+    expect(output.toolCalls[0].answeredQuestion).toBeUndefined();
   });
 
   test("ignores non-object _activityMetadata annotations", () => {

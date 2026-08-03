@@ -121,6 +121,7 @@ export interface InteractionActions {
   submitQuestionStart: () => void;
   submitQuestionEnd: () => void;
   dismissQuestion: () => void;
+  dismissQuestionIfMatches: (requestId: string) => void;
   dismissQuestionCard: () => void;
 
   // ACP Connect Claude prompt
@@ -293,6 +294,18 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       isSubmittingQuestion: false,
       isQuestionCardDismissed: false,
     }),
+
+  dismissQuestionIfMatches: (requestId) => {
+    const { pendingQuestion } = get();
+    if (!pendingQuestion || pendingQuestion.requestId !== requestId) {
+      return;
+    }
+    set({
+      pendingQuestion: null,
+      isSubmittingQuestion: false,
+      isQuestionCardDismissed: false,
+    });
+  },
 
   dismissQuestionCard: () => set({ isQuestionCardDismissed: true }),
 

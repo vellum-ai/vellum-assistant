@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleToolResult,
@@ -164,5 +165,46 @@ describe("handleToolResult", () => {
       ctx,
     );
     expect(ctx.turnActions.onToolActivityMetadata).not.toHaveBeenCalled();
+  });
+
+  describe("answered ask_question", () => {
+    const answeredQuestion = {
+      requestId: "req-1",
+      questions: [{ id: "q1", question: "Which Alice?", options: [] }],
+      responses: [{ questionId: "q1", decision: "skipped" as const }],
+      overall: "completed" as const,
+    };
+
+    const answeredResult = (requestId: string) => ({
+      type: "tool_result" as const,
+      toolName: "ask_question",
+      result: "answered",
+      toolUseId: "tc-1",
+      answeredQuestion: { ...answeredQuestion, requestId },
+    });
+
+    it("retires the interactive card for a prompt answered elsewhere", () => {
+      // A channel option tap resolves the prompt server-side; without this the
+      // web card would stay open next to the answered transcript row.
+      useInteractionStore
+        .getState()
+        .showQuestion({ requestId: "req-1", entries: [] });
+
+      handleToolResult(answeredResult("req-1"), makeCtx());
+
+      expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+    });
+
+    it("leaves a card raised for a different prompt standing", () => {
+      useInteractionStore
+        .getState()
+        .showQuestion({ requestId: "req-2", entries: [] });
+
+      handleToolResult(answeredResult("req-1"), makeCtx());
+
+      expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
+        "req-2",
+      );
+    });
   });
 });

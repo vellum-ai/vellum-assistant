@@ -9,7 +9,10 @@
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
-import type { ConversationContentBlock } from "@vellumai/assistant-api";
+import type {
+  AnsweredQuestion,
+  ConversationContentBlock,
+} from "@vellumai/assistant-api";
 import type {
   AllowlistOption,
   DirectoryScopeOption,
@@ -165,6 +168,13 @@ export function applyToolResult(
      */
     activityMetadata?: ToolActivityMetadata;
     /**
+     * The answered `ask_question` record from the tool_result event. Persisted
+     * on the tool call so the answered card renders the moment the prompt
+     * resolves, matching what a later history reopen restores from the
+     * daemon's persisted copy.
+     */
+    answeredQuestion?: AnsweredQuestion;
+    /**
      * Stable machine-readable error classification from the tool_result event
      * (only set when `isError`). Persisted on the tool call so surfaces can
      * branch on a known failure (e.g. `acp_claude_oauth_missing`) after the
@@ -247,6 +257,9 @@ export function applyToolResult(
     ...(imageDataList !== undefined ? { imageDataList } : {}),
     ...(opts.activityMetadata !== undefined
       ? { activityMetadata: opts.activityMetadata }
+      : {}),
+    ...(opts.answeredQuestion !== undefined
+      ? { answeredQuestion: opts.answeredQuestion }
       : {}),
     ...(opts.errorCode !== undefined ? { errorCode: opts.errorCode } : {}),
     completedAt: opts.completedAt ?? Date.now(),

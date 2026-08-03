@@ -489,6 +489,12 @@ export {
   PlatformDisconnectedEventSchema,
 } from "./events/platform-disconnected.js";
 export {
+  type AnsweredQuestion,
+  type AnsweredQuestionResponse,
+  AnsweredQuestionResponseSchema,
+  AnsweredQuestionSchema,
+} from "./events/question-answered.js";
+export {
   type QuestionEntry,
   QuestionEntrySchema,
   type QuestionOption,
