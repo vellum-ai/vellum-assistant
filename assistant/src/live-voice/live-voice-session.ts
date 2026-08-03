@@ -8,7 +8,6 @@ import {
 import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import {
   isIncompleteControlMarkerTail,
-  MINIMIZE_ROOM_MARKER,
   stripInternalSpeechMarkers,
 } from "../calls/voice-control-protocol.js";
 import type {
@@ -59,7 +58,7 @@ import { getToolOwner } from "../tools/registry.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
-import { activityLabelForTool } from "./activity-label.js";
+import { activityLabelForTool, revealsUiSurface } from "./activity-label.js";
 import {
   createVoiceFrontDecider,
   type VoiceFrontDecider,
@@ -479,8 +478,10 @@ interface ActiveAssistantTurn {
   progress: TurnProgressState;
   assistantCompleted: boolean;
   ttsDone: boolean;
-  // Latched when the leg's stream contains MINIMIZE_ROOM_MARKER; consumed
+  // Latched when the turn puts something on screen (a ui tool ran); consumed
   // once at TTS drain, where the minimize_room frame goes out after tts_done.
+  // Never set from anything the model says: the reveal is a consequence of
+  // showing a surface, not a token the model has to remember.
   minimizeRequested: boolean;
   // The activity label the client was last told about, so a run of tools that
   // map to the same line sends one frame rather than one per call. Empty means
@@ -604,13 +605,16 @@ interface ActiveAssistantTurn {
  * runs forward from the emitted boundary — not from the last "[" — so
  * brackets INSIDE a streaming marker body (a JSON array or "]"-bearing string
  * in ASK_GUARDIAN_APPROVAL) can neither mask the marker's start nor pass as
- * its terminator. As a side effect the force flush latches the turn's
- * `minimizeRequested` when the completed stream ENDS with
- * MINIMIZE_ROOM_MARKER — terminal position only, matching the prompt's
- * "end the reply with it" contract, so a reply whose CONTENT happens to
- * contain "[-1]" (an array literal, a temperature) never minimizes the
- * room. The marker itself is stripped wherever it appears (the shared
- * marker-strip convention), so the latch is the only observable.
+ * its terminator.
+ *
+ * **Markers are stripped, never acted on.** Nothing the model can say
+ * minimizes the room any more: that is decided by whether a ui tool ran (see
+ * the `tool_use_start` handler), so the reveal cannot depend on the model
+ * remembering a token, and a reply whose content happens to contain "[-1]" (an
+ * array literal, a temperature) cannot move the room either. No prompt teaches
+ * a marker, so this stripping is defense against a model that emits one
+ * regardless: an unspoken, unpersisted "[-1]" is the correct handling of a
+ * token that now means nothing.
  */
 function createControlMarkerHoldback(
   turn: ActiveAssistantTurn,
@@ -618,13 +622,6 @@ function createControlMarkerHoldback(
 ): (raw: string, opts?: { force?: boolean }) => void {
   let emitted = 0;
   return (raw, opts) => {
-    if (
-      opts?.force === true &&
-      !turn.minimizeRequested &&
-      raw.trimEnd().endsWith(MINIMIZE_ROOM_MARKER)
-    ) {
-      turn.minimizeRequested = true;
-    }
     let safeEnd = raw.length;
     if (opts?.force !== true) {
       for (
@@ -650,29 +647,23 @@ function createControlMarkerHoldback(
 // buildInterruptionMergeNote) so the model reconciles the interrupted request
 // with the new utterance.
 const LIVE_VOICE_CONTROL_PROMPT_BASE =
-  "You are speaking in a local live voice session. Keep replies brief and conversational. You cannot display cards, forms, or any on-screen UI during the call — convey everything in speech. ";
+  "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. ";
 
-// MINIMIZE_ROOM_MARKER teaching, appended for the legs that can actually put
-// something on screen — the main leg and the escalated leg. The front-door
-// (fast) leg never receives it: that leg is toolless, so it has nothing to
-// show, and its decision rule promises that apart from a leading verdict
-// token every character is spoken verbatim — teaching it the marker would
-// contradict that rule and could only produce spurious minimizes.
+// Appended for the legs that can actually put something on screen: the main
+// leg and the escalated leg. The front-door (fast) leg never receives it, for
+// the same reason it never received the marker this replaces: that leg is
+// toolless, so it has nothing to show.
 //
-// The teaching deliberately keeps the no-interactive-UI rule intact
-// (live-voice turns are non-interactive, JARVIS-1291): the marker does not
-// render UI — it asks the client to reveal the screen the call overlay
-// covers. The gate in createControlMarkerHoldback strips it from speech, and
-// completeTtsForTurn sends the minimize_room frame only after the reply's
-// TTS drains, so "end your reply with it" is the whole contract the model
-// needs.
-//
-// The narration guidance is load-bearing: without it, the base prompt's
-// convey-everything-in-speech rule reads to the model as "the user can never
-// see the screen", and it minimizes the room while telling the user it has
-// no way to show them anything ("check it from the app later").
-const LIVE_VOICE_MINIMIZE_MARKER_TEACHING =
-  "The call renders as a full-screen overlay covering the app. If this reply created or changed something on screen worth looking at (an app, a page, a document), you may end the reply with the marker [-1]: after you finish speaking, the overlay minimizes so the user can see the screen while the call continues. The user is in the app and sees what you made the moment the overlay minimizes, so when you end with the marker, speak as if you are showing it to them right now (for example, close with something like: take a look) — never say you cannot show it, that you cannot display it because this is a voice call, or that they should check it later. Use it at most once per reply, only when there is genuinely something new to show, never speak the marker aloud or mention it, and never emit any other bracketed marker. ";
+// **The model no longer asks for the minimize; it is told one is coming.**
+// Revealing the screen used to be a marker the model emitted at the end of a
+// reply, which made "did the user see it" depend on the model remembering a
+// token. It is now a consequence of showing a surface at all: the session
+// latches the minimize when a ui tool runs, and the room opens after the
+// reply's speech drains. What is left for the prompt is the part only the
+// model can get right, which is speaking as though the thing is already in
+// front of the user, because by the time it stops talking it is.
+const LIVE_VOICE_SCREEN_REVEAL_TEACHING =
+  "The call renders as a full-screen overlay covering the app. Whenever you put something on screen, the overlay minimizes by itself as soon as you finish speaking, and the user is looking at what you made. So speak as if you are showing it to them right now (for example, close with something like: take a look), and never say you cannot show it, that this is a voice call, or that they should check it later. Never emit bracketed markers of any kind. ";
 
 // System-level guidance appended to a barge-in turn's control prompt so the
 // model treats the new utterance as a continuation of the request it was cut
@@ -731,8 +722,8 @@ function buildLiveDeliveryNote(request: string, answer: string): string {
 }
 
 // Assemble a leg's model-facing control prompt: the base live-voice rules,
-// the [-1] minimize teaching (withheld from the front-door leg — see
-// LIVE_VOICE_MINIMIZE_MARKER_TEACHING), the shared no-setup-flows rule, plus
+// the screen-reveal teaching (withheld from the front-door leg, see
+// LIVE_VOICE_SCREEN_REVEAL_TEACHING), the shared no-setup-flows rule, plus
 // any pending barge-in merge context, completed-continuation context, and/or
 // the announcement instruction. A turn can carry several (a barge-in follow-up
 // that also has a continuation result waiting); the notes are model-only and
@@ -743,7 +734,7 @@ function buildVoiceControlPrompt(
 ): string {
   let prompt =
     LIVE_VOICE_CONTROL_PROMPT_BASE +
-    (leg.frontDoor === true ? "" : LIVE_VOICE_MINIMIZE_MARKER_TEACHING) +
+    (leg.frontDoor === true ? "" : LIVE_VOICE_SCREEN_REVEAL_TEACHING) +
     VOICE_NO_SETUP_FLOWS_RULE;
   if (turn.interruptedRequest) {
     prompt = `${prompt}\n\n${buildInterruptionMergeNote(turn.interruptedRequest)}`;
@@ -3885,6 +3876,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             });
             current.progress.opsSinceNarration += 1;
             current.progress.stateEpoch += 1;
+            // Showing a surface implies revealing it. The room is a
+            // full-screen overlay, so a surface rendered behind it is a
+            // surface nobody sees, and asking the model to also remember the
+            // minimize marker makes that the model's problem instead of the
+            // system's. Latching here reuses the marker's own machinery, so
+            // the reveal still happens where it always has: after the reply's
+            // speech drains, never mid-sentence, at most once per turn.
+            if (revealsUiSurface(toolName)) {
+              current.minimizeRequested = true;
+            }
             this.publishActivity(current, this.currentActivityLabel(current));
             log.debug({ turnId, toolName }, "Live voice turn started tool use");
             // Definitive tool use means the turn is guaranteed slow: speak

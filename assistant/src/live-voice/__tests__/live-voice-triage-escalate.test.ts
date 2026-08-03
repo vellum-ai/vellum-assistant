@@ -190,7 +190,7 @@ describe("live-voice triage-and-escalate routing", () => {
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);
   });
 
-  test("the [-1] teaching reaches the escalated leg's prompt but never the front-door leg's", async () => {
+  test("the screen-reveal teaching reaches the escalated leg's prompt but never the front-door leg's", async () => {
     const { starter } = scriptedStartVoiceTurn({
       frontDoor: ["[1] ", "Let me think about that."],
       escalated: ["The detailed answer is 42."],
@@ -205,10 +205,14 @@ describe("live-voice triage-and-escalate routing", () => {
       starter.mock.calls[0]?.[0]?.voiceControlPrompt ?? "";
     const escalatedPrompt =
       starter.mock.calls[1]?.[0]?.voiceControlPrompt ?? "";
-    // The toolless fast leg has nothing to show and its decision rule promises
-    // verbatim speech — it must never learn the marker.
+    // The toolless fast leg has nothing to show, so it is never told the
+    // screen will be revealed.
+    expect(frontDoorPrompt).not.toContain("the overlay minimizes");
+    expect(escalatedPrompt).toContain("the overlay minimizes");
+    // No leg is taught a marker any more: the reveal is decided by whether a
+    // ui tool ran, never by anything the model emits.
     expect(frontDoorPrompt).not.toContain("[-1]");
-    expect(escalatedPrompt).toContain("[-1]");
+    expect(escalatedPrompt).not.toContain("[-1]");
   });
 
   test("the verdict token and any text past the bridge cap never reach the transcript", async () => {

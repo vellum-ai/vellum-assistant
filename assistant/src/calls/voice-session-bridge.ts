@@ -367,11 +367,16 @@ export interface VoiceTurnHandle {
  * provides assistant identity) and guardian context (injected separately).
  */
 /**
- * Steering shared by every voice channel. Voice turns exclude the ui-surface
- * tools, but the model can still reach OAuth/sign-in flows through shell or
- * CLI tools (e.g. `assistant oauth connect`), which open a browser window
- * mid-call that the caller may be unable to see or complete. Tell it to speak
- * the limitation and defer the flow to text chat instead.
+ * Steering shared by every voice channel. A sign-in flow opens a browser
+ * window mid-call that the caller may be unable to see or complete, whether it
+ * is reached through a ui-surface tool or through shell and CLI tools (e.g.
+ * `assistant oauth connect`). Tell the model to speak the limitation and defer
+ * the flow to text chat instead.
+ *
+ * This outlives the ui-surface restriction it was written alongside: a
+ * live-voice call can now show surfaces, but a browser window handing control
+ * to a third party mid-call is a different problem, and one a minimized room
+ * does not solve.
  */
 export const VOICE_NO_SETUP_FLOWS_RULE =
   "Never start account connections, OAuth or sign-in flows, or any other action that opens a browser window or needs the user's screen during this call — not even through shell or CLI tools. If the task needs one, say so briefly and offer to finish it in text chat after the call.";
@@ -897,21 +902,22 @@ export async function startVoiceTurn(
     trustContext: opts.trustContext ?? null,
     turnChannelContext,
     turnInterfaceContext,
-    channelCapabilities: {
-      ...resolveChannelCapabilities(
-        turnChannelContext.userMessageChannel,
-        turnInterfaceContext.userMessageInterface,
-      ),
-      // Voice calls are non-interactive: no surface can be shown, read, or
-      // clicked mid-call, so `ui_show`/`ui_update`/`ui_dismiss` (and thus
-      // `oauth_connect`, a ui_show surface_type) must never reach the model.
-      // Phone already resolves to false via its channel; live-voice resolves
-      // vellum/macos → true, so force it off here for every voice turn. This
-      // also flips the runtime-context `supports_dynamic_ui` line the prompt
-      // advertises, the secret-prompter's dynamic-UI branch, and the
-      // task-progress-nudge hook — all correctly non-UI during a call.
-      supportsDynamicUi: false,
-    },
+    // Resolved from the channel, with no voice-specific override.
+    //
+    // Whether a call can show a surface is a property of the call's channel,
+    // not of calls in general. A phone call has no screen at all and resolves
+    // to `supportsDynamicUi: false` on its own; a live-voice call is a screen
+    // the user is holding, temporarily covered by the room overlay, and the
+    // session minimizes that overlay when a surface is shown (see the ui-tool
+    // branch of the live-voice session's `tool_use_start`).
+    //
+    // This one flag also drives the runtime-context `supports_dynamic_ui`
+    // line, the secret-prompter's dynamic-UI branch, and the
+    // task-progress-nudge hook, so a live-voice turn now reaches all of them.
+    channelCapabilities: resolveChannelCapabilities(
+      turnChannelContext.userMessageChannel,
+      turnInterfaceContext.userMessageInterface,
+    ),
     voiceCallControlPrompt,
   };
   const installVoiceTurnState = () => {
@@ -1196,11 +1202,14 @@ export async function startVoiceTurn(
       return;
     }
     if (msg.type === "secret_request") {
-      // Defense-in-depth: SecretPrompter.prompt fails fast with
-      // `unsupported_channel` on voice turns (supportsDynamicUi is forced
-      // off above), so a secret_request should never reach this handler.
-      // Resolve immediately anyway in case an emitter bypasses the
-      // prompter's channel check or races a capability install.
+      // Auto-resolved rather than prompted, on every voice channel.
+      //
+      // A phone call cannot render a secret field at all. A live-voice call
+      // now can (its channel resolves `supportsDynamicUi` true), so this is
+      // where the prompt would surface, and it deliberately does not yet:
+      // typing a credential into a screen you reached by minimizing a call is
+      // a flow that needs designing, not a flag flip. Resolving with no secret
+      // leaves the tool to fail the way it does today.
       log.info(
         { turnId, service: msg.service, field: msg.field },
         "Auto-resolving secret request for voice turn (no secret-entry UI)",

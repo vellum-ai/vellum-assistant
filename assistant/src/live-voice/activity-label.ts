@@ -27,6 +27,24 @@
  */
 
 /**
+ * The tools that put something on screen worth looking at.
+ *
+ * `ui_dismiss` is deliberately absent: it retires a surface, and revealing the
+ * screen to show the user something that is no longer there is the opposite of
+ * the point. A turn that only dismisses leaves the room where it is.
+ */
+const UI_REVEAL_TOOLS: ReadonlySet<string> = new Set(["ui_show", "ui_update"]);
+
+/**
+ * Whether running `toolName` leaves something on screen the user should be
+ * shown, which is what makes a live-voice turn reveal the screen behind the
+ * call overlay.
+ */
+export function revealsUiSurface(toolName: string): boolean {
+  return UI_REVEAL_TOOLS.has(toolName);
+}
+
+/**
  * Present-participle phrases for the built-in tools, by exact name.
  *
  * Grouped by what the user would say is happening, not by how the tool is
