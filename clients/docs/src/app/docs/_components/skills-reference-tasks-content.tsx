@@ -129,7 +129,7 @@ export function SkillsReferenceTasksContent() {
               what needs doing now.
             </li>
             <li>
-              <strong>Auto-loading tools.</strong> Tasks can require specific tools: if a
+              <strong>Auto-loading tools.</strong> Tasks can require specific tools &mdash; if a
               template needs browser access, the skill will load the browser skill automatically.
             </li>
             <li>

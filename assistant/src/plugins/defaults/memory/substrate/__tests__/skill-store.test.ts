@@ -15,6 +15,10 @@
  *     slugs (`"skills/example-skill"`).
  *   - It swallows errors from the embedding backend — the function resolves
  *     and the cache is unchanged from prior state.
+ *   - `listAlwaysCandidateSkillSlugs` serves pins (and their renderable cards)
+ *     from the local catalog before any seed run completes, applies the same
+ *     enablement/flag filtering the seeding path does, and yields to the seeded
+ *     snapshot once one lands.
  *
  * Hermetic by design: the embedding backend, Qdrant module, and feature-flag
  * resolver are module-mocked so the suite never reaches a real backend. One
@@ -55,6 +59,7 @@ interface BackfillCall {
 
 interface TestState {
   catalog: SkillSummary[] | null;
+  catalogThrows: Error | null;
   resolved: ResolvedSkill[] | null;
   fullCatalog: CatalogSkill[];
   fullCatalogThrows: Error | null;
@@ -69,10 +74,12 @@ interface TestState {
   backfillReturn: number;
   backfillThrows: Error | null;
   callSequence: Array<"upsert" | "prune" | "backfill">;
+  catalogLoadCount: number;
 }
 
 const state: TestState = {
   catalog: [],
+  catalogThrows: null,
   resolved: [],
   fullCatalog: [],
   fullCatalogThrows: null,
@@ -87,10 +94,17 @@ const state: TestState = {
   backfillReturn: 0,
   backfillThrows: null,
   callSequence: [],
+  catalogLoadCount: 0,
 };
 
 mock.module("../../../../../config/skills.js", () => ({
-  loadSkillCatalog: () => state.catalog ?? [],
+  loadSkillCatalog: () => {
+    state.catalogLoadCount += 1;
+    if (state.catalogThrows) {
+      throw state.catalogThrows;
+    }
+    return state.catalog ?? [];
+  },
 }));
 
 mock.module("../../../../../config/skill-state.js", () => ({
@@ -187,6 +201,7 @@ mock.module("../../../../../skills/catalog-cache.js", () => ({
 const {
   seedV2SkillEntries,
   getSkillCapability,
+  listAlwaysCandidateSkillSlugs,
   listSkillEntries,
   _resetSkillStoreForTests,
 } = await import("../skill-store.js");
@@ -210,6 +225,7 @@ function makeSummary(overrides: Partial<SkillSummary> = {}): SkillSummary {
 
 function resetState(): void {
   state.catalog = [];
+  state.catalogThrows = null;
   state.resolved = [];
   state.fullCatalog = [];
   state.fullCatalogThrows = null;
@@ -224,6 +240,7 @@ function resetState(): void {
   state.backfillReturn = 0;
   state.backfillThrows = null;
   state.callSequence.length = 0;
+  state.catalogLoadCount = 0;
   _resetSkillStoreForTests();
 }
 
@@ -284,6 +301,34 @@ describe("seedV2SkillEntries", () => {
 
     expect(state.upsertCalls).toHaveLength(1);
     expect(state.upsertCalls[0].slug).toBe("skills/example-skill-a");
+  });
+
+  test("reports enabled always-candidate skills and excludes disabled ones", async () => {
+    const pinned = makeSummary({
+      id: "example-skill-a",
+      alwaysCandidate: true,
+    });
+    const pinnedButDisabled = makeSummary({
+      id: "example-skill-b",
+      alwaysCandidate: true,
+    });
+    const ordinary = makeSummary({ id: "example-skill-c" });
+    state.catalog = [pinned, pinnedButDisabled, ordinary];
+    state.resolved = [
+      { summary: pinned, state: "enabled" },
+      { summary: pinnedButDisabled, state: "disabled" },
+      { summary: ordinary, state: "enabled" },
+    ];
+    state.embedReturn = [
+      [0.1, 0.2, 0.3],
+      [0.4, 0.5, 0.6],
+    ];
+
+    await seedV2SkillEntries();
+
+    expect(await listAlwaysCandidateSkillSlugs()).toEqual([
+      "skills/example-skill-a",
+    ]);
   });
 
   test("does not re-seed an installed-but-disabled skill from the remote catalog", async () => {
@@ -877,6 +922,155 @@ Write a local article draft.
 
     expect(state.upsertCalls).toHaveLength(1);
     expect(state.pruneCalls).toHaveLength(0);
+  });
+});
+
+describe("listAlwaysCandidateSkillSlugs — pre-seed catalog fallback", () => {
+  // Always-candidate membership is a static catalog fact. The boot seed is
+  // fire-and-forget and needs Qdrant plus a configured embedding backend, so on
+  // a freshly hatched assistant turn 1 lands before it finishes. Reading the
+  // catalog directly is what keeps the pin (and its card) alive on that turn.
+
+  test("reports always-candidate slugs before any seed run completes", async () => {
+    const pinned = makeSummary({
+      id: "example-skill-a",
+      displayName: "Skill A",
+      alwaysCandidate: true,
+    });
+    const ordinary = makeSummary({ id: "example-skill-b" });
+    state.catalog = [pinned, ordinary];
+    state.resolved = [
+      { summary: pinned, state: "enabled" },
+      { summary: ordinary, state: "enabled" },
+    ];
+
+    expect(await listAlwaysCandidateSkillSlugs()).toEqual([
+      "skills/example-skill-a",
+    ]);
+    // No seed ran, so nothing was embedded.
+    expect(state.upsertCalls).toHaveLength(0);
+  });
+
+  test("excludes disabled and flag-gated skills exactly as the seeding path does", async () => {
+    const pinned = makeSummary({
+      id: "example-skill-a",
+      alwaysCandidate: true,
+    });
+    const pinnedButDisabled = makeSummary({
+      id: "example-skill-b",
+      alwaysCandidate: true,
+    });
+    // Flag gating is resolved host-side: the gated skill is absent from
+    // `resolveSkillStates`, so it surfaces as `state: "unavailable"`.
+    const pinnedButGated = makeSummary({
+      id: "example-skill-c",
+      alwaysCandidate: true,
+      featureFlag: "off-flag",
+    });
+    state.catalog = [pinned, pinnedButDisabled, pinnedButGated];
+    state.resolved = [
+      { summary: pinned, state: "enabled" },
+      { summary: pinnedButDisabled, state: "disabled" },
+    ];
+
+    expect(await listAlwaysCandidateSkillSlugs()).toEqual([
+      "skills/example-skill-a",
+    ]);
+    expect(getSkillCapability("example-skill-b")).toBeNull();
+    expect(getSkillCapability("example-skill-c")).toBeNull();
+  });
+
+  test("renders the pinned skill's card content on the fallback path", async () => {
+    // The load-bearing half: `renderInjectionBlock` resolves each pinned slug
+    // through `getSkillCapability`, so a pin whose card does not resolve is
+    // silently dropped from the block.
+    const pinned = makeSummary({
+      id: "example-skill-a",
+      displayName: "Skill A",
+      description: "Draws inline visuals",
+      activationHints: ["user asks for a chart", "user asks for a diagram"],
+      avoidWhen: ["user wants a spreadsheet"],
+      alwaysCandidate: true,
+    });
+    state.catalog = [pinned];
+    state.resolved = [{ summary: pinned, state: "enabled" }];
+
+    const slugs = await listAlwaysCandidateSkillSlugs();
+    expect(slugs).toEqual(["skills/example-skill-a"]);
+
+    const entry = getSkillCapability(slugs[0]);
+    expect(entry).not.toBeNull();
+    expect(entry?.id).toBe("example-skill-a");
+    expect(entry?.content).toContain('The "Skill A" skill');
+    expect(entry?.content).toContain("Draws inline visuals");
+    // The larger always-candidate budget switches the hints to a bulleted list,
+    // proving the fallback renders through the same `buildSkillContent` budget
+    // the seeding path uses.
+    expect(entry?.content).toContain("Use when:\n- user asks for a chart");
+    expect(entry?.content).toContain("Avoid when:\n- user wants a spreadsheet");
+    // Bare-id lookup resolves the same entry.
+    expect(getSkillCapability("example-skill-a")).toEqual(entry);
+  });
+
+  test("scans the catalog once and reuses the fallback across turns", async () => {
+    const pinned = makeSummary({
+      id: "example-skill-a",
+      alwaysCandidate: true,
+    });
+    state.catalog = [pinned];
+    state.resolved = [{ summary: pinned, state: "enabled" }];
+
+    await listAlwaysCandidateSkillSlugs();
+    const afterFirst = state.catalogLoadCount;
+    expect(afterFirst).toBeGreaterThan(0);
+
+    await listAlwaysCandidateSkillSlugs();
+    await listAlwaysCandidateSkillSlugs();
+
+    expect(state.catalogLoadCount).toBe(afterFirst);
+  });
+
+  test("the seeded snapshot replaces the fallback once a seed completes", async () => {
+    const pinned = makeSummary({
+      id: "example-skill-a",
+      displayName: "Skill A",
+      alwaysCandidate: true,
+    });
+    state.catalog = [pinned];
+    state.resolved = [{ summary: pinned, state: "enabled" }];
+
+    expect(await listAlwaysCandidateSkillSlugs()).toEqual([
+      "skills/example-skill-a",
+    ]);
+
+    // The user disables the skill, then a seed run lands: the seeded snapshot
+    // is authoritative and the stale fallback must not resurrect the pin.
+    state.resolved = [{ summary: pinned, state: "disabled" }];
+    state.embedReturn = [];
+    await seedV2SkillEntries();
+
+    expect(await listAlwaysCandidateSkillSlugs()).toEqual([]);
+    expect(getSkillCapability("example-skill-a")).toBeNull();
+    expect(listSkillEntries()).toEqual([]);
+  });
+
+  test("a catalog read failure degrades to an empty pin set and is retried next turn", async () => {
+    const pinned = makeSummary({
+      id: "example-skill-a",
+      alwaysCandidate: true,
+    });
+    state.catalog = [pinned];
+    state.resolved = [{ summary: pinned, state: "enabled" }];
+    state.catalogThrows = new Error("skills directory unreadable");
+
+    expect(await listAlwaysCandidateSkillSlugs()).toEqual([]);
+
+    // A failed build is not latched, so the next turn picks the catalog up.
+    state.catalogThrows = null;
+
+    expect(await listAlwaysCandidateSkillSlugs()).toEqual([
+      "skills/example-skill-a",
+    ]);
   });
 });
 

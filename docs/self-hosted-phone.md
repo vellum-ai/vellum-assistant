@@ -239,10 +239,12 @@ On the device you're pairing:
 2. On a phone or tablet, open the **system camera** and point it at the QR
    code, then tap the notification to open the pairing page. On a device
    without a camera (another computer), open the URL printed under the QR in
-   its browser instead — same result. On iOS the page first offers
+   its browser instead. The result is the same. On iOS and Android the page
+   first offers
    **Open in the Vellum app** or **Continue in this browser**; tap
-   **Continue in this browser** to pair here (see
-   [Using the Vellum iOS app](#6-using-the-vellum-ios-app) for the app path).
+   **Open in the Vellum app** to finish pairing in the native app, or
+   **Continue in this browser** to pair here. See
+   [Using the Vellum iOS app](#6-using-the-vellum-ios-app) for iOS details.
 3. On phones and tablets, use the browser **Share → Add to Home Screen** to
    install the assistant as an app icon.
 

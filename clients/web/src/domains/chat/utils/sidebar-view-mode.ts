@@ -37,6 +37,19 @@ export function loadViewMode(assistantId: string): SidebarViewMode {
   return viewModeStorage.load(assistantId);
 }
 
+/**
+ * Subscribe to one assistant's view mode.
+ *
+ * Storage is the source of truth rather than a value snapshotted into a store
+ * on mount, which buys two things: the first paint already carries the user's
+ * choice (no flash of the default while an effect catches up), and a change
+ * made in one window reaches every other window on the same assistant,
+ * because `saveViewMode` notifies both same-tab and cross-tab listeners.
+ */
+export function useViewMode(assistantId: string): SidebarViewMode {
+  return viewModeStorage.useValue(assistantId);
+}
+
 export function saveViewMode(
   assistantId: string,
   mode: SidebarViewMode,

@@ -3,7 +3,7 @@ import { Globe, Lock, Users } from "lucide-react";
 import { useState } from "react";
 import { expect, userEvent, within } from "storybook/test";
 
-import { Dropdown, type DropdownOption, type DropdownProps } from "./dropdown";
+import { Dropdown, type DropdownOption } from "./dropdown";
 import { Modal } from "./modal";
 import { Tag } from "./tag";
 
@@ -15,11 +15,43 @@ const fruits: DropdownOption<string>[] = [
   { value: "elderberry", label: "Elderberry" },
 ];
 
-const meta: Meta<DropdownProps<string>> = {
+const meta: Meta<typeof Dropdown> = {
   title: "Components/Dropdown",
   component: Dropdown,
   parameters: {
     layout: "centered",
+    docs: {
+      description: {
+        component: [
+          "> **Deprecated. Use [`Select`](/docs/components-select--docs) instead.**",
+          ">",
+          "> `Select` renders identically, but check two behaviour differences",
+          "> before moving a call site:",
+          ">",
+          "> 1. **Re-selecting the current value does not call `onChange`.**",
+          ">    `Dropdown` fires on every click; `Select` reports *changes*, so",
+          ">    picking the option that is already selected is silent. A call site",
+          ">    that treats the click itself as a signal (pinning an inherited",
+          ">    default, re-triggering a fetch, marking a form dirty) needs a local",
+          ">    change, not just an import swap. At least one caller depends on this",
+          ">    today; tracked on LUM-2959.",
+          "> 2. **Options may not carry an empty-string `value`**, which Radix",
+          ">    reserves to mean \"cleared\". Use `placeholder`, or a real sentinel.",
+          ">",
+          "> **Why:** this component hand-rolls its own positioning, keyboard",
+          "> navigation, outside-click handling and focus management. `Select` is a",
+          "> thin wrapper over Radix Select, which is what every other overlay in",
+          "> this package already uses.",
+          ">",
+          "> **What you get by moving:** the menu flips upward when the trigger sits",
+          "> low in the viewport (this one always opens downward, below the fold),",
+          "> and it cannot be captured by an ancestor `transform`.",
+          ">",
+          "> No rush per call site. Move them as you touch the files; this component",
+          "> stays until the last one is gone.",
+        ].join("\n"),
+      },
+    },
   },
   argTypes: {
     placeholder: { control: "text" },
@@ -36,7 +68,7 @@ const meta: Meta<DropdownProps<string>> = {
 };
 
 export default meta;
-type Story = StoryObj<DropdownProps<string>>;
+type Story = StoryObj<typeof Dropdown>;
 
 export const Default: Story = {
   args: {
@@ -77,7 +109,7 @@ export const WithPlaceholder: Story = {
   },
 };
 
-const visibilityOptions: DropdownOption<"public" | "team" | "private">[] = [
+const visibilityOptions: DropdownOption<string>[] = [
   { value: "public", label: "Public", icon: <Globe className="h-4 w-4" /> },
   { value: "team", label: "Team only", icon: <Users className="h-4 w-4" /> },
   {
@@ -92,11 +124,11 @@ export const WithIcons: Story = {
     "aria-label": "Visibility",
   },
   render: function IconDropdown(args) {
-    const [value, setValue] = useState<"public" | "team" | "private">("public");
+    const [value, setValue] = useState("public");
     return (
       <div className="w-64">
         <Dropdown
-          {...(args as DropdownProps<"public" | "team" | "private">)}
+          {...args}
           options={visibilityOptions}
           value={value}
           onChange={setValue}
@@ -173,7 +205,7 @@ export const EndAligned: Story = {
   },
 };
 
-const machineSizes: DropdownOption<"small" | "medium" | "large">[] = [
+const machineSizes: DropdownOption<string>[] = [
   {
     value: "small",
     label: "Small — 2 vCPU, 3 GiB",
@@ -188,11 +220,11 @@ export const WithSuffix: Story = {
     "aria-label": "Machine size",
   },
   render: function SuffixDropdown(args) {
-    const [value, setValue] = useState<"small" | "medium" | "large">("small");
+    const [value, setValue] = useState("small");
     return (
       <div className="w-80">
         <Dropdown
-          {...(args as DropdownProps<"small" | "medium" | "large">)}
+          {...args}
           options={machineSizes}
           value={value}
           onChange={setValue}
@@ -315,7 +347,14 @@ export const InsideModal: Story = {
   render: function ModalDropdown(args) {
     const [value, setValue] = useState("apple");
     return (
-      <Modal.Root defaultOpen>
+      // Opened by the play function rather than `defaultOpen`. An always-open
+      // modal renders over the whole autodocs page, hiding every other story.
+      <Modal.Root>
+        <Modal.Trigger asChild>
+          <button type="button" data-testid="open-modal">
+            Open modal
+          </button>
+        </Modal.Trigger>
         <Modal.Content>
           <Modal.Header>
             <Modal.Title>Pick a fruit</Modal.Title>
@@ -334,7 +373,9 @@ export const InsideModal: Story = {
       </Modal.Root>
     );
   },
-  play: async ({ step }) => {
+  play: async ({ canvasElement, step }) => {
+    await userEvent.click(within(canvasElement).getByTestId("open-modal"));
+
     // Scoped to the document rather than the canvas: both the dialog and the
     // menu are portaled out of the story's subtree.
     const dialog = document.querySelector('[data-slot="modal-content"]');

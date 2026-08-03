@@ -220,9 +220,9 @@ export function useChatEmptyState({
       // padding so the panel sits flush against the viewport's bottom
       // edge.
       startersSlot = (
-        <div className="-mb-3 rounded-t-2xl bg-[var(--surface-active)] px-6 pt-5 pb-6">
+        <div className="-mb-3 rounded-t-2xl px-6 pt-5 pb-6">
           <p className="mb-4 text-center text-body-medium-default text-[var(--content-tertiary)]">
-            Suggestions
+            Try some suggestions:
           </p>
           <ConversationStarterGrid
             starters={emptyStateStarters}

@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
+import { AndroidBillingGate } from "@/domains/settings/billing/android-billing-gate";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import { shouldShowBillingTab } from "@/domains/settings/billing/billing-tab-visibility";
 import { proPackageDisplayName } from "@/domains/settings/billing/package-types";
@@ -132,7 +133,7 @@ function FinishProSetupNotice({
   );
 }
 
-function BillingTab() {
+function BillingTabContent() {
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const billingGate = usePlatformGate();
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
@@ -284,6 +285,14 @@ function BillingTab() {
         />
       )}
     </div>
+  );
+}
+
+function BillingTab() {
+  return (
+    <AndroidBillingGate>
+      <BillingTabContent />
+    </AndroidBillingGate>
   );
 }
 

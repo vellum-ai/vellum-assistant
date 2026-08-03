@@ -70,7 +70,7 @@ export type DefaultProfileTemplate = Omit<
  */
 const VELLUM_PROFILE_IMPLS: Record<ProfileMatrixKey, DefaultProfileTemplate> = {
   balanced: {
-    model: "accounts/fireworks/models/glm-5p2",
+    model: "gpt-5.6-luna",
     provider: "vellum",
     source: "managed",
     label: "Balanced",

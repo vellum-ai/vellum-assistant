@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { AndroidBillingGate } from "@/domains/settings/billing/android-billing-gate";
 import {
   isCleanPin,
   PACKAGE_ORDER,
@@ -148,7 +149,7 @@ function customCurrentSummary(current: CurrentTiers, proPlan: ProPlan): string {
  * `pro-packages` flag off the catalog is empty and the route bounces back to
  * the billing page.
  */
-export function PlansPage() {
+function PlansPageContent() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -909,5 +910,13 @@ export function PlansPage() {
         {body}
       </div>
     </div>
+  );
+}
+
+export function PlansPage() {
+  return (
+    <AndroidBillingGate redirectToBilling>
+      <PlansPageContent />
+    </AndroidBillingGate>
   );
 }

@@ -108,31 +108,31 @@ export function DeveloperGuideArchitectureContent() {
               <tbody className="text-zinc-600 dark:text-zinc-400">
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4"><code className="text-xs">ARCHITECTURE.md</code></td>
-                  <td className="py-2">Cross-system index: invariants, domain boundaries, data flow</td>
+                  <td className="py-2">Cross-system index — invariants, domain boundaries, data flow</td>
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4"><code className="text-xs">assistant/ARCHITECTURE.md</code></td>
-                  <td className="py-2">Runtime internals: conversation loop, tool dispatch, memory, scheduling</td>
+                  <td className="py-2">Runtime internals — conversation loop, tool dispatch, memory, scheduling</td>
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4"><code className="text-xs">gateway/ARCHITECTURE.md</code></td>
-                  <td className="py-2">Ingress boundary: webhooks, Telegram, Twilio, reverse proxy</td>
+                  <td className="py-2">Ingress boundary — webhooks, Telegram, Twilio, reverse proxy</td>
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4"><code className="text-xs">clients/ARCHITECTURE.md</code></td>
-                  <td className="py-2">Native macOS client: menu bar app</td>
+                  <td className="py-2">Native macOS client — menu bar app</td>
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4"><code className="text-xs">assistant/docs/architecture/security.md</code></td>
-                  <td className="py-2">Security model: sandbox, credentials, permissions, secret handling</td>
+                  <td className="py-2">Security model — sandbox, credentials, permissions, secret handling</td>
                 </tr>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
                   <td className="py-2 pr-4"><code className="text-xs">assistant/docs/architecture/memory.md</code></td>
-                  <td className="py-2">Memory system: extraction, recall, provenance gates</td>
+                  <td className="py-2">Memory system — extraction, recall, provenance gates</td>
                 </tr>
                 <tr>
                   <td className="py-2 pr-4"><code className="text-xs">assistant/docs/credential-execution-service.md</code></td>
-                  <td className="py-2">CES: credential isolation, secure commands, RPC boundary</td>
+                  <td className="py-2">CES — credential isolation, secure commands, RPC boundary</td>
                 </tr>
               </tbody>
             </table>

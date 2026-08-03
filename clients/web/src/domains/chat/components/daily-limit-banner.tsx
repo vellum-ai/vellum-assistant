@@ -18,8 +18,7 @@ export function DailyLimitBanner({ onAdjustLimit }: DailyLimitBannerProps) {
       }
       title="Daily credit limit reached"
       subtitle="This limit applies to Vellum credit spend and resets at midnight UTC."
-      ctaLabel="Adjust Limit"
-      onAction={onAdjustLimit}
+      action={{ label: "Adjust Limit", onClick: onAdjustLimit }}
     />
   );
 }

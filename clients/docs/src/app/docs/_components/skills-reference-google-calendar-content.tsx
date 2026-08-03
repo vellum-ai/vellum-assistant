@@ -132,7 +132,7 @@ export function SkillsReferenceGoogleCalendarContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>Connected to your default Google Calendar</li>
             <li>
-Supports multiple calendars: your assistant can view events from any
+Supports multiple calendars &mdash; your assistant can view events from any
               calendar on your account and check availability across all of them
             </li>
           </ul>

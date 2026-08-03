@@ -10,6 +10,7 @@ import { subscribe } from "@/lib/event-bus";
 
 let isNative = true;
 let platform = "ios";
+
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNative,
 }));
@@ -18,6 +19,20 @@ mock.module("@capacitor/core", () => ({
     isNativePlatform: () => isNative,
     getPlatform: () => platform,
   },
+}));
+
+// ── APNs environment resolver ────────────────────────────────────────────────
+//
+// Mocked directly; the resolver's own fallback matrix is covered by
+// apns-environment.test.ts. These tests only pin the wiring: the upsert body
+// carries whatever the resolver returns.
+
+let resolvedApnsEnvironment: "development" | "production" = "production";
+const resolveSignedApnsEnvironmentMock = mock(
+  async () => resolvedApnsEnvironment,
+);
+mock.module("@/runtime/apns-environment", () => ({
+  resolveSignedApnsEnvironment: resolveSignedApnsEnvironmentMock,
 }));
 
 // ── @capacitor/push-notifications (lazy-imported plugin Proxy) ────────────────
@@ -62,7 +77,7 @@ mock.module("@capacitor/push-notifications", () => ({
 
 // ── @capacitor/app (lazy-imported plugin Proxy) ──────────────────────────────
 
-let bundleId = "ai.vocify-inc.vellum-assistant-ios";
+const bundleId = "ai.vocify-inc.vellum-assistant-ios";
 const getInfoMock = mock(async () => ({
   id: bundleId,
   name: "Vellum",
@@ -128,6 +143,7 @@ mock.module("@/lib/sentry/capture-error", () => ({
 
 const {
   extractPushConversationId,
+  hasSessionConfirmedRemotePushRegistration,
   isRemotePushSupported,
   registerForRemotePush,
   unregisterFromRemotePush,
@@ -163,7 +179,8 @@ beforeEach(() => {
   isNative = true;
   platform = "ios";
   permissionState = "granted";
-  bundleId = "ai.vocify-inc.vellum-assistant-ios";
+  resolvedApnsEnvironment = "production";
+  resolveSignedApnsEnvironmentMock.mockClear();
   registrationHandler = null;
   registrationErrorHandler = null;
   actionPerformedHandler = null;
@@ -232,15 +249,6 @@ describe("registerForRemotePush", () => {
     });
   });
 
-  test("derives the development APNs environment from a .dev bundle id", async () => {
-    bundleId = "ai.vocify-inc.vellum-assistant-ios.dev";
-    await registerForRemotePush("assistant-1");
-    registrationHandler?.({ value: "apns-token-dev" });
-    await flushMicrotasks();
-
-    expect(lastUpsertArg?.body.apns_environment).toBe("development");
-  });
-
   test("does not register when notification permission is denied", async () => {
     permissionState = "denied";
     await registerForRemotePush("assistant-1");
@@ -266,6 +274,19 @@ describe("registerForRemotePush", () => {
 
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
     expect(upsertMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("APNs environment wiring", () => {
+  test("upsert body carries the resolver's result for the build's bundle id", async () => {
+    resolvedApnsEnvironment = "development";
+
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "apns-token-dev" });
+    await flushMicrotasks();
+
+    expect(resolveSignedApnsEnvironmentMock).toHaveBeenCalledWith(bundleId);
+    expect(lastUpsertArg?.body.apns_environment).toBe("development");
   });
 });
 
@@ -352,6 +373,62 @@ describe("extractPushConversationId", () => {
     expect(extractPushConversationId({ deep_link: null })).toBeUndefined();
     expect(extractPushConversationId({ deep_link: {} })).toBeUndefined();
     expect(extractPushConversationId({ conversationId: 42 })).toBeUndefined();
+  });
+});
+
+describe("hasSessionConfirmedRemotePushRegistration", () => {
+  test("false when nothing has been registered", () => {
+    expect(hasSessionConfirmedRemotePushRegistration("assistant-1")).toBe(
+      false,
+    );
+  });
+
+  test("true after a successful upsert for the same assistant", async () => {
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+
+    expect(hasSessionConfirmedRemotePushRegistration("assistant-1")).toBe(true);
+  });
+
+  test("false for a different assistant than the registered one", async () => {
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+
+    expect(hasSessionConfirmedRemotePushRegistration("assistant-2")).toBe(
+      false,
+    );
+  });
+
+  test("ignores a persisted-only registration (reload before any re-upsert)", () => {
+    // A record surviving from an earlier session proves nothing about
+    // whether the platform still holds the token row (the server prunes
+    // rows on APNs BadDeviceToken), so it must not count as confirmed.
+    localStorage.setItem(
+      "vellum:push_registration",
+      JSON.stringify({
+        token: "persisted-token",
+        bundleId: "ai.vocify-inc.vellum-assistant-ios",
+        assistantId: "assistant-9",
+      }),
+    );
+
+    expect(hasSessionConfirmedRemotePushRegistration("assistant-9")).toBe(
+      false,
+    );
+  });
+
+  test("false again after unregister clears the registration", async () => {
+    await registerForRemotePush("assistant-1");
+    registrationHandler?.({ value: "apns-token-abc" });
+    await flushMicrotasks();
+
+    await unregisterFromRemotePush();
+
+    expect(hasSessionConfirmedRemotePushRegistration("assistant-1")).toBe(
+      false,
+    );
   });
 });
 

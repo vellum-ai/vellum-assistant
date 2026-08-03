@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Document - Vellum Docs",
   description:
-    "Document skill for Vellum: create and edit long-form text in a dedicated rich-text editor with Markdown support.",
+    "Document skill for Vellum — create and edit long-form text in a dedicated rich-text editor with Markdown support.",
   path: "/docs/skills-reference/document",
 });
 

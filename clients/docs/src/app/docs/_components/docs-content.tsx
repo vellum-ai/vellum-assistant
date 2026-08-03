@@ -27,9 +27,7 @@ function deriveEyebrow(breadcrumb: string): string | null {
     .split("/")
     .map((segment) => segment.trim())
     .filter(Boolean);
-  if (parts.length < 3) {
-    return null;
-  }
+  if (parts.length < 3) {return null;}
   return parts[parts.length - 2] ?? null;
 }
 

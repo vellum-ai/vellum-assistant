@@ -41,15 +41,9 @@ afterEach(() => {
     openCategories: [],
     openCustomGroups: [],
     sectionOrder: [],
-    viewMode: "all",
   });
 });
 
-/**
- * Put the sidebar in the channel-grouped view. The layout store hydrates from
- * localStorage in an effect, so seeding the key is what survives the hook's
- * own `setAssistantId` call.
- */
 /** The rendered section carrying `key`, or a clear failure if it is absent. */
 function sectionFor(
   sections: { key: string; all: unknown[] }[],
@@ -62,9 +56,13 @@ function sectionFor(
   return section;
 }
 
+/**
+ * Put the sidebar in the channel-grouped view. Seeding the key is enough: the
+ * hook subscribes to storage during render, so the first render already sees
+ * this - no store priming, and no commit in between.
+ */
 function seedGroupedView(assistantId = "asst-1"): void {
   localStorage.setItem(`vellum:sidebar-view-mode:${assistantId}`, "grouped");
-  useSidebarLayoutStore.setState({ viewMode: "grouped" });
 }
 
 describe("useSidebarState grouping", () => {

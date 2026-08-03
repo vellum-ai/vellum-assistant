@@ -3,6 +3,7 @@ import Link from "next/link";
 import { DocsContent } from "@/app/docs/_components/docs-content";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
+import { getIntegrationBySlug } from "@/lib/integrations-data";
 
 const TOC_ITEMS = [
   { id: "what-it-does", label: "What it does", level: 2 as const },
@@ -22,10 +23,12 @@ const TOC_ITEMS = [
  * connect Tavily" entry point.
  */
 export function IntegrationsTavilyContent() {
+  const integration = getIntegrationBySlug("tavily");
+
   return (
     <>
       <DocsContent
-        title="Tavily"
+        title={integration?.name ?? "Tavily"}
         breadcrumb="Docs / Integrations / Tavily"
         subtitle="Real-time web search built for AI agents. Use Tavily as the web search provider in your Vellum assistant for citation-grade, relevance-scored results."
       >
@@ -106,7 +109,7 @@ export function IntegrationsTavilyContent() {
             </li>
           </ol>
           <p className="mb-3 text-zinc-600">
-            Prefer the CLI? Two commands from any shell where the assistant is running:
+            Prefer the CLI? Two commands from any shell where the assistant daemon is running:
           </p>
           <div className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4">
             <pre className="font-[family-name:var(--font-dm-mono)] text-sm text-zinc-100">
@@ -152,7 +155,7 @@ assistant config set services.web-search.provider tavily`}
               If Tavily is unavailable, the assistant falls through the rest of the web search
               chain (Perplexity, Brave, then Provider Native). See the{" "}
               <Link
-                href={"/docs/key-concepts/web-search"}
+                href="/docs/key-concepts/web-search"
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
                 Web Search
@@ -220,7 +223,7 @@ assistant config set services.web-search.provider tavily`}
             </li>
             <li>
               <Link
-                href={"/docs/key-concepts/web-search"}
+                href="/docs/key-concepts/web-search"
                 className="text-emerald-700 underline hover:text-emerald-800"
               >
                 Vellum Web Search reference

@@ -222,7 +222,7 @@ export async function GET(request: Request): Promise<Response> {
               app
             </Link>{" "}
             that backs its data with the plugin&apos;s own routes must reach
-            them through the <code>window.vellum.fetch</code> bridge:{" "}
+            them through the <code>window.vellum.fetch</code> bridge —{" "}
             <strong>
               never the global <code>fetch</code>
             </strong>
@@ -232,13 +232,13 @@ export async function GET(request: Request): Promise<Response> {
             the Assistant runtime.
           </p>
           <p className="mb-4 text-zinc-600 dark:text-zinc-400">
-            Call the route at the same path it is served:{" "}
+            Call the route at the same path it is served —{" "}
             <code>/x/plugins/&lt;name&gt;/&lt;path&gt;</code>. The wrapper
             prepends the <code>/v1</code> API prefix for you, so you never write
             it:
           </p>
           <pre className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
-            <code>{`// inside apps/<app>/src: calling this plugin's own status route
+            <code>{`// inside apps/<app>/src — calling this plugin's own status route
 const res = await window.vellum.fetch("/x/plugins/my-plugin/status");
 if (!res.ok) throw new Error(\`HTTP \${res.status}\`);
 const data = await res.json();`}</code>

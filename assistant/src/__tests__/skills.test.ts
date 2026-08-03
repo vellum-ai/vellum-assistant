@@ -798,6 +798,33 @@ describe("always-candidate frontmatter parsing", () => {
     const wf = loadSkillCatalog().find((s) => s.id === "workflows");
     expect(wf?.alwaysCandidate).toBe(true);
   });
+
+  test("the bundled visualize skill is flagged always-candidate", () => {
+    const viz = loadSkillCatalog().find((s) => s.id === "visualize");
+    expect(viz?.alwaysCandidate).toBe(true);
+  });
+
+  test("every always-candidate bundled skill's card fits its budget", async () => {
+    // The card is pinned into the selector's stable prefix every turn, and
+    // `buildSkillContent` hard-truncates at the budget — a skill that overruns
+    // silently loses its last activation hints and its avoid-when list, which
+    // is exactly the guidance the pinning was added to deliver.
+    const { ALWAYS_CANDIDATE_CARD_CHARS, buildSkillContent } =
+      await import("../plugins/defaults/memory/substrate/skill-content.js");
+    const pinned = loadSkillCatalog().filter(
+      (skill) => skill.bundled && skill.alwaysCandidate === true,
+    );
+    expect(pinned.length).toBeGreaterThan(0);
+
+    const overrun = pinned
+      .map((skill) => ({
+        id: skill.id,
+        chars: buildSkillContent(skill, Number.MAX_SAFE_INTEGER).length,
+      }))
+      .filter(({ chars }) => chars > ALWAYS_CANDIDATE_CARD_CHARS)
+      .map(({ id, chars }) => `${id}: ${chars}`);
+    expect(overrun).toEqual([]);
+  });
 });
 
 describe("bundled skill categories", () => {

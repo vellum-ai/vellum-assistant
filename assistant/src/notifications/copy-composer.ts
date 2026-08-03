@@ -26,6 +26,7 @@ import {
 } from "./guardian-question-mode.js";
 import {
   nonEmpty,
+  NOTIFICATION_TITLE_MAX_LENGTH,
   readPayloadString,
   sanitizeIdentityField,
 } from "./notification-utils.js";
@@ -48,14 +49,14 @@ function str(value: unknown, fallback: string): string {
 /**
  * Derive a short notification title from a message body. Trims to the
  * first sentence terminator when present, then caps the result at
- * 60 characters with an ellipsis.
+ * `NOTIFICATION_TITLE_MAX_LENGTH` characters with an ellipsis.
  */
 export function deriveTitle(body: string): string {
   const firstSentenceEnd = body.search(/[.!?](\s|$)/);
   const candidate =
     firstSentenceEnd > 0 ? body.slice(0, firstSentenceEnd + 1) : body;
-  return candidate.length > 60
-    ? candidate.slice(0, 60).trim() + "\u2026"
+  return candidate.length > NOTIFICATION_TITLE_MAX_LENGTH
+    ? candidate.slice(0, NOTIFICATION_TITLE_MAX_LENGTH).trim() + "\u2026"
     : candidate.trim();
 }
 

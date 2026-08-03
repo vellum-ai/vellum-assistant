@@ -498,9 +498,11 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
     ).toBe(false);
   });
 
-  test("config on with empty Qdrant hits → no v2 block, v1 fallback skipped", async () => {
+  test("config on with empty Qdrant hits → no retrieved concepts in the v2 block, v1 fallback skipped", async () => {
     // No `stageTurn` call — every channel returns `{ points: [] }` so the
-    // candidate set is empty and `injectMemoryV2Block` returns block=null.
+    // candidate set is empty and retrieval contributes nothing. Always-candidate
+    // skills are pinned rather than retrieved, so the block may still carry
+    // their cards; what must be absent is any retrieved concept section.
     const memory = makeMemory();
     const config = makeConfig(true);
     const messages = makeMessages();
@@ -512,8 +514,11 @@ describe("ConversationGraphMemory.prepareMemory — v2 routing (per-turn path)",
       noopEvent,
     );
 
-    expect(result.injectedBlockText).toBeNull();
-    expect(result.runMessages).toEqual(messages);
+    expect(result.injectedBlockText ?? "").not.toContain("# memory/concepts/");
+    expect(JSON.stringify(result.runMessages)).not.toContain(
+      "memory/concepts/",
+    );
+    expect(retrieveForTurnMock).not.toHaveBeenCalled();
   });
 });
 

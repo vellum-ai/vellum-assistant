@@ -21,6 +21,7 @@ import {
   machineSizeRank,
   SIZE_LABEL,
 } from "@/lib/billing/machine-sizes";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
@@ -51,6 +52,7 @@ export function ResizeCard({
   refetchUntilResized,
 }: ResizeCardProps) {
   const navigate = useNavigate();
+  const isNativeAndroid = useIsNativeAndroid();
   const subscriptionQuery = useQuery(
     organizationsBillingSubscriptionRetrieveOptions(),
   );
@@ -196,6 +198,16 @@ export function ResizeCard({
       }
     : null;
 
+  const basePlanResizeAction = isNativeAndroid ? null : (
+    <Button
+      variant="ghost"
+      size="compact"
+      onClick={() => setUpgradeModalOpen(true)}
+    >
+      Resize
+    </Button>
+  );
+
   const diskAction = !isPlatform ? null : isPro ? (
     canGrowStorage ? (
       <button
@@ -217,15 +229,7 @@ export function ResizeCard({
         Resize
       </Button>
     )
-  ) : (
-    <Button
-      variant="ghost"
-      size="compact"
-      onClick={() => setUpgradeModalOpen(true)}
-    >
-      Resize
-    </Button>
-  );
+  ) : basePlanResizeAction;
 
   const machineAction = !isPlatform ? null : isPro ? (
     canUpsize ? (
@@ -248,15 +252,7 @@ export function ResizeCard({
         Resize
       </Button>
     )
-  ) : (
-    <Button
-      variant="ghost"
-      size="compact"
-      onClick={() => setUpgradeModalOpen(true)}
-    >
-      Resize
-    </Button>
-  );
+  ) : basePlanResizeAction;
 
   return (
     <>
@@ -470,17 +466,23 @@ export function ResizeCard({
               {resizeError && <Notice tone="error">{resizeError}</Notice>}
             </div>
           </Modal.Body>
-          <Modal.Footer className="items-center justify-between">
-            <span className="text-label-small-default text-[var(--content-tertiary)]">
-              Need more?{" "}
-              <Link
-                to={routes.plans}
-                className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
-                onClick={() => setResizeModalOpen(false)}
-              >
-                Upgrade plan
-              </Link>
-            </span>
+          <Modal.Footer
+            className={
+              isNativeAndroid ? "justify-end" : "items-center justify-between"
+            }
+          >
+            {!isNativeAndroid ? (
+              <span className="text-label-small-default text-[var(--content-tertiary)]">
+                Need more?{" "}
+                <Link
+                  to={routes.plans}
+                  className="text-[var(--content-secondary)] underline decoration-[var(--border-element)] underline-offset-2 transition-colors hover:text-[var(--content-default)]"
+                  onClick={() => setResizeModalOpen(false)}
+                >
+                  Upgrade plan
+                </Link>
+              </span>
+            ) : null}
             <div className="flex gap-2">
               <Button
                 variant="ghost"

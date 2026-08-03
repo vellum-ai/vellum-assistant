@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Google Calendar - Vellum Docs",
   description:
-    "Google Calendar skill for Vellum: view events, create meetings, and check availability.",
+    "Google Calendar skill for Vellum — view events, create meetings, and check availability.",
   path: "/docs/skills-reference/google-calendar",
 });
 

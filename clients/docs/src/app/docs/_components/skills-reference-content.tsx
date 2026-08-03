@@ -3,16 +3,16 @@
 import { DocsContent } from "@/app/docs/_components/docs-content";
 
 const SKILL_PAGES = [
-  { title: "Gmail", href: "/docs/skills-reference/gmail", description: "Full Gmail management: archive, label, draft, send, unsubscribe, and manage filters." },
+  { title: "Gmail", href: "/docs/skills-reference/gmail", description: "Full Gmail management — archive, label, draft, send, unsubscribe, and manage filters." },
   { title: "Google Calendar", href: "/docs/skills-reference/google-calendar", description: "View your schedule, create events, and manage your calendar." },
   { title: "Slack", href: "/docs/skills-reference/slack", description: "Scan channels, summarize threads, manage reactions, and configure Slack integration." },
   { title: "Messaging", href: "/docs/skills-reference/messaging", description: "Read, search, send, and manage messages across multiple platforms." },
   { title: "Phone Calls", href: "/docs/skills-reference/phone-calls", description: "Make and receive phone calls with real-time voice conversation via Twilio." },
   { title: "Browser", href: "/docs/skills-reference/browser", description: "Navigate web pages, interact with elements, extract content, and fill forms." },
-  { title: "Computer Use", href: "/docs/skills-reference/computer-use", description: "Control your Mac directly: observe the screen and perform actions via accessibility APIs." },
+  { title: "Computer Use", href: "/docs/skills-reference/computer-use", description: "Control your Mac directly — observe the screen and perform actions via accessibility APIs." },
   { title: "Screen Watch", href: "/docs/skills-reference/screen-watch", description: "Observe your screen at regular intervals using OCR for contextual assistance." },
   { title: "Image Studio", href: "/docs/skills-reference/image-studio", description: "Generate and edit images using AI models." },
-  { title: "Document", href: "/docs/skills-reference/document", description: "Create and edit long-form text: blog posts, articles, essays, and reports." },
+  { title: "Document", href: "/docs/skills-reference/document", description: "Create and edit long-form text — blog posts, articles, essays, and reports." },
   { title: "App Builder", href: "/docs/skills-reference/app-builder", description: "Create fully interactive web applications from natural language descriptions." },
 
   { title: "Tasks", href: "/docs/skills-reference/tasks", description: "Reusable task templates and a prioritized work queue." },
@@ -46,12 +46,12 @@ export function SkillsReferenceContent() {
 
       <p className="mb-3 text-zinc-600">Each skill page covers:</p>
       <ul className="mb-6 list-disc space-y-2 pl-6 text-zinc-600">
-        <li><strong>What it does</strong>: one sentence</li>
-        <li><strong>Setup required</strong>: what you need before first use</li>
-        <li><strong>Permissions</strong>: what access it needs</li>
-        <li><strong>Common prompts</strong>: things you can say to use it</li>
-        <li><strong>Configuration</strong>: options and settings</li>
-        <li><strong>Tips &amp; gotchas</strong>: the stuff nobody tells you</li>
+        <li><strong>What it does</strong> — one sentence</li>
+        <li><strong>Setup required</strong> — what you need before first use</li>
+        <li><strong>Permissions</strong> — what access it needs</li>
+        <li><strong>Common prompts</strong> — things you can say to use it</li>
+        <li><strong>Configuration</strong> — options and settings</li>
+        <li><strong>Tips &amp; gotchas</strong> — the stuff nobody tells you</li>
       </ul>
 
       <div className="docs-nav-cards">

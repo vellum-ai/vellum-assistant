@@ -125,8 +125,8 @@ const NAV_ITEMS: DocsNavItem[] = [
         icon: icon(Rocket),
       },
       {
-        label: "Your First Skill",
-        href: "/docs/getting-started/your-first-skill",
+        label: "Self-improving Skills",
+        href: "/docs/key-concepts/self-improving-skills",
         icon: icon(Wand2),
       },
     ],

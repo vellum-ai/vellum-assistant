@@ -144,10 +144,12 @@ whichever Swift channel you have around.
   `View > Toggle Developer Tools` is gated to dev builds only so the
   packaged build doesn't expose devtools to end users.
 
-- **Share Sheet** (`src/main/share.ts`). The renderer's `saveFile`
+- **Share Sheet** (`src/main/share.ts`). The renderer's `shareFile`
   (`clients/web/src/runtime/native-file.ts`) hands file bytes over the
   `vellum:share:file` channel; the main process writes them to a temp file and
-  presents the native `NSSharingServicePicker` via Electron's `ShareMenu`. Two
+  presents the native `NSSharingServicePicker` via Electron's `ShareMenu`.
+  Only the *share* intent routes here. A "Download" action goes through
+  `saveFile` and the download handler below, never this sheet. Two
   gotchas here were verified against the pinned `electron@42` source and types,
   **not** the published API docs (which are wrong):
   - **Anchor with `window`, not `browserWindow`.** `ShareMenu.popup` forwards to
@@ -166,6 +168,20 @@ whichever Swift channel you have around.
     transfer), sweeping at startup and before each new share, so it never
     deletes a file still in use, including one from a second Vellum build
     sharing at the same time.
+
+- **Downloads** (`src/main/downloads.ts`). The counterpart intent to the Share
+  Sheet. The renderer downloads the browser way (`saveFile` → an `<a download>`
+  click), which Chromium raises as a `will-download` on the default session.
+  Without a handler Electron falls back to its default routine and prompts a
+  Save panel for every download, so this picks the save path itself:
+  `~/Downloads`, uniquified Finder-style (`report.pdf`, `report (1).pdf`) so a
+  repeat download never clobbers an existing file, then a Dock Downloads-stack
+  bounce via `app.dock.downloadFinished` on completion. `setSavePath` is only
+  honored while the `will-download` listener is on the stack, hence the
+  synchronous `existsSync` collision check rather than the `node:fs/promises`
+  style used elsewhere in the main process. Any failure (unwritable directory,
+  no free name) simply skips `setSavePath` and lets Electron's Save panel take
+  over.
 
 ## Scripts
 

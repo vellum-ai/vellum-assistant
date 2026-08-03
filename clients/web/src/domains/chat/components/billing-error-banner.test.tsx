@@ -24,8 +24,7 @@ describe("BillingErrorBanner", () => {
         icon={<span data-testid="banner-icon">!</span>}
         title="Title"
         subtitle="Subtitle"
-        ctaLabel="Upgrade"
-        onAction={onAction}
+        action={{ label: "Upgrade", onClick: onAction }}
       />,
     );
 
@@ -46,8 +45,7 @@ describe("BillingErrorBanner", () => {
         ariaLabel="Billing notice"
         title="Title"
         subtitle="Subtitle"
-        ctaLabel="Upgrade"
-        onAction={() => {}}
+        action={{ label: "Upgrade", onClick: () => {} }}
       />,
     );
 
@@ -64,8 +62,7 @@ describe("BillingErrorBanner", () => {
         ariaLabel="Billing notice"
         title="Title"
         subtitle="Subtitle"
-        ctaLabel="Upgrade"
-        onAction={onAction}
+        action={{ label: "Upgrade", onClick: onAction }}
         onDismiss={onDismiss}
       />,
     );
@@ -75,14 +72,30 @@ describe("BillingErrorBanner", () => {
     expect(onAction).not.toHaveBeenCalled();
   });
 
+  test("renders the dismiss button without an action", () => {
+    const onDismiss = mock(() => {});
+
+    const { getByRole, queryByRole } = render(
+      <BillingErrorBanner
+        ariaLabel="Billing notice"
+        title="Title"
+        subtitle="Subtitle"
+        onDismiss={onDismiss}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Upgrade" })).toBeNull();
+    fireEvent.click(getByRole("button", { name: "Dismiss" }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
   test("exposes role=status with the provided aria-label", () => {
     const { getByRole } = render(
       <BillingErrorBanner
         ariaLabel="Billing notice"
         title="Title"
         subtitle="Subtitle"
-        ctaLabel="Upgrade"
-        onAction={() => {}}
+        action={{ label: "Upgrade", onClick: () => {} }}
       />,
     );
 

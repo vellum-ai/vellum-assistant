@@ -23,7 +23,7 @@
  * (via `ConversationRow`), so neither takes them as props.
  */
 
-import { type ReactNode } from "react";
+import { type ReactNode, type Ref } from "react";
 
 import { type LucideIcon } from "lucide-react";
 
@@ -66,6 +66,13 @@ export interface ConversationRowListProps {
    * of its own would put a second scrollbar in the rail.
    */
   scrollParent?: HTMLElement;
+  /**
+   * Reaches the bounded scroll div, for the Pinned resize handle to drive
+   * imperatively during a drag. Unused when `scrollParent` unbounds the list.
+   */
+  listRef?: Ref<HTMLDivElement>;
+  /** Caps the bounded list instead of {@link SIDEBAR_SECTION_MAX_HEIGHT}. */
+  listMaxHeight?: number;
 }
 
 export function ConversationRowList({
@@ -73,6 +80,8 @@ export function ConversationRowList({
   dragSection,
   dragSiblings,
   scrollParent,
+  listRef,
+  listMaxHeight,
 }: ConversationRowListProps) {
   const renderRow = (conversation: Conversation) => (
     <ConversationRow
@@ -98,8 +107,9 @@ export function ConversationRowList({
       rows
     ) : (
       <div
+        ref={listRef}
         className="overflow-y-auto"
-        style={{ maxHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
+        style={{ maxHeight: listMaxHeight ?? SIDEBAR_SECTION_MAX_HEIGHT }}
       >
         {rows}
       </div>
@@ -124,7 +134,12 @@ export function ConversationRowList({
   return scrollParent ? (
     windowed
   ) : (
-    <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>
+    <div
+      ref={listRef}
+      style={{ height: listMaxHeight ?? SIDEBAR_SECTION_MAX_HEIGHT }}
+    >
+      {windowed}
+    </div>
   );
 }
 export interface ConversationNavSectionProps extends ConversationRowListProps {
@@ -144,6 +159,14 @@ export interface ConversationNavSectionProps extends ConversationRowListProps {
   collapsedIndicator?: ReactNode;
   /** Section-level drag-to-reorder wiring; omit to pin the section in place. */
   drag?: CollapsibleNavSectionDrag;
+  /** Forwarded to `CollapsibleNavSection.Section`; defaults to `true`. */
+  collapsible?: boolean;
+  /**
+   * Overrides the default `ConversationRowList` content, e.g. nested
+   * sub-sections instead of a row list. `items`/pagination/drag props are
+   * still required by the type but go unused when this is provided.
+   */
+  children?: ReactNode;
 }
 
 export function ConversationNavSection({
@@ -154,6 +177,8 @@ export function ConversationNavSection({
   groupMenu,
   collapsedIndicator,
   drag,
+  collapsible,
+  children,
   ...listProps
 }: ConversationNavSectionProps) {
   const hasMenu = groupMenu != null && hasAnyGroupMenuAction(groupMenu);
@@ -177,8 +202,9 @@ export function ConversationNavSection({
       }
       collapsedIndicator={collapsedIndicator}
       drag={drag}
+      collapsible={collapsible}
     >
-      <ConversationRowList {...listProps} />
+      {children ?? <ConversationRowList {...listProps} />}
     </CollapsibleNavSection.Section>
   );
 }

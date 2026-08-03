@@ -324,6 +324,9 @@ function isPagePath(pathname: string): boolean {
   if (pathname === "/docs/_md" || pathname.startsWith("/docs/_md/")) {
     return false;
   }
+  if (pathname.startsWith("/docs/_next/")) {
+    return false;
+  }
   const lastSegment = pathname.split("/").at(-1) ?? "";
   return !lastSegment.includes(".");
 }

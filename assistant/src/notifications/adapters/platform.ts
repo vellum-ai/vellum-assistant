@@ -35,6 +35,17 @@ const log = getLogger("notif-adapter-platform");
 // Exponential backoff delays for 5xx/timeout retries: 250ms → 1s → 4s
 const RETRY_DELAYS_MS = [250, 1_000, 4_000] as const;
 
+// Per-attempt abort timeout. The underlying platform fetch has no timeout of
+// its own, and the broadcaster defers the urgent local banner on this
+// dispatch's outcome -- a hung platform must fail the attempt, not stall it.
+const ATTEMPT_TIMEOUT_MS = 5_000;
+
+/** Whether a fetch error is the per-attempt abort timeout firing. */
+function isAttemptTimeout(err: unknown): boolean {
+  const name = (err as { name?: unknown } | null)?.name;
+  return name === "TimeoutError" || name === "AbortError";
+}
+
 interface DispatchBody {
   delivery_id?: string;
   source_event_name: string;
@@ -98,9 +109,13 @@ export class PlatformPushAdapter implements ChannelAdapter {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
         });
       } catch (err) {
-        if (attempt < RETRY_DELAYS_MS.length && isRetryableNetworkError(err)) {
+        if (
+          attempt < RETRY_DELAYS_MS.length &&
+          (isAttemptTimeout(err) || isRetryableNetworkError(err))
+        ) {
           log.warn(
             {
               attempt,
@@ -121,16 +136,33 @@ export class PlatformPushAdapter implements ChannelAdapter {
       }
 
       if (response.ok) {
+        // A 2xx does not mean a push went out: the server returns
+        // 202 {"skipped": ...} when the feature flag is off or no tokens
+        // are registered, and 200 with tokens_sent: 0 on idempotent
+        // replays. Only report acceptance when the body confirms at least
+        // one device push was dispatched; an unparseable or ambiguous body
+        // counts as not accepted (a duplicate client banner beats a lost
+        // notification).
+        const responseBody = (await response.json().catch(() => null)) as {
+          skipped?: unknown;
+          tokens_sent?: unknown;
+        } | null;
+        const remotePushAccepted =
+          responseBody != null &&
+          !responseBody.skipped &&
+          typeof responseBody.tokens_sent === "number" &&
+          responseBody.tokens_sent > 0;
         log.info(
           {
             sourceEventName: payload.sourceEventName,
             title: payload.copy.title,
             guardianScoped: targetGuardianPrincipalId != null,
             status: response.status,
+            remotePushAccepted,
           },
           "Platform push dispatched",
         );
-        return { success: true };
+        return { success: true, remotePushAccepted };
       }
 
       if (

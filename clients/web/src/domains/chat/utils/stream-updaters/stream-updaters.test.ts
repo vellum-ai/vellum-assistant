@@ -12,7 +12,11 @@ import {
   finalizeOnIdle,
   handleConversationError,
 } from "@/domains/chat/utils/stream-updaters/message-updaters";
-import { attachSurface } from "@/domains/chat/utils/stream-updaters/surface-updaters";
+import {
+  attachSurface,
+  clearPendingVisualSurfaces,
+  markPendingVisualSurface,
+} from "@/domains/chat/utils/stream-updaters/surface-updaters";
 import {
   applyToolResult,
   upsertToolCall,
@@ -757,6 +761,52 @@ describe("attachSurface", () => {
     expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
   });
 
+  it("opens a row in the current turn instead of folding into the previous turn's bubble", () => {
+    /**
+     * A surface event that carries no `messageId` resolves positionally. The
+     * scan must stop at the newest user row: a turn that has not opened an
+     * assistant row yet (a wake/scheduled surface, a background dispatch)
+     * would otherwise attach the surface to the PREVIOUS turn's bubble — which
+     * renders above the user's newest message, nowhere near where the server
+     * places it once the turn is persisted and replayed.
+     */
+
+    // GIVEN a settled previous turn followed by a fresh user message
+    const previousTurn = makeAssistantMsg({ id: "prev-assistant" });
+    const newUser = { id: "u-2", role: "user" as const };
+
+    // WHEN a surface with no messageId arrives before the turn opens a bubble
+    const result = attachSurface(
+      [userMsg, previousTurn, newUser],
+      surface,
+      undefined,
+      1234,
+    );
+
+    // THEN it opens a new assistant row at the tail, leaving history untouched
+    expect(result).toHaveLength(4);
+    expect(result[1]!.surfaces).toBeUndefined();
+    expect(result[3]!.role).toBe("assistant");
+    expect(result[3]!.surfaces![0]!.surfaceId).toBe("surf-1");
+  });
+
+  it("still folds into the current turn's assistant row across a queued user message", () => {
+    // A message queued mid-turn must not sever the in-flight assistant row
+    // from the surface its own turn is emitting.
+    const liveRow = makeAssistantMsg({ id: "live-1" });
+    const queued = {
+      id: "u-queued",
+      role: "user" as const,
+      queueStatus: "queued" as const,
+    };
+
+    const result = attachSurface([userMsg, liveRow, queued], surface);
+
+    expect(result).toHaveLength(3);
+    expect(result[1]!.id).toBe("live-1");
+    expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
+  });
+
   it("is a no-op when the surface is already attached to the target message", () => {
     const target = makeAssistantMsg({
       id: "anchor-1",
@@ -1476,5 +1526,81 @@ describe("appendThinkingDelta", () => {
     expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("row-B");
     expect(result[1]!.thinkingSegments).toEqual(["Reasoning so far"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Visual placeholder markers
+// ---------------------------------------------------------------------------
+
+describe("markPendingVisualSurface / clearPendingVisualSurfaces", () => {
+  it("marks the id-matched assistant row", () => {
+    const target = makeAssistantMsg({ id: "anchor-1" });
+    const result = markPendingVisualSurface(
+      [userMsg, target],
+      "toolu_viz",
+      "anchor-1",
+    );
+
+    expect(result[1]!.pendingVisualToolUseIds).toEqual(["toolu_viz"]);
+  });
+
+  it("falls back to the turn's trailing assistant row without a messageId", () => {
+    const target = makeAssistantMsg({ id: "anchor-1" });
+    const result = markPendingVisualSurface([userMsg, target], "toolu_viz");
+
+    expect(result[1]!.pendingVisualToolUseIds).toEqual(["toolu_viz"]);
+  });
+
+  it("leaves the list untouched when the turn has no assistant row", () => {
+    const prev = [userMsg];
+    expect(markPendingVisualSurface(prev, "toolu_viz", "anchor-1")).toBe(prev);
+  });
+
+  it("records a repeated announcement once, by reference", () => {
+    const marked = markPendingVisualSurface(
+      [userMsg, makeAssistantMsg({ id: "anchor-1" })],
+      "toolu_viz",
+      "anchor-1",
+    );
+    expect(markPendingVisualSurface(marked, "toolu_viz", "anchor-1")).toBe(
+      marked,
+    );
+  });
+
+  it("clears one id and leaves the rest of the row's markers standing", () => {
+    let messages = markPendingVisualSurface(
+      [userMsg, makeAssistantMsg({ id: "anchor-1" })],
+      "toolu_a",
+      "anchor-1",
+    );
+    messages = markPendingVisualSurface(messages, "toolu_b", "anchor-1");
+    const cleared = clearPendingVisualSurfaces(messages, {
+      toolUseId: "toolu_a",
+    });
+
+    expect(cleared[1]!.pendingVisualToolUseIds).toEqual(["toolu_b"]);
+  });
+
+  it("drops the field entirely once the last marker is retired", () => {
+    const messages = markPendingVisualSurface(
+      [userMsg, makeAssistantMsg({ id: "anchor-1" })],
+      "toolu_viz",
+      "anchor-1",
+    );
+    const cleared = clearPendingVisualSurfaces(messages);
+
+    expect("pendingVisualToolUseIds" in cleared[1]!).toBe(false);
+  });
+
+  it("is a reference no-op when nothing matches", () => {
+    const messages = markPendingVisualSurface(
+      [userMsg, makeAssistantMsg({ id: "anchor-1" })],
+      "toolu_viz",
+      "anchor-1",
+    );
+    expect(
+      clearPendingVisualSurfaces(messages, { toolUseId: "toolu_other" }),
+    ).toBe(messages);
   });
 });

@@ -40,7 +40,7 @@ export function SkillsReferenceEmailAgentMailContent() {
           </blockquote>
           <p className="mb-0 text-zinc-600">
             Your assistant will create its own email address through AgentMail (e.g.,{" "}
-            <code>bob@agentmail.vellum.ai</code>). This is a one-time process. Once set up,
+            <code>gigi@agentmail.vellum.ai</code>). This is a one-time process. Once set up,
             email works automatically going forward.
           </p>
         </section>

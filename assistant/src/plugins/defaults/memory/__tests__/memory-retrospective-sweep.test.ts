@@ -2,14 +2,18 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Record enqueues instead of writing job rows — the sweep's scan/gate decision
 // is the unit under test, not the jobs store's coalescing. The enqueue's own
-// recursion/low-yield guards are covered by memory-retrospective-enqueue tests.
+// recursion/low-yield/user-activity guards are covered by
+// memory-retrospective-enqueue tests; `enqueueDeclines` scripts a declined
+// conversation so the cap accounting can be asserted.
 let enqueueCalls: Array<{ conversationId: string; trigger: string }> = [];
+let enqueueDeclines = new Set<string>();
 mock.module("../memory-retrospective-enqueue.js", () => ({
   enqueueMemoryRetrospectiveIfEnabled: (args: {
     conversationId: string;
     trigger: string;
   }) => {
     enqueueCalls.push(args);
+    return !enqueueDeclines.has(args.conversationId);
   },
 }));
 
@@ -18,6 +22,7 @@ import { eq } from "drizzle-orm";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { AUTO_ANALYSIS_SOURCE } from "../../../../persistence/auto-analysis-constants.js";
 import { createConversation } from "../../../../persistence/conversation-crud.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../../../persistence/conversation-types.js";
 import {
   getDb,
   getMemorySqlite,
@@ -38,7 +43,6 @@ import {
   runRetrospectiveSweep,
   SWEEP_MAX_ENQUEUES_PER_PASS,
 } from "../memory-retrospective-sweep.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../substrate/constants.js";
 
 await initializeDb();
 
@@ -104,6 +108,7 @@ describe("runRetrospectiveSweep", () => {
   beforeEach(() => {
     resetTables();
     enqueueCalls = [];
+    enqueueDeclines = new Set();
   });
 
   test("never-run conversation with unprocessed messages is swept", async () => {
@@ -313,6 +318,23 @@ describe("runRetrospectiveSweep", () => {
       { conversationId: seen.id, trigger: "sweep" },
     ]);
     expect(result).toEqual({ scanned: 1, enqueued: 1 });
+  });
+
+  test("an enqueue the funnel declines is not counted and does not consume the cap", async () => {
+    const declined = createConversation({ id: "conv-a" });
+    insertMessage(declined.id, { createdAt: 1_000 });
+    const accepted = createConversation({ id: "conv-b" });
+    insertMessage(accepted.id, { createdAt: 1_000 });
+    enqueueDeclines.add(declined.id);
+
+    const result = await runRetrospectiveSweep(makeConfig());
+
+    // Both conversations reach the funnel; only the accepted one counts.
+    expect(enqueueCalls.map((c) => c.conversationId)).toEqual([
+      declined.id,
+      accepted.id,
+    ]);
+    expect(result).toEqual({ scanned: 2, enqueued: 1 });
   });
 
   test("enqueues clamp at the per-pass cap and defer the remainder", async () => {

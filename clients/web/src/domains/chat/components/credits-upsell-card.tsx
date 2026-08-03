@@ -8,6 +8,8 @@ import {
 } from "@/hooks/use-billing-cta-experiment";
 import { useIsFreePlan } from "@/hooks/use-is-free-plan";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { ANDROID_BILLING_MESSAGE } from "@/lib/billing/android-consumption-only";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useAddCreditsModalStore } from "@/stores/add-credits-modal-store";
 import { routes } from "@/utils/routes";
 
@@ -50,6 +52,11 @@ export function CreditsUpsellCard() {
     isBillingCtaUpgradeArm(billingCtaArm) && isFreePlan === true;
   const copy = isUpgrade ? UPGRADE_COPY : ADD_CREDITS_COPY;
 
+  // Native Android is consumption-only: purchase entry points (add credits,
+  // view plans) are hidden and the subtitle points at the website instead.
+  const isNativeAndroid = useIsNativeAndroid();
+  const subtitle = isNativeAndroid ? ANDROID_BILLING_MESSAGE : copy.subtitle;
+
   if (platformGate === "gated") {
     // Self-hosted active assistant: every recovery action the card could
     // offer targets the platform, so there is nothing useful to render.
@@ -73,15 +80,19 @@ export function CreditsUpsellCard() {
 
   return (
     <BillingErrorBanner
-      ariaLabel={`${copy.title}. ${copy.subtitle}`}
+      ariaLabel={`${copy.title}. ${subtitle}`}
       icon={<span className="text-lg opacity-80">💰</span>}
       title={copy.title}
-      subtitle={copy.subtitle}
-      ctaLabel={copy.ctaLabel}
-      onAction={
-        isUpgrade
-          ? () => void navigate(routes.plans)
-          : () => useAddCreditsModalStore.getState().setOpen(true)
+      subtitle={subtitle}
+      action={
+        isNativeAndroid
+          ? undefined
+          : {
+              label: copy.ctaLabel,
+              onClick: isUpgrade
+                ? () => void navigate(routes.plans)
+                : () => useAddCreditsModalStore.getState().setOpen(true),
+            }
       }
       detached={true}
     />

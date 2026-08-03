@@ -25,6 +25,7 @@ import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { openUrl } from "@/runtime/browser";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { adminUrl, routes } from "@/utils/routes";
 
 import { CreditsCard } from "./credits-card";
@@ -165,6 +166,7 @@ function PreferencesMenuContent({
   const platformGate = usePlatformGate();
   const { enabled: showBillingRows, balance: effectiveBalance } =
     useBillingBalanceStatus();
+  const isNativeAndroid = useIsNativeAndroid();
 
   return (
     <>
@@ -176,10 +178,14 @@ function PreferencesMenuContent({
         <div className="my-2">
           <CreditsCard
             balance={formatWholeCredits(effectiveBalance)}
-            onAddCredits={() => {
-              onClose();
-              navigate(routes.settings.usageBilling);
-            }}
+            onAddCredits={
+              isNativeAndroid
+                ? undefined
+                : () => {
+                    onClose();
+                    navigate(routes.settings.usageBilling);
+                  }
+            }
           />
         </div>
       ) : null}

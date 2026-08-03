@@ -33,15 +33,15 @@ jobs:
           case "$ENVIRONMENT" in
             production)
               echo "flavor=Production" >> "$GITHUB_OUTPUT"
-              echo "package_id=ai.vocify.vellumassistant" >> "$GITHUB_OUTPUT"
+              echo "package_id=ai.vellum.assistant" >> "$GITHUB_OUTPUT"
               ;;
             staging)
               echo "flavor=Staging" >> "$GITHUB_OUTPUT"
-              echo "package_id=ai.vocify.vellumassistant.staging" >> "$GITHUB_OUTPUT"
+              echo "package_id=ai.vellum.assistant.staging" >> "$GITHUB_OUTPUT"
               ;;
             dev)
               echo "flavor=Dev" >> "$GITHUB_OUTPUT"
-              echo "package_id=ai.vocify.vellumassistant.dev" >> "$GITHUB_OUTPUT"
+              echo "package_id=ai.vellum.assistant.dev" >> "$GITHUB_OUTPUT"
               ;;
             *)
               echo "::error::Invalid Android environment: $ENVIRONMENT"
@@ -113,14 +113,12 @@ jobs:
           path: clients/android/app/build/outputs/bundle/${{ inputs.environment }}Release/*.aab
           if-no-files-found: error
 
-      - name: Upload to Play internal track
-        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: ${{ steps.config.outputs.package_id }}
-          releaseFiles: clients/android/app/build/outputs/bundle/${{ inputs.environment }}Release/*.aab
-          track: internal
-          status: completed
+      # Play publishing is manual: download the signed .aab artifact above and
+      # upload it to the internal track for steps.config.outputs.package_id.
+      # Automating it requires a Play publisher action permitted by the org
+      # Actions allowlist — a disallowed `uses:` makes this whole reusable
+      # workflow invalid, and every caller then fails at startup regardless of
+      # the `if:` gate on the call site.
 
       - name: Remove signing material
         if: ${{ always() }}

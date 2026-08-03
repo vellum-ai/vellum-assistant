@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
+import { resolveAppProtocolPath } from "@vellumai/electron-utils/app-protocol";
 import {
   readAllowedGatewayPorts,
   resolveLocalConfigFromEnv,
@@ -19,7 +20,6 @@ import { provisionCliForWrapper } from "./cli-path-installer";
 import { installCsp } from "./csp";
 import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
-import { resolveAppProtocolPath } from "./app-protocol";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import { planGatewayForward } from "./gateway-forward";
 import {
@@ -38,6 +38,7 @@ import { installAvatarIpc } from "./avatar";
 import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
+import { installDownloads } from "./downloads";
 import { installShare } from "./share";
 import {
   installEscapeMonitor,
@@ -426,6 +427,9 @@ app
     installAvatarIpc();
     installDock();
     installShare();
+    // Files renderer downloads into ~/Downloads instead of prompting a Save
+    // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
+    installDownloads();
     installPowerEvents();
     installNotifications();
     // Register the status channel before the tray installs so the tray's

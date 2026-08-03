@@ -4,13 +4,17 @@ import { X } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
 
+interface BillingErrorBannerAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface BillingErrorBannerProps {
   ariaLabel: string;
   icon?: ReactNode;
   title: string;
   subtitle: string;
-  ctaLabel: string;
-  onAction: () => void;
+  action?: BillingErrorBannerAction;
   /** When provided, renders a small dismiss (X) button after the CTA. */
   onDismiss?: () => void;
   /**
@@ -26,8 +30,7 @@ export function BillingErrorBanner({
   icon,
   title,
   subtitle,
-  ctaLabel,
-  onAction,
+  action,
   onDismiss,
   detached = false,
 }: BillingErrorBannerProps) {
@@ -74,26 +77,30 @@ export function BillingErrorBanner({
           </p>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <Button
-            variant="primary"
-            size="regular"
-            onClick={onAction}
-            aria-label={ctaLabel}
-          >
-            {ctaLabel}
-          </Button>
-          {onDismiss ? (
-            <Button
-              variant="ghost"
-              size="compact"
-              iconOnly={<X />}
-              tooltip="Dismiss"
-              aria-label="Dismiss"
-              onClick={onDismiss}
-            />
-          ) : null}
-        </div>
+        {action || onDismiss ? (
+          <div className="flex items-center gap-1 shrink-0">
+            {action ? (
+              <Button
+                variant="primary"
+                size="regular"
+                onClick={action.onClick}
+                aria-label={action.label}
+              >
+                {action.label}
+              </Button>
+            ) : null}
+            {onDismiss ? (
+              <Button
+                variant="ghost"
+                size="compact"
+                iconOnly={<X />}
+                tooltip="Dismiss"
+                aria-label="Dismiss"
+                onClick={onDismiss}
+              />
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

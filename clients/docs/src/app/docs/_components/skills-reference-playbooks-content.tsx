@@ -120,8 +120,8 @@ export function SkillsReferencePlaybooksContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <strong>If this, then that.</strong> Think of playbooks as &ldquo;if this, then
-              that&rdquo; rules for your assistant. They run automatically on incoming messages:
-              no need to ask each time.
+              that&rdquo; rules for your assistant. They run automatically on incoming messages
+              &mdash; no need to ask each time.
             </li>
             <li>
               <strong>Action modes.</strong> Actions can be &ldquo;auto&rdquo; (execute

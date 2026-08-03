@@ -21,6 +21,7 @@ import type {
   SurfaceDataByType,
   SurfaceType,
   TableSurfaceData,
+  VisualSurfaceData,
   WorkResultSurfaceData,
 } from "../../api/surfaces.js";
 
@@ -52,6 +53,7 @@ export {
   type TableColumn,
   type TableRow,
   TableSurfaceDataSchema,
+  VisualSurfaceDataSchema,
   type WorkResultDiff,
   type WorkResultItem,
   type WorkResultMetadata,
@@ -78,6 +80,7 @@ export type {
   SurfaceDataByType,
   SurfaceType,
   TableSurfaceData,
+  VisualSurfaceData,
   WorkResultSurfaceData,
 };
 

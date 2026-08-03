@@ -58,6 +58,9 @@ export const DeliveryResultSchema = z.object({
   success: z.boolean(),
   error: z.string().optional(),
   messageId: z.string().optional(),
+  /** Set only by the platform push adapter: true when the platform accepted
+   *  at least one device push for delivery (not proof of device receipt). */
+  remotePushAccepted: z.boolean().optional(),
 });
 export type DeliveryResult = z.infer<typeof DeliveryResultSchema>;
 
@@ -106,6 +109,10 @@ export const ChannelDeliveryPayloadSchema = z.object({
    *  broadcaster so channel adapters render it without re-parsing
    *  `contextPayload`. */
   toolApprovalSource: ToolApprovalSourceViewSchema.optional(),
+  /** True when the platform (APNs) channel accepted a remote push for this
+   *  delivery. Set only on the vellum channel's payload so clients can avoid
+   *  double-bannering. */
+  remotePushDispatched: z.boolean().optional(),
 });
 export type ChannelDeliveryPayload = z.infer<
   typeof ChannelDeliveryPayloadSchema
@@ -183,5 +190,7 @@ export interface NotificationDecision {
   dedupeKey: string;
   confidence: number;
   fallbackUsed: boolean;
+  /** Set by deterministic pass-through branches whose copy is producer-supplied verbatim; exempts the copy from the event-name-collision quality check. */
+  verbatimCopy?: boolean;
   persistedDecisionId?: string;
 }

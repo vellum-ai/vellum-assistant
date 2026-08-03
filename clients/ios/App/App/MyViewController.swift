@@ -5,9 +5,10 @@ import WebKit
 /// Custom `CAPBridgeViewController` subclass that:
 ///
 /// 1. Registers `NativeAuthPlugin`, `NativeBiometricPlugin`,
-///    `VoiceAudioSessionPlugin`, and `VoiceLiveActivityPlugin` as local plugin
-///    instances at bridge init time. These plugins live inside the App target
-///    (no SPM module) so the bridge won't discover them automatically.
+///    `VoiceAudioSessionPlugin`, `VoiceLiveActivityPlugin`, and
+///    `ApnsEnvironmentPlugin` as local plugin instances at bridge init time.
+///    These plugins live inside the App target (no SPM module) so the bridge
+///    won't discover them automatically.
 ///
 /// 2. Injects `WKUserScript`s at `.atDocumentEnd` to:
 ///    a) Pin focusable fields to a minimum 16px font-size, preventing the
@@ -102,20 +103,32 @@ class MyViewController: CAPBridgeViewController {
         return QuoteReplyWebView(frame: frame, configuration: configuration)
     }
 
-    /// Paint the native root view (and the web view's own backgrounds) with the
-    /// design system's `--surface-overlay` token so the safe-area regions that
-    /// fall *outside* the web viewport — most visibly the home-indicator band
-    /// below the drawer — match the web surface instead of the system default.
+    /// Paint the web view's backgrounds with the design system's
+    /// `--surface-overlay` token so the safe-area regions that fall *outside*
+    /// the web layout viewport, most visibly the home-indicator band below
+    /// the drawer, match the web surface instead of the system default.
     ///
-    /// The WKWebView's content extends to `viewport-fit=cover`, but its layout
-    /// height stops at the safe-area edge; the strip beneath it is painted by
-    /// the view controller's root view, which otherwise falls back to
-    /// `systemBackground` (pure white / near-black) and reads as a seam against
-    /// `--surface-overlay` (`#FDFDFC` light / `#1C2024` dark). Making the web
-    /// view non-opaque with a matching background lets the token color show
-    /// through uniformly. The color lives in the `SurfaceOverlay` asset-catalog
-    /// color set (light + dark appearances) so it tracks the design token as a
-    /// single native source of truth rather than a hardcoded literal.
+    /// Capacitor's `CAPBridgeViewController.loadView()` assigns
+    /// `view = webView`, so there is no separate root view behind the web
+    /// view: the `view.backgroundColor` and `webView?.backgroundColor` writes
+    /// below alias the same layer, and all four background writes cooperate
+    /// on the one web view. The web content extends under
+    /// `viewport-fit=cover`, but the layout height stops at the safe-area
+    /// edge; with the keyboard closed, the home-indicator band is painted by
+    /// the web view's own background plus `underPageBackgroundColor` (see
+    /// below), which otherwise fall back to `systemBackground` (pure white /
+    /// near-black) and read as a seam against `--surface-overlay` (`#FDFDFC`
+    /// light / `#1C2024` dark). While the keyboard is shown, the Keyboard
+    /// plugin (`resize: native`) shrinks the web view frame, and the region
+    /// below it is backed only by the `UIWindow`, whose backdrop is painted
+    /// via the Keyboard plugin's `autoBackdropColor` config in
+    /// `capacitor.config.ts`.
+    ///
+    /// Making the web view non-opaque with a matching background lets the
+    /// token color show through uniformly. The color lives in the
+    /// `SurfaceOverlay` asset-catalog color set (light + dark appearances) so
+    /// it tracks the design token as a single native source of truth rather
+    /// than a hardcoded literal.
     override open func viewDidLoad() {
         super.viewDidLoad()
         let surfaceOverlay = UIColor(named: "SurfaceOverlay")
@@ -146,6 +159,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(NativeBiometricPlugin())
         bridge?.registerPluginInstance(VoiceAudioSessionPlugin())
         bridge?.registerPluginInstance(VoiceLiveActivityPlugin())
+        bridge?.registerPluginInstance(ApnsEnvironmentPlugin())
         installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()

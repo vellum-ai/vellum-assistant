@@ -106,6 +106,16 @@ export interface DisplayMessage {
   role: ConversationMessage["role"];
   surfaces?: Surface[];
   /**
+   * `ui_show` tool calls on this row that announced a still-streaming
+   * `visual` surface (`ui_surface_pending`). Each entry renders a shimmer
+   * placeholder at the end of the row's activity area, holding the space the
+   * widget will claim while the fragment streams. An id is retired when its
+   * surface attaches, when its tool call resolves either way, or when the
+   * turn ends, whichever happens first. Client-only and transient: it never
+   * comes back from history.
+   */
+  pendingVisualToolUseIds?: string[];
+  /**
    * Unified, single-ordered list of content blocks (text / thinking /
    * tool_use / surface / attachment), carried straight through from the wire
    * `ConversationMessage["contentBlocks"]`. Populated at the ingest boundary
