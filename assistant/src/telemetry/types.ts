@@ -116,7 +116,9 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
   parent_turn_index: number | null;
   /**
    * Role the subagent that owns this event's conversation was spawned with
-   * (`general`, `researcher`, `coder`, `planner`, `investigator`, `advisor`).
+   * (`researcher`, `builder`, `advisor`; a spawn that named no role records
+   * the default, `builder`). An open string set: older rows carry role names
+   * nothing emits any more.
    * The advisor is a ROLE, not an `LLMCallSiteEnum` value, so this is the only
    * thing that tells an advisor consult apart from a regular subagent, since both
    * emit under `llm_call_site = "subagentSpawn"`. Null when the LLM call did

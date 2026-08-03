@@ -28,7 +28,10 @@ import {
   getSubagentManager,
   SubagentAbortedError,
 } from "../../subagent/index.js";
-import type { SubagentRole } from "../../subagent/types.js";
+import {
+  type ResolvedSubagentRole,
+  resolveSubagentRole,
+} from "../../subagent/role-resolution.js";
 import { getLogger } from "../../util/logger.js";
 import {
   invalidToolInputResult,
@@ -84,9 +87,8 @@ const LOOP_GUARD_ASSISTANT_LIMIT = 10;
  * framework.
  *
  * `fork` / `send_result_to_user` (deliberate `=== true` / `!== false`
- * coercions) and `role` (SubagentManager.spawn's "Invalid subagent role"
- * error, asserted by tests, owns non-enum values) are deliberately
- * UNDECLARED — loose passthrough.
+ * coercions) and `role` (any string resolves, see `resolveSubagentRole`) are
+ * deliberately UNDECLARED: loose passthrough.
  */
 export const subagentSpawnInputSchema = z.looseObject({
   label: nullAsOmitted(z.string()),
@@ -110,7 +112,11 @@ export async function executeSubagentSpawn(
   const objective = parsed.objective;
   const extraContext = parsed.context;
   const fork = input.fork === true;
-  const role = (input.role as string | undefined) ?? undefined;
+  const requestedRole =
+    typeof input.role === "string" && input.role.trim().length > 0
+      ? input.role
+      : undefined;
+  const resolvedRole = resolveSubagentRole(requestedRole);
   const inferenceProfile = parsed.inference_profile;
 
   // For fork mode, sendResultToUser defaults to false unless explicitly set to true.
@@ -154,7 +160,7 @@ export async function executeSubagentSpawn(
   // ── Advisor role: synchronous, tool-less, stronger-model consult ──
   // Branch before the fire-and-forget path: the advisor blocks on the run and
   // returns its guidance as the tool result in the same turn.
-  if (role === "advisor") {
+  if (resolvedRole.role === "advisor") {
     return runAdvisorConsult({
       context,
       label,
@@ -280,6 +286,8 @@ export async function executeSubagentSpawn(
     forceOverrideProfile = inheritedOverrideProfile !== undefined;
   }
 
+  const roleNote = resolvedRoleNote(resolvedRole);
+
   try {
     const subagentId = await manager.spawn(
       {
@@ -288,9 +296,15 @@ export async function executeSubagentSpawn(
         objective,
         context: extraContext,
         sendResultToUser,
-        // Regular forks omit the role so they default to general; the advisor
-        // role is special-cased earlier via runAdvisorConsult, not here.
-        ...(!fork && role ? { role: role as SubagentRole } : {}),
+        // The resolved type is passed for every spawn, fork included: a fork
+        // that named no role resolves to `builder`, which imposes no
+        // allowlist, so it keeps the parent's tool surface, which is what the
+        // system prompt it inherits describes. The advisor is special-cased
+        // earlier via runAdvisorConsult, not here.
+        role: resolvedRole.role,
+        ...(resolvedRole.personaText
+          ? { persona: resolvedRole.personaText }
+          : {}),
         // Declare the spawn mode so delegated LLM spend is separable in
         // telemetry: every variety shares `llm_call_site = "subagentSpawn"`,
         // and a fork's inherited transcript costs very differently from a
@@ -311,8 +325,10 @@ export async function executeSubagentSpawn(
         subagentId,
         label,
         status: "pending",
+        role: resolvedRole.role,
         ...(fork ? { isFork: true } : {}),
         ...(profileNote ? { note: profileNote } : {}),
+        ...(roleNote ? { roleNote } : {}),
         message: fork
           ? `Forked subagent "${label}" spawned with full parent context. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`
           : `Subagent "${label}" spawned. You will be notified automatically when it completes or fails - do NOT poll subagent_status. Continue the conversation normally.`,
@@ -323,6 +339,29 @@ export async function executeSubagentSpawn(
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Failed to spawn subagent: ${msg}`, isError: true };
   }
+}
+
+// ── Role resolution ──────────────────────────────────────────────────
+
+/**
+ * What to tell the parent about how its `role` was read, or `undefined` when
+ * the requested role was a type name and nothing needs saying.
+ *
+ * The parent chose the role, so a silent substitution is the one outcome to
+ * avoid: an alias and a persona fallback both change what the child can do,
+ * and only the parent can decide whether that is what it wanted.
+ */
+function resolvedRoleNote(resolved: ResolvedSubagentRole): string | undefined {
+  if (resolved.alias) {
+    return `Role "${resolved.alias}" is an older name for "${resolved.role}"; the subagent runs with the ${resolved.role} toolset.`;
+  }
+  if (resolved.personaText) {
+    return (
+      `Role "${resolved.personaText}" is not a subagent type, so it was used as a persona and the subagent runs as a researcher: ` +
+      'read-only, no shell. If the task has to write files or run commands, re-spawn it with role "builder".'
+    );
+  }
+  return undefined;
 }
 
 // ── Repeat-spawn guard ───────────────────────────────────────────────

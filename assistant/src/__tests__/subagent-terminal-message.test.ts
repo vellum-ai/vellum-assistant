@@ -112,7 +112,7 @@ describe("buildSubagentTerminalMessage", () => {
     expect(msg).toContain("attempted file_write");
     expect(msg).toContain("does not permit it");
     expect(msg).toContain("re-spawn with a role that includes it");
-    expect(msg).toContain("coder");
+    expect(msg).toContain("builder");
   });
 
   test("appends a pluralized denied-tools note to a read-pointer completion", () => {

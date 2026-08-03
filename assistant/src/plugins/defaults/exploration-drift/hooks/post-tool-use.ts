@@ -4,7 +4,7 @@
  * the user, or the model re-issuing the exact same call — surface a notice
  * via `additionalContext` that coaches it to (a) give the user a brief
  * progress summary and (b) delegate the rest of the investigation to an
- * `investigator` subagent instead of continuing inline.
+ * `researcher` subagent instead of continuing inline.
  *
  * Motivation: a root-cause request investigated inline ran 167 sequential
  * bash calls in a single turn with no user-facing text, overflowed the
@@ -48,7 +48,7 @@
  * all observe identical history and compute the same streak). Entries are
  * dropped when the streak restarts.
  *
- * Subagent conversations are exempt: an investigator is *supposed* to dig at
+ * Subagent conversations are exempt: a researcher is *supposed* to dig at
  * length, and subagents cannot nest (`SUBAGENT_LIMITS.maxDepth`), so the
  * delegation advice would be wrong there. Subagents run under the
  * `subagentSpawn` call site, so the exemption is a cheap `ctx.callSite` read.
@@ -66,7 +66,7 @@ import type {
  * provider-only context, never to the user.
  */
 export const EXPLORATION_DRIFT_NUDGE_TEXT =
-  "<system_notice>You have made a long unbroken run of exploration tool calls (shell/file reads) without sending the user any text. Do two things now: (1) send the user a brief summary of what you have found so far — do not keep working silently; (2) if you are tracing a root cause or exploring code/logs at length, stop exploring inline and delegate the remainder to a subagent: call subagent_spawn with role 'investigator' and a precise objective. It will investigate in its own context window and return a compact root-cause report. Continuing inline floods this conversation's context and risks losing your findings before you can report them.</system_notice>";
+  "<system_notice>You have made a long unbroken run of exploration tool calls (shell/file reads) without sending the user any text. Do two things now: (1) send the user a brief summary of what you have found so far, do not keep working silently; (2) if you are tracing a root cause or exploring code/logs at length, stop exploring inline and delegate the remainder to a subagent: call subagent_spawn with role 'researcher' and a precise objective. It will investigate in its own context window and return a compact root-cause report. Continuing inline floods this conversation's context and risks losing your findings before you can report them.</system_notice>";
 
 /**
  * Canonical loop notice, parameterized on the repeated call. Firmer than the
@@ -77,7 +77,7 @@ export function explorationLoopNudgeText(
   toolName: string,
   repeatCount: number,
 ): string {
-  return `<system_notice>You have issued this exact ${toolName} call ${repeatCount} times in the current run of exploration tool calls. Repeating an identical read-only call yields no new information — you are likely stuck. Do two things now: (1) send the user a brief summary of what you have found so far and what you are still missing — do not keep working silently; (2) stop exploring inline and delegate the remaining investigation to a subagent: call subagent_spawn with role 'investigator' and a precise objective that includes what you have already checked and ruled out. It will investigate in its own context window and return a compact root-cause report. Do not re-issue this call again.</system_notice>`;
+  return `<system_notice>You have issued this exact ${toolName} call ${repeatCount} times in the current run of exploration tool calls. Repeating an identical read-only call yields no new information, you are likely stuck. Do two things now: (1) send the user a brief summary of what you have found so far and what you are still missing, do not keep working silently; (2) stop exploring inline and delegate the remaining investigation to a subagent: call subagent_spawn with role 'researcher' and a precise objective that includes what you have already checked and ruled out. It will investigate in its own context window and return a compact root-cause report. Do not re-issue this call again.</system_notice>`;
 }
 
 /**
@@ -308,7 +308,7 @@ const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
       trigger: loopNudge ? "loop" : "long-dig",
       ...(loopNudge ? { repeatCount: loopRepeatCount } : {}),
     },
-    "Exploration drift detected — nudging summary + investigator delegation",
+    "Exploration drift detected: nudging summary + researcher delegation",
   );
   ctx.additionalContext = ctx.additionalContext
     ? `${ctx.additionalContext}\n${nudgeText}`

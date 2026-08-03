@@ -501,7 +501,7 @@ function handleAgentToolList(agent: string): ToolNamesListResponse {
   if (!roleConfig) {
     throw new NotFoundError(
       `Unknown agent "${agent}". Expected a subagent role ` +
-        `(general, researcher, coder, planner, investigator, advisor) ` +
+        `(researcher, builder, advisor) ` +
         `or a live subagent id.`,
     );
   }

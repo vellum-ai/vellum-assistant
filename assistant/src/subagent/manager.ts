@@ -41,6 +41,7 @@ import { getSandboxWorkingDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
 import { injectMessageIntoParent } from "./notify.js";
 import {
+  DEFAULT_SUBAGENT_ROLE,
   formatSubagentToolStats,
   normalizeSubagentLabel,
   settleUnsupervisedStatus,
@@ -227,12 +228,11 @@ export function buildSubagentSystemPrompt(
   role: SubagentRole,
 ): string {
   const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
-  const sections: string[] = [
-    roleConfig.systemPromptPreamble,
-    "",
-    "## Your Task",
-    config.objective,
-  ];
+  const sections: string[] = [roleConfig.systemPromptPreamble];
+  if (config.persona) {
+    sections.push(`- Persona: act as ${config.persona} for this task.`);
+  }
+  sections.push("", "## Your Task", config.objective);
   if (config.context) {
     sections.push("", "## Context from Parent", config.context);
   }
@@ -294,7 +294,7 @@ export function buildSubagentTerminalMessage(opts: {
   const many = (deniedTools?.length ?? 0) > 1;
   const deniedNote =
     deniedTools && deniedTools.length > 0
-      ? `\n\nNote: this ${prefix.toLowerCase()} attempted ${deniedTools.join(", ")} but its role does not permit ${many ? "them" : "it"}. If the objective requires ${many ? "those" : "that"}, re-spawn with a role that includes ${many ? "them" : "it"} (e.g. \`coder\`).`
+      ? `\n\nNote: this ${prefix.toLowerCase()} attempted ${deniedTools.join(", ")} but its role does not permit ${many ? "them" : "it"}. If the objective requires ${many ? "those" : "that"}, re-spawn with a role that includes ${many ? "them" : "it"} (e.g. \`builder\`).`
       : "";
 
   // Machine truth envelope: the counts the parent can check the synthesis
@@ -475,22 +475,13 @@ export class SubagentManager {
     }
 
     // ── Resolve role ─────────────────────────────────────────────────
+    // A role is one of the three types, or absent for an internal caller that
+    // states no shape and runs on the default. The `subagent_spawn` tool
+    // resolves whatever the model wrote into a type before it gets here (see
+    // subagent/role-resolution.ts), so an unregistered value at this point is
+    // an internal caller's bug and is worth throwing over.
     const isFork = config.fork === true;
-    const role: SubagentRole = (config.role as SubagentRole) ?? "general";
-    if (isFork && role !== "general") {
-      // A context-inheriting subagent normally keeps the parent's `general`
-      // role so its KV cache stays aligned with the parent conversation. An
-      // explicit non-general role opts out of that alignment on purpose
-      // (e.g. the advisor role running on a stronger profile), so honor it.
-      log.warn(
-        {
-          requestedRole: role,
-          parentConversationId: config.parentConversationId,
-          label: config.label,
-        },
-        "Fork requested with non-general role — caller opted out of parent KV-cache alignment",
-      );
-    }
+    const role: SubagentRole = config.role ?? DEFAULT_SUBAGENT_ROLE;
     if (!SUBAGENT_ROLE_REGISTRY[role]) {
       throw new Error(
         `Invalid subagent role "${config.role}". Must be one of: ${Object.keys(SUBAGENT_ROLE_REGISTRY).join(", ")}`,
@@ -707,10 +698,9 @@ export class SubagentManager {
       conversation.hasSystemPromptOverride = true;
     }
 
-    // Apply the role's tool allowlist when one is defined. The `general` role
-    // has `allowedTools: undefined`, so default forks (which keep the general
-    // role) are unaffected; a fork carrying an explicit role gets its
-    // allowlist applied like any other subagent.
+    // Apply the role's tool allowlist when one is defined. `builder` defines
+    // none, so it keeps the full surface its conversation projects; the scoped
+    // roles are filtered to their own list whether or not this is a fork.
     if (roleConfig.allowedTools) {
       conversation.setSubagentAllowedTools(new Set(roleConfig.allowedTools));
     }
@@ -925,13 +915,20 @@ export class SubagentManager {
       // the generic "complete this task and return your findings" wrapper would
       // fight that framing. The advisor's objective is already the bare advice
       // request (`advisorRequestText()`), so it is sent uncontested.
+      //
+      // A fork's persona rides in this framing rather than the system prompt:
+      // the prompt is the parent's, inherited verbatim to keep the KV cache
+      // aligned, so the task message is the only place a fork-specific
+      // instruction can land.
       const useForkFraming =
         managed.state.isFork && managed.state.config.role !== "advisor";
+      const forkPersona = managed.state.config.persona;
       const message = useForkFraming
         ? [
             "⎯⎯⎯ FORK TASK ⎯⎯⎯",
             "You have been forked from the parent conversation to execute a specific task.",
             "The conversation above is context — do NOT continue it. Do NOT spawn sub-agents.",
+            ...(forkPersona ? [`Act as ${forkPersona} for this task.`] : []),
             "Complete this task directly and return only your findings:",
             "",
             objective,
@@ -1560,7 +1557,7 @@ export class SubagentManager {
         conversationId: state.conversationId,
         label: state.config.label,
         objective: state.config.objective,
-        role: state.config.role ?? "general",
+        role: state.config.role ?? DEFAULT_SUBAGENT_ROLE,
         isFork: state.isFork,
         sendResultToUser: state.config.sendResultToUser ?? null,
         parentToolUseId: state.config.parentToolUseId ?? null,

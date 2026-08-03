@@ -9,14 +9,7 @@ import { buildSubagentSystemPrompt } from "../subagent/manager.js";
 import type { SubagentConfig } from "../subagent/types.js";
 
 /** All roles defined in the SubagentRole union. */
-const ALL_ROLES: SubagentRole[] = [
-  "general",
-  "researcher",
-  "coder",
-  "planner",
-  "investigator",
-  "advisor",
-];
+const ALL_ROLES: SubagentRole[] = ["researcher", "builder", "advisor"];
 
 describe("SUBAGENT_ROLE_REGISTRY", () => {
   test("covers all values in the SubagentRole union", () => {
@@ -31,20 +24,22 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     }
   });
 
-  test("general has allowedTools: undefined", () => {
-    expect(SUBAGENT_ROLE_REGISTRY.general.allowedTools).toBeUndefined();
+  test("the read-only roles declare an explicit allowlist", () => {
+    for (const role of ["researcher", "advisor"] as const) {
+      expect(Array.isArray(SUBAGENT_ROLE_REGISTRY[role].allowedTools)).toBe(
+        true,
+      );
+    }
+    expect(
+      SUBAGENT_ROLE_REGISTRY.researcher.allowedTools!.length,
+    ).toBeGreaterThan(0);
   });
 
-  test("all scoped tool-using roles have allowedTools as a non-empty array", () => {
-    for (const role of ALL_ROLES) {
-      // 'general' has no filter (undefined); 'advisor' is tool-less (empty).
-      if (role === "general" || role === "advisor") {
-        continue;
-      }
-      const config = SUBAGENT_ROLE_REGISTRY[role];
-      expect(Array.isArray(config.allowedTools)).toBe(true);
-      expect(config.allowedTools!.length).toBeGreaterThan(0);
-    }
+  test("builder declares no allowlist, so it keeps the parent's whole tool surface", () => {
+    // The regression this guards: an explicit list is a ceiling. A builder
+    // scoped to file/shell/web tools silently loses connectors, MCP tools,
+    // browser and computer use, and everything else the parent can reach.
+    expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toBeUndefined();
   });
 
   test("advisor is tool-less with an empty allowedTools array", () => {
@@ -66,12 +61,13 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     }
   });
 
-  test('no role includes "skill_execute" (replaced by core tools)', () => {
-    for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
-      if (config.allowedTools !== undefined) {
-        expect(config.allowedTools).not.toContain("skill_execute");
-      }
-    }
+  test('the scoped tool-using role includes "skill_execute" so preactivated skills work', () => {
+    // Without it, `preactivatedSkillIds` is a silent no-op for the role: the
+    // skill loads and none of its tools can be reached. Only an allowlisted
+    // role can lose it.
+    expect(SUBAGENT_ROLE_REGISTRY.researcher.allowedTools).toContain(
+      "skill_execute",
+    );
   });
 
   test('researcher includes "recall" for local information access', () => {
@@ -79,34 +75,42 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(tools).toContain("recall");
   });
 
-  test('coder includes "recall" for local information access', () => {
-    expect(SUBAGENT_ROLE_REGISTRY.coder.allowedTools!).toContain("recall");
-  });
-
-  test('planner includes "recall" for local information access', () => {
-    expect(SUBAGENT_ROLE_REGISTRY.planner.allowedTools!).toContain("recall");
-  });
-
-  test("investigator is shell-free and uses code_search for code/log investigation", () => {
-    const tools = SUBAGENT_ROLE_REGISTRY.investigator.allowedTools!;
+  test("researcher is read-only: no shell, no file writes", () => {
+    const tools = SUBAGENT_ROLE_REGISTRY.researcher.allowedTools!;
     expect(tools).not.toContain("bash");
     expect(tools).not.toContain("host_bash");
-    expect(tools).toContain("code_search");
-  });
-
-  test("investigator excludes file write tools (read-only investigation)", () => {
-    const tools = SUBAGENT_ROLE_REGISTRY.investigator.allowedTools!;
     expect(tools).not.toContain("file_write");
     expect(tools).not.toContain("file_edit");
   });
 
-  test("investigator preamble defines the root-cause report contract", () => {
-    const preamble = SUBAGENT_ROLE_REGISTRY.investigator.systemPromptPreamble;
+  test("researcher can search and enumerate as well as read", () => {
+    const tools = SUBAGENT_ROLE_REGISTRY.researcher.allowedTools!;
+    expect(tools).toContain("code_search");
+    expect(tools).toContain("file_list");
+    expect(tools).toContain("web_search");
+    expect(tools).toContain("web_fetch");
+  });
+
+  test("researcher preamble carries the read-only investigation contract", () => {
+    const preamble = SUBAGENT_ROLE_REGISTRY.researcher.systemPromptPreamble;
     expect(preamble).toContain("Root cause");
     expect(preamble).toContain("Evidence");
     expect(preamble).toContain("notify_parent");
-    expect(preamble).not.toContain("shell access");
     expect(preamble).toContain("code_search");
+    expect(preamble).toContain("no shell");
+  });
+
+  test("builder preamble states it can write, run commands, and reach the parent's other tools", () => {
+    const preamble = SUBAGENT_ROLE_REGISTRY.builder.systemPromptPreamble;
+    expect(preamble).toContain("edit files");
+    expect(preamble).toContain("shell commands");
+    expect(preamble).toContain("any other tool the parent conversation can");
+  });
+
+  test("builder preamble requires self-verification and a change report", () => {
+    const preamble = SUBAGENT_ROLE_REGISTRY.builder.systemPromptPreamble;
+    expect(preamble).toContain("verify");
+    expect(preamble).toContain("files you touched");
   });
 
   test("no role references the old memory_recall tool name", () => {
@@ -122,21 +126,18 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
       expect(config.skillIds).toEqual([]);
     }
   });
-
-  test('researcher and planner include "file_list"', () => {
-    expect(SUBAGENT_ROLE_REGISTRY.researcher.allowedTools).toContain(
-      "file_list",
-    );
-    expect(SUBAGENT_ROLE_REGISTRY.planner.allowedTools).toContain("file_list");
-  });
 });
 
-describe("buildSubagentSystemPrompt — blocked-signal constraint", () => {
-  const cfg = (objective: string): SubagentConfig => ({
+describe("buildSubagentSystemPrompt: framing and constraints", () => {
+  const cfg = (
+    objective: string,
+    extra: Partial<SubagentConfig> = {},
+  ): SubagentConfig => ({
     id: "sub-1",
     parentConversationId: "conv-1",
     label: "task",
     objective,
+    ...extra,
   });
 
   test("every role's constructed prompt tells it to signal blocked instead of fabricating a result", () => {
@@ -156,7 +157,7 @@ describe("buildSubagentSystemPrompt — blocked-signal constraint", () => {
     expect(
       buildSubagentSystemPrompt(cfg("save output"), "researcher"),
     ).toContain("do NOT fabricate");
-    expect(buildSubagentSystemPrompt(cfg("save output"), "coder")).toContain(
+    expect(buildSubagentSystemPrompt(cfg("save output"), "builder")).toContain(
       "do NOT fabricate",
     );
     // It is NOT duplicated into the researcher role's own preamble.
@@ -178,6 +179,38 @@ describe("buildSubagentSystemPrompt — blocked-signal constraint", () => {
         "Never simulate, reconstruct, or invent tool output you did not actually receive.",
       );
     }
+  });
+
+  test("a persona renders as a line under the role preamble", () => {
+    const prompt = buildSubagentSystemPrompt(
+      cfg("assess the filing", { persona: "financial journalist" }),
+      "researcher",
+    );
+    expect(prompt).toContain(
+      "- Persona: act as financial journalist for this task.",
+    );
+    // Under the preamble, above the task.
+    expect(prompt.indexOf("- Persona:")).toBeGreaterThan(
+      prompt.indexOf(SUBAGENT_ROLE_REGISTRY.researcher.systemPromptPreamble),
+    );
+    expect(prompt.indexOf("- Persona:")).toBeLessThan(
+      prompt.indexOf("## Your Task"),
+    );
+  });
+
+  test("no persona line when the spawn carried none", () => {
+    expect(
+      buildSubagentSystemPrompt(cfg("do the work"), "builder"),
+    ).not.toContain("- Persona:");
+  });
+
+  test("the prompt names the type that ran", () => {
+    const prompt = buildSubagentSystemPrompt(
+      cfg("continue the work"),
+      "builder",
+    );
+    expect(prompt).toContain("## Your Task");
+    expect(prompt).toContain("- Role: builder");
   });
 });
 

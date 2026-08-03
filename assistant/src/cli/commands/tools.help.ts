@@ -49,7 +49,7 @@ Examples:
         {
           flags: "--agent <role|subagent-id>",
           description:
-            "Show tools available to a subagent role (general, researcher, coder, planner, investigator, advisor) or a live subagent by its id. Simulates the subagent tool projection: role allowlist + subagent-only gating.",
+            "Show tools available to a subagent role (researcher, builder, advisor) or a live subagent by its id. Simulates the subagent tool projection: role allowlist + subagent-only gating.",
         },
       ],
     },

@@ -277,31 +277,34 @@ describe("GET /tools", () => {
     expect(names).not.toContain("file_edit");
   });
 
-  test("with agent=general, returns all tools (no allowlist filter)", async () => {
-    // GIVEN core tools
+  test("with agent=builder, returns the whole tool surface, not a fixed list", async () => {
+    // GIVEN core tools plus one no fixed builder list would think to name
     registerTool(makeFakeTool("web_search"));
     registerTool(makeFakeTool("bash"));
     registerTool(makeFakeTool("notify_parent"));
+    registerTool(makeFakeTool("send_email"));
 
-    // WHEN the handler runs with agent=general (allowedTools: undefined)
+    // WHEN the handler runs with agent=builder
     const { names } = (await handler({
-      queryParams: { agent: "general" },
+      queryParams: { agent: "builder" },
     })) as ToolsGetResponse;
 
-    // THEN all registered tools are visible — the general role has no
-    // allowlist, so nothing is filtered
+    // THEN nothing is filtered out: a builder, and so every spawn that names
+    // no role, reaches connectors, MCP tools, and everything else the parent
+    // can reach.
     expect(names).toContain("web_search");
     expect(names).toContain("bash");
     expect(names).toContain("notify_parent");
+    expect(names).toContain("send_email");
   });
 
   test("with agent=role, notify_parent is visible (subagent-only gating works)", async () => {
     // GIVEN notify_parent registered as a core tool
     registerTool(makeFakeTool("notify_parent"));
 
-    // WHEN the handler runs with agent=coder
+    // WHEN the handler runs with agent=researcher
     const { names, tools } = (await handler({
-      queryParams: { agent: "coder" },
+      queryParams: { agent: "researcher" },
     })) as ToolsGetResponse;
 
     // THEN notify_parent appears because isSubagent=true satisfies
