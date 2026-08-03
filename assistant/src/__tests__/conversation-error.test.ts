@@ -794,7 +794,7 @@ describe("classifyConversationError", () => {
 
       expect(result.code).toBe("MANAGED_KEY_INVALID");
       expect(result.userMessage).toBe(
-        "The Vellum assistant API key used for managed inference was rejected. No personal provider API key was used. Reconnect your Vellum account in Settings → Models & Services.",
+        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
       );
       expect(result.retryable).toBe(false);
       expect(result.errorCategory).toBe("managed_key_invalid");
@@ -814,7 +814,7 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("MANAGED_KEY_INVALID");
       expect(result.errorCategory).toBe("managed_key_invalid");
       expect(result.userMessage).toBe(
-        "The Vellum assistant API key used for managed inference was rejected. No personal provider API key was used. Reconnect your Vellum account in Settings → Models & Services.",
+        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
       );
     });
 
@@ -883,7 +883,7 @@ describe("classifyConversationError", () => {
 
       expect(result.code).toBe("MANAGED_KEY_INVALID");
       expect(result.userMessage).toBe(
-        "The Vellum assistant API key used for managed inference was rejected. No personal provider API key was used. Reconnect your Vellum account in Settings → Models & Services.",
+        "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
       );
     });
 

@@ -804,6 +804,13 @@ function managedUsageLimitClassification(): Omit<
   };
 }
 
+/**
+ * Deliberately instruction-free. The assistant API key is provisioned and
+ * pushed by the platform — the assistant only ever reads it — so there is no
+ * Settings affordance to re-provision it and no user action that would help.
+ * The copy's job is to rule out the user's own provider key as the cause;
+ * clients that can offer a real next step attach one (web renders Doctor).
+ */
 function managedKeyInvalidClassification(): Omit<
   ClassifiedConversationError,
   "debugDetails"
@@ -811,7 +818,7 @@ function managedKeyInvalidClassification(): Omit<
   return {
     code: "MANAGED_KEY_INVALID",
     userMessage:
-      "The Vellum assistant API key used for managed inference was rejected. No personal provider API key was used. Reconnect your Vellum account in Settings → Models & Services.",
+      "Vellum's managed inference credential was rejected. This isn't a personal provider API key — Vellum provisions this one, so there's nothing to update in Settings.",
     retryable: false,
     errorCategory: "managed_key_invalid",
   };
