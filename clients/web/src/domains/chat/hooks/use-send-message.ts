@@ -1012,9 +1012,6 @@ export function useSendMessage({
         // typing in the conversation they moved to. Text the user can still
         // see is not lost in either case, since the send that dropped it was
         // not theirs or not here.
-        setOptimisticSends((prev) =>
-          prev.filter((m) => m.id !== userMessage.id),
-        );
         const stillOnThisSend = isAsyncChatScopeCurrent({
           currentAssistantId:
             useResolvedAssistantsStore.getState().activeAssistantId,
@@ -1028,7 +1025,16 @@ export function useSendMessage({
         // newer text the user typed while the request was in flight. Restoring
         // over it would destroy the very thing this recovery exists to protect.
         const composerUntouched = useComposerStore.getState().input === "";
-        if (!isHidden && stillOnThisSend && composerUntouched) {
+        const canRestore = !isHidden && stillOnThisSend && composerUntouched;
+        // Drop the row only when the text lands somewhere the user can reach
+        // it. When it cannot, the row is the last copy of what they wrote, so
+        // removing it as well would leave the message nowhere at all.
+        if (canRestore) {
+          setOptimisticSends((prev) =>
+            prev.filter((m) => m.id !== userMessage.id),
+          );
+        }
+        if (canRestore) {
           // Carry the nonce so a retry of the same message dedups server-side
           // rather than risking a second run of an ambiguous delivery. Dedup is
           // keyed on (conversation, nonce), so this only helps a send that

@@ -174,6 +174,11 @@ describe("useSendMessage: recovery when the POST throws", () => {
     });
 
     expect(useComposerStore.getState().input).toBe("changed my mind");
+    // The composer is taken, so the row is the only copy left of the failed
+    // message. Dropping it too would lose the text entirely.
+    const rows = useChatSessionStore.getState().optimisticSends;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.textSegments).toEqual([SENT_TEXT]);
   });
 
   test("does not reuse a nonce for a draft, whose retry is minted a new conversation", async () => {
