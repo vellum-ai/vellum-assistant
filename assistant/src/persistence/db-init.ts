@@ -6,6 +6,7 @@ import { runAsyncSqlite } from "./db-async-query.js";
 import { getDb, getSqliteFrom } from "./db-connection.js";
 import { runMigrationSteps } from "./migrations/run-migrations.js";
 import { validateMigrationState } from "./migrations/validate-migration-state.js";
+import { PLANNER_OPTIMIZE_PRAGMA } from "./planner-statistics.js";
 import { migrationSteps } from "./steps.js";
 
 /**
@@ -108,7 +109,7 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
   // mask bounds the scan.
   if (applied.length > 0) {
     try {
-      getSqliteFrom(database).exec("PRAGMA optimize=0x10012");
+      getSqliteFrom(database).exec(PLANNER_OPTIMIZE_PRAGMA);
     } catch (err) {
       log.warn({ err }, "Post-migration PRAGMA optimize failed (non-fatal)");
     }

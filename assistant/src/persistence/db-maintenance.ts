@@ -8,6 +8,7 @@ import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getLastInteractiveUserMessageTimestamp } from "./conversation-crud.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import { getSqlite } from "./db-connection.js";
+import { PLANNER_OPTIMIZE_PRAGMA } from "./planner-statistics.js";
 
 const log = getLogger("db-maintenance");
 
@@ -80,17 +81,12 @@ async function runDbMaintenance(): Promise<void> {
     log.warn({ err }, "Workflow run pruning failed (non-fatal)");
   }
 
-  // Refresh the query planner's statistics. The sweep runs on a fresh
-  // connection with no query history, so a bare `PRAGMA optimize` would only
-  // consider tables missing from sqlite_stat1 and leave every existing entry
-  // frozen at whatever size it was first analyzed at. The 0x10000 bit makes it
-  // examine all tables instead; 0x2 keeps the default "analyze where it helps"
-  // behavior and 0x10 bounds each ANALYZE with a temporary analysis_limit so
-  // the scan cost stays flat regardless of table size. It is routed through the
-  // async path for consistency and to keep it off the main thread when the
-  // sqlite3 CLI backend is available.
+  // Refresh the query planner's statistics — see PLANNER_OPTIMIZE_PRAGMA for
+  // what the mask buys on this connection. Routed through the async path for
+  // consistency and to keep it off the main thread when the sqlite3 CLI backend
+  // is available.
   const optimizeResult = await runAsyncSqlite(
-    "PRAGMA optimize=0x10012",
+    PLANNER_OPTIMIZE_PRAGMA,
     "db-maintenance:optimize",
   );
   if (!optimizeResult.ok) {
