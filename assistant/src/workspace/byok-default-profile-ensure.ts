@@ -64,8 +64,8 @@ const log = getLogger("byok-default-profile-ensure");
 
 /**
  * The default keys BYOK hatching ever wrote to disk. `latency-optimized`
- * became a user-facing default only later — it shipped as a code-resolved
- * call-site profile that was never seeded — so no install carries a hatch
+ * became a user-facing default only later. It shipped as a code-resolved
+ * call-site profile that was never seeded, so no install carries a hatch
  * stub or a `custom-latency-optimized` copy for it. Including it would make
  * `uniformCopyProvider` demand a copy that cannot exist and convert nothing.
  */

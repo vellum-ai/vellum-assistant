@@ -1744,6 +1744,38 @@ describe("seedInferenceProfiles BYOK-mode default profiles", () => {
     expect(effective["cost-optimized"]?.label).toBe("Cost");
   });
 
+  test("a managed key missing from profileOrder lands beside its siblings", () => {
+    // An install that predates a newly shipped managed profile, with a custom
+    // profile already in its order. The new key belongs with the other
+    // managed profiles, not after whatever the user has arranged below them.
+    writeConfig({
+      llm: {
+        default: { provider: "anthropic", model: "claude-opus-4-7" },
+        profiles: {
+          "my-custom": { source: "user", provider: "anthropic", model: "x" },
+        },
+        profileOrder: [
+          "balanced",
+          "quality-optimized",
+          "cost-optimized",
+          "my-custom",
+        ],
+        activeProfile: "balanced",
+      },
+    });
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+
+    expect(raw.llm.profileOrder).toEqual([
+      "balanced",
+      "quality-optimized",
+      "cost-optimized",
+      "latency-optimized",
+      "my-custom",
+    ]);
+  });
+
   test("boot leaves legacy bare labels on managed entries untouched", () => {
     // Existing off-platform install has bare labels (`label: "Balanced"`)
     // on its managed entries. Boots never rewrite managed entries — there

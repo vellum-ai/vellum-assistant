@@ -127,7 +127,7 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     // provisioned in every environment, and it alone selects the upstream:
     // `provider` below is the provider-agnostic managed sentinel, so
     // `getManagedUpstream` resolves the real upstream from the model's catalog
-    // owner. Sharing `balanced`'s model is deliberate — the split is effort
+    // owner. Sharing `balanced`'s model is deliberate: the split is effort
     // and thinking, and this model is the one live-voice TTFT drives validated.
     model: "gpt-5.6-luna",
     provider: "vellum",
@@ -177,7 +177,7 @@ const BYOK_PROFILE_IMPLS: Record<
   },
   // On providers whose cheapest model is also their fastest (anthropic,
   // ollama, fireworks) these two intents resolve the same model and the split
-  // is effort alone — see PROVIDER_MODEL_INTENTS.
+  // is effort alone (see PROVIDER_MODEL_INTENTS).
   "cost-optimized": {
     intent: "cost-optimized",
     source: "user",
@@ -235,23 +235,23 @@ export const MANAGED_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   );
 
 /**
- * Fields the `custom-*` copies carry from a BYOK era that predates a later
- * edit to `BYOK_PROFILE_IMPLS`. The conversion pass compares a copy on disk
- * against these bodies field-by-field, so an edit to a live template that is
- * not pinned here makes every unedited copy read as user-edited and stop
- * converting. When you change a BYOK template, pin what hatches actually
- * wrote.
+ * The values BYOK hatch seeding wrote onto each `custom-*` copy, for the keys
+ * whose live template carries something else. The conversion pass recognizes
+ * an unedited copy by comparing it field-by-field against the frozen body, so
+ * every field here must describe what sits on disk, not what the profile
+ * resolves to today. A field the live template alone supplies makes every
+ * unedited copy read as user-edited and stop converting.
  *
- * `cost-optimized` predates the Cost/Speed relabel, which moved its label and
- * description and dropped effort to "none". The label is pinned even though
- * body comparison ignores it: `userOverlayState` reads it to tell a user
- * rename from the label the hatch itself wrote, and an unpinned "Cost" would
- * make every hatch-written "Speed" look like a rename worth carrying.
+ * `intent` selects the copy's model through `materializeProfile`, so it is the
+ * load-bearing pin. `label` is compared nowhere in the body, but
+ * `userOverlayState` reads it to tell a user rename from the hatch's own
+ * label, and a mismatch there carries a phantom rename onto the bare key.
  */
 const HATCH_ERA_TEMPLATE_FIELDS: Partial<
   Record<DefaultProfileKey, Partial<DefaultProfileTemplate>>
 > = {
   "cost-optimized": {
+    intent: "latency-optimized",
     label: "Speed",
     description: "Fastest responses at lower cost",
     effort: "low",
@@ -265,7 +265,7 @@ const HATCH_ERA_TEMPLATE_FIELDS: Partial<
  * conversion pass as the reference for recognizing unedited copies, which
  * are safe to remove in favor of the code-resolved defaults.
  *
- * `latency-optimized` is included for shape only — it became a user-facing
+ * `latency-optimized` is included for shape only. It became a user-facing
  * default after hatch seeding stopped writing copies, so no install holds a
  * `custom-latency-optimized`.
  */

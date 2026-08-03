@@ -89,6 +89,18 @@ describe("139-clear-renamed-cost-profile-label migration", () => {
     }
   });
 
+  test("leaves a source-less legacy entry alone", () => {
+    // A source-less entry under a default name shadows the catalog outright,
+    // so its label is user state.
+    writeConfig({
+      llm: { profiles: { "cost-optimized": { label: "Speed" } } },
+    });
+
+    run();
+
+    expect(costProfile().label).toBe("Speed");
+  });
+
   test("leaves a user-owned profile shadowing the default name alone", () => {
     writeConfig({
       llm: {

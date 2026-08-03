@@ -12,8 +12,8 @@ import type { WorkspaceMigration } from "./types.js";
  * `config/default-profile-catalog.ts`). Migration 082 and the pre-catalog
  * seeder both wrote `"Speed"` onto `cost-optimized`, and migration 126
  * carried it onto the thin stub, so without this the picker would show two
- * profiles named "Speed" — `cost-optimized`'s stale overlay and
- * `latency-optimized`, which now ships as the user-facing Speed profile.
+ * profiles named "Speed": `cost-optimized`'s stale overlay and
+ * `latency-optimized`, the user-facing Speed profile.
  *
  * Deleting the key (rather than writing "Cost") returns the label to code
  * ownership, so later renames ship with a release instead of a migration.
@@ -67,8 +67,10 @@ export const clearRenamedCostProfileLabelMigration: WorkspaceMigration = {
     if (entry === null) {
       return;
     }
-    // A user-owned profile shadowing the default name owns its own label.
-    if (entry.source !== undefined && entry.source !== "managed") {
+    // Only a managed-source entry carries a machinery-written label. Anything
+    // else, a source-less legacy entry included, shadows the default outright
+    // (see `getEffectiveProfile`), so its label is the user's.
+    if (entry.source !== "managed") {
       return;
     }
     if (entry.label !== "Speed") {

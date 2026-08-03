@@ -1092,4 +1092,47 @@ describe("ensureByokDefaultProfiles", () => {
 
     expect(readFileSync(configPath(), "utf-8")).toBe(before);
   });
+
+  // The hatch wrote each copy's model by resolving the cost profile's intent
+  // at hatch time. These are the ids that resolved per provider, pinned as
+  // literals rather than derived from the template: a test that materializes
+  // the template agrees with itself no matter which intent the template names,
+  // and so cannot catch a template whose model comparison has drifted off what
+  // is on disk.
+  test.each([
+    ["openrouter", "anthropic/claude-haiku-4.5"],
+    ["gemini", "gemini-3.1-flash-lite"],
+    ["openai", "gpt-5.6-luna"],
+  ] as const)(
+    "an unedited %s cost copy still converts",
+    (provider, hatchModel) => {
+      writeConfig({
+        llm: {
+          defaultProvider: { provider },
+          activeProfile: "custom-cost-optimized",
+          profiles: {
+            "custom-cost-optimized": {
+              ...(hatchBody("cost-optimized", provider) as Record<
+                string,
+                unknown
+              >),
+              model: hatchModel,
+            },
+            "custom-balanced": hatchBody("balanced", provider),
+            "custom-quality-optimized": hatchBody(
+              "quality-optimized",
+              provider,
+            ),
+          },
+        },
+      });
+
+      ensureByokDefaultProfiles(workspaceDir);
+
+      expect(profiles()["custom-cost-optimized"]).toBeUndefined();
+      expect(profiles()["cost-optimized"]).toBeUndefined();
+      expect(llm().activeProfile).toBe("cost-optimized");
+      expectSecondRunNoop();
+    },
+  );
 });
