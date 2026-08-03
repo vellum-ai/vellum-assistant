@@ -1,6 +1,7 @@
 import { getMessages } from "../../persistence/conversation-crud.js";
 import { extractTextFromStoredMessageContent } from "../../persistence/message-content.js";
 import { TERMINAL_STATUSES } from "../../subagent/index.js";
+import { toolInputMisuseMessage } from "../shared/input-misuse.js";
 import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import {
@@ -14,33 +15,15 @@ import {
 // numbers the advertised `integer` type wouldn't admit.
 export const subagentReadInputSchema = subagentRefInputSchema;
 
-/** Keys that mean the caller wants a file reader, not a subagent's output. */
-const FILE_READER_KEYS = ["path", "file", "filename"] as const;
-
-/** Misspellings of `subagent_id` seen in production traffic. */
-const MISNAMED_ID_KEYS = ["subagentId", "agent_id"] as const;
-
-/**
- * Name the wrong-tool and wrong-parameter shapes parents actually send, rather
- * than answering them with the generic '"subagent_id" or "label" is required'.
- * The input schema is loose, so these keys reach the executor instead of
- * failing validation, which is what makes the redirect possible.
- */
-function misuseMessage(input: Record<string, unknown>): string | undefined {
-  if (FILE_READER_KEYS.some((key) => key in input)) {
-    return "subagent_read returns a subagent's output, it does not read files. Use file_read for files. Pass subagent_id or label here.";
-  }
-  if (MISNAMED_ID_KEYS.some((key) => key in input)) {
-    return "Unknown parameter. Use subagent_id (snake_case) or label.";
-  }
-  return undefined;
-}
-
 export async function executeSubagentRead(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const misuse = misuseMessage(input);
+  // File-reader keys and misspellings of `subagent_id` name a wrong-tool or
+  // wrong-parameter call, so they get the redirect rather than the generic
+  // '"subagent_id" or "label" is required'. `createSkillTool` runs the same
+  // check for calls the manifest validator rejects before they reach here.
+  const misuse = toolInputMisuseMessage("subagent_read", input);
   if (misuse) {
     return { content: misuse, isError: true };
   }

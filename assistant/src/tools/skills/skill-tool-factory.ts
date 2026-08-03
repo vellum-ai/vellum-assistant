@@ -5,6 +5,7 @@ import {
   coerceStringNumbers,
   validateInputAgainstSchema,
 } from "../../skills/validate-input.js";
+import { toolInputMisuseMessage } from "../shared/input-misuse.js";
 import type { ExecutionTarget } from "../tool-types.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 import { runSkillToolScript } from "./skill-script-runner.js";
@@ -53,8 +54,15 @@ export function createSkillTool(
         schema,
       );
       if (!validation.ok) {
+        // A parameter shape with its own redirect (e.g. a file path passed to
+        // `subagent_read`) answers with that redirect: the generic "Unknown
+        // parameter" list names the accepted keys but not the tool the caller
+        // is actually reaching for.
+        const misuse = toolInputMisuseMessage(entry.name, coercedInput);
         return {
-          content: `Invalid input for tool "${entry.name}": ${validation.errors.join("; ")}. Fix the arguments and retry.`,
+          content:
+            misuse ??
+            `Invalid input for tool "${entry.name}": ${validation.errors.join("; ")}. Fix the arguments and retry.`,
           isError: true,
         };
       }
