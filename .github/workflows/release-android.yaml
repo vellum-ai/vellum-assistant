@@ -113,12 +113,22 @@ jobs:
           path: clients/android/app/build/outputs/bundle/${{ inputs.environment }}Release/*.aab
           if-no-files-found: error
 
-      # Play publishing is manual: download the signed .aab artifact above and
-      # upload it to the internal track for steps.config.outputs.package_id.
-      # Automating it requires a Play publisher action permitted by the org
-      # Actions allowlist — a disallowed `uses:` makes this whole reusable
-      # workflow invalid, and every caller then fails at startup regardless of
-      # the `if:` gate on the call site.
+      - name: Publish to Google Play internal track
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(clients/android/app/build/outputs/bundle/${{ inputs.environment }}Release/*.aab)
+          if [ "${#bundles[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one signed Android App Bundle, found ${#bundles[@]}"
+            exit 1
+          fi
+
+          bun clients/web/scripts/publish-android-play.ts \
+            --bundle "${bundles[0]}" \
+            --package-id "${{ steps.config.outputs.package_id }}" \
+            --release-name "${{ steps.config.outputs.version_name }}"
 
       - name: Remove signing material
         if: ${{ always() }}

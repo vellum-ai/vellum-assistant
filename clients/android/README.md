@@ -193,7 +193,10 @@ annotations and methods are retained by `app/proguard-rules.pro`.
 
 `.github/workflows/release-android.yaml` is the reusable Android release
 workflow. It builds a signed AAB, retains it as an artifact, and uploads it to
-the matching Play internal track. Production-track promotion remains manual.
+the matching Play internal track through the Android Publisher API. The
+publisher uses Google's official Android Publisher client and repository-owned
+code, not an external Play publishing action. Production-track promotion
+remains manual.
 
 Configure these environment-scoped GitHub secrets independently for `dev`,
 `staging`, and `production`:
