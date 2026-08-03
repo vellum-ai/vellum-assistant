@@ -23,12 +23,14 @@ mock.module(
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
+import { useViewerStore } from "@/stores/viewer-store";
 
 afterAll(() => {
   mock.restore();
 });
 afterEach(() => {
   cleanup();
+  useViewerStore.setState({ mainView: "chat", activeMessageFiles: null });
 });
 
 function image(index: number): DisplayAttachment {
@@ -130,16 +132,33 @@ describe("MessageAttachments", () => {
     expect(getByText("+3")).toBeTruthy();
   });
 
-  test("opens the preview on the first hidden attachment with the full gallery", () => {
-    const { getByRole, getByTestId } = render(
-      <MessageAttachments attachments={images(8)} />,
+  test("the overflow tile opens the files panel with every attachment", () => {
+    const { getByRole, queryByTestId } = render(
+      <MessageAttachments attachments={images(8)} messageId="msg-1" />,
     );
 
     fireEvent.click(getByRole("button", { name: "Show all files (3 more)" }));
 
-    const modal = getByTestId("preview-modal");
-    expect(modal.getAttribute("data-attachment-id")).toBe("img-5");
-    expect(modal.getAttribute("data-sibling-count")).toBe("8");
+    const viewer = useViewerStore.getState();
+    expect(viewer.mainView).toBe("message-files");
+    expect(viewer.activeMessageFiles?.messageId).toBe("msg-1");
+    expect(viewer.activeMessageFiles?.attachments).toHaveLength(8);
+    // The tile targets the panel, so the preview modal stays shut.
+    expect(queryByTestId("preview-modal")).toBeNull();
+  });
+
+  test("clicking the overflow tile again closes the files panel", () => {
+    const { getByRole } = render(
+      <MessageAttachments attachments={images(8)} messageId="msg-1" />,
+    );
+
+    const tile = getByRole("button", { name: "Show all files (3 more)" });
+    fireEvent.click(tile);
+    fireEvent.click(tile);
+
+    const viewer = useViewerStore.getState();
+    expect(viewer.mainView).toBe("chat");
+    expect(viewer.activeMessageFiles).toBeNull();
   });
 
   test("returns null for an empty attachments array", () => {
