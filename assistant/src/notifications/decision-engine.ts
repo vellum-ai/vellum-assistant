@@ -422,9 +422,11 @@ const VALID_CHANNELS = new Set<string>(getDeliverableChannels());
  * falling back to one derived from the body when `normalizeTitle` returns its
  * empty-string rejection signal.
  *
- * `normalizeTitle` is the last clamp a title passes through, so its 40-char
- * budget is the effective one. `NOTIFICATION_TITLE_MAX_LENGTH` (60) still bounds
- * `deriveTitle` and the control-character stripping in `notification-utils.ts`.
+ * The two branches carry different budgets. An accepted authored title is
+ * bounded by `normalizeTitle` at 40 characters. A rejected one falls through to
+ * `deriveTitle`, which never sees the normalizer and applies the composer's own
+ * `NOTIFICATION_TITLE_MAX_LENGTH` (60) cap plus a trailing ellipsis, so a
+ * derived title can reach 61 characters.
  */
 function resolveTitle(raw: string | undefined, body: string): string {
   return normalizeTitle(raw ?? "") || deriveTitle(body);
