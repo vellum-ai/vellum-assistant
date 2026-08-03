@@ -2362,6 +2362,54 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  describe("context_window_usage", () => {
+    test("parses context_window_usage with all required fields", () => {
+      const event = parseEvent({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
+      });
+      expect(event).toEqual({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
+      });
+    });
+
+    test("returns unknown when a required field is missing", () => {
+      const data = {
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+      };
+      const event = parseEvent(data);
+      expect(event).toEqual({
+        type: "unknown",
+        rawType: "context_window_usage",
+        data,
+        conversationId: "conv-1",
+      });
+    });
+
+    test("strips unknown top-level fields", () => {
+      const event = parseEvent({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
+        fillRatio: 0.09,
+      });
+      expect(event).toEqual({
+        type: "context_window_usage",
+        conversationId: "conv-1",
+        tokens: 18000,
+        maxTokens: 200000,
+      });
+    });
+  });
+
   describe("usage_progress", () => {
     test("parses usage_progress with all required fields", () => {
       const event = parseEvent({

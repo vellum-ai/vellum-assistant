@@ -1957,31 +1957,66 @@ export class Conversation {
     }
   }
 
-  async forceCompact(): Promise<ContextWindowResult> {
-    // Report the user-facing before/after using the provider's real tokenizer
-    // (count_tokens) so the `/compact` line matches the context-window
-    // indicator, which reflects the provider's actual reported usage — rather
-    // than the local chars/4 estimate the compaction pipeline runs internally
-    // (it under-counts by ~25% on typical histories). `calculateTokens`
-    // falls back to that estimate when the provider has no count endpoint or
-    // the count call fails, so behavior degrades gracefully.
-    //
-    // Only the *displayed* numbers are overridden — the compaction log and
-    // circuit-breaker accounting inside `runCompaction` keep the estimate-based
-    // figures, leaving calibration and historical logs untouched.
+  /**
+   * Push the conversation's current context-window usage to clients so the
+   * context-window indicator matches the numbers a user-initiated compaction
+   * card reports. Turn-driven compaction needs no push: the turn's own
+   * `usage_update` carries the post-compaction count.
+   *
+   * Rides the conversation's own sender, the channel `emitActivityState` and
+   * `context_compacted` already use, so a queued `/compact` reaches the same
+   * client its result card does.
+   */
+  private emitContextWindowUsage(tokens: number, maxTokens: number): void {
+    try {
+      this.sendToClient({
+        type: "context_window_usage",
+        conversationId: this.conversationId,
+        tokens,
+        maxTokens,
+      });
+    } catch (err) {
+      log.warn(
+        { err, conversationId: this.conversationId },
+        "sendToClient threw in emitContextWindowUsage",
+      );
+    }
+  }
+
+  /**
+   * Run a user-initiated compaction (`run`), reporting its before/after with
+   * the provider's real tokenizer (count_tokens) rather than the local chars/4
+   * estimate the compaction pipeline runs internally (it under-counts by ~25%
+   * on typical histories), and pushing the resulting count to clients.
+   * `calculateTokens` falls back to that estimate when the provider has no
+   * count endpoint or the count call fails, so behavior degrades gracefully.
+   *
+   * Only the *displayed* numbers are overridden: the compaction log and
+   * circuit-breaker accounting inside `runCompaction` keep the estimate-based
+   * figures, leaving calibration and historical logs untouched.
+   *
+   * `run` must leave the compacted history applied to `this.messages`, which
+   * every `runCompaction` path does.
+   */
+  private async runUserCompaction(
+    run: () => Promise<ContextWindowResult>,
+  ): Promise<ContextWindowResult> {
     const before = await this.calculateTokens(this.messages);
-    const result = await this.runCompaction(true);
-    // `runCompaction` applies the compacted history to `this.messages` in
-    // place, so after a successful compaction this re-counts the new history;
-    // a no-op leaves the context unchanged, so before === after.
+    const result = await run();
+    // A no-op leaves the context unchanged, so before === after.
     const after = result.compacted
       ? await this.calculateTokens(this.messages)
       : before;
+    this.emitContextWindowUsage(after, result.maxInputTokens);
     return {
       ...result,
       previousEstimatedInputTokens: before,
       estimatedInputTokens: after,
     };
+  }
+
+  async forceCompact(): Promise<ContextWindowResult> {
+    return this.runUserCompaction(() => this.runCompaction(true));
   }
 
   /**
@@ -2078,17 +2113,19 @@ export class Conversation {
           firstRowByHistoryIndex[historyIndex] = rowIndex;
         }
       }
-      return await this.runCompaction(true, undefined, {
-        fixedTailStartIndex: tailIndex,
-        // When repair merged preceding continuation rows into the boundary's
-        // message, the row boundary retreats to the message's first
-        // contributing row: the summary call reads messages[0..tailIndex),
-        // which excludes the merged rows' content, so the image manifest and
-        // watermarks must not treat them as summarized.
-        fixedBoundaryRowIndex:
-          firstRowByHistoryIndex[tailIndex] ?? boundaryRowIndex,
-        fixedBoundaryRowView: { rows, firstRowByHistoryIndex },
-      });
+      return await this.runUserCompaction(() =>
+        this.runCompaction(true, undefined, {
+          fixedTailStartIndex: tailIndex,
+          // When repair merged preceding continuation rows into the boundary's
+          // message, the row boundary retreats to the message's first
+          // contributing row: the summary call reads messages[0..tailIndex),
+          // which excludes the merged rows' content, so the image manifest and
+          // watermarks must not treat them as summarized.
+          fixedBoundaryRowIndex:
+            firstRowByHistoryIndex[tailIndex] ?? boundaryRowIndex,
+          fixedBoundaryRowView: { rows, firstRowByHistoryIndex },
+        }),
+      );
     } finally {
       // Only undo the temporary guardian context this method installed. If
       // trustContext was legitimately updated at an `await` boundary, the
