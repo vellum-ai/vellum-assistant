@@ -364,6 +364,22 @@
       "label": "Assistant Reply Push",
       "description": "Gates the `chat.assistant_reply` push notification the assistant sends at the end of a user-initiated turn whose reply the user has not seen. On by default; turn it off to silence the push without disabling the rest of the notification pipeline.",
       "defaultEnabled": true
+    },
+    {
+      "id": "subagent-profile-isolation",
+      "scope": "assistant",
+      "key": "subagent-profile-isolation",
+      "label": "Subagent Profile Isolation",
+      "description": "Subagents use their type's default model profile instead of inheriting the conversation's pinned profile; profiles without verified tool support fall back to the type default.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "subagent-loop-guard",
+      "scope": "assistant",
+      "key": "subagent-loop-guard",
+      "label": "Subagent Loop Guard",
+      "description": "Rate-limit near-identical repeat subagent spawns and require explicit confirmation to continue.",
+      "defaultEnabled": false
     }
   ]
 }
