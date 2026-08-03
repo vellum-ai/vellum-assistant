@@ -246,7 +246,7 @@ const TITLE_FIELD_DESCRIPTION = [
   "Examples:",
   "- Body 'Your 9am standup with the platform team starts in 5 minutes' -> 'Platform Standup', NOT 'Standup Starts In 5 Minutes'",
   "- Body 'The nightly backup job failed on db-primary at 02:14' -> 'Nightly Backup Failure', NOT 'Nightly Backup Job Failed On db-primary'",
-  "- Body 'Dana replied about the Q3 pricing deck and wants your notes' -> 'Q3 Pricing Deck', NOT 'Dana Replied About The Pricing Deck'",
+  "- Body 'Alice replied about the Q3 pricing deck and wants your notes' -> 'Q3 Pricing Deck', NOT 'Alice Replied About The Pricing Deck'",
 ].join("\n");
 
 function buildDecisionTool(availableChannels: NotificationChannel[]) {
