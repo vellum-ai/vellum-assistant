@@ -123,7 +123,7 @@
     },
     {
       "name": "subagent_read",
-      "description": "Read the full conversation output from a subagent. Use this after a subagent completes to retrieve its full work product.",
+      "description": "NOT a file reader: this returns a subagent's conversation output, addressed by subagent_id or label. To read a file from disk use file_read instead. Use this after a subagent completes to retrieve its full work product; while it is still running you will be notified automatically when it finishes, so there is no need to poll.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {

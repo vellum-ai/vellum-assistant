@@ -1,6 +1,7 @@
 import { getMessages } from "../../persistence/conversation-crud.js";
 import { extractTextFromStoredMessageContent } from "../../persistence/message-content.js";
 import { TERMINAL_STATUSES } from "../../subagent/index.js";
+import { bundledToolInputMisuseMessage } from "../shared/input-misuse.js";
 import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import {
@@ -18,6 +19,16 @@ export async function executeSubagentRead(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  // File-reader keys and misspellings of `subagent_id` name a wrong-tool or
+  // wrong-parameter call, so they get the redirect rather than the generic
+  // '"subagent_id" or "label" is required'. `createSkillTool` runs the same
+  // check for calls the manifest validator rejects before they reach here.
+  // This executor backs the bundled subagent skill, so the bundled table is
+  // the right one to consult.
+  const misuse = bundledToolInputMisuseMessage("subagent_read", input);
+  if (misuse) {
+    return { content: misuse, isError: true };
+  }
   const parsedInput = subagentReadInputSchema.safeParse(input);
   if (!parsedInput.success) {
     return invalidToolInputResult("subagent_read", parsedInput.error);
@@ -54,8 +65,11 @@ export async function executeSubagentRead(
   }
 
   if (!TERMINAL_STATUSES.has(state.status)) {
+    // A premature read is often the only result a parent ever captures, so the
+    // message has to close the loop itself: the completion notification is
+    // already coming, and re-reading only burns another turn.
     return {
-      content: `Subagent "${state.config.label}" is still ${state.status}. Wait for it to finish.`,
+      content: `Subagent "${state.config.label}" is still ${state.status}. Do not poll: you will be notified automatically when it completes, and that notification tells you whether the result is inlined or waiting behind a read.`,
       isError: false,
     };
   }
