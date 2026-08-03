@@ -15,6 +15,7 @@
  * - `activeSubagentId` — subagent detail panel
  * - `activeToolDetail` — tool-call detail drawer payload
  * - `activeActivitySteps` — activity-steps side panel payload (a group's full timeline)
+ * - `activeMessageFiles` - message-files side panel payload (one message's attachments)
  * - `activeWorkflowRunId` — workflow detail panel
  * - `activeAcpRunId` — ACP run detail panel
  * - `activeBackgroundTaskId` — background-task detail panel
@@ -32,6 +33,7 @@ import type { SetupChannelId } from "@/types/channel-types";
 import type { ProcessKind } from "@/domains/chat/process-registry/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
+import type { DisplayAttachment } from "@/types/attachment-types";
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 
@@ -44,6 +46,7 @@ type OverlayView =
   | "subagent-detail"
   | "tool-detail"
   | "activity-steps"
+  | "message-files"
   | "workflow-detail"
   | "acp-run-detail"
   | "background-task-detail"
@@ -115,6 +118,7 @@ function resolveViewBefore(
     | "viewBeforeSubagentDetail"
     | "viewBeforeToolDetail"
     | "viewBeforeActivitySteps"
+    | "viewBeforeMessageFiles"
     | "viewBeforeWorkflowDetail"
     | "viewBeforeAcpRunDetail"
     | "viewBeforeBackgroundTaskDetail"
@@ -127,6 +131,7 @@ function resolveViewBefore(
     mv === "subagent-detail" ||
     mv === "tool-detail" ||
     mv === "activity-steps" ||
+    mv === "message-files" ||
     mv === "workflow-detail" ||
     mv === "acp-run-detail" ||
     mv === "background-task-detail" ||
@@ -150,6 +155,7 @@ export type MainView =
   | "subagent-detail"
   | "tool-detail"
   | "activity-steps"
+  | "message-files"
   | "workflow-detail"
   | "acp-run-detail"
   | "background-task-detail"
@@ -275,6 +281,34 @@ export function sameActivityStepsTarget(
   return a.toolCalls[0]?.id === b.toolCalls[0]?.id;
 }
 
+/**
+ * Payload for the message-files side panel: every attachment on one
+ * transcript message. The open panel re-derives live attachments from the
+ * transcript by `messageId`; the embedded `attachments` array is the
+ * open-time snapshot, used when the message cannot be resolved (paged out,
+ * or identity-less callers like stories).
+ */
+export interface MessageFilesPayload {
+  messageId?: string;
+  attachments: DisplayAttachment[];
+  assistantId?: string | null;
+}
+
+/**
+ * Whether two message-files payloads address the same transcript message.
+ * Keys on `messageId` when present, falling back to the first attachment id
+ * for identity-less callers.
+ */
+export function sameMessageFilesTarget(
+  a: MessageFilesPayload,
+  b: MessageFilesPayload,
+): boolean {
+  if (a.messageId != null || b.messageId != null) {
+    return a.messageId === b.messageId;
+  }
+  return a.attachments[0]?.id === b.attachments[0]?.id;
+}
+
 /** The identity fields a thinking drawer target is matched on. */
 type ThinkingTarget = Pick<
   ToolDetailPayload,
@@ -324,6 +358,8 @@ export interface ViewerState {
   viewBeforeToolDetail: Exclude<MainView, OverlayView>;
   activeActivitySteps: ActivityStepsPayload | null;
   viewBeforeActivitySteps: Exclude<MainView, OverlayView>;
+  activeMessageFiles: MessageFilesPayload | null;
+  viewBeforeMessageFiles: Exclude<MainView, OverlayView>;
   activeWorkflowRunId: string | null;
   viewBeforeWorkflowDetail: Exclude<MainView, OverlayView>;
   activeAcpRunId: string | null;
@@ -423,6 +459,16 @@ export interface ViewerActions {
   toggleActivitySteps: (payload: ActivityStepsPayload) => void;
   closeActivitySteps: () => void;
 
+  // --- Message files panel ---
+  openMessageFiles: (payload: MessageFilesPayload) => void;
+  /**
+   * Open the files panel for `payload`, or close it when the panel is already
+   * showing the SAME message. Powers the overflow tile, where clicking the
+   * already-open tile dismisses the panel.
+   */
+  toggleMessageFiles: (payload: MessageFilesPayload) => void;
+  closeMessageFiles: () => void;
+
   // --- Channel setup ---
   openChannelSetup: (payload: ChannelSetupPayload) => void;
   closeChannelSetup: () => void;
@@ -471,6 +517,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeToolDetail: "chat",
   activeActivitySteps: null,
   viewBeforeActivitySteps: "chat",
+  activeMessageFiles: null,
+  viewBeforeMessageFiles: "chat",
   activeWorkflowRunId: null,
   viewBeforeWorkflowDetail: "chat",
   activeAcpRunId: null,
@@ -741,6 +789,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       case "activity-steps":
         get().closeActivitySteps();
         return true;
+      case "message-files":
+        get().closeMessageFiles();
+        return true;
       case "workflow-detail":
         get().closeWorkflowDetail();
         return true;
@@ -856,6 +907,40 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: get().viewBeforeActivitySteps,
       activeActivitySteps: null,
+    });
+  },
+
+  // --- Message files panel ---
+
+  openMessageFiles: (payload) => {
+    set({
+      mainView: "message-files",
+      activeMessageFiles: payload,
+      viewBeforeMessageFiles: resolveViewBefore(
+        get(),
+        "viewBeforeMessageFiles",
+      ),
+    });
+  },
+
+  toggleMessageFiles: (payload) => {
+    const state = get();
+    const active = state.activeMessageFiles;
+    const isSameTarget =
+      state.mainView === "message-files" &&
+      active != null &&
+      sameMessageFilesTarget(active, payload);
+    if (isSameTarget) {
+      get().closeMessageFiles();
+    } else {
+      get().openMessageFiles(payload);
+    }
+  },
+
+  closeMessageFiles: () => {
+    set({
+      mainView: get().viewBeforeMessageFiles,
+      activeMessageFiles: null,
     });
   },
 

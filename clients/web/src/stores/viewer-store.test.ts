@@ -4,8 +4,10 @@ import {
   isAppNotFoundError,
   useViewerStore,
   type ActivityStepsPayload,
+  type MessageFilesPayload,
   type ToolDetailPayload,
 } from "@/stores/viewer-store";
+import type { DisplayAttachment } from "@/types/attachment-types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -562,6 +564,14 @@ describe("closeActiveOverlay", () => {
     expect(getState().activeWorkflowRunId).toBeNull();
   });
 
+  it("closes the message-files overlay and restores its prior view", () => {
+    getState().openMessageFiles({ messageId: "m1", attachments: [] });
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeMessageFiles).toBeNull();
+  });
+
   it("returns false without changing a non-overlay view", () => {
     useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
 
@@ -758,6 +768,68 @@ describe("openActivitySteps / toggleActivitySteps / closeActivitySteps", () => {
     expect(getState().viewBeforeActivitySteps).toBe("app");
     getState().closeActivitySteps();
     expect(getState().mainView).toBe("app");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Message files panel
+// ---------------------------------------------------------------------------
+
+function makeAttachment(id: string): DisplayAttachment {
+  return {
+    id,
+    filename: `${id}.png`,
+    mimeType: "image/png",
+    sizeBytes: 1024,
+    previewUrl: null,
+  };
+}
+
+const SAMPLE_FILES: MessageFilesPayload = {
+  messageId: "m1",
+  attachments: [makeAttachment("a1"), makeAttachment("a2")],
+  assistantId: "asst-1",
+};
+
+describe("openMessageFiles / toggleMessageFiles / closeMessageFiles", () => {
+  it("opens the panel with the payload and records the prior view", () => {
+    getState().openMessageFiles(SAMPLE_FILES);
+    const state = getState();
+    expect(state.mainView).toBe("message-files");
+    expect(state.activeMessageFiles).toBe(SAMPLE_FILES);
+    expect(state.viewBeforeMessageFiles).toBe("chat");
+  });
+
+  it("close restores the prior view and clears the payload", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openMessageFiles(SAMPLE_FILES);
+    expect(getState().viewBeforeMessageFiles).toBe("app");
+    getState().closeMessageFiles();
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeMessageFiles).toBeNull();
+  });
+
+  it("toggle closes the panel when targeting the SAME message", () => {
+    getState().openMessageFiles(SAMPLE_FILES);
+    getState().toggleMessageFiles({ ...SAMPLE_FILES });
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeMessageFiles).toBeNull();
+  });
+
+  it("toggle switches to a DIFFERENT message instead of closing", () => {
+    getState().openMessageFiles(SAMPLE_FILES);
+    getState().toggleMessageFiles({ ...SAMPLE_FILES, messageId: "m2" });
+    const state = getState();
+    expect(state.mainView).toBe("message-files");
+    expect(state.activeMessageFiles?.messageId).toBe("m2");
+  });
+
+  it("identity-less payloads match on the first attachment id", () => {
+    getState().openMessageFiles({ attachments: [makeAttachment("a1")] });
+    getState().toggleMessageFiles({ attachments: [makeAttachment("a1")] });
+    expect(getState().mainView).toBe("chat");
   });
 });
 
