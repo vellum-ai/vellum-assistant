@@ -1020,6 +1020,8 @@ function clearGatewayTokenStorage(): void {
 describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   const GATEWAY_URL = "http://localhost:9090";
   const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
+  const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
+  const GW_401_MAX_RELOADS = 3;
 
   function makeResponse(status: number, url: string): Response {
     const response = new Response(null, { status });
@@ -1049,6 +1051,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     isLocalClientMock.mockImplementation(() => true);
     setSelfHostedConnection({ url: GATEWAY_URL, token: "tok" });
     sessionStorage.removeItem(GW_401_RELOAD_KEY);
+    sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
     clearGatewayTokenStorage();
     resetGw401RecoveryFlag();
   });
@@ -1061,6 +1064,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     isLocalClientMock.mockImplementation(() => !process.env.VITE_PLATFORM_MODE);
     setSelfHostedConnection(null);
     sessionStorage.removeItem(GW_401_RELOAD_KEY);
+    sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
     clearGatewayTokenStorage();
     resetGw401RecoveryFlag();
   });
@@ -1238,6 +1242,47 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
     localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
 
     // THEN only one reload fires
+    expect(reloadCalls).toBe(1);
+  });
+
+  test("stops reloading once the attempt budget is spent", () => {
+    // Each round models a fresh page lifecycle: the in-memory latch resets
+    // on reload and the cooldown has elapsed, so only the budget can stop it.
+    for (let i = 0; i < GW_401_MAX_RELOADS; i++) {
+      resetGw401RecoveryFlag();
+      sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
+      localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    }
+    expect(reloadCalls).toBe(GW_401_MAX_RELOADS);
+
+    resetGw401RecoveryFlag();
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    expect(reloadCalls).toBe(GW_401_MAX_RELOADS);
+  });
+
+  test("hands the 401 back unchanged once the budget is spent", () => {
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
+    const response = gatewayResponse(401);
+
+    expect(localGatewayAuthRecoveryInterceptor(response)).toBe(response);
+    expect(reloadCalls).toBe(0);
+  });
+
+  test("a fresh renderer session grants a new budget", () => {
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+    expect(reloadCalls).toBe(0);
+
+    // Quitting and reopening the app ends the renderer session, which is
+    // what clearing sessionStorage models here.
+    sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
+    sessionStorage.removeItem(GW_401_RELOAD_KEY);
+    sessionStorage.removeItem(GW_401_ATTEMPTS_KEY);
+    resetGw401RecoveryFlag();
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
     expect(reloadCalls).toBe(1);
   });
 });

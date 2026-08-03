@@ -406,11 +406,22 @@ export function daemonUnreachableInterceptor(response: Response): Response {
  * token), clears the cached gateway tokens from localStorage and
  * reloads the page so the app acquires a fresh token on startup.
  *
- * A sessionStorage cooldown prevents infinite reload loops when the
- * gateway consistently rejects tokens (e.g. after a misconfiguration).
+ * A sessionStorage cooldown spaces the attempts, and a sessionStorage
+ * attempt budget stops them. The cooldown alone only paces a gateway that
+ * rejects every token (a mismatched signing key, say): the page reloads
+ * once per cooldown for as long as the app stays open, which reaches the
+ * user as an app that restarts itself every ten minutes and never settles.
+ * Past the budget the 401 is handed back untouched, so the normal error
+ * path surfaces it and the tray's re-pair action stays available.
+ *
+ * Both keys live in sessionStorage, so quitting and reopening the app
+ * grants a fresh budget: a genuinely transient rejection still recovers on
+ * the next launch.
  */
 const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
+const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
 const GW_401_COOLDOWN_MS = 600_000;
+const GW_401_MAX_RELOADS = 3;
 
 // In-memory latch: once recovery fires, all subsequent 401s in the same
 // page lifecycle are no-ops. Resets naturally on reload.
@@ -446,14 +457,26 @@ export function localGatewayAuthRecoveryInterceptor(
   }
 
   try {
+    const attempts = Number(
+      sessionStorage.getItem(GW_401_ATTEMPTS_KEY) ?? "0",
+    );
+    // A budget that has already been spent means reloading has not fixed
+    // this gateway and will not; let the 401 through to the error path.
+    if (Number.isFinite(attempts) && attempts >= GW_401_MAX_RELOADS) {
+      return response;
+    }
     const lastReload = sessionStorage.getItem(GW_401_RELOAD_KEY);
     if (lastReload && Date.now() - Number(lastReload) < GW_401_COOLDOWN_MS) {
       return response;
     }
     sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now()));
+    sessionStorage.setItem(
+      GW_401_ATTEMPTS_KEY,
+      String((Number.isFinite(attempts) ? attempts : 0) + 1),
+    );
   } catch {
-    // sessionStorage unavailable — cannot enforce cooldown, skip reload
-    // to avoid infinite reload loops.
+    // sessionStorage unavailable — cannot enforce cooldown or budget, skip
+    // reload to avoid infinite reload loops.
     return response;
   }
 
