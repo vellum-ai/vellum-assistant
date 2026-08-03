@@ -43,12 +43,13 @@ describe("findUnknownAllowlistTools", () => {
   });
 
   test("a role that imposes no filter contributes no entries", () => {
-    // The advisor's allowlist is empty, so even against an empty registry it
+    // The builder declares no allowlist, so even against an empty registry it
     // has nothing that could fail to resolve.
     const unknown = findUnknownAllowlistTools(new Set());
-    expect(unknown.some((u) => u.role === "advisor")).toBe(false);
-    // Every other role's entries are all flagged against an empty registry.
+    expect(unknown.some((u) => u.role === "builder")).toBe(false);
+    // Every allowlisted role's entries are all flagged against an empty registry.
     expect(unknown.length).toBeGreaterThan(0);
+    expect(unknown.some((u) => u.role === "advisor")).toBe(true);
   });
 
   test("every allowlisted core tool name is a real registered tool", () => {

@@ -157,7 +157,7 @@ export async function executeSubagentSpawn(
     };
   }
 
-  // ── Advisor role: synchronous, tool-less, stronger-model consult ──
+  // ── Advisor role: synchronous, read-only, stronger-model consult ──
   // Branch before the fire-and-forget path: the advisor blocks on the run and
   // returns its guidance as the tool result in the same turn.
   if (resolvedRole.role === "advisor") {
@@ -433,7 +433,7 @@ function repeatSpawnGuardResult(
  * consult and return its guidance as the tool result.
  *
  * Inherits the parent transcript (sanitized), frames it as advice via
- * `buildAdvisorSystem`, runs tool-less on `llm.advisorProfile` (unless the
+ * `buildAdvisorSystem`, runs read-only on `llm.advisorProfile` (unless the
  * caller passed an explicit `inference_profile`), and is bounded by a
  * progress-aware deadline: an idle window (`ADVISOR_IDLE_TIMEOUT_MS`) reset on
  * every streamed token so a reasoning model isn't killed mid-thought, plus an

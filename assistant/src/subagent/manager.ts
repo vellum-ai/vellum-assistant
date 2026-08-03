@@ -642,10 +642,11 @@ export class SubagentManager {
         // Records the parent at construction; drives isSubagent and notify
         // routing from non-writable in-process state.
         parentConversationId: config.parentConversationId,
-        // The advisor consult runs tool-less for CLIENT tools but should ground
-        // its guidance with provider-native web search when the resolved
-        // provider supports it. This is a server tool the provider runs itself,
-        // so it stays one-shot — no client tool surfaced, allowlist unchanged.
+        // The advisor consult is scoped to read-only CLIENT tools and should
+        // also ground its guidance with provider-native web search when the
+        // resolved provider supports it. This is a server tool the provider
+        // runs itself, so no client tool is surfaced and the allowlist is
+        // unchanged.
         // Other roles keep the default (no native search appended).
         ...(role === "advisor" ? { enableNativeWebSearch: true } : {}),
       },

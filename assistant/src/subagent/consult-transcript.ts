@@ -1,6 +1,6 @@
 /**
  * Sanitize an inherited parent transcript before it is injected into a
- * tool-less advisor consult subagent.
+ * advisor consult subagent.
  *
  * `Conversation.injectInheritedContext` injects the parent's messages VERBATIM
  * with no sanitization, so the advisor path must run this over the parent

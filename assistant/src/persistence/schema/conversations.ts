@@ -65,7 +65,7 @@ export const conversations = sqliteTable(
      * inheritance and lifecycle, orthogonal to {@link subagentRole}:
      * `regular` (fire-and-forget `subagent_spawn`, fresh objective-only
      * context), `fork` (`subagent_spawn` with `fork: true`, inherits the
-     * parent transcript), `advisor_consult` (synchronous tool-less advisor
+     * parent transcript), `advisor_consult` (synchronous read-only advisor
      * consult the parent turn blocks on), `voice_continuation` (silent
      * read-only live-voice continuation of an interrupted turn). NULL for
      * every conversation that is not a subagent.

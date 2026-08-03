@@ -320,7 +320,7 @@ export type SubagentRole = "researcher" | "builder" | "advisor";
  *
  * - `regular`: fire-and-forget `subagent_spawn`, fresh objective-only context.
  * - `fork`: `subagent_spawn` with `fork: true`, inherits the parent transcript.
- * - `advisor_consult`: synchronous, tool-less advisor consult on the advisor
+ * - `advisor_consult`: synchronous, read-only advisor consult on the advisor
  *   profile; the parent turn blocks on it and returns its guidance inline.
  * - `voice_continuation`: silent, read-only live-voice background
  *   continuation of an interrupted turn.
@@ -385,10 +385,15 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
       ].join(" "),
     },
     advisor: {
-      allowedTools: [],
+      // Read-only fact checking, deliberately narrower than the researcher's
+      // list: no web fetch, no skill execution, nothing that persists. The
+      // advisor answers from the inherited conversation and opens a file only
+      // when a specific fact would change the advice. `recall` keeps its own
+      // trust gating at the tool layer.
+      allowedTools: ["file_read", "file_list", "code_search", "recall"],
       skillIds: [],
       systemPromptPreamble:
-        "You are a read-only senior advisor consulted for a one-shot strategic review. Read the inherited conversation, then return focused, high-leverage guidance in a single response. You have no tools (you cannot search, read files, or run commands), so reason from the context you were given.",
+        "You are a read-only senior advisor consulted for a one-shot strategic review. Read the inherited conversation, then return focused, high-leverage guidance in a single response. You may read files, search code, and recall memories to verify a decisive fact, but you cannot change anything.",
     },
   };
 

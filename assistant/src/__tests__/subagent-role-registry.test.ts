@@ -42,9 +42,36 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(SUBAGENT_ROLE_REGISTRY.builder.allowedTools).toBeUndefined();
   });
 
-  test("advisor is tool-less with an empty allowedTools array", () => {
-    const config = SUBAGENT_ROLE_REGISTRY.advisor;
-    expect(config.allowedTools).toEqual([]);
+  test("advisor is scoped to exactly the four read-only fact-checking tools", () => {
+    expect(SUBAGENT_ROLE_REGISTRY.advisor.allowedTools).toEqual([
+      "file_read",
+      "file_list",
+      "code_search",
+      "recall",
+    ]);
+  });
+
+  test("advisor is read-only: nothing write-capable, no shell, no skill execution", () => {
+    // The consult is a judgment call the parent blocks on, so the advisor must
+    // never be able to act on the workspace or persist output of its own.
+    const tools = SUBAGENT_ROLE_REGISTRY.advisor.allowedTools!;
+    for (const forbidden of [
+      "bash",
+      "host_bash",
+      "file_write",
+      "file_edit",
+      "skill_execute",
+      "web_fetch",
+    ]) {
+      expect(tools).not.toContain(forbidden);
+    }
+  });
+
+  test("advisor preamble states it can verify facts but cannot change anything", () => {
+    const preamble = SUBAGENT_ROLE_REGISTRY.advisor.systemPromptPreamble;
+    expect(preamble).toContain("read files");
+    expect(preamble).toContain("cannot change anything");
+    expect(preamble).not.toContain("no tools");
   });
 
   test("SubagentRole type includes advisor", () => {
@@ -52,13 +79,16 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     expect(SUBAGENT_ROLE_REGISTRY[advisor]).toBeDefined();
   });
 
-  test('every role with a non-empty allowlist includes "notify_parent"', () => {
-    for (const [_role, config] of Object.entries(SUBAGENT_ROLE_REGISTRY)) {
-      // 'advisor' is tool-less (empty allowlist) and intentionally has none.
-      if (config.allowedTools !== undefined && config.allowedTools.length > 0) {
-        expect(config.allowedTools).toContain("notify_parent");
-      }
-    }
+  test('every allowlisted background role includes "notify_parent"', () => {
+    // Mid-run reporting only means something for a role the parent does not
+    // wait on. The advisor blocks the parent turn and returns its guidance as
+    // the tool result, so it intentionally has no notify_parent.
+    expect(SUBAGENT_ROLE_REGISTRY.researcher.allowedTools).toContain(
+      "notify_parent",
+    );
+    expect(SUBAGENT_ROLE_REGISTRY.advisor.allowedTools).not.toContain(
+      "notify_parent",
+    );
   });
 
   test('the scoped tool-using role includes "skill_execute" so preactivated skills work', () => {

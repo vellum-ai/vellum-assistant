@@ -2947,31 +2947,43 @@ describe("Subagent advisor-role consult", () => {
   });
 });
 
-// ── Advisor role tool-less enforcement ──────────────────────────────
+// ── Advisor role read-only enforcement ──────────────────────────────
 
-describe("Advisor role is tool-less", () => {
-  test("the advisor role's empty allowlist yields zero tools (not 'no filter')", async () => {
-    // An empty allowlist must mean ZERO tools, not "no restriction". Build a
-    // resolveTools callback with the advisor's empty allowlist and confirm no
-    // tool survives — including a fake skill tool the projection would add.
+describe("Advisor role is read-only", () => {
+  test("the advisor allowlist admits its read tools and nothing write-capable", async () => {
+    // The allowlist is a ceiling, not a hint: build a resolveTools callback
+    // with the advisor's allowlist and confirm a write-capable tool is dropped
+    // while its read tools survive.
     const { createResolveToolsCallback } =
       await import("../daemon/conversation-tool-setup.js");
     const { SUBAGENT_ROLE_REGISTRY } = await import("../subagent/types.js");
     const advisorAllowed = SUBAGENT_ROLE_REGISTRY.advisor.allowedTools;
-    expect(advisorAllowed).toEqual([]);
+    expect(advisorAllowed).toEqual([
+      "file_read",
+      "file_list",
+      "code_search",
+      "recall",
+    ]);
 
     const toolDefs = [
-      { name: "bash", description: "", input_schema: { type: "object" } },
-      { name: "file_read", description: "", input_schema: { type: "object" } },
-    ];
+      "bash",
+      "file_write",
+      "file_read",
+      "file_list",
+      "code_search",
+      "recall",
+    ].map((name) => ({
+      name,
+      description: "",
+      input_schema: { type: "object" },
+    }));
     const ctx = {
       skillProjectionState: new Map<string, string>(),
       skillProjectionCache: new Map(),
       toolsDisabledDepth: 0,
-      // The advisor role applies `new Set(allowedTools)` — empty Set here.
       subagentAllowedTools: new Set<string>(advisorAllowed),
       // Default (absent) gate mode is "wire": the allowlist filters the wire
-      // tool list, so an empty Set leaves nothing.
+      // tool list.
       isSubagent: true,
     } as unknown as Parameters<typeof createResolveToolsCallback>[1];
 
@@ -2980,13 +2992,18 @@ describe("Advisor role is tool-less", () => {
       ctx,
     );
     expect(resolve).toBeDefined();
-    const resolved = resolve!([]);
-    expect(resolved).toEqual([]);
-    // The per-turn execution gate is likewise empty.
-    expect(
-      (ctx as unknown as { allowedToolNames?: Set<string> }).allowedToolNames
-        ?.size ?? 0,
-    ).toBe(0);
+    const resolvedNames = resolve!([]).map((t) => t.name);
+    expect(resolvedNames.sort()).toEqual([
+      "code_search",
+      "file_list",
+      "file_read",
+      "recall",
+    ]);
+    // The per-turn execution gate matches the wire list.
+    const gate = (ctx as unknown as { allowedToolNames?: Set<string> })
+      .allowedToolNames;
+    expect(gate?.has("file_read")).toBe(true);
+    expect(gate?.has("bash")).toBe(false);
   });
 });
 
