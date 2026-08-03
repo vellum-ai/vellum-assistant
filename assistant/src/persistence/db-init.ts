@@ -102,11 +102,10 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
     "DB migration steps complete",
   );
 
-  // A migration that adds an index leaves it with no sqlite_stat1 entry, so the
-  // planner works from built-in guesses until something analyzes it. SQLite
-  // recommends running optimize after a schema change for exactly this reason.
-  // Only boots that applied a step pay for it, and the analysis limit in the
-  // mask bounds the scan.
+  // An index a migration creates has no sqlite_stat1 entry until something
+  // analyzes it, which SQLite calls out as a case to handle after a schema
+  // change. Only boots that applied a step pay for it, and optimize analyzes
+  // just the tables that need it.
   if (applied.length > 0) {
     try {
       getSqliteFrom(database).exec(PLANNER_OPTIMIZE_PRAGMA);

@@ -81,10 +81,9 @@ async function runDbMaintenance(): Promise<void> {
     log.warn({ err }, "Workflow run pruning failed (non-fatal)");
   }
 
-  // Refresh the query planner's statistics — see PLANNER_OPTIMIZE_PRAGMA for
-  // what the mask buys on this connection. Routed through the async path for
-  // consistency and to keep it off the main thread when the sqlite3 CLI backend
-  // is available.
+  // Refresh the query planner's statistics (see PLANNER_OPTIMIZE_PRAGMA for
+  // what the mask buys here). Routed through the async path to keep it off the
+  // main thread when the sqlite3 CLI backend is available.
   const optimizeResult = await runAsyncSqlite(
     PLANNER_OPTIMIZE_PRAGMA,
     "db-maintenance:optimize",
