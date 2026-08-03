@@ -228,12 +228,11 @@ describe("resolver integration", () => {
     expect(resolved.model).not.toBe("claude-sonnet-4-6");
   });
 
-  test("a pre-existing user profile cannot shadow an internal profile's call sites", () => {
-    // `latency-optimized` was a legal custom profile name before it was
-    // reserved, so a workspace can already hold one. The user-shadow rule
-    // that lets a user replace a default they can select must not apply to a
-    // name they were never able to select: the voice front model would
-    // silently run on an arbitrary user model.
+  test("a user profile shadowing latency-optimized captures its call sites", () => {
+    // `latency-optimized` ships as the user-facing Speed profile, so the
+    // ordinary user-shadow rule applies to it like any other default: the
+    // voice front model follows whatever the user put under that name. This
+    // is the trade for making the profile selectable and editable.
     const llm = LLMSchema.parse({
       profiles: {
         "latency-optimized": {
@@ -246,15 +245,11 @@ describe("resolver integration", () => {
         },
       },
     });
-    const body = CODE_DEFAULT_PROFILE_ENTRIES["latency-optimized"];
     for (const callSite of ["voiceFrontDoor", "voiceFrontDecision"] as const) {
       const resolved = resolveCallSiteConfig(callSite, llm);
-      expect(resolved.model).toBe(body.model as string);
-      expect(resolved.model).not.toBe("claude-opus-4-6");
-      expect(String(resolved.provider)).toBe("vellum");
+      expect(resolved.model).toBe("claude-opus-4-6");
+      expect(String(resolved.provider)).toBe("anthropic");
     }
-    // The entry itself is untouched — still on disk, still listed, and still
-    // a valid `activeProfile` reference for the user who created it.
     expect(getEffectiveProfiles(llm.profiles)["latency-optimized"]?.model).toBe(
       "claude-opus-4-6",
     );
