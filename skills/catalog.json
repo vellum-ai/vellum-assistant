@@ -60,7 +60,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-30T02:16:04.000Z"
+      "updatedAt": "2026-07-30T14:17:04.000Z"
     },
     {
       "id": "chat-complex-documents",
@@ -563,12 +563,18 @@
     {
       "id": "mcp-setup",
       "name": "mcp-setup",
-      "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers — connect any external tool or service that publishes an MCP endpoint to the assistant",
+      "description": "Answer whether the assistant can integrate with a given service, and add, authenticate, list, or remove MCP (Model Context Protocol) servers to connect external tools and services",
       "metadata": {
         "emoji": "🔌",
         "vellum": {
           "category": "integrations",
-          "display-name": "MCP Setup"
+          "display-name": "MCP Setup",
+          "activation-hints": [
+            "user asks if you integrate with or support a specific service",
+            "user asks to connect an external tool or service",
+            "an MCP tool returns an auth error",
+            "user wants to disconnect an integration"
+          ]
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
@@ -623,7 +629,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-30T02:27:39.000Z"
+      "updatedAt": "2026-07-30T14:17:04.000Z"
     },
     {
       "id": "notifications",
@@ -756,7 +762,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-29T22:31:05.000Z"
+      "updatedAt": "2026-07-31T11:59:40.000Z"
     },
     {
       "id": "public-ingress",
