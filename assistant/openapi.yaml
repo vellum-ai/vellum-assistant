@@ -21436,6 +21436,7 @@ paths:
                   minLength: 1
                   description: Feed item id (notif:<uuid>) or bare uuid
                 title:
+                  description: New title. An empty value is ignored, never cleared.
                   type: string
                 body:
                   type: string
