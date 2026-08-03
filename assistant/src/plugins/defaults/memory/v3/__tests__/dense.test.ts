@@ -352,6 +352,20 @@ describe("classifyDenseLaneFailure", () => {
     ).toBe("embed_worker_died");
   });
 
+  /**
+   * A worker already gone when the next request is written fails the pipe
+   * before any exit is observed, so `failPendingRequest` resolves with a
+   * different message for the same underlying fault. Classifying only the
+   * exit shape under-counts worker deaths in exactly the alerting this feeds.
+   */
+  test("recognizes a worker that died before the pipe write", () => {
+    expect(
+      classifyDenseLaneFailure(
+        new Error("worker pipe write failed: EPIPE: broken pipe, write"),
+      ),
+    ).toBe("embed_worker_died");
+  });
+
   test("treats any other failure as a query failure", () => {
     expect(classifyDenseLaneFailure(new Error("embed backend down"))).toBe(
       "dense_query_failed",

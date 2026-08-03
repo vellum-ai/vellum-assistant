@@ -78,6 +78,13 @@ const WORKER_EXIT_POLL_MS = 50;
  */
 const WORKER_STDERR_TAIL_LINES = 20;
 
+/**
+ * How long the unexpected-exit report waits for the worker's stderr stream to
+ * close. Short enough that a stream which never closes cannot stall teardown,
+ * long enough for the final chunk of an exiting child to arrive.
+ */
+const WORKER_STDERR_DRAIN_MS = 250;
+
 /** Whether `promise` settles within `timeoutMs`. */
 async function didSettle(
   promise: Promise<unknown>,
@@ -312,14 +319,15 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   /** Path of the worker script, retained so liveness can be re-probed. */
   private workerPath: string | null = null;
   /**
-   * Tail of the worker's stderr, kept so an unexpected exit can say why.
+   * Tail of the current worker's stderr, so an unexpected exit can say why.
    *
-   * Streaming stderr stays at `debug` because a healthy worker is chatty, but
-   * that means production logs hold nothing at the moment it matters. Retaining
-   * the tail lets the exit path report the cause at `warn` without turning on
-   * debug logging for everyone (JARVIS-1410).
+   * Streaming stderr stays at `debug` because a healthy worker is chatty. The
+   * tail is what the exit path reports at `warn`, so the cause of a death is
+   * available without debug logging enabled.
    */
   private recentStderr: string[] = [];
+  /** Settles when the current worker's stderr stream closes. */
+  private stderrDrained: Promise<void> | null = null;
   /** Overridable so tests can exercise the escalation path without the wait. */
   private terminateGraceMs = WORKER_TERMINATE_GRACE_MS;
 
@@ -572,8 +580,12 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       );
     }
 
-    // Worker is running — drain stderr in background for ongoing logging
-    this.drainStderr(proc.stderr);
+    // The tail belongs to this worker alone. Clearing at spawn, rather than on
+    // a teardown path, is what keeps that true: several teardowns null
+    // `workerProc` themselves, and the previous worker's drain loop is not
+    // cancelled, so a late chunk can still arrive after it was let go.
+    this.recentStderr = [];
+    this.stderrDrained = this.drainStderr(proc.stderr);
 
     // Write PID file so `vellum ps` can see the embed worker
     this.writePidFile(proc.pid);
@@ -586,31 +598,59 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     this.disposeIfIdle();
   }
 
-  private drainStderr(stderr: ReadableStream<Uint8Array>): void {
+  /**
+   * Stream the worker's stderr to the debug log and retain its tail.
+   *
+   * A read returns an arbitrary slice of the pipe, which may hold many lines or
+   * half of one, so chunks are split on newlines and a trailing partial line is
+   * carried to the next read. The retained tail is therefore the last
+   * {@link WORKER_STDERR_TAIL_LINES} lines rather than that many chunks, which
+   * bounds both the entry count and the size of the death report.
+   *
+   * Returns a promise that settles when the stream closes. The unexpected-exit
+   * report awaits it briefly: stdout and stderr close independently, so a
+   * worker's final stderr can still be in flight when the stdout reader ends.
+   */
+  private drainStderr(stderr: ReadableStream<Uint8Array>): Promise<void> {
     const reader = stderr.getReader();
     const decoder = new TextDecoder();
-    (async () => {
+    return (async () => {
+      let carry = "";
+      const retain = (line: string): void => {
+        const text = line.trim();
+        if (!text) {
+          return;
+        }
+        log.debug({ workerStderr: text }, "Embedding worker stderr");
+        this.recentStderr.push(text);
+        if (this.recentStderr.length > WORKER_STDERR_TAIL_LINES) {
+          this.recentStderr.splice(
+            0,
+            this.recentStderr.length - WORKER_STDERR_TAIL_LINES,
+          );
+        }
+      };
+
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
             break;
           }
-          const text = decoder.decode(value, { stream: true }).trim();
-          if (text) {
-            log.debug({ workerStderr: text }, "Embedding worker stderr");
-            this.recentStderr.push(text);
-            if (this.recentStderr.length > WORKER_STDERR_TAIL_LINES) {
-              this.recentStderr.splice(
-                0,
-                this.recentStderr.length - WORKER_STDERR_TAIL_LINES,
-              );
-            }
+          carry += decoder.decode(value, { stream: true });
+          const lines = carry.split("\n");
+          // The last element is whatever followed the final newline: either an
+          // incomplete line or an empty string. Either way it waits for more.
+          carry = lines.pop() ?? "";
+          for (const line of lines) {
+            retain(line);
           }
         }
       } catch {
         // Reader cancelled or stream errored — expected on shutdown
       }
+      // A worker killed mid-line still emitted that text; keep it.
+      retain(carry);
     })();
   }
 
@@ -658,11 +698,17 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         return;
       }
 
-      // Report the death where production logging will actually keep it. The
-      // pending requests below each surface as an ordinary embed failure the
-      // backend chain falls back from, so without this line the only trace of
-      // a worker dying is a downstream "degraded to no hits" with no cause
-      // attached, which is what made these undiagnosable (JARVIS-1410).
+      // stdout and stderr close independently, so a worker that printed its
+      // cause and exited can still have that text in flight here. Wait briefly
+      // for the stderr stream to close so the tail carries the fatal message,
+      // bounded so a stream that never closes cannot stall the teardown.
+      if (this.stderrDrained) {
+        await didSettle(this.stderrDrained, WORKER_STDERR_DRAIN_MS);
+      }
+
+      // The pending requests below each resolve as an ordinary embed failure
+      // the backend chain falls back from, so this is the only record that
+      // names the worker and why it went away.
       log.warn(
         {
           pid: proc.pid,
@@ -682,7 +728,6 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         });
       }
       this.pendingRequests.clear();
-      this.recentStderr = [];
       this.workerProc = null;
       this.stdoutReaderActive = false;
       this.stdoutBuffer = "";
