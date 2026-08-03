@@ -27,6 +27,26 @@ import type { Slug } from "./types.js";
 
 const log = getLogger("memory-v3-dense-lane");
 
+/** Why the dense lane produced nothing, for the degraded-turn record. */
+export type DenseLaneFailureCause = "embed_worker_died" | "dense_query_failed";
+
+/**
+ * Distinguish a dead embed worker from any other dense-lane failure.
+ *
+ * Both degrade the turn to zero semantic recall, but they need different
+ * responses: a dead worker is a fault to investigate, while a query failure is
+ * usually a transient backend condition. Matching on the message is what the
+ * backend gives us. A worker death arrives as the string `embed()` resolves
+ * pending requests with when the child exits (`embedding-local.ts`), not as a
+ * typed error, so this is deliberately coupled to that text and tested here.
+ */
+export function classifyDenseLaneFailure(err: unknown): DenseLaneFailureCause {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("worker process exited unexpectedly")
+    ? "embed_worker_died"
+    : "dense_query_failed";
+}
+
 /**
  * Multiplier applied to `k` when fetching section points from Qdrant. Several
  * sections can belong to the same article, so we oversample the section hits to
@@ -95,7 +115,22 @@ export async function denseLaneScored(
     });
     points = result.points;
   } catch (err) {
-    log.warn({ err }, "memory v3 dense lane failed; degrading to no hits");
+    // Degrading open is right for availability, but it silently changes what
+    // the model sees, so the record has to carry enough to recognise the cause
+    // later. A dead embed worker is a fault, not an expected miss: it logs at
+    // `error` and is flagged so it can be alerted on separately from the
+    // ordinary "backend unavailable" case (JARVIS-1410).
+    const cause = classifyDenseLaneFailure(err);
+    const workerDied = cause === "embed_worker_died";
+    const fields = { err, cause, degradedTo: "no_hits" };
+    if (workerDied) {
+      log.error(
+        fields,
+        "memory v3 dense lane lost its embed worker; this turn runs with no semantic recall",
+      );
+    } else {
+      log.warn(fields, "memory v3 dense lane failed; degrading to no hits");
+    }
     return [];
   }
 

@@ -88,7 +88,8 @@ mock.module("@qdrant/js-client-rest", () => ({
   QdrantClient: MockQdrantClient,
 }));
 
-const { denseLane, denseLaneScored, OVERSAMPLE } = await import("../dense.js");
+const { classifyDenseLaneFailure, denseLane, denseLaneScored, OVERSAMPLE } =
+  await import("../dense.js");
 const { SECTION_COLLECTION, _resetSectionDenseStoreForTests } =
   await import("../section-dense-store.js");
 
@@ -222,6 +223,22 @@ describe("memory v3 dense lane", () => {
     expect(state.queryCalls).toHaveLength(0);
   });
 
+  /**
+   * A dead embed worker degrades the turn the same way, so the `[]` contract
+   * must hold for it too: the orchestrator calls this lane inside an unguarded
+   * Promise.all and one throw would discard the sibling lanes (JARVIS-1410).
+   */
+  test("a dead embed worker still degrades to [] rather than throwing", async () => {
+    embedState.throws = new Error(
+      "Embedding worker error: Embedding worker process exited unexpectedly",
+    );
+
+    const hits = await denseLane(CONFIG, "query", 5);
+
+    expect(hits).toEqual([]);
+    expect(state.queryCalls).toHaveLength(0);
+  });
+
   test("non-positive k short-circuits without a search", async () => {
     const hits = await denseLane(CONFIG, "query", 0);
 
@@ -313,5 +330,41 @@ describe("denseLaneScored", () => {
     expect(plain).toEqual(
       scored.map(({ article, section }) => ({ article, section })),
     );
+  });
+});
+
+describe("classifyDenseLaneFailure", () => {
+  test("recognizes a dead embed worker from the backend's message", () => {
+    expect(
+      classifyDenseLaneFailure(
+        new Error(
+          "Embedding worker error: Embedding worker process exited unexpectedly",
+        ),
+      ),
+    ).toBe("embed_worker_died");
+  });
+
+  test("recognizes a dead rerank worker the same way", () => {
+    expect(
+      classifyDenseLaneFailure(
+        new Error("Rerank worker process exited unexpectedly"),
+      ),
+    ).toBe("embed_worker_died");
+  });
+
+  test("treats any other failure as a query failure", () => {
+    expect(classifyDenseLaneFailure(new Error("embed backend down"))).toBe(
+      "dense_query_failed",
+    );
+    expect(classifyDenseLaneFailure(new Error("Qdrant timeout"))).toBe(
+      "dense_query_failed",
+    );
+  });
+
+  test("handles a non-Error throw without losing the classification", () => {
+    expect(classifyDenseLaneFailure("worker process exited unexpectedly")).toBe(
+      "embed_worker_died",
+    );
+    expect(classifyDenseLaneFailure(undefined)).toBe("dense_query_failed");
   });
 });

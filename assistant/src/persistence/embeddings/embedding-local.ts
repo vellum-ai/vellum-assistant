@@ -71,6 +71,13 @@ const WORKER_TERMINATE_GRACE_MS = 2_000;
 /** Poll interval while waiting for a worker we hold no handle for to exit. */
 const WORKER_EXIT_POLL_MS = 50;
 
+/**
+ * Stderr lines retained per worker for the unexpected-exit report. Bounded so a
+ * worker looping on a warning cannot grow the buffer without limit; the tail is
+ * what carries the fatal message.
+ */
+const WORKER_STDERR_TAIL_LINES = 20;
+
 /** Whether `promise` settles within `timeoutMs`. */
 async function didSettle(
   promise: Promise<unknown>,
@@ -304,6 +311,15 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
   private unconfirmedWorker: number | null = null;
   /** Path of the worker script, retained so liveness can be re-probed. */
   private workerPath: string | null = null;
+  /**
+   * Tail of the worker's stderr, kept so an unexpected exit can say why.
+   *
+   * Streaming stderr stays at `debug` because a healthy worker is chatty, but
+   * that means production logs hold nothing at the moment it matters. Retaining
+   * the tail lets the exit path report the cause at `warn` without turning on
+   * debug logging for everyone (JARVIS-1410).
+   */
+  private recentStderr: string[] = [];
   /** Overridable so tests can exercise the escalation path without the wait. */
   private terminateGraceMs = WORKER_TERMINATE_GRACE_MS;
 
@@ -583,6 +599,13 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
           const text = decoder.decode(value, { stream: true }).trim();
           if (text) {
             log.debug({ workerStderr: text }, "Embedding worker stderr");
+            this.recentStderr.push(text);
+            if (this.recentStderr.length > WORKER_STDERR_TAIL_LINES) {
+              this.recentStderr.splice(
+                0,
+                this.recentStderr.length - WORKER_STDERR_TAIL_LINES,
+              );
+            }
           }
         }
       } catch {
@@ -635,12 +658,31 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
         return;
       }
 
+      // Report the death where production logging will actually keep it. The
+      // pending requests below each surface as an ordinary embed failure the
+      // backend chain falls back from, so without this line the only trace of
+      // a worker dying is a downstream "degraded to no hits" with no cause
+      // attached, which is what made these undiagnosable (JARVIS-1410).
+      log.warn(
+        {
+          pid: proc.pid,
+          model: this.model,
+          exitCode: proc.exitCode ?? null,
+          signal: proc.signalCode ?? null,
+          confirmedTerminated: confirmed,
+          abandonedRequests: this.pendingRequests.size,
+          workerStderrTail: this.recentStderr.slice(-WORKER_STDERR_TAIL_LINES),
+        },
+        "Embedding worker exited unexpectedly",
+      );
+
       for (const [, pending] of this.pendingRequests) {
         pending.resolve({
           error: "Embedding worker process exited unexpectedly",
         });
       }
       this.pendingRequests.clear();
+      this.recentStderr = [];
       this.workerProc = null;
       this.stdoutReaderActive = false;
       this.stdoutBuffer = "";
