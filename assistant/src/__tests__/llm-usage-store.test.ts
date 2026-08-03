@@ -2024,6 +2024,61 @@ describe("queryUnreportedUsageEvents", () => {
     expect(events[1].parentTurnIndex).toBeNull();
   });
 
+  // -------------------------------------------------------------------------
+  // Delegated-work decomposition (subagentRole + subagentSpawnMode). Every
+  // subagent variety emits under `llm_call_site = "subagentSpawn"`, so these
+  // two orthogonal columns, stamped on the conversation row at spawn, are
+  // what make advisor consults, forks and regular spawns separable.
+  // -------------------------------------------------------------------------
+
+  test("surfaces subagentRole and subagentSpawnMode from the child conversation", () => {
+    const db = getDb();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, parent_conversation_id, subagent_role, subagent_spawn_mode) VALUES ('advisor-child', 'background', 1000, 1000, 'parent-1', 'advisor', 'advisor_consult')`,
+    );
+    insertEventAt(2000, { conversationId: "advisor-child" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(1);
+    expect(events[0].subagentRole).toBe("advisor");
+    expect(events[0].subagentSpawnMode).toBe("advisor_consult");
+  });
+
+  test("role and spawn mode are independent: a general subagent can be regular or forked", () => {
+    const db = getDb();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, subagent_role, subagent_spawn_mode) VALUES ('plain-child', 'background', 1000, 1000, 'general', 'regular')`,
+    );
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at, subagent_role, subagent_spawn_mode) VALUES ('forked-child', 'background', 1000, 1000, 'general', 'fork')`,
+    );
+    insertEventAt(2000, { conversationId: "plain-child" });
+    insertEventAt(3000, { conversationId: "forked-child" });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(2);
+    expect(events[0].subagentRole).toBe("general");
+    expect(events[0].subagentSpawnMode).toBe("regular");
+    expect(events[1].subagentRole).toBe("general");
+    expect(events[1].subagentSpawnMode).toBe("fork");
+  });
+
+  test("subagent fields are null for ordinary conversations and no-conversation events", () => {
+    const db = getDb();
+    db.run(
+      `INSERT INTO conversations (id, conversation_type, created_at, updated_at) VALUES ('conv-plain', 'standard', 500, 500)`,
+    );
+    insertEventAt(1000, { conversationId: "conv-plain" });
+    insertEventAt(2000, { conversationId: null });
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(2);
+    expect(events[0].subagentRole).toBeNull();
+    expect(events[0].subagentSpawnMode).toBeNull();
+    expect(events[1].subagentRole).toBeNull();
+    expect(events[1].subagentSpawnMode).toBeNull();
+  });
+
   test("surfaces llmCallCount on unreported events", () => {
     insertEventAt(1000, { llmCallCount: 4 });
     insertEventAt(2000, {});

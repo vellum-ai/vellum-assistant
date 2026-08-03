@@ -258,6 +258,20 @@ export interface UnreportedUsageEvent extends UsageEvent {
    * Null when there's no parent conversation.
    */
   parentTurnIndex: number | null;
+  /**
+   * Role of the subagent that owns this LLM call's conversation, from
+   * `SUBAGENT_ROLE_REGISTRY`. Null for every LLM call that did not run inside
+   * a subagent conversation, and for subagent conversations created before
+   * migration 360 whose `subagents` row had already been disposed.
+   */
+  subagentRole: string | null;
+  /**
+   * How that subagent was spawned (`regular` / `fork` / `advisor_consult` /
+   * `voice_continuation`). Orthogonal to `subagentRole`: the role selects the
+   * child's capabilities, the spawn mode selects its context inheritance and
+   * lifecycle. Null under the same conditions as `subagentRole`.
+   */
+  subagentSpawnMode: string | null;
 }
 
 export function queryUnreportedUsageEvents(
@@ -357,6 +371,11 @@ export function queryUnreportedUsageEvents(
       // the cutoff (child creation for subagent spawns, fork boundary
       // message for retrospective forks). Same eligibility filter as
       // `turnIndex` above.
+      // Stamped on the conversation row at spawn (migration 360) rather than
+      // joined from `subagents`, whose rows are deleted on dispose while this
+      // watermark query can trail far behind after an ingest outage.
+      subagentRole: conversations.subagentRole,
+      subagentSpawnMode: conversations.subagentSpawnMode,
       parentTurnIndex: sql<number | null>`(
         CASE WHEN ${parentIdSql} IS NULL THEN NULL
         ELSE (
@@ -399,6 +418,8 @@ export function queryUnreportedUsageEvents(
     parentConversationId: row.parentConversationId,
     parentTurnIndex:
       row.parentTurnIndex === null ? null : Number(row.parentTurnIndex),
+    subagentRole: row.subagentRole,
+    subagentSpawnMode: row.subagentSpawnMode,
   }));
 }
 

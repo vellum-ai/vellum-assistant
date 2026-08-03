@@ -1449,8 +1449,17 @@ export class AgentLoop {
           // conversation id). Absent for standalone `AgentLoop` instances
           // (unit tests constructed without a conversation id) — those fall
           // back to per-call random mix selection.
+          //
+          // The same id also travels as `conversationId`, which
+          // `RetryProvider.normalizeSendMessageOptions` uses to resolve the
+          // conversation's subagent role and spawn mode for the runtime
+          // proxy's billing-attribution headers. Both are stripped before any
+          // provider wire request; they are carried separately because
+          // `selectionSeed` is an opaque hashing input that callers may set to
+          // something other than a conversation id.
           if (this.conversationId) {
             providerConfig.selectionSeed = this.conversationId;
+            providerConfig.conversationId = this.conversationId;
           }
         }
 
