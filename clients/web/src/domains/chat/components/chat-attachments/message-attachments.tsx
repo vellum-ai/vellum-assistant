@@ -3,6 +3,7 @@ import type { FC } from "react";
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
+import { AttachmentOverflowSquare } from "@/domains/chat/components/chat-attachments/attachment-overflow-square";
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/message-attachment-square";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
@@ -13,6 +14,13 @@ interface MessageAttachmentsProps {
    *  attachment content when `previewUrl` is missing. */
   assistantId?: string | null;
 }
+
+/**
+ * How many attachment squares render inline before the strip collapses.
+ * A message with more than this many attachments shows the first
+ * VISIBLE_LIMIT squares plus one overflow tile.
+ */
+const VISIBLE_LIMIT = 5;
 
 /**
  * Read-only strip of attachment thumbnails rendered as a separate strip for
@@ -43,10 +51,13 @@ export const MessageAttachments: FC<MessageAttachmentsProps> = ({
     return null;
   }
 
+  const visible = attachments.slice(0, VISIBLE_LIMIT);
+  const overflowCount = attachments.length - visible.length;
+
   return (
     <>
-      <div className="flex flex-wrap gap-2">
-        {attachments.map((att) => (
+      <div className="flex flex-wrap items-start gap-2">
+        {visible.map((att) => (
           <MessageAttachmentSquare
             key={att.id}
             filename={att.filename}
@@ -58,6 +69,12 @@ export const MessageAttachments: FC<MessageAttachmentsProps> = ({
             onDownload={() => handleDownload(att)}
           />
         ))}
+        {overflowCount > 0 && (
+          <AttachmentOverflowSquare
+            count={overflowCount}
+            onClick={() => openPreview(attachments[VISIBLE_LIMIT]!)}
+          />
+        )}
       </div>
       {previewModal}
     </>
