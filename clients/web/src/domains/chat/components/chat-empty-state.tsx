@@ -46,7 +46,7 @@ export function ChatEmptyState({
                Serif 32px) — larger than the old title tokens, scaled down
                a step on mobile. */
             <h1
-              className="text-center text-[24px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasized)] md:text-[32px]"
+              className="text-center text-[28px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasized)] md:text-[36px]"
               style={{ fontFamily: "var(--font-serif)" }}
             >
               {greeting}
