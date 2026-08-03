@@ -56,11 +56,13 @@ const subscribeVoiceLiveActivityPushToken = mock(
   },
 );
 const registerLiveActivityPushToken = mock(
-  async (
-    _token: string,
-    _assistantId: string,
-    _conversationId: string,
-  ): Promise<void> => undefined,
+  async (_registration: {
+    token: string;
+    assistantId: string;
+    conversationId: string;
+    accentHex: string;
+    muted: boolean;
+  }): Promise<void> => undefined,
 );
 const unregisterLiveActivityPushToken = mock(
   async (): Promise<void> => undefined,
@@ -638,9 +640,13 @@ describe("registering the activity for server-driven updates", () => {
 
     expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(1);
     expect(registerLiveActivityPushToken.mock.calls.at(-1)).toEqual([
-      "token-abc",
-      "assistant-1",
-      "conv-1",
+      {
+        token: "token-abc",
+        assistantId: "assistant-1",
+        conversationId: "conv-1",
+        accentHex: ORANGE,
+        muted: false,
+      },
     ]);
   });
 
@@ -659,7 +665,9 @@ describe("registering the activity for server-driven updates", () => {
     });
 
     expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(1);
-    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[2]).toBe("conv-9");
+    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject(
+      { conversationId: "conv-9" },
+    );
   });
 
   // iOS reissues tokens mid-activity and each value invalidates the last, so a
@@ -676,9 +684,31 @@ describe("registering the activity for server-driven updates", () => {
     await emitToken("token-def");
 
     expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(2);
-    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toBe(
-      "token-def",
+    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject(
+      { token: "token-def" },
     );
+  });
+
+  // The platform composes every push from the registration, so a mute the
+  // registration never heard about is a mute the island loses the moment a
+  // server-driven update lands, which is to say the moment it matters.
+  test("re-registers when the mute state changes", async () => {
+    renderMirror();
+    await settled(() => {
+      useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+      useLiveVoiceStore.getState().setState("listening");
+    });
+    await emitToken("token-abc");
+    registerLiveActivityPushToken.mockClear();
+
+    await settled(() => {
+      useLiveVoiceStore.getState().setMuted(true);
+    });
+
+    expect(registerLiveActivityPushToken).toHaveBeenCalledTimes(1);
+    expect(registerLiveActivityPushToken.mock.calls.at(-1)?.[0]).toMatchObject({
+      muted: true,
+    });
   });
 
   test("a phase change alone does not re-register", async () => {

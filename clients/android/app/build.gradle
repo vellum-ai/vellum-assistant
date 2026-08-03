@@ -1,5 +1,26 @@
 apply plugin: 'com.android.application'
 
+abstract class GenerateShortcutsTask extends DefaultTask {
+    @Input
+    abstract Property<String> getAppId()
+
+    @InputFile
+    abstract RegularFileProperty getTemplate()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+
+    @TaskAction
+    void generate() {
+        def xmlDir = outputDir.dir('xml').get().asFile
+        xmlDir.mkdirs()
+        new File(xmlDir, 'shortcuts.xml').setText(
+            template.get().asFile.getText('UTF-8').replace('__APPLICATION_ID__', appId.get()),
+            'UTF-8'
+        )
+    }
+}
+
 def buildValue = { String name, String fallback = '' ->
     providers.gradleProperty(name)
         .orElse(providers.environmentVariable(name))
@@ -95,6 +116,18 @@ android {
     }
 }
 
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def taskName = "generate${variant.name.capitalize()}Shortcuts"
+        def generator = tasks.register(taskName, GenerateShortcutsTask) {
+            appId.set(variant.applicationId)
+            template.set(layout.projectDirectory.file('src/main/shortcuts.xml'))
+            outputDir.set(layout.buildDirectory.dir("generated/res/shortcuts/${variant.name}"))
+        }
+        variant.sources.res.addGeneratedSourceDirectory(generator) { it.outputDir }
+    }
+}
+
 repositories {
     flatDir{
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
@@ -106,6 +139,7 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.biometric:biometric:$androidxBiometricVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core:$androidxCoreVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"

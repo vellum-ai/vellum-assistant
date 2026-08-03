@@ -106,6 +106,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "8.3.4",
+    "@googleapis/androidpublisher": "36.0.0",
     "@happy-dom/global-registrator": "20.10.2",
     "@hey-api/openapi-ts": "0.97.1",
     "@sentry/vite-plugin": "5.3.0",

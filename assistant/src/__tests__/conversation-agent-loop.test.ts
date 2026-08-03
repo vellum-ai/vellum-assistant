@@ -3022,12 +3022,20 @@ describe("session-agent-loop", () => {
       }));
 
       // GIVEN a real loop whose provider streams a delta — landing a debounced
-      // partial flush on the reserved row — then rejects, so the loop emits
-      // `provider_error` and `error` and exits with no `message_complete`.
+      // partial flush on the reserved row — then rejects. The loop resumes a
+      // call that died after it had started streaming, so the second attempt
+      // is scripted to fail before streaming anything: that keeps exactly one
+      // row carrying partial content, and the turn then exits via
+      // `provider_error` with no `message_complete`.
+      let attempt = 0;
       const ctx = makeCtx({
         loopProvider: {
           name: "mock-provider",
           async sendMessage(_messages, options) {
+            attempt++;
+            if (attempt > 1) {
+              throw new Error("upstream 500");
+            }
             options?.onEvent?.({ type: "text_delta", text: "hello world" });
             await new Promise((resolve) => setTimeout(resolve, 1100));
             throw new Error("upstream 500");
@@ -3051,11 +3059,12 @@ describe("session-agent-loop", () => {
         .split("\n");
       expect(orphanLines).toHaveLength(1);
       expect(updateMessageContentMock).toHaveBeenCalledTimes(0);
-      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
-      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
-        string,
-      ];
-      expect(deleteCall[0]).toBe("msg-orphan-with-partial");
+      // Scoped to the row under test: the resumed attempt reserves a row of
+      // its own, which its own cleanup deletes.
+      const deletedIds = deleteMessageByIdMock.mock.calls.map(
+        (call) => (call as unknown as [string])[0],
+      );
+      expect(deletedIds).toContain("msg-orphan-with-partial");
     });
   });
 

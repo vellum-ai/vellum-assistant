@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, type SQL } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { DrizzleDb } from "./db-connection.js";
@@ -79,21 +79,30 @@ function rowToSummary(row: BookmarkJoinRow): BookmarkSummary {
   };
 }
 
-function selectBookmarkJoin(db: DrizzleDb) {
+/**
+ * CROSS JOIN constrains SQLite's join order to start from message_bookmarks,
+ * which the planner would otherwise skip in favor of a full messages scan
+ * because an empty table never has statistics. The join predicates live in
+ * WHERE with identical semantics; callers pass extra conditions through
+ * `filter` because chaining `.where()` would replace the predicates.
+ */
+function selectBookmarkJoin(db: DrizzleDb, filter?: SQL) {
+  const joinMatch = and(
+    eq(messages.id, messageBookmarks.messageId),
+    eq(conversations.id, messageBookmarks.conversationId),
+  );
   return db
     .select(BOOKMARK_JOIN_COLUMNS)
     .from(messageBookmarks)
-    .innerJoin(messages, eq(messages.id, messageBookmarks.messageId))
-    .innerJoin(
-      conversations,
-      eq(conversations.id, messageBookmarks.conversationId),
-    );
+    .crossJoin(messages)
+    .crossJoin(conversations)
+    .where(filter ? and(joinMatch, filter) : joinMatch);
 }
 
 /**
  * List all bookmarks newest-first, joined against `messages` and
  * `conversations`. Bookmarks whose parent message or conversation has
- * been deleted are naturally excluded by the inner-join semantics; the
+ * been deleted are naturally excluded by the join predicates; the
  * `ON DELETE CASCADE` on the FKs means rows should never end up in this
  * orphan state, but the join provides a defense-in-depth guarantee.
  */
@@ -179,7 +188,7 @@ function readBookmarkSummaryOrThrow(
   db: DrizzleDb,
   id: string,
 ): BookmarkSummary {
-  const row = selectBookmarkJoin(db).where(eq(messageBookmarks.id, id)).get();
+  const row = selectBookmarkJoin(db, eq(messageBookmarks.id, id)).get();
   if (!row) {
     // Unreachable: caller just observed (or inserted) this id.
     throw new Error(`Bookmark ${id} disappeared between insert and read`);

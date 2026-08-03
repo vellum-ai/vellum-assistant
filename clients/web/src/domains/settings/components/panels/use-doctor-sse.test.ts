@@ -11,6 +11,7 @@ import {
   handleStatus,
   handleToolCall,
   handleToolResult,
+  handleUserOutcomePrompt,
 } from "@/domains/settings/components/panels/doctor-event-handlers";
 import { parseDoctorEvent } from "@/domains/settings/components/panels/doctor-event-schema";
 import {
@@ -386,6 +387,52 @@ describe("handleMessageComplete", () => {
 
     expect(ctx.calls.setThinking).toEqual([false]);
     expect(ctx.getStreamingEntryId()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleUserOutcomePrompt
+// ---------------------------------------------------------------------------
+
+describe("handleUserOutcomePrompt", () => {
+  test("appends the prompt and keeps the turn marked as thinking", () => {
+    // GIVEN the Doctor asked for the resolution prompt mid-turn
+    const ctx = createMockContext();
+
+    // WHEN the event is handled
+    handleUserOutcomePrompt(ctx);
+
+    // THEN the prompt is recorded and the turn is still in progress, so the
+    // panel withholds the card until the closing reply lands
+    expect(ctx.entries).toHaveLength(1);
+    expect(ctx.entries[0]!.kind).toBe("user_outcome_prompt");
+    expect(ctx.calls.setThinking).toEqual([true]);
+  });
+
+  test("lets the closing reply end the turn", () => {
+    // GIVEN the prompt arrived before the Doctor's closing reply
+    const ctx = createMockContext();
+    handleUserOutcomePrompt(ctx);
+
+    // WHEN the reply streams in and completes
+    handleMessageDelta(ctx, { content: "One more thing." });
+    handleMessageComplete(ctx);
+
+    // THEN the turn is no longer thinking, releasing the prompt
+    expect(ctx.calls.setThinking).toEqual([true, false, false]);
+    expect(ctx.getStreamingEntryId()).toBeNull();
+  });
+
+  test("lets a session-ending status end the turn when no reply follows", () => {
+    // GIVEN the prompt was the Doctor's last action
+    const ctx = createMockContext();
+    handleUserOutcomePrompt(ctx);
+
+    // WHEN the session completes
+    handleStatus(ctx, { status: "completed" });
+
+    // THEN the turn is no longer thinking, releasing the prompt
+    expect(ctx.calls.setThinking).toEqual([true, false]);
   });
 });
 

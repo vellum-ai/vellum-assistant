@@ -8,6 +8,7 @@ import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getLastInteractiveUserMessageTimestamp } from "./conversation-crud.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import { getSqlite } from "./db-connection.js";
+import { PLANNER_OPTIMIZE_PRAGMA } from "./planner-statistics.js";
 
 const log = getLogger("db-maintenance");
 
@@ -80,11 +81,11 @@ async function runDbMaintenance(): Promise<void> {
     log.warn({ err }, "Workflow run pruning failed (non-fatal)");
   }
 
-  // Refresh the query planner's statistics. PRAGMA optimize is cheap; it is
-  // routed through the async path for consistency and to keep it off the main
-  // thread when the sqlite3 CLI backend is available.
+  // Refresh the query planner's statistics (see PLANNER_OPTIMIZE_PRAGMA for
+  // what the mask buys here). Routed through the async path to keep it off the
+  // main thread when the sqlite3 CLI backend is available.
   const optimizeResult = await runAsyncSqlite(
-    "PRAGMA optimize",
+    PLANNER_OPTIMIZE_PRAGMA,
     "db-maintenance:optimize",
   );
   if (!optimizeResult.ok) {

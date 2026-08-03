@@ -125,3 +125,28 @@ mock.module("electron", () => ({
     writeText: () => undefined,
   },
 }));
+
+/**
+ * Mock surface for `electron-log/main`. `src/main/logger.ts` calls
+ * `log.initialize()` and configures a file transport at import time, and
+ * electron-log resolves that transport to a real path under
+ * `~/Library/Logs/<app name>/` on macOS. Any test that reaches `./logger`
+ * (directly, or through a module that imports it) therefore appends to a
+ * developer's actual log directory, and a mock supplying `app.getName()`
+ * resolves it to the shipping app's own log file.
+ *
+ * Individual tests can still re-mock `./logger` to assert on log calls; this
+ * only guarantees that a test which forgets to cannot write to disk.
+ */
+mock.module("electron-log/main", () => ({
+  default: {
+    initialize: () => undefined,
+    transports: { file: { getFile: () => ({ path: "/dev/null" }) } },
+    info: () => undefined,
+    warn: () => undefined,
+    error: () => undefined,
+    debug: () => undefined,
+    verbose: () => undefined,
+    silly: () => undefined,
+  },
+}));

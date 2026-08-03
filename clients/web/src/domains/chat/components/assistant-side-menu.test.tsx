@@ -295,10 +295,10 @@ describe("AssistantSideMenu · All view", () => {
     expect(indexOfText("Alpha")).toBeLessThan(indexOfText("Chats"));
   });
 
-  test("offers the view switch behind the Conversations actions menu", async () => {
-    // This describe block runs in List view (see its own `beforeEach`), so
-    // "Conversations" is what carries the toggle here; Grouped view's
-    // "Chats actions" menu covers the other side of the same control.
+  test("offers the view switch behind the Threads actions menu", async () => {
+    // "Threads" is the persistent header carrying the toggle, in every
+    // view mode, including this describe block's List view (see its own
+    // `beforeEach`).
     const { container } = render(
       createElement(AssistantSideMenu, {
         assistantId: "asst-1",
@@ -310,7 +310,7 @@ describe("AssistantSideMenu · All view", () => {
     );
     try {
       const trigger = container.querySelector<HTMLElement>(
-        '[aria-label="Conversations actions"]',
+        '[aria-label="Threads actions"]',
       );
       expect(trigger).not.toBeNull();
       act(() => {
@@ -956,13 +956,13 @@ describe("AssistantSideMenu · section spacing", () => {
       }),
     );
 
-    // "Conversations" is the persistent header for everything that isn't
+    // "Threads" is the persistent header for everything that isn't
     // Pinned or a custom group; Chats and each channel section nest inside
     // it in Grouped view rather than sitting as its top-level siblings.
     expect(sectionLabels(container)).toEqual([
       "Pinned",
       "Alpha",
-      "Conversations",
+      "Threads",
       "Chats",
       "Slack",
     ]);
@@ -1045,20 +1045,26 @@ describe("AssistantSideMenu · equal section treatment", () => {
     const children = Array.from(root.children);
     const indexOfText = (text: string) =>
       children.findIndex((el) => (el.textContent ?? "").includes(text));
+    // The rule sits inside a wrapper div (pulls it 4px closer to the
+    // curated block above), so it's a grandchild of root, not a direct
+    // child.
+    const ruleSelector = '[data-slot="sidebar-section-resize-handle"]';
     const ruleIndex = children.findIndex((el) =>
-      el.matches('[data-slot="sidebar-section-resize-handle"]'),
+      el.matches(ruleSelector) ? true : el.querySelector(ruleSelector) != null,
     );
 
-    expect(
-      root.querySelectorAll('[data-slot="sidebar-section-resize-handle"]'),
-    ).toHaveLength(1);
+    expect(root.querySelectorAll(ruleSelector)).toHaveLength(1);
     // Pinned and Alpha above it, Chats and Slack below.
     expect(indexOfText("Pinned")).toBeLessThan(ruleIndex);
     expect(indexOfText("Alpha")).toBeLessThan(ruleIndex);
     expect(indexOfText("Chats")).toBeGreaterThan(ruleIndex);
     expect(indexOfText("Slack")).toBeGreaterThan(ruleIndex);
     // Pinned is present and open by default, so the rule drags.
-    expect(children[ruleIndex]?.hasAttribute("data-resizable")).toBe(true);
+    expect(
+      children[ruleIndex]
+        ?.querySelector(ruleSelector)
+        ?.hasAttribute("data-resizable"),
+    ).toBe(true);
   });
 
   test("the rule is absent until something is curated", () => {
@@ -1145,10 +1151,10 @@ describe("AssistantSideMenu · equal section treatment", () => {
   });
 
   // The switch isn't statically rendered at all: it lives behind the
-  // persistent "Conversations" header's "…" button, reachable rather than
-  // always on screen (Chats itself, nested inside Conversations in Grouped
+  // persistent "Threads" header's "…" button, reachable rather than
+  // always on screen (Chats itself, nested inside Threads in Grouped
   // view, carries no button of its own, see `sidebar-section-item.tsx`).
-  test("the view switch is behind the Conversations actions menu, not statically rendered", async () => {
+  test("the view switch is behind the Threads actions menu, not statically rendered", async () => {
     const html = renderMenu({
       conversations: LAYOUT_CONVERSATIONS,
       conversationGroups: LAYOUT_GROUPS,
@@ -1167,7 +1173,7 @@ describe("AssistantSideMenu · equal section treatment", () => {
     );
     try {
       const trigger = container.querySelector<HTMLElement>(
-        '[aria-label="Conversations actions"]',
+        '[aria-label="Threads actions"]',
       );
       expect(trigger).not.toBeNull();
       act(() => {
@@ -1192,13 +1198,13 @@ describe("AssistantSideMenu · equal section treatment", () => {
     const sections = sectionElements(container);
     expect(sections).toHaveLength(5);
 
-    // "Conversations" is the persistent wrapper, not itself a member of
+    // "Threads" is the persistent wrapper, not itself a member of
     // `sidebar.sections`: it doesn't drag and carries no icon (matching
     // Pinned's icon-less header). Everything else still shares the same
     // affordances.
     const labels = sectionLabels(container);
     const reorderable = sections.filter(
-      (_, index) => labels[index] !== "Conversations",
+      (_, index) => labels[index] !== "Threads",
     );
     expect(reorderable).toHaveLength(4);
 
@@ -1206,7 +1212,8 @@ describe("AssistantSideMenu · equal section treatment", () => {
       const header = section.querySelector<HTMLElement>(
         '[data-slot="collapsible-nav-section-header"]',
       );
-      // Draggable header (the reorder handle) and a leading icon, on all four.
+      // Draggable header (the reorder handle) and a disclosure chevron, on
+      // all four.
       expect(header?.getAttribute("draggable")).toBe("true");
       expect(header?.querySelector("svg")).not.toBeNull();
     }
@@ -1222,7 +1229,7 @@ describe("AssistantSideMenu · section reordering", () => {
       }),
     );
 
-    // "Conversations" is the persistent wrapper (not a member of
+    // "Threads" is the persistent wrapper (not a member of
     // `sidebar.sections`), so it never drags; everything else does.
     const labels = sectionLabels(container);
     const headers = Array.from(
@@ -1232,7 +1239,7 @@ describe("AssistantSideMenu · section reordering", () => {
     );
     expect(headers).toHaveLength(5);
     const draggable = headers.filter(
-      (_, index) => labels[index] !== "Conversations",
+      (_, index) => labels[index] !== "Threads",
     );
     expect(draggable).toHaveLength(4);
     expect(
@@ -1247,8 +1254,8 @@ describe("AssistantSideMenu · section reordering", () => {
       }),
     );
 
-    // "Conversations" (always present) plus the lone nested "Chats" section:
-    // neither drags. Conversations isn't a member of `sidebar.sections` to
+    // "Threads" (always present) plus the lone nested "Chats" section:
+    // neither drags. Threads isn't a member of `sidebar.sections` to
     // begin with, and Chats has nothing to reorder against.
     const headers = Array.from(
       container.querySelectorAll<HTMLElement>(

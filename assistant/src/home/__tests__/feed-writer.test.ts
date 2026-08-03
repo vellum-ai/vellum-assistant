@@ -50,6 +50,7 @@ const {
   bulkSetFeedItemStatus,
   clearAllConversationIds,
   getHomeFeedPath,
+  patchFeedItemContent,
   patchFeedItemStatus,
   readHomeFeed,
   stripConversationIds,
@@ -198,6 +199,23 @@ describe("feed-writer", () => {
 
       const feed = readHomeFeed();
       expect(feed.items).toEqual([]);
+    });
+
+    test("keeps the valid items when a single row is malformed", () => {
+      mkdirSync(join(workspaceDir, "data"), { recursive: true });
+      const file = {
+        version: 2,
+        updatedAt: "2026-04-14T12:00:00.000Z",
+        items: [
+          makeItem({ id: "good" }),
+          { ...makeItem({ id: "bad" }), priority: 999 },
+        ],
+      };
+      writeFileSync(getHomeFeedPath(), JSON.stringify(file, null, 2), "utf-8");
+
+      const feed = readHomeFeed();
+      expect(feed.items).toHaveLength(1);
+      expect(feed.items[0]!.id).toBe("good");
     });
   });
 
@@ -403,6 +421,47 @@ describe("feed-writer", () => {
       } finally {
         spy.mockRestore();
       }
+    });
+  });
+
+  describe("patchFeedItemContent", () => {
+    test("trims and applies a non-empty title", async () => {
+      await appendFeedItem(makeItem({ id: "item-1", title: "Original" }));
+
+      const result = await patchFeedItemContent("item-1", {
+        title: "  Renamed  ",
+      });
+
+      expect(result!.title).toBe("Renamed");
+      expect(readFileJson().items[0]!.title).toBe("Renamed");
+    });
+
+    test("ignores an empty or whitespace-only title instead of clearing it", async () => {
+      await appendFeedItem(makeItem({ id: "item-1", title: "Original" }));
+
+      const empty = await patchFeedItemContent("item-1", { title: "" });
+      expect(empty!.title).toBe("Original");
+
+      const blank = await patchFeedItemContent("item-1", { title: "   \t" });
+      expect(blank!.title).toBe("Original");
+
+      expect(readFileJson().items[0]!.title).toBe("Original");
+    });
+
+    test("a summary-only patch leaves the title untouched", async () => {
+      await appendFeedItem(makeItem({ id: "item-1", title: "Original" }));
+
+      const result = await patchFeedItemContent("item-1", {
+        summary: "Fresh summary",
+      });
+
+      expect(result!.title).toBe("Original");
+      expect(result!.summary).toBe("Fresh summary");
+    });
+
+    test("returns null for an unknown id", async () => {
+      await appendFeedItem(makeItem({ id: "known" }));
+      expect(await patchFeedItemContent("unknown", { title: "x" })).toBeNull();
     });
   });
 
