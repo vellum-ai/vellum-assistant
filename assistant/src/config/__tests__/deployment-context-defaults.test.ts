@@ -52,6 +52,7 @@ afterAll(() => {
 });
 
 import { setStorePathForTesting } from "../../__tests__/encrypted-store-test-helpers.js";
+import { enableMemoryV3LiveForNewWorkspacesMigration } from "../../workspace/migrations/105-enable-memory-v3-live-for-new-workspaces.js";
 import { invalidateConfigCache, loadConfig } from "../loader.js";
 
 // ---------------------------------------------------------------------------
@@ -221,7 +222,7 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
     expect(config.memory.qdrant.vectorSize).toBe(384);
   });
 
-  test("first launch persists nothing under memory.v3 — not even `live`", () => {
+  test("first launch persists nothing under memory.v3, not even `live`", () => {
     if (existsSync(CONFIG_PATH)) {
       rmSync(CONFIG_PATH, { force: true });
     }
@@ -235,41 +236,35 @@ describe("deployment-context embedding-provider default (via loadConfig)", () =>
 
     // Nothing under memory.v3 is frozen to disk. Tuning knobs stay absent so a
     // shipped schema-default change reaches this assistant on its next load
-    // (mirrors the embedding-provider strip above).
-    //
-    // `live` stays absent for a load-bearing reason: this seed runs ~200ms
-    // BEFORE workspace migrations, and migration 105 (memory-v3-live for new
-    // workspaces) defers to any existing value — it cannot distinguish a
-    // user's deliberate choice from a schema default stamped here moments
-    // earlier. Persisting `live: false` therefore silently pinned every
-    // brand-new workspace to memory v2 forever. An absent leaf means "no
-    // decision recorded", so 105 makes one regardless of boot ordering.
+    // (mirrors the embedding-provider strip above), and `live` stays absent so
+    // migration 105 can record the initial choice: 105 bails on any value
+    // already present, and this seed runs before workspace migrations.
     const raw = readConfig();
     const v3Raw = ((raw.memory as Record<string, unknown>).v3 ?? {}) as Record<
       string,
       unknown
     >;
     expect(Object.keys(v3Raw)).toEqual([]);
-    expect("live" in v3Raw).toBe(false);
     expect(v3Raw.gate).toBeUndefined();
     expect(v3Raw.needleK).toBeUndefined();
   });
 
-  test("a seeded config leaves migration 105's guard free to enable v3", () => {
-    // The regression this fix exists for: migration 105 bails when the key is
-    // already present (`if ("live" in v3Config) return`). Assert the seed
-    // leaves it absent so that guard passes and 105 can write `live: true`.
+  test("migration 105 turns v3 on for a workspace this seed just created", () => {
     if (existsSync(CONFIG_PATH)) {
       rmSync(CONFIG_PATH, { force: true });
     }
     delete process.env.IS_PLATFORM;
 
     loadConfig();
+    enableMemoryV3LiveForNewWorkspacesMigration.run(WORKSPACE_DIR, {
+      isNewWorkspace: true,
+    });
 
     const raw = readConfig();
-    const memoryRaw = (raw.memory ?? {}) as Record<string, unknown>;
-    const v3Raw = (memoryRaw.v3 ?? {}) as Record<string, unknown>;
-    // This is the exact predicate migration 105 evaluates.
-    expect("live" in v3Raw).toBe(false);
+    const v3Raw = ((raw.memory as Record<string, unknown>).v3 ?? {}) as Record<
+      string,
+      unknown
+    >;
+    expect(v3Raw.live).toBe(true);
   });
 });

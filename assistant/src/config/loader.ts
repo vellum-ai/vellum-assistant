@@ -1119,31 +1119,23 @@ export function loadConfig(): AssistantConfig {
         // Drop the deployment-context embedding provider so it is never
         // persisted (see above); the schema default re-applies in memory.
         delete (seed.memory.embeddings as { provider?: unknown }).provider;
-        // Memory-v3 is persisted as NOTHING here — neither the tuning knobs
-        // (globally-shipped defaults, so a shipped default change must reach
-        // every assistant; migration 119 strips already-seeded ones) nor
-        // `live`.
+        // Nothing under memory.v3 is persisted at seed time.
         //
-        // `live` used to be persisted to protect workspaces that predate the
-        // v3 migration from being flipped on. That protection was aimed at
-        // the wrong door: this block only runs when config.json does NOT
-        // exist, i.e. on a brand-new workspace — precisely the population
-        // migration 105 exists to turn v3 ON for. Pre-v3 workspaces always
-        // have a config.json and never reach this code.
+        // The tuning knobs are globally-shipped defaults: freezing them to
+        // disk would stop a shipped default change from reaching this
+        // assistant (mirrors the embedding-provider strip above; migration 119
+        // strips them from configs that already carry them).
         //
-        // Worse, writing the leaf actively broke 105. This seed runs ~200ms
-        // BEFORE workspace migrations, and 105 defers to any existing value
-        // (`if ("live" in v3Config) return`) so it cannot tell a user's
-        // deliberate choice from the schema default this seed just stamped.
-        // The result was every fresh Docker hatch — and ~8% of all new
-        // assistants — silently running memory v2 forever, with no graph, no
-        // v3 injection, and no retrospective skill authoring.
-        //
-        // Leaving the leaf absent means "no decision recorded", so 105 makes
-        // one regardless of which runs first. The schema default still
-        // applies in memory on every load; only disk stays quiet. A
-        // deliberate opt-out is still expressible via a hatch-time
-        // `memory.v3.live=false` override, which merges after migrations.
+        // `live` stays absent because an absent leaf is the only way to
+        // express "no decision recorded". This seed runs before workspace
+        // migrations, and migration 105 defers to any value already present
+        // (`if ("live" in v3Config) return`), unable to tell a deliberate
+        // choice from a schema default. Writing the leaf here would pin a
+        // brand-new workspace to the schema default; leaving it absent lets
+        // 105 decide regardless of boot ordering. The schema default still
+        // applies in memory on every load, and a hatch-time
+        // `memory.v3.live=false` override still wins by merging after
+        // migrations.
         seed.memory.v3 = {} as (typeof seed.memory)["v3"];
         // Strip dataDir (runtime-derived) from the persisted config
         const { dataDir: _, ...persistable } = seed;
