@@ -442,7 +442,7 @@ describe("LiveVoiceSession assistant turn", () => {
     });
   });
 
-  test("records tool_use_start on the active turn without emitting frames", async () => {
+  test("records tool_use_start on the active turn and publishes what it is doing", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
       callbacks = options.callbacks;
@@ -459,9 +459,8 @@ describe("LiveVoiceSession assistant turn", () => {
       "thinking",
     ]);
 
-    const frameCountBefore = frames.length;
     callbacks?.tool_use_start?.("some_tool");
-    await flushAsyncCallbacks();
+    await waitForFrameCount(frames, 4);
 
     const activeTurn = (
       session as unknown as {
@@ -469,20 +468,30 @@ describe("LiveVoiceSession assistant turn", () => {
       }
     ).activeAssistantTurn;
     expect(activeTurn?.toolUseStarted).toBe(true);
-    expect(frames).toHaveLength(frameCountBefore);
+    // One activity frame, so a silent stretch of tool work is visible on the
+    // surfaces that show the session. An unrecognized tool still gets a line.
+    expect(frames.at(-1)).toMatchObject({
+      type: "activity",
+      label: "Working on it",
+    });
 
     callbacks?.message_complete?.({
       type: "message_complete",
       conversationId: "conversation-123",
       messageId: "assistant-message-123",
     });
-    await waitForFrameCount(frames, 4);
+    await waitForFrameCount(frames, 6);
     expect(frames.map((frame) => frame.type)).toEqual([
       "ready",
       "stt_final",
       "thinking",
+      "activity",
       "tts_done",
+      // The turn is over, so the line clears: no surface should keep showing
+      // the last tool it touched through the silence that follows.
+      "activity",
     ]);
+    expect(frames.at(-1)).toMatchObject({ type: "activity", label: "" });
   });
 
   test("interrupt aborts the in-flight turn and ignores late bridge events", async () => {

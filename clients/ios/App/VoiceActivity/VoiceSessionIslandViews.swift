@@ -59,6 +59,17 @@ extension VoiceSessionAttributes.ContentState {
         isStale ? "" : label
     }
 
+    /// The activity line to render, or nothing when there is none and once the
+    /// content has gone stale.
+    ///
+    /// Stale drops it for the same reason it drops the phase label, only more
+    /// so: "Reading a file" is a claim about work happening *right now*, which
+    /// makes it the sentence on the island most likely to be a lie once
+    /// nothing is driving updates any more.
+    func displayDetail(isStale: Bool) -> String {
+        isStale ? "" : detail
+    }
+
     /// The SF Symbol standing for this phase.
     ///
     /// **A glyph is not copy, which is why this may switch on `phase` when
@@ -301,7 +312,8 @@ struct VoiceSessionLockScreenView: View {
     var avatarImageData: Data?
 
     var body: some View {
-        HStack(spacing: 12) {
+        let detail = state.displayDetail(isStale: isStale)
+        return HStack(spacing: 12) {
             VoiceAccentBadge(accent: state.accentColor, avatarImageData: avatarImageData)
             VStack(alignment: .leading, spacing: 2) {
                 VoiceSessionText(text: assistantName, font: .headline)
@@ -310,6 +322,20 @@ struct VoiceSessionLockScreenView: View {
                     VoiceSessionText(
                         text: state.displayLabel(isStale: isStale),
                         color: .secondary
+                    )
+                }
+                // The activity line, when there is one. Below the phase rather
+                // than replacing it: the two answer different questions ("is
+                // it my turn to talk" and "what is it doing"), and a turn that
+                // is thinking *and* reading a file is both.
+                //
+                // Absent rather than blank when empty, so an idle session's
+                // card is two lines tall instead of two lines and a gap.
+                if !detail.isEmpty {
+                    VoiceSessionText(
+                        text: detail,
+                        font: .caption,
+                        color: .tertiary
                     )
                 }
             }

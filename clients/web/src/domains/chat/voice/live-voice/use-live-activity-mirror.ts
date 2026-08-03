@@ -28,7 +28,8 @@
  * reconnecting, `assistantAudioActive` for the label remap, muted, accent) and
  * compares each candidate against the last payload it pushed. `inputAmplitude`
  * is never read: it changes per animation frame and would exhaust the budget
- * within a second.
+ * within a second. `activityLabel` is read and is safe to: the daemon emits it
+ * only on a change it wants surfaced, a few times per turn at most.
  */
 
 import { useEffect } from "react";
@@ -92,6 +93,11 @@ function toActivityContent(
     // not an attribute, so it is not frozen at `start`.
     accentHex: getRenderedAvatarAccentHex() ?? "",
     muted: session.muted,
+    // The daemon's wording, verbatim, for the same reason the phase label is
+    // the room's wording verbatim: the island has a second driver (the APNs
+    // push the daemon dispatches while this layer is suspended) and the two
+    // must render the same thing.
+    detail: session.activityLabel,
   };
 }
 
@@ -161,7 +167,8 @@ function sameContent(
     a.phase === b.phase &&
     a.label === b.label &&
     a.accentHex === b.accentHex &&
-    a.muted === b.muted
+    a.muted === b.muted &&
+    a.detail === b.detail
   );
 }
 

@@ -40,6 +40,7 @@ struct VoiceSessionLiveActivity: Widget {
             let state = context.state
             let isStale = context.isStale
             let label = state.displayLabel(isStale: isStale)
+            let detail = state.displayDetail(isStale: isStale)
             let avatar = context.attributes.avatarImageData
             let startedAt = context.attributes.startedAt
             return DynamicIsland {
@@ -64,8 +65,14 @@ struct VoiceSessionLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
+                    // The activity line takes this row while there is one, and
+                    // the assistant's name takes it otherwise. Not both: the
+                    // expanded island is one line tall here, and of the two,
+                    // what the assistant is *doing* is the one that changes and
+                    // the one the user opened the island to find out. Identity
+                    // is already carried by the avatar in the leading region.
                     VoiceSessionText(
-                        text: context.attributes.assistantName,
+                        text: detail.isEmpty ? context.attributes.assistantName : detail,
                         color: .secondary
                     )
                 }

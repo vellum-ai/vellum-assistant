@@ -113,6 +113,7 @@ const LIVE_VOICE_SERVER_FRAME_TYPES = [
   "stt_partial",
   "stt_final",
   "thinking",
+  "activity",
   "assistant_text_delta",
   "tts_audio",
   "tts_done",
@@ -187,6 +188,22 @@ export interface LiveVoiceSttFinalServerFrame extends LiveVoiceServerFrameBase {
 export interface LiveVoiceThinkingServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "thinking";
   readonly turnId: string;
+}
+
+/**
+ * What the assistant is doing inside a turn, as one short user-facing line
+ * ("Reading a file"), or `""` when it is doing nothing nameable.
+ *
+ * The wording is the daemon's, not this layer's, and that is deliberate: the
+ * iOS Live Activity is driven both by this socket and by an APNs push the
+ * daemon dispatches when this web layer is suspended, the two must carry
+ * identical content state, and handing both the same string is the only way to
+ * guarantee it. See `assistant/src/live-voice/activity-label.ts`.
+ */
+export interface LiveVoiceActivityServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "activity";
+  readonly turnId: string;
+  readonly label: string;
 }
 
 export interface LiveVoiceAssistantTextDeltaServerFrame extends LiveVoiceServerFrameBase {
@@ -300,6 +317,7 @@ export type LiveVoiceServerFrame =
   | LiveVoiceSttPartialServerFrame
   | LiveVoiceSttFinalServerFrame
   | LiveVoiceThinkingServerFrame
+  | LiveVoiceActivityServerFrame
   | LiveVoiceAssistantTextDeltaServerFrame
   | LiveVoiceTtsAudioServerFrame
   | LiveVoiceTtsDoneServerFrame

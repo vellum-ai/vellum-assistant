@@ -61,11 +61,29 @@ struct VoiceSessionAttributes: ActivityAttributes {
 
         var muted: Bool
 
-        init(phase: Phase, label: String, accentHex: String, muted: Bool) {
+        /// One short line describing what the current turn is doing ("Reading
+        /// a file"), or `""` when it is doing nothing nameable.
+        ///
+        /// Like ``label``, wording that is passed through rather than derived,
+        /// but composed a layer further back: the *daemon* words it, because
+        /// it is the only layer that knows a tool ran, and because the island
+        /// has two drivers (this app, and an APNs push sent while this app is
+        /// suspended) that must render identical content. Composing it in the
+        /// web layer would leave the push path with nothing to send.
+        var detail: String
+
+        init(
+            phase: Phase,
+            label: String,
+            accentHex: String,
+            muted: Bool,
+            detail: String
+        ) {
             self.phase = phase
             self.label = label
             self.accentHex = Self.canonicalAccentHex(accentHex)
             self.muted = muted
+            self.detail = detail
         }
 
         /// Decoding funnels through the validating initializer so the
@@ -77,7 +95,14 @@ struct VoiceSessionAttributes: ActivityAttributes {
                 phase: try container.decode(Phase.self, forKey: .phase),
                 label: try container.decode(String.self, forKey: .label),
                 accentHex: try container.decode(String.self, forKey: .accentHex),
-                muted: try container.decode(Bool.self, forKey: .muted)
+                muted: try container.decode(Bool.self, forKey: .muted),
+                // Absent from a state pushed by a platform that predates it,
+                // and from one archived by an earlier build of this app. Both
+                // read as "no activity line", which is what those versions
+                // meant. See the attributes decoder for why a missing field
+                // must never fail here.
+                detail: try container.decodeIfPresent(String.self, forKey: .detail)
+                    ?? ""
             )
         }
 

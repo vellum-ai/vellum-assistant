@@ -34,14 +34,24 @@ function sttFinal(text: string): LiveVoiceServerFramePayload {
 
 /** A reporter whose dispatches are captured instead of sent. */
 class RecordingReporter extends LiveActivityReporter {
-  readonly dispatched: Array<{ phase: string; event: string }> = [];
+  readonly dispatched: Array<{ phase: string; event: string; detail: string }> =
+    [];
 
   protected override async dispatch(
     phase: string,
     event: "update" | "end",
+    detail: string,
   ): Promise<void> {
-    this.dispatched.push({ phase, event });
+    this.dispatched.push({ phase, event, detail });
   }
+}
+
+function activity(label: string): LiveVoiceServerFramePayload {
+  return {
+    type: "activity",
+    turnId: "t1",
+    label,
+  } as LiveVoiceServerFramePayload;
 }
 
 describe("phaseForFrame", () => {
@@ -92,7 +102,7 @@ describe("LiveActivityReporter", () => {
     reporter.report(frame("thinking"));
 
     expect(reporter.dispatched).toEqual([
-      { phase: "thinking", event: "update" },
+      { phase: "thinking", event: "update", detail: "" },
     ]);
   });
 
@@ -105,7 +115,7 @@ describe("LiveActivityReporter", () => {
     reporter.report(frame("tts_audio"));
 
     expect(reporter.dispatched).toEqual([
-      { phase: "speaking", event: "update" },
+      { phase: "speaking", event: "update", detail: "" },
     ]);
   });
 
@@ -144,6 +154,7 @@ describe("LiveActivityReporter", () => {
     expect(reporter.dispatched.at(-1)).toEqual({
       phase: "ending",
       event: "end",
+      detail: "",
     });
   });
 
@@ -165,7 +176,77 @@ describe("LiveActivityReporter", () => {
     reporter.end();
     reporter.report(frame("tts_audio"));
 
-    expect(reporter.dispatched).toEqual([{ phase: "ending", event: "end" }]);
+    expect(reporter.dispatched).toEqual([
+      { phase: "ending", event: "end", detail: "" },
+    ]);
+  });
+});
+
+describe("LiveActivityReporter activity line", () => {
+  test("carries the activity label alongside the phase it holds", () => {
+    const reporter = new RecordingReporter("conv-1");
+
+    reporter.report(frame("utterance_end"));
+    reporter.report(frame("thinking"));
+    reporter.report(activity("Running a command"));
+
+    expect(reporter.dispatched.at(-1)).toEqual({
+      phase: "thinking",
+      event: "update",
+      detail: "Running a command",
+    });
+  });
+
+  // A push replaces the whole content state, so the label has to ride along on
+  // phase changes too, or the next phase would blank it.
+  test("keeps the label through a later phase change", () => {
+    const reporter = new RecordingReporter("conv-1");
+
+    reporter.report(frame("thinking"));
+    reporter.report(activity("Reading a file"));
+    reporter.report(frame("tts_audio"));
+
+    expect(reporter.dispatched.at(-1)).toEqual({
+      phase: "speaking",
+      event: "update",
+      detail: "Reading a file",
+    });
+  });
+
+  test("an empty label clears the line", () => {
+    const reporter = new RecordingReporter("conv-1");
+
+    reporter.report(frame("thinking"));
+    reporter.report(activity("Reading a file"));
+    reporter.report(activity(""));
+
+    expect(reporter.dispatched.at(-1)?.detail).toBe("");
+  });
+
+  test("does not dispatch a label it already sent", () => {
+    const reporter = new RecordingReporter("conv-1");
+
+    reporter.report(frame("thinking"));
+    reporter.report(activity("Reading a file"));
+    const before = reporter.dispatched.length;
+    reporter.report(activity("Reading a file"));
+
+    expect(reporter.dispatched.length).toBe(before);
+  });
+
+  // A tool can start before any phase-bearing frame lands. There is no content
+  // state to attach a label to yet, and the phase that follows carries it.
+  test("holds a label that arrives before any phase", () => {
+    const reporter = new RecordingReporter("conv-1");
+
+    reporter.report(activity("Searching the web"));
+    expect(reporter.dispatched).toEqual([]);
+
+    reporter.report(frame("thinking"));
+
+    expect(reporter.dispatched).toEqual([
+      { phase: "thinking", event: "update", detail: "Searching the web" },
+    ]);
   });
 });
 

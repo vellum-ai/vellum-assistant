@@ -33,6 +33,7 @@ import {
   type LiveVoiceSpeechStartedServerFrame,
   type LiveVoiceSttFinalServerFrame,
   type LiveVoiceSttPartialServerFrame,
+  type LiveVoiceActivityServerFrame,
   type LiveVoiceThinkingServerFrame,
   type LiveVoiceTtsAudioServerFrame,
   type LiveVoiceTtsDoneServerFrame,
@@ -108,6 +109,8 @@ export interface LiveVoiceClientEventMap {
   sttPartial: LiveVoiceSttPartialServerFrame;
   sttFinal: LiveVoiceSttFinalServerFrame;
   thinking: LiveVoiceThinkingServerFrame;
+  /** What the turn is doing right now, or `""` when nothing nameable is. */
+  activity: LiveVoiceActivityServerFrame;
   assistantTextDelta: LiveVoiceAssistantTextDeltaServerFrame;
   ttsAudio: LiveVoiceTtsAudioServerFrame;
   ttsDone: LiveVoiceTtsDoneServerFrame;
@@ -193,6 +196,7 @@ export class LiveVoiceChannelClient {
     sttPartial: new Set(),
     sttFinal: new Set(),
     thinking: new Set(),
+    activity: new Set(),
     assistantTextDelta: new Set(),
     ttsAudio: new Set(),
     ttsDone: new Set(),
@@ -431,6 +435,9 @@ export class LiveVoiceChannelClient {
         return;
       case "thinking":
         this.emit("thinking", frame);
+        return;
+      case "activity":
+        this.emit("activity", frame);
         return;
       case "assistant_text_delta":
         this.emit("assistantTextDelta", frame);

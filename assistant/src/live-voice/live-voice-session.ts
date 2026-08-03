@@ -59,6 +59,7 @@ import { getToolOwner } from "../tools/registry.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
+import { activityLabelForTool } from "./activity-label.js";
 import {
   createVoiceFrontDecider,
   type VoiceFrontDecider,
@@ -481,6 +482,10 @@ interface ActiveAssistantTurn {
   // Latched when the leg's stream contains MINIMIZE_ROOM_MARKER; consumed
   // once at TTS drain, where the minimize_room frame goes out after tts_done.
   minimizeRequested: boolean;
+  // The activity label the client was last told about, so a run of tools that
+  // map to the same line sends one frame rather than one per call. Empty means
+  // the client believes nothing is running, which is also where a turn ends.
+  activityLabel: string;
   // A tts_audio frame actually went out to the client — latches on the first
   // forwarded chunk so the firstTtsAudio metric is marked exactly once per turn.
   ttsAudioStarted: boolean;
@@ -1920,6 +1925,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         "barge_in",
         turn.turnId,
       );
+      // A cancelled turn's tools are abandoned, not finished, so nothing will
+      // arrive to clear the line it left behind.
+      this.publishActivity(turn, "");
       await this.sendFrame({ type: "turn_cancelled", turnId: turn.turnId });
       await this.cancelAssistantTurn("barge_in");
       // Keep the interrupted turn's work alive on a background subagent; the
@@ -2315,6 +2323,47 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       this.scheduleContinuationAnnouncement(true, drainRearms);
     }, drainMs + this.continuationAnnounceSilenceMs);
+  }
+
+  /**
+   * The line describing what this turn is doing right now: the newest tool
+   * still running, or nothing when none is.
+   *
+   * Newest-first because parallel ops are the interesting case. A turn that
+   * starts a search and a file read, then finishes the search, is still
+   * reading a file, and a surface that went blank there would claim the turn
+   * had gone idle while it plainly has not.
+   */
+  private currentActivityLabel(turn: ActiveAssistantTurn): string {
+    for (let i = turn.progress.ops.length - 1; i >= 0; i -= 1) {
+      const op = turn.progress.ops[i];
+      if (op !== undefined && op.completedAtMs === undefined) {
+        return activityLabelForTool(op.toolName);
+      }
+    }
+    return "";
+  }
+
+  /**
+   * Tell the client what the turn is doing, if it changed.
+   *
+   * De-duplicated for the same reason the Live Activity reporter de-duplicates
+   * phases: this frame reaches ActivityKit, whose update budget is finite and
+   * whose overflow is dropped silently, and a turn that runs four file reads in
+   * a row would otherwise spend that budget restating one line.
+   *
+   * Fire-and-forget. An activity label is a flourish, and nothing about the
+   * conversation may wait on one.
+   */
+  private publishActivity(turn: ActiveAssistantTurn, label: string): void {
+    if (turn.activityLabel === label) {
+      return;
+    }
+    turn.activityLabel = label;
+    void this.sendFrame(
+      { type: "activity", turnId: turn.turnId, label },
+      () => !this.isClosed,
+    );
   }
 
   private clearActiveAssistantTurn(token: symbol): void {
@@ -3409,6 +3458,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       assistantCompleted: false,
       ttsDone: false,
       minimizeRequested: false,
+      activityLabel: "",
       ttsAudioStarted: false,
       finalized: false,
       speculativePending: opts?.speculative === true,
@@ -3835,6 +3885,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             });
             current.progress.opsSinceNarration += 1;
             current.progress.stateEpoch += 1;
+            this.publishActivity(current, this.currentActivityLabel(current));
             log.debug({ turnId, toolName }, "Live voice turn started tool use");
             // Definitive tool use means the turn is guaranteed slow: speak
             // the floor-holding ack now instead of waiting out the
@@ -3888,6 +3939,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               }
             }
             current.progress.stateEpoch += 1;
+            this.publishActivity(current, this.currentActivityLabel(current));
             this.maybeNarrateProgress(current, trigger);
           },
         },
@@ -4568,6 +4620,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             currentTurn.finalized &&
             !this.isClosed,
         );
+
+        // The turn is over, so nothing is running. Ordinarily the line is
+        // already clear (the last tool_result cleared it); this is the net
+        // for a turn that ends with an op still open, which would otherwise
+        // leave the last tool it touched on screen through the next silence.
+        this.publishActivity(currentTurn, "");
 
         // Drain-scoped minimize: the latched marker is consumed here, after
         // the turn's speech has fully drained — never mid-speech, never for

@@ -353,7 +353,10 @@ public class VoiceLiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             label: call.getString("label") ?? "",
             accentHex: call.getString("accentHex")
                 ?? VoiceSessionAttributes.ContentState.neutralAccentHex,
-            muted: call.getBool("muted") ?? false
+            muted: call.getBool("muted") ?? false,
+            // Absent from a web bundle older than this field, which simply has
+            // no activity line to show.
+            detail: call.getString("detail") ?? ""
         )
     }
 }

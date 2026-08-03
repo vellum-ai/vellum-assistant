@@ -140,6 +140,35 @@ Truncated to that, "Listening…" and "Thinking…" are the same string, which m
 the presentation the user sees most of the time say nothing at all. That slot
 now renders the glyph, and the roomier presentations render glyph *and* label.
 
+### The activity line: wording from a third layer
+
+`ContentState.detail` is one short line saying what the turn is doing right now
+("Reading a file"), or `""` when nothing nameable is. The phase says whether it
+is your turn to talk; this says what it is busy with, and a turn can be
+thinking *and* reading a file.
+
+Its wording comes from neither this shell nor the web layer but from the
+**daemon** (`assistant/src/live-voice/activity-label.ts`). Two reasons, and the
+first is the binding one:
+
+1. The island has two drivers carrying identical content state, and only one of
+   them runs web code. A label composed in the web layer could not be
+   reproduced by the APNs push that takes over once that layer is suspended, so
+   both are handed the same string: the daemon sends an `activity` frame down
+   the socket *and* the same text in its dispatch.
+2. The daemon is the only layer that knows a tool ran at all.
+
+This does not reopen the cadence question the phase-label rule answers. That
+rule exists because *this shell* ships on App Store review; the daemon deploys
+continuously, like the web bundle.
+
+The label names what the user would say is happening, never the tool and never
+its arguments: a path or a URL is unreadable at a glance and may be something
+the user would not choose to show whoever else can see the Lock Screen. Every
+tool gets a line, including ones the map has never seen, because the vocabulary
+is open (plugins, MCP, skills) and a blank line at the busiest moment is the
+worst of the options.
+
 ### What moves without an update: the elapsed timer
 
 `VoiceSessionAttributes.startedAt` is stamped natively at `Activity.request`,
@@ -156,8 +185,8 @@ activity's lifetime, and being an attribute is what keeps a server-driven push
 natively also puts it on the same clock as the device rendering it, which a
 timestamp composed on the platform would not be.
 
-Everything phase-derived (label, glyph, and the timer) drops when
-`context.isStale` goes true. Identity (avatar, name, accent) stays: that a
+Everything phase-derived (label, glyph, the activity line, and the timer)
+drops when `context.isStale` goes true. Identity (avatar, name, accent) stays: that a
 session with this assistant exists is still true, and tapping through still
 reaches it.
 
@@ -489,8 +518,8 @@ healthy session that nobody happens to be talking to.
 
 ### 2. No App Group
 
-`ContentState` carries only primitives (`phase`, `label`, `accentHex`,
-`muted`), and the attributes carry `assistantName`, `startedAt`, and the
+`ContentState` carries only primitives (`phase`, `label`, `detail`,
+`accentHex`, `muted`), and the attributes carry `assistantName`, `startedAt`, and the
 avatar as `Data`. The extension ships **no entitlements file at all**.
 
 *Why:* an App Group is only needed to share *files*, and nothing here needs

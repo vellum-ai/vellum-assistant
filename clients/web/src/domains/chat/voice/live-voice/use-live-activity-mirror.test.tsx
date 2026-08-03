@@ -223,6 +223,7 @@ describe("starting the activity", () => {
       label: "Connecting…",
       accentHex: ORANGE,
       muted: false,
+      detail: "",
       assistantName: "Ada",
     });
     expect(updateVoiceLiveActivity).not.toHaveBeenCalled();
@@ -334,6 +335,33 @@ describe("starting the activity", () => {
 // ---------------------------------------------------------------------------
 
 describe("updating the activity", () => {
+  test("pushes the activity line the daemon worded", async () => {
+    renderMirror();
+    await setPhase("thinking");
+    updateVoiceLiveActivity.mockClear();
+
+    await settled(() => {
+      useLiveVoiceStore.getState().setActivityLabel("Reading a file");
+    });
+
+    expect(lastUpdatePayload()?.detail).toBe("Reading a file");
+  });
+
+  test("clears the line when the turn stops working", async () => {
+    renderMirror();
+    await setPhase("thinking");
+    await settled(() => {
+      useLiveVoiceStore.getState().setActivityLabel("Reading a file");
+    });
+    updateVoiceLiveActivity.mockClear();
+
+    await settled(() => {
+      useLiveVoiceStore.getState().setActivityLabel("");
+    });
+
+    expect(lastUpdatePayload()?.detail).toBe("");
+  });
+
   test("pushes one update per phase change and none for a repeated phase", async () => {
     renderMirror();
     await setPhase("connecting");
@@ -349,6 +377,7 @@ describe("updating the activity", () => {
       label: "Listening…",
       accentHex: ORANGE,
       muted: false,
+      detail: "",
     });
 
     // Re-publishing the same phase changes no `ContentState` field.
@@ -491,6 +520,7 @@ describe("a hands-free reconnect", () => {
       label: "Reconnecting…",
       accentHex: ORANGE,
       muted: true,
+      detail: "",
     });
   });
 });
