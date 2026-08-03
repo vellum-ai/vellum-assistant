@@ -358,7 +358,11 @@ export function markSurfaceCompleted(
       }
     }
   } catch (err) {
-    log.warn({ err, surfaceId }, "Failed to persist surface completion to DB");
+    // Error, not warn: a silent failure here presents as the user's answer being discarded.
+    log.error(
+      { err, conversationId: ctx.conversationId, surfaceId },
+      "Failed to persist surface completion to DB",
+    );
   }
 }
 
