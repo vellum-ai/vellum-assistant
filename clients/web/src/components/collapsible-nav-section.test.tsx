@@ -96,9 +96,9 @@ describe("CollapsibleNavSection", () => {
     expect(actionButton).toBeGreaterThan(triggerClose);
   });
 
-  test("trigger carries the text-body-medium-default typography utility", () => {
+  test("trigger carries the text-body-medium-lighter typography utility", () => {
     const html = renderSingleSection({ value: "recents", label: "Recents" });
-    expect(html).toContain("text-body-medium-default");
+    expect(html).toContain("text-body-medium-lighter");
   });
 
   test("emits both leading glyphs (category icon + chevron-right) layered", () => {
