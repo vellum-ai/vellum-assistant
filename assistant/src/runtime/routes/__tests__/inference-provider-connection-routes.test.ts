@@ -207,12 +207,45 @@ describe("POST inference/provider-connections (create)", () => {
       {
         body: {
           name: "managed-openai",
-          provider: "openai",
+          provider: "vellum",
           auth: { type: "platform" },
         },
       },
     )) as { auth: object };
     expect(result.auth).toEqual({ type: "platform" });
+  });
+
+  test("rejects platform auth on a real provider", async () => {
+    const err = await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "managed-openai",
+          provider: "openai",
+          auth: { type: "platform" },
+        },
+      },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect((err as BadRequestError).message).toContain("platform");
+    expect((err as BadRequestError).message).toContain("vellum");
+  });
+
+  test("rejects key auth on the vellum provider", async () => {
+    const err = await call(
+      findHandler("inference_provider_connections_create"),
+      {
+        body: {
+          name: "keyed-vellum",
+          provider: "vellum",
+          auth: { type: "api_key", credential: "vault/vellum/key" },
+        },
+      },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect((err as BadRequestError).message).toContain("vellum");
   });
 
   test("creates connection with none auth (e.g. ollama)", async () => {
@@ -504,7 +537,7 @@ describe("POST inference/provider-connections (create)", () => {
         body: {
           name: "dup-name",
           provider: "openai",
-          auth: { type: "platform" },
+          auth: { type: "api_key", credential: "vault/openai/key" },
         },
       }),
     ).rejects.toBeInstanceOf(ConflictError);
@@ -583,6 +616,45 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
         body: { auth: { type: "platform" } },
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("rejects switching a real provider's connection to platform auth", async () => {
+    seedConnection({
+      name: "byok-openai",
+      provider: "openai",
+      auth: { type: "api_key", credential: "vault/openai/key" },
+    });
+
+    const err = await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "byok-openai" },
+        body: { auth: { type: "platform" } },
+      },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BadRequestError);
+    expect((err as BadRequestError).message).toContain("platform");
+  });
+
+  // Rows written before the pairing was enforced must stay editable — the
+  // guard only inspects an auth object the caller actually supplied.
+  test("allows editing a legacy mismatched row when auth is untouched", async () => {
+    seedConnection({
+      name: "legacy-managed-openai",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+
+    const result = (await call(
+      findHandler("inference_provider_connections_update"),
+      {
+        pathParams: { name: "legacy-managed-openai" },
+        body: { label: "Legacy" },
+      },
+    )) as { label: string | null; auth: object };
+    expect(result.label).toBe("Legacy");
+    expect(result.auth).toEqual({ type: "platform" });
   });
 
   test("throws 400 when auth schema is invalid", async () => {
@@ -971,7 +1043,7 @@ describe("POST with label", () => {
         body: {
           name: "labeled-conn",
           provider: "anthropic",
-          auth: { type: "platform" },
+          auth: { type: "api_key", credential: "vault/anthropic/key" },
           label: "My Anthropic",
         },
       },
@@ -987,7 +1059,7 @@ describe("POST with label", () => {
         body: {
           name: "no-label-conn",
           provider: "openai",
-          auth: { type: "platform" },
+          auth: { type: "api_key", credential: "vault/openai/key" },
         },
       },
     )) as { label: string | null };
@@ -999,7 +1071,7 @@ describe("PATCH with label", () => {
   test("updates label to a string", async () => {
     seedConnection({
       name: "set-label",
-      provider: "openai",
+      provider: "vellum",
       auth: { type: "platform" },
     });
 
@@ -1016,7 +1088,7 @@ describe("PATCH with label", () => {
   test("clears label by setting it to null", async () => {
     seedConnection({
       name: "clear-label",
-      provider: "gemini",
+      provider: "vellum",
       auth: { type: "platform" },
     });
     // First set a label.
@@ -1038,7 +1110,7 @@ describe("PATCH with label", () => {
   test("rejects label: empty string with 400", async () => {
     seedConnection({
       name: "reject-empty",
-      provider: "anthropic",
+      provider: "vellum",
       auth: { type: "platform" },
     });
 
@@ -1168,7 +1240,7 @@ describe("Managed connection write protection", () => {
     test("allows PATCH with auth still set to platform (no-op auth change)", async () => {
       seedConnection({
         name: "vellum",
-        provider: "anthropic",
+        provider: "vellum",
         auth: { type: "platform" },
       });
 
@@ -1190,7 +1262,7 @@ describe("Managed connection write protection", () => {
     test("allows relabeling a managed connection", async () => {
       seedConnection({
         name: "vellum",
-        provider: "openai",
+        provider: "vellum",
         auth: { type: "platform" },
       });
 

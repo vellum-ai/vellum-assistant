@@ -39,7 +39,10 @@ import {
   updateConnection,
 } from "../../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
-import { isVellumManagedConnection } from "../../providers/vellum-model-routing.js";
+import {
+  isVellumManagedConnection,
+  VELLUM_MANAGED_PROVIDER,
+} from "../../providers/vellum-model-routing.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { deleteSecureKeyAsync } from "../../security/secure-keys.js";
 import {
@@ -192,6 +195,27 @@ function deriveConnectionAuth(provider: string, credential: unknown): Auth {
   return derived;
 }
 
+/**
+ * Platform auth and `provider: "vellum"` record the same fact — the managed
+ * route — in two columns, and derivation always sets them together. Only an
+ * explicit `auth` object can split them, producing a row dispatch bills to
+ * the platform while every provider-keyed check reads it as BYOK (or the
+ * reverse). Applied only when the caller supplies `auth`, so rows written
+ * before this guard stay editable.
+ */
+function assertAuthMatchesProvider(provider: string, auth: Auth): void {
+  const managedAuth = auth.type === "platform";
+  const managedProvider = provider === VELLUM_MANAGED_PROVIDER;
+  if (managedAuth === managedProvider) {
+    return;
+  }
+  throw new BadRequestError(
+    managedAuth
+      ? `Auth type "platform" is only valid for provider "${VELLUM_MANAGED_PROVIDER}", not "${provider}". Vellum-managed routing is selected by the provider — omit "auth" to derive it.`
+      : `Provider "${VELLUM_MANAGED_PROVIDER}" is always platform-authenticated; "${auth.type}" auth is not valid for it. Omit "auth" to derive it, or name a real provider for key-based auth.`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -300,6 +324,9 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
+  if (auth !== undefined) {
+    assertAuthMatchesProvider(providerResult.data, authResult.data);
+  }
 
   const labelRaw = body.label;
   if (
@@ -394,6 +421,9 @@ async function handleUpdateConnection({
   const authResult = AuthSchema.safeParse(auth);
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
+  }
+  if (body.auth !== undefined) {
+    assertAuthMatchesProvider(existing.provider, authResult.data);
   }
 
   const labelRaw = body.label;
@@ -643,7 +673,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Create a provider connection",
     description:
-      "Create a new named provider connection. When auth is omitted it is derived from the provider (keyless providers get none, vellum gets platform, everything else needs credential for api_key auth). Fails with 409 if a connection with this name already exists.",
+      "Create a new named provider connection. When auth is omitted it is derived from the provider (keyless providers get none, vellum gets platform, everything else needs credential for api_key auth). An explicit auth object must agree with the provider: platform auth belongs to vellum and only to vellum. Fails with 409 if a connection with this name already exists.",
     tags: ["inference"],
     requestBody: z.object({
       name: z.string().min(1),
@@ -672,7 +702,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Update a provider connection",
     description:
-      "Update an existing connection. Cannot rename or change the provider. Omitting auth keeps the stored auth; passing credential alone rotates the key via provider-derived api_key auth. For the Vellum-managed connection (vellum) the auth is locked to platform; label remains editable.",
+      "Update an existing connection. Cannot rename or change the provider. Omitting auth keeps the stored auth; passing credential alone rotates the key via provider-derived api_key auth. An explicit auth object must agree with the connection's provider: platform auth belongs to vellum and only to vellum. For the Vellum-managed connection (vellum) the auth is locked to platform; label remains editable.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     requestBody: z.object({
