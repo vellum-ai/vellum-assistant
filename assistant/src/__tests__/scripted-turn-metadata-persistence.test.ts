@@ -14,10 +14,10 @@
  *
  * The absent case is the one worth protecting: downstream falls back to the
  * legacy trace-text classifier when the flag is missing, but TRUSTS an
- * explicit `false`. So a spurious `false` is strictly worse than no value —
+ * explicit `false`. So a spurious `false` is strictly worse than no value:
  * it re-inflates activation past the point where the fallback can catch it.
  *
- * Mirrors the mock harness of `client-os-metadata-persistence.test.ts` —
+ * Mirrors the mock harness of `client-os-metadata-persistence.test.ts`:
  * exercises `persistQueuedMessageBody` directly with a captured `addMessage`.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";

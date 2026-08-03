@@ -315,7 +315,7 @@ describe("queryUnreportedTurnEvents", () => {
     const byId = Object.fromEntries(events.map((e) => [e.id, e]));
 
     // sqlite's json_extract yields 1/0 for JSON booleans, so these must come
-    // back as real booleans — a raw 1 would be rejected by the platform's
+    // back as real booleans. A raw 1 would be rejected by the platform's
     // BooleanField and the event silently dropped at ingest.
     expect(byId[scripted.id].scripted).toBe(true);
     expect(byId[typed.id].scripted).toBe(false);

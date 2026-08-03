@@ -1739,7 +1739,7 @@ export interface ProcessMessageOptions {
   /**
    * True when this turn was auto-sent on the user's behalf rather than typed
    * (see `PersistMessageOptions.scripted`). Forwarded to persistence so the
-   * turn is excluded from activation counts. Defaults to false — a caller
+   * turn is excluded from activation counts. Defaults to false. A caller
    * sending machine-authored content into a `standard` conversation must set
    * it explicitly.
    *

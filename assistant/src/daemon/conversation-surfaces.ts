@@ -119,7 +119,7 @@ const SYNTHETIC_SURFACE_ACTION_PREFIX = "[User action on ";
  *
  * Only the synthetic form is scripted. A surface that supplies its own prompt
  * is treated as a real turn, because that is what the existing analytics
- * classifier does — widening this to every surface action would silently move
+ * classifier does. Widening this to every surface action would silently move
  * activation beyond the bug being fixed.
  */
 function isSyntheticSurfaceActionContent(content: string): boolean {

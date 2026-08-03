@@ -377,21 +377,21 @@ export interface TurnTelemetryEvent extends TelemetryEventBase {
   failure_code?: string;
   /**
    * Whether this turn was auto-sent on the user's behalf rather than typed by
-   * them — onboarding research prompts, the personality rewrite message,
+   * them: onboarding research prompts, the personality rewrite message,
    * research corrections, kickoff greetings, the legacy pre-chat bootstrap,
    * and `[User action on ...]` surface synthetics.
    *
    * Tri-state and the states are NOT interchangeable:
-   *   `true`   — auto-sent
-   *   `false`  — a genuine typed user message
-   *   omitted  — UNKNOWN (a row persisted before the marker existed)
+   *   `true`   - auto-sent
+   *   `false`  - a genuine typed user message
+   *   omitted  - UNKNOWN (a row persisted before the marker existed)
    *
    * This is the consent-independent replacement for classifying turns by
    * text-matching their content in `pii_turn_raw` traces. That classifier can
    * only see owners who cleared the diagnostics gate, while activation cohorts
    * need only `share_analytics`, so it silently counted scripted turns as real
    * messages for everyone else (ANT-10). Unlike `trace` below, this field
-   * carries nothing about the turn's CONTENT — only how it was originated —
+   * carries nothing about the turn's CONTENT, only how it was originated,
    * so it rides the ordinary analytics gate and reaches every owner.
    *
    * Downstream excludes `true` and lets omitted fall back to the legacy

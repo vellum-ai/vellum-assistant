@@ -1597,7 +1597,7 @@ describe("UsageTelemetryReporter", () => {
     // turns for EVERY owner rather than only diagnostics-consenting ones
     // (ANT-10), so its states must stay distinguishable on the wire. Note
     // diagnostics consent is OFF here: unlike `trace`, this field must ship
-    // regardless — that independence is the entire point of the field.
+    // regardless: that independence is the entire point of the field.
     mockGetCachedShareDiagnostics.mockReturnValue(false);
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     useStatefulCheckpoints();
@@ -1629,7 +1629,7 @@ describe("UsageTelemetryReporter", () => {
     // activation back to the consent-gated classifier this field replaces.
     expect("scripted" in byId["evt-typed"]).toBe(true);
     expect(byId["evt-typed"].scripted).toBe(false);
-    // A row predating the marker stays UNKNOWN — the key is absent, so the
+    // A row predating the marker stays UNKNOWN: the key is absent, so the
     // wire shape is byte-identical to a pre-scripted turn event and
     // downstream falls back to the trace classifier rather than being told
     // something untrue about the turn.
