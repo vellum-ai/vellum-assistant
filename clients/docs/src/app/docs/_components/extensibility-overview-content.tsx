@@ -225,7 +225,9 @@ export function ExtensibilityOverviewContent() {
             are kept in sync.
           </p>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
-            If you do want to drive the process yourself, whether to learn how plugins work or to build one without involving your assistant, the CLI and the page-by-page references below
+            If you do want to drive the process yourself — whether to
+            learn how plugins work or to build one without involving your
+            assistant — the CLI and the page-by-page references below
             cover everything end to end.
           </p>
         </section>

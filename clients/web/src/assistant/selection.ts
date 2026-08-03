@@ -4,17 +4,22 @@
  *
  * Read: `resolveSelectedAssistantId` validates the one selected id for the
  * active org, falling back to the lockfile `activeAssistant` and finally the
- * first valid assistant.
+ * first valid assistant. `useGatedSelectedAssistantId` is the reactive,
+ * flag-gated wrapper every React consumer goes through.
  *
  * Write: `setSelectedAssistant` records the selection AND mirrors it into the
  * lockfile `activeAssistant`, so the macOS tray, the CLI, and the native
  * client agree.
  */
 
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import {
   getActiveAssistant,
+  isLocalClient,
   setActiveLockfileAssistant,
 } from "@/lib/local-mode";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useRequestOrganizationId } from "@/stores/organization-store";
 import {
   assistantsValidForOrg,
   useResolvedAssistantsStore,
@@ -59,6 +64,38 @@ export function resolveSelectedAssistantId(
   }
 
   return valid[0]?.id ?? null;
+}
+
+/**
+ * Reactive, flag-gated read of the selection, shared by every consumer that
+ * must agree with the lifecycle on which assistant is selected. Honors the
+ * stored selection when the multi-platform-assistant flag is on, or when the
+ * assistant-switcher flag is on for a local client (its Switch Assistant
+ * chooser stores the same selection, and the switcher is local-client-only).
+ * Gateway-auth mode and a missing org id return null, as does a closed gate:
+ * callers apply their own fallback. The org id comes from the same derivation
+ * the `Vellum-Organization-Id` header uses (the resolved selection, or the
+ * persisted id standing in for it), so a failed organization fetch cannot
+ * drop the user's choice. Subscribes to the flags, the org, the selection,
+ * the resolved list, and its hydration marker so consumers re-render when
+ * any resolution input changes (hydration alone flips an unknown selected id
+ * from pass-through to ghost, even when the list itself is unchanged).
+ */
+export function useGatedSelectedAssistantId(): string | null {
+  const organizationId = useRequestOrganizationId();
+  const multiAssistantEnabled =
+    useClientFeatureFlagStore.use.multiPlatformAssistant();
+  const assistantSwitcherEnabled =
+    useClientFeatureFlagStore.use.assistantSwitcher();
+  useResolvedAssistantsStore.use.selectedAssistantId();
+  useResolvedAssistantsStore.use.assistants();
+  useResolvedAssistantsStore.use.assistantsHydrated();
+  const gateOpen =
+    (multiAssistantEnabled || (assistantSwitcherEnabled && isLocalClient())) &&
+    !isGatewayAuthMode();
+  return gateOpen && organizationId
+    ? resolveSelectedAssistantId(organizationId)
+    : null;
 }
 
 /**

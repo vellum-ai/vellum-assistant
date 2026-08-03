@@ -98,9 +98,9 @@ export function DeveloperGuideApiContent() {
               Connection Management
             </SectionHeading>
             <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
-              <li><strong>Capacity</strong>: up to 100 concurrent SSE connections; oldest evicted when cap is reached</li>
-              <li><strong>Slow consumers</strong>: connections closed when receive buffer hits 16 queued events</li>
-              <li><strong>Disconnect cleanup</strong>: closing the tab, cancelling the reader, or aborting the request all dispose the subscription deterministically</li>
+              <li><strong>Capacity</strong> — up to 100 concurrent SSE connections; oldest evicted when cap is reached</li>
+              <li><strong>Slow consumers</strong> — connections closed when receive buffer hits 16 queued events</li>
+              <li><strong>Disconnect cleanup</strong> — closing the tab, cancelling the reader, or aborting the request all dispose the subscription deterministically</li>
             </ul>
           </section>
 

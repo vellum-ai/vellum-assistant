@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 
+import { routes } from "@/lib/routes";
+
 import { DocsContent } from "@/app/docs/_components/docs-content";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
-import { routes } from "@/lib/routes";
 
 const TOC_ITEMS = [
   { id: "directory-layout", label: "Directory layout", level: 2 },
@@ -667,7 +668,7 @@ export function ExtensibilityPluginsContent() {
           <p className="mb-0 mt-4 text-zinc-600 dark:text-zinc-400">
             The marketplace catalog entry can point at a subdirectory of a repo
             using <code>source.path</code> in the catalog manifest. See the{" "}
-            <Link href={"/docs/extensibility/distribution"} className={linkClass}>
+            <Link href="/docs/extensibility/distribution" className={linkClass}>
               Distribution page
             </Link>{" "}
             for the full <code>source.path</code> field and the catalog manifest

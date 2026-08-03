@@ -1,12 +1,11 @@
 /**
- * The sidebar's assistant cluster: a "New Chat" row — a plus glyph with a
- * label beside it, on the same avatar-tinted wash the identity page's
- * feature cards wear — with the "Your Assistant" nav row directly beneath,
- * dressed up as the assistant: a standard-height row painted solid in the
- * avatar's color with the avatar's eyes sitting in the leading icon slot,
- * centered on the same axis as the New Chat plus so the two rows' labels
- * align. On the collapsed rail both rows survive as icon-only tiles
- * (Figma 7257:135811).
+ * The sidebar's assistant cluster: the "Your Assistant" nav row, dressed up
+ * as the assistant (a standard-height row painted solid in the avatar's color
+ * with the avatar's eyes sitting in the leading icon slot), and a "New Chat"
+ * row directly beneath it: a plus glyph with a label beside it, on the same
+ * avatar-tinted wash the identity page's feature cards wear. The plus centers
+ * on the same axis as the eyes, so the two rows' labels align. On the
+ * collapsed rail both rows survive as icon-only tiles (Figma 7257:135811).
  *
  * Periodically the eyes go on patrol: they sink out through the row's
  * bottom fold, resurface grown on the right side (cut off by the edge),
@@ -46,8 +45,6 @@ import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 const ROW_HEIGHT = 30;
 /** Mobile-overlay row height, matching `SideMenu.Item`'s mobile row. */
 const MOBILE_ROW_HEIGHT = 44;
-/** The New Chat row runs taller than a standard nav row (Figma 7257:135743). */
-const NEW_CHAT_ROW_HEIGHT = 38;
 /** Collapsed-rail assistant tile height (Figma 7257:135820). */
 const COLLAPSED_ASSISTANT_ROW_HEIGHT = 32;
 /** Patrol stop on the right side: grown, cut off by the bottom edge. */
@@ -72,7 +69,7 @@ interface AssistantNavItemProps {
   active: boolean;
   collapsed?: boolean;
   onSelect?: () => void;
-  /** Renders the "New Chat" row above the assistant row. */
+  /** Renders the "New Chat" row below the assistant row. */
   onNewConversation?: () => void;
 }
 
@@ -243,11 +240,7 @@ export function AssistantNavItem({
       )}
       style={
         {
-          height: collapsed
-            ? COLLAPSED_ASSISTANT_ROW_HEIGHT
-            : isMobile
-              ? MOBILE_ROW_HEIGHT
-              : NEW_CHAT_ROW_HEIGHT,
+          height: collapsed ? COLLAPSED_ASSISTANT_ROW_HEIGHT : rowHeight,
           gap: SIDEBAR_CHIP_GAP,
           paddingLeft: collapsed ? 0 : ROW_PADDING_X,
           paddingRight: collapsed ? 0 : ROW_PADDING_X,
@@ -289,7 +282,6 @@ export function AssistantNavItem({
     // rows' labels stay on one axis.
     return (
       <div className="flex flex-col gap-[8px]">
-        {newConversationRow}
         <button
           type="button"
           onClick={onSelect}
@@ -298,7 +290,7 @@ export function AssistantNavItem({
           aria-current={active ? "page" : undefined}
           className={cn(
             "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
-            "rounded-[6px]",
+            collapsed ? "rounded-[6px]" : "rounded-[8px]",
             "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
             "transition-colors duration-150 active:scale-[0.98]",
             active
@@ -343,6 +335,7 @@ export function AssistantNavItem({
             </span>
           )}
         </button>
+        {newConversationRow}
       </div>
     );
   }
@@ -383,7 +376,7 @@ export function AssistantNavItem({
       aria-current={active ? "page" : undefined}
       className={cn(
         "group relative flex w-full cursor-pointer items-center overflow-hidden select-none",
-        "rounded-[6px]",
+        collapsed ? "rounded-[6px]" : "rounded-[8px]",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         "transition-[filter,transform,background-color,color] duration-300 active:scale-[0.98]",
         navTourActive
@@ -423,7 +416,7 @@ export function AssistantNavItem({
       ) : (
         <>
           {/* Leading eye slot, chip-width so the eyes center on the New
-              Chat row's plus chip above; the sprite is absolutely placed
+              Chat row's plus chip below; the sprite is absolutely placed
               so patrols can carry it across (and under) the whole row. */}
           <span
             aria-hidden="true"
@@ -473,8 +466,8 @@ export function AssistantNavItem({
 
   return (
     <div className="flex flex-col gap-[8px]">
-      {newConversationRow}
       {assistantRow}
+      {newConversationRow}
     </div>
   );
 }

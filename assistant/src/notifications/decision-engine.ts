@@ -54,7 +54,11 @@ import {
   stripConflictingGuardianRequestInstructions,
   stripGuardianRequestCodeInstructions,
 } from "./guardian-question-mode.js";
-import { nonEmpty, readPayloadString } from "./notification-utils.js";
+import {
+  nonEmpty,
+  readPayloadObject,
+  readPayloadString,
+} from "./notification-utils.js";
 import { getPreferenceSummary } from "./preference-summary.js";
 import type { NotificationSignal, RoutingIntent } from "./signal.js";
 import type {
@@ -77,6 +81,16 @@ const PROMPT_VERSION = "v4";
  * deterministic fallback for all notifications.
  */
 const MAX_IDENTITY_CONTEXT_CHARS = 2000;
+
+/**
+ * Delivery scope for `chat.assistant_reply` signals: the platform channel is a
+ * push_only relay that never materializes a conversation, so these signals
+ * reach the user exclusively as a push. Adding a channel here widens delivery
+ * to it.
+ */
+const ASSISTANT_REPLY_CHANNELS = [
+  "platform",
+] as const satisfies readonly NotificationChannel[];
 
 // ── System prompt ──────────────────────────────────────────────────────
 
@@ -855,6 +869,68 @@ function ensureInviteFlowDirectiveInCopy(
   };
 }
 
+// ── Producer pass-through decisions ────────────────────────────────────
+
+/**
+ * Build, guard, and persist a decision whose copy came verbatim from the
+ * producer, bypassing the LLM classifier. The title falls back to one derived
+ * from the body when the producer supplies none.
+ *
+ * `renderedCopy` and `conversationActions` are populated for every available
+ * channel, not just `selectedChannels`: downstream guards (routing-intent
+ * expansion in `enforceRoutingIntent`, urgency-forced vellum prepending in
+ * `emit-signal`) may widen `selectedChannels` afterwards, and pre-seeding
+ * keeps the verbatim message from degrading to an empty
+ * `composeFallbackCopy` body.
+ */
+function buildPassThroughDecision(params: {
+  signal: NotificationSignal;
+  availableChannels: NotificationChannel[];
+  selectedChannels: NotificationChannel[];
+  body: string;
+  reasoningSummary: string;
+}): NotificationDecision {
+  const { availableChannels, body, signal } = params;
+  const title =
+    nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
+    deriveTitle(body);
+  const deepLinkTarget = readPayloadObject(
+    signal.contextPayload,
+    "deepLinkMetadata",
+  );
+  let decision: NotificationDecision = {
+    shouldNotify: params.selectedChannels.length > 0,
+    selectedChannels: params.selectedChannels,
+    reasoningSummary: params.reasoningSummary,
+    renderedCopy: Object.fromEntries(
+      availableChannels.map((ch) => [
+        ch,
+        { title, body, conversationSeedMessage: body },
+      ]),
+    ) as NotificationDecision["renderedCopy"],
+    conversationActions: Object.fromEntries(
+      availableChannels.map((ch) => [ch, { action: "start_new" as const }]),
+    ) as NotificationDecision["conversationActions"],
+    // A producer-supplied key names what it wants collapsed; the signal id is
+    // a per-emit fallback that collapses nothing.
+    dedupeKey: signal.dedupeKey ?? signal.signalId,
+    confidence: 1.0,
+    fallbackUsed: false,
+    verbatimCopy: true,
+    ...(deepLinkTarget ? { deepLinkTarget } : {}),
+  };
+  decision = enforceGuardianRequestCode(decision, signal);
+  decision = enforceToolApprovalSeedBlocks(decision, signal);
+  decision = enforceAccessRequestInstructions(decision, signal);
+  decision = enforceGuardianRequestConversationAffinity(decision, signal);
+  decision = enforceConversationAffinity(
+    decision,
+    signal.conversationAffinityHint,
+  );
+  decision.persistedDecisionId = persistDecision(signal, decision);
+  return decision;
+}
+
 // ── Core evaluation function ───────────────────────────────────────────
 
 export async function evaluateSignal(
@@ -862,50 +938,20 @@ export async function evaluateSignal(
   availableChannels: NotificationChannel[],
   preferenceContext?: string,
 ): Promise<NotificationDecision> {
-  // When no explicit preference context is provided, load the user's
-  // stored notification preferences from the memory-backed store.
-  // Wrapped in try/catch so a DB failure doesn't break the decision path.
-  let resolvedPreferenceContext = preferenceContext;
-  if (resolvedPreferenceContext === undefined) {
-    try {
-      resolvedPreferenceContext = getPreferenceSummary() ?? undefined;
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      log.warn(
-        { err: errMsg },
-        "Failed to load preference summary, proceeding without preferences",
-      );
-      resolvedPreferenceContext = undefined;
-    }
-  }
-
-  // Build conversation candidate set for reuse decisions. Wrapped in try/catch
-  // so candidate lookup failures do not block the decision path.
-  let candidateSet: ConversationCandidateSet | undefined;
-  try {
-    candidateSet = await buildConversationCandidates(availableChannels);
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    log.warn(
-      { err: errMsg },
-      "Failed to build conversation candidates, proceeding without candidates",
-    );
-  }
+  // Pass-through branches run before the preference and candidate loads
+  // below: their copy and routing are producer-supplied, so neither DB
+  // lookup can influence the outcome.
 
   // Assistant-tool pass-through: when a producer hands us a verbatim
   // message body via contextPayload.requestedMessage, skip the LLM
   // classifier entirely. The producer has already done the routing and
-  // copy decisions — we just enforce the standard post-decision guards
+  // copy decisions, we just enforce the standard post-decision guards
   // and persist the result.
   const requestedBody = nonEmpty(
     readPayloadString(signal.contextPayload, "requestedMessage"),
   );
   if (signal.sourceChannel === "assistant_tool" && requestedBody) {
     const payload = signal.contextPayload as Record<string, unknown>;
-    const body = requestedBody;
-    const title =
-      nonEmpty(readPayloadString(signal.contextPayload, "requestedTitle")) ??
-      deriveTitle(body);
     const isUrgent =
       signal.attentionHints.urgency === "critical" ||
       signal.attentionHints.urgency === "high";
@@ -939,48 +985,57 @@ export async function evaluateSignal(
         );
       }
     }
-    // Thread `--deep-link-metadata` through when supplied as a plain object.
-    const deepLinkTarget =
-      payload.deepLinkMetadata != null &&
-      typeof payload.deepLinkMetadata === "object" &&
-      !Array.isArray(payload.deepLinkMetadata)
-        ? (payload.deepLinkMetadata as Record<string, unknown>)
-        : undefined;
-    // Populate renderedCopy and conversationActions for every available
-    // channel — not just `selectedChannels`. Downstream guards
-    // (routing-intent expansion in `enforceRoutingIntent`, urgency-forced
-    // vellum prepending in `emit-signal`) may widen `selectedChannels`
-    // beyond what we picked here. Pre-seeding copy for all channels ensures
-    // the verbatim message survives those expansions rather than falling
-    // back to an empty `composeFallbackCopy` body.
-    let decision: NotificationDecision = {
-      shouldNotify: selectedChannels.length > 0,
+    return buildPassThroughDecision({
+      signal,
+      availableChannels,
       selectedChannels,
+      body: requestedBody,
       reasoningSummary: "assistant_tool pass-through",
-      renderedCopy: Object.fromEntries(
-        availableChannels.map((ch) => [
-          ch,
-          { title, body, conversationSeedMessage: body },
-        ]),
-      ) as NotificationDecision["renderedCopy"],
-      conversationActions: Object.fromEntries(
-        availableChannels.map((ch) => [ch, { action: "start_new" as const }]),
-      ) as NotificationDecision["conversationActions"],
-      dedupeKey: signal.signalId,
-      confidence: 1.0,
-      fallbackUsed: false,
-      ...(deepLinkTarget ? { deepLinkTarget } : {}),
-    };
-    decision = enforceGuardianRequestCode(decision, signal);
-    decision = enforceToolApprovalSeedBlocks(decision, signal);
-    decision = enforceAccessRequestInstructions(decision, signal);
-    decision = enforceGuardianRequestConversationAffinity(decision, signal);
-    decision = enforceConversationAffinity(
-      decision,
-      signal.conversationAffinityHint,
+    });
+  }
+
+  // Assistant-reply pass-through: the delivery scope is fixed
+  // (ASSISTANT_REPLY_CHANNELS), so the LLM classifier has nothing to decide.
+  if (signal.sourceEventName === "chat.assistant_reply" && requestedBody) {
+    return buildPassThroughDecision({
+      signal,
+      availableChannels,
+      selectedChannels: ASSISTANT_REPLY_CHANNELS.filter((ch) =>
+        availableChannels.includes(ch),
+      ),
+      body: requestedBody,
+      reasoningSummary: "assistant_reply pass-through",
+    });
+  }
+
+  // When no explicit preference context is provided, load the user's
+  // stored notification preferences from the memory-backed store.
+  // Wrapped in try/catch so a DB failure doesn't break the decision path.
+  let resolvedPreferenceContext = preferenceContext;
+  if (resolvedPreferenceContext === undefined) {
+    try {
+      resolvedPreferenceContext = getPreferenceSummary() ?? undefined;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { err: errMsg },
+        "Failed to load preference summary, proceeding without preferences",
+      );
+      resolvedPreferenceContext = undefined;
+    }
+  }
+
+  // Build conversation candidate set for reuse decisions. Wrapped in try/catch
+  // so candidate lookup failures do not block the decision path.
+  let candidateSet: ConversationCandidateSet | undefined;
+  try {
+    candidateSet = await buildConversationCandidates(availableChannels);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { err: errMsg },
+      "Failed to build conversation candidates, proceeding without candidates",
     );
-    decision.persistedDecisionId = persistDecision(signal, decision);
-    return decision;
   }
 
   const provider = await getConfiguredProvider("notificationDecision");

@@ -1,11 +1,4 @@
-import {
-  ArrowLeft,
-  Check,
-  Cloud,
-  EllipsisVertical,
-  Laptop,
-  Plus,
-} from "lucide-react";
+import { Check, Cloud, EllipsisVertical, Laptop, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -23,7 +16,6 @@ import {
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { handleRadioCardArrowNav } from "@/domains/onboarding/components/radio-card-nav";
-import { SessionCornerAction } from "@/domains/onboarding/components/session-corner-action";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { isElectron } from "@/runtime/is-electron";
@@ -307,11 +299,6 @@ export function SelectAssistantScreen() {
 
   return (
     <OnboardingLayout>
-      <SessionCornerAction
-        loginLoading={loginLoading}
-        onLogin={() => void login()}
-        onCancelLogin={cancelLogin}
-      />
       <div
         className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-6"} text-[var(--content-default)]`}
       >
@@ -321,12 +308,11 @@ export function SelectAssistantScreen() {
           className={`flex w-full flex-col items-center ${electron ? "" : "flex-1 justify-center"}`}
         >
         <h1
-          className={`text-center ${
-            electron
-              ? "text-title-large"
-              : "text-3xl font-semibold tracking-tight"
-          }`}
-          style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
+          className="text-center text-5xl font-normal tracking-tight"
+          style={{
+            fontFamily: "var(--font-serif)",
+            animation: "fadeInUp 0.5s ease-out 0.1s both",
+          }}
         >
           Choose an Assistant
         </h1>
@@ -429,9 +415,8 @@ export function SelectAssistantScreen() {
         >
           <Button
             variant="ghost"
-            size="compact"
+            size="regular"
             className="text-[var(--content-tertiary)]"
-            leftIcon={<ArrowLeft />}
             onClick={onBack}
             disabled={connecting || loginLoading}
           >
@@ -526,7 +511,9 @@ function AssistantCard({
       }
       className={[
         "group flex w-full items-center border text-left",
-        electron ? "gap-3 rounded-lg p-3" : "gap-4 rounded-2xl px-5 py-4",
+        electron
+          ? "gap-3 rounded-lg px-[10px] py-3"
+          : "gap-4 rounded-2xl px-[18px] py-4",
         "transition-all duration-200 ease-out",
         locked
           ? "border-[var(--border-base)] bg-[var(--surface-overlay)]"
@@ -541,7 +528,7 @@ function AssistantCard({
       <div
         className={[
           "flex shrink-0 items-center justify-center transition-colors duration-200",
-          electron ? "h-8 w-8 rounded-lg" : "h-10 w-10 rounded-xl",
+          "h-12 w-12 rounded-[10px]",
           selected && !locked
             ? "bg-[var(--primary-base)] text-[var(--surface-base)]"
             : "bg-[var(--surface-active)]/40 text-[var(--content-secondary)]",
@@ -559,7 +546,7 @@ function AssistantCard({
           {assistantLabel(assistant)}
         </span>
         <span
-          className={`mt-0.5 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}
+          className={`mt-1 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default font-normal" : "text-body-small-lighter"}`}
         >
           {subtitle}
         </span>

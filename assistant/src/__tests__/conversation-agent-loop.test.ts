@@ -379,6 +379,11 @@ mock.module("../runtime/sync/sync-publisher.js", () => ({
   publishSyncInvalidation: publishSyncInvalidationMock,
 }));
 
+const emitAssistantReplyNotificationMock = mock(async () => {});
+mock.module("../notifications/assistant-reply-producer.js", () => ({
+  emitAssistantReplyNotification: emitAssistantReplyNotificationMock,
+}));
+
 afterAll(() => {
   mock.module(
     "../persistence/conversation-crud.js",
@@ -895,6 +900,7 @@ beforeEach(() => {
   setAgentLoopExitReasonOnLatestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
+  emitAssistantReplyNotificationMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
   updateConversationSlackContextWatermarkMock.mockClear();
@@ -2268,6 +2274,120 @@ describe("session-agent-loop", () => {
         string,
       ];
       expect(deleteCall[0]).toBe("msg-reserve");
+    });
+
+    test("does not push the synthetic error row as a reply notification", async () => {
+      // The synthetic row carries the provider's error text. It reaches the
+      // `message_complete` branch like any other turn, so without the
+      // provider-error guard the tail would send that text to the lock screen
+      // as if it were the assistant's reply.
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("upstream 500");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(addMessageMock).toHaveBeenCalled();
+      expect(emitAssistantReplyNotificationMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("assistant-reply notification wiring", () => {
+    test("a completed turn notifies with the row that opened it", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-7", () => {});
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [
+        { conversationId: string; userMessageId: string | undefined },
+      ];
+      expect(notifyCall[0]).toMatchObject({
+        conversationId: "test-conv",
+        userMessageId: "msg-user-7",
+      });
+    });
+
+    test("a caller-supplied notify row overrides the turn's user message id", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-tail", () => {}, {
+        notifyUserMessageId: "msg-user-prompt",
+      });
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [{ userMessageId: string | undefined }];
+      expect(notifyCall[0].userMessageId).toBe("msg-user-prompt");
+    });
+
+    test("threads the app-only delivery marker to the producer", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-8", () => {}, {
+        replyDeliveredInAppOnly: true,
+      });
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [{ replyDeliveredInAppOnly?: boolean }];
+      expect(notifyCall[0].replyDeliveredInAppOnly).toBe(true);
+    });
+
+    test("omits the app-only delivery marker for an ordinary turn", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("here you go")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-user-9", () => {});
+
+      expect(emitAssistantReplyNotificationMock).toHaveBeenCalledTimes(1);
+      const notifyCall = emitAssistantReplyNotificationMock.mock
+        .calls[0] as unknown as [Record<string, unknown>];
+      expect(notifyCall[0]).not.toHaveProperty("replyDeliveredInAppOnly");
     });
   });
 

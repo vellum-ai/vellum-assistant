@@ -60,7 +60,7 @@ export function ExtensibilityAppsContent() {
             <code>script-src &apos;self&apos;</code>, no inline scripts).
           </p>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
-            The compile happens off the assistant&apos;s hot path: the plugin source
+            The compile happens off the daemon&apos;s hot path: the plugin source
             watcher builds each app&apos;s <code>src/</code> into its sibling{" "}
             <code>dist/</code> when it detects a change, and that generated{" "}
             <code>apps/&lt;app&gt;/dist</code> is excluded from source
@@ -175,7 +175,7 @@ export function ExtensibilityAppsContent() {
             together. The app reaches those routes through{" "}
             <code>window.vellum.fetch</code> at{" "}
             <code>/x/plugins/&lt;name&gt;/…</code> (the wrapper prepends the{" "}
-            <code>/v1</code> API prefix):{" "}
+            <code>/v1</code> API prefix) —{" "}
             <strong>
               never the global <code>fetch</code>
             </strong>

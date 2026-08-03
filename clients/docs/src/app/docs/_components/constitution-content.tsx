@@ -295,8 +295,8 @@ export function ConstitutionContent() {
               <Image
                 src="/docs/constitution-archetypes.webp"
                 alt="The eight archetypes of creator-assistant relationships"
-                width={2584}
-                height={1777}
+                width={1600}
+                height={900}
                 className="h-auto w-full"
                 unoptimized
               />

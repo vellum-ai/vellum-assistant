@@ -1,29 +1,23 @@
 import { registerPlugin } from "@capacitor/core";
 
 import { isNativePlatform } from "@/runtime/native-auth";
+import { getNativeUrlSchemeForHost } from "@/runtime/native-deep-link";
+import { APEX_DOMAIN } from "@/utils/domains";
 import { getDeviceBool, setDeviceBool } from "@/utils/device-settings";
 
-/**
- * JS ↔ native bridge for the `NativeBiometric` Capacitor plugin registered by
- * `clients/ios/App/App/MyViewController.swift` +
- * `clients/ios/App/App/NativeBiometricPlugin.swift`.
- *
- * The plugin provides biometric-protected Keychain storage for session tokens,
- * enabling Face ID / Touch ID session recovery without a full WorkOS login.
- *
- * Biometric login is enabled by default on devices that support it. Users
- * can opt out via Settings → Privacy. The preference is stored in
- * localStorage under the `device:biometric_enabled` key.
- *
- * References:
- * - https://developer.apple.com/documentation/localauthentication/accessing_keychain_items_with_face_id_or_touch_id
- * - https://developer.apple.com/documentation/security/secaccesscontrolcreateflags
- */
+export type BiometricType =
+  | "faceId"
+  | "touchId"
+  | "opticId"
+  | "fingerprint"
+  | "face"
+  | "biometric"
+  | "none";
 
 interface NativeBiometricPlugin {
   isAvailable(): Promise<{
     available: boolean;
-    biometryType: "faceId" | "touchId" | "opticId" | "none";
+    biometryType?: string;
   }>;
   storeToken(opts: { token: string; server: string }): Promise<void>;
   retrieveToken(opts: {
@@ -33,56 +27,112 @@ interface NativeBiometricPlugin {
   deleteToken(opts: { server: string }): Promise<void>;
 }
 
+export interface BiometricCapability {
+  available: boolean;
+  type: BiometricType;
+  label: string;
+}
+
 const NativeBiometric =
   registerPlugin<NativeBiometricPlugin>("NativeBiometric");
 
-const BIOMETRIC_SERVER = "vellum.ai";
+const BIOMETRIC_LABELS: Record<BiometricType, string> = {
+  faceId: "Face ID",
+  touchId: "Touch ID",
+  opticId: "Optic ID",
+  fingerprint: "your fingerprint",
+  face: "face recognition",
+  biometric: "biometrics",
+  none: "biometrics",
+};
 
-/**
- * Check whether biometric authentication is available on this device.
- * Returns `false` on non-native platforms without throwing.
- */
-export async function isBiometricAvailable(): Promise<boolean> {
+const UNAVAILABLE_CAPABILITY: BiometricCapability = {
+  available: false,
+  type: "none",
+  label: BIOMETRIC_LABELS.none,
+};
+
+function normalizeBiometryType(
+  type: string | undefined,
+  available: boolean,
+): BiometricType {
+  if (!available) {
+    return "none";
+  }
+  if (type && type in BIOMETRIC_LABELS && type !== "none") {
+    return type as BiometricType;
+  }
+  return "biometric";
+}
+
+function getBiometricServerOrigin(): string {
+  return new URL(window.location.origin).origin;
+}
+
+function nativeErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return undefined;
+  }
+  const { code } = error as { code?: unknown };
+  return typeof code === "string" ? code : undefined;
+}
+
+function biometricRetrievalServers(origin: string): string[] {
+  return getNativeUrlSchemeForHost(new URL(origin).hostname)
+    ? [origin, APEX_DOMAIN]
+    : [origin];
+}
+
+export async function getBiometricCapability(): Promise<BiometricCapability> {
+  if (!isNativePlatform()) {
+    return UNAVAILABLE_CAPABILITY;
+  }
+  try {
+    const result = await NativeBiometric.isAvailable();
+    const type = normalizeBiometryType(result.biometryType, result.available);
+    return {
+      available: result.available,
+      type,
+      label: BIOMETRIC_LABELS[type],
+    };
+  } catch {
+    return UNAVAILABLE_CAPABILITY;
+  }
+}
+
+export async function storeBiometricToken(token: string): Promise<boolean> {
   if (!isNativePlatform()) {
     return false;
   }
   try {
-    const { available } = await NativeBiometric.isAvailable();
-    return available;
-  } catch {
+    await NativeBiometric.storeToken({
+      token,
+      server: getBiometricServerOrigin(),
+    });
+    return true;
+  } catch (error) {
+    console.error("[native-biometric] failed to store token:", error);
     return false;
   }
 }
 
-/**
- * Store a session token in the Keychain protected by biometrics.
- * Returns `true` on success, `false` if biometrics are unavailable or
- * the Keychain write fails. Callers should only persist the biometric
- * preference when this returns `true`.
- */
-export async function storeBiometricToken(token: string): Promise<boolean> {
-  if (!(await isBiometricAvailable())) {
-    return false;
-  }
-  try {
-    await NativeBiometric.storeToken({ token, server: BIOMETRIC_SERVER });
-    return true;
-  } catch (err) {
-    console.error("[native-biometric] failed to store token:", err);
-    return false;
-  }
+let pendingRetrieval: Promise<string | null> | null = null;
+
+async function retrieveTokenForServer(server: string): Promise<string> {
+  const { token } = await NativeBiometric.retrieveToken({
+    server,
+    reason: "Sign in to Vellum",
+  });
+  return token;
 }
 
 /**
  * Attempt to retrieve a session token via biometric authentication.
- * iOS presents the Face ID / Touch ID prompt automatically when the
- * Keychain item is accessed.
+ * The native shell presents its biometric prompt when protected storage is accessed.
  *
  * Returns `null` if no token is stored, biometrics fail, or the user
  * cancels the prompt.
  */
-let pendingRetrieval: Promise<string | null> | null = null;
-
 export async function retrieveBiometricToken(): Promise<string | null> {
   if (!isNativePlatform()) {
     return null;
@@ -92,18 +142,25 @@ export async function retrieveBiometricToken(): Promise<string | null> {
   }
 
   pendingRetrieval = (async () => {
-    try {
-      const { token } = await NativeBiometric.retrieveToken({
-        server: BIOMETRIC_SERVER,
-        reason: "Sign in to Vellum",
-      });
-      return token;
-    } catch {
-      return null;
-    } finally {
-      pendingRetrieval = null;
+    for (const server of biometricRetrievalServers(
+      getBiometricServerOrigin(),
+    )) {
+      try {
+        return await retrieveTokenForServer(server);
+      } catch (error) {
+        const code = nativeErrorCode(error);
+        if (code === "KEY_INVALIDATED") {
+          setBiometricEnabled(false);
+        }
+        if (code !== "TOKEN_NOT_FOUND") {
+          return null;
+        }
+      }
     }
-  })();
+    return null;
+  })().finally(() => {
+    pendingRetrieval = null;
+  });
 
   return pendingRetrieval;
 }
@@ -116,10 +173,13 @@ export async function deleteBiometricToken(): Promise<void> {
   if (!isNativePlatform()) {
     return;
   }
-  try {
-    await NativeBiometric.deleteToken({ server: BIOMETRIC_SERVER });
-  } catch {
-    // Ignore — token may not exist.
+
+  for (const server of [getBiometricServerOrigin(), APEX_DOMAIN]) {
+    try {
+      await NativeBiometric.deleteToken({ server });
+    } catch {
+      // Missing plugins and absent credentials are safe to ignore during logout.
+    }
   }
 }
 
@@ -127,10 +187,6 @@ export async function deleteBiometricToken(): Promise<void> {
 // Preference helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Whether biometric session recovery is enabled. Defaults to `true` on
- * native platforms — users must explicitly opt out via Settings → Privacy.
- */
 export function isBiometricEnabled(): boolean {
   return getDeviceBool("biometricEnabled", true);
 }
@@ -138,26 +194,4 @@ export function isBiometricEnabled(): boolean {
 /** Persist the biometric login preference. */
 export function setBiometricEnabled(enabled: boolean): void {
   setDeviceBool("biometricEnabled", enabled);
-}
-
-/** Returns the biometric type label (e.g. "Face ID", "Touch ID"). */
-export async function getBiometricTypeLabel(): Promise<string> {
-  if (!isNativePlatform()) {
-    return "Biometrics";
-  }
-  try {
-    const { biometryType } = await NativeBiometric.isAvailable();
-    switch (biometryType) {
-      case "faceId":
-        return "Face ID";
-      case "touchId":
-        return "Touch ID";
-      case "opticId":
-        return "Optic ID";
-      default:
-        return "Biometrics";
-    }
-  } catch {
-    return "Biometrics";
-  }
 }

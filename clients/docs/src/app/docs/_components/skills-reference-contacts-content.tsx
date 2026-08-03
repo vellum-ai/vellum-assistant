@@ -142,7 +142,7 @@ export function SkillsReferenceContactsContent() {
             </li>
             <li>
               <strong>Trusted contacts.</strong> Making someone a &ldquo;trusted contact&rdquo;
-              gives them limited access to your assistant: they can chat but can&apos;t
+              gives them limited access to your assistant &mdash; they can chat but can&apos;t
               access your memories or sensitive tools without guardian approval.
             </li>
             <li>

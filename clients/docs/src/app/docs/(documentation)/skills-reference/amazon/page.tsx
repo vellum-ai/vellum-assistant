@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Amazon - Vellum Docs",
   description:
-    "Amazon skill for Vellum: shop, track orders, and manage your Amazon account through your assistant.",
+    "Amazon skill for Vellum — shop, track orders, and manage your Amazon account through your assistant.",
   path: "/docs/skills-reference/amazon",
 });
 

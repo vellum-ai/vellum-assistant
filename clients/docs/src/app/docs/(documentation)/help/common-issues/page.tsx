@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Common Issues - Vellum Docs",
   description:
-    "Troubleshoot common Vellum issues: installation, permissions, skills, performance, and workspace problems.",
+    "Troubleshoot common Vellum issues — installation, permissions, skills, performance, and workspace problems.",
   path: "/docs/help/common-issues",
 });
 

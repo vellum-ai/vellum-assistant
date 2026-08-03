@@ -22,7 +22,7 @@ export function SkillsReferenceComputerUseContent() {
             What it does
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Controls your Mac directly: observes the screen via accessibility APIs and
+            Controls your Mac directly &mdash; observes the screen via accessibility APIs and
             screenshots, clicks, types, scrolls, drags, opens apps, and runs AppleScript. Your
             assistant&apos;s hands and eyes on your desktop.
           </p>
@@ -149,11 +149,11 @@ export function SkillsReferenceComputerUseContent() {
               <strong>Session caps.</strong> Sessions are capped at 50 steps with loop detection.
             </li>
             <li>
-              <strong>macOS only.</strong> Computer use is macOS only, not available on other channels.
+              <strong>macOS only.</strong> Computer use is macOS only &mdash; not available on other channels.
             </li>
             <li>
-              <strong>Screen visibility.</strong> Be mindful of what&apos;s visible on screen:
-              screenshots are sent to the AI model.
+              <strong>Screen visibility.</strong> Be mindful of what&apos;s visible on screen
+              &mdash; screenshots are sent to the AI model.
             </li>
           </ul>
         </section>

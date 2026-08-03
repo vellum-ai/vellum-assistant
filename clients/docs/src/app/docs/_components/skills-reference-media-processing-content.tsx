@@ -25,7 +25,7 @@ export function SkillsReferenceMediaProcessingContent() {
             What it does
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Processes video, audio, and image files through a multi-phase pipeline: ingest,
+            Processes video, audio, and image files through a multi-phase pipeline &mdash; ingest,
             analyze with AI (Gemini for vision, Claude for reasoning), and generate clips or
             summaries.
           </p>
@@ -128,8 +128,8 @@ export function SkillsReferenceMediaProcessingContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Automatic chunking.</strong> Large media files are handled automatically:
-              video is split into keyframes or chunks.
+              <strong>Automatic chunking.</strong> Large media files are handled automatically
+              &mdash; video is split into keyframes or chunks.
             </li>
             <li>
               <strong>Cost tracking.</strong> Shows you how much API usage each analysis requires.

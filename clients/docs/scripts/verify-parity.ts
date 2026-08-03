@@ -247,6 +247,39 @@ async function verifyLegalPaths(): Promise<void> {
   }
 }
 
+/** Static assets must be /docs-prefixed (ingress only routes /docs/*) and
+ *  must load through the same base URL the HTML came from. */
+async function verifyAssetSubresources(): Promise<void> {
+  const res = await fetchWithTimeout(`${baseUrl}/docs`);
+  const html = await res.text();
+
+  const unprefixed = html.match(/(?:href|src)="\/_next\/[^"]+"/g) ?? [];
+  check(
+    unprefixed.length === 0,
+    `/docs HTML references ${unprefixed.length} unprefixed /_next asset(s) ` +
+      `(would 404 through ingress): ${unprefixed[0] ?? ""}`,
+  );
+
+  const assetUrls = [
+    ...new Set(
+      [...html.matchAll(/(?:href|src)="(\/docs\/_next\/[^"]+)"/g)].map(
+        (m) => m[1],
+      ),
+    ),
+  ].slice(0, 8);
+  check(
+    assetUrls.length > 0,
+    "/docs HTML references no /docs/_next assets (expected stylesheets/scripts)",
+  );
+  for (const url of assetUrls) {
+    const assetRes = await fetchWithTimeout(`${baseUrl}${url}`);
+    check(
+      assetRes.status === 200,
+      `asset ${url}: expected 200, got ${assetRes.status}`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   console.log(`Verifying docs parity against ${baseUrl}`);
   console.log(`Snapshot routes: ${snapshotRoutes.length}`);
@@ -258,6 +291,7 @@ async function main(): Promise<void> {
   await verifySitemap();
   await verifySearch();
   await verifyLegalPaths();
+  await verifyAssetSubresources();
 
   if (failures.length > 0) {
     console.error(`\nFAIL: ${failures.length} of ${checksRun} checks failed:`);

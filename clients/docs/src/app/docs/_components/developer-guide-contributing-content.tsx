@@ -30,7 +30,7 @@ export function DeveloperGuideContributingContent() {
       <DocsContent title="Contributing" breadcrumb="Docs / Developer Guide / Contributing">
         <p className="mb-8 text-zinc-600">
           Everything you need to set up the Vellum Assistant repo locally, run tests, and submit a pull request.
-          Whether you&apos;re fixing a bug, adding a feature, or improving docs, this page has you covered.
+          Whether you&apos;re fixing a bug, adding a feature, or improving docs — this page has you covered.
         </p>
 
         {/* Prerequisites */}
@@ -40,16 +40,16 @@ export function DeveloperGuideContributingContent() {
           </SectionHeading>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong><a href="https://bun.sh" className="text-emerald-600 hover:text-emerald-500 dark:text-emerald-400">Bun</a></strong>: the
+              <strong><a href="https://bun.sh" className="text-emerald-600 hover:text-emerald-500 dark:text-emerald-400">Bun</a></strong> — the
               only hard requirement. The setup script handles everything else.
             </li>
             <li>
-              <strong>macOS or Linux</strong>: the assistant runtime supports both. macOS uses{" "}
+              <strong>macOS or Linux</strong> — the assistant runtime supports both. macOS uses{" "}
               <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">sandbox-exec</code> for sandboxing,
               Linux uses <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">bwrap</code> (bubblewrap).
             </li>
             <li>
-              <strong>Git</strong>: the setup script configures custom git hooks automatically.
+              <strong>Git</strong> — the setup script configures custom git hooks automatically.
             </li>
           </ul>
           <p className="text-sm text-zinc-500">
@@ -149,7 +149,7 @@ bun run src/index.ts assistant start`}
               Running Tests
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
-              The full test suite is large. <strong>Never run <code className="text-sm">bun test</code> without specifying file paths</strong>: it
+              The full test suite is large. <strong>Never run <code className="text-sm">bun test</code> without specifying file paths</strong> — it
               will hang or timeout.
             </p>
             <pre className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
@@ -188,7 +188,7 @@ cd assistant && bunx tsc --noEmit`}
             <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
               <li>Place test files next to the source: <code className="text-sm">src/path/to/file.test.ts</code></li>
               <li>Use <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">test.todo(&quot;description&quot;, () =&gt; {'{}'})
-              </code> for tests that reproduce unfixed bugs: never commit failing <code className="text-sm">test()</code> cases</li>
+              </code> for tests that reproduce unfixed bugs — never commit failing <code className="text-sm">test()</code> cases</li>
               <li>Convert <code className="text-sm">test.todo</code> to <code className="text-sm">test</code> when the fix lands</li>
               <li>Look at existing tests in the same directory for patterns and conventions</li>
             </ul>
@@ -247,7 +247,7 @@ cd assistant && bunx tsc --noEmit`}
             </SectionHeading>
             <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
               <li>All imports use <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">.js</code> extensions (NodeNext module resolution)</li>
-              <li>Use <code className="text-sm">bun install</code> for dependencies: each package has its own <code className="text-sm">bun.lock</code></li>
+              <li>Use <code className="text-sm">bun install</code> for dependencies — each package has its own <code className="text-sm">bun.lock</code></li>
               <li>Ensure <code className="text-sm">PATH</code> includes Bun: <code className="text-sm">export PATH=&quot;$HOME/.bun/bin:$PATH&quot;</code></li>
             </ul>
           </section>
@@ -264,10 +264,10 @@ cd assistant && bunx tsc --noEmit`}
               PR Conventions
             </SectionHeading>
             <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
-              <li><strong>Squash-merge only</strong>: all PRs are squash-merged into main</li>
-              <li><strong>Worktree isolation</strong>: parallel work uses git worktrees to avoid conflicts</li>
-              <li><strong>Dead code removal</strong>: proactively remove unused code in every change. Ask yourself: &ldquo;After my change, is there any code nothing calls?&rdquo;</li>
-              <li><strong>Linear tickets</strong>: if your PR relates to a Linear issue, include the identifier (e.g. <code className="text-sm">JARVIS-123</code>) in
+              <li><strong>Squash-merge only</strong> — all PRs are squash-merged into main</li>
+              <li><strong>Worktree isolation</strong> — parallel work uses git worktrees to avoid conflicts</li>
+              <li><strong>Dead code removal</strong> — proactively remove unused code in every change. Ask yourself: &ldquo;After my change, is there any code nothing calls?&rdquo;</li>
+              <li><strong>Linear tickets</strong> — if your PR relates to a Linear issue, include the identifier (e.g. <code className="text-sm">JARVIS-123</code>) in
                 the branch name and use <code className="text-sm">Closes JARVIS-123</code> in the commit body for auto-close</li>
             </ul>
           </section>
@@ -336,7 +336,7 @@ cd assistant && bunx tsc --noEmit`}
             Backwards Compatibility
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
-            Vellum has real users: maintain backwards compatibility for all interfaces, persisted state, and data.
+            Vellum has real users — maintain backwards compatibility for all interfaces, persisted state, and data.
             Never ship a change that silently breaks existing behavior.
           </p>
           <p className="mb-4 text-zinc-600">

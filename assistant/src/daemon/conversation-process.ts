@@ -24,12 +24,14 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
   addMessage,
+  isEchoSuppressedUserMessage,
   isHiddenMessageMetadata,
   provenanceFromTrustContext,
   recordConversationPersistedSeq,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../persistence/conversation-crud.js";
+import { isReplyPushIneligibleUserMessage } from "../persistence/conversation-types.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import {
@@ -62,48 +64,6 @@ import { buildTransportHints } from "./transport-hints.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
-
-/**
- * Daemon-injected run lifecycle notifications — subagent (`subagentNotification`),
- * ACP run (`acpNotification`), and any wake trigger (the persisted
- * `<background_event source="...">` row every wake reads) — are persisted into
- * the parent conversation so the orchestrator wakes and reads the trigger, but
- * they are internal scaffolding: the user sees the wake through its inline card
- * ("Conversation Woke", or a terminal card for a backgrounded bash run), not a
- * chat turn. Skip the `user_message_echo` broadcast for these so they never
- * render as a live user bubble; the persisted row is filtered from the rendered
- * transcript on the client.
- *
- * Messages explicitly flagged `hidden` (a hidden `POST /messages` send that
- * queued behind an in-flight turn, e.g. the channel-setup wizard-close
- * marker) are suppressed the same way — the immediate route path already
- * skips their echo, and the persisted `hidden` metadata keeps them out of
- * the fetched transcript.
- */
-export function isEchoSuppressedUserMessage(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  return (
-    isHiddenMessageMetadata(metadata) ||
-    metadata?.subagentNotification != null ||
-    metadata?.acpNotification != null ||
-    isBackgroundEventMetadata(metadata)
-  );
-}
-
-/**
- * True when the row is a persisted `<background_event source="...">` trigger —
- * every wake, scheduled run, and backgrounded-tool completion stamps one (see
- * {@link persistWakeTriggerMessage}). The permission mode such a turn ran under
- * varies (most run interactive; clientless/headless wakes do not) and is
- * recorded separately in `backgroundEventInteractive`; this predicate only
- * identifies the row as a background event.
- */
-export function isBackgroundEventMetadata(
-  metadata: Record<string, unknown> | undefined,
-): boolean {
-  return typeof metadata?.backgroundEventSource === "string";
-}
 
 /** Locale-formatted count for the user-facing context stats cards. */
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
@@ -1392,6 +1352,11 @@ async function drainBatch(
   let lastSuccessfulCurrentPage: string | undefined;
   let lastSuccessfulContent: string | undefined;
   let lastUserMessageId: string | undefined;
+  // `messages.id` of the last member the reply-push producer would actually
+  // notify about. Selected with the producer's own eligibility predicate so a
+  // trailing row it suppresses (a hidden marker, a channel send) cannot stand
+  // in for the prompt ahead of it and swallow that prompt's push.
+  let lastPushEligibleUserMessageId: string | undefined;
   // Members whose persist succeeded. `fanOutOnEvent` below must only
   // broadcast agent-loop events to these — clients whose persist failed
   // already received an error event and must not also receive the
@@ -1557,6 +1522,10 @@ async function drainBatch(
       continue;
     }
 
+    if (!isReplyPushIneligibleUserMessage(qm.metadata)) {
+      lastPushEligibleUserMessageId = lastUserMessageId;
+    }
+
     // Broadcast the user message to all hub subscribers so passive devices
     // see each batched user turn before the assistant reply starts streaming.
     if (!isEchoSuppressedUserMessage(qm.metadata)) {
@@ -1693,7 +1662,13 @@ async function drainBatch(
     isUserMessage?: boolean;
     titleText?: string;
     isHiddenPrompt?: boolean;
-  } = { isUserMessage: true };
+    notifyUserMessageId?: string;
+  } = {
+    isUserMessage: true,
+  };
+  if (lastPushEligibleUserMessageId !== undefined) {
+    drainLoopOptions.notifyUserMessageId = lastPushEligibleUserMessageId;
+  }
   // Source interactive flag from the last successfully-persisted sibling so
   // a trailing failed tail doesn't flip the agent loop's interactivity.
   const lastSuccessfulBatchEntry =
@@ -1767,8 +1742,20 @@ export interface ProcessMessageOptions {
    * turn is excluded from activation counts. Defaults to false — a caller
    * sending machine-authored content into a `standard` conversation must set
    * it explicitly.
+   *
+   * Related to `metadata.automated` below but not the same knob: `automated`
+   * implies scripted (machine-authored is by definition not typed), while
+   * `scripted` carries no memory-indexing side effect. A caller that wants a
+   * turn excluded from activation but still indexed sets this, not that.
    */
   scripted?: boolean;
+  /**
+   * Extra metadata stamped onto the persisted user row alongside the channel
+   * and provenance fields the turn derives. Callers that drive a turn on
+   * someone's behalf use it to mark the row's provenance (e.g. the plugin-api
+   * facade stamps `automated`).
+   */
+  metadata?: Record<string, unknown>;
 }
 
 // ── processMessage ───────────────────────────────────────────────────
@@ -1794,6 +1781,7 @@ export async function processMessage(
     displayContent,
     sourceActorPrincipalId,
     scripted,
+    metadata: callerMetadata,
   } = options;
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -2206,6 +2194,7 @@ export async function processMessage(
       requestId,
       displayContent,
       scripted,
+      ...(callerMetadata ? { metadata: callerMetadata } : {}),
     });
     publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {

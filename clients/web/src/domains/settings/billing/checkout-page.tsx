@@ -20,6 +20,7 @@ import {
 import { checkoutReturnTarget } from "@/lib/billing/checkout-return-target";
 import { parseCustomCheckoutSelection } from "@/lib/billing/custom-checkout-params";
 import { openUrl } from "@/runtime/browser";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -91,7 +92,7 @@ function abandonCheckout() {
  * without paying: the return never arrives, so nothing else is coming to move
  * them off this route.
  */
-export function CheckoutPage() {
+function CheckoutPageContent() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const packageKey = searchParams.get(PACKAGE_PARAM) ?? "";
@@ -382,5 +383,31 @@ export function CheckoutPage() {
         Preparing checkout&hellip;
       </p>
     </div>
+  );
+}
+
+function AndroidCheckoutRedirect() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const target = checkoutContinuation(
+    searchParams,
+    routes.settings.usageBilling,
+  );
+
+  useEffect(() => {
+    abandonCheckout();
+    navigate(target, { replace: true });
+  }, [navigate, target]);
+
+  return null;
+}
+
+export function CheckoutPage() {
+  const isNativeAndroid = useIsNativeAndroid();
+
+  return isNativeAndroid ? (
+    <AndroidCheckoutRedirect />
+  ) : (
+    <CheckoutPageContent />
   );
 }

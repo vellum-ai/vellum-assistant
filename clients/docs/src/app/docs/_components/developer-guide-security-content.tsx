@@ -36,7 +36,7 @@ export function DeveloperGuideSecurityContent() {
           <p className="mb-4 text-zinc-600">
             The sandbox uses native OS-level sandboxing: <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">sandbox-exec</code> with
             SBPL profiles on macOS, <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">bwrap</code> (bubblewrap) on Linux.
-            No extra dependencies on macOS. <strong>Fail-closed</strong>: if the backend is unavailable, commands fail immediately rather than
+            No extra dependencies on macOS. <strong>Fail-closed</strong> — if the backend is unavailable, commands fail immediately rather than
             falling back to unsandboxed execution.
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
@@ -96,11 +96,11 @@ export function DeveloperGuideSecurityContent() {
             Secrets are stored in the macOS Keychain (encrypted file fallback on Linux). The LLM never sees raw tokens or keys.
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>Secret prompt</strong>: a floating <code className="text-sm">SecureField</code> panel collects credentials; the LLM never sees the value.</li>
-            <li><strong>Ingress blocking</strong>: inbound messages are scanned for secrets (regex + entropy) and rejected if detected.</li>
-            <li><strong>Usage policy</strong>: each credential specifies <code className="text-sm">allowedTools</code> and <code className="text-sm">allowedDomains</code>, enforced by the <code className="text-sm">CredentialBroker</code>.</li>
-            <li><strong>No plaintext read API</strong>: secrets are only consumed by the broker for scoped tool execution.</li>
-            <li><strong>One-time send</strong>: when enabled, a &ldquo;Send Once&rdquo; button lets users provide a value for immediate use without persisting it.</li>
+            <li><strong>Secret prompt</strong> — a floating <code className="text-sm">SecureField</code> panel collects credentials; the LLM never sees the value.</li>
+            <li><strong>Ingress blocking</strong> — inbound messages are scanned for secrets (regex + entropy) and rejected if detected.</li>
+            <li><strong>Usage policy</strong> — each credential specifies <code className="text-sm">allowedTools</code> and <code className="text-sm">allowedDomains</code>, enforced by the <code className="text-sm">CredentialBroker</code>.</li>
+            <li><strong>No plaintext read API</strong> — secrets are only consumed by the broker for scoped tool execution.</li>
+            <li><strong>One-time send</strong> — when enabled, a &ldquo;Send Once&rdquo; button lets users provide a value for immediate use without persisting it.</li>
           </ul>
 
           <section id="credential-references" className="mt-6">
@@ -111,8 +111,8 @@ export function DeveloperGuideSecurityContent() {
               Use either format in proxied shell commands:
             </p>
             <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
-              <li><strong>UUID</strong>: the canonical credential ID from <code className="text-sm">credential_store list</code></li>
-              <li><strong>service/field</strong>: human-readable, e.g. <code className="text-sm">fal/api_key</code></li>
+              <li><strong>UUID</strong> — the canonical credential ID from <code className="text-sm">credential_store list</code></li>
+              <li><strong>service/field</strong> — human-readable, e.g. <code className="text-sm">fal/api_key</code></li>
             </ul>
             <p className="mb-4 text-zinc-600">Unknown references fail immediately with a clear error before the command executes.</p>
           </section>
@@ -132,7 +132,7 @@ export function DeveloperGuideSecurityContent() {
               Ambiguity Blocking
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
-              When multiple credentials match the same host, the request is blocked: the proxy refuses to guess.
+              When multiple credentials match the same host, the request is blocked — the proxy refuses to guess.
               Per-credential selection picks the most specific template (exact &gt; wildcard). Cross-credential resolution
               blocks when more than one credential matches.
             </p>
@@ -145,7 +145,7 @@ export function DeveloperGuideSecurityContent() {
             <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
               <li>Check the credential reference matches via <code className="text-sm">credential_store list</code></li>
               <li>Verify the <code className="text-sm">hostPattern</code> matches the target host</li>
-              <li>Check for ambiguity: overlapping patterns block injection</li>
+              <li>Check for ambiguity — overlapping patterns block injection</li>
               <li>Verify the injection template has the correct <code className="text-sm">headerName</code> and <code className="text-sm">valuePrefix</code></li>
               <li>Enable <code className="text-sm">LOG_LEVEL=debug</code> for decision traces</li>
             </ol>
@@ -198,10 +198,10 @@ export function DeveloperGuideSecurityContent() {
             Accepts a scalar string applied to all contexts, or an object with per-context overrides:
           </p>
           <pre className="overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
-{`// Scalar: same threshold everywhere
+{`// Scalar — same threshold everywhere
 autoApproveUpTo: "low"
 
-// Per-context: different thresholds per execution context
+// Per-context — different thresholds per execution context
 autoApproveUpTo: {
   conversation: "low",    // interactive chat sessions
   background: "medium",   // scheduled tasks, heartbeats
@@ -220,9 +220,9 @@ autoApproveUpTo: {
             glob pattern, risk level, decision (allow/deny/ask), and optional directory scope.
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>Pattern matching</strong>: glob patterns for commands, file paths, and URLs</li>
-            <li><strong>Directory scoping</strong>: rules can be scoped to a specific directory, project root, or everywhere. Resolved filesystem paths are matched at evaluation time.</li>
-            <li><strong>Priority resolution</strong>: deny beats ask beats allow at equal priority. More specific patterns win over broader ones.</li>
+            <li><strong>Pattern matching</strong> — glob patterns for commands, file paths, and URLs</li>
+            <li><strong>Directory scoping</strong> — rules can be scoped to a specific directory, project root, or everywhere. Resolved filesystem paths are matched at evaluation time.</li>
+            <li><strong>Priority resolution</strong> — deny beats ask beats allow at equal priority. More specific patterns win over broader ones.</li>
           </ul>
 
           <section id="shell-allowlists" className="mt-6">
@@ -234,10 +234,10 @@ autoApproveUpTo: {
               For example, <code className="text-sm">cd /repo &amp;&amp; gh pr view 5525 --json title</code> generates:
             </p>
             <ul className="mb-4 list-disc space-y-1 pl-6 text-zinc-600">
-              <li><code className="text-sm">cd /repo &amp;&amp; gh pr view 5525 --json title</code>: exact command</li>
-              <li><code className="text-sm">gh pr view *</code>: any <code className="text-sm">gh pr view</code> command</li>
-              <li><code className="text-sm">gh pr *</code>: any <code className="text-sm">gh pr</code> command</li>
-              <li><code className="text-sm">gh *</code>: any <code className="text-sm">gh</code> command</li>
+              <li><code className="text-sm">cd /repo &amp;&amp; gh pr view 5525 --json title</code> — exact command</li>
+              <li><code className="text-sm">gh pr view *</code> — any <code className="text-sm">gh pr view</code> command</li>
+              <li><code className="text-sm">gh pr *</code> — any <code className="text-sm">gh pr</code> command</li>
+              <li><code className="text-sm">gh *</code> — any <code className="text-sm">gh</code> command</li>
             </ul>
             <p className="mb-4 text-zinc-600">
               Compound commands with multiple non-prefix actions only offer an exact-command option to prevent over-generalization.
@@ -249,7 +249,7 @@ autoApproveUpTo: {
               Version-bound Skill Approvals
             </SectionHeading>
             <p className="mb-4 text-zinc-600">
-              Trust rules record the skill&apos;s version hash. If source files change, the hash changes and you&apos;re re-prompted:
+              Trust rules record the skill&apos;s version hash. If source files change, the hash changes and you&apos;re re-prompted —
               modified skills can&apos;t silently inherit previous approvals.
             </p>
           </section>

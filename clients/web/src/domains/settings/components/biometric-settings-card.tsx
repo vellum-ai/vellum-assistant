@@ -7,30 +7,40 @@ import {
 } from "@/runtime/native-auth";
 import {
   deleteBiometricToken,
-  getBiometricTypeLabel,
-  isBiometricAvailable,
+  getBiometricCapability,
   isBiometricEnabled,
   setBiometricEnabled,
   storeBiometricToken,
+  type BiometricCapability,
 } from "@/runtime/native-biometric";
+import { useIsNativeIOS } from "@/runtime/platform-detection";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 export function BiometricSettingsCard() {
   const isNative = useIsNativePlatform();
+  const isNativeIOS = useIsNativeIOS();
   const [enabled, setEnabled] = useState(() => isBiometricEnabled());
-  const [available, setAvailable] = useState(false);
-  const [biometricLabel, setBiometricLabel] = useState("Face ID");
+  const [capability, setCapability] = useState<BiometricCapability | null>(
+    null,
+  );
   const [toggling, setToggling] = useState(false);
 
   useEffect(() => {
     if (!isNative) {
       return;
     }
-    isBiometricAvailable().then(setAvailable);
-    getBiometricTypeLabel().then(setBiometricLabel);
+    let active = true;
+    void getBiometricCapability().then((result) => {
+      if (active) {
+        setCapability(result);
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [isNative]);
 
-  if (!isNative || !available) {
+  if (!isNative || !capability?.available) {
     return null;
   }
 
@@ -40,8 +50,10 @@ export function BiometricSettingsCard() {
       const next = !enabled;
       if (next) {
         const token = getSessionTokenFromCookies();
-        if (token) {
-          await storeBiometricToken(token);
+        if (!token || !(await storeBiometricToken(token))) {
+          setBiometricEnabled(false);
+          setEnabled(false);
+          return;
         }
         setBiometricEnabled(true);
         setEnabled(true);
@@ -60,11 +72,12 @@ export function BiometricSettingsCard() {
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
           <div className="text-body-medium-default text-[var(--content-default)]">
-            Use {biometricLabel} for sign-in
+            Use {capability.label} for sign-in
           </div>
           <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
-            When your session expires, verify with {biometricLabel} or your
-            device passcode instead of signing in again.
+            When your session expires, verify with {capability.label}
+            {isNativeIOS && " or your device passcode"}
+            {" instead of signing in again."}
           </p>
         </div>
         <Toggle

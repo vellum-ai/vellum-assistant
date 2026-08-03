@@ -4,7 +4,7 @@ import path from "node:path";
 
 import JSZip from "jszip";
 
-import { resolveRelativePath } from "./app-protocol";
+import { resolveRelativePath } from "@vellumai/electron-utils/app-protocol";
 
 // ---------------------------------------------------------------------------
 // Types

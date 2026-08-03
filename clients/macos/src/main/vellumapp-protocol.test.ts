@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import { resolveRelativePath } from "./app-protocol";
+import { resolveRelativePath } from "@vellumai/electron-utils/app-protocol";
 import { mimeTypeForPath, resolveBundlePath } from "./vellumapp-protocol";
 
 const BUNDLES_ROOT = "/data/bundles";

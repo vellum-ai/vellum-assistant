@@ -29,11 +29,7 @@ import {
   discardLastAssistantDisplayTurn,
   extractUserPromptText,
 } from "../../daemon/conversation-history.js";
-import {
-  formatSummarizeUpToResult,
-  isBackgroundEventMetadata,
-  isEchoSuppressedUserMessage,
-} from "../../daemon/conversation-process.js";
+import { formatSummarizeUpToResult } from "../../daemon/conversation-process.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   destroyActiveConversation,
@@ -55,6 +51,8 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
+  isBackgroundEventMetadata,
+  isEchoSuppressedUserMessage,
   setConversationEnabledPlugins,
   setConversationSurfaced,
   unarchiveConversation,
@@ -745,6 +743,13 @@ async function handleRetryLastAssistantTurn({
         onEvent: broadcastMessage,
         isUserMessage: true,
         isInteractive,
+        // The re-run carries none of the anchor's original delivery
+        // orchestration: a channel anchor's reply is not posted back to
+        // Slack/Telegram (that is owned by the inbound event's
+        // `finalizeEventDelivery`) and a voice anchor's is not spoken over a
+        // session. The regenerated reply reaches SSE subscribers only, so the
+        // push is the user's only copy once they leave.
+        replyDeliveredInAppOnly: true,
         ...(isHiddenPrompt ? { isHiddenPrompt: true } : {}),
       });
     } catch (err) {

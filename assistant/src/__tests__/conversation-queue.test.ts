@@ -138,6 +138,12 @@ mock.module("../telemetry/turn-outcome.js", () => ({
   stampTurnOutcome: mockStampTurnOutcome,
 }));
 
+const emitAssistantReplyNotificationMock = mock(async () => {});
+
+mock.module("../notifications/assistant-reply-producer.js", () => ({
+  emitAssistantReplyNotification: emitAssistantReplyNotificationMock,
+}));
+
 let linkAttachmentShouldThrow = false;
 let mockAttachmentIdCounter = 0;
 
@@ -1792,6 +1798,80 @@ describe("Batched drain correctness fixes", () => {
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
+
+  // The batch's shared reply answers the person's prompt; the trailing row
+  // only rode along behind it. A channel send gets its reply delivered back to
+  // Slack and a hidden marker is nobody's prompt, so pointing the producer at
+  // either would suppress a push the user is waiting on.
+  // expectEcho pins the deliberate asymmetry between the two gates: the
+  // echo broadcast uses the narrower echo-suppression predicate, so a
+  // channel send is push-ineligible yet must still echo to passive devices.
+  const TRAILING_INELIGIBLE_ROW_CASES: Array<{
+    name: string;
+    metadata: Record<string, unknown>;
+    expectEcho: boolean;
+  }> = [
+    { name: "hidden marker", metadata: { hidden: true }, expectEcho: false },
+    {
+      name: "channel send",
+      metadata: { userMessageChannel: "slack" },
+      expectEcho: true,
+    },
+  ];
+
+  for (const { name, metadata, expectEcho } of TRAILING_INELIGIBLE_ROW_CASES) {
+    test(`drainBatch notifies about the genuine prompt, not a trailing ${name}`, async () => {
+      emitAssistantReplyNotificationMock.mockClear();
+      const conversation = makeConversation();
+      await conversation.loadFromDb();
+
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        requestId: "req-1",
+      });
+      await waitForPendingRun(1);
+
+      conversation.enqueueMessage({
+        content: "batch-prompt-genuine",
+        requestId: "req-prompt",
+      });
+      const trailingEvents: AssistantEvent[] = [];
+      conversation.enqueueMessage({
+        content: "batch-prompt-trailing",
+        requestId: "req-trailing",
+        metadata,
+        onEvent: (e) => {
+          trailingEvents.push(e);
+        },
+      });
+
+      await resolveRun(0);
+      await p1;
+      await waitForPendingRun(2);
+      await resolveRun(1);
+      // Two turns finish here: msg-1's own run, then the batch's shared run.
+      await waitForCondition(
+        () => emitAssistantReplyNotificationMock.mock.calls.length >= 2,
+      );
+
+      const genuineRow = capturedAddMessages.find((m) =>
+        m.content.includes("batch-prompt-genuine"),
+      );
+      expect(genuineRow?.id).toBeDefined();
+
+      const notifyCalls = emitAssistantReplyNotificationMock.mock
+        .calls as unknown as Array<[{ userMessageId: string | undefined }]>;
+      expect(notifyCalls.at(-1)?.[0].userMessageId).toBe(genuineRow!.id);
+
+      const trailingEchoes = trailingEvents.filter(
+        (e) => e.type === "user_message_echo",
+      );
+      expect(trailingEchoes.length).toBe(expectEcho ? 1 : 0);
+
+      await new Promise((r) => setTimeout(r, 10));
+    });
+  }
 
   // Defensive recovery path: buildPassthroughBatch is designed to make
   // the invariant throw unreachable in practice, so neither the head

@@ -88,7 +88,7 @@ export function useChatBannerSlots({
     }
     if (showDiscordBanner) {
       return (
-        <div className="pointer-events-auto w-full px-3 pb-2 sm:px-6">
+        <div className="pointer-events-auto w-full px-3 pb-1 sm:px-6">
           <DiscordNudgeBanner
             onJoin={discordNudge.handleJoin}
             onDismiss={discordNudge.handleBannerDismiss}

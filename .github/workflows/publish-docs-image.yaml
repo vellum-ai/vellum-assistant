@@ -1,10 +1,12 @@
 name: Publish Docs Image
 
-# Builds and publishes the docs-site image to the target environment's
-# Artifact Registry. Pushes to main publish to `dev`; `workflow_dispatch`
-# can target the staging or production environments, which publish once
-# their registry vars are configured. The image lives under the existing
-# `sandbox-images` AR repo.
+# Builds and publishes the docs-site image to each environment's Artifact
+# Registry. Pushes to main publish to dev, staging, and production so every
+# environment's registry always has the latest main build; `workflow_dispatch`
+# republishes to a single chosen environment. The image lives under the
+# existing `sandbox-images` AR repo. Publishing is inert until the platform
+# Helm chart enables the docs backend in that environment and helm-cd rolls
+# it out.
 
 on:
   push:
@@ -29,14 +31,6 @@ on:
           - staging
           - production
 
-# Cancel superseded publishes per environment: concurrency groups run in
-# arbitrary order, so cancelling older runs is what guarantees the newest
-# commit's build is the one that tags `latest`. A cancelled run skips its
-# SHA tag; only the newest image matters in this registry.
-concurrency:
-  group: publish-docs-image-${{ inputs.environment || 'dev' }}
-  cancel-in-progress: true
-
 env:
   DOCS_IMAGE_NAME: sandbox-images/docs-site
 
@@ -44,10 +38,23 @@ jobs:
   push-docs-image:
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 30
+    strategy:
+      # A failure in one environment (e.g. missing registry vars) must not
+      # cancel the others.
+      fail-fast: false
+      matrix:
+        environment: ${{ github.event_name == 'push' && fromJSON('["dev", "staging", "production"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
     permissions:
       contents: read
       id-token: write
-    environment: ${{ inputs.environment || 'dev' }}
+    environment: ${{ matrix.environment }}
+    # Cancel superseded publishes per environment: concurrency groups run in
+    # arbitrary order, so cancelling older runs is what guarantees the newest
+    # commit's build is the one that tags `latest`. A cancelled run skips its
+    # SHA tag; only the newest image matters in this registry.
+    concurrency:
+      group: publish-docs-image-${{ matrix.environment }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -70,7 +77,8 @@ jobs:
           echo "gcp=${{ vars.GCP_REGISTRY_HOST }}/${{ vars.GCP_PROJECT_ID }}/${{ env.DOCS_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
       # Single-arch: GKE nodes are amd64, so no multi-arch digest/manifest
-      # dance is needed.
+      # dance is needed. The gha cache scope is shared across environments,
+      # so one leg builds and the others reuse its layers.
       - name: Build and push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:

@@ -99,7 +99,7 @@ export function HelpFaqContent() {
             <li>
               <strong>
                 <Link
-                  href={"/docs/hosting-options/cloud-hosting"}
+                  href="/docs/hosting-options/cloud-hosting"
                   className="font-semibold text-emerald-700 underline hover:text-emerald-800"
                 >
                   Vellum Cloud
@@ -113,7 +113,7 @@ export function HelpFaqContent() {
             <li>
               <strong>
                 <Link
-                  href={"/docs/hosting-options/local-hosting"}
+                  href="/docs/hosting-options/local-hosting"
                   className="font-semibold text-emerald-700 underline hover:text-emerald-800"
                 >
                   Local hosting
@@ -129,7 +129,7 @@ export function HelpFaqContent() {
             <li>
               <strong>
                 <Link
-                  href={"/docs/hosting-options/advanced-options"}
+                  href="/docs/hosting-options/advanced-options"
                   className="font-semibold text-emerald-700 underline hover:text-emerald-800"
                 >
                   User-Hosted Remote
@@ -146,7 +146,7 @@ export function HelpFaqContent() {
             Most users should start on Cloud. You can move later if your
             needs change. See the{" "}
             <Link
-              href={"/docs/hosting-options"}
+              href="/docs/hosting-options"
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
               Hosting options overview
@@ -187,8 +187,8 @@ export function HelpFaqContent() {
             your machine instead, with credentials kept in the macOS Keychain
             or an AES-256-GCM encrypted file, isolated behind a separate
             Credential Execution Service. In both cases, your conversations
-            and context are sent to your configured AI model provider (Anthropic
-            by default) to generate responses. That&apos;s the trade-off we&apos;re
+            and context are sent to the AI model provider (Anthropic) to
+            generate responses. That&apos;s the trade-off we&apos;re
             transparent about. Full details in{" "}
             <a href={routes.docs.legal.privacyAndData}>Privacy &amp; Data</a>.
           </p>
@@ -207,10 +207,10 @@ export function HelpFaqContent() {
             Does Vellum collect telemetry?
           </SectionHeading>
           <p className="mb-6 text-zinc-600">
-            Yes, unless you opt out. There are two toggles in Settings &gt; Privacy: usage
-            analytics (anonymized token counts and feature adoption, no message content) and
-            crash diagnostics (error reports via Sentry, no personal data). Both are on by
-            default and can be turned off at any time.
+            Only if you opt in. There are two optional toggles in Settings &gt; Privacy: usage
+            analytics (anonymized token counts and feature adoption &mdash; no message content) and
+            crash diagnostics (error reports via Sentry &mdash; no personal data). Both are off by
+            default.
           </p>
 
           <SectionHeading id="can-my-employer-see-what-i-do-with-vellum" level={3}>
@@ -268,7 +268,7 @@ export function HelpFaqContent() {
           <p className="mb-6 text-zinc-600">
             A lot. Gmail management, Google Calendar, Slack integration, web browsing, computer
             control, phone calls, image generation, coding, app building, document writing, task
-            management, screen watching, media processing, and more, about 30 built-in
+            management, screen watching, media processing, and more &mdash; about 30 built-in
             skills in total. You can also build custom skills to extend it further. See the{" "}
             <a href="/docs/skills-reference">Skills Reference</a> for details on each capability.
           </p>
@@ -278,7 +278,7 @@ export function HelpFaqContent() {
           </SectionHeading>
           <p className="mb-6 text-zinc-600">
             Files inside the workspace (<code>~/.vellum/workspace/</code>) are accessible without
-            prompts. Files outside the workspace (on your host machine) require your
+            prompts. Files outside the workspace &mdash; on your host machine &mdash; require your
             explicit permission each time. You see what file it wants to access, whether
             it&apos;s a read or write, and can choose to allow once, allow temporarily, or create
             a persistent rule. See{" "}
@@ -314,7 +314,7 @@ export function HelpFaqContent() {
             Yes, in three ways. You can tell it facts and preferences naturally in conversation
             (it extracts and saves them to long-term memory automatically). You can edit its
             workspace files directly (SOUL.md for behavior, USER.md for facts about you). And you
-            can build custom skills that give it entirely new tools and capabilities. See{" "}
+            can build custom skills that teach it new workflows and capabilities. See{" "}
             <a href="/docs/key-concepts/skills-and-tools">Tools &amp; Skills</a>.
           </p>
 
@@ -323,7 +323,7 @@ export function HelpFaqContent() {
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
             No. Your workspace and tools are local, but your assistant needs an internet connection
-            to think: it sends your messages to your configured AI model provider to generate
+            to think &mdash; it sends your messages to the AI model provider (Anthropic) to generate
             responses. Without internet, it can&apos;t respond.
           </p>
         </section>

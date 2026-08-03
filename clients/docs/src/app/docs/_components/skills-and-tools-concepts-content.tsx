@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
@@ -150,7 +151,7 @@ export function SkillsAndToolsConceptsContent() {
           <p className="mb-4 text-zinc-600">
             Skill tools become available when their skill is loaded. For
             example, loading the Browser skill enables{" "}
-            <code>assistant browser</code> commands: navigate, click,
+            <code>assistant browser</code> commands — navigate, click,
             type, snapshot, extract, and others. Loading the Gmail skill
             adds tools for archiving, labeling, drafting, sending,
             unsubscribing, and more.
@@ -174,7 +175,7 @@ export function SkillsAndToolsConceptsContent() {
               <strong>Tool</strong> = &quot;I can draft an email&quot;
             </li>
             <li>
-              <strong>Skill</strong> = &quot;I know how to browse the web:
+              <strong>Skill</strong> = &quot;I know how to browse the web —
               the Browser skill drives <code>assistant browser</code> commands
               to navigate pages, click elements, fill forms, extract content,
               take screenshots, and handle authentication&quot;
@@ -191,7 +192,7 @@ export function SkillsAndToolsConceptsContent() {
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>SKILL.md</strong>: instructions that teach the
+              <strong>SKILL.md</strong> &mdash; instructions that teach the
               assistant when and how to use the skill
             </li>
           </ul>
@@ -200,12 +201,12 @@ export function SkillsAndToolsConceptsContent() {
           </p>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>TOOLS.json</strong>: a manifest defining what tools
+              <strong>TOOLS.json</strong> &mdash; a manifest defining what tools
               the skill provides, their inputs, risk levels, and execution
               targets
             </li>
             <li>
-              <strong>tools/</strong>: the implementation code behind
+              <strong>tools/</strong> &mdash; the implementation code behind
               each tool
             </li>
           </ul>
@@ -252,7 +253,7 @@ export function SkillsAndToolsConceptsContent() {
                 <tr>
                   <td className="px-4 py-3 font-medium text-zinc-800">Computer use</td>
                   <td className="px-4 py-3 text-zinc-600">Computer Use, Screen Watch</td>
-                  <td className="px-4 py-3 text-zinc-600">Control your Mac directly: click, type, navigate between apps. Watch your screen with OCR at intervals.</td>
+                  <td className="px-4 py-3 text-zinc-600">Control your Mac directly &mdash; click, type, navigate between apps. Watch your screen with OCR at intervals.</td>
                 </tr>
                 <tr>
                   <td className="px-4 py-3 font-medium text-zinc-800">Monitoring</td>
@@ -281,9 +282,9 @@ export function SkillsAndToolsConceptsContent() {
           <p className="mb-4 text-zinc-600">
             Skills aren&apos;t all active at once. Your assistant sees a catalog
             of available skills (names, descriptions, and activation hints) in
-            every conversation. When it determines a skill is relevant
-            (because you asked about email, or said &quot;browse this
-            page&quot;), it calls <code>skill_load</code> to activate it.
+            every conversation. When it determines a skill is relevant &mdash;
+            because you asked about email, or said &quot;browse this
+            page&quot; &mdash; it calls <code>skill_load</code> to activate it.
           </p>
           <p className="mb-4 text-zinc-600">
             Once a skill is loaded:
@@ -307,20 +308,31 @@ export function SkillsAndToolsConceptsContent() {
             Custom and community skills
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
-            If the built-in skills don&apos;t cover what you need, you have two
+            If the built-in skills don&apos;t cover what you need, you have three
             options:
           </p>
           <p className="mb-4 text-zinc-600">
             <strong>Build your own.</strong> Describe what you want and your
-            assistant will scaffold a full skill (SKILL.md with
-            instructions, TOOLS.json with tool definitions, and TypeScript
-            executors), then save it to your <code>skills/</code>{" "}
-            directory. The skill is immediately available.
+            assistant will scaffold a full skill: SKILL.md with instructions,
+            plus optional companion files like reference notes and reusable
+            scripts, saved to your <code>skills/</code> directory. The skill is
+            immediately available.
           </p>
           <blockquote className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-zinc-700">
             &quot;Build me a skill that monitors my favorite subreddit for new
             posts about TypeScript.&quot;
           </blockquote>
+          <p className="mb-4 text-zinc-600">
+            <strong>Learn from completed work.</strong> Your assistant can preserve
+            a reusable procedure after it has actually carried it out. See{" "}
+            <Link
+              href="/docs/key-concepts/self-improving-skills"
+              className="text-zinc-900 underline decoration-zinc-300 underline-offset-2 hover:decoration-zinc-900"
+            >
+              Self-improving Skills
+            </Link>{" "}
+            for how learned skills are created, reviewed, edited, and removed.
+          </p>
           <p className="mb-4 text-zinc-600">
             <strong>Install from the community.</strong> Community skills are
             published on the{" "}
@@ -338,7 +350,7 @@ export function SkillsAndToolsConceptsContent() {
           <p className="mb-0 text-zinc-600">
             Whether custom or community-installed, skills live in your{" "}
             <code>skills/</code> directory. You can inspect, modify, or delete
-            any of them: a skill is just a folder with a few files.
+            any of them &mdash; a skill is just a folder with a few files.
           </p>
         </section>
 
@@ -353,18 +365,18 @@ export function SkillsAndToolsConceptsContent() {
           </p>
           <ul className="mb-4 list-disc space-y-1 pl-6 text-zinc-600">
             <li>
-              <strong>TTS provider</strong>: which text-to-speech
+              <strong>TTS provider</strong> &mdash; which text-to-speech
               service to use (ElevenLabs, Fish Audio)
             </li>
             <li>
-              <strong>Voice ID</strong>: the specific voice model
+              <strong>Voice ID</strong> &mdash; the specific voice model
             </li>
             <li>
-              <strong>Activation key</strong>: the push-to-talk key
+              <strong>Activation key</strong> &mdash; the push-to-talk key
               for voice input on desktop
             </li>
             <li>
-              <strong>Conversation timeout</strong>: how long a
+              <strong>Conversation timeout</strong> &mdash; how long a
               voice conversation stays open after silence
             </li>
           </ul>

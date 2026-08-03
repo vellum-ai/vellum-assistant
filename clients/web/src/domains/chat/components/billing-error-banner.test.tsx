@@ -24,8 +24,7 @@ describe("BillingErrorBanner", () => {
         icon={<span data-testid="banner-icon">!</span>}
         title="Title"
         subtitle="Subtitle"
-        ctaLabel="Upgrade"
-        onAction={onAction}
+        action={{ label: "Upgrade", onClick: onAction }}
       />,
     );
 
@@ -46,8 +45,7 @@ describe("BillingErrorBanner", () => {
         ariaLabel="Billing notice"
         title="Title"
         subtitle="Subtitle"
-        ctaLabel="Upgrade"
-        onAction={() => {}}
+        action={{ label: "Upgrade", onClick: () => {} }}
       />,
     );
 
@@ -61,8 +59,7 @@ describe("BillingErrorBanner", () => {
         ariaLabel="Billing notice"
         title="Title"
         subtitle="Subtitle"
-        ctaLabel="Upgrade"
-        onAction={() => {}}
+        action={{ label: "Upgrade", onClick: () => {} }}
       />,
     );
 

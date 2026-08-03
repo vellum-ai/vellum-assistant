@@ -18,16 +18,15 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 // default export and breaks `new Store(...)`. Bundling their ESM source
 // inline lets Rollup handle the CJS interop correctly at bundle time.
 //
-// `@vellumai/local-mode` (and its `@vellumai/environments` dep) are local
-// `file:` packages whose `exports` point at TypeScript source with no build
-// step. Externalizing them would emit `require("@vellumai/local-mode")`
-// resolving to a `.ts` file the Electron main process can't load at runtime;
-// inlining lets Rollup compile the source into the bundle.
+// Workspace dependencies such as `@vellumai/local-mode` and
+// `@vellumai/electron-utils` export TypeScript source with no build step.
+// Inlining lets Rollup compile their source into the bundle.
 const DEPS_TO_INLINE = [
   "electron-log",
   "electron-store",
   "electron-updater",
   "conf",
+  "@vellumai/electron-utils",
   "@vellumai/ipc-contract",
   "@vellumai/local-mode",
   "@vellumai/environments",

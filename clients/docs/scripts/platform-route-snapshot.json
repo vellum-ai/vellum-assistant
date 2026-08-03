@@ -1,5 +1,5 @@
 {
-  "description": "Docs page routes served by the platform app tree web/src/app/(marketing)/docs at Phase 1 port time. scripts/verify-parity.ts asserts the local app tree and a running instance match this list.",
+  "description": "Docs page routes served by the platform app tree web/src/app/(marketing)/docs as of the 2026-07-31 content re-sync. scripts/verify-parity.ts asserts the local app tree and a running instance match this list.",
   "routes": [
     "/docs",
     "/docs/constitution",
@@ -41,6 +41,7 @@
     "/docs/key-concepts/model-profiles",
     "/docs/key-concepts/oauth-integrations",
     "/docs/key-concepts/scheduling",
+    "/docs/key-concepts/self-improving-skills",
     "/docs/key-concepts/skills-and-tools",
     "/docs/key-concepts/the-workspace",
     "/docs/key-concepts/web-search",

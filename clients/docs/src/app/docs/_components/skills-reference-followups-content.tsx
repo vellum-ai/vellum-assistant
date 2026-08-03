@@ -64,7 +64,7 @@ export function SkillsReferenceFollowupsContent() {
               <tbody className="[&>tr:nth-child(even)]:bg-zinc-50">
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Track my email to Alice, I need a response by Friday&rdquo;
+                    &ldquo;Track my email to Alice &mdash; I need a response by Friday&rdquo;
                   </td>
                   <td className="px-3 py-2">
                     Creates a follow-up tracker
@@ -116,7 +116,7 @@ export function SkillsReferenceFollowupsContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Cross-channel tracking.</strong> Works across channels: track an email,
+              <strong>Cross-channel tracking.</strong> Works across channels &mdash; track an email,
               a Slack DM, or a phone call.
             </li>
             <li>

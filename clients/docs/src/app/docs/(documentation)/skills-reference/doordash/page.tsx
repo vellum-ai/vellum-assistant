@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "DoorDash - Vellum Docs",
   description:
-    "DoorDash skill for Vellum: order food, groceries, and convenience items through your assistant.",
+    "DoorDash skill for Vellum — order food, groceries, and convenience items through your assistant.",
   path: "/docs/skills-reference/doordash",
 });
 

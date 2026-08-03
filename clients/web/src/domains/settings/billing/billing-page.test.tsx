@@ -32,6 +32,7 @@ import type {
   SubscriptionResponse,
 } from "@/generated/api/types.gen";
 import * as platformGate from "@/hooks/use-platform-gate";
+import * as platformDetection from "@/runtime/platform-detection";
 import * as authStore from "@/stores/auth-store";
 
 let subscriptionResponse: SubscriptionResponse;
@@ -44,6 +45,7 @@ let domainsListPaths: string[] = [];
 // so the existing cases behave as before; one case flips it to model a fresh
 // login where the org store hasn't hydrated yet.
 let orgReady = true;
+let nativeAndroid = false;
 
 const ACTIVE_ASSISTANT = { id: "assistant-1" } as unknown as Assistant;
 
@@ -97,6 +99,11 @@ mock.module("@/stores/auth-store", () => ({
 
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => orgReady,
+}));
+
+mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
+  useIsNativeAndroid: () => nativeAndroid,
 }));
 
 mock.module(
@@ -227,11 +234,24 @@ beforeEach(() => {
   domainsCalls = 0;
   domainsListPaths = [];
   orgReady = true;
+  nativeAndroid = false;
   activeAssistantIsPlatformHosted = true;
 });
 
 afterEach(() => {
   cleanup();
+});
+
+describe("BillingTab on native Android", () => {
+  test("shows website guidance without billing controls", () => {
+    nativeAndroid = true;
+    const { getByText, queryByRole, queryByTestId } = renderPage();
+
+    expect(getByText("Manage your subscription on our website.")).toBeTruthy();
+    expect(queryByRole("link")).toBeNull();
+    expect(queryByTestId("plan-card-tier-upgraded")).toBeNull();
+    expect(queryByTestId("onboarding-modal")).toBeNull();
+  });
 });
 
 describe("BillingTab ?pro_onboarding param", () => {

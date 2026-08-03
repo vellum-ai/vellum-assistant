@@ -43,6 +43,7 @@ import {
   isRemoteGatewayMode,
 } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
+import { useIsNativeAndroid } from "@/runtime/platform-detection";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsAuthenticated } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -59,6 +60,10 @@ export function GeneralPage() {
   } = useAssistantWithHealthz();
   const multiPlatformAssistant =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
+  const assistantSwitcher = useClientFeatureFlagStore.use.assistantSwitcher();
+  // Both flags can be on for the same audience; the switcher card supersedes
+  // the in-page picker so two "Switch Assistant" cards never render together.
+  const showAssistantSwitcherCard = assistantSwitcher && isLocalClient();
   const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const settingsSleepPolicy =
@@ -68,6 +73,7 @@ export function GeneralPage() {
   const platformGate = usePlatformGate();
   const infraGate = usePlatformGate({ platformHostedOnly: true });
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  const isNativeAndroid = useIsNativeAndroid();
   const diskPressure = useDiskPressureMonitor({
     assistantId: assistant?.id ?? null,
     enabled: infraGate === "full" && isPlatformHosted,
@@ -141,7 +147,9 @@ export function GeneralPage() {
             void navigate(`${routes.workspace}?sort=size`)
           }
           onUpgradeStorage={
-            infraGate === "full" ? () => void navigate(routes.plans) : null
+            infraGate === "full" && !isNativeAndroid
+              ? () => void navigate(routes.plans)
+              : null
           }
         />
       )}
@@ -313,7 +321,26 @@ export function GeneralPage() {
         </DetailCard>
       )}
 
-      {multiPlatformAssistant && <AssistantPicker />}
+      {multiPlatformAssistant && !showAssistantSwitcherCard && (
+        <AssistantPicker />
+      )}
+
+      {showAssistantSwitcherCard && (
+        <DetailCard
+          title="Switch Assistant"
+          subtitle="Choose which assistant this device is connected to."
+          accessory={
+            <Button
+              variant="outlined"
+              onClick={() =>
+                void navigate(`${routes.selectAssistant}?noAutoSkip=1`)
+              }
+            >
+              Choose Assistant
+            </Button>
+          }
+        />
+      )}
 
       {(showRetire || showDeleteAccount) && (
         <DetailCard variant="danger" title="Danger Zone">

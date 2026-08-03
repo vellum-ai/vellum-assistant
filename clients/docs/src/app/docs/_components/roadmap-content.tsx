@@ -25,7 +25,7 @@ const SHIPPING_SOON: Item[] = [
     emoji: "\u{1FA84}",
     title: "Teleport",
     description:
-      "Your assistant doesn't go dark when your laptop closes. Move seamlessly between local and cloud: same memory, same identity, same conversations.",
+      "Your assistant doesn't go dark when your laptop closes. Move seamlessly between local and cloud — same memory, same identity, same conversations.",
   },
   {
     emoji: "\u{1F310}",
@@ -43,13 +43,13 @@ const SHIPPING_SOON: Item[] = [
     emoji: "\u{2709}\u{FE0F}",
     title: "Email autonomy",
     description:
-      "Your assistant drafts, replies, and handles routine email on its own, with the guardrails you set. You stay in the loop; it does the busywork.",
+      "Your assistant drafts, replies, and handles routine email on its own — with the guardrails you set. You stay in the loop; it does the busywork.",
   },
   {
     emoji: "\u{1F3A5}",
     title: "Google Meet",
     description:
-      "Join meetings, take notes, track action items, and pull them into your to-dos, without another tab to manage.",
+      "Join meetings, take notes, track action items, and pull them into your to-dos — without another tab to manage.",
   },
 ];
 
@@ -70,7 +70,7 @@ const UP_NEXT: Item[] = [
     emoji: "\u{1F916}",
     title: "Slack autopilot",
     description:
-      "Full Slack presence: your assistant watches the channels you care about, replies where you'd want it to, and escalates the rest.",
+      "Full Slack presence — your assistant watches the channels you care about, replies where you'd want it to, and escalates the rest.",
   },
   {
     emoji: "\u{1F512}",
@@ -88,7 +88,7 @@ const UP_NEXT: Item[] = [
     emoji: "\u{1F3AF}",
     title: "Personalization",
     description:
-      "Your assistant adapts to how you work: tone, habits, preferences, the people you talk to. It gets more yours the longer you use it.",
+      "Your assistant adapts to how you work — tone, habits, preferences, the people you talk to. It gets more yours the longer you use it.",
   },
   {
     emoji: "\u{1F9F9}",
@@ -100,7 +100,7 @@ const UP_NEXT: Item[] = [
     emoji: "\u{1F9E0}",
     title: "Subagents",
     description:
-      "Your assistant delegates to specialized helpers in parallel (research, coding, writing) and brings the results back to you.",
+      "Your assistant delegates to specialized helpers in parallel — research, coding, writing — and brings the results back to you.",
   },
   {
     emoji: "\u{1F4C8}",
@@ -112,7 +112,7 @@ const UP_NEXT: Item[] = [
     emoji: "\u{1FA7A}",
     title: "Vellum Doctor",
     description:
-      "A built-in diagnostic that tells you what's broken and how to fix it, before you have to ask.",
+      "A built-in diagnostic that tells you what's broken and how to fix it — before you have to ask.",
   },
   {
     emoji: "\u{1F4BB}",
@@ -130,7 +130,7 @@ const UP_NEXT: Item[] = [
     emoji: "\u{2B50}",
     title: "Vellum Pro plan",
     description:
-      "A paid tier for heavy users and small teams: higher limits, priority support, and features built for people who use Vellum every day.",
+      "A paid tier for heavy users and small teams — higher limits, priority support, and features built for people who use Vellum every day.",
   },
   {
     emoji: "\u{1F5FA}\u{FE0F}",
@@ -145,13 +145,13 @@ const ON_THE_HORIZON: Item[] = [
     emoji: "\u{1F399}\u{FE0F}",
     title: "Real-time voice",
     description:
-      "Talk to your assistant out loud, interrupt it, and have it talk back, with low enough latency that it feels like a real conversation.",
+      "Talk to your assistant out loud, interrupt it, and have it talk back — with low enough latency that it feels like a real conversation.",
   },
   {
     emoji: "\u{1F4DE}",
     title: "Phone calls",
     description:
-      "Your assistant can take and make phone calls on your behalf, screening, scheduling, and handling the calls you don't want to.",
+      "Your assistant can take and make phone calls on your behalf — screening, scheduling, and handling the calls you don't want to.",
   },
   {
     emoji: "\u{1F49A}",
@@ -169,7 +169,7 @@ const ON_THE_HORIZON: Item[] = [
     emoji: "\u{1F3D7}\u{FE0F}",
     title: "Orchestrating coding agents",
     description:
-      "One assistant that coordinates multiple coding agents across your repos, planning, delegating, and shipping end-to-end.",
+      "One assistant that coordinates multiple coding agents across your repos — planning, delegating, and shipping end-to-end.",
   },
   {
     emoji: "\u{1F517}",
@@ -181,7 +181,7 @@ const ON_THE_HORIZON: Item[] = [
     emoji: "\u{1F680}",
     title: "Public apps & shareable pages",
     description:
-      "Ship something your assistant built with a single share link (dashboards, tools, little apps), no deploy step required.",
+      "Ship something your assistant built with a single share link — dashboards, tools, little apps — no deploy step required.",
   },
   {
     emoji: "\u{1F91D}",
@@ -199,31 +199,31 @@ const ON_THE_HORIZON: Item[] = [
     emoji: "\u{1F4CD}",
     title: "Location services",
     description:
-      "Your assistant knows where you are (when you want it to) and acts accordingly: timezone-smart, traffic-aware, context-aware.",
+      "Your assistant knows where you are (when you want it to) and acts accordingly — timezone-smart, traffic-aware, context-aware.",
   },
   {
     emoji: "\u{1F4B3}",
     title: "Agentic payments",
     description:
-      "Your assistant buys the flight, renews the domain, tops up the subscription, within limits you set and receipts you can audit.",
+      "Your assistant buys the flight, renews the domain, tops up the subscription — within limits you set and receipts you can audit.",
   },
   {
     emoji: "\u{1F4AC}",
     title: "Assistant-to-assistant",
     description:
-      "Your assistant can talk to other assistants, coordinating schedules, sharing context, negotiating on your behalf.",
+      "Your assistant can talk to other assistants — coordinating schedules, sharing context, negotiating on your behalf.",
   },
   {
     emoji: "\u{1F426}",
     title: "Twitter & social",
     description:
-      "Draft, schedule, and publish to your socials, in your voice, with your edits, never without your sign-off.",
+      "Draft, schedule, and publish to your socials — in your voice, with your edits, never without your sign-off.",
   },
   {
     emoji: "\u{1F4DD}",
     title: "SEO content workflow",
     description:
-      "From keyword to published post, your assistant runs the whole content loop, while you stay the editor-in-chief.",
+      "From keyword to published post, your assistant runs the whole content loop — while you stay the editor-in-chief.",
   },
   {
     emoji: "\u{1F440}",
@@ -238,7 +238,7 @@ const EXPLORING: Item[] = [
     emoji: "\u{1F4AC}",
     title: "iMessage",
     description:
-      "A native Apple-ecosystem channel for your assistant: texts, read receipts, the works.",
+      "A native Apple-ecosystem channel for your assistant — texts, read receipts, the works.",
   },
   {
     emoji: "\u{1F4B0}",
@@ -256,13 +256,13 @@ const EXPLORING: Item[] = [
     emoji: "\u{231A}",
     title: "Apple Watch",
     description:
-      "Your assistant on your wrist: glanceable, taptic, and ambient.",
+      "Your assistant on your wrist — glanceable, taptic, and ambient.",
   },
   {
     emoji: "\u{1F4E1}",
     title: "Presence detection",
     description:
-      "Your assistant knows when you're at your desk, in a meeting, or asleep, and behaves accordingly.",
+      "Your assistant knows when you're at your desk, in a meeting, or asleep — and behaves accordingly.",
   },
   {
     emoji: "\u{1F3A4}",
@@ -274,13 +274,13 @@ const EXPLORING: Item[] = [
     emoji: "\u{1F5A5}\u{FE0F}",
     title: "Ambient context",
     description:
-      "Your assistant can see what's on your screen when you ask it to, so \"this\" and \"that\" actually mean something.",
+      "Your assistant can see what's on your screen when you ask it to — so \"this\" and \"that\" actually mean something.",
   },
   {
     emoji: "\u{26A1}",
     title: "Use Vellum in any app",
     description:
-      "Summon your assistant inside any app on your system (summarize a doc, reply to a message, translate a selection) without switching windows.",
+      "Summon your assistant inside any app on your system — summarize a doc, reply to a message, translate a selection — without switching windows.",
   },
   {
     emoji: "\u{1F9D1}\u{200D}\u{1F4BB}",
@@ -292,7 +292,7 @@ const EXPLORING: Item[] = [
     emoji: "\u{2728}",
     title: "Dynamic visual presence",
     description:
-      "An assistant that can show up where it's useful (a floating panel, an inline overlay, a quiet notification) and get out of the way when it isn't.",
+      "An assistant that can show up where it's useful — a floating panel, an inline overlay, a quiet notification — and get out of the way when it isn't.",
   },
   {
     emoji: "\u{1F5C4}\u{FE0F}",
@@ -304,7 +304,7 @@ const EXPLORING: Item[] = [
     emoji: "\u{1F3E0}",
     title: "Personal life automation",
     description:
-      "The small recurring stuff (birthdays, renewals, reservations, errands), handled without a spreadsheet.",
+      "The small recurring stuff — birthdays, renewals, reservations, errands — handled without a spreadsheet.",
   },
   {
     emoji: "\u{1F3A8}",
@@ -406,14 +406,14 @@ export function RoadmapContent() {
             The fine print
           </SectionHeading>
           <p className="mb-4 text-stone-600 dark:text-stone-400">
-            Polish, bug fixes, and security improvements are a standing commitment:
-            a meaningful slice of every team&apos;s capacity goes here, always.
+            Polish, bug fixes, and security improvements are a standing commitment
+            — a meaningful slice of every team&apos;s capacity goes here, always.
             That work doesn&apos;t show up on this page, but it ships continuously.
           </p>
           <p className="mb-4 text-stone-600 dark:text-stone-400">
             Priorities shift. Dates move. Some items will merge, some will split,
             some will get dropped. This page changes with us. If there&apos;s
-            something you want to see sooner, tell us. We read every note.
+            something you want to see sooner, tell us — we read every note.
           </p>
           <p className="mb-0 text-stone-600 dark:text-stone-400">
             Want to share feedback on our Roadmap? Drop us a note in{" "}

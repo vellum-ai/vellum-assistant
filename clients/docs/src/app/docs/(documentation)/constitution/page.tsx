@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Vellum Constitution - Vellum Docs",
   description:
-    "The Vellum Constitution: our purpose, worldview, principles, and the commitments that guide every product, design, and engineering decision we make.",
+    "The Vellum Constitution — our purpose, worldview, principles, and the commitments that guide every product, design, and engineering decision we make.",
   path: "/docs/constitution",
 });
 

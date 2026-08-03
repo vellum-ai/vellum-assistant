@@ -111,8 +111,8 @@ export function SkillsReferenceChatGPTImportContent() {
               history become searchable via the memory system.
             </li>
             <li>
-              <strong>Selective import.</strong> Only user and assistant messages are imported:
-              system prompts and metadata are skipped.
+              <strong>Selective import.</strong> Only user and assistant messages are imported
+              &mdash; system prompts and metadata are skipped.
             </li>
           </ul>
         </section>

@@ -394,6 +394,44 @@ describe("TranscriptMessageBody", () => {
     expect(markdown!.getAttribute("data-hard-line-breaks")).toBe("true");
   });
 
+  test("holds a shimmer for each announced in-flight visual", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-pending-visual",
+          role: "assistant",
+          contentBlocks: [textBlock("Here is the path a request takes.")],
+          pendingVisualToolUseIds: ["toolu_viz"],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    const placeholder = container.querySelector("[role='status']");
+    expect(placeholder).not.toBeNull();
+    expect(placeholder!.textContent).toContain("Sketching a visual");
+    expect(placeholder!.className).toContain("skeleton-shimmer");
+  });
+
+  test("renders no shimmer once the row carries no announced visual", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-no-pending-visual",
+          role: "assistant",
+          contentBlocks: [textBlock("Here is the path a request takes.")],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+        isStreaming
+      />,
+    );
+
+    expect(container.querySelector("[role='status']")).toBeNull();
+  });
+
   test("renders user text from a text block inside the user bubble with hard line breaks", () => {
     const { container } = render(
       <TranscriptMessageBody

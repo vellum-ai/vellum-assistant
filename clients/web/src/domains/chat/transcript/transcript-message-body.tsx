@@ -32,6 +32,7 @@ import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors
 import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
 import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
+import { VisualPlaceholder } from "@/domains/chat/components/surfaces/visual-placeholder";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
 import { WEB_TOOL_NAMES } from "@/domains/chat/utils/tool-call-card-utils";
@@ -164,6 +165,11 @@ export function TranscriptMessageBody({
       ? trailingGroup.text
       : null,
   );
+
+  // Visuals announced by a still-streaming `ui_show` (`ui_surface_pending`).
+  // Each holds a shimmer at the end of the row's activity area until its
+  // widget lands, its call resolves, or the turn ends.
+  const pendingVisualToolUseIds = message.pendingVisualToolUseIds ?? [];
 
   const isTouch = isPointerCoarse();
 
@@ -855,7 +861,8 @@ export function TranscriptMessageBody({
     items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
   ): ReactNode => {
     type Slot =
-      { kind: "bubble"; nodes: ReactNode[] } | { kind: "raw"; node: ReactNode };
+      | { kind: "bubble"; nodes: ReactNode[] }
+      | { kind: "raw"; node: ReactNode };
     const slots: Slot[] = [];
     let textRun: ReactNode[] = [];
 
@@ -1108,6 +1115,9 @@ export function TranscriptMessageBody({
     >
       <div className={columnClass}>
         {assistantContent}
+        {pendingVisualToolUseIds.map((toolUseId) => (
+          <VisualPlaceholder key={`visual-pending-${toolUseId}`} />
+        ))}
         {hasAttachments && (
           <MessageAttachments
             attachments={message.attachments ?? []}

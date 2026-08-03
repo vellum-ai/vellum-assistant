@@ -24,6 +24,12 @@
 // case only the dense Qdrant write is deferred so the cache (and the v3 needle
 // lane it feeds) still reflects the current skills. An unexpected error in
 // another step leaves the prior cache intact (skills are best-effort).
+//
+// Always-candidate skills are pinned into the selector pool by catalog
+// declaration rather than by similarity, so their membership and their cards
+// are served from the local catalog before the first seed run completes —
+// `listAlwaysCandidateSkillSlugs` primes that fallback, and the seeded snapshot
+// replaces it as soon as it lands.
 
 import { listCatalogSkills, listInstalledSkills } from "@vellumai/plugin-api";
 
@@ -79,6 +85,30 @@ export function skillSlugFor(id: string): string {
  * successful re-seed so callers always see a consistent snapshot.
  */
 let entries: Map<string, SkillEntry> | null = null;
+
+/**
+ * Ids of the enabled skills that declared `always-candidate` in their
+ * frontmatter, captured from the same enumeration that builds {@link entries}
+ * and replaced with it. Reading it here rather than re-enumerating the catalog
+ * keeps the injection engines off the per-turn filesystem scan
+ * `listInstalledSkills` performs.
+ */
+let alwaysCandidateIds: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Pre-seed view of the same enabled-skill cards, read straight from the local
+ * catalog by {@link ensureCatalogFallback}.
+ *
+ * Always-candidate membership is a static catalog fact, so the injection
+ * engines must not have to wait on Qdrant plus a configured embedding backend
+ * to learn it: on a freshly hatched assistant the first turn arrives before the
+ * boot seed finishes, and an empty pin set means the model never sees a pinned
+ * skill card. The fallback is built at most once and is dropped the moment a
+ * seed run installs the authoritative {@link entries} snapshot.
+ */
+let fallbackEntries: Map<string, SkillEntry> | null = null;
+let fallbackAlwaysCandidateIds: ReadonlySet<string> = new Set<string>();
+let fallbackLoad: Promise<void> | null = null;
 let requestedSeedGeneration = 0;
 let processedSeedGeneration = 0;
 let activeSeedDrain: Promise<void> | null = null;
@@ -105,11 +135,93 @@ const seedWaiters: Array<{ generation: number; resolve: () => void }> = [];
  */
 let legacyKindBackfillDone = false;
 
+interface InstalledSkillCards {
+  /** Every locally installed skill id, whatever its resolved state. */
+  installedIds: Set<string>;
+  /** Rendered capability cards for the enabled skills, in catalog order. */
+  cards: SkillEntry[];
+  /** The subset of {@link cards} whose skill declared `always-candidate`. */
+  alwaysCandidateIds: Set<string>;
+}
+
+/**
+ * Enumerate the installed skill catalog and render one capability card per
+ * enabled skill. Feature-flag gating is resolved host-side: gated skills arrive
+ * as `state: "unavailable"` and are dropped by the enabled filter, as are
+ * skills the user disabled.
+ *
+ * The single definition of "which skills are enabled and what does each card
+ * say": the seed run embeds these cards and caches them in {@link entries},
+ * and {@link ensureCatalogFallback} serves the same cards from the catalog
+ * before the first seed completes.
+ */
+async function buildInstalledSkillCards(): Promise<InstalledSkillCards> {
+  const installed = await listInstalledSkills();
+  const installedIds = new Set<string>(installed.map((s) => s.id));
+  const cards: SkillEntry[] = [];
+  const alwaysCandidateIds = new Set<string>();
+  for (const skill of installed) {
+    if (skill.state !== "enabled") {
+      continue;
+    }
+    const augmented = augmentMcpSetupDescription(skill);
+    // Always-candidate skills are pinned into the selector pool every turn, so
+    // they get a larger budget for a fuller, multi-mode capability statement.
+    const content = buildSkillContent(
+      augmented,
+      skill.alwaysCandidate ? ALWAYS_CANDIDATE_CARD_CHARS : undefined,
+    );
+    if (skill.alwaysCandidate) {
+      alwaysCandidateIds.add(skill.id);
+    }
+    cards.push({ id: skill.id, content });
+  }
+  return { installedIds, cards, alwaysCandidateIds };
+}
+
+/**
+ * Populate {@link fallbackEntries} from the local catalog when no seed run has
+ * installed {@link entries} yet. A no-op once either cache is present, so the
+ * per-turn cost after the first call is a resolved promise rather than the
+ * filesystem scan `listInstalledSkills` performs. Concurrent callers share one
+ * in-flight build; a failed build is not latched, so the next turn retries.
+ */
+async function ensureCatalogFallback(): Promise<void> {
+  if (entries || fallbackEntries) {
+    return;
+  }
+  const pending = (fallbackLoad ??= buildInstalledSkillCards()
+    .then(({ cards, alwaysCandidateIds: ids }) => {
+      // A seed that landed while this build was in flight is authoritative.
+      if (entries) {
+        return;
+      }
+      fallbackEntries = new Map(cards.map((card) => [card.id, card]));
+      fallbackAlwaysCandidateIds = ids;
+    })
+    .catch((err: unknown) => {
+      log.warn(
+        { err },
+        "Failed to enumerate the skill catalog for the pre-seed card fallback",
+      );
+    })
+    .finally(() => {
+      fallbackLoad = null;
+    }));
+  await pending;
+}
+
+/** The authoritative seeded snapshot, or the pre-seed catalog fallback. */
+function readableEntries(): Map<string, SkillEntry> | null {
+  return entries ?? fallbackEntries;
+}
+
 /**
  * Steps (per run):
  *   1. Enumerate the installed skill catalog with resolved states
- *      (`listInstalledSkills`). Feature-flag gating is resolved host-side:
- *      gated skills arrive as `state: "unavailable"` and are not seeded.
+ *      (`buildInstalledSkillCards`, over `listInstalledSkills`). Feature-flag
+ *      gating is resolved host-side: gated skills arrive as
+ *      `state: "unavailable"` and are not seeded.
  *   2. Build a `SkillEntry` per enabled skill, applying the mcp-setup
  *      augmentation and the prose-style content render (`buildSkillContent`,
  *      capped at 500 chars).
@@ -176,29 +288,17 @@ function resolveSeedWaiters(): void {
 async function runSeedV2SkillEntries(generation: number): Promise<void> {
   try {
     const config = getConfig();
-    const installed = await listInstalledSkills();
-    const enabled = installed.filter((s) => s.state === "enabled");
 
-    // Track every locally-installed skill id (regardless of enabled/disabled/
-    // unavailable state) so the catalog-seeding loop below treats them all as
-    // "installed" and never re-seeds a disabled skill from the remote catalog
-    // as if it were uninstalled.
-    const installedIds = new Set<string>(installed.map((s) => s.id));
-
-    // Build the input list, applying the mcp-setup description augmentation.
-    // Flag-gated skills arrive as `state: "unavailable"` and are excluded by
-    // the enabled filter.
-    const seeds: SkillEntry[] = [];
-    for (const skill of enabled) {
-      const augmented = augmentMcpSetupDescription(skill);
-      // Always-candidate skills are pinned into the selector pool every turn, so
-      // they get a larger budget for a fuller, multi-mode capability statement.
-      const content = buildSkillContent(
-        augmented,
-        skill.alwaysCandidate ? ALWAYS_CANDIDATE_CARD_CHARS : undefined,
-      );
-      seeds.push({ id: skill.id, content });
-    }
+    // `installedIds` tracks every locally-installed skill id (regardless of
+    // enabled/disabled/unavailable state) so the catalog-seeding loop below
+    // treats them all as "installed" and never re-seeds a disabled skill from
+    // the remote catalog as if it were uninstalled.
+    const {
+      installedIds,
+      cards,
+      alwaysCandidateIds: nextAlwaysCandidateIds,
+    } = await buildInstalledSkillCards();
+    const seeds: SkillEntry[] = [...cards];
 
     // Seed uninstalled catalog skills so their activation hints are
     // discoverable by intent. Track whether the catalog was available so we
@@ -366,6 +466,11 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
     // observes the new skill set (skill entries share the unified concept-page
     // collection and surface in the same index).
     entries = nextEntries;
+    alwaysCandidateIds = nextAlwaysCandidateIds;
+    // The seeded snapshot supersedes the pre-seed catalog fallback, which also
+    // omits the uninstalled catalog skills this run embedded.
+    fallbackEntries = null;
+    fallbackAlwaysCandidateIds = new Set<string>();
     invalidatePageIndex();
 
     // Surface a dense-embed failure to `throwOnError` callers (the managed-
@@ -380,9 +485,11 @@ async function runSeedV2SkillEntries(generation: number): Promise<void> {
 }
 
 /**
- * Synchronous lookup of a previously-seeded `SkillEntry` by skill id. Returns
- * `null` when the cache has not yet been populated, when the id is unknown,
- * or when a prior seed run dropped the id (e.g. the skill was disabled).
+ * Synchronous lookup of a rendered `SkillEntry` by skill id, served from the
+ * seeded cache or — before the first seed completes — from the pre-seed
+ * catalog fallback {@link listAlwaysCandidateSkillSlugs} primes. Returns `null`
+ * when neither is populated, when the id is unknown, or when a prior seed run
+ * dropped the id (e.g. the skill was disabled).
  *
  * Accepts either a bare skill id (`example-skill`) or its unified-collection
  * slug (`skills/example-skill`) so render-side callers can pass through what
@@ -395,7 +502,7 @@ export function getSkillCapability(idOrSlug: string): SkillEntry | null {
   const id = idOrSlug.startsWith(SKILL_SLUG_PREFIX)
     ? idOrSlug.slice(SKILL_SLUG_PREFIX.length)
     : idOrSlug;
-  const entry = entries?.get(id);
+  const entry = readableEntries()?.get(id);
   return entry ? Object.freeze({ ...entry }) : null;
 }
 
@@ -423,9 +530,40 @@ export function listSkillEntries(): SkillEntry[] {
     .map((entry) => Object.freeze({ ...entry }));
 }
 
+/**
+ * Slugs of the enabled skills marked `always-candidate`, restricted to those
+ * whose card is renderable.
+ *
+ * Retrieval scores a skill by how closely the turn resembles its card, so a
+ * cross-cutting capability the user never names by hand never wins a candidate
+ * slot. These skills opt out of that: whether they apply is a judgment for the
+ * model, so the injection engines pin their cards instead of waiting for a
+ * similarity hit.
+ *
+ * Async because membership is a static catalog fact that must not depend on the
+ * embedding store: before the first seed run completes this reads the catalog
+ * directly (see {@link ensureCatalogFallback}), which also makes each pinned
+ * slug's card resolvable through {@link getSkillCapability} so the render path
+ * emits it instead of silently dropping the pin. Once a seed run lands, its
+ * snapshot is authoritative.
+ */
+export async function listAlwaysCandidateSkillSlugs(): Promise<string[]> {
+  await ensureCatalogFallback();
+  const available = readableEntries();
+  const ids = entries ? alwaysCandidateIds : fallbackAlwaysCandidateIds;
+  return [...ids]
+    .filter((id) => available?.has(id) === true)
+    .sort()
+    .map((id) => skillSlugFor(id));
+}
+
 /** @internal Test-only: clear the module-level cache. */
 export function _resetSkillStoreForTests(): void {
   entries = null;
+  alwaysCandidateIds = new Set<string>();
+  fallbackEntries = null;
+  fallbackAlwaysCandidateIds = new Set<string>();
+  fallbackLoad = null;
   requestedSeedGeneration = 0;
   processedSeedGeneration = 0;
   activeSeedDrain = null;

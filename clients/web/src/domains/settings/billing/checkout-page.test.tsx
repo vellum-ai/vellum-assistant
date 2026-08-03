@@ -16,6 +16,7 @@ import { saveCheckoutIntent } from "@/lib/billing/checkout-intent";
 import * as capacitorCore from "@capacitor/core";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
+import * as platformDetection from "@/runtime/platform-detection";
 import * as orgReadyMod from "@/hooks/use-is-org-ready";
 import type { OrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import * as platformGateMod from "@/hooks/use-platform-gate";
@@ -50,6 +51,7 @@ let takeoverValue: MarketingPricingTakeoverState = "enabled";
 // Drives `Capacitor.isNativePlatform()`, which is what puts checkout in an
 // `SFSafariViewController` that leaves this route mounted underneath it.
 let nativePlatform = false;
+let nativeAndroid = false;
 // When true the upgrade rejects — drives the error path. Otherwise it resolves
 // with `upgradeData`.
 let upgradeRejects = false;
@@ -100,6 +102,11 @@ mock.module("@/runtime/browser", () => ({
     openedUrl = url;
     return Promise.resolve();
   },
+}));
+
+mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
+  useIsNativeAndroid: () => nativeAndroid,
 }));
 
 mock.module("@/hooks/use-platform-gate", () => ({
@@ -201,6 +208,7 @@ beforeEach(() => {
   orgReadinessValue = "ready";
   takeoverValue = "enabled";
   nativePlatform = false;
+  nativeAndroid = false;
   delete (window as { vellum?: unknown }).vellum;
   fetchOrganizationsCalls = 0;
   useOrganizationStore.setState({
@@ -228,6 +236,56 @@ afterEach(() => {
 });
 
 describe("CheckoutPage", () => {
+  test("redirects native Android to billing without creating checkout", async () => {
+    nativeAndroid = true;
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: AVATAR_TRAITS,
+    });
+    const { getByTestId } = renderCheckout(
+      "/assistant/checkout?package=super",
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(
+        "/assistant/settings/usage?tab=billing",
+      ),
+    );
+    expect(upgradeCalls.length).toBe(0);
+    expect(openedUrl).toBeNull();
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+    expect(readTakeoverAvatarStash()).toBeNull();
+  });
+
+  test("native Android resumes onboarding without leaving checkout state", async () => {
+    nativeAndroid = true;
+    saveCheckoutIntent({
+      kind: "package",
+      packageKey: "super",
+      resumeAfterOnboarding: true,
+    });
+    saveTakeoverAvatarStash({
+      assistantId: "a1",
+      components: BUNDLED_COMPONENTS,
+      traits: AVATAR_TRAITS,
+    });
+    const { getByTestId } = renderCheckout(ONBOARDING_ENTRY);
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(ONBOARDING_NEXT),
+    );
+    expect(upgradeCalls.length).toBe(0);
+    expect(openedUrl).toBeNull();
+    expect(sessionStorage.getItem(INTENT_KEY)).toBeNull();
+    expect(readTakeoverAvatarStash()).toBeNull();
+  });
+
   test("valid package + full gate fires the upgrade, stashes intent and avatar, opens Stripe", async () => {
     const client = freshQueryClient();
     seedCachedAvatar(client, "a1");

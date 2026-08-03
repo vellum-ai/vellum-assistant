@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Messaging - Vellum Docs",
   description:
-    "Messaging skill for Vellum: send and receive messages across Slack, Gmail, and Telegram.",
+    "Messaging skill for Vellum — send and receive messages across Slack, Gmail, and Telegram.",
   path: "/docs/skills-reference/messaging",
 });
 

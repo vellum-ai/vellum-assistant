@@ -25,8 +25,8 @@ export function SkillsReferenceSkillManagementContent() {
             What it does
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Creates and deletes custom managed skills. The meta-skill that lets you extend your
-            assistant with new capabilities.
+            Creates and deletes custom managed skills. The meta-skill that lets
+            you extend your assistant with new capabilities.
           </p>
         </section>
 
@@ -43,7 +43,8 @@ export function SkillsReferenceSkillManagementContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              Skill creation/deletion is classified as high-risk and always requires approval
+              Skill creation/deletion is classified as high-risk and always
+              requires approval
             </li>
           </ul>
         </section>
@@ -67,19 +68,17 @@ export function SkillsReferenceSkillManagementContent() {
               <tbody className="[&>tr:nth-child(even)]:bg-zinc-50">
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Build me a skill that checks Hacker News for trending posts&rdquo;
+                    &ldquo;Build me a skill that checks Hacker News for trending
+                    posts&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Scaffolds a new custom skill
-                  </td>
+                  <td className="px-3 py-2">Scaffolds a new custom skill</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Create a skill for managing my project&apos;s deployment pipeline&rdquo;
+                    &ldquo;Create a skill for managing my project&apos;s
+                    deployment pipeline&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Creates a domain-specific skill
-                  </td>
+                  <td className="px-3 py-2">Creates a domain-specific skill</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
@@ -104,8 +103,16 @@ export function SkillsReferenceSkillManagementContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              Creates a full skill package: SKILL.md (instructions), TOOLS.json (tool definitions),
-              and TypeScript executors
+              Creates a skill folder: SKILL.md (instructions) plus optional
+              companion files, such as references/*.md for failure modes and
+              cached values, and scripts/* for reusable code the skill runs
+              (invoked with python3 or bun)
+            </li>
+            <li>
+              Companion scripts are plain files the assistant runs from the
+              terminal; skills built this way cannot register executable skill
+              tools (TOOLS.json ships only with built-in and
+              community-installed skills)
             </li>
             <li>Skills are saved to ~/.vellum/workspace/skills/</li>
           </ul>
@@ -117,20 +124,28 @@ export function SkillsReferenceSkillManagementContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Extend your assistant.</strong> Custom skills are how you add capabilities
-              beyond the built-in set.
+              <strong>Extend your assistant.</strong> Custom skills are how you
+              add capabilities beyond the built-in set.
             </li>
             <li>
-              <strong>Fully automated.</strong> The assistant writes the code, tests it, and packages
-              it: you just describe what you want.
+              <strong>Fully automated.</strong> The assistant writes the code,
+              tests it, and packages it &mdash; you just describe what you want.
             </li>
             <li>
-              <strong>High-risk classification.</strong> Skill source file modifications always
-              require approval to prevent privilege escalation.
+              <strong>High-risk classification.</strong> Skill source file
+              modifications always require approval to prevent privilege
+              escalation.
             </li>
             <li>
-              <strong>Review before approving.</strong> Check the generated code before granting
-              approval. You can also edit skill files directly if you prefer.
+              <strong>Review before approving.</strong> Check the generated code
+              before granting approval. You can also edit skill files directly
+              if you prefer.
+            </li>
+            <li>
+              <strong>Scripts come from proven runs.</strong> When the assistant
+              stores a scripts/ file in a skill, it saves the exact code it
+              already ran successfully, so reusing the skill later runs the
+              script instead of rewriting the code from scratch.
             </li>
           </ul>
         </section>

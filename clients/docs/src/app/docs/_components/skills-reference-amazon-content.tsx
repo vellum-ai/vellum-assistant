@@ -23,8 +23,8 @@ export function SkillsReferenceAmazonContent() {
             What it does
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Searches, browses, and shops on Amazon and Amazon Fresh for you, from finding
-            products to placing orders, using your existing Amazon account.
+            Searches, browses, and shops on Amazon and Amazon Fresh for you &mdash; from finding
+            products to placing orders &mdash; using your existing Amazon account.
           </p>
         </section>
 
@@ -39,11 +39,11 @@ export function SkillsReferenceAmazonContent() {
           <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
             <li>Make sure Chrome is open with the Vellum extension connected</li>
             <li>
-              Say: <em>&ldquo;Order something from Amazon&rdquo;</em>. Your assistant will
+              Say: <em>&ldquo;Order something from Amazon&rdquo;</em> &mdash; your assistant will
               check your session and prompt you to sign in if needed
             </li>
             <li>
-              A Chrome window opens to the Amazon login page. Sign in as usual. Your
+              A Chrome window opens to the Amazon login page. Sign in as usual &mdash; your
               assistant detects the login automatically
             </li>
           </ol>
@@ -201,7 +201,7 @@ export function SkillsReferenceAmazonContent() {
             <li>No manual configuration needed</li>
             <li>Session is captured automatically when you sign into Amazon in Chrome</li>
             <li>
-              Supports multiple payment methods: your assistant can list your saved cards
+              Supports multiple payment methods &mdash; your assistant can list your saved cards
               and let you choose at checkout
             </li>
           </ul>
@@ -223,7 +223,7 @@ export function SkillsReferenceAmazonContent() {
             </li>
             <li>
               <strong>Sessions expire.</strong> Amazon sessions don&apos;t last forever. If your
-              assistant says the session expired, you&apos;ll need to sign in again. It
+              assistant says the session expired, you&apos;ll need to sign in again &mdash; it
               takes about 30 seconds.
             </li>
             <li>
@@ -237,7 +237,7 @@ export function SkillsReferenceAmazonContent() {
             </li>
             <li>
               <strong>Product variations.</strong> For items with sizes, colors, or styles, your
-              assistant will show you the available options and let you pick, or it&apos;ll
+              assistant will show you the available options and let you pick &mdash; or it&apos;ll
               choose the best match if you&apos;ve already specified (e.g.,{" "}
               &ldquo;large blue&rdquo;).
             </li>
