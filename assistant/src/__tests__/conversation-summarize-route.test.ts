@@ -257,7 +257,13 @@ describe("POST /v1/conversations/summarize", () => {
 
     await settle();
 
-    expect(ctx.summarizeUpToMessage).toHaveBeenCalledWith("msg-42");
+    // The second arg is the sink the context-window usage push rides. This
+    // route's conversation may hold the store's no-op sender, so it hands in
+    // the broadcast path its result card goes out on.
+    expect(ctx.summarizeUpToMessage).toHaveBeenCalledWith(
+      "msg-42",
+      expect.any(Function),
+    );
     expect(ctx.emitActivityState).toHaveBeenCalledWith(
       "thinking",
       "context_compacting",

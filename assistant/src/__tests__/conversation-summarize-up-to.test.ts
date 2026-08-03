@@ -865,12 +865,12 @@ describe("Conversation.summarizeUpToMessage", () => {
     expect(recordOutcome).toHaveBeenCalledWith(true, expect.anything());
   });
 
-  test("reports tokenizer counts and pushes them to the context-window indicator", async () => {
+  test("reports tokenizer counts and pushes them to the caller's sink", async () => {
+    // The management route resolves its conversation outside the send path, so
+    // the instance keeps the store's no-op sender: the push has to ride the
+    // sink the route hands in, not `sendToClient`.
     const collected: AssistantEvent[] = [];
-    const conversation = makeConversation({
-      counts: [56_000, 18_000],
-      onEvent: (msg) => collected.push(msg),
-    });
+    const conversation = makeConversation({ counts: [56_000, 18_000] });
     mockCompactResult = {
       ...makeNoopResult(),
       compacted: true,
@@ -882,7 +882,9 @@ describe("Conversation.summarizeUpToMessage", () => {
       compactedPersistedMessages: 4,
     };
 
-    const result = await conversation.summarizeUpToMessage("m4");
+    const result = await conversation.summarizeUpToMessage("m4", (msg) =>
+      collected.push(msg),
+    );
 
     expect(result.previousEstimatedInputTokens).toBe(56_000);
     expect(result.estimatedInputTokens).toBe(18_000);
@@ -896,6 +898,26 @@ describe("Conversation.summarizeUpToMessage", () => {
     expect(usageEvent.conversationId).toBe("conv-1");
     expect(usageEvent.tokens).toBe(result.estimatedInputTokens);
     expect(usageEvent.maxTokens).toBe(200_000);
+  });
+
+  test("falls back to the conversation's own sender when no sink is passed", async () => {
+    const collected: AssistantEvent[] = [];
+    const conversation = makeConversation({
+      counts: [56_000, 18_000],
+      onEvent: (msg) => collected.push(msg),
+    });
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      maxInputTokens: 200_000,
+      compactedPersistedMessages: 4,
+    };
+
+    await conversation.summarizeUpToMessage("m4");
+
+    expect(
+      collected.filter((m) => m.type === "context_window_usage"),
+    ).toHaveLength(1);
   });
 });
 

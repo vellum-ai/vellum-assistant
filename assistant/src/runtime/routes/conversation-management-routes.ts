@@ -278,7 +278,14 @@ async function handleSummarizeConversation({ body = {} }: RouteHandlerArgs) {
       conversation.emitActivityState("thinking", "context_compacting", {
         statusText: "Summarizing conversation",
       });
-      const result = await conversation.summarizeUpToMessage(beforeMessageId);
+      // The context-window usage push goes out on the same broadcast path as
+      // the result card below: this route resolves its conversation outside
+      // the send path, so the instance may still hold the store's no-op
+      // sender and a `sendToClient` emit would reach nobody.
+      const result = await conversation.summarizeUpToMessage(
+        beforeMessageId,
+        broadcastMessage,
+      );
       // Stop aborted the in-flight summary: the compactor reports the aborted
       // provider call as a non-compacted result (it swallows the abort rather
       // than throwing), so detect cancellation via the signal. A cancelled
