@@ -19752,6 +19752,16 @@ paths:
                     snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send
                     path only — slash-command content bypasses it."
                   type: boolean
+                scripted:
+                  description:
+                    "When true, this turn was auto-sent on the user's behalf rather than typed by them — onboarding research
+                    prompts, the personality rewrite message, research corrections, hidden kickoff greetings, the legacy
+                    pre-chat bootstrap. Stamped onto the persisted message and forwarded to turn telemetry, where
+                    activation metrics exclude it. Send false for a genuine typed message; OMIT the field only if the
+                    client genuinely cannot tell, since absent means UNKNOWN and a wrong false is trusted downstream.
+                    Independent of `hidden`: a turn can be visible and scripted (the research prompt) or hidden and
+                    scripted (the kickoff greeting)."
+                  type: boolean
                 onboarding:
                   type: object
                   properties:

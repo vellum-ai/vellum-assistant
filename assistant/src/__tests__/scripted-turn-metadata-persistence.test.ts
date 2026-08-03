@@ -166,24 +166,26 @@ describe("scripted-turn metadata persistence", () => {
     expect(lastUserMetadata().scripted).toBe(false);
   });
 
-  test("omits the key entirely for an ordinary send", async () => {
-    // Deliberately UNKNOWN rather than false: the web client does not yet mark
-    // its auto-sent onboarding turns, so defaulting to false here would assert
-    // "the user typed this" about the research prompt and kickoff greeting and
-    // contradict the trace-text classifier that already labels them scripted.
-    // Flip this expectation only in the change that marks the web producers.
+  test("defaults an ordinary send to false, asserting a typed turn", async () => {
+    // The default is what makes activation MEASURABLE: absent would mean
+    // "unknown", which is strictly worse information than a truthful false.
+    // Safe only because every auto-send path is marked at its source (web
+    // onboarding flows, surface synthetics, `automated`).
     const ctx = createContext();
     await persistQueuedMessageBody(ctx, {
       content: "a message the user actually typed",
       requestId: "req-ordinary",
     });
 
-    expect("scripted" in lastUserMetadata()).toBe(false);
+    expect(lastUserMetadata().scripted).toBe(false);
   });
 
-  test("ignores a non-boolean `scripted` in the metadata bag", async () => {
+  test("falls back to the default for a non-boolean `scripted` in the bag", async () => {
     // Guards against a truthy string ("true", "1") from an untyped caller
-    // being read as a scripted assertion.
+    // being read as a scripted assertion. It must not survive the metadata
+    // spread either — sqlite would store the string verbatim and the store's
+    // narrowing turns anything that isn't 1 into `false`, so a leaked "true"
+    // would invert into "the user typed this".
     const ctx = createContext();
     await persistQueuedMessageBody(ctx, {
       content: "hello",
@@ -191,7 +193,7 @@ describe("scripted-turn metadata persistence", () => {
       metadata: { scripted: "true" },
     });
 
-    expect("scripted" in lastUserMetadata()).toBe(false);
+    expect(lastUserMetadata().scripted).toBe(false);
   });
 
   test("stamps false when the caller explicitly asserts a typed turn", async () => {

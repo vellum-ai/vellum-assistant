@@ -683,12 +683,10 @@ export interface PersistMessageOptions {
    * can only see owners who opted into diagnostics, so it silently counted
    * scripted turns as real messages for everyone else (ANT-10).
    *
-   * Left ABSENT (unknown) rather than defaulted to `false` while the web
-   * client still auto-sends onboarding turns without marking them: a blanket
-   * `false` would assert "the user typed this" about the research prompt and
-   * kickoff greeting, contradicting the trace-text classifier that already
-   * labels them scripted. Absent reads as unknown downstream and falls back to
-   * that classifier, so stamping is additive today.
+   * Defaults to `false`: a daemon that knows about the field asserts "the user
+   * typed this" for ordinary sends, which is what makes a user's activation
+   * measurable. This is only safe because every auto-send path is marked at
+   * its source — see the merged-metadata note below for the list.
    *
    * Callers persisting machine-authored content into a `standard` conversation
    * MUST pass `true` — a wrong `false` is trusted downstream and re-inflates
@@ -871,7 +869,10 @@ export async function persistQueuedMessageBody(
     const scriptedFromAutomated =
       metadataWithoutSlackInbound.automated === true ? true : undefined;
     const resolvedScripted =
-      options.scripted ?? scriptedFromMetadata ?? scriptedFromAutomated;
+      options.scripted ??
+      scriptedFromMetadata ??
+      scriptedFromAutomated ??
+      false;
 
     // Client attribution for turn telemetry, stored under the `client`
     // metadata bag which `turn-events-store` forwards onto
@@ -920,17 +921,21 @@ export async function persistQueuedMessageBody(
       // is how queued sends carry it, since the queue round-trips `metadata`
       // but not `PersistMessageOptions` (same carrier as the `hidden` flag).
       //
-      // Stamped ONLY when known. Ordinary sends are deliberately left absent
-      // (= "unknown") rather than defaulting to false, because the web client
-      // does not yet mark its auto-sent onboarding turns: defaulting to false
-      // today would assert "the user typed this" about the research prompt and
-      // kickoff greeting, contradicting the trace-text classifier that already
-      // labels them scripted. Downstream reads absent as unknown and falls
-      // back to that classifier, so this is additive and changes no metric.
+      // Always stamped, including the `false` default: a daemon that knows
+      // about the field asserts "the user typed this" for ordinary sends, and
+      // that assertion is what makes a user's activation MEASURABLE
+      // downstream. Absent would mean "unknown", which is strictly worse
+      // information than a truthful false.
       //
-      // Flip this to a `false` default in the same change that marks the web
-      // producers — not before, and not after.
-      ...(resolvedScripted === undefined ? {} : { scripted: resolvedScripted }),
+      // Defaulting to false is only safe because every auto-send path is now
+      // marked at its source — the web onboarding flows (research prompt,
+      // kickoff, personality, corrections, legacy bootstrap), `[User action
+      // on ...]` surface synthetics, and anything flagged `automated`. A new
+      // auto-send path that forgets to mark itself lands here as a false and
+      // is believed. The `assert_scripted_signals_agree` dbt test is the
+      // backstop: it fires when a turn claiming `false` matches a known
+      // scripted template.
+      scripted: resolvedScripted,
     };
 
     // Materialize each attachment into an attachment-store row up front so the

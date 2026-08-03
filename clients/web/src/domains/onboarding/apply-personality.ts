@@ -97,6 +97,10 @@ export async function applyPersonality({
       sourceChannel: "vellum",
       interface: "vellum",
       clientMessageId: crypto.randomUUID(),
+      // Auto-sent on the user's behalf — they moved sliders, they did not type
+      // this. Keeps the turn out of activation counts for every user, not just
+      // those whose diagnostics consent lets the trace classifier see it.
+      scripted: true,
     };
     const posted = await messagesPost({
       path: { assistant_id: assistantId },

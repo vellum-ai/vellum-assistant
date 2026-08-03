@@ -104,6 +104,9 @@ export async function sendResearchCorrection({
       interface: "web",
       clientOs: detectClientOs(),
       clientMessageId: crypto.randomUUID(),
+      // Auto-sent correction built from the findings the user kept/rejected on
+      // the results step — a click, not a typed message.
+      scripted: true,
     };
     await messagesPost({
       path: { assistant_id: assistantId },

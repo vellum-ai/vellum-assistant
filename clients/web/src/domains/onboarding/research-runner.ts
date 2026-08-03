@@ -606,6 +606,10 @@ export function useResearchRunner(): UseResearchRunner {
               interface: "web",
               clientOs: detectClientOs(),
               clientMessageId: crypto.randomUUID(),
+              // Auto-sent research kickoff, not typed by the user. Excluded
+              // from activation counts for every user, not just those whose
+              // diagnostics consent lets the trace classifier see it.
+              scripted: true,
             };
             // Carry the browser timezone so any time-relative reasoning resolves
             // to the user's local clock. Mirrors `checkin-scheduler.ts`.
