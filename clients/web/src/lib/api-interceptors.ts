@@ -422,6 +422,10 @@ const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
 const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
 const GW_401_COOLDOWN_MS = 600_000;
 const GW_401_MAX_RELOADS = 3;
+// Attempts age out after a quiet spell, so the budget bounds a burst rather
+// than the renderer's whole lifetime. Must exceed the cooldown, or every
+// attempt would age out before the next one and the budget would never bind.
+const GW_401_ATTEMPT_WINDOW_MS = 1_800_000;
 
 // In-memory latch: once recovery fires, all subsequent 401s in the same
 // page lifecycle are no-ops. Resets naturally on reload.
@@ -457,25 +461,37 @@ export function localGatewayAuthRecoveryInterceptor(
   }
 
   try {
-    const attempts = Number(
-      sessionStorage.getItem(GW_401_ATTEMPTS_KEY) ?? "0",
-    );
-    // A budget that has already been spent means reloading has not fixed
-    // this gateway and will not; let the 401 through to the error path.
-    if (Number.isFinite(attempts) && attempts >= GW_401_MAX_RELOADS) {
+    const now = Date.now();
+    const rawLast = sessionStorage.getItem(GW_401_RELOAD_KEY);
+    const lastReload = rawLast === null ? null : Number(rawLast);
+    const sinceLast =
+      lastReload !== null && Number.isFinite(lastReload)
+        ? now - lastReload
+        : Infinity;
+
+    // A gap longer than the window means whatever was rejecting tokens has
+    // stopped, so the next failure starts from a full budget. Reading the
+    // counter unconditionally would make it monotonic for the life of the
+    // renderer, and a session left open for days would spend its budget on
+    // recoveries that each succeeded.
+    const stored =
+      sinceLast >= GW_401_ATTEMPT_WINDOW_MS
+        ? 0
+        : Number(sessionStorage.getItem(GW_401_ATTEMPTS_KEY) ?? "0");
+    const attempts = Number.isFinite(stored) ? stored : 0;
+
+    // A budget spent inside the window means reloading is not fixing this
+    // gateway; let the 401 through to the error path.
+    if (attempts >= GW_401_MAX_RELOADS) {
       return response;
     }
-    const lastReload = sessionStorage.getItem(GW_401_RELOAD_KEY);
-    if (lastReload && Date.now() - Number(lastReload) < GW_401_COOLDOWN_MS) {
+    if (sinceLast < GW_401_COOLDOWN_MS) {
       return response;
     }
-    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now()));
-    sessionStorage.setItem(
-      GW_401_ATTEMPTS_KEY,
-      String((Number.isFinite(attempts) ? attempts : 0) + 1),
-    );
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(now));
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(attempts + 1));
   } catch {
-    // sessionStorage unavailable — cannot enforce cooldown or budget, skip
+    // sessionStorage unavailable: cannot enforce cooldown or budget, skip
     // reload to avoid infinite reload loops.
     return response;
   }

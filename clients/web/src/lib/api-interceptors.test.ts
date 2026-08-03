@@ -1022,6 +1022,7 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
   const GW_401_RELOAD_KEY = "vellum:gw:401-reload-at";
   const GW_401_ATTEMPTS_KEY = "vellum:gw:401-reload-attempts";
   const GW_401_MAX_RELOADS = 3;
+  const GW_401_ATTEMPT_WINDOW_MS = 1_800_000;
 
   function makeResponse(status: number, url: string): Response {
     const response = new Response(null, { status });
@@ -1264,14 +1265,43 @@ describe("api-interceptors / localGatewayAuthRecoveryInterceptor", () => {
 
   test("hands the 401 back unchanged once the budget is spent", () => {
     sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
+    // Inside the ageing window, so the spent budget still binds.
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
     const response = gatewayResponse(401);
 
     expect(localGatewayAuthRecoveryInterceptor(response)).toBe(response);
     expect(reloadCalls).toBe(0);
   });
 
+  test("attempts age out, so successful recoveries do not spend the budget", () => {
+    // Three recoveries that each worked, spread out over a long-lived
+    // session. The budget must not be consumed by them.
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
+    sessionStorage.setItem(
+      GW_401_RELOAD_KEY,
+      String(Date.now() - GW_401_ATTEMPT_WINDOW_MS - 1),
+    );
+
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    expect(reloadCalls).toBe(1);
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBe("1");
+  });
+
+  test("attempts inside the window still accumulate", () => {
+    sessionStorage.setItem(GW_401_ATTEMPTS_KEY, "2");
+    // Past the cooldown but well inside the ageing window.
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
+
+    localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
+
+    expect(reloadCalls).toBe(1);
+    expect(sessionStorage.getItem(GW_401_ATTEMPTS_KEY)).toBe("3");
+  });
+
   test("a fresh renderer session grants a new budget", () => {
     sessionStorage.setItem(GW_401_ATTEMPTS_KEY, String(GW_401_MAX_RELOADS));
+    sessionStorage.setItem(GW_401_RELOAD_KEY, String(Date.now() - 700_000));
     localGatewayAuthRecoveryInterceptor(gatewayResponse(401));
     expect(reloadCalls).toBe(0);
 
