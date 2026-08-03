@@ -126,8 +126,8 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   // `latency-optimized` is the latency-class profile (see
   // default-profile-catalog.ts): managed installs get the pinned latency model,
   // BYOK installs resolve their own provider's latency model through the intent
-  // table rather than a model id they may hold no credential for. It is now
-  // user-facing ("Speed"), so a user who edits it moves this call site too.
+  // table rather than a model id they may hold no credential for. The profile
+  // is user-facing ("Speed"), so a user edit to it moves this call site too.
   voiceFrontDecision: {
     profile: "latency-optimized",
     effort: "low",

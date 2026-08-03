@@ -9,10 +9,10 @@
 /**
  * Stable keys of the always-available default profiles, in picker order.
  *
- * The key names are historical and no longer track the labels: `cost-optimized`
- * is "Cost" and `latency-optimized` is "Speed". Renaming the keys would break
- * every `llm.callSites.*.profile`, `activeProfile` and schedule pin on disk, so
- * only the labels moved (see `default-profile-catalog.ts`).
+ * A key is an on-disk contract: `llm.callSites.*.profile`, `activeProfile`,
+ * mix arms and schedule pins all reference it, so a key is fixed regardless of
+ * the label its profile carries. `cost-optimized` is labelled "Cost" and
+ * `latency-optimized` is labelled "Speed" (see `default-profile-catalog.ts`).
  *
  * `latency-optimized` also backs the live-voice front model, which is why it
  * exists as a profile rather than a raw model pin on the call site: a pin

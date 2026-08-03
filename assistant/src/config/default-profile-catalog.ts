@@ -265,9 +265,8 @@ const HATCH_ERA_TEMPLATE_FIELDS: Partial<
  * conversion pass as the reference for recognizing unedited copies, which
  * are safe to remove in favor of the code-resolved defaults.
  *
- * `latency-optimized` is included for shape only. It became a user-facing
- * default after hatch seeding stopped writing copies, so no install holds a
- * `custom-latency-optimized`.
+ * The `latency-optimized` entry exists for shape only: hatch seeding writes no
+ * `custom-latency-optimized`, so no install holds one to recognize.
  */
 export const USER_PROFILE_TEMPLATES: Record<string, DefaultProfileTemplate> =
   Object.fromEntries(
