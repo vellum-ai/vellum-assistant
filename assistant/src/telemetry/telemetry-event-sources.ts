@@ -444,6 +444,13 @@ const turnSource: TelemetryEventSource = {
         ...(outcome === "failed" && e.failureCode
           ? { failure_code: e.failureCode }
           : {}),
+        // Scripted-turn marker. Tri-state, so this is an explicit null check
+        // and NOT `...(e.scripted ? ...)`: a truthiness test would drop every
+        // `false` and turn "the user typed this" into "unknown", which is the
+        // measurement gap the field exists to close. `false` must reach the
+        // wire as a real value; only a genuinely unknown origin (a row
+        // persisted before the marker existed) omits the key.
+        ...(e.scripted == null ? {} : { scripted: e.scripted }),
         // Only attach `trace` when consent is on AND a bounded trace was
         // assembled. Omitting the key entirely when there's no trace keeps
         // the wire shape byte-identical to pre-trace turn events for the

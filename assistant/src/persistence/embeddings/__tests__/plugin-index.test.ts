@@ -123,8 +123,26 @@ const fakeQdrant = {
   },
 };
 
+// The client is already initialized in this process, so the ops resolve it
+// straight from the singleton. `plugin-index-qdrant-init.test.ts` covers the
+// other side: a process where it is not.
 mock.module("../qdrant-client.js", () => ({
   getQdrantClient: () => fakeQdrant,
+  initQdrantClient: () => fakeQdrant,
+  resolveQdrantUrl: () => "http://127.0.0.1:6333",
+}));
+mock.module("../../../config/loader.js", () => ({
+  getConfig: () => ({
+    memory: {
+      qdrant: {
+        collection: "vellum_memory",
+        vectorSize: 3,
+        onDisk: true,
+        quantization: "none",
+      },
+      embeddings: { provider: "gemini" },
+    },
+  }),
 }));
 mock.module("../qdrant-circuit-breaker.js", () => ({
   withQdrantBreaker: <T>(fn: () => Promise<T>) => fn(),
@@ -137,6 +155,10 @@ mock.module("../embed.js", () => ({
   }),
 }));
 mock.module("../embedding-backend.js", () => ({
+  selectEmbeddingBackend: async () => ({
+    backend: { provider: "gemini", model: "test-embed-model" },
+    reason: null,
+  }),
   getMemoryBackendStatus: async () => ({
     enabled: true,
     degraded: false,

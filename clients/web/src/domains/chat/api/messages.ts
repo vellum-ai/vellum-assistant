@@ -451,6 +451,7 @@ export type PostChatMessageOptions = Pick<
   | "enabledPlugins"
   | "hidden"
   | "bypassSecretCheck"
+  | "scripted"
 > & {
   /** PreChat onboarding context — see the `postChatMessage` docs. */
   onboarding?: PreChatOnboardingContext;
@@ -491,6 +492,7 @@ export async function postChatMessage(
     enabledPlugins,
     hidden,
     bypassSecretCheck,
+    scripted,
   } = options;
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -580,6 +582,15 @@ export async function postChatMessage(
   // never persisted, and omitted from every ordinary send.
   if (bypassSecretCheck) {
     body.bypassSecretCheck = true;
+  }
+  // Whether this turn was auto-sent on the user's behalf. Tri-state on the
+  // wire: `false` is a real assertion ("the user typed this") that activation
+  // metrics trust, and omission means UNKNOWN. So this is an explicit
+  // `typeof` check, NOT `if (scripted)`: a truthiness test would silently drop
+  // every `false` and downgrade honest turns to unknown, which is the
+  // measurement gap this field exists to close.
+  if (typeof scripted === "boolean") {
+    body.scripted = scripted;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)

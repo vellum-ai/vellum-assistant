@@ -27,8 +27,15 @@ type RewriteResult =
       fallback?: RewriteRule[];
     };
 
+interface RedirectRule {
+  source: string;
+  destination: string;
+  permanent: boolean;
+}
+
 interface ConfigWithRewrites {
   rewrites?: () => Promise<RewriteResult>;
+  redirects?: () => Promise<RedirectRule[]>;
 }
 
 async function beforeFilesRewrites(): Promise<RewriteRule[]> {
@@ -173,6 +180,33 @@ describe("next config rewrite sources", () => {
     expect(() => docsPathForSource("/docs/:path*", "/docs/pricing")).toThrow(
       "Unsupported docs markdown rewrite source"
     );
+  });
+});
+
+describe("next config redirects", () => {
+  test("the redirect set is pinned exactly", async () => {
+    const redirects = (nextConfig as ConfigWithRewrites).redirects;
+    if (!redirects) {
+      throw new Error("nextConfig.redirects is missing");
+    }
+
+    await expect(redirects()).resolves.toEqual([
+      {
+        source: "/docs/data-sharing",
+        destination: "/docs/privacy-policy",
+        permanent: true,
+      },
+      {
+        source: "/docs/affiliate-program-rules",
+        destination: "/docs",
+        permanent: true,
+      },
+      {
+        source: "/docs/vellum-survey-giveaway-official-rules",
+        destination: "/docs",
+        permanent: true,
+      },
+    ]);
   });
 });
 

@@ -23,20 +23,11 @@ export const SIDEBAR_CHIP_SIZE = 20;
 export const SIDEBAR_CHIP_GAP = 6;
 
 /**
- * Left indent applied to a collapsible section's content, so its rows read as
- * children of the header rather than as a continuation of the flat list.
- *
- * Without it, a section header's label sits at
- * `SIDEBAR_ROW_PADDING_X + SIDEBAR_CHIP_SIZE + SIDEBAR_CHIP_GAP` (32px) while
- * its rows start at `SIDEBAR_ROW_PADDING_X` (6px), so the rows *outdent* past
- * their own header and section boundaries are hard to pick out.
- *
- * Deliberately a partial step rather than the full 26px that would align row
- * text under the header label: full alignment reads as a heading over a list
- * and costs real width on a 280px rail, where conversation titles are already
- * truncating. This nests the rows while leaving them close to the left edge.
+ * Left indent applied to a collapsible section's content. Zero, so a
+ * section's rows (e.g. Pinned's) start at the same x as flat-list rows
+ * (e.g. Recents') instead of nesting under the header.
  */
-export const SIDEBAR_SECTION_INDENT = 12;
+export const SIDEBAR_SECTION_INDENT = 0;
 
 /**
  * Tallest a single section's row list grows before it scrolls within itself.

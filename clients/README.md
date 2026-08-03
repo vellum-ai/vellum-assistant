@@ -12,6 +12,7 @@ clients/
 ├── ios/               # iOS Capacitor shell
 ├── android/           # Android Capacitor shell
 ├── macos/             # macOS desktop wrapper (Electron / electron-vite)
+├── windows/           # Windows desktop wrapper (Electron / electron-vite)
 └── chrome-extension/  # MV3 Chrome browser extension
 ```
 
@@ -24,8 +25,8 @@ it follows the same remote web app loading model as iOS.
 
 ## What belongs here
 
-- End-user client surfaces (web app, iOS Capacitor wrapper, macOS/Electron
-  wrapper, Chrome extension).
+- End-user client surfaces (web app, Capacitor wrappers, Electron desktop
+  wrappers, Chrome extension).
 
 ## What does not belong here
 
@@ -35,8 +36,8 @@ it follows the same remote web app loading model as iOS.
 
 ## Conventions
 
-- `web/`, `macos/`, and `docs/` are members of the root bun workspace: the
-  single root `bun.lock` covers them, and `bun install` anywhere in the tree
+- `web/`, `macos/`, `windows/`, and `docs/` are members of the root bun
+  workspace: the single root `bun.lock` covers them, and `bun install` anywhere in the tree
   resolves to the workspace root. Each keeps its own `package.json`,
   `tsconfig.json`, and lint config.
 - `chrome-extension/` is the one standalone package, with its own `bun.lock`
@@ -52,6 +53,8 @@ it follows the same remote web app loading model as iOS.
 - **macOS workflow filenames** — `clients/macos/` is the canonical
   platform-named directory, and its CI workflow files are `pr-macos.yaml` /
   `ci-main-macos.yaml`.
+- **Windows workflow filenames** - `clients/windows/` uses `pr-windows.yaml` /
+  `ci-main-windows.yaml`.
 
 ## Chrome Extension
 

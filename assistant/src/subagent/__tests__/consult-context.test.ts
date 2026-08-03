@@ -5,6 +5,12 @@ import { describe, expect, test } from "bun:test";
 
 import { buildAdvisorContext, buildWorkspaceTree } from "../consult-context.js";
 
+// `buildToolsSection` reaches the registry through a dynamic import, and that
+// module graph costs a few hundred milliseconds to evaluate cold. Paying it
+// here, outside the section's timeout, keeps a loaded runner's import speed
+// from deciding whether the section beats its budget.
+import "../../tools/registry.js";
+
 describe("buildWorkspaceTree", () => {
   test("lists files and directories, skipping dotfiles and dependency dirs", async () => {
     const root = mkdtempSync(join(tmpdir(), "consult-tree-"));

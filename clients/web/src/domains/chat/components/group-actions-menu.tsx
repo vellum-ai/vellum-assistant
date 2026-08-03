@@ -277,6 +277,14 @@ export function renderGroupMenuItemsAsPanelItems({
 export interface GroupActionsMenuProps extends GroupMenuItemsProps {
   /** Group name, used for the trigger's accessible label. */
   label: string;
+  /**
+   * Extra content appended below the shared items, its own divider before it
+   * (only when the shared items are non-empty). Currently used only by the
+   * "Conversations" header, for the List/Groups view-mode toggle: a section
+   * property rather than a bulk action, so it doesn't belong in
+   * {@link GroupMenuItemsProps}.
+   */
+  footer?: ReactNode;
 }
 
 /**
@@ -286,20 +294,29 @@ export interface GroupActionsMenuProps extends GroupMenuItemsProps {
  */
 export function GroupActionsMenu({
   label,
+  footer,
   ...menuProps
 }: GroupActionsMenuProps) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const closeMenu = () => setOpen(false);
+  const hasItems = hasAnyGroupMenuAction(menuProps);
 
-  if (!hasAnyGroupMenuAction(menuProps)) {
+  if (!hasItems && !footer) {
     return null;
   }
 
-  const items = renderGroupMenuItemsAsPanelItems({
-    ...menuProps,
-    onClose: closeMenu,
-  });
+  const items = (
+    <>
+      {renderGroupMenuItemsAsPanelItems({ ...menuProps, onClose: closeMenu })}
+      {footer ? (
+        <>
+          {hasItems ? <PanelMenuDivider /> : null}
+          {footer}
+        </>
+      ) : null}
+    </>
+  );
 
   const trigger = (
     <button

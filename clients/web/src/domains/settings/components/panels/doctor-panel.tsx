@@ -31,12 +31,14 @@ import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar
 import {
   type ChatEntry,
   type DoctorUserOutcomeAnswer,
+  type UserOutcomePromptChatEntry,
   applySessionUserOutcome,
   hasPendingApproval,
   hasPendingBackup,
   latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
+  partitionTrailingUserOutcomePrompts,
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
@@ -122,6 +124,28 @@ function CopySessionButton({ entries }: { entries: ChatEntry[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// UserOutcomePromptEntry
+// ---------------------------------------------------------------------------
+
+function UserOutcomePromptEntry({
+  entry,
+  onRespond,
+}: {
+  entry: UserOutcomePromptChatEntry;
+  onRespond: (entryId: string, resolved: boolean) => void;
+}) {
+  return (
+    <div className="max-w-[90%]">
+      <UserOutcomePromptBlock
+        question={entry.content}
+        answer={entry.meta?.answer}
+        onRespond={(resolved) => onRespond(entry.id, resolved)}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -134,6 +158,7 @@ export function DoctorPanel() {
   const pendingApproval = useDoctorPanelStore.use.pendingApproval();
   const pendingBackup = useDoctorPanelStore.use.pendingBackup();
   const thinking = useDoctorPanelStore.use.thinking();
+  const streamingEntryId = useDoctorPanelStore.use.streamingEntryId();
   const sessionId = useDoctorPanelStore.use.sessionId();
   const storeSessionStatus = useDoctorPanelStore.use.sessionStatus();
   const historyDismissed = useDoctorPanelStore.use.historyDismissed();
@@ -511,6 +536,14 @@ export function DoctorPanel() {
     [entries],
   );
 
+  // The resolution prompt belongs after the Doctor's closing reply, so it
+  // renders below the transcript and stays hidden until the turn finishes.
+  const { transcript, trailingPrompts } = useMemo(
+    () => partitionTrailingUserOutcomePrompts(entries),
+    [entries],
+  );
+  const doctorResponding = thinking || streamingEntryId !== null;
+
   // When the doctor lists platform backups, surface the interactive backups
   // panel (list + restore) inline so the user can act without leaving the
   // session. Only the most recent completed listing gets the panel — earlier
@@ -770,7 +803,7 @@ export function DoctorPanel() {
           <div className="relative min-h-0 flex-1">
             <div ref={scrollContainerRef} className="h-full overflow-y-auto">
               <div className="mx-auto max-w-3xl space-y-3">
-                {entries.map((entry) => {
+                {transcript.map((entry) => {
                   switch (entry.kind) {
                     case "user":
                       return <UserMessage key={entry.id} entry={entry} />;
@@ -836,15 +869,11 @@ export function DoctorPanel() {
                       );
                     case "user_outcome_prompt":
                       return (
-                        <div key={entry.id} className="max-w-[90%]">
-                          <UserOutcomePromptBlock
-                            question={entry.content}
-                            answer={entry.meta?.answer}
-                            onRespond={(resolved) =>
-                              handleUserOutcomeRespond(entry.id, resolved)
-                            }
-                          />
-                        </div>
+                        <UserOutcomePromptEntry
+                          key={entry.id}
+                          entry={entry}
+                          onRespond={handleUserOutcomeRespond}
+                        />
                       );
                     case "error":
                       return <ErrorMessage key={entry.id} entry={entry} />;
@@ -874,6 +903,15 @@ export function DoctorPanel() {
                     </div>
                   </div>
                 )}
+
+                {!doctorResponding &&
+                  trailingPrompts.map((entry) => (
+                    <UserOutcomePromptEntry
+                      key={entry.id}
+                      entry={entry}
+                      onRespond={handleUserOutcomeRespond}
+                    />
+                  ))}
 
                 {isSessionActive && !entries.length && (
                   <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-disabled)]">

@@ -113,6 +113,40 @@ Wired and Bluetooth changes are nonfatal, duckable audio does not end voice, and
 Microphone capture and the voice socket remain in the foreground WebView. No microphone foreground service is used.
 Physical-device background validation has not been completed, so app switching and screen locking are not supported as background voice behavior.
 
+## Voice Status and Launch Surfaces
+
+`VoiceLiveActivity` mirrors the active web voice session into one stable ongoing
+notification. Connecting, listening, transcribing/thinking, and speaking update
+that notification in place. Ending, failure, app reset, activity teardown, and
+process recovery remove it. Tapping it sends the shared
+`<scheme>://voice?mode=resume` command, whose web consumer restores the room for
+the conversation that owns the live session. It never creates a second voice
+session.
+
+On Android 16, the notification requests promoted Live Update treatment only
+when the system reports that promoted notifications are enabled and the built
+notification is eligible. Every supported Android version uses the standard
+ongoing notification as the baseline. Notification permission is never
+requested by the plugin, so voice continues normally when status notifications
+are unavailable.
+
+The launcher exposes New chat and Start voice shortcuts. Users may also add the
+Start voice Quick Settings tile. The tile exists only while Android invokes its
+`TileService`; tapping it opens the app and hands the same start command to the
+web layer. It does not capture audio or retain a background process.
+Gradle renders `app/src/main/shortcuts.xml` with an explicit target for each
+flavor, so side-by-side installations cannot receive one another's shortcuts.
+
+The only registered Google Assistant App Action is the official
+`OPEN_APP_FEATURE` built-in intent, with New chat and Voice mode as its inline
+inventory. Android has no supported built-in intent whose semantics match
+asking Vellum a free-form question or managing a live voice session, so those
+Assistant surfaces are intentionally not advertised.
+
+Physical-device validation is still required for Android 16 promotion,
+notification permission changes, launcher shortcut ingestion, Quick Settings
+tile addition, lock-screen notification taps, and warm/cold voice launches.
+
 ## Structure
 
 ```
@@ -134,6 +168,9 @@ clients/
     │       │   ├── BiometricTokenStore.java
     │       │   ├── SelfHostedServer.java
     │       │   ├── VoiceAudioSessionPlugin.java
+    │       │   ├── VoiceDeepLink.java
+    │       │   ├── VoiceLiveActivityPlugin.java
+    │       │   ├── VoiceQuickSettingsTileService.java
     │       │   └── WorkOSAuth.java
     │       └── res/              # Vellum icon, splash, colors, file paths
     ├── build.gradle
@@ -193,21 +230,32 @@ annotations and methods are retained by `app/proguard-rules.pro`.
 
 `.github/workflows/release-android.yaml` is the reusable Android release
 workflow. It builds a signed AAB, retains it as an artifact, and uploads it to
-the matching Play internal track. Production-track promotion remains manual.
+the matching Play internal track through the Android Publisher API. The
+publisher uses Google's official Android Publisher client and repository-owned
+code, not an external Play publishing action. Production-track promotion
+remains manual.
+When Firebase configuration is available, the workflow validates that it
+matches the selected flavor before including it in the build.
 
 Configure these environment-scoped GitHub secrets independently for `dev`,
 `staging`, and `production`:
 
 | Secret | Format |
 |--------|--------|
+| `ANDROID_FIREBASE_CONFIG_B64` | Optional base64-encoded `google-services.json` for the environment's package |
 | `ANDROID_UPLOAD_KEYSTORE_B64` | Base64-encoded Play upload keystore |
 | `ANDROID_UPLOAD_KEYSTORE_PASSWORD` | Upload keystore password |
 | `ANDROID_UPLOAD_KEY_ALIAS` | Upload key alias |
 | `ANDROID_UPLOAD_KEY_PASSWORD` | Upload key password |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | Raw Play service account JSON |
 
-Never commit the keystore, credentials, or decoded secret material. The
-workflow removes restored signing files even when a build fails.
+Never commit Firebase configuration, the keystore, credentials, or decoded
+secret material. The workflow removes restored files even when a build fails.
+
+`ANDROID_FIREBASE_CONFIG_B64` remains optional so signing and internal
+distribution do not depend on push setup. When it is absent, the workflow emits
+a warning and the resulting AAB has no native push support. When it is present,
+malformed base64, invalid JSON, or a package mismatch fails the build.
 
 After all prerequisites and environment secrets are ready, set the repository
 variable `ANDROID_RELEASE_ENABLED` to `true`. Until then, both orchestrators
@@ -231,3 +279,25 @@ Complete the following setup before enabling internal-track uploads:
 
 Before wider rollout, test the internal-track AAB on a physical device and
 verify its identity, web origin, authentication, keyboard, and file sharing.
+
+### Manual Firebase Prerequisites
+
+Create a separate Firebase Android app in each matching Firebase project:
+
+| GitHub environment | Android package ID |
+|--------------------|--------------------|
+| `production` | `ai.vellum.assistant` |
+| `staging` | `ai.vellum.assistant.staging` |
+| `dev` | `ai.vellum.assistant.dev` |
+
+For each app, download its `google-services.json`, encode it without line
+breaks, and save the result as the `ANDROID_FIREBASE_CONFIG_B64` secret on the
+matching GitHub Environment:
+
+```bash
+base64 < google-services.json | tr -d '\n'
+```
+
+Do not reuse a Firebase file across environments. After configuring the
+secret, verify push registration and notification delivery from an
+internal-track install on a physical device.

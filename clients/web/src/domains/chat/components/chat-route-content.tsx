@@ -75,8 +75,8 @@ import { ComposerNotices } from "@/domains/chat/components/composer-notices";
 import { ComposerSecretNotice } from "@/domains/chat/components/composer-secret-notice";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator } from "@/domains/chat/components/context-window-indicator";
-import { CreditsExhaustedBanner } from "@/domains/chat/components/credits-exhausted-banner";
 import { DailyLimitBanner } from "@/domains/chat/components/daily-limit-banner";
+import { LowBalanceBanner } from "@/domains/chat/components/low-balance-banner";
 import { MicPermissionPrimer } from "@/domains/chat/components/mic-permission-primer";
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
@@ -105,15 +105,11 @@ import { Link, useLocation, useNavigate } from "react-router";
 import {
   getChatBillingBannerDecision,
   isManagedCredentialChatError,
+  resolveComposerBillingBanner,
   shouldShowGenericChatErrorNotice,
 } from "@/domains/chat/utils/error-classification";
 import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
-import { resolveCreditPaywallCta } from "@/domains/chat/utils/credit-paywall-cta";
-import {
-  isBillingCtaUpgradeArm,
-  useBillingCtaExperimentArm,
-} from "@/hooks/use-billing-cta-experiment";
-import { useIsFreePlan } from "@/hooks/use-is-free-plan";
+import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type {
   DisplayAttachment,
@@ -155,6 +151,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useLowBalanceBannerStore } from "@/stores/low-balance-banner-store";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -191,7 +188,6 @@ export interface ChatMainPanelProps {
 
   // Upward signals to ActiveChatView local state
   setRefreshEpoch: Dispatch<SetStateAction<number>>;
-  setShowAddCreditsModal: Dispatch<SetStateAction<boolean>>;
 
   // Shared refs (owned by ActiveChatView for debug API / keydown handler)
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -275,7 +271,6 @@ export function ChatMainPanel({
   historyPagination,
   diskPressure,
   setRefreshEpoch,
-  setShowAddCreditsModal,
   inputRef,
   sanitizedMessagesRef,
   transcriptItemsRef,
@@ -439,10 +434,6 @@ export function ChatMainPanel({
 
   const pushToBillingSettings = useCallback(() => {
     void navigate(routes.settings.usageBilling);
-  }, [navigate]);
-
-  const pushToPlansTakeover = useCallback(() => {
-    void navigate(routes.plans);
   }, [navigate]);
 
   const checkAssistant = useCallback(
@@ -618,12 +609,18 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Transcript data (sanitise + build items)
   // -------------------------------------------------------------------------
+  // Single balance-status read shared by every proactive billing surface in
+  // this component: the transcript's tail card, the empty state's card, and
+  // the low-balance composer banner.
+  const balanceStatus = useBillingBalanceStatus();
+
   const { sanitizedMessages, transcriptItems } = useTranscriptData({
     messages,
     showThinking,
     turnActive: isAssistantBusy,
     thinkingLabel,
     showOnboardingChoice,
+    creditsExhausted: balanceStatus.isExhausted,
   });
 
   // --- Ref writes (connect hook outputs to ActiveChatView's debug refs) ---
@@ -1014,6 +1011,7 @@ export function ChatMainPanel({
     mainView,
     openedAppState,
     isAssistantBusy,
+    showCreditsUpsell: balanceStatus.isExhausted,
     onSelectStarter: handleSelectStarter,
     onSelectSuggestion: newThreadSuggestionsEnabled
       ? setSelectedSuggestion
@@ -1041,13 +1039,11 @@ export function ChatMainPanel({
   const billingBannerDecision =
     errorBillingBannerDecision ?? noticeBillingBannerDecision;
 
-  // Credit-paywall CTA: single CTA gated by experiment arm + plan. Only fetch
-  // the subscription when the credit paywall is actually shown.
-  const billingCtaArm = useBillingCtaExperimentArm();
-  const isFreePlan = useIsFreePlan(billingBannerDecision === "managed_credits");
-  const creditPaywallMode = resolveCreditPaywallCta({
-    isUpgradeArm: isBillingCtaUpgradeArm(billingCtaArm),
-    isFreePlan,
+  const lowBalanceBannerDismissed = useLowBalanceBannerStore.use.dismissed();
+  const composerBillingBanner = resolveComposerBillingBanner({
+    billingBannerDecision,
+    isLowBalance: balanceStatus.isLowBalance,
+    dismissed: lowBalanceBannerDismissed,
   });
 
   // -------------------------------------------------------------------------
@@ -1125,10 +1121,7 @@ export function ChatMainPanel({
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
       suggestion={suggestion}
-      hasBillingBanner={
-        billingBannerDecision !== null &&
-        billingBannerDecision !== "managed_credits"
-      }
+      hasBillingBanner={composerBillingBanner !== null}
       thresholdPickerSlot={
         assistantId ? (
           <ComposerSettingsMenu
@@ -1187,16 +1180,12 @@ export function ChatMainPanel({
             onOpenMicSettings={handleOpenMicSettings}
             onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
             billingBannerSlot={
-              billingBannerDecision === "daily_limit" ? (
+              composerBillingBanner === "daily_limit" ? (
                 <DailyLimitBanner onAdjustLimit={pushToBillingSettings} />
-              ) : billingBannerDecision === "managed_credits" ? (
-                <CreditsExhaustedBanner
-                  mode={creditPaywallMode}
-                  onAddCredits={() => setShowAddCreditsModal(true)}
-                  onUpgrade={pushToPlansTakeover}
-                />
-              ) : billingBannerDecision === "provider_billing" ? (
+              ) : composerBillingBanner === "provider_billing" ? (
                 <ProviderBillingBanner onOpenSettings={pushToAiSettings} />
+              ) : composerBillingBanner === "low_balance" ? (
+                <LowBalanceBanner />
               ) : null
             }
             diskPressureBanner={diskPressureBannerSlot}

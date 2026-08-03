@@ -11,11 +11,15 @@ import {
   latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
+  partitionTrailingUserOutcomePrompts,
   replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
 } from "@/domains/settings/components/panels/doctor-history";
-import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
+import type {
+  ChatEntry,
+  UserOutcomePromptChatEntry,
+} from "@/domains/settings/components/panels/doctor-history";
 
 function msg(
   overrides: Partial<DoctorMessage> & Pick<DoctorMessage, "kind">,
@@ -740,6 +744,94 @@ describe("selectLatestHistorySession", () => {
 
   test("returns null for empty list", () => {
     expect(selectLatestHistorySession([])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// partitionTrailingUserOutcomePrompts
+// ---------------------------------------------------------------------------
+
+describe("partitionTrailingUserOutcomePrompts", () => {
+  const user = (id: string): ChatEntry => ({
+    id,
+    kind: "user",
+    content: "help",
+    timestamp: 0,
+  });
+  const assistant = (id: string): ChatEntry => ({
+    id,
+    kind: "assistant",
+    content: "here's what I found",
+    timestamp: 0,
+  });
+  const prompt = (id: string): UserOutcomePromptChatEntry => ({
+    id,
+    kind: "user_outcome_prompt",
+    content: USER_OUTCOME_PROMPT_QUESTION,
+    timestamp: 0,
+  });
+
+  test("pulls a prompt out of the turn in progress so it can render last", () => {
+    // GIVEN the Doctor showed the prompt before streaming its closing reply
+    const entries = [user("u1"), prompt("p1"), assistant("a1")];
+
+    // WHEN the transcript is partitioned
+    const { transcript, trailingPrompts } =
+      partitionTrailingUserOutcomePrompts(entries);
+
+    // THEN the prompt is separated from the entries rendered inline
+    expect(transcript).toEqual([user("u1"), assistant("a1")]);
+    expect(trailingPrompts).toEqual([prompt("p1")]);
+  });
+
+  test("keeps prompts from earlier turns in place", () => {
+    // GIVEN an answered prompt from an earlier turn and one from the latest turn
+    const entries = [
+      user("u1"),
+      prompt("p1"),
+      user("u2"),
+      assistant("a1"),
+      prompt("p2"),
+    ];
+
+    // WHEN the transcript is partitioned
+    const { transcript, trailingPrompts } =
+      partitionTrailingUserOutcomePrompts(entries);
+
+    // THEN only the prompt after the last user message is pulled out
+    expect(transcript).toEqual([
+      user("u1"),
+      prompt("p1"),
+      user("u2"),
+      assistant("a1"),
+    ]);
+    expect(trailingPrompts).toEqual([prompt("p2")]);
+  });
+
+  test("returns the transcript unchanged when no prompt is pending", () => {
+    // GIVEN a transcript without any user-outcome prompt
+    const entries = [user("u1"), assistant("a1")];
+
+    // WHEN the transcript is partitioned
+    const { transcript, trailingPrompts } =
+      partitionTrailingUserOutcomePrompts(entries);
+
+    // THEN every entry renders inline
+    expect(transcript).toEqual(entries);
+    expect(trailingPrompts).toEqual([]);
+  });
+
+  test("pulls out a prompt from a resumed session that has no user message", () => {
+    // GIVEN a replayed transcript where the Doctor spoke first
+    const entries = [assistant("a1"), prompt("p1")];
+
+    // WHEN the transcript is partitioned
+    const { transcript, trailingPrompts } =
+      partitionTrailingUserOutcomePrompts(entries);
+
+    // THEN the prompt still renders after the transcript
+    expect(transcript).toEqual([assistant("a1")]);
+    expect(trailingPrompts).toEqual([prompt("p1")]);
   });
 });
 

@@ -170,6 +170,112 @@ describe("classifyConversationError", () => {
       expect(result.userMessage).toContain("AI provider");
       expect(result.errorCategory).toBe("rate_limit");
     });
+
+    it("uses the ChatGPT OAuth route instead of the OpenAI registry default", () => {
+      providerRoutingSources.openai = "managed-proxy";
+      const err = new ProviderError(
+        "OpenAI API error (429): Too many requests",
+        "openai",
+        429,
+        { reason: "rate_limited" },
+      );
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "chatgpt-subscription",
+        isManagedRoute: false,
+      });
+
+      expect(result.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(result.userMessage).toContain("AI provider");
+      expect(result.errorCategory).toBe("rate_limit");
+    });
+
+    it("prefers the failed call's direct route over stale managed turn attribution", () => {
+      providerRoutingSources.openai = "managed-proxy";
+      const err = new ProviderError(
+        "OpenAI API error (429): Too many requests",
+        "openai",
+        429,
+        { reason: "rate_limited" },
+      );
+      err.attachRouteAttribution({
+        connectionName: "chatgpt-subscription",
+        profileName: "chatgpt",
+        isManagedRoute: false,
+      });
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "vellum",
+        profileName: "managed",
+        isManagedRoute: true,
+      });
+
+      expect(result.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(result.userMessage).toContain("AI provider");
+      expect(result.errorCategory).toBe("rate_limit");
+    });
+
+    it("prefers the failed call's managed fallback over stale direct turn attribution", () => {
+      const err = new ProviderError(
+        "Anthropic API error (429): Too many requests",
+        "anthropic",
+        429,
+        { reason: "rate_limited" },
+      );
+      err.attachRouteAttribution({
+        profileName: "direct",
+        isManagedRoute: true,
+      });
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "anthropic-key",
+        profileName: "direct",
+        isManagedRoute: false,
+      });
+
+      expect(result.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(result.userMessage).toContain("Vellum managed inference");
+      expect(result.errorCategory).toBe("managed_usage_limit");
+    });
+
+    it("does not apply a managed LLM route to a plain rate-limit error", () => {
+      const result = classifyConversationError(
+        new Error("429 Too Many Requests from a tool API"),
+        {
+          ...baseCtx,
+          isManagedRoute: true,
+        },
+      );
+
+      expect(result.code).toBe("PROVIDER_RATE_LIMIT");
+      expect(result.errorCategory).toBe("rate_limit");
+    });
+
+    it("falls back to context for fields the failed call's route omits", () => {
+      const err = new ProviderError("Unauthorized", "anthropic", 401);
+      err.attachRouteAttribution({ profileName: "direct" });
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        connectionName: "anthropic-key",
+      });
+
+      expect(result.connectionName).toBe("anthropic-key");
+      expect(result.profileName).toBe("direct");
+    });
+
+    it("still recognizes a rewrapped Vellum quota body", () => {
+      const result = classifyConversationError(
+        new Error('429 {"code":"daily_quota_exceeded"}'),
+        baseCtx,
+      );
+
+      expect(result.code).toBe("MANAGED_USAGE_LIMIT");
+      expect(result.errorCategory).toBe("managed_usage_limit");
+    });
   });
 
   describe("provider overloaded errors", () => {
@@ -788,8 +894,9 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_BILLING");
       expect(result.errorCategory).toBe("credits_exhausted");
       expect(result.retryable).toBe(false);
-      expect(result.userMessage).toContain("Add funds");
-      expect(result.userMessage).toContain("assistant");
+      expect(result.userMessage).toBe(
+        "You're out of credits. Add credits in Settings → Billing to continue.",
+      );
     });
 
     it("classifies direct Anthropic, OpenAI, and OpenRouter 402 responses as provider_billing", () => {

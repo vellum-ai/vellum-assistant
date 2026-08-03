@@ -34,6 +34,7 @@ import { MemoryRouter, useLocation } from "react-router";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import * as browserRuntime from "@/runtime/browser";
 import * as platformGateMod from "@/hooks/use-platform-gate";
+import * as platformDetection from "@/runtime/platform-detection";
 import * as toastMod from "@vellumai/design-library/components/toast";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -79,6 +80,7 @@ let machineTierCall: Captured | null = null;
 let storageTierCall: Captured | null = null;
 let creditTierCall: Captured | null = null;
 let openedUrl: string | null = null;
+let nativeAndroid = false;
 // When non-null, the change-machine-tier call rejects — drives the failure path.
 let machineTierError: unknown = null;
 // Success-toast messages captured from the mocked toast module, so a path can
@@ -196,6 +198,11 @@ mock.module("@/hooks/use-platform-gate", () => ({
   usePlatformGate: () => "full",
   useActiveAssistantIsPlatformHosted: () => true,
   useActiveAssistantLifecycleIsLoading: () => false,
+}));
+
+mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
+  useIsNativeAndroid: () => nativeAndroid,
 }));
 
 // Render avatar placeholders; skip the lazy compositor bundle in the DOM test.
@@ -602,6 +609,7 @@ beforeEach(() => {
   storageTierCall = null;
   creditTierCall = null;
   openedUrl = null;
+  nativeAndroid = false;
   machineTierError = null;
   changePackageAutoResolve = true;
   changePackageData = {
@@ -630,6 +638,24 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+});
+
+describe("PlansPage on native Android", () => {
+  test("redirects to billing without exposing plan actions", async () => {
+    nativeAndroid = true;
+    const { getByTestId, queryByRole } = renderInteractive(
+      freeSubscription(),
+    );
+
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(
+        "/assistant/settings/usage?tab=billing",
+      ),
+    );
+    expect(queryByRole("button")).toBeNull();
+    expect(upgradeCall).toBeNull();
+    expect(openedUrl).toBeNull();
+  });
 });
 
 describe("PlansPage — Pro package switch (change-package)", () => {

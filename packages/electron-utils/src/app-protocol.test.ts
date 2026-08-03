@@ -12,7 +12,7 @@ import {
 // `path.sep` at runtime. On Linux CI / dev macOS that's `/`.
 const ROOT = "/app/renderer";
 
-describe("resolveAppProtocolPath — allowed paths", () => {
+describe("resolveAppProtocolPath - allowed paths", () => {
   test("resolves the empty pathname to the root itself", () => {
     expect(resolveAppProtocolPath(ROOT, "app://vellum.ai/")).toEqual({
       kind: "ok",
@@ -45,9 +45,9 @@ describe("resolveAppProtocolPath — allowed paths", () => {
 // inputs never reach `path.normalize` with any `..` left to escape.
 // That's the first line of defense; these tests document its behavior.
 // The `startsWith(rendererRoot + sep)` check inside `resolveRelativePath`
-// is defense-in-depth — exercised directly below — that catches any
+// is defense-in-depth - exercised directly below - that catches any
 // pathname that did slip past URL normalization.
-describe("resolveAppProtocolPath — URL parser collapses `..` segments", () => {
+describe("resolveAppProtocolPath - URL parser collapses `..` segments", () => {
   test("literal `..` resolves to a safe in-root path", () => {
     expect(
       resolveAppProtocolPath(ROOT, "app://vellum.ai/../etc/passwd"),
@@ -70,7 +70,7 @@ describe("resolveAppProtocolPath — URL parser collapses `..` segments", () => 
   });
 });
 
-describe("resolveAppProtocolPath — malformed input handling", () => {
+describe("resolveAppProtocolPath - malformed input handling", () => {
   test("invalid percent-encoding returns `forbidden` instead of throwing", () => {
     // `decodeURIComponent("/%ZZ")` throws `URIError`. The wrapper
     // converts that to a clean 403 so the protocol handler doesn't
@@ -81,11 +81,11 @@ describe("resolveAppProtocolPath — malformed input handling", () => {
   });
 });
 
-// Direct probes of `resolveRelativePath` — the pure guard the URL
+// Direct probes of `resolveRelativePath` - the pure guard the URL
 // wrapper delegates to. These bypass URL normalization to exercise the
 // `startsWith(rendererRoot + sep)` invariant for real, so a future
 // regression in either the guard or URL normalization is caught here.
-describe("resolveRelativePath — startsWith guard", () => {
+describe("resolveRelativePath - startsWith guard", () => {
   test("the empty path resolves to the root itself", () => {
     expect(resolveRelativePath(ROOT, "")).toEqual({
       kind: "ok",
@@ -129,7 +129,7 @@ describe("resolveRelativePath — startsWith guard", () => {
 // NOT under a `/assistant/` subdirectory. The protocol handler
 // passes `mountPrefix: "/assistant"` so these tests pin the
 // stripping behavior.
-describe("resolveAppProtocolPath — mount-prefix stripping", () => {
+describe("resolveAppProtocolPath - mount-prefix stripping", () => {
   test("maps `/assistant` to the root itself", () => {
     expect(
       resolveAppProtocolPath(ROOT, "app://vellum.ai/assistant", "/assistant"),
@@ -188,7 +188,7 @@ describe("resolveAppProtocolPath — mount-prefix stripping", () => {
   });
 
   test("path-traversal guard still fires for stripped paths", () => {
-    // `/assistant/../etc/passwd` — URL normalization collapses to
+    // `/assistant/../etc/passwd` - URL normalization collapses to
     // `/etc/passwd`, which doesn't start with the mount, so no strip.
     // The result lands at `rendererRoot/etc/passwd` (in-root, ok).
     expect(

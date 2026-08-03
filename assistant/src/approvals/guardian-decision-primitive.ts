@@ -532,6 +532,10 @@ export async function applyGuardianDecision(
     status: targetStatus,
     originChannel: actorContext.channel,
     decidedAction: cardAction,
+    // Tells the Telegram projection whether the origin chat is about to get
+    // the resolver's own guardian-facing reply (delivered by our caller), so
+    // it can skip its quoted status reply instead of duplicating it.
+    hasOriginGuardianReply: Boolean(resolverReplyText),
   }).catch((err) => {
     log.warn(
       { err, requestId },

@@ -204,7 +204,7 @@ describe("VellumPlatformClient", () => {
       expect(resolutionCount).toBe(2);
     });
 
-    test("a caller that finds a flight older than the deadline rotates in a fresh resolution", async () => {
+    test("a caller that finds an abandoned flight rotates in a fresh resolution", async () => {
       let resolutionCount = 0;
       // The first resolution hangs forever; only the rotated-in second one
       // settles.
@@ -221,11 +221,35 @@ describe("VellumPlatformClient", () => {
       // The first caller abandons the hung flight at the deadline.
       expect(await isPlatformClientConfigured()).toBe(false);
 
-      // The hung flight is now older than the deadline, so the next caller
-      // rotates in a fresh resolution instead of joining it; the fresh
-      // flight settles immediately and answers live.
+      // The hung flight is marked abandoned, so the next caller rotates in a
+      // fresh resolution instead of joining it; the fresh flight settles
+      // immediately and answers live.
       expect(await isPlatformClientConfigured()).toBe(true);
       expect(resolutionCount).toBe(2);
+    });
+
+    test("a later caller joins a flight nobody has abandoned", async () => {
+      let resolutionCount = 0;
+      let release = () => {};
+      // Gating the resolution keeps it in flight until the second caller has
+      // joined, so the assertion does not race a settle.
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      mockResolveManagedProxyContext = async () => {
+        resolutionCount += 1;
+        await gate;
+        return mockManagedProxyCtx;
+      };
+
+      const first = isPlatformClientConfigured();
+      await Bun.sleep(1);
+      const second = isPlatformClientConfigured();
+      release();
+
+      expect(await first).toBe(true);
+      expect(await second).toBe(true);
+      expect(resolutionCount).toBe(1);
     });
 
     test("a rotated-out flight's late settle cannot overwrite the newer flight's cached result", async () => {

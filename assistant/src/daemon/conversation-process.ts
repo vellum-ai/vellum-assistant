@@ -930,7 +930,11 @@ async function drainSingleMessage(
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId: next.requestId,
       });
-      const result = await conversation.forceCompact();
+      // Push the usage refresh to the queued item's own sink, the one the
+      // result card below streams on. `sendToClient` is reset to a no-op once
+      // an interactive turn finishes, so a `/compact` draining behind one
+      // would otherwise refresh nothing.
+      const result = await conversation.forceCompact(next.onEvent);
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
@@ -1745,6 +1749,19 @@ export interface ProcessMessageOptions {
   /** JWT-verified committer principal for turn-scoped host-proxy authorization. */
   sourceActorPrincipalId?: string;
   /**
+   * True when this turn was auto-sent on the user's behalf rather than typed
+   * (see `PersistMessageOptions.scripted`). Forwarded to persistence so the
+   * turn is excluded from activation counts. Defaults to false. A caller
+   * sending machine-authored content into a `standard` conversation must set
+   * it explicitly.
+   *
+   * Related to `metadata.automated` below but not the same knob: `automated`
+   * implies scripted (machine-authored is by definition not typed), while
+   * `scripted` carries no memory-indexing side effect. A caller that wants a
+   * turn excluded from activation but still indexed sets this, not that.
+   */
+  scripted?: boolean;
+  /**
    * Extra metadata stamped onto the persisted user row alongside the channel
    * and provenance fields the turn derives. Callers that drive a turn on
    * someone's behalf use it to mark the row's provenance (e.g. the plugin-api
@@ -1775,6 +1792,7 @@ export async function processMessage(
     overrideProfile,
     displayContent,
     sourceActorPrincipalId,
+    scripted,
     metadata: callerMetadata,
   } = options;
   await conversation.ensureActorScopedHistory();
@@ -2048,7 +2066,8 @@ export async function processMessage(
       conversation.emitActivityState("thinking", "context_compacting", {
         requestId,
       });
-      const result = await conversation.forceCompact();
+      // Same sink the result card below streams on (see the drain branch).
+      const result = await conversation.forceCompact(onEvent);
       const responseText = formatCompactResult(result);
 
       const assistantMsg = createAssistantMessage(responseText);
@@ -2187,6 +2206,7 @@ export async function processMessage(
       attachments,
       requestId,
       displayContent,
+      scripted,
       ...(callerMetadata ? { metadata: callerMetadata } : {}),
     });
     publishConversationMessagesChanged(conversation.conversationId);

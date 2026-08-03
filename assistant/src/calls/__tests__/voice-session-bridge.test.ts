@@ -485,9 +485,10 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
 });
 
 describe("startVoiceTurn channel capabilities", () => {
-  // Voice calls are non-interactive: the bridge forces supportsDynamicUi off
-  // for every voice turn so ui-surface tools never reach the model mid-call,
-  // while leaving the rest of the channel's resolved capabilities intact.
+  // Whether a call can show a surface is a property of its channel, not of
+  // calls in general, so the bridge applies no voice-specific override: a
+  // phone call has no screen and resolves false on its own, while a live-voice
+  // call is a screen the user is holding and resolves true.
 
   // The turn installs its capabilities, then cleanup resets them to null — so
   // capture every applied value and read the installed (non-null) one.
@@ -507,7 +508,7 @@ describe("startVoiceTurn channel capabilities", () => {
       );
   }
 
-  test("a vellum/macos (live-voice) turn forces supportsDynamicUi off, other fields untouched", async () => {
+  test("a vellum/macos (live-voice) turn keeps its channel's dynamic UI", async () => {
     const installed = captureInstalledCapabilities();
     await startVoiceTurn({
       ...makeTurnOptions(),
@@ -515,14 +516,16 @@ describe("startVoiceTurn channel capabilities", () => {
       userMessageInterface: "macos",
     });
     const caps = installed();
-    expect(caps?.supportsDynamicUi).toBe(false);
-    // The override is surgical: live-voice keeps identifying as vellum/macos.
+    expect(caps?.supportsDynamicUi).toBe(true);
+    // Nothing else about the channel is rewritten either.
     expect(caps?.dashboardCapable).toBe(true);
     expect(caps?.supportsVoiceInput).toBe(true);
     expect(caps?.clientOS).toBe("macos");
   });
 
-  test("phone defaults (no channel overrides) also yield supportsDynamicUi false", async () => {
+  // The case the removed override existed for, still covered: a phone call has
+  // no screen to show a surface on, and says so through its channel.
+  test("phone defaults yield supportsDynamicUi false", async () => {
     const installed = captureInstalledCapabilities();
     await startVoiceTurn(makeTurnOptions());
     const caps = installed();

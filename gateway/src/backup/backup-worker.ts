@@ -25,6 +25,7 @@ import { pipeline } from "node:stream/promises";
 import { mintServiceToken } from "../auth/token-exchange.js";
 import { readConfigFileOrEmpty } from "../config-file-utils.js";
 import { fetchImpl } from "../fetch.js";
+import { isPlatformMode } from "../feature-flag-resolver.js";
 import { getLogger } from "../logger.js";
 import { getGatewaySecurityDir } from "../paths.js";
 import { ensureBackupKey } from "./backup-key.js";
@@ -380,11 +381,23 @@ export interface BackupWorkerHandle {
   runOnce(): Promise<void>;
 }
 
+function createDisabledBackupWorkerHandle(): BackupWorkerHandle {
+  return {
+    stop: () => {},
+    runOnce: () => Promise.resolve(),
+  };
+}
+
 /**
  * Start the periodic backup worker. Returns a handle with stop() and
  * runOnce() methods.
  */
 export function startBackupWorker(deps: BackupDeps): BackupWorkerHandle {
+  if (isPlatformMode()) {
+    log.info("Backup worker disabled in platform mode");
+    return createDisabledBackupWorkerHandle();
+  }
+
   try {
     const timer = setInterval(async () => {
       try {
@@ -402,9 +415,6 @@ export function startBackupWorker(deps: BackupDeps): BackupWorkerHandle {
     };
   } catch (err) {
     log.warn({ err }, "Failed to start backup worker — continuing without it");
-    return {
-      stop: () => {},
-      runOnce: () => Promise.resolve(),
-    };
+    return createDisabledBackupWorkerHandle();
   }
 }
