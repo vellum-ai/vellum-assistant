@@ -1,5 +1,3 @@
-import type { FC } from "react";
-
 import { Typography } from "@vellumai/design-library";
 
 interface AttachmentOverflowSquareProps {
@@ -12,10 +10,10 @@ interface AttachmentOverflowSquareProps {
  * Terminal tile of a truncated attachment strip. Stands in for the
  * attachments past the inline limit.
  */
-export const AttachmentOverflowSquare: FC<AttachmentOverflowSquareProps> = ({
+export function AttachmentOverflowSquare({
   count,
   onClick,
-}) => {
+}: AttachmentOverflowSquareProps) {
   return (
     <button
       type="button"
@@ -32,4 +30,4 @@ export const AttachmentOverflowSquare: FC<AttachmentOverflowSquareProps> = ({
       </Typography>
     </button>
   );
-};
+}
