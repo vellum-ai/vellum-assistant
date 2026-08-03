@@ -637,9 +637,9 @@ describe("PATCH inference/provider-connections/:name (update)", () => {
     expect((err as BadRequestError).message).toContain("platform");
   });
 
-  // Rows written before the pairing was enforced must stay editable. Both the
+  // A persisted row whose provider and auth disagree stays editable: both the
   // web editor and the CLI resend the stored auth on every edit, so the guard
-  // has to key on an actual auth change, not on the field being present.
+  // keys on an actual auth change rather than on the field being present.
   test("allows editing a legacy mismatched row when the client resends the stored auth", async () => {
     seedConnection({
       name: "legacy-managed-openai",

@@ -434,10 +434,10 @@ async function handleUpdateConnection({
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
   }
-  // Both clients resend the stored auth on every edit (the web editor and the
-  // CLI both build their PATCH body that way), so enforcing on presence alone
-  // would make a row whose columns already disagree impossible to relabel or
-  // re-point. Enforce on an actual auth change instead.
+  // The pairing is enforced on an actual auth change, not on the field being
+  // present: the web editor and the CLI both resend the stored auth on every
+  // edit, so a row whose columns already disagree stays relabelable and
+  // re-pointable.
   if (
     body.auth !== undefined &&
     authFingerprint(authResult.data) !== authFingerprint(existing.auth)
