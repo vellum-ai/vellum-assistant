@@ -217,7 +217,16 @@ export function formatSubagentToolStats(
 
 /** Stats footer for a subagent whose in-memory counters no longer exist. */
 export const SUBAGENT_STATS_UNAVAILABLE =
-  "[stats: unavailable (daemon restarted)]";
+  "[stats: unavailable (the assistant restarted since this subagent ran)]";
+
+/**
+ * Appended to a read taken while the subagent is still working through
+ * guidance queued during its run. Its own run is over by then, which is what
+ * makes it terminal, but the queued turn adds output and tool calls after
+ * that, so such a read is a progress report rather than the final one.
+ */
+export const SUBAGENT_READ_STILL_PROCESSING =
+  "[note: this subagent is still processing queued follow-up guidance. The output above and the counts below stop at its last finished turn; read again for the rest.]";
 
 // ── Bounded listing ─────────────────────────────────────────────────────
 

@@ -74,7 +74,10 @@ import {
 } from "../persistence/subagent-store.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
-import type { SubagentState } from "../subagent/types.js";
+import {
+  SUBAGENT_READ_STILL_PROCESSING,
+  type SubagentState,
+} from "../subagent/types.js";
 import { executeSubagentAbort } from "../tools/subagent/abort.js";
 import { executeSubagentMessage } from "../tools/subagent/message.js";
 import { executeSubagentRead } from "../tools/subagent/read.js";
@@ -159,6 +162,26 @@ function injectSubagent(
         ),
       ),
     },
+    // Drain state, as the queued-turn settle wait observes it. Idle here, so
+    // an injected subagent reads as having nothing left to run; a test that
+    // wants a follow-up turn in flight drives it through `queuedFollowUpTurn`.
+    processing: false,
+    queueDepth: 0,
+    isProcessing(): boolean {
+      return this.processing;
+    },
+    hasQueuedMessages(): boolean {
+      return this.queueDepth > 0;
+    },
+    async waitForIdle({ timeoutMs }: { timeoutMs: number }): Promise<boolean> {
+      // Resolve in slices rather than sitting on the caller's whole budget, so
+      // the settle loop re-observes and a turn a test ends on a timer is
+      // picked up promptly.
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(timeoutMs, 5)),
+      );
+      return !this.processing;
+    },
   };
   // A rehydrated entry is metadata rebuilt from the durable row, so it never
   // has a live conversation behind it.
@@ -206,6 +229,43 @@ function liveToolStats(
     >;
   };
   return internals.subagents.get(subagentId)!.conversation!.subagentToolStats;
+}
+
+/** The drain state a test drives to stand in for a queued follow-up turn. */
+interface QueuedTurnDrainState {
+  /** Messages waiting in the child's queue. */
+  queueDepth: number;
+  /** Whether the child is mid-turn. */
+  processing: boolean;
+}
+
+/**
+ * Put an injected subagent into the window that opens when guidance is queued
+ * during its run: the subagent is terminal because its own run returned, but
+ * the queued turn is still ahead of it on a conversation the manager retains.
+ *
+ * Returns the drain state so the test can move the turn through it. Queued and
+ * not yet dispatched to start with, which is where the drain sits at the
+ * moment the parent is told to read.
+ */
+function queuedFollowUpTurn(
+  manager: SubagentManager,
+  subagentId: string,
+): QueuedTurnDrainState {
+  const internals = manager as unknown as {
+    subagents: Map<
+      string,
+      {
+        conversation: QueuedTurnDrainState | null;
+        hadEnqueuedMessages?: boolean;
+      }
+    >;
+  };
+  const managed = internals.subagents.get(subagentId)!;
+  managed.hadEnqueuedMessages = true;
+  const drain = managed.conversation!;
+  drain.queueDepth = 1;
+  return drain;
 }
 
 function makeContext(
@@ -1532,7 +1592,158 @@ describe("Subagent read stats footer", () => {
       // rebuilt from the durable row, which carries no counters at all.
       expect(manager.getState(subagentId)).toBeDefined();
       expect(result.content).toBe(
-        "Output from before the restart.\n\n[stats: unavailable (daemon restarted)]",
+        "Output from before the restart.\n\n[stats: unavailable (the assistant restarted since this subagent ran)]",
+      );
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+});
+
+// ── Reads against a queued follow-up turn ───────────────────────────
+
+describe("Subagent read while a queued follow-up turn is still in flight", () => {
+  const ownerConversation = "read-queued-owner";
+
+  function stubOutput(subagentId: string, texts: () => string[]) {
+    mockGetMessages = (convId: string) =>
+      convId === `conv-${subagentId}`
+        ? texts().map((text) => ({
+            role: "assistant",
+            content: [{ type: "text", text }],
+          }))
+        : null;
+  }
+
+  test("waits for the queued turn rather than answering from the run before it", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-queued-settles";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 2, succeeded: 2, filesWritten: 0 },
+    });
+    const drain = queuedFollowUpTurn(manager, subagentId);
+    const live = liveToolStats(manager, subagentId);
+    let followUpLanded = false;
+    stubOutput(subagentId, () =>
+      followUpLanded
+        ? ["Initial run output.", "Applied the follow-up guidance."]
+        : ["Initial run output."],
+    );
+
+    // The drain picks the message up, runs the turn, and only then does the
+    // transcript and the counters cover it.
+    setTimeout(() => {
+      drain.queueDepth = 0;
+      drain.processing = true;
+    }, 10);
+    setTimeout(() => {
+      live.calls += 3;
+      live.succeeded += 3;
+      live.filesWritten.add("/follow-up.md");
+      followUpLanded = true;
+      drain.processing = false;
+    }, 30);
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.content).toBe(
+        "Initial run output.\n\nApplied the follow-up guidance.\n\n" +
+          "[stats: 5 tool calls, 5 succeeded, files written: 1]",
+      );
+      expect(result.content).not.toContain("still processing");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a queue the drain has taken but not yet started is not read as finished", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-queued-dispatch-gap";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 1, succeeded: 1, filesWritten: 0 },
+    });
+    const drain = queuedFollowUpTurn(manager, subagentId);
+    let followUpLanded = false;
+    stubOutput(subagentId, () =>
+      followUpLanded ? ["Guidance applied."] : ["Initial run output."],
+    );
+
+    // The gap between the drain shifting the message off the queue and the
+    // turn taking the processing lock: nothing is queued and nothing is
+    // running, yet the turn is on its way.
+    drain.queueDepth = 0;
+    drain.processing = false;
+    setTimeout(() => {
+      drain.processing = true;
+    }, 15);
+    setTimeout(() => {
+      followUpLanded = true;
+      drain.processing = false;
+    }, 40);
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.content).toContain("Guidance applied.");
+      expect(result.content).not.toContain("Initial run output.");
+    } finally {
+      mockGetMessages = () => null;
+    }
+  });
+
+  test("a turn still running at the deadline is reported as unfinished, not as the result", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-queued-still-running";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 2, succeeded: 2, filesWritten: 1 },
+    });
+    const drain = queuedFollowUpTurn(manager, subagentId);
+    // The guidance turn outlives the read's patience, as a real one does.
+    drain.queueDepth = 0;
+    drain.processing = true;
+    stubOutput(subagentId, () => ["Initial run output."]);
+
+    try {
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(result.isError).toBe(false);
+      // What there is so far, said to be what there is so far: the counts
+      // are an interim reading and the parent is told to come back.
+      expect(result.content).toBe(
+        "Initial run output.\n\n" +
+          `${SUBAGENT_READ_STILL_PROCESSING}\n\n` +
+          "[stats: 2 tool calls, 2 succeeded, files written: 1]",
+      );
+    } finally {
+      drain.processing = false;
+      mockGetMessages = () => null;
+    }
+  }, 15_000);
+
+  test("a subagent that had nothing queued is read without waiting", async () => {
+    const manager = getSubagentManager();
+    const subagentId = "read-queued-none";
+    injectSubagent(manager, subagentId, ownerConversation, "completed", {
+      stats: { calls: 1, succeeded: 1, filesWritten: 0 },
+    });
+    stubOutput(subagentId, () => ["Ran to completion."]);
+
+    try {
+      const startedAt = Date.now();
+      const result = await executeSubagentRead(
+        { subagent_id: subagentId },
+        makeContext(ownerConversation),
+      );
+      expect(Date.now() - startedAt).toBeLessThan(500);
+      expect(result.content).toBe(
+        "Ran to completion.\n\n[stats: 1 tool call, 1 succeeded, files written: 0]",
       );
     } finally {
       mockGetMessages = () => null;
@@ -2390,7 +2601,7 @@ describe("Subagent tools past the startup rehydration bound", () => {
       // The counters live with the in-memory entry, which the bound dropped, so
       // the footer says unavailable rather than reporting zero tool calls.
       expect(result.content).toBe(
-        "Output from beyond the bound\n\n[stats: unavailable (daemon restarted)]",
+        "Output from beyond the bound\n\n[stats: unavailable (the assistant restarted since this subagent ran)]",
       );
     } finally {
       mockGetMessages = () => null;
@@ -2398,10 +2609,10 @@ describe("Subagent tools past the startup rehydration bound", () => {
   });
 
   test("read reports unavailable for a subagent the rehydration DID load", async () => {
-    // The reviewer's case: this entry is inside the bound, so the restart put
-    // it back in the manager, but its counters died with the process that ran
-    // it, and no rehydrated entry can ever have them. Manager membership is
-    // therefore not the signal; `rehydrated` is.
+    // This entry is inside the rehydration bound, so the restart put it back
+    // in the manager, but its counters died with the process that ran it, and
+    // no rehydrated entry can ever have them. Manager membership is therefore
+    // not the signal; `rehydrated` is.
     const filler = `cap-filler-${REHYDRATION_CAP - 1}`;
     expect(manager.getState(filler)).toBeDefined();
 
@@ -2424,7 +2635,7 @@ describe("Subagent tools past the startup rehydration bound", () => {
       );
       expect(result.isError).toBe(false);
       expect(result.content).toBe(
-        "Output from before the restart\n\n[stats: unavailable (daemon restarted)]",
+        "Output from before the restart\n\n[stats: unavailable (the assistant restarted since this subagent ran)]",
       );
     } finally {
       mockGetMessages = () => null;

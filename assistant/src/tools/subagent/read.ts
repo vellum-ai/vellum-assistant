@@ -3,6 +3,7 @@ import { extractTextFromStoredMessageContent } from "../../persistence/message-c
 import { getSubagentManager, TERMINAL_STATUSES } from "../../subagent/index.js";
 import {
   formatSubagentToolStats,
+  SUBAGENT_READ_STILL_PROCESSING,
   SUBAGENT_STATS_UNAVAILABLE,
   type SubagentState,
 } from "../../subagent/types.js";
@@ -19,27 +20,34 @@ import {
  * ran, so the parent can check the output above against it.
  *
  * The counters are re-read first, because a child that was sent guidance keeps
- * running after the harvest its own run took.
+ * running after the harvest its own run took. `settled` is false when that
+ * guidance is still being processed, which makes both the transcript above and
+ * these counts an interim reading, so the footer says so.
  *
- * They live in memory only, so a subagent rebuilt from its durable row says
- * they are unavailable rather than reporting zero calls, which would read as
- * "this subagent did nothing". That covers both a row the manager never held
- * (its window dropped it) and one the startup rehydration loaded back in: the
- * rehydrated entry is in the manager like any other, so `state.rehydrated` is
- * what separates it from a run this process actually executed. A live entry
+ * The counters live in memory only, so a subagent rebuilt from its durable row
+ * says they are unavailable rather than reporting zero calls, which would read
+ * as "this subagent did nothing". That covers both a row the manager never
+ * held (its window dropped it) and one the startup rehydration loaded back in:
+ * the rehydrated entry is in the manager like any other, so `state.rehydrated`
+ * is what separates it from a run this process actually executed. A live entry
  * with no stats never reached the end of a run, so it has nothing measured to
  * report and claims nothing.
  */
-function statsFooter(subagentId: string, state: SubagentState): string {
+function statsFooter(
+  subagentId: string,
+  state: SubagentState,
+  settled: boolean,
+): string {
+  const note = settled ? "" : `\n\n${SUBAGENT_READ_STILL_PROCESSING}`;
   const stats =
     getSubagentManager().currentToolStats(subagentId) ?? state.stats;
   if (stats) {
-    return `\n\n${formatSubagentToolStats(stats)}`;
+    return `${note}\n\n${formatSubagentToolStats(stats)}`;
   }
   if (state.rehydrated) {
-    return `\n\n${SUBAGENT_STATS_UNAVAILABLE}`;
+    return `${note}\n\n${SUBAGENT_STATS_UNAVAILABLE}`;
   }
-  return "";
+  return note;
 }
 
 // `last_n` is deliberately UNDECLARED (loose passthrough): the executor's
@@ -93,6 +101,16 @@ export async function executeSubagentRead(
     };
   }
 
+  // A terminal subagent can still have a follow-up turn in flight: guidance
+  // queued during its run drains after the run itself returns, which is what
+  // the completion notification's "queued follow-up guidance is still being
+  // processed, read for the latest output" points at. Reading straight through
+  // would answer that pointer with the transcript from before the guidance
+  // landed, so wait for the queued turn. The wait is bounded and its result
+  // reported either way: a subagent still working at the deadline is read as
+  // it stands, labelled as unfinished rather than presented as the result.
+  const settled = await getSubagentManager().settleQueuedTurns(subagentId);
+
   // Read the subagent's conversation messages from DB.
   const dbMessages = getMessages(state.conversationId);
   if (!dbMessages || dbMessages.length === 0) {
@@ -129,7 +147,7 @@ export async function executeSubagentRead(
     }
   }
 
-  const footer = statsFooter(subagentId, state);
+  const footer = statsFooter(subagentId, state, settled);
 
   if (messageTexts.length === 0) {
     return {

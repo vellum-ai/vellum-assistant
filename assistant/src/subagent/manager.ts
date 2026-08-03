@@ -38,6 +38,7 @@ import type { Message, TextContent } from "../providers/types.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
+import { sleep } from "../util/retry.js";
 import { injectMessageIntoParent } from "./notify.js";
 import {
   formatSubagentToolStats,
@@ -69,6 +70,21 @@ const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
  * `interrupted` at any age.
  */
 const MAX_REHYDRATED_TERMINAL_RECORDS = 200;
+
+/**
+ * How long {@link SubagentManager.settleQueuedTurns} waits for a queued
+ * follow-up turn before reporting the subagent as still moving.
+ *
+ * Sized for the drain handoff, not for the turn itself: the queue is taken
+ * some milliseconds before the processing lock, and a wait shorter than that
+ * gap would mistake a turn that is starting for one that already finished. A
+ * guidance turn that is genuinely mid-flight outlives any budget worth
+ * blocking the parent's tool call for, so it is reported as unfinished instead
+ * of waited out.
+ */
+const QUEUED_TURN_SETTLE_TIMEOUT_MS = 2_000;
+/** Gap between queue observations while a queued turn is waiting to start. */
+const QUEUED_TURN_POLL_MS = 25;
 
 // ── Durable record → state mapping ─────────────────────────────────────
 
@@ -1267,7 +1283,8 @@ export class SubagentManager {
    * afterwards, on the same conversation, and those calls land in the same
    * counters. So any read taken later re-reads them while the conversation is
    * still retained (see {@link refreshToolStats}), and the release freezes the
-   * settled numbers.
+   * settled numbers. Readers that need the queued turn's calls included wait
+   * for it first, via {@link settleQueuedTurns}.
    */
   currentToolStats(subagentId: string): SubagentToolStatsSummary | undefined {
     const managed = this.subagents.get(subagentId);
@@ -1276,6 +1293,71 @@ export class SubagentManager {
     }
     this.refreshToolStats(managed);
     return managed.state.stats;
+  }
+
+  /**
+   * Wait for a follow-up turn queued during the subagent's run to finish.
+   *
+   * `runSubagent` marks the subagent terminal as soon as its own agent loop
+   * returns, and the parent is told to read from there. Guidance queued during
+   * that run drains afterwards though, on the same retained conversation, so a
+   * read taken in that window sees the transcript and the counters from before
+   * the guidance landed and never comes back for the rest. Waiting here closes
+   * the window.
+   *
+   * Resolves `true` once the retained conversation is idle with an empty
+   * queue, and `false` when `timeoutMs` elapses first, so the reader always
+   * gets an answer within a bound and can say the subagent is still moving
+   * rather than pass a partial result off as final.
+   *
+   * `true` comes back immediately when nothing can still be running: no
+   * manager entry, no retained conversation (a released one has its transcript
+   * and counters frozen), or a run that never had anything queued.
+   *
+   * Idle is confirmed across two observations a poll apart. The drain takes
+   * the queue before it takes the processing lock (`drainQueue` shifts the
+   * message, then `drainSingleMessage` awaits slash resolution and the
+   * user-message persist before `runAgentLoop` sets processing), so a single
+   * look into that gap finds an empty queue and an unlocked conversation while
+   * the turn is in fact starting.
+   */
+  async settleQueuedTurns(
+    subagentId: string,
+    timeoutMs: number = QUEUED_TURN_SETTLE_TIMEOUT_MS,
+  ): Promise<boolean> {
+    const managed = this.subagents.get(subagentId);
+    const conversation = managed?.conversation;
+    if (!managed || !conversation || managed.hadEnqueuedMessages !== true) {
+      return true;
+    }
+    const deadline = Date.now() + timeoutMs;
+    let idleObservations = 0;
+    for (;;) {
+      // A release during the wait (the TTL sweep, or a dispose) freezes
+      // everything a reader can see, so there is nothing left to wait for.
+      if (managed.conversation !== conversation) {
+        return true;
+      }
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        return false;
+      }
+      if (conversation.isProcessing()) {
+        idleObservations = 0;
+        await conversation.waitForIdle({ timeoutMs: remainingMs });
+        continue;
+      }
+      if (conversation.hasQueuedMessages()) {
+        idleObservations = 0;
+        await sleep(Math.min(QUEUED_TURN_POLL_MS, remainingMs));
+        continue;
+      }
+      idleObservations += 1;
+      if (idleObservations >= 2) {
+        return true;
+      }
+      await sleep(Math.min(QUEUED_TURN_POLL_MS, remainingMs));
+    }
   }
 
   /**
